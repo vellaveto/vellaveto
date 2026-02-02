@@ -357,4 +357,4 @@ Periodic empty audit entries (every 5 min) to detect log truncation gaps.
 
 ---
 
-*Last updated: 2026-02-02 — All directives C-1 through C-11 COMPLETE. Phase 8 COMPLETE. Phase 9.1-9.2 (Streamable HTTP + sessions) COMPLETE. Phase 10.1 (pre-compiled policies) COMPLETE and wired into server. Phase 10.2 (security headers) COMPLETE. Phase 10.3 (signed audit checkpoints) COMPLETE. Evaluation traces (10.4) designed, pending implementation. OAuth 2.1 (9.3) and SSE inspection pending. 1,519 tests, 0 failures.*
+*Last updated: 2026-02-02 — All directives C-1 through C-12 COMPLETE. Phases 0-8 COMPLETE. Phase 9.1-9.2 (Streamable HTTP + sessions) COMPLETE. Phase 10.1 (pre-compiled policies) COMPLETE and wired into server. Phase 10.2 (security headers) COMPLETE. Phase 10.3 (signed audit checkpoints) COMPLETE and wired into server with periodic task + 3 HTTP endpoints. Phase 10.5 (policy index) COMPLETE. Cross-review findings #4, #11, #12 test gaps CLOSED (3 regression tests). Unicode sanitization fix applied to both proxies. 1,587 tests, 0 failures, 0 clippy warnings.*

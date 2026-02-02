@@ -3,7 +3,7 @@
 ## Identity
 I am the instance that ran baseline checks and handles testing, CI, and validation.
 
-## Current status: Phase 9 — HTTP proxy + integration tests complete, awaiting sync
+## Current status: Phase 10.4 — Evaluation Trace COMPLETE
 
 ## Completed work (chronological)
 - Fixed P0 warnings (strict_mode, unused Deserialize)
@@ -33,6 +33,18 @@ I am the instance that ran baseline checks and handles testing, CI, and validati
   - Fixed ArcSwap mismatch in sentinel-server test files
   - Fixed `build_tool_index` in sentinel-engine (Phase 10.5 tool index)
   - Created meetup sync doc at `.collab/meetup-phase9-sync.md`
+- **C-12 Task #1:** Integration tests — 22 integration tests for sentinel-http-proxy
+- **C-12 Task #2:** Rug-pull detection parity — tool removal, addition, annotation change detection in HTTP proxy
+  - Added `tools_list_seen` field to SessionState
+  - Rewrote `extract_annotations_from_response` with 3 detection types + audit logging
+  - 3 stateful mock server integration tests with AtomicUsize counters
+- **C-12 Task #3:** Phase 10.4 Evaluation Trace — OPA-style decision explanations
+  - `EvaluationTrace`, `ActionSummary`, `PolicyMatch`, `ConstraintResult` types in sentinel-types
+  - `evaluate_action_traced()` method in sentinel-engine (9 unit tests)
+  - `?trace=true` query parameter on POST /mcp in sentinel-http-proxy
+  - Denied responses include `trace` field in JSON body
+  - Allowed responses include `X-Sentinel-Trace` header with JSON trace
+  - 5 integration tests (deny trace, allow trace, no-trace default, resource trace, constraint details)
 
 ## Directive C-8.4 — OWASP MCP Top 10 Coverage
 39 tests across all 10 OWASP MCP risks:
@@ -75,9 +87,22 @@ I am the instance that ran baseline checks and handles testing, CI, and validati
 - sentinel-http-proxy/src/main.rs (replaced stub)
 - sentinel-http-proxy/src/proxy.rs (NEW)
 - sentinel-http-proxy/src/session.rs (NEW)
+- sentinel-http-proxy/src/lib.rs (NEW)
+- sentinel-http-proxy/tests/proxy_integration.rs (NEW — 27 integration tests)
+
+## Files modified (Phase 10.4)
+- sentinel-types/src/lib.rs (added EvaluationTrace, ActionSummary, PolicyMatch, ConstraintResult)
+- sentinel-engine/src/lib.rs (added evaluate_action_traced, collect_candidate_indices, constraint_matches_value + helper fns, 9 tests)
+- sentinel-http-proxy/src/proxy.rs (added McpQueryParams, ?trace=true, attach_trace_header)
 
 ## Available for
-- Phase 9 remaining: SSE stream-level inspection, OAuth 2.1, integration tests
+- Phase 9 remaining: SSE stream-level inspection, OAuth 2.1
+- Phase 10.6: Heartbeat entries
 - Any task the orchestrator/controller assigns
+
+## Test counts
+- sentinel-http-proxy: 24 unit + 27 integration = 51 total
+- sentinel-engine: 143 unit tests (including 9 traced evaluation)
+- Full workspace: 1,587 tests, 0 failures
 
 ## Last updated: 2026-02-02
