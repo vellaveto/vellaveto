@@ -13,28 +13,26 @@ const MAX_LINE_LENGTH: usize = 1_048_576;
 ///
 /// Returns `Ok(None)` on EOF, `Ok(Some(value))` on success.
 /// Empty lines are skipped (not treated as EOF).
-/// Lines exceeding `MAX_LINE_LENGTH` return `FramingError::LineTooLong`.
+/// Lines exceeding `MAX_LINE_LENGTH` are rejected BEFORE full allocation
+/// to prevent OOM from oversized messages.
 pub async fn read_message<R: tokio::io::AsyncRead + Unpin>(
     reader: &mut BufReader<R>,
 ) -> Result<Option<Value>, FramingError> {
     loop {
-        let mut line = String::new();
-        let bytes_read = reader
-            .read_line(&mut line)
-            .await
-            .map_err(FramingError::Io)?;
+        let line_bytes = read_bounded_line(reader).await?;
 
-        if bytes_read == 0 {
-            return Ok(None); // EOF
-        }
+        // EOF — no more data
+        let line_bytes = match line_bytes {
+            Some(b) => b,
+            None => return Ok(None),
+        };
 
-        // Fix #6: Reject lines that are too long to prevent OOM attacks
-        if line.len() > MAX_LINE_LENGTH {
-            return Err(FramingError::LineTooLong(line.len()));
-        }
+        // Convert to string (MCP messages are always UTF-8 JSON)
+        let line = String::from_utf8(line_bytes).map_err(|e| {
+            FramingError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        })?;
 
         // Fix #14: Skip empty lines instead of treating them as EOF.
-        // Only actual EOF (bytes_read == 0) terminates the session.
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -42,6 +40,55 @@ pub async fn read_message<R: tokio::io::AsyncRead + Unpin>(
 
         let value: Value = serde_json::from_str(trimmed).map_err(FramingError::Json)?;
         return Ok(Some(value));
+    }
+}
+
+/// Read a single line from the reader, bounded by MAX_LINE_LENGTH.
+///
+/// Uses `fill_buf`/`consume` to check accumulated size BEFORE allocating,
+/// preventing OOM from oversized lines without a newline.
+/// Returns `Ok(None)` on EOF, `Ok(Some(bytes))` on success.
+async fn read_bounded_line<R: tokio::io::AsyncRead + Unpin>(
+    reader: &mut BufReader<R>,
+) -> Result<Option<Vec<u8>>, FramingError> {
+    let mut accumulated = Vec::with_capacity(256);
+
+    loop {
+        let buf = reader.fill_buf().await.map_err(FramingError::Io)?;
+
+        if buf.is_empty() {
+            // EOF
+            if accumulated.is_empty() {
+                return Ok(None);
+            }
+            // Partial line at EOF — return what we have
+            return Ok(Some(accumulated));
+        }
+
+        // Look for newline in the current buffer chunk
+        match buf.iter().position(|&b| b == b'\n') {
+            Some(pos) => {
+                // Found newline — check total size before allocating
+                let needed = pos + 1; // include the newline
+                if accumulated.len() + needed > MAX_LINE_LENGTH {
+                    reader.consume(needed);
+                    return Err(FramingError::LineTooLong(accumulated.len() + needed));
+                }
+                accumulated.extend_from_slice(&buf[..needed]);
+                reader.consume(needed);
+                return Ok(Some(accumulated));
+            }
+            None => {
+                // No newline in this chunk — check total size before extending
+                let chunk_len = buf.len();
+                if accumulated.len() + chunk_len > MAX_LINE_LENGTH {
+                    reader.consume(chunk_len);
+                    return Err(FramingError::LineTooLong(accumulated.len() + chunk_len));
+                }
+                accumulated.extend_from_slice(buf);
+                reader.consume(chunk_len);
+            }
+        }
     }
 }
 

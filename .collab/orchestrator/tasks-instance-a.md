@@ -1,112 +1,124 @@
-# Tasks for Instance A
+# Tasks for Instance A — Improvement Plan (Phase 3+)
 
 ## READ THIS FIRST
 
-**CONTROLLER DIRECTIVE C-1 IS ACTIVE: All feature work is halted. Security fixes only.**
+Phase 0 (Security) and Phases 1-2 (Protocol + Performance) are **COMPLETE**. Feature work resumes.
 
-Check `controller/directives.md` for full details. These tasks implement **Directive C-3**.
+Your focus: **testing, observability, and middleware** — testing infrastructure and cross-cutting concerns.
 
-Update `.collab/instance-a.md` after each task.
+Finish S-A3 (regression tests) first if not done, then proceed to these tasks.
 
----
-
-## COMPLETED TASKS (for reference)
-- [x] Task A1: Create CI workflow -- DONE (.github/workflows/ci.yml)
-- [x] Path/domain integration tests -- DONE (15 tests in sentinel-integration)
-- [x] 16 parameter constraints E2E tests -- DONE
-- [x] 8 approval flow tests -- DONE
-- [x] TASKS.md update -- DONE
-- [x] Fixed compile break from Instance B's approval changes
+Update `.collab/instance-a.md` and append to `.collab/log.md` after completing each task.
 
 ---
 
-## ACTIVE SECURITY TASKS (Directive C-3)
+## Task S-A3: Security Regression Test Suite (if not complete)
+**Priority: HIGH — Validates all security fixes**
 
-### Task S-A1: Add Server Authentication (CRITICAL #7)
-**Priority: CRITICAL -- No auth on any endpoint**
-**Directive:** C-3
-
-Add API key authentication as Tower middleware:
-
-1. Create auth middleware that checks `Authorization: Bearer <key>` header
-2. Apply to ALL mutating endpoints (`POST`, `PUT`, `DELETE`)
-3. Read-only endpoints (`GET /api/health`, `GET /api/audit/entries`) may remain unauthenticated
-4. API key configurable via:
-   - Environment variable `SENTINEL_API_KEY`
-   - Config file field `server.api_key`
-5. Replace `CorsLayer::permissive()` with `CorsLayer::new()` with explicit allowed origins (configurable via `server.cors_origins` in config)
-6. Return `401 Unauthorized` for missing/invalid auth
-7. Return `403 Forbidden` if key doesn't match
-
-**Files to modify:**
-- `sentinel-server/src/lib.rs` — add auth middleware, update AppState
-- `sentinel-server/src/routes.rs` — apply middleware selectively
-- `sentinel-server/src/main.rs` — read API key from env/config
-- `sentinel-server/example-config.toml` — add auth config example
-
-**Test:** Must include unit test for middleware and integration test showing unauthenticated mutating requests are rejected.
+If not already done, finish `sentinel-integration/tests/security_regression.rs` with tests for all 14 CRITICAL/HIGH findings. See previous task file for details.
 
 ---
 
-### Task S-A2: Default Bind to 127.0.0.1 (HIGH)
-**Priority: HIGH**
-**Directive:** C-3
+## Task I-A1: Property-Based Tests with `proptest` (Phase 7.1)
+**Priority: HIGH — Critical for security assurance**
 
-Change the default bind address:
+Add property-based tests to verify invariants hold for arbitrary inputs.
 
-1. Default from `0.0.0.0` to `127.0.0.1` in `sentinel-server/src/main.rs`
-2. Keep `0.0.0.0` available via CLI flag `--bind` for explicit opt-in
-3. Document the change in example config
+**Implementation:**
+1. Add `proptest = "1"` as dev-dependency to `sentinel-engine/Cargo.toml`
+2. Create `sentinel-engine/tests/proptests.rs` with:
+   - **Evaluation is deterministic:** same input always produces same output
+   - **Fail-closed invariant:** empty policy list always denies
+   - **Path normalization is idempotent:** `normalize(normalize(x)) == normalize(x)`
+   - **Domain extraction never panics:** arbitrary strings don't crash `extract_domain()`
+   - **Blocked paths always deny:** any path matching a block pattern is denied regardless of encoding
+   - **Deny overrides allow at equal priority:** property holds for any policy combination
 
----
-
-### Task S-A3: Security Regression Test Suite (CRITICAL)
-**Priority: CRITICAL -- Validates ALL security fixes**
-**Directive:** C-3
-
-Create `sentinel-integration/tests/security_regression.rs` with tests for ALL 14 CRITICAL/HIGH findings.
-
-Each test MUST:
-1. Demonstrate the vulnerability (the attack succeeds before the fix)
-2. Verify the fix blocks the attack
-3. Have a clear name indicating which finding it covers
-
-**Required tests:**
-
-| Finding | Test |
-|---------|------|
-| #1 Hash chain bypass | Verify hashless entries rejected after chain starts |
-| #2 Hash field separators | Verify field-boundary-shift collisions are impossible |
-| #3 initialize_chain trusts file | Verify tampered file is detected on init |
-| #4 last_hash before write | Verify I/O failure doesn't advance hash state |
-| #5 Empty tool name | Verify empty/missing tool name is handled safely |
-| #6 Unbounded read_line | Verify oversized messages are rejected |
-| #7 No auth | Verify unauthenticated mutating requests return 401 |
-| #8 `@` bypass | Verify `?email=user@safe.com` doesn't bypass domain check |
-| #9 normalize_path empty | Verify empty normalization returns `/` not raw input |
-| #10 Approval persistence | Verify approvals survive restart |
-| #11 unwrap_or_default | Verify malformed requests return 400 not default |
-| #12 Approval creation failure | Verify failure results in deny |
-| #13 Audit wrong verdict | Verify RequireApproval is recorded correctly |
-| #14 Empty line proxy | Verify empty lines don't terminate proxy |
-
-**Note:** Some tests may need to be written as "expected behavior" tests if the fix hasn't landed yet. Coordinate with Instance B — their fixes (findings 1-6, 8, 9, 14) must be in place for those regression tests to verify the fix.
+**Files:** `sentinel-engine/Cargo.toml`, `sentinel-engine/tests/proptests.rs`
 
 ---
 
-## PAUSED TASKS (Resume after Phase 0 complete)
+## Task I-A2: Performance Benchmarks with `criterion` (Phase 7.2)
+**Priority: MEDIUM — Baseline performance metrics**
 
-These tasks from the improvement plan are ON HOLD per Directive C-1:
+Create benchmarks to validate the <5ms evaluation target and catch regressions.
 
-- ~~Task A2: MCP Proxy Integration Tests~~ — resume as Phase 5 work
-- ~~Task A3: Property-Based Tests~~ — resume as Phase 7 work
-- ~~Task A4: Criterion Benchmarks~~ — resume as Phase 7 work
+**Implementation:**
+1. Add to `sentinel-engine/Cargo.toml`:
+   ```toml
+   [dev-dependencies]
+   criterion = { version = "0.5", features = ["html_reports"] }
+
+   [[bench]]
+   name = "evaluation"
+   harness = false
+   ```
+2. Create `sentinel-engine/benches/evaluation.rs` benchmarking:
+   - Policy evaluation with 10/100/1000 policies
+   - Regex cache hit vs miss
+   - Glob matching (globset) speed
+   - Path normalization throughput
+   - Domain extraction throughput
+   - Parameter constraint evaluation with nested JSON
+
+**Files:** `sentinel-engine/Cargo.toml`, `sentinel-engine/benches/evaluation.rs`
+
+---
+
+## Task I-A3: Structured Logging with `tracing` (Phase 7.3)
+**Priority: MEDIUM — Observability**
+
+Ensure all decision points emit structured trace events for debugging and monitoring.
+
+**Implementation:**
+1. Add `tracing` as dependency to `sentinel-engine` and `sentinel-server` (if not already)
+2. Add structured spans/events at key decision points:
+   - `tracing::info!(tool = %action.tool, verdict = %verdict, latency_us = elapsed.as_micros(), "Policy evaluated")`
+   - `tracing::warn!(tool = %tool_name, reason = %reason, "Tool call denied")`
+   - `tracing::debug!(policy_id = %id, "Policy matched")`
+3. Add `tracing-subscriber` setup in `sentinel-server/src/main.rs` with env filter (`RUST_LOG`)
+4. Ensure no sensitive parameter values are logged (coordinate with Instance B's redaction work)
+
+**Files:** `sentinel-engine/Cargo.toml`, `sentinel-engine/src/lib.rs`, `sentinel-server/Cargo.toml`, `sentinel-server/src/main.rs`
+
+---
+
+## Task I-A4: Rate Limiting per Tool (Phase 6.3)
+**Priority: LOW — Abuse prevention**
+
+Add per-tool rate limiting as Tower middleware.
+
+**Implementation:**
+1. Add `tower` rate-limiting layer or custom middleware
+2. Configurable limits per tool (e.g., `bash: 10/min`, `read_file: 100/min`)
+3. Return 429 Too Many Requests when exceeded
+4. Configuration via server config file
+
+**Files:** `sentinel-server/src/routes.rs` or new `sentinel-server/src/middleware.rs`
+**Test:** Verify rate limit enforced and resets after window
+
+---
+
+## Task I-A5: Bracket Notation for JSON Path (Phase 4.1 enhancement)
+**Priority: LOW — Completeness**
+
+Per Controller note: `get_param_by_path()` needs bracket notation for array access.
+
+**Implementation:**
+1. Extend `get_param_by_path()` in `sentinel-engine/src/lib.rs` to parse `[N]` segments
+2. `config.items[0].path` should traverse into JSON arrays
+3. Handle out-of-bounds gracefully (return None)
+
+**Files:** `sentinel-engine/src/lib.rs`
+**Test:** Verify `items[0].path`, `data[2].name`, mixed dot+bracket notation
+
+**Note:** This touches Instance B's code. Coordinate via log if needed.
 
 ---
 
 ## Communication Protocol
 1. After completing each task, update `.collab/instance-a.md`
 2. Append completion message to `.collab/log.md`
-3. **Check `controller/directives.md` before starting new work**
-4. **Security tasks take absolute priority over everything else**
-5. Your file ownership: `.github/`, `sentinel-integration/tests/`, TASKS.md, `sentinel-server/` (for auth work)
+3. Your file ownership: `.github/`, `sentinel-integration/tests/`, TASKS.md
+4. Instance B owns engine/audit/MCP crates — coordinate via log for shared changes
+5. Work in order (S-A3 first if incomplete, then I-A1)

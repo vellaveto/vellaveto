@@ -2,7 +2,7 @@ use chrono::Utc;
 use sentinel_types::{Action, Verdict};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
@@ -55,24 +55,128 @@ pub struct ChainVerification {
     pub first_broken_at: Option<usize>,
 }
 
+/// Sensitive parameter key names that should always be redacted.
+const SENSITIVE_PARAM_KEYS: &[&str] = &[
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "api_key",
+    "apikey",
+    "api-key",
+    "access_key",
+    "secret_key",
+    "private_key",
+    "authorization",
+    "credentials",
+    "session_token",
+    "refresh_token",
+    "client_secret",
+];
+
+/// Prefixes of values that indicate secrets. If a string value starts with
+/// any of these prefixes, the value is redacted.
+const SENSITIVE_VALUE_PREFIXES: &[&str] = &[
+    "sk-",         // OpenAI, Anthropic API keys
+    "AKIA",        // AWS access key ID
+    "ghp_",        // GitHub personal access token
+    "gho_",        // GitHub OAuth token
+    "ghs_",        // GitHub server-to-server token
+    "github_pat_", // GitHub fine-grained PAT
+    "xoxb-",       // Slack bot token
+    "xoxp-",       // Slack user token
+    "Bearer ",     // Authorization header value
+    "Basic ",      // Authorization header value
+];
+
+const REDACTED: &str = "[REDACTED]";
+
+/// Recursively walk a JSON value and redact sensitive keys/values.
+///
+/// - Keys matching `SENSITIVE_PARAM_KEYS` (case-insensitive) have their values replaced.
+/// - String values starting with `SENSITIVE_VALUE_PREFIXES` are replaced.
+fn redact_sensitive_values(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut result = serde_json::Map::new();
+            for (key, val) in map {
+                let key_lower = key.to_lowercase();
+                if SENSITIVE_PARAM_KEYS.iter().any(|k| key_lower == *k) {
+                    result.insert(key.clone(), serde_json::Value::String(REDACTED.to_string()));
+                } else {
+                    result.insert(key.clone(), redact_sensitive_values(val));
+                }
+            }
+            serde_json::Value::Object(result)
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.iter().map(redact_sensitive_values).collect())
+        }
+        serde_json::Value::String(s) => {
+            if SENSITIVE_VALUE_PREFIXES
+                .iter()
+                .any(|prefix| s.starts_with(prefix))
+            {
+                serde_json::Value::String(REDACTED.to_string())
+            } else {
+                value.clone()
+            }
+        }
+        _ => value.clone(),
+    }
+}
+
+/// Default max file size before rotation: 100 MB.
+const DEFAULT_MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
+
 /// Append-only audit logger for policy evaluation decisions.
 ///
 /// Records every [`Action`] + [`Verdict`] pair to a persistent log file
 /// in JSONL format for compliance, debugging, and forensic analysis.
 ///
 /// New entries include SHA-256 hash chains for tamper evidence.
+/// Sensitive values in parameters are redacted by default.
+///
+/// When the log file exceeds `max_file_size`, it is rotated to a
+/// timestamped filename (e.g., `audit.2026-02-02T12-00-00.log`) and
+/// a fresh file + hash chain is started.
 pub struct AuditLogger {
     log_path: PathBuf,
     last_hash: Mutex<Option<String>>,
+    redact: bool,
+    /// Maximum log file size in bytes before rotation. 0 = no rotation.
+    max_file_size: u64,
 }
 
 impl AuditLogger {
     /// Create a new audit logger writing to the specified path.
+    /// Sensitive value redaction is enabled by default.
+    /// Log rotation is enabled at 100 MB by default.
     pub fn new(log_path: PathBuf) -> Self {
         Self {
             log_path,
             last_hash: Mutex::new(None),
+            redact: true,
+            max_file_size: DEFAULT_MAX_FILE_SIZE,
         }
+    }
+
+    /// Create a new audit logger with redaction disabled.
+    /// Use this only for testing or when full parameter logging is required.
+    pub fn new_unredacted(log_path: PathBuf) -> Self {
+        Self {
+            log_path,
+            last_hash: Mutex::new(None),
+            redact: false,
+            max_file_size: DEFAULT_MAX_FILE_SIZE,
+        }
+    }
+
+    /// Set the maximum log file size before rotation.
+    /// Pass 0 to disable rotation entirely.
+    pub fn with_max_file_size(mut self, max_bytes: u64) -> Self {
+        self.max_file_size = max_bytes;
+        self
     }
 
     /// Initialize the hash chain by reading the last entry from the log.
@@ -102,6 +206,123 @@ impl AuditLogger {
             // by leaving last_hash as None. The next entry will begin a new segment.
         }
         Ok(())
+    }
+
+    /// Rotate the log file if it exceeds `max_file_size`.
+    ///
+    /// The caller MUST hold `last_hash` lock. On successful rotation the
+    /// caller should reset the lock to `None` (new file = new chain).
+    ///
+    /// Returns `true` if rotation occurred.
+    async fn maybe_rotate(&self) -> Result<bool, AuditError> {
+        if self.max_file_size == 0 {
+            return Ok(false);
+        }
+
+        let metadata = match tokio::fs::metadata(&self.log_path).await {
+            Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(e) => return Err(AuditError::Io(e)),
+        };
+
+        if metadata.len() < self.max_file_size {
+            return Ok(false);
+        }
+
+        let rotated_path = self.rotated_path();
+        tokio::fs::rename(&self.log_path, &rotated_path).await?;
+
+        tracing::info!(
+            "Rotated audit log {} -> {} ({} bytes)",
+            self.log_path.display(),
+            rotated_path.display(),
+            metadata.len(),
+        );
+
+        Ok(true)
+    }
+
+    /// Build the destination path for a rotated log file.
+    ///
+    /// Format: `<stem>.<timestamp>.<ext>` where timestamp uses hyphens
+    /// (filesystem-safe) e.g. `audit.2026-02-02T12-00-00.log`.
+    /// If a file with that name already exists (multiple rotations in the
+    /// same second), a counter suffix is appended.
+    fn rotated_path(&self) -> PathBuf {
+        let timestamp = Utc::now().format("%Y-%m-%dT%H-%M-%S");
+        let stem = self
+            .log_path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy();
+        let ext = self
+            .log_path
+            .extension()
+            .map(|e| format!(".{}", e.to_string_lossy()))
+            .unwrap_or_default();
+        let parent = self.log_path.parent().unwrap_or(Path::new("."));
+
+        let base = parent.join(format!("{}.{}{}", stem, timestamp, ext));
+        if !base.exists() {
+            return base;
+        }
+
+        // Collision: add incrementing counter suffix
+        for i in 1..10_000 {
+            let path = parent.join(format!("{}.{}-{}{}", stem, timestamp, i, ext));
+            if !path.exists() {
+                return path;
+            }
+        }
+
+        // Fallback with UUID (should never happen)
+        parent.join(format!(
+            "{}.{}-{}{}",
+            stem,
+            timestamp,
+            Uuid::new_v4(),
+            ext
+        ))
+    }
+
+    /// List rotated log files in the same directory as the active log.
+    ///
+    /// Returns paths sorted oldest-first. Only files whose name starts
+    /// with the active log's stem and contains a timestamp segment are
+    /// included.
+    pub fn list_rotated_files(&self) -> Result<Vec<PathBuf>, AuditError> {
+        let parent = self.log_path.parent().unwrap_or(Path::new("."));
+        let stem = self
+            .log_path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+
+        let mut rotated: Vec<PathBuf> = Vec::new();
+
+        let entries = match std::fs::read_dir(parent) {
+            Ok(e) => e,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(AuditError::Io(e)),
+        };
+
+        for entry in entries {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            // Match pattern: <stem>.<timestamp>.<ext>
+            // e.g. "audit.2026-02-02T12-00-00.log"
+            if name.starts_with(&format!("{}.", stem)) && name != self.log_path.file_name().unwrap_or_default().to_string_lossy() {
+                // Verify it looks like a rotated file (contains a timestamp-like segment)
+                let after_stem = &name[stem.len() + 1..];
+                if after_stem.contains('T') && after_stem.contains('-') {
+                    rotated.push(entry.path());
+                }
+            }
+        }
+
+        rotated.sort();
+        Ok(rotated)
     }
 
     /// Compute the SHA-256 hash of an entry's content.
@@ -145,14 +366,38 @@ impl AuditLogger {
         // Validate input
         self.validate_action(action)?;
 
+        // Redact sensitive values from action parameters before logging
+        let logged_action = if self.redact {
+            Action {
+                tool: action.tool.clone(),
+                function: action.function.clone(),
+                parameters: redact_sensitive_values(&action.parameters),
+            }
+        } else {
+            action.clone()
+        };
+
+        // Also redact metadata values
+        let logged_metadata = if self.redact {
+            redact_sensitive_values(&metadata)
+        } else {
+            metadata
+        };
+
         let mut last_hash_guard = self.last_hash.lock().await;
+
+        // Rotate if the current log exceeds max_file_size.
+        // Done under the lock to prevent concurrent writes from racing.
+        if self.maybe_rotate().await? {
+            *last_hash_guard = None; // New file = new hash chain
+        }
 
         let mut entry = AuditEntry {
             id: Uuid::new_v4().to_string(),
-            action: action.clone(),
+            action: logged_action,
             verdict: verdict.clone(),
             timestamp: Utc::now().to_rfc3339(),
-            metadata,
+            metadata: logged_metadata,
             entry_hash: None,
             prev_hash: last_hash_guard.clone(),
         };
@@ -187,6 +432,12 @@ impl AuditLogger {
         file.write_all(line.as_bytes()).await?;
         file.flush().await?;
 
+        // Fix #35: For Deny verdicts, call sync_data() to ensure the entry
+        // survives power loss. Allow/RequireApproval can remain buffered.
+        if matches!(verdict, Verdict::Deny { .. }) {
+            file.sync_data().await?;
+        }
+
         // Update chain head ONLY after successful file write.
         // If the write fails, the in-memory hash must not advance,
         // otherwise the chain diverges from what's on disk.
@@ -196,6 +447,10 @@ impl AuditLogger {
     }
 
     /// Load all entries from the audit log.
+    ///
+    /// Corrupt or malformed lines are skipped with a warning rather than
+    /// failing the entire load. This ensures the audit log remains readable
+    /// even if a single line is corrupted (e.g., partial write, disk error).
     pub async fn load_entries(&self) -> Result<Vec<AuditEntry>, AuditError> {
         let content = match tokio::fs::read_to_string(&self.log_path).await {
             Ok(c) => c,
@@ -204,12 +459,30 @@ impl AuditLogger {
         };
 
         let mut entries = Vec::new();
-        for line in content.lines() {
+        let mut skipped = 0usize;
+        for (line_num, line) in content.lines().enumerate() {
             if line.trim().is_empty() {
                 continue;
             }
-            let entry: AuditEntry = serde_json::from_str(line)?;
-            entries.push(entry);
+            match serde_json::from_str::<AuditEntry>(line) {
+                Ok(entry) => entries.push(entry),
+                Err(e) => {
+                    skipped += 1;
+                    tracing::warn!(
+                        "Skipping corrupt audit line {} in {:?}: {}",
+                        line_num + 1,
+                        self.log_path,
+                        e
+                    );
+                }
+            }
+        }
+        if skipped > 0 {
+            tracing::warn!(
+                "Skipped {} corrupt line(s) while loading audit log {:?}",
+                skipped,
+                self.log_path
+            );
         }
 
         Ok(entries)
@@ -353,15 +626,30 @@ impl AuditLogger {
     }
 
     fn json_depth(value: &serde_json::Value) -> usize {
-        match value {
-            serde_json::Value::Array(arr) => {
-                1 + arr.iter().map(Self::json_depth).max().unwrap_or(0)
+        let mut max_depth: usize = 0;
+        let mut stack: Vec<(&serde_json::Value, usize)> = vec![(value, 0)];
+        while let Some((val, depth)) = stack.pop() {
+            if depth > max_depth {
+                max_depth = depth;
             }
-            serde_json::Value::Object(obj) => {
-                1 + obj.values().map(Self::json_depth).max().unwrap_or(0)
+            if max_depth > 128 {
+                return max_depth;
             }
-            _ => 0,
+            match val {
+                serde_json::Value::Array(arr) => {
+                    for item in arr {
+                        stack.push((item, depth + 1));
+                    }
+                }
+                serde_json::Value::Object(obj) => {
+                    for item in obj.values() {
+                        stack.push((item, depth + 1));
+                    }
+                }
+                _ => {}
+            }
         }
+        max_depth
     }
 }
 
@@ -808,5 +1096,407 @@ mod tests {
         let verification = logger.verify_chain().await.unwrap();
         assert!(verification.valid);
         assert_eq!(verification.entries_checked, 2);
+    }
+
+    // --- Phase 3.3: Sensitive value redaction tests ---
+
+    #[tokio::test]
+    async fn test_redaction_sensitive_param_key() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone()); // redaction enabled
+
+        let action = Action {
+            tool: "http_request".to_string(),
+            function: "post".to_string(),
+            parameters: json!({
+                "url": "https://api.example.com",
+                "password": "super_secret_123",
+                "api_key": "sk-1234567890",
+                "headers": {
+                    "authorization": "Bearer token123"
+                }
+            }),
+        };
+
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        assert_eq!(entries.len(), 1);
+        let params = &entries[0].action.parameters;
+        // Sensitive keys should be redacted
+        assert_eq!(params["password"], "[REDACTED]");
+        assert_eq!(params["api_key"], "[REDACTED]");
+        assert_eq!(params["headers"]["authorization"], "[REDACTED]");
+        // Non-sensitive keys should be preserved
+        assert_eq!(params["url"], "https://api.example.com");
+    }
+
+    #[tokio::test]
+    async fn test_redaction_sensitive_value_prefix() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone());
+
+        let action = Action {
+            tool: "tool".to_string(),
+            function: "func".to_string(),
+            parameters: json!({
+                "key1": "sk-abc123def456",
+                "key2": "AKIAIOSFODNN7EXAMPLE",
+                "key3": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "safe_value": "normal text"
+            }),
+        };
+
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        let params = &entries[0].action.parameters;
+        assert_eq!(params["key1"], "[REDACTED]");
+        assert_eq!(params["key2"], "[REDACTED]");
+        assert_eq!(params["key3"], "[REDACTED]");
+        assert_eq!(params["safe_value"], "normal text");
+    }
+
+    #[tokio::test]
+    async fn test_redaction_nested_values() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone());
+
+        let action = Action {
+            tool: "tool".to_string(),
+            function: "func".to_string(),
+            parameters: json!({
+                "config": {
+                    "nested": {
+                        "token": "should_be_redacted",
+                        "name": "safe"
+                    }
+                },
+                "items": ["normal", "sk-secret123", "safe"]
+            }),
+        };
+
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        let params = &entries[0].action.parameters;
+        assert_eq!(params["config"]["nested"]["token"], "[REDACTED]");
+        assert_eq!(params["config"]["nested"]["name"], "safe");
+        assert_eq!(params["items"][0], "normal");
+        assert_eq!(params["items"][1], "[REDACTED]"); // sk- prefix
+        assert_eq!(params["items"][2], "safe");
+    }
+
+    #[tokio::test]
+    async fn test_unredacted_logger_preserves_all_values() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new_unredacted(log_path.clone());
+
+        let action = Action {
+            tool: "tool".to_string(),
+            function: "func".to_string(),
+            parameters: json!({
+                "password": "visible_password",
+                "key": "sk-visible-key"
+            }),
+        };
+
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        let params = &entries[0].action.parameters;
+        // With redaction disabled, all values are preserved
+        assert_eq!(params["password"], "visible_password");
+        assert_eq!(params["key"], "sk-visible-key");
+    }
+
+    #[tokio::test]
+    async fn test_redaction_metadata_also_redacted() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone());
+
+        let action = test_action();
+        let metadata = json!({
+            "source": "proxy",
+            "secret": "should_be_redacted",
+            "auth_header": "Bearer xyz123"
+        });
+
+        logger
+            .log_entry(&action, &Verdict::Allow, metadata)
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        let meta = &entries[0].metadata;
+        assert_eq!(meta["source"], "proxy");
+        assert_eq!(meta["secret"], "[REDACTED]");
+        assert_eq!(meta["auth_header"], "[REDACTED]"); // "Bearer " prefix
+    }
+
+    #[tokio::test]
+    async fn test_redaction_hash_chain_still_valid() {
+        // Verify that redacted entries still form a valid hash chain
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone());
+
+        let action = Action {
+            tool: "tool".to_string(),
+            function: "func".to_string(),
+            parameters: json!({"password": "secret123", "path": "/tmp/safe"}),
+        };
+
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+        logger
+            .log_entry(
+                &action,
+                &Verdict::Deny {
+                    reason: "test".into(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
+
+        let verification = logger.verify_chain().await.unwrap();
+        assert!(verification.valid);
+        assert_eq!(verification.entries_checked, 2);
+    }
+
+    // === Log rotation tests (Fix #36) ===
+
+    #[tokio::test]
+    async fn test_rotation_triggers_when_size_exceeded() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        // Set a tiny threshold so rotation triggers quickly
+        let logger = AuditLogger::new(log_path.clone()).with_max_file_size(200);
+
+        let action = test_action();
+
+        // Write entries until rotation triggers
+        for _ in 0..20 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+
+        // At least one rotated file should exist
+        let rotated = logger.list_rotated_files().unwrap();
+        assert!(
+            !rotated.is_empty(),
+            "Expected at least one rotated file"
+        );
+
+        // The active log should still exist with entries
+        let active_entries = logger.load_entries().await.unwrap();
+        assert!(
+            !active_entries.is_empty(),
+            "Active log should still have entries after rotation"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_rotation_starts_fresh_hash_chain() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone()).with_max_file_size(200);
+
+        let action = test_action();
+
+        // Write enough entries to trigger at least one rotation
+        for _ in 0..20 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+
+        // The current (active) log should have a valid chain with
+        // the first entry having prev_hash = None (fresh chain)
+        let entries = logger.load_entries().await.unwrap();
+        assert!(!entries.is_empty());
+        assert!(
+            entries[0].prev_hash.is_none(),
+            "First entry in rotated-to file should have no prev_hash"
+        );
+
+        let verification = logger.verify_chain().await.unwrap();
+        assert!(verification.valid);
+    }
+
+    #[tokio::test]
+    async fn test_rotation_disabled_when_zero() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone()).with_max_file_size(0);
+
+        let action = test_action();
+
+        // Write many entries — no rotation should occur
+        for _ in 0..20 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+
+        let rotated = logger.list_rotated_files().unwrap();
+        assert!(rotated.is_empty(), "No rotation should occur when max_file_size=0");
+
+        let entries = logger.load_entries().await.unwrap();
+        assert_eq!(entries.len(), 20);
+    }
+
+    #[tokio::test]
+    async fn test_rotation_no_data_loss() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone()).with_max_file_size(200);
+
+        let action = test_action();
+        let total = 30;
+
+        for _ in 0..total {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+
+        // Count entries across active + rotated files
+        let active_entries = logger.load_entries().await.unwrap();
+        let rotated_files = logger.list_rotated_files().unwrap();
+
+        let mut total_count = active_entries.len();
+        for path in &rotated_files {
+            let content = tokio::fs::read_to_string(path).await.unwrap();
+            let count = content.lines().filter(|l| !l.trim().is_empty()).count();
+            total_count += count;
+        }
+
+        assert_eq!(
+            total_count, total,
+            "Total entries across all files should equal entries written"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_rotation_rotated_file_has_valid_chain() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone()).with_max_file_size(200);
+
+        let action = test_action();
+        for _ in 0..20 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+
+        // Verify the rotated file's chain is independently valid
+        let rotated_files = logger.list_rotated_files().unwrap();
+        assert!(!rotated_files.is_empty());
+
+        let rotated_logger = AuditLogger::new(rotated_files[0].clone()).with_max_file_size(0);
+        let verification = rotated_logger.verify_chain().await.unwrap();
+        assert!(
+            verification.valid,
+            "Rotated file should have a valid hash chain"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_list_rotated_files_empty_when_no_rotation() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone());
+
+        let action = test_action();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+
+        let rotated = logger.list_rotated_files().unwrap();
+        assert!(rotated.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_rotated_files_nonexistent_dir() {
+        let logger = AuditLogger::new(PathBuf::from("/nonexistent/path/audit.jsonl"));
+        let rotated = logger.list_rotated_files().unwrap();
+        assert!(rotated.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_rotation_initialize_chain_after_rotation() {
+        // After rotation, a new logger instance should initialize correctly
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+
+        // First logger: write enough to trigger rotation
+        let logger1 = AuditLogger::new(log_path.clone()).with_max_file_size(200);
+        let action = test_action();
+        for _ in 0..20 {
+            logger1
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+
+        // Second logger: initialize chain from active log
+        let logger2 = AuditLogger::new(log_path.clone()).with_max_file_size(200);
+        logger2.initialize_chain().await.unwrap();
+
+        // Write more entries — chain should remain valid
+        logger2
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+
+        let verification = logger2.verify_chain().await.unwrap();
+        assert!(verification.valid);
+    }
+
+    #[tokio::test]
+    async fn test_with_max_file_size_builder() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path)
+            .with_max_file_size(50 * 1024 * 1024); // 50 MB
+
+        // Just verifying the builder doesn't panic and logger works
+        let action = test_action();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        assert_eq!(entries.len(), 1);
     }
 }

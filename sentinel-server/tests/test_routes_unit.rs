@@ -1,23 +1,23 @@
 //! Unit tests for HTTP routes using axum test utilities.
 
+use arc_swap::ArcSwap;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use sentinel_approval::ApprovalStore;
 use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
-use sentinel_server::{routes, AppState};
+use sentinel_server::{routes, AppState, RateLimits};
 use sentinel_types::{Policy, PolicyType};
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;
-use tokio::sync::RwLock;
 use tower::ServiceExt;
 
 fn test_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
         engine: Arc::new(PolicyEngine::new(false)),
-        policies: Arc::new(RwLock::new(vec![
+        policies: Arc::new(ArcSwap::from_pointee(vec![
             Policy {
                 id: "file:read".to_string(),
                 name: "Allow file reads".to_string(),
@@ -38,6 +38,8 @@ fn test_state() -> (AppState, TempDir) {
             std::time::Duration::from_secs(900),
         )),
         api_key: None,
+        rate_limits: Arc::new(RateLimits::disabled()),
+        cors_origins: vec![],
     };
     (state, tmp)
 }
@@ -188,7 +190,7 @@ async fn add_policy_increases_count() {
     );
 
     // Verify count increased
-    let policies = state.policies.read().await;
+    let policies = state.policies.load();
     assert_eq!(policies.len(), 3);
 }
 

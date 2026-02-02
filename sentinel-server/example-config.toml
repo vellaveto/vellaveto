@@ -78,3 +78,33 @@ id = "bash:execute"
 parameter_constraints = [
   { param = "command", op = "regex", pattern = "(?i)rm\\s+-rf", on_match = "require_approval" },
 ]
+
+# --- Wildcard Parameter Scanning (param = "*") ---
+# Scans ALL string values recursively in parameters, regardless of key name.
+# Catches dangerous content buried in nested/unexpected parameter locations.
+
+[[policies]]
+name = "Scan all values for credential paths"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 250
+id = "*:*:credential-scan"
+
+[policies.policy_type.Conditional.conditions]
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/home/*/.aws/**", on_match = "deny" },
+  { param = "*", op = "glob", pattern = "/home/*/.ssh/**", on_match = "deny" },
+]
+
+[[policies]]
+name = "Scan all values for exfiltration domains"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 250
+id = "*:*:domain-scan"
+
+[policies.policy_type.Conditional.conditions]
+parameter_constraints = [
+  { param = "*", op = "domain_match", pattern = "*.ngrok.io", on_match = "deny" },
+  { param = "*", op = "domain_match", pattern = "*.requestbin.com", on_match = "deny" },
+]

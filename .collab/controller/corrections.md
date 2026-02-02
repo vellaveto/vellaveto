@@ -98,3 +98,35 @@ The correct priority order for a policy enforcement tool:
 Regex caching and globset are nice-to-haves. A domain bypass that lets attackers exfiltrate data through `?email=user@safe.com` is a ship-stopper.
 
 **Correction:** The improvement plan should be reordered. See Directive C-5 for specifics.
+
+---
+
+## Correction 6: Controller MEDIUM Fixes — Phase 2
+**Date:** 2026-02-02
+**Affects:** All instances
+**Severity:** MEDIUM
+
+Controller directly fixed the following MEDIUM findings:
+
+1. **Fix #18 (Sort stability):** Added tertiary tiebreaker (lexicographic by policy ID) to `PolicyEngine::sort_policies` for deterministic ordering when priority and type are equal.
+
+2. **Fix #20 (json_depth stack overflow):** Replaced recursive `json_depth` in both `sentinel-engine` and `sentinel-audit` with iterative stack-based approach. Early termination at depth 128 prevents pathological inputs from consuming stack.
+
+3. **Fix #21 (expire_stale persistence):** `ApprovalStore::expire_stale` now persists expired status to the JSONL file. Previously, a server restart would resurrect expired approvals as pending.
+
+4. **Fix #22 (Memory cleanup):** `expire_stale` now removes resolved entries older than 1 hour from the in-memory HashMap to prevent unbounded memory growth.
+
+5. **Fix #23 (Request body limit):** Added `DefaultBodyLimit::max(1_048_576)` (1MB) to the Axum router in `sentinel-server/src/routes.rs`.
+
+6. **Fix #33 (DNS trailing dot bypass):** Added `.trim_end_matches('.')` to both `extract_domain` and `match_domain_pattern` in `sentinel-engine/src/lib.rs`. Without this, `evil.com.` bypasses a policy matching `evil.com`.
+
+7. **Fix #37 (Lenient audit parsing):** `AuditLogger::load_entries` now skips corrupt/malformed lines with a `tracing::warn!` instead of failing the entire load. Updated 3 integration tests that expected hard failure.
+
+8. **Fix #35 (fsync for Deny verdicts):** `AuditLogger::log_entry` now calls `sync_data()` after writing Deny entries to ensure they survive power loss.
+
+9. **Fix #34 (Graceful shutdown):** Server now handles SIGTERM/SIGINT for graceful shutdown via `axum::serve().with_graceful_shutdown()`.
+
+10. **Fix #15/#16 (Glob cache):** Added `GlobMatcher` cache to `PolicyEngine` (same bounded HashMap pattern as regex cache). Both `eval_glob_constraint` and `eval_not_glob_constraint` now use cached matchers.
+
+**Total MEDIUM fixes by Controller:** 10
+**Test status:** All 131 test suites pass, 0 failures.

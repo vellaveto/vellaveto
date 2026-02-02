@@ -191,15 +191,37 @@ impl ApprovalStore {
     }
 
     /// Expire all stale approvals that have passed their TTL.
+    ///
+    /// Persists the expired status to the JSONL file so restarts don't
+    /// resurrect expired approvals as pending. Also removes resolved
+    /// (approved/denied/expired) entries older than 1 hour from memory
+    /// to prevent unbounded growth.
     pub async fn expire_stale(&self) -> usize {
         let now = Utc::now();
         let mut pending = self.pending.write().await;
         let mut expired_count = 0;
+        let mut to_persist = Vec::new();
 
         for approval in pending.values_mut() {
             if approval.status == ApprovalStatus::Pending && now > approval.expires_at {
                 approval.status = ApprovalStatus::Expired;
                 expired_count += 1;
+                to_persist.push(approval.clone());
+            }
+        }
+
+        // Remove resolved entries older than 1 hour to prevent memory leaks
+        let retention_cutoff = now - Duration::hours(1);
+        pending
+            .retain(|_, a| a.status == ApprovalStatus::Pending || a.created_at > retention_cutoff);
+
+        // Persist expired status outside the lock scope isn't possible since
+        // persist_approval needs &self, so we collect and persist after dropping the guard
+        drop(pending);
+
+        for approval in &to_persist {
+            if let Err(e) = self.persist_approval(approval).await {
+                tracing::warn!("Failed to persist expired approval {}: {}", approval.id, e);
             }
         }
 
@@ -364,13 +386,11 @@ mod tests {
     #[tokio::test]
     async fn test_expire_stale() {
         let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("approvals.jsonl");
         // TTL of 0 seconds = immediately expires
-        let store = ApprovalStore::new(
-            dir.path().join("approvals.jsonl"),
-            std::time::Duration::from_secs(0),
-        );
+        let store = ApprovalStore::new(log_path.clone(), std::time::Duration::from_secs(0));
 
-        store
+        let id = store
             .create(test_action(), "will expire".to_string())
             .await
             .unwrap();
@@ -383,6 +403,15 @@ mod tests {
 
         let pending = store.list_pending().await;
         assert!(pending.is_empty());
+
+        // Fix #21: Verify expired status was persisted to file
+        let content = tokio::fs::read_to_string(&log_path).await.unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        // Should have 2 lines: initial Pending + Expired update
+        assert!(lines.len() >= 2, "Expired status must be persisted");
+        let last: PendingApproval = serde_json::from_str(lines.last().unwrap()).unwrap();
+        assert_eq!(last.id, id);
+        assert_eq!(last.status, ApprovalStatus::Expired);
     }
 
     #[tokio::test]

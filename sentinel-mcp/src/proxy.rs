@@ -8,7 +8,9 @@ use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
 use sentinel_types::{Policy, Verdict};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::io::BufReader;
 use tokio::process::{ChildStdin, ChildStdout};
 
@@ -28,11 +30,46 @@ pub enum ProxyDecision {
     Block(Value, Verdict),
 }
 
+/// Default request timeout: 30 seconds.
+const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Tool annotations extracted from `tools/list` responses.
+///
+/// Per MCP spec 2025-11-25, these are behavioral hints from the server.
+/// **IMPORTANT:** Annotations MUST be treated as untrusted unless the server is trusted.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ToolAnnotations {
+    #[serde(default)]
+    pub read_only_hint: bool,
+    #[serde(default = "default_true")]
+    pub destructive_hint: bool,
+    #[serde(default)]
+    pub idempotent_hint: bool,
+    #[serde(default = "default_true")]
+    pub open_world_hint: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for ToolAnnotations {
+    fn default() -> Self {
+        Self {
+            read_only_hint: false,
+            destructive_hint: true,
+            idempotent_hint: false,
+            open_world_hint: true,
+        }
+    }
+}
+
 /// The proxy bridge that sits between agent and child MCP server.
 pub struct ProxyBridge {
     engine: PolicyEngine,
     policies: Vec<Policy>,
     audit: Arc<AuditLogger>,
+    request_timeout: Duration,
 }
 
 impl ProxyBridge {
@@ -41,7 +78,14 @@ impl ProxyBridge {
             engine,
             policies,
             audit,
+            request_timeout: DEFAULT_REQUEST_TIMEOUT,
         }
+    }
+
+    /// Set the request timeout for forwarded requests.
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.request_timeout = timeout;
+        self
     }
 
     /// Evaluate a tool call and decide whether to forward or block.
@@ -55,25 +99,13 @@ impl ProxyBridge {
 
         match self.engine.evaluate_action(&action, &self.policies) {
             Ok(Verdict::Allow) => ProxyDecision::Forward,
-            Ok(verdict @ Verdict::Deny { .. }) => {
-                let response = make_denial_response(
-                    id,
-                    match &verdict {
-                        Verdict::Deny { reason } => reason.as_str(),
-                        _ => unreachable!(),
-                    },
-                );
-                ProxyDecision::Block(response, verdict)
+            Ok(Verdict::Deny { reason }) => {
+                let response = make_denial_response(id, &reason);
+                ProxyDecision::Block(response, Verdict::Deny { reason })
             }
-            Ok(verdict @ Verdict::RequireApproval { .. }) => {
-                let response = make_approval_response(
-                    id,
-                    match &verdict {
-                        Verdict::RequireApproval { reason } => reason.as_str(),
-                        _ => unreachable!(),
-                    },
-                );
-                ProxyDecision::Block(response, verdict)
+            Ok(Verdict::RequireApproval { reason }) => {
+                let response = make_approval_response(id, &reason);
+                ProxyDecision::Block(response, Verdict::RequireApproval { reason })
             }
             Err(e) => {
                 let reason = format!("Policy evaluation error: {}", e);
@@ -88,29 +120,121 @@ impl ProxyBridge {
 
         match self.engine.evaluate_action(&action, &self.policies) {
             Ok(Verdict::Allow) => ProxyDecision::Forward,
-            Ok(verdict @ Verdict::Deny { .. }) => {
-                let response = make_denial_response(
-                    id,
-                    match &verdict {
-                        Verdict::Deny { reason } => reason.as_str(),
-                        _ => unreachable!(),
-                    },
-                );
-                ProxyDecision::Block(response, verdict)
+            Ok(Verdict::Deny { reason }) => {
+                let response = make_denial_response(id, &reason);
+                ProxyDecision::Block(response, Verdict::Deny { reason })
             }
-            Ok(verdict @ Verdict::RequireApproval { .. }) => {
-                let response = make_approval_response(
-                    id,
-                    match &verdict {
-                        Verdict::RequireApproval { reason } => reason.as_str(),
-                        _ => unreachable!(),
-                    },
-                );
-                ProxyDecision::Block(response, verdict)
+            Ok(Verdict::RequireApproval { reason }) => {
+                let response = make_approval_response(id, &reason);
+                ProxyDecision::Block(response, Verdict::RequireApproval { reason })
             }
             Err(e) => {
                 let reason = format!("Policy evaluation error: {}", e);
                 ProxyDecision::Block(make_denial_response(id, &reason), Verdict::Deny { reason })
+            }
+        }
+    }
+
+    /// Extract tool annotations from a `tools/list` response.
+    ///
+    /// Parses the response result, extracts annotations per tool, and detects
+    /// rug-pull attacks (tool definitions changing between calls).
+    async fn extract_tool_annotations(
+        response: &Value,
+        known: &mut HashMap<String, ToolAnnotations>,
+        audit: &AuditLogger,
+    ) {
+        let tools = match response
+            .get("result")
+            .and_then(|r| r.get("tools"))
+            .and_then(|t| t.as_array())
+        {
+            Some(tools) => tools,
+            None => return,
+        };
+
+        let mut new_tools = 0usize;
+        let mut changed_tools = Vec::new();
+
+        for tool in tools {
+            let name = match tool.get("name").and_then(|n| n.as_str()) {
+                Some(n) => n.to_string(),
+                None => continue,
+            };
+
+            // Extract annotations (use defaults per MCP spec if absent)
+            let annotations = if let Some(ann) = tool.get("annotations") {
+                ToolAnnotations {
+                    read_only_hint: ann
+                        .get("readOnlyHint")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    destructive_hint: ann
+                        .get("destructiveHint")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(true),
+                    idempotent_hint: ann
+                        .get("idempotentHint")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    open_world_hint: ann
+                        .get("openWorldHint")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(true),
+                }
+            } else {
+                ToolAnnotations::default()
+            };
+
+            // Rug-pull detection: check if annotations changed since last tools/list
+            if let Some(prev) = known.get(&name) {
+                if *prev != annotations {
+                    changed_tools.push(name.clone());
+                    tracing::warn!(
+                        "SECURITY: Tool '{}' annotations changed! Previous: {:?}, Current: {:?}. \
+                         This may indicate a rug-pull attack.",
+                        name, prev, annotations
+                    );
+                }
+            } else {
+                new_tools += 1;
+            }
+
+            known.insert(name, annotations);
+        }
+
+        tracing::info!(
+            "tools/list: {} tools registered, {} new, {} changed",
+            tools.len(),
+            new_tools,
+            changed_tools.len()
+        );
+
+        // Audit annotation changes as security events
+        if !changed_tools.is_empty() {
+            let action = sentinel_types::Action {
+                tool: "sentinel".to_string(),
+                function: "tool_annotation_change".to_string(),
+                parameters: json!({
+                    "changed_tools": changed_tools,
+                    "total_tools": tools.len()
+                }),
+            };
+            let verdict = Verdict::Deny {
+                reason: format!(
+                    "Tool annotation change detected for: {}",
+                    changed_tools.join(", ")
+                ),
+            };
+            if let Err(e) = audit
+                .log_entry(
+                    &action,
+                    &verdict,
+                    json!({"source": "proxy", "event": "rug_pull_detection"}),
+                )
+                .await
+            {
+                tracing::warn!("Failed to audit annotation change: {}", e);
             }
         }
     }
@@ -120,6 +244,9 @@ impl ProxyBridge {
     /// Reads messages from `agent_reader` (the agent's stdout, our stdin),
     /// evaluates tool calls, forwards allowed messages to `child_stdin`,
     /// and relays responses from `child_stdout` back to `agent_writer` (our stdout).
+    ///
+    /// Tracks forwarded request IDs and times them out if the child doesn't
+    /// respond within `request_timeout`.
     pub async fn run(
         &self,
         agent_reader: tokio::io::Stdin,
@@ -129,6 +256,16 @@ impl ProxyBridge {
     ) -> Result<(), ProxyError> {
         let mut agent_reader = BufReader::new(agent_reader);
         let mut child_reader = BufReader::new(child_stdout);
+
+        // Track pending request IDs for timeout detection.
+        // Key: serialized JSON-RPC id, Value: when the request was forwarded.
+        let mut pending_requests: HashMap<String, Instant> = HashMap::new();
+
+        // C-8.2: Track tools/list request IDs so we can intercept responses.
+        let mut tools_list_request_ids: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        // Store known tool annotations for rug-pull detection.
+        let mut known_tool_annotations: HashMap<String, ToolAnnotations> = HashMap::new();
 
         // Spawn a task to relay child → agent responses
         let (response_tx, mut response_rx) = tokio::sync::mpsc::channel::<Value>(256);
@@ -150,6 +287,10 @@ impl ProxyBridge {
             }
         });
 
+        // Timer for periodic timeout sweeps
+        let mut timeout_interval = tokio::time::interval(Duration::from_secs(5));
+        timeout_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
         // Main loop: read from agent, evaluate, forward or block
         loop {
             tokio::select! {
@@ -161,6 +302,11 @@ impl ProxyBridge {
                                 MessageType::ToolCall { id, tool_name, arguments } => {
                                     match self.evaluate_tool_call(&id, &tool_name, &arguments) {
                                         ProxyDecision::Forward => {
+                                            // Track this request for timeout
+                                            if !id.is_null() {
+                                                let id_key = id.to_string();
+                                                pending_requests.insert(id_key, Instant::now());
+                                            }
                                             write_message(&mut child_stdin, &msg).await
                                                 .map_err(ProxyError::Framing)?;
                                         }
@@ -182,6 +328,10 @@ impl ProxyBridge {
                                 MessageType::ResourceRead { id, uri } => {
                                     match self.evaluate_resource_read(&id, &uri) {
                                         ProxyDecision::Forward => {
+                                            if !id.is_null() {
+                                                let id_key = id.to_string();
+                                                pending_requests.insert(id_key, Instant::now());
+                                            }
                                             write_message(&mut child_stdin, &msg).await
                                                 .map_err(ProxyError::Framing)?;
                                         }
@@ -207,6 +357,18 @@ impl ProxyBridge {
                                         .map_err(ProxyError::Framing)?;
                                 }
                                 MessageType::PassThrough => {
+                                    // Track passthrough requests that have an id
+                                    if let Some(id) = msg.get("id") {
+                                        if !id.is_null() {
+                                            let id_key = id.to_string();
+                                            pending_requests.insert(id_key.clone(), Instant::now());
+
+                                            // C-8.2: Track tools/list requests for annotation extraction
+                                            if msg.get("method").and_then(|m| m.as_str()) == Some("tools/list") {
+                                                tools_list_request_ids.insert(id_key);
+                                            }
+                                        }
+                                    }
                                     // Non-tool-call messages pass through unmodified
                                     write_message(&mut child_stdin, &msg).await
                                         .map_err(ProxyError::Framing)?;
@@ -227,6 +389,22 @@ impl ProxyBridge {
                 child_msg = response_rx.recv() => {
                     match child_msg {
                         Some(msg) => {
+                            // Remove from pending requests on response
+                            if let Some(id) = msg.get("id") {
+                                if !id.is_null() {
+                                    let id_key = id.to_string();
+                                    pending_requests.remove(&id_key);
+
+                                    // C-8.2: If this is a tools/list response, extract annotations
+                                    if tools_list_request_ids.remove(&id_key) {
+                                        Self::extract_tool_annotations(
+                                            &msg,
+                                            &mut known_tool_annotations,
+                                            &self.audit,
+                                        ).await;
+                                    }
+                                }
+                            }
                             // Relay child response to agent
                             write_message(&mut agent_writer, &msg).await
                                 .map_err(ProxyError::Framing)?;
@@ -234,6 +412,33 @@ impl ProxyBridge {
                         None => {
                             tracing::info!("Child process closed");
                             break;
+                        }
+                    }
+                }
+                // Periodic timeout sweep
+                _ = timeout_interval.tick() => {
+                    let now = Instant::now();
+                    let timed_out: Vec<String> = pending_requests
+                        .iter()
+                        .filter(|(_, sent_at)| now.duration_since(**sent_at) > self.request_timeout)
+                        .map(|(id_key, _)| id_key.clone())
+                        .collect();
+
+                    for id_key in timed_out {
+                        pending_requests.remove(&id_key);
+                        // Parse the id back from its serialized form
+                        let id: Value = serde_json::from_str(&id_key).unwrap_or(Value::Null);
+                        tracing::warn!("Request timed out: id={}", id_key);
+                        let response = json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": {
+                                "code": -32003,
+                                "message": "Request timed out: child MCP server did not respond"
+                            }
+                        });
+                        if let Err(e) = write_message(&mut agent_writer, &response).await {
+                            tracing::error!("Failed to send timeout response: {}", e);
                         }
                     }
                 }
@@ -482,5 +687,19 @@ mod tests {
         let bridge = test_bridge(policies);
         let decision = bridge.evaluate_resource_read(&json!(15), "file:///etc/passwd");
         assert!(matches!(decision, ProxyDecision::Block(_, _)));
+    }
+
+    // --- Request timeout configuration tests ---
+
+    #[test]
+    fn test_with_timeout_configures_bridge() {
+        let bridge = test_bridge(vec![]).with_timeout(Duration::from_secs(60));
+        assert_eq!(bridge.request_timeout, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn test_default_timeout_is_30_seconds() {
+        let bridge = test_bridge(vec![]);
+        assert_eq!(bridge.request_timeout, Duration::from_secs(30));
     }
 }

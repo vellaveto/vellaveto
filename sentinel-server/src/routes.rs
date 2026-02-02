@@ -1,6 +1,6 @@
 use axum::{
-    extract::{Path, Request, State},
-    http::{header, Method, StatusCode},
+    extract::{DefaultBodyLimit, Path, Request, State},
+    http::{header, HeaderValue, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
@@ -17,6 +17,10 @@ use tower_http::trace::TraceLayer;
 use crate::AppState;
 
 pub fn build_router(state: AppState) -> Router {
+    // Build CORS layer from configured origins.
+    // Default (empty vec) = localhost only. "*" = any origin.
+    let cors = build_cors_layer(&state.cors_origins);
+
     Router::new()
         .route("/health", get(health))
         .route("/api/evaluate", post(evaluate))
@@ -35,14 +39,34 @@ pub fn build_router(state: AppState) -> Router {
             state.clone(),
             require_api_key,
         ))
+        .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit))
+        .layer(DefaultBodyLimit::max(1_048_576)) // 1 MB max request body
         .layer(TraceLayer::new_for_http())
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
-                .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]),
-        )
+        .layer(cors)
         .with_state(state)
+}
+
+fn build_cors_layer(origins: &[String]) -> CorsLayer {
+    let base = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]);
+
+    if origins.iter().any(|o| o == "*") {
+        base.allow_origin(Any)
+    } else if origins.is_empty() {
+        // Strict default: localhost only
+        base.allow_origin([
+            "http://localhost".parse::<HeaderValue>().unwrap(),
+            "http://127.0.0.1".parse::<HeaderValue>().unwrap(),
+            "http://[::1]".parse::<HeaderValue>().unwrap(),
+        ])
+    } else {
+        let allowed: Vec<HeaderValue> = origins
+            .iter()
+            .filter_map(|o| o.parse::<HeaderValue>().ok())
+            .collect();
+        base.allow_origin(allowed)
+    }
 }
 
 /// Middleware that requires API key authentication for mutating (non-GET) requests.
@@ -93,7 +117,7 @@ struct HealthResponse {
 }
 
 async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
-    let count = state.policies.read().await.len();
+    let count = state.policies.load().len();
     Json(HealthResponse {
         status: "ok".to_string(),
         policies_loaded: count,
@@ -117,7 +141,7 @@ async fn evaluate(
     State(state): State<AppState>,
     Json(action): Json<Action>,
 ) -> Result<Json<EvaluateResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let policies = state.policies.read().await;
+    let policies = state.policies.load();
 
     let verdict = state
         .engine
@@ -174,18 +198,21 @@ async fn evaluate(
 }
 
 async fn list_policies(State(state): State<AppState>) -> Json<Vec<Policy>> {
-    let policies = state.policies.read().await;
-    Json(policies.clone())
+    let policies = state.policies.load();
+    Json(policies.as_ref().clone())
 }
 
 async fn add_policy(
     State(state): State<AppState>,
     Json(policy): Json<Policy>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    let mut policies = state.policies.write().await;
     let id = policy.id.clone();
-    policies.push(policy);
-    PolicyEngine::sort_policies(&mut policies);
+    state.policies.rcu(|old| {
+        let mut new = old.as_ref().clone();
+        new.push(policy.clone());
+        PolicyEngine::sort_policies(&mut new);
+        new
+    });
     tracing::info!("Added policy: {}", id);
     (StatusCode::CREATED, Json(json!({"added": id})))
 }
@@ -194,10 +221,12 @@ async fn remove_policy(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    let mut policies = state.policies.write().await;
-    let before = policies.len();
-    policies.retain(|p| p.id != id);
-    let removed = before - policies.len();
+    let old = state.policies.load();
+    let before = old.len();
+    let mut new_policies = old.as_ref().clone();
+    new_policies.retain(|p| p.id != id);
+    let removed = before - new_policies.len();
+    state.policies.store(std::sync::Arc::new(new_policies));
 
     if removed > 0 {
         tracing::info!("Removed {} policy(ies) with id: {}", removed, id);
@@ -228,7 +257,7 @@ async fn reload_policies(
     let mut new_policies = policy_config.to_policies();
     PolicyEngine::sort_policies(&mut new_policies);
     let count = new_policies.len();
-    *state.policies.write().await = new_policies;
+    state.policies.store(std::sync::Arc::new(new_policies));
     tracing::info!("Reloaded {} policies from {}", count, config_path);
 
     Ok(Json(json!({"reloaded": count, "config": config_path})))
@@ -411,4 +440,42 @@ async fn deny_approval(
         )
     })?;
     Ok(Json(value))
+}
+
+/// Middleware that enforces per-category rate limits.
+///
+/// Categories:
+/// - **evaluate**: POST /api/evaluate
+/// - **admin**: All other non-GET/OPTIONS requests (policy changes, approvals)
+/// - **readonly**: GET requests (health, audit, policy listing)
+///
+/// Returns 429 Too Many Requests when the rate limit is exceeded.
+async fn rate_limit(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    let limiter = categorize_rate_limit(&state.rate_limits, request.method(), request.uri().path());
+
+    if let Some(limiter) = limiter {
+        if limiter.check().is_err() {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(json!({"error": "Rate limit exceeded. Try again later."})),
+            )
+                .into_response();
+        }
+    }
+
+    next.run(request).await
+}
+
+fn categorize_rate_limit<'a>(
+    limits: &'a crate::RateLimits,
+    method: &Method,
+    path: &str,
+) -> Option<&'a governor::DefaultDirectRateLimiter> {
+    if path == "/api/evaluate" && method == Method::POST {
+        limits.evaluate.as_ref()
+    } else if method != Method::GET && method != Method::OPTIONS {
+        limits.admin.as_ref()
+    } else {
+        limits.readonly.as_ref()
+    }
 }

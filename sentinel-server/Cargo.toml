@@ -24,6 +24,7 @@ thiserror = { workspace = true }
 chrono = { workspace = true }
 anyhow = { workspace = true }
 
+arc-swap = "1"
 axum = "0.7"
 clap = { version = "4.0", features = ["derive"] }
 toml = "0.8"
@@ -31,6 +32,7 @@ tower-http = { version = "0.5", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tower = "0.5"
+governor = "0.6"
 
 [dev-dependencies]
 tempfile = "3.0"

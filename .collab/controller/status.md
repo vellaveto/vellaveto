@@ -146,10 +146,89 @@ The orchestrator's improvement plan is **structurally sound** but has priority i
 
 ---
 
-## Next Steps
+### 7. Controller MEDIUM Fixes (Phase 2)
 
-1. Resume improvement plan with corrected priorities (Phase 0: remaining MEDIUM findings)
-2. CORS tightening (currently allows Any origin — should be configurable)
-3. Remove remaining `unwrap_or_default()` in routes.rs serialization
-4. Property-based testing for critical paths
-5. Performance benchmarks and profiling
+Direct fixes for remaining MEDIUM findings:
+
+| # | Finding | Fix | File(s) |
+|---|---------|-----|---------|
+| 15/16 | No glob cache | Added GlobMatcher cache | sentinel-engine/src/lib.rs |
+| 18 | Sort stability | Tertiary tiebreak by ID | sentinel-engine/src/lib.rs |
+| 20 | json_depth stack overflow | Iterative with early termination | sentinel-engine + sentinel-audit |
+| 21 | expire_stale not persisted | Persist to JSONL | sentinel-approval/src/lib.rs |
+| 22 | Memory leak in approvals | 1-hour retention cutoff | sentinel-approval/src/lib.rs |
+| 23 | No body size limit | 1MB DefaultBodyLimit | sentinel-server/src/routes.rs |
+| 33 | DNS trailing dot bypass | trim_end_matches('.') | sentinel-engine/src/lib.rs |
+| 34 | No graceful shutdown | SIGTERM/SIGINT handler | sentinel-server/src/main.rs |
+| 35 | No fsync for Deny | sync_data() on Deny | sentinel-audit/src/lib.rs |
+| 37 | Corrupt line kills load | Lenient skip + warn | sentinel-audit/src/lib.rs |
+| 25 | No child startup validation | try_wait + 50ms check | sentinel-proxy/src/main.rs |
+| — | normalize_path not idempotent | Loop-decode until stable | sentinel-engine/src/lib.rs |
+
+**Total MEDIUM fixes by Controller: 12**
+**Total MEDIUM fixes by Instance B: 3** (#31 rate limiting, #32 CORS, #36 log rotation)
+**Test status: 1,499 tests across all suites, 0 failures, 0 clippy warnings.**
+
+**Additional fix — normalize_path idempotency:**
+- Proptest found `normalize_path("/%0%30")` was not idempotent (first pass: `/%00`, second: `/`)
+- Root cause: single-pass percent-decode left partial sequences that combined into new valid sequences
+- Fix: loop-decode until stable (max 5 iterations) before path normalization
+- Updated test from "single-pass" to "fully decoded" — full decode is more secure (prevents multi-layer encoding bypass)
+- All 8 proptests pass, including `normalize_path_is_idempotent`
+
+### 8. Research Agents Deployed
+
+5 background research agents completed with comprehensive findings:
+
+1. **Engine performance:** LRU regex/glob caching (implemented), trailing dot bypass (fixed), UTF-8 path validation
+2. **Approval store:** Persistence on expire (fixed), memory cleanup (fixed), pagination needed, identity tracking
+3. **Server hardening:** Body limit (done), graceful shutdown (done), rate limiting needed, configurable CORS
+4. **MCP protocol:** Findings #27/#28 are dead code (proxy uses Value), framing OOM check timing
+5. **Audit hardening:** sync_data for Deny (done), lenient parsing (done), secret redaction (already done by Instance B), log rotation needed
+
+---
+
+## Remaining Work
+
+### Still Open MEDIUM Findings
+- **#24**: JSON-RPC error responses lack optional `data` field (already spec-compliant with `code` + `message`) — LOW priority
+- ~~**#25**: Proxy doesn't validate child process startup~~ → FIXED by Controller (try_wait + 50ms check)
+- ~~**#31**: No rate limiting on endpoints~~ → FIXED by Instance B (governor-based per-category rate limiting)
+- ~~**#32**: CORS allows Any origin~~ → FIXED by Instance B (configurable via SENTINEL_CORS_ORIGINS)
+- ~~**#36**: Audit log rotation (unbounded file growth)~~ → FIXED by Instance B (100MB default, timestamped rotation)
+
+### Still Open LOW Findings
+- **#38**: No request ID tracking/correlation
+- **#39**: Missing prometheus/metrics endpoint
+- Various polish items
+
+### Active Instances
+- **Controller** (this): Security fixes, research, coordination
+- **New research instance**: Web research focused (noted by user 2026-02-02)
+
+### 9. Web Research Phase (New Controller Instance)
+
+**Date:** 2026-02-02
+**Focus:** MCP specification evolution, competitive landscape, strategic improvements
+
+Deployed 5 parallel research agents and conducted direct web research on:
+1. **MCP spec 2025-11-25** — Major changes: Streamable HTTP transport, tool annotations, OAuth 2.1, elicitation, structured outputs
+2. **OWASP MCP Top 10** — Published vulnerability categories for MCP; identified gaps in Sentinel coverage (MCP03 tool poisoning, MCP06 prompt injection in responses)
+3. **Competitive landscape** — MCP gateways emerging as category (Lasso Security, Prisma AIRS); Sentinel has strong differentiators (tamper-evident audit, Rust performance)
+4. **Real-world incidents** — CVE-2025-6514 (mcp-remote command injection, 437k downloads), tool poisoning attacks (Invariant Labs WhatsApp exfiltration)
+5. **Industry stats** — 43% of MCP server implementations have command injection flaws, 30% permit unrestricted URL fetching
+
+**Full research report:** `controller/research/mcp-spec-and-landscape.md`
+
+**Key finding:** Sentinel's single biggest gap vs. market is **no Streamable HTTP transport support** — limits to local-only deployments while the market moves to remote/cloud MCP servers.
+
+**Directive C-8 issued** with research-based strategic improvements (tool annotations, response inspection, Streamable HTTP).
+
+### Next Steps
+1. Complete remaining C-7 items (CORS, rate limiting, log rotation)
+2. **C-8.2 (Instance B):** Tool annotation awareness — highest-value, lowest-effort improvement
+3. **C-8.3 (Instance B):** Response inspection for prompt injection — critical OWASP MCP06 coverage
+4. **C-8.5 (Orchestrator):** Update improvement plan with Phases 8-9
+5. **Phase 9:** Streamable HTTP transport — biggest market-relevance gap
+6. Performance benchmarks and profiling
+7. Expand property-based testing coverage

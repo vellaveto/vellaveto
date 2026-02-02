@@ -1,15 +1,15 @@
 use anyhow::{Context, Result};
+use arc_swap::ArcSwap;
 use clap::{Parser, Subcommand};
 use sentinel_approval::ApprovalStore;
 use sentinel_audit::AuditLogger;
 use sentinel_canonical::CanonicalPolicies;
 use sentinel_config::PolicyConfig;
 use sentinel_engine::PolicyEngine;
-use sentinel_server::{routes, AppState};
+use sentinel_server::{routes, AppState, RateLimits};
 use sentinel_types::{Action, Policy};
 use serde_json::json;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 #[derive(Parser)]
 #[command(
@@ -130,13 +130,78 @@ async fn cmd_serve(port: u16, config: String, bind: String) -> Result<()> {
         tracing::warn!("No SENTINEL_API_KEY set — mutating endpoints are unauthenticated");
     }
 
+    // Configure per-category rate limits from environment variables.
+    // Set to 0 or omit to disable rate limiting for a category.
+    let rate_limits = Arc::new(RateLimits::new(
+        std::env::var("SENTINEL_RATE_EVALUATE")
+            .ok()
+            .and_then(|s| s.parse().ok()),
+        std::env::var("SENTINEL_RATE_ADMIN")
+            .ok()
+            .and_then(|s| s.parse().ok()),
+        std::env::var("SENTINEL_RATE_READONLY")
+            .ok()
+            .and_then(|s| s.parse().ok()),
+    ));
+
+    if rate_limits.evaluate.is_some()
+        || rate_limits.admin.is_some()
+        || rate_limits.readonly.is_some()
+    {
+        tracing::info!(
+            "Rate limiting enabled — evaluate: {}, admin: {}, readonly: {}",
+            rate_limits
+                .evaluate
+                .as_ref()
+                .map_or("off".to_string(), |_| std::env::var(
+                    "SENTINEL_RATE_EVALUATE"
+                )
+                .unwrap_or_default()),
+            rate_limits
+                .admin
+                .as_ref()
+                .map_or("off".to_string(), |_| std::env::var("SENTINEL_RATE_ADMIN")
+                    .unwrap_or_default()),
+            rate_limits
+                .readonly
+                .as_ref()
+                .map_or("off".to_string(), |_| std::env::var(
+                    "SENTINEL_RATE_READONLY"
+                )
+                .unwrap_or_default()),
+        );
+    }
+
+    // Parse CORS allowed origins from environment variable.
+    // Default (unset or empty): localhost only. Set to "*" for any origin.
+    // Comma-separated list: "https://app.example.com,https://admin.example.com"
+    let cors_origins: Vec<String> = std::env::var("SENTINEL_CORS_ORIGINS")
+        .ok()
+        .map(|s| {
+            s.split(',')
+                .map(|o| o.trim().to_string())
+                .filter(|o| !o.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if cors_origins.is_empty() {
+        tracing::info!("CORS: localhost only (strict default)");
+    } else if cors_origins.iter().any(|o| o == "*") {
+        tracing::warn!("CORS: allowing ANY origin (SENTINEL_CORS_ORIGINS=*)");
+    } else {
+        tracing::info!("CORS: allowed origins: {:?}", cors_origins);
+    }
+
     let state = AppState {
         engine: Arc::new(PolicyEngine::new(false)),
-        policies: Arc::new(RwLock::new(policies)),
+        policies: Arc::new(ArcSwap::from_pointee(policies)),
         audit,
         config_path: Arc::new(config),
         approvals: approvals.clone(),
         api_key,
+        rate_limits,
+        cors_origins,
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -162,8 +227,12 @@ async fn cmd_serve(port: u16, config: String, bind: String) -> Result<()> {
 
     tracing::info!("Sentinel server listening on {}:{}", bind, port);
 
-    axum::serve(listener, app).await.context("Server error")?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .context("Server error")?;
 
+    tracing::info!("Server shut down gracefully");
     Ok(())
 }
 
@@ -258,6 +327,35 @@ fn cmd_policies(preset: String) -> Result<()> {
 
     println!("{}", toml_str);
     Ok(())
+}
+
+/// Wait for SIGTERM or SIGINT (Ctrl+C) for graceful shutdown.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            tracing::info!("Received SIGINT, starting graceful shutdown...");
+        },
+        _ = terminate => {
+            tracing::info!("Received SIGTERM, starting graceful shutdown...");
+        },
+    }
 }
 
 fn extract_tool_pattern(id: &str) -> String {

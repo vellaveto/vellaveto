@@ -20,11 +20,11 @@ The Sentinel codebase is functional and well-tested (1,385 tests passing). Both 
 
 ---
 
-## Phase 0: Security Hardening (CRITICAL -- Fix Immediately)
+## Phase 0: Security Hardening (CRITICAL) -- COMPLETE
 
-**Status: ACTIVE -- All feature work halted per Directive C-1.**
+**Status: COMPLETE -- All 14 CRITICAL/HIGH findings fixed and verified. Phases 1+ unblocked.**
 
-This phase addresses all 7 CRITICAL and 7 HIGH vulnerabilities found by the Controller's security audit. No other work proceeds until these are resolved.
+This phase addressed all 7 CRITICAL and 7 HIGH vulnerabilities found by the Controller's security audit. 32 regression tests verify all fixes.
 
 ### 0.1 Hash Chain Bypass -- Hashless Entries Accepted (CRITICAL #1)
 **Assigned to:** Instance B (Directive C-2)
@@ -119,51 +119,37 @@ This phase addresses all 7 CRITICAL and 7 HIGH vulnerabilities found by the Cont
 
 ---
 
-## Phase 1: Protocol Compliance (HIGH -- After Phase 0)
+## Phase 1: Protocol Compliance -- COMPLETE
 
-**Status: BLOCKED by Phase 0**
-
-### 1.1 MCP JSON-RPC 2.0 Compliance (Directive C-6)
-**Assigned to:** Instance B
-
-- **Fix #27:** Change `McpRequest.id` from `String` to `serde_json::Value` (JSON-RPC 2.0 allows string, number, or null)
-- **Fix #28:** Add `"jsonrpc": "2.0"` field to `McpResponse` (mandatory per spec)
-- **Fix #29:** Change denial error code from `-32600` to custom app error in `-32000` to `-32099` range
-- **Fix #30:** After `child.kill().await`, call `child.wait().await` to reap the process
+### 1.1 MCP JSON-RPC 2.0 Compliance (Directive C-6) -- COMPLETE
+Instance B completed all 4 items (P-B1 through P-B4): id type verified, jsonrpc field verified, error codes fixed (-32001/-32002), child process reaped.
 
 ---
 
-## Phase 2: Performance Hot Path (MEDIUM -- After Security Is Correct)
-
-**Status: BLOCKED by Phase 0**
+## Phase 2: Performance Hot Path -- COMPLETE
 
 ### 2.1 Cache Compiled Regex Patterns -- COMPLETE
-Instance B implemented bounded HashMap cache (max 1000 entries) in Task B2.
+Instance B implemented bounded HashMap cache (max 1000 entries).
 
-### 2.2 Replace `glob` with `globset` for Multi-Pattern Matching
-**Assigned to:** Instance B
-**Problem:** The `glob` crate compiles patterns on every call. `globset` pre-compiles and uses Aho-Corasick internally.
-**Solution:** Replace `glob = "0.3"` with `globset = "0.4"` in `sentinel-engine/Cargo.toml`. Refactor `eval_glob_constraint()` and `eval_not_glob_constraint()`.
-**Impact:** 10-100x speedup for glob matching
+### 2.2 Replace `glob` with `globset` -- COMPLETE
+Instance B migrated from glob to globset with Aho-Corasick multi-pattern matching.
 
-### 2.3 Pre-Sort Policies Once, Not Per Evaluation
-**Assigned to:** Instance B
-**Problem:** `evaluate_action()` sorts policies on every call — O(n log n) per request.
-**Solution:** Sort once at load/reload time. Store pre-sorted `Vec<Policy>`.
+### 2.3 Pre-Sort Policies at Load Time -- COMPLETE
+Instance B implemented O(n) is_sorted check + sort at boundaries.
 
 ---
 
 ## Phase 3: Audit Hardening (MEDIUM -- After Security Is Correct)
 
-**Status: BLOCKED by Phase 0 (hash chain must be correct first)**
+**Status: ACTIVE (Phase 0 complete, hash chain verified)**
 
 ### 3.1 Decouple Audit Logging from Request Path
 **Problem:** Audit logging is in the evaluate handler's hot path. File I/O adds 5-10ms to P99.
 **Solution:** Use `tokio::sync::mpsc` channel to background writer task.
 **Impact:** Reduces P99 evaluate latency by 5-10ms
 
-### 3.2 Merkle Tree for O(log n) Verification -- DEFERRED
-**Reason for deferral:** Per Controller Directive C-5, the linear hash chain has fundamental bugs (findings 1-4) that must be fixed first. A Merkle tree built on broken foundations is worse than a correct linear chain. Resume this item ONLY after Phase 0 hash chain fixes are verified.
+### 3.2 Merkle Tree for O(log n) Verification -- DEFERRED (LOW PRIORITY)
+Hash chain is now fixed (Phase 0 complete). Merkle tree would enable O(log n) inclusion/consistency proofs. Deferred as low priority — the linear chain is correct and sufficient for current scale.
 
 ### 3.3 Sensitive Value Redaction in Audit Logs
 **Problem:** Full Action parameters (potentially containing API keys, passwords) are logged.
@@ -193,9 +179,8 @@ Instance B implemented `get_param_by_path()` with dot-separated JSON path traver
 **Problem:** Proxy doesn't track pending request IDs. Hanging child servers block indefinitely.
 **Solution:** `HashMap<Value, Instant>` with configurable timeout (30s default).
 
-### 5.2 Resource Read Interception
-**Problem:** Proxy only intercepts `tools/call`. `resources/read` can also access files/URIs.
-**Solution:** Extend `classify_message()` to recognize `resources/read` and evaluate URI.
+### 5.2 Resource Read Interception -- COMPLETE
+Instance B implemented `MessageType::ResourceRead` in extractor and `evaluate_resource_read()` in proxy.
 
 ### 5.3 `kill_on_drop` for Child Process -- COMPLETE
 Orchestrator added `.kill_on_drop(true)` to `sentinel-proxy/src/main.rs`.
@@ -249,12 +234,19 @@ Total new runtime dependencies: 3-4 small crates. Acceptable.
 
 | Item | Completed By | Phase |
 |------|-------------|-------|
-| Regex cache (bounded HashMap, max 1000) | Instance B | 2.1 |
+| All 14 CRITICAL/HIGH security fixes | Instance A + B | 0 |
+| JSON-RPC 2.0 compliance (4 items) | Instance B | 1.1 |
+| Regex cache (bounded HashMap) | Instance B | 2.1 |
+| globset migration (Aho-Corasick) | Instance B | 2.2 |
+| Pre-sort policies at load time | Instance B | 2.3 |
 | Deep parameter inspection (JSON path) | Instance B | 4.1 |
+| Resource read interception | Instance B | 5.2 |
 | `kill_on_drop(true)` on child process | Orchestrator | 5.3 |
 | `is_sorted` deny-override bug fix | Orchestrator | (security) |
 | unwrap() removal in library code | Orchestrator | (quality) |
+| Server auth middleware (Bearer token) | Instance A | 0.7 |
+| Default bind 127.0.0.1 | Instance A | 0.15 |
 
 ---
 
-*This plan will be updated as security fixes are validated.*
+*Last updated: 2026-02-02 — Phase 0-2 complete, assigning Phase 3+ tasks.*

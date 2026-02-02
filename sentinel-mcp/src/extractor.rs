@@ -145,13 +145,18 @@ pub fn make_invalid_response(id: &Value, reason: &str) -> Value {
 ///
 /// Uses custom application error code -32001 (policy denial).
 /// Per JSON-RPC 2.0, -32000 to -32099 are reserved for application-defined errors.
+/// Includes structured `data` field for client diagnostics.
 pub fn make_denial_response(id: &Value, reason: &str) -> Value {
     serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,
         "error": {
             "code": -32001,
-            "message": format!("Denied by policy: {}", reason)
+            "message": format!("Denied by policy: {}", reason),
+            "data": {
+                "type": "policy_denial",
+                "reason": reason
+            }
         }
     })
 }
@@ -159,13 +164,18 @@ pub fn make_denial_response(id: &Value, reason: &str) -> Value {
 /// Build a JSON-RPC error response for a tool call that requires approval.
 ///
 /// Uses custom application error code -32002 (approval required).
+/// Includes structured `data` field for client diagnostics.
 pub fn make_approval_response(id: &Value, reason: &str) -> Value {
     serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,
         "error": {
             "code": -32002,
-            "message": format!("Approval required: {}", reason)
+            "message": format!("Approval required: {}", reason),
+            "data": {
+                "type": "approval_required",
+                "reason": reason
+            }
         }
     })
 }

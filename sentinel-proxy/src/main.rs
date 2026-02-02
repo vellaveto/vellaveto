@@ -31,6 +31,11 @@ struct Cli {
     #[arg(long, default_value_t = false)]
     strict: bool,
 
+    /// Request timeout in seconds (default: 30). Requests forwarded to the child
+    /// server that don't receive a response within this time will be timed out.
+    #[arg(long, default_value_t = 30)]
+    timeout: u64,
+
     /// The MCP server command and arguments (after --)
     #[arg(trailing_var_arg = true, required = true)]
     command: Vec<String>,
@@ -84,14 +89,40 @@ async fn main() -> Result<()> {
         .spawn()
         .context(format!("Failed to spawn child MCP server: {}", child_cmd))?;
 
-    tracing::info!("Spawned child MCP server: {} {:?}", child_cmd, child_args);
+    let child_pid = child.id().unwrap_or(0);
+    tracing::info!(
+        "Spawned child MCP server (PID {}): {} {:?}",
+        child_pid, child_cmd, child_args
+    );
+
+    // Fix #25: Brief startup check — detect immediate crashes (bad binary, missing
+    // deps, wrong architecture) before entering the proxy loop.
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            anyhow::bail!(
+                "Child MCP server exited immediately (PID {}, status: {}). \
+                 Check that '{}' is a valid executable.",
+                child_pid, status, child_cmd
+            );
+        }
+        Ok(None) => {
+            // Still running — good
+            tracing::debug!("Child process {} is running", child_pid);
+        }
+        Err(e) => {
+            tracing::warn!("Could not check child process status: {}", e);
+        }
+    }
 
     let child_stdin = child.stdin.take().context("Failed to get child stdin")?;
     let child_stdout = child.stdout.take().context("Failed to get child stdout")?;
 
-    // Create proxy bridge
+    // Create proxy bridge with configurable timeout
     let engine = PolicyEngine::new(cli.strict);
-    let bridge = ProxyBridge::new(engine, policies, audit);
+    let timeout = std::time::Duration::from_secs(cli.timeout);
+    let bridge = ProxyBridge::new(engine, policies, audit).with_timeout(timeout);
+    tracing::info!("Request timeout: {}s", cli.timeout);
 
     // Run the proxy
     let agent_stdin = tokio::io::stdin();

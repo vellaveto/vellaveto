@@ -1,127 +1,170 @@
 # Controller Directives
 
-## Active Directives
+## Completed Directives
 
 **CONTROLLER ACTIVATED: 2026-02-02**
 **Authority:** These directives override all orchestrator task assignments per hierarchy rules (Controller > Orchestrator > Instance A/B).
 
+**STATUS: ALL DIRECTIVES EXECUTED — Improvement plan Phases 3+ now unblocked.**
+
 ---
 
-### Directive C-1: STOP ALL FEATURE WORK — Fix Security-Breaking Bugs
+### Directive C-1: STOP ALL FEATURE WORK — Fix Security-Breaking Bugs — COMPLETE
 **Priority:** CRITICAL
 **Affects:** All
 **Date:** 2026-02-02
+**Completed:** 2026-02-02
 
-An independent security audit of the full codebase has identified **7 CRITICAL vulnerabilities** that completely defeat core security guarantees. No new features, performance optimizations, or refactoring should be undertaken until these are resolved.
-
-Full audit report: `orchestrator/issues/external-audit-report.md`
-
-**Action Required:**
-- [ ] ALL instances: Read the external audit report immediately
-- [ ] Orchestrator: Halt improvement plan execution (Phases 1-6 are paused)
-- [ ] Instance B: Fix findings 1-6 (your code, you know it best) — see Directive C-2
-- [ ] Instance A: Fix finding 7 (server auth) and write regression tests — see Directive C-3
+- [x] ALL instances: Read the external audit report immediately
+- [x] Orchestrator: Halt improvement plan execution (Phases 1-6 are paused)
+- [x] Instance B: Fix findings 1-6 (your code, you know it best) — see Directive C-2
+- [x] Instance A: Fix finding 7 (server auth) and write regression tests — see Directive C-3
 
 ---
 
-### Directive C-2: Instance B — Fix CRITICAL Audit/Engine/MCP Bugs
+### Directive C-2: Instance B — Fix CRITICAL Audit/Engine/MCP Bugs — COMPLETE
 **Priority:** CRITICAL
 **Affects:** Instance B
 **Date:** 2026-02-02
+**Completed:** 2026-02-02
 
-Fix these in order. Each fix MUST include a regression test. Do not proceed to next fix until the previous one compiles and passes tests.
+All 9 fixes implemented and verified:
 
-**Action Required:**
-
-- [ ] **Fix #1 — Hash chain bypass (sentinel-audit:209-213):** Once a hashed entry appears in the chain, all subsequent entries MUST have hashes. `verify_chain()` must reject hashless entries that appear after the first hashed entry. Do NOT reset `prev_hash` to `None` for legacy entries.
-
-- [ ] **Fix #2 — Hash chain field separators (sentinel-audit:99-106):** Add length-prefixed encoding to `compute_entry_hash()`. Each field must be preceded by its length as a `u64` little-endian. This prevents field-boundary-shift collisions.
-
-- [ ] **Fix #3 — initialize_chain trusts file (sentinel-audit:81-88):** Call `verify_chain()` inside `initialize_chain()` before trusting the last entry's hash. If verification fails, log a warning and start a new chain segment (don't silently chain from a forged hash).
-
-- [ ] **Fix #4 — last_hash before file write (sentinel-audit:140):** Move `*last_hash_guard = Some(hash.clone())` to AFTER `file.flush().await?` succeeds. If the write fails, the in-memory hash must not advance.
-
-- [ ] **Fix #5 — Empty tool name bypass (sentinel-mcp/extractor.rs:49-53):** When `name` is missing or not a string, return `MessageType::PassThrough` (which will still be forwarded, but won't match any tool policies). Better: add a new error variant `MessageType::Invalid` that returns an error response to the agent.
-
-- [ ] **Fix #6 — Unbounded read_line (sentinel-mcp/framing.rs:15-18):** Add a `MAX_LINE_LENGTH` constant (1MB = 1_048_576 bytes). Check `buf.len()` after each `read_line` call. If it exceeds the limit, return a `FramingError::LineTooLong` error.
-
-- [ ] **Fix #8 — extract_domain `@` bypass (sentinel-engine:818-820):** Only search for `@` in the authority portion (before the first `/` after scheme). Use `rfind('@')` on the authority only.
-
-- [ ] **Fix #9 — normalize_path empty fallback (sentinel-engine:799-804):** When normalization produces an empty string, return `/` (root) instead of the raw input. The raw input contains the traversal sequences that normalization was supposed to remove.
-
-- [ ] **Fix #14 — Empty line kills proxy (sentinel-mcp/framing.rs:25-28):** Change empty line handling from `return Ok(None)` to `continue` (loop back to read next line). Only return `Ok(None)` on actual EOF.
+- [x] **Fix #1 — Hash chain bypass:** Hashless entries rejected after first hashed entry
+- [x] **Fix #2 — Hash chain field separators:** Length-prefixed encoding added
+- [x] **Fix #3 — initialize_chain trusts file:** Chain verified on init
+- [x] **Fix #4 — last_hash before file write:** Hash update moved after flush
+- [x] **Fix #5 — Empty tool name bypass:** Returns `MessageType::Invalid`
+- [x] **Fix #6 — Unbounded read_line:** MAX_LINE_LENGTH (1MB) enforced
+- [x] **Fix #8 — extract_domain `@` bypass:** Authority-only `@` search
+- [x] **Fix #9 — normalize_path empty fallback:** Returns `/` on empty
+- [x] **Fix #14 — Empty line kills proxy:** Continue loop on empty lines
 
 ---
 
-### Directive C-3: Instance A — Server Auth + Regression Tests
+### Directive C-3: Instance A — Server Auth + Regression Tests — COMPLETE
 **Priority:** CRITICAL
 **Affects:** Instance A
 **Date:** 2026-02-02
+**Completed:** 2026-02-02
 
-**Action Required:**
-
-- [ ] **Fix #7 — Add authentication to server endpoints:** Add API key authentication (via `Authorization: Bearer <key>` header) as Tower middleware for all mutating endpoints (`POST`, `PUT`, `DELETE`). Read-only endpoints (`GET /api/health`, `GET /api/audit/entries`) may remain unauthenticated. The API key should be configurable via environment variable `SENTINEL_API_KEY` or config file. Replace `CorsLayer::permissive()` with `CorsLayer::new()` with explicit allowed origins (configurable).
-
-- [ ] **Fix #26 — Default bind to 127.0.0.1:** Change the default bind address from `0.0.0.0` to `127.0.0.1` in `sentinel-server/src/main.rs`. Keep `0.0.0.0` available via CLI flag `--bind` for explicit opt-in.
-
-- [ ] **Write regression tests for ALL CRITICAL/HIGH findings (1-14).** Each test must:
-  1. Demonstrate the vulnerability (the attack succeeds before the fix)
-  2. Verify the fix blocks the attack
-  3. Be placed in `sentinel-integration/tests/security_regression.rs`
+- [x] **Fix #7 — Server authentication:** Bearer token auth middleware via `route_layer`, CORS replaced with explicit config, `SENTINEL_API_KEY` env var
+- [x] **Fix #26 — Default bind to 127.0.0.1:** Default changed, `--bind` flag added
+- [x] **32 regression tests** in `sentinel-integration/tests/security_regression.rs` covering all 14 CRITICAL/HIGH findings
 
 ---
 
-### Directive C-4: Orchestrator — Validate Fixes, Update Status
+### Directive C-4: Orchestrator — Validate Fixes, Update Status — COMPLETE
 **Priority:** HIGH
 **Affects:** Orchestrator
 **Date:** 2026-02-02
+**Completed:** 2026-02-02
 
-**Action Required:**
-
-- [ ] After Instance B submits fixes: run full test suite, verify each CRITICAL finding is addressed
-- [ ] After Instance A submits auth + tests: review the auth middleware design, verify tests are comprehensive
-- [ ] Update `orchestrator/status.md` to reflect the security audit findings
-- [ ] Resume improvement plan execution ONLY after all CRITICAL/HIGH findings are fixed
-- [ ] Update the external audit report with fix status
+- [x] After Instance B submits fixes: run full test suite, verify each CRITICAL finding is addressed
+- [x] After Instance A submits auth + tests: review the auth middleware design, verify tests are comprehensive
+- [x] Update `orchestrator/status.md` to reflect the security audit findings
+- [x] Resume improvement plan execution ONLY after all CRITICAL/HIGH findings are fixed
+- [x] Update the external audit report with fix status
 
 ---
 
-### Directive C-5: Orchestrator Improvement Plan — Corrections
+### Directive C-5: Orchestrator Improvement Plan — Corrections — COMPLETE
 **Priority:** MEDIUM
 **Affects:** Orchestrator
 **Date:** 2026-02-02
+**Completed:** 2026-02-02
 
-The improvement plan (`orchestrator/improvement-plan.md`) is well-structured but has gaps:
-
-1. **Phase 4.3 (kill_on_drop) is already done** — the orchestrator fixed this. Remove from plan or mark complete.
-2. **Phase 1.1 (Regex cache) is already done** — Instance B implemented this (Task B2). Mark complete.
-3. **Phase 2.2 (Merkle tree) is premature** — the linear hash chain has fundamental bugs (findings 1-4) that must be fixed first. A Merkle tree built on broken foundations is worse than a correct linear chain. Defer until hash chain is solid.
-4. **Phase 3.1 (Deep parameter inspection)** is good but must use bracket notation for array access (e.g., `config.items[0].path`), not just dot notation. Also need to handle the case where the path traverses through a JSON array.
-5. **Missing from plan:** The 7 CRITICAL findings. The plan focuses on performance and features but missed security fundamentals. Security fixes must be Phase 0, before everything else.
-
-**Action Required:**
-- [ ] Add "Phase 0: Security Hardening" to improvement plan with findings 1-14
-- [ ] Mark completed items (kill_on_drop, regex cache)
-- [ ] Defer Merkle tree until hash chain is correct
-- [ ] Acknowledge the gap in the original orchestrator audit
+- [x] Add "Phase 0: Security Hardening" to improvement plan with findings 1-14
+- [x] Mark completed items (kill_on_drop, regex cache, globset, pre-sort, deep param inspection, resource read)
+- [x] Defer Merkle tree until hash chain is correct (marked DEFERRED in plan)
+- [x] Acknowledge the gap in the original orchestrator audit (in orchestrator/status.md)
 
 ---
 
-### Directive C-6: MCP Protocol Compliance
+### Directive C-6: MCP Protocol Compliance — COMPLETE
 **Priority:** MEDIUM
 **Affects:** Instance B
 **Date:** 2026-02-02
+**Completed:** 2026-02-02
 
-The MCP proxy has several JSON-RPC 2.0 compliance issues that will cause interoperability failures with real MCP servers:
-
-**Action Required:**
-- [ ] **Fix #27:** Change `McpRequest.id` from `String` to `serde_json::Value` — JSON-RPC 2.0 allows string, number, or null for request IDs
-- [ ] **Fix #28:** Add `"jsonrpc": "2.0"` field to `McpResponse` — mandatory per JSON-RPC 2.0 spec
-- [ ] **Fix #29:** Change denial error code from `-32600` (Invalid Request) to a custom application error code in the range `-32000` to `-32099` (e.g., `-32001` for policy denial, `-32002` for evaluation error)
-- [ ] **Fix #30:** After `child.kill().await`, call `child.wait().await` to reap the process and prevent zombies
+- [x] **Fix #27:** `McpRequest.id` changed to `serde_json::Value`
+- [x] **Fix #28:** `"jsonrpc": "2.0"` field added to `McpResponse`
+- [x] **Fix #29:** Error codes changed to `-32001` (policy denial) / `-32002` (evaluation error)
+- [x] **Fix #30:** Child process reaped after kill (+ `kill_on_drop(true)` by Orchestrator)
 
 ---
 
-## Completed Directives
+### Directive C-7: Remaining MEDIUM Fixes — Phase 3 — COMPLETE
+**Priority:** MEDIUM
+**Affects:** All instances
+**Date:** 2026-02-02
+**Completed:** 2026-02-02
 
-*None yet.*
+**ALL 16 MEDIUM FINDINGS RESOLVED:**
+
+Controller fixed 12 directly: #15/16, #18, #20, #21, #22, #23, #24, #25, #33, #34, #35, #37, plus normalize_path idempotency bug.
+
+Instance B fixed 3: #31 (rate limiting), #32 (CORS), #36 (log rotation).
+
+Instance A contributed: Property-based tests (8 proptests covering evaluate determinism, normalize_path idempotency, extract_domain consistency/lowercase, traversal stripping, path safety).
+
+**Test status: 1,499 tests, 0 failures, 0 clippy warnings.**
+
+---
+
+### Directive C-8: MCP Spec Alignment & Strategic Features (Research-Based)
+**Priority:** HIGH
+**Affects:** All instances
+**Date:** 2026-02-02
+**Source:** Controller web research — see `controller/research/mcp-spec-and-landscape.md`
+
+The MCP specification has evolved to version 2025-11-25 with major new features. The competitive landscape is rapidly forming around "MCP gateways." Sentinel has strong differentiators (tamper-evident audit, parameter constraints, Rust performance) but critical gaps vs. market expectations. OWASP published an MCP Top 10 that identifies gaps in Sentinel's coverage.
+
+**Research findings at:** `controller/research/mcp-spec-and-landscape.md`
+
+#### C-8.1 — Orchestrator: Update Improvement Plan with New Phases
+Add the following to the improvement plan based on research:
+
+**New Phase 8: MCP Spec Alignment (HIGH — Market Relevance)**
+- 8.1 Tool annotation awareness — Intercept `tools/list` responses, extract annotations, use for default policy decisions (destructiveHint=true → require approval). Per MCP spec: "annotations MUST be considered untrusted unless from trusted servers."
+- 8.2 Response inspection — Scan tool results flowing from child to agent for prompt injection patterns. Currently Sentinel only inspects outgoing requests, not responses. Maps to OWASP MCP06.
+- 8.3 Tool definition pinning — Detect when tool schemas/descriptions change between sessions (rug-pull detection). Maps to OWASP MCP03.
+- 8.4 Protocol version awareness — Log and verify the MCP protocol version during `initialize` handshake.
+- 8.5 `sampling/createMessage` interception — Monitor server-to-client LLM requests to prevent exfiltration via sampling.
+
+**New Phase 9: Streamable HTTP Transport (HIGH — Market Relevance)**
+- 9.1 HTTP reverse proxy mode — Act as Streamable HTTP proxy between client and remote MCP server. Single endpoint, POST handling, optional SSE streaming.
+- 9.2 Session management — Handle `Mcp-Session-Id` headers, per-session policy evaluation.
+- 9.3 OAuth 2.1 pass-through — Verify and forward Bearer tokens for HTTP transport.
+- 9.4 `.well-known` server discovery — Support MCP server metadata for auto-configuration.
+
+#### C-8.2 — Instance B: Implement Tool Annotation Awareness (Priority: HIGH)
+This is the highest-value, lowest-effort improvement:
+- [ ] Intercept `tools/list` responses in the proxy relay path (currently passthrough)
+- [ ] Extract tool annotations from each tool definition
+- [ ] Store annotations per tool name in `McpProxy` state
+- [ ] Make annotations available during `evaluate_tool_call()` as context
+- [ ] Log tool annotations in audit entries as metadata
+- [ ] Detect and alert if tool definitions change between `tools/list` calls (rug-pull detection)
+
+**Implementation hint:** In `sentinel-mcp/src/proxy.rs`, the child-to-agent relay currently passes all responses through without inspection. Add a check: if the response is a `tools/list` result, parse and store the tool definitions.
+
+#### C-8.3 — Instance B: Add Response Inspection (Priority: HIGH)
+- [ ] Inspect tool result content flowing from child to agent
+- [ ] Scan for common prompt injection patterns (e.g., "IGNORE ALL PREVIOUS INSTRUCTIONS", "system prompt", known injection prefixes)
+- [ ] Configurable response inspection rules (regex patterns for suspicious content)
+- [ ] Log suspicious responses in audit trail with warning level
+- [ ] Option to block responses matching injection patterns (fail-safe: log-only by default)
+
+#### C-8.4 — Instance A: Add OWASP MCP Top 10 Test Coverage
+- [ ] Add integration tests for OWASP MCP01 (token/secret exposure in audit logs — already covered by redaction, add test)
+- [ ] Add integration tests for OWASP MCP05 (command injection — extend parameter constraint tests)
+- [ ] Add integration tests for OWASP MCP07 (auth — already covered, verify completeness)
+- [ ] Add integration tests for OWASP MCP08 (audit telemetry — already covered, verify completeness)
+- [ ] Document OWASP MCP Top 10 coverage matrix in tests
+
+#### C-8.5 — Orchestrator: Competitive Positioning
+- [ ] Review research report at `controller/research/mcp-spec-and-landscape.md`
+- [ ] Update improvement plan with Phases 8-9
+- [ ] Prioritize: Tool annotations (8.1) and response inspection (8.2) should be next after current C-7 work
+- [ ] Streamable HTTP transport (Phase 9) is the single biggest market-relevance gap — plan architecture

@@ -1,24 +1,24 @@
 //! HTTP route unit tests using axum test utilities.
 //! Tests the full request→response cycle without spawning a real server.
 
+use arc_swap::ArcSwap;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use sentinel_approval::ApprovalStore;
 use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
-use sentinel_server::{routes, AppState};
+use sentinel_server::{routes, AppState, RateLimits};
 use sentinel_types::{Policy, PolicyType};
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;
-use tokio::sync::RwLock;
 use tower::ServiceExt;
 
 fn make_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
         engine: Arc::new(PolicyEngine::new(false)),
-        policies: Arc::new(RwLock::new(vec![
+        policies: Arc::new(ArcSwap::from_pointee(vec![
             Policy {
                 id: "file:read".to_string(),
                 name: "Allow file reads".to_string(),
@@ -39,6 +39,8 @@ fn make_state() -> (AppState, TempDir) {
             std::time::Duration::from_secs(900),
         )),
         api_key: None,
+        rate_limits: Arc::new(RateLimits::disabled()),
+        cors_origins: vec![],
     };
     (state, tmp)
 }
@@ -47,7 +49,7 @@ fn make_empty_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
         engine: Arc::new(PolicyEngine::new(false)),
-        policies: Arc::new(RwLock::new(vec![])),
+        policies: Arc::new(ArcSwap::from_pointee(vec![])),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -55,6 +57,8 @@ fn make_empty_state() -> (AppState, TempDir) {
             std::time::Duration::from_secs(900),
         )),
         api_key: None,
+        rate_limits: Arc::new(RateLimits::disabled()),
+        cors_origins: vec![],
     };
     (state, tmp)
 }
@@ -289,7 +293,7 @@ async fn add_policy_increases_count() {
         resp.status()
     );
 
-    let count = policies.read().await.len();
+    let count = policies.load().len();
     assert_eq!(count, 3, "Should have 3 policies after adding one");
 }
 
@@ -323,7 +327,7 @@ async fn remove_policy_by_simple_id() {
         resp.status()
     );
 
-    let count = policies.read().await.len();
+    let count = policies.load().len();
     assert_eq!(count, 1, "Should have 1 policy after removing one");
 }
 
@@ -432,7 +436,7 @@ priority = 1
 
     let state = AppState {
         engine: Arc::new(PolicyEngine::new(false)),
-        policies: Arc::new(RwLock::new(vec![])),
+        policies: Arc::new(ArcSwap::from_pointee(vec![])),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new(config_path.to_str().unwrap().to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -440,6 +444,8 @@ priority = 1
             std::time::Duration::from_secs(900),
         )),
         api_key: None,
+        rate_limits: Arc::new(RateLimits::disabled()),
+        cors_origins: vec![],
     };
     let policies = state.policies.clone();
     let app = routes::build_router(state);
@@ -454,9 +460,9 @@ priority = 1
         resp.status()
     );
 
-    let count = policies.read().await.len();
+    let count = policies.load().len();
     assert_eq!(count, 1, "Should have 1 policy after reload");
-    assert_eq!(policies.read().await[0].name, "Reloaded");
+    assert_eq!(policies.load()[0].name, "Reloaded");
 }
 
 // ═══════════════════════════════════

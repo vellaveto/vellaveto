@@ -2,24 +2,24 @@
 //! Tests the full request→response cycle without spawning a real server.
 //! Requires sentinel-server to export AppState and routes via lib.rs.
 
+use arc_swap::ArcSwap;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use sentinel_approval::ApprovalStore;
 use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
-use sentinel_server::{routes, AppState};
+use sentinel_server::{routes, AppState, RateLimits};
 use sentinel_types::{Policy, PolicyType};
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;
-use tokio::sync::RwLock;
 use tower::ServiceExt;
 
 fn make_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
         engine: Arc::new(PolicyEngine::new(false)),
-        policies: Arc::new(RwLock::new(vec![
+        policies: Arc::new(ArcSwap::from_pointee(vec![
             Policy {
                 id: "file:read".to_string(),
                 name: "Allow file reads".to_string(),
@@ -40,6 +40,8 @@ fn make_state() -> (AppState, TempDir) {
             std::time::Duration::from_secs(900),
         )),
         api_key: None,
+        rate_limits: Arc::new(RateLimits::disabled()),
+        cors_origins: vec![],
     };
     (state, tmp)
 }
@@ -48,7 +50,7 @@ fn make_empty_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
         engine: Arc::new(PolicyEngine::new(false)),
-        policies: Arc::new(RwLock::new(vec![])),
+        policies: Arc::new(ArcSwap::from_pointee(vec![])),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -56,6 +58,8 @@ fn make_empty_state() -> (AppState, TempDir) {
             std::time::Duration::from_secs(900),
         )),
         api_key: None,
+        rate_limits: Arc::new(RateLimits::disabled()),
+        cors_origins: vec![],
     };
     (state, tmp)
 }
@@ -354,7 +358,7 @@ async fn add_policy_increases_policy_count() {
     );
 
     // Verify count increased
-    let count = state.policies.read().await.len();
+    let count = state.policies.load().len();
     assert_eq!(count, 3, "Should have 3 policies after adding one");
 }
 
@@ -374,7 +378,7 @@ async fn delete_policy_removes_it() {
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
-    let count = state.policies.read().await.len();
+    let count = state.policies.load().len();
     assert_eq!(count, 1, "Should have 1 policy after deleting one");
 }
 
@@ -398,7 +402,7 @@ async fn delete_nonexistent_policy_returns_ok_but_no_change() {
         StatusCode::INTERNAL_SERVER_ERROR,
         "Deleting nonexistent policy should not be a server error"
     );
-    let count = state.policies.read().await.len();
+    let count = state.policies.load().len();
     assert_eq!(count, 2, "Count unchanged when deleting nonexistent policy");
 }
 
@@ -505,7 +509,7 @@ priority = 1
 
     let state = AppState {
         engine: Arc::new(PolicyEngine::new(false)),
-        policies: Arc::new(RwLock::new(vec![])),
+        policies: Arc::new(ArcSwap::from_pointee(vec![])),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new(config_path.to_str().unwrap().to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -513,6 +517,8 @@ priority = 1
             std::time::Duration::from_secs(900),
         )),
         api_key: None,
+        rate_limits: Arc::new(RateLimits::disabled()),
+        cors_origins: vec![],
     };
     let app = routes::build_router(state.clone());
 
@@ -526,7 +532,7 @@ priority = 1
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
-    let count = state.policies.read().await.len();
+    let count = state.policies.load().len();
     assert_eq!(count, 1, "After reload, should have 1 policy from config");
 }
 
@@ -552,7 +558,7 @@ async fn delete_policy_with_url_encoded_colon() {
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
-    let remaining = state.policies.read().await;
+    let remaining = state.policies.load();
     // "bash:*" should have been removed, leaving only "file:read"
     assert_eq!(remaining.len(), 1, "bash:* should be removed");
     assert_eq!(remaining[0].id, "file:read");

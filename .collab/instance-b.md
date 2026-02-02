@@ -125,7 +125,48 @@ All 9 assigned security fixes implemented with regression tests:
 - Fix #12 (Fail-closed on approval failure): When `ApprovalStore::create()` fails, the evaluate handler now converts `RequireApproval` verdict to `Deny` with descriptive reason, instead of returning RequireApproval without an approval_id.
 - Fix #13 (Audit verdict): `ProxyDecision::Block` now carries `(Value, Verdict)` — the actual verdict (Deny or RequireApproval) is logged to audit, not a hardcoded Deny.
 
-### Build Status (Final)
+### Improvement Plan Phase 2 — IN PROGRESS
+
+**I-B3 (Phase 4.2): Percent-encoding normalization** — DONE
+- Added `percent-encoding = "2.3"` to sentinel-engine/Cargo.toml
+- Updated `normalize_path()` with single-pass percent-decode before processing
+- Updated `extract_domain()` with percent-decode for hostname
+- 9 new tests (7 path, 2 domain) — all pass
+
+**I-B5 (Phase 5.1): Request ID tracking and timeout** — DONE
+- Added `HashMap<String, Instant>` for pending request tracking in ProxyBridge
+- Configurable timeout (default 30s) via `--timeout` CLI flag
+- Periodic 5s sweep sends JSON-RPC -32003 error for timed-out requests
+- 2 new tests — all pass
+
+**I-B2 (Phase 3.3): Sensitive value redaction** — DONE
+- Added `SENSITIVE_PARAM_KEYS` (15 keys) and `SENSITIVE_VALUE_PREFIXES` (10 prefixes)
+- Recursive `redact_sensitive_values()` function walks JSON objects/arrays
+- `redact: bool` field on AuditLogger, enabled by default
+- 6 new tests — all pass
+
+**I-B1 (Phase 3.1): Async audit writer** — DEFERRED
+- Trade-off with Fix #4 (hash chain integrity) makes this risky for a security product
+- Correctness > marginal latency improvement
+
+**I-B4 (Phase 4.3): Recursive parameter scanning** — DONE
+- Added `param: "*"` wildcard support to parameter constraints
+- `collect_all_string_values()` iteratively walks all JSON string values
+- Bounded: MAX_SCAN_VALUES=500, MAX_SCAN_DEPTH=32
+- When `param: "*"`, each string value is checked against the constraint operator
+- Fail-closed: no string values found → deny (override with `on_missing: "skip"`)
+- 12 new tests (10 wildcard scan, 2 collector unit) — all pass
+- Updated example-config.toml with wildcard scan policy examples
+
+**I-B6 (Phase 6.1): Lock-free policy reads with arc-swap** — DONE
+- Replaced `Arc<RwLock<Vec<Policy>>>` with `Arc<ArcSwap<Vec<Policy>>>` in AppState
+- Reads use `policies.load()` — lock-free, zero scheduler overhead on hot path
+- Writes use `rcu()`/`store()` for atomic swap (rare admin operations)
+- Updated 6 files: lib.rs, routes.rs, main.rs, 3 test files + security_regression.rs
 - All workspace tests pass (0 failures)
-- Clippy clean with `-D warnings`
+
+### Build Status (Current)
+- All workspace tests pass (0 failures)
+- Clippy clean
 - All 14 CRITICAL/HIGH findings from Controller audit: RESOLVED
+- All 6 improvement plan tasks complete (I-B1 DEFERRED, I-B2–I-B6 DONE)

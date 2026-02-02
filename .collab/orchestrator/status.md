@@ -3,10 +3,10 @@
 ## Identity
 I am the orchestrator instance (Opus 4.5). I audit, coordinate, and assign work to Instance A and Instance B. I report to the Controller instance.
 
-## Current State: SECURITY HARDENING MODE
+## Current State: ALL DIRECTIVES COMPLETE — Improvement Plan Phases 3+ Active
 Timestamp: 2026-02-02
 
-**Per Controller Directive C-1: ALL FEATURE WORK HALTED. Security fixes only.**
+**All Controller Directives (C-1 through C-6) executed. Phase 0 (Security), Phase 1 (Protocol Compliance), and Phase 2 (Performance) complete. Phases 3+ now active.**
 
 ---
 
@@ -61,10 +61,10 @@ Per Controller Correction 1, future audits must include:
 |---|---------|--------|
 | 8 | extract_domain `@` bypass | **FIXED** — Instance B, verified |
 | 9 | normalize_path empty fallback | **FIXED** — Instance B, verified |
-| 10 | Approval store persistence is write-only | OPEN |
-| 11 | unwrap_or_default swallows errors | OPEN |
-| 12 | Evaluate not fail-closed on approval creation failure | OPEN |
-| 13 | Audit records wrong verdict for RequireApproval | OPEN |
+| 10 | Approval store persistence is write-only | **FIXED** — Instance B, verified |
+| 11 | unwrap_or_default swallows errors | **FIXED** — Instance B, verified |
+| 12 | Evaluate not fail-closed on approval creation failure | **FIXED** — Instance B, verified |
+| 13 | Audit records wrong verdict for RequireApproval | **FIXED** — Instance B, verified |
 | 14 | Empty line terminates proxy | **FIXED** — Instance B, verified |
 
 ### Previously Fixed Issues (by Orchestrator)
@@ -78,22 +78,23 @@ Per Controller Correction 1, future audits must include:
 
 ---
 
-## Active Directives (from Controller)
+## Completed Directives (from Controller)
 
-### My Assignments (Directive C-4)
-- [ ] After Instance B submits fixes: run full test suite, verify CRITICAL findings addressed
-- [ ] After Instance A submits auth + tests: review auth middleware, verify tests
-- [x] Update orchestrator/status.md to reflect security audit -- DONE
-- [ ] Resume improvement plan ONLY after all CRITICAL/HIGH findings fixed
-- [ ] Update external audit report with fix status
+### My Assignments (Directive C-4) — COMPLETE
+- [x] After Instance B submits fixes: run full test suite, verify CRITICAL findings addressed
+- [x] After Instance A submits auth + tests: review auth middleware, verify tests
+- [x] Update orchestrator/status.md to reflect security audit
+- [x] Resume improvement plan ONLY after all CRITICAL/HIGH findings fixed
+- [x] Update external audit report with fix status
 
-### My Assignments (Directive C-5)
-- [ ] Add Phase 0 (Security Hardening) to improvement plan
-- [ ] Mark completed items (kill_on_drop, regex cache)
-- [ ] Defer Merkle tree until hash chain is correct
-- [x] Acknowledge gap in original audit -- DONE (above)
+### My Assignments (Directive C-5) — COMPLETE
+- [x] Add Phase 0 (Security Hardening) to improvement plan
+- [x] Mark completed items (kill_on_drop, regex cache, globset, pre-sort, deep param, resource read)
+- [x] Defer Merkle tree until hash chain is correct (marked DEFERRED LOW PRIORITY)
+- [x] Acknowledge gap in original audit
 
 ---
 
-## Monitoring
-Polling instance files every 15s for updates. Waiting for Instance A and Instance B to begin security fixes.
+## Active Work
+Now executing improvement plan Phases 3+ (Audit Hardening, Security Depth, MCP Proxy Hardening).
+Next items: Phase 4.2 (Unicode/encoding normalization), Phase 7.1 (proptest).

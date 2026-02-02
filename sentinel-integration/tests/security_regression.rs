@@ -336,23 +336,23 @@ async fn finding_6_normal_sized_line_accepted() {
 // ═══════════════════════════════════════════════════
 
 mod server_auth {
+    use arc_swap::ArcSwap;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use sentinel_approval::ApprovalStore;
     use sentinel_audit::AuditLogger;
     use sentinel_engine::PolicyEngine;
-    use sentinel_server::{routes, AppState};
+    use sentinel_server::{routes, AppState, RateLimits};
     use sentinel_types::{Policy, PolicyType};
     use std::sync::Arc;
     use tempfile::TempDir;
-    use tokio::sync::RwLock;
     use tower::ServiceExt;
 
     fn make_authed_state(api_key: &str) -> (AppState, TempDir) {
         let tmp = TempDir::new().unwrap();
         let state = AppState {
             engine: Arc::new(PolicyEngine::new(false)),
-            policies: Arc::new(RwLock::new(vec![Policy {
+            policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
                 id: "file:read".to_string(),
                 name: "Allow file reads".to_string(),
                 policy_type: PolicyType::Allow,
@@ -365,6 +365,8 @@ mod server_auth {
                 std::time::Duration::from_secs(900),
             )),
             api_key: Some(Arc::new(api_key.to_string())),
+            rate_limits: Arc::new(RateLimits::disabled()),
+            cors_origins: vec![],
         };
         (state, tmp)
     }
@@ -467,7 +469,7 @@ mod server_auth {
         let tmp = TempDir::new().unwrap();
         let state = AppState {
             engine: Arc::new(PolicyEngine::new(false)),
-            policies: Arc::new(RwLock::new(vec![])),
+            policies: Arc::new(ArcSwap::from_pointee(vec![])),
             audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
             config_path: Arc::new("test.toml".to_string()),
             approvals: Arc::new(ApprovalStore::new(
@@ -475,6 +477,8 @@ mod server_auth {
                 std::time::Duration::from_secs(900),
             )),
             api_key: None, // No key configured
+            rate_limits: Arc::new(RateLimits::disabled()),
+            cors_origins: vec![],
         };
         let app = routes::build_router(state);
 
@@ -676,7 +680,6 @@ fn finding_9_traversal_at_root_absorbed() {
 // ═══════════════════════════════════════════════════
 
 #[tokio::test]
-#[ignore = "Finding #10 OPEN: ApprovalStore persistence is write-only, doesn't reload on restart"]
 async fn finding_10_approvals_survive_restart() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("approvals.jsonl");
@@ -701,26 +704,17 @@ async fn finding_10_approvals_survive_restart() {
         "Approval store must persist to file"
     );
 
-    // "Restart" — create new store from same path
+    // "Restart" — create new store from same path and reload from file
     let store2 = sentinel_approval::ApprovalStore::new(path, std::time::Duration::from_secs(900));
+    store2
+        .load_from_file()
+        .await
+        .expect("load_from_file must succeed");
 
-    // The pending approval should be visible after restart.
-    // NOTE: Finding #10 (approval persistence is write-only) may still be OPEN.
-    // If the store doesn't reload from disk, this test documents the gap.
+    // The pending approval should be visible after restart + reload
     let pending = store2.list_pending().await;
-    let survived = pending.iter().any(|a| a.id == id);
-    if !survived {
-        // Document the known issue — persistence file exists but store doesn't reload
-        eprintln!(
-            "KNOWN ISSUE (Finding #10): Approval '{}' did not survive restart. \
-             Persistence file exists but ApprovalStore does not reload on construction.",
-            id
-        );
-    }
-    // This assertion will fail until Finding #10 is fixed.
-    // When it starts passing, remove this comment.
     assert!(
-        survived,
+        pending.iter().any(|a| a.id == id),
         "Approval '{}' must survive store restart (Finding #10). Got: {:?}",
         id,
         pending.iter().map(|a| &a.id).collect::<Vec<_>>()

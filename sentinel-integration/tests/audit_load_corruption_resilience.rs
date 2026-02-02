@@ -1,7 +1,7 @@
 //! Tests AuditLogger::load_entries behavior when the log file contains
-//! corrupted or non-JSON lines. Currently the implementation fails hard
-//! on the first bad line (serde_json::from_str returns Err, propagated via ?).
-//! These tests document that behavior — they will break if resilience is added.
+//! corrupted or non-JSON lines. The implementation is lenient: corrupt lines
+//! are skipped with a warning, and valid entries are still returned.
+//! This ensures a single corrupt line cannot make the entire audit log unreadable.
 
 use sentinel_audit::AuditLogger;
 use sentinel_types::{Action, Verdict};
@@ -27,9 +27,9 @@ fn make_action() -> Action {
 // CORRUPTED LOG FILE: LOAD BEHAVIOR
 // ══════════════════════════════════════
 
-/// A completely garbage file causes load_entries to fail.
+/// A completely garbage file returns empty entries (corrupt lines skipped).
 #[test]
-fn load_entries_fails_on_garbage_file() {
+fn load_entries_skips_garbage_file() {
     let rt = runtime();
     rt.block_on(async {
         let tmp = TempDir::new().unwrap();
@@ -41,18 +41,18 @@ fn load_entries_fails_on_garbage_file() {
             .unwrap();
 
         let logger = AuditLogger::new(log_path);
-        let result = logger.load_entries().await;
+        let entries = logger.load_entries().await.unwrap();
         assert!(
-            result.is_err(),
-            "Garbage file should cause load_entries to fail"
+            entries.is_empty(),
+            "Garbage file should return empty entries (corrupt lines skipped)"
         );
     });
 }
 
-/// Valid entries followed by a corrupted line: load_entries fails,
-/// and ALL entries (including valid ones before the corruption) are lost.
+/// Valid entries followed by a corrupted line: load_entries skips the
+/// corrupt line and still returns the valid entries.
 #[test]
-fn corruption_after_valid_entries_loses_all_data() {
+fn corruption_after_valid_entries_preserves_valid_data() {
     let rt = runtime();
     rt.block_on(async {
         let tmp = TempDir::new().unwrap();
@@ -84,19 +84,20 @@ fn corruption_after_valid_entries_loses_all_data() {
         file.write_all(b"CORRUPTED LINE\n").await.unwrap();
         file.flush().await.unwrap();
 
-        // Now load_entries should fail — the two valid entries are inaccessible
-        let result = logger.load_entries().await;
-        assert!(
-            result.is_err(),
-            "Corrupted line after valid entries should cause load failure"
+        // Valid entries should still be accessible despite the corrupt line
+        let entries = logger.load_entries().await.unwrap();
+        assert_eq!(
+            entries.len(),
+            2,
+            "Valid entries should be preserved when corrupt lines are skipped"
         );
     });
 }
 
-/// generate_report also fails when the underlying log is corrupted,
-/// since it delegates to load_entries.
+/// generate_report returns empty results when all lines are corrupt,
+/// since corrupt lines are skipped by load_entries.
 #[test]
-fn generate_report_fails_on_corrupted_log() {
+fn generate_report_handles_corrupted_log() {
     let rt = runtime();
     rt.block_on(async {
         let tmp = TempDir::new().unwrap();
@@ -108,13 +109,13 @@ fn generate_report_fails_on_corrupted_log() {
             .await
             .unwrap();
 
-        // Corrupt the file
+        // Overwrite with garbage
         tokio::fs::write(&log_path, "not json\n").await.unwrap();
 
-        let result = logger.generate_report().await;
-        assert!(
-            result.is_err(),
-            "Report generation should fail on corrupted log"
+        let report = logger.generate_report().await.unwrap();
+        assert_eq!(
+            report.total_entries, 0,
+            "Corrupt log should produce empty report, not failure"
         );
     });
 }
