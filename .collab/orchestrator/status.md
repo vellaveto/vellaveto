@@ -7,18 +7,17 @@ I am the orchestrator instance (Opus 4.5). I audit, coordinate, and assign work 
 Timestamp: 2026-02-02
 
 ### Build
-- `cargo test --workspace` — **1,587 tests pass, 0 failures**
+- `cargo test --workspace` — **1,591 tests pass, 0 failures**
 - `cargo clippy --workspace --all-targets` — clean (0 warnings)
 - `cargo check --workspace` — clean
 
-### All Directives Complete (C-1 through C-11)
-All 39 security audit findings resolved. All cross-reviews submitted and analyzed.
+### All Directives Complete (C-1 through C-12)
+All 39 security audit findings resolved. All cross-reviews submitted and analyzed. C-12 task assignments complete for all instances.
 
 ### C-12 Orchestrator Work — COMPLETE
-- **Signed checkpoints wired into server** — Ed25519 signing key loaded from `SENTINEL_SIGNING_KEY` env (hex) or auto-generated, `with_signing_key()` builder chained on AuditLogger, periodic checkpoint task (every 300s configurable via `SENTINEL_CHECKPOINT_INTERVAL`)
-- **3 checkpoint endpoints** — `GET /api/audit/checkpoints` (list), `GET /api/audit/checkpoints/verify` (verify chain), `POST /api/audit/checkpoint` (on-demand create)
-- **Unicode sanitization fix** — Both proxies: zero-width chars replaced with spaces (not stripped) to preserve word boundaries for injection pattern matching; added space collapsing
-- **Pre-existing test failure fixed** — `test_inspect_detects_through_unicode_evasion` in sentinel-mcp
+- **Signed checkpoints wired into server** — Ed25519 signing key from `SENTINEL_SIGNING_KEY` env or auto-generated, periodic checkpoint task (every 300s), 3 HTTP endpoints
+- **Unicode sanitization fix** — Both proxies: invisible chars → space (not stripped), space collapsing added
+- **Cross-review test gaps closed** — 3 regression tests for Findings #4, #11, #12
 
 ---
 
@@ -38,8 +37,8 @@ All 39 security audit findings resolved. All cross-reviews submitted and analyze
 | 9.3 | OAuth 2.1 | NOT STARTED |
 | 10.1 | Pre-compiled policies (wired into server) | COMPLETE |
 | 10.2 | Security headers | COMPLETE |
-| 10.3 | Signed audit checkpoints (Ed25519) wired into server | COMPLETE (Instance B + Orchestrator) |
-| 10.4 | Evaluation traces | DESIGNED, not implemented |
+| 10.3 | Signed audit checkpoints wired into server | COMPLETE (Instance B + Orchestrator) |
+| 10.4 | Evaluation traces | **COMPLETE (Instance A)** |
 | 10.5 | Policy index by tool name | COMPLETE (Instance B) |
 
 ---
@@ -48,9 +47,9 @@ All 39 security audit findings resolved. All cross-reviews submitted and analyze
 
 | Instance | Current Work | Available? |
 |----------|-------------|------------|
-| Instance A | C-12 tasks (integration tests, rug-pull parity) | IN PROGRESS |
-| Instance B | C-12 tasks (heartbeat, McpInterceptor, eval trace) | IN PROGRESS |
-| Controller | Review and research | Available |
+| Instance A | C-12 ALL DONE (integration tests + rug-pull + Phase 10.4) | YES |
+| Instance B | Last seen: Phase 10.5 done | Unknown |
+| Controller | Added 12 HTTP tests, fixed Unicode bug | Available |
 | Performance Instance | All 9 optimization phases done | Available |
 
 ---
@@ -59,13 +58,13 @@ All 39 security audit findings resolved. All cross-reviews submitted and analyze
 
 1. Proxy intercepts MCP calls, enforces policies, logs everything — DONE
 2. Credential exfiltration attack blocked (OWASP tests) — DONE
-3. Tamper-evident audit (hash chain + Ed25519 checkpoints) — DONE (now wired into server)
+3. Tamper-evident audit (hash chain + Ed25519 checkpoints) — DONE
 4. <20ms latency (<5ms P99 confirmed by benchmarks) — DONE
 5. README gets user running in <5 minutes — **MAIN GAP**
 6. Zero warnings, clean clippy — DONE
 
 ### Priority Work Items
-1. **README/documentation** (unassigned — **MAIN BLOCKER to "done"**)
-2. **Phase 10.4: Evaluation traces** (designed, suggested Instance B)
-3. **Phase 9.3: OAuth 2.1** (not started, suggested Instance A)
-4. ~~Test coverage gaps — Findings #4, #11, #12~~ — **DONE** (3 tests added)
+1. **README/documentation** (unassigned — **ONLY BLOCKER to "done"**)
+2. **Phase 9.3: OAuth 2.1** (not started, suggested Instance A)
+3. **Phase 10.6: Heartbeat entries** (not started, suggested Instance B)
+4. **McpInterceptor trait extraction** (not started, suggested Instance B)
