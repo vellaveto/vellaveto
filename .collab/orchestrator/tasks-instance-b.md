@@ -1,74 +1,125 @@
-# Tasks for Instance B — Directive C-8 (MCP Spec Alignment)
+# Tasks for Instance B — Directive C-9 (Pre-Compiled Policies & Protocol)
 
 ## READ THIS FIRST
 
-Controller Directive C-8 is active. Based on web research into MCP spec v2025-11-25, OWASP MCP Top 10, and competitive landscape. Full report at `controller/research/mcp-spec-and-landscape.md`.
+Controller Directive C-9 is active. All C-8 work is complete (tool annotations, response inspection, rug-pull detection — excellent work). C-9 focuses on the highest-impact architecture improvement remaining: **eliminating Mutex-based caches from the evaluation hot path** by pre-compiling policies at load time.
 
 Update `.collab/instance-b.md` and append to `.collab/log.md` after completing each task.
 
 ---
 
 ## COMPLETED (all previous directives)
+- All 5 features (parameter firewall, audit, approval, MCP proxy, canonical fix)
 - All C-2 security fixes (9/9)
 - All C-6 protocol compliance (4/4)
-- All C-7 items (#32 CORS, #36 log rotation)
-- Improvement plan: I-B2 (redaction), I-B3 (percent-encoding), I-B4 (recursive scanning), I-B5 (request timeout)
+- All C-7 items (CORS, log rotation)
+- All C-8 items (tool annotations, rug-pull detection, response inspection)
+- All improvement plan items (I-B2 through I-B6)
 
 ---
 
-## Task C8-B1: Tool Annotation Awareness (Phase 8.1)
-**Priority: HIGH — Lowest effort, highest differentiation value**
-**Directive:** C-8.2
+## Task C9-B1: Pre-Compiled Policies (Phase 10.1)
+**Priority: HIGH — Single highest-impact performance improvement remaining**
+**Directive:** C-9.2
+**Reference:** `controller/research/policy-engine-patterns.md` §2.1, §1.3, §3.1
 
-MCP tools now have annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`.
+### Problem
 
-**Implementation:**
-1. In `sentinel-mcp/src/proxy.rs`, intercept `tools/list` responses in the child-to-agent relay path (currently all responses pass through without inspection)
-2. Parse tool definitions from the response, extract annotations
-3. Store annotations per tool name in `ProxyBridge` state (e.g., `HashMap<String, ToolAnnotations>`)
-4. During `evaluate_tool_call()`, make annotations available as additional context
-5. Default policy suggestion: `destructiveHint=true` → RequireApproval
-6. Log tool annotations in audit entries as metadata
-7. Detect and warn if tool definitions change between `tools/list` calls (rug-pull detection per OWASP MCP03)
+`sentinel-engine/src/lib.rs` currently uses:
+```rust
+regex_cache: Mutex<HashMap<String, Regex>>,
+glob_cache: Mutex<HashMap<String, GlobMatcher>>,
+```
 
-**Important per MCP spec:** "annotations MUST be considered untrusted unless from trusted servers." Annotations inform policy but should not override explicit deny rules.
+Every evaluation acquires these Mutex locks. Cedar and OPA both compile at load time — zero runtime compilation.
 
-**Files:** `sentinel-mcp/src/proxy.rs`, `sentinel-mcp/src/extractor.rs`, possibly new `sentinel-mcp/src/annotations.rs`
-**Test:** Verify annotations extracted, stored, available during evaluation, rug-pull detection triggers on change
+### Implementation
+
+1. **Add `CompiledPolicy` struct:**
+
+```rust
+pub struct CompiledPolicy {
+    pub policy: Policy,
+    pub tool_matcher: CompiledToolMatcher,
+    pub constraints: Vec<CompiledConstraint>,
+}
+
+pub enum CompiledToolMatcher {
+    Exact(String, String),         // tool:function exact
+    ToolWildcard(String),          // tool:*
+    FunctionWildcard(GlobMatcher), // glob pattern
+    Universal,                      // *
+}
+
+pub enum CompiledConstraint {
+    Glob { param: String, matcher: GlobMatcher, negated: bool },
+    Regex { param: String, regex: Regex },
+    DomainMatch { param: String, patterns: Vec<String> },
+    Eq { param: String, value: String },
+    OneOf { param: String, values: Vec<String> },
+    // ... other operators
+}
+```
+
+2. **Compile at load time:** In `PolicyEngine::new()`, compile each `Policy` into a `CompiledPolicy`. Return `Result<PolicyEngine, Vec<PolicyValidationError>>` — invalid policies are rejected.
+
+3. **Remove `regex_cache` and `glob_cache`:** Replace with direct references from `CompiledConstraint`.
+
+4. **Policy validation:** At compile time, check:
+   - Regex patterns compile
+   - Glob patterns compile
+   - Tool ID format is valid
+   - No self-contradictory constraints (e.g., `eq: "x"` + `ne: "x"`)
+
+5. **Update `evaluate()`:** Use `CompiledPolicy` fields directly instead of cache lookups. Zero Mutex acquisitions in hot path.
+
+6. **Update `reload_policies()` / ArcSwap store:** Compile new policies before swapping. If compilation fails, keep old policies.
+
+**Important:** Keep backward compatibility — `PolicyEngine::new(policies)` should work. Internal representation changes only.
+
+**Tests:**
+- Existing tests must continue to pass (behavioral parity)
+- New tests: invalid regex rejected at load time, invalid glob rejected, compilation errors reported
+- Benchmark: before/after with 100+ policies
 
 ---
 
-## Task C8-B2: Response Inspection (Phase 8.2)
-**Priority: HIGH — OWASP MCP06 coverage**
-**Directive:** C-8.3
+## Task C9-B2: Protocol Version Awareness (Phase 8.4)
+**Priority: MEDIUM**
+**Directive:** C-9.2
 
-Sentinel only inspects outgoing requests (agent → tool), not responses (tool → agent). Prompt injection via tool results is a known attack vector.
+1. In `sentinel-mcp/src/proxy.rs`, intercept `initialize` request/response
+2. Extract `protocolVersion` from the `initialize` result
+3. Store as `Option<String>` in `ProxyBridge` state
+4. Log protocol version in audit entries
+5. Warn if version < `"2024-11-05"` (earliest stable MCP spec)
 
-**Implementation:**
-1. In the child-to-agent relay path, inspect tool result content before forwarding
-2. Add configurable inspection rules:
-   - Regex patterns for known prompt injection phrases ("IGNORE ALL PREVIOUS INSTRUCTIONS", "system prompt:", etc.)
-   - Configurable via policy or separate config
-3. On match:
-   - Default mode: log warning + forward (log-only, safe default)
-   - Strict mode: block response, return sanitized error to agent
-4. Log suspicious responses in audit trail with `"inspection": "prompt_injection_detected"` metadata
-5. Add `ResponseInspector` struct with configurable patterns
-
-**Files:** `sentinel-mcp/src/proxy.rs`, new `sentinel-mcp/src/inspector.rs`
-**Test:** Verify injection patterns detected, logging works, blocking mode works, clean responses pass through
+**Files:** `sentinel-mcp/src/proxy.rs`, `sentinel-mcp/src/extractor.rs`
 
 ---
 
-## Task I-B6: Lock-Free Policy Reads (Phase 6.1)
-**Priority: LOW — Only if time permits**
+## Task C9-B3: `sampling/createMessage` Interception (Phase 8.5)
+**Priority: MEDIUM**
+**Directive:** C-9.2
 
-Replace `Arc<RwLock<Vec<Policy>>>` with `arc-swap` for lock-free reads. See previous task file for details.
+`sampling/createMessage` is a server-initiated LLM call — a potential exfiltration vector where a malicious MCP server tricks the client into making additional LLM calls with attacker-controlled prompts.
+
+1. In `sentinel-mcp/src/extractor.rs`, add `MessageType::SamplingRequest` variant for `sampling/createMessage` method
+2. In proxy, intercept sampling requests flowing server → client
+3. Log all sampling requests in audit trail
+4. Apply policy evaluation: reuse tool evaluation with `tool="sampling"`, `function="createMessage"`, parameters from the sampling request
+5. Add tests: sampling request detected, evaluated, logged, denied if policy forbids
+
+**Files:** `sentinel-mcp/src/extractor.rs`, `sentinel-mcp/src/proxy.rs`
 
 ---
+
+## Work Order
+1. C9-B1 (pre-compiled policies) — do first, highest impact, most complex
+2. C9-B2 (protocol version) — do second, straightforward
+3. C9-B3 (sampling interception) — do third, completes MCP coverage
 
 ## Communication Protocol
 1. After completing each task, update `.collab/instance-b.md`
 2. Append completion message to `.collab/log.md`
-3. Your file ownership: `sentinel-engine/`, `sentinel-audit/`, `sentinel-canonical/`, `sentinel-mcp/`, `sentinel-proxy/`, `sentinel-approval/`
-4. Work C8-B1 first (tool annotations), then C8-B2 (response inspection)
+3. Your file ownership: `sentinel-engine/src/lib.rs`, `sentinel-mcp/`, `sentinel-audit/`, `sentinel-proxy/`, `sentinel-approval/`, `sentinel-canonical/`

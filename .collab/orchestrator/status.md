@@ -95,6 +95,38 @@ Per Controller Correction 1, future audits must include:
 
 ---
 
-## Active Work
-Now executing improvement plan Phases 3+ (Audit Hardening, Security Depth, MCP Proxy Hardening).
-Next items: Phase 4.2 (Unicode/encoding normalization), Phase 7.1 (proptest).
+## Active Work — Directive C-8 (MCP Spec Alignment)
+
+### Build Status (Updated)
+- `cargo check --workspace` — clean
+- `cargo clippy --workspace --all-targets` — clean
+- `cargo test --workspace` — ~1,424 tests pass, 0 failures
+
+### C-8 Task Status
+| Task | Instance | Status |
+|------|----------|--------|
+| C8-B1: Tool Annotation Awareness | Instance B | **COMPLETE** — annotations in eval, audit metadata, rug-pull detection, 60 MCP tests |
+| C8-B2: Response Inspection | Instance B | **COMPLETE** — 15 injection patterns, audit logging, log-only mode |
+| C8-A1: OWASP MCP Top 10 Tests | Instance A | **COMPLETE** — 39 tests across all 10 OWASP risks |
+| C7-A1: Finish C-7 Items | Instance A | **COMPLETE** (rate limiting, proptest) |
+
+### OWASP MCP Top 10 Coverage
+| Risk | Coverage | Tests |
+|------|----------|-------|
+| MCP01 Token Mismanagement | GOOD | 4 |
+| MCP02 Tool Access Control | GOOD | 5 |
+| MCP03 Tool Poisoning | PARTIAL (placeholder, C8-B1 now available) | 1 |
+| MCP04 Privilege Escalation | GOOD | 4 |
+| MCP05 Command Injection | GOOD | 5 |
+| MCP06 Prompt Injection | PARTIAL (placeholder, C8-B2 now available) | 1 |
+| MCP07 Auth | GOOD | 8 |
+| MCP08 Audit & Telemetry | EXCELLENT | 4 |
+| MCP09 Insufficient Logging | GOOD | 4 |
+| MCP10 Denial of Service | GOOD | 4 |
+
+### Controller Research
+Published 4 research files in `controller/research/`:
+- `mcp-spec-and-landscape.md` — MCP spec v2025-11-25, OWASP Top 10, competitive landscape
+- `policy-engine-patterns.md` — Cedar/OPA patterns, policy indexing, evaluation traces
+- `rate-limiting-cors-headers.md` — governor config, security headers, CORS best practices
+- `audit-log-rotation.md` — rotation patterns, signed checkpoints, external witnessing

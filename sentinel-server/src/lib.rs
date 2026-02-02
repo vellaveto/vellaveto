@@ -7,7 +7,9 @@ use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
 use sentinel_types::Policy;
 use std::num::NonZeroU32;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 
 /// Per-category rate limiters using governor.
 ///
@@ -50,6 +52,51 @@ impl RateLimits {
     }
 }
 
+/// Operational metrics with atomic counters for lock-free updates.
+pub struct Metrics {
+    pub start_time: Instant,
+    pub evaluations_total: AtomicU64,
+    pub evaluations_allow: AtomicU64,
+    pub evaluations_deny: AtomicU64,
+    pub evaluations_require_approval: AtomicU64,
+    pub evaluations_error: AtomicU64,
+}
+
+impl Default for Metrics {
+    fn default() -> Self {
+        Self {
+            start_time: Instant::now(),
+            evaluations_total: AtomicU64::new(0),
+            evaluations_allow: AtomicU64::new(0),
+            evaluations_deny: AtomicU64::new(0),
+            evaluations_require_approval: AtomicU64::new(0),
+            evaluations_error: AtomicU64::new(0),
+        }
+    }
+}
+
+impl Metrics {
+    pub fn record_evaluation(&self, verdict: &sentinel_types::Verdict) {
+        self.evaluations_total.fetch_add(1, Ordering::Relaxed);
+        match verdict {
+            sentinel_types::Verdict::Allow => {
+                self.evaluations_allow.fetch_add(1, Ordering::Relaxed);
+            }
+            sentinel_types::Verdict::Deny { .. } => {
+                self.evaluations_deny.fetch_add(1, Ordering::Relaxed);
+            }
+            sentinel_types::Verdict::RequireApproval { .. } => {
+                self.evaluations_require_approval.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    pub fn record_error(&self) {
+        self.evaluations_total.fetch_add(1, Ordering::Relaxed);
+        self.evaluations_error.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 /// Shared application state for axum handlers.
 #[derive(Clone)]
 pub struct AppState {
@@ -65,4 +112,6 @@ pub struct AppState {
     /// Allowed CORS origins. Empty vec means localhost only (strict default).
     /// Use `vec!["*".to_string()]` to allow any origin.
     pub cors_origins: Vec<String>,
+    /// Operational metrics counters.
+    pub metrics: Arc<Metrics>,
 }

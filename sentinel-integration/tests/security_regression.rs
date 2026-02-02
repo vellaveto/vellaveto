@@ -342,7 +342,7 @@ mod server_auth {
     use sentinel_approval::ApprovalStore;
     use sentinel_audit::AuditLogger;
     use sentinel_engine::PolicyEngine;
-    use sentinel_server::{routes, AppState, RateLimits};
+    use sentinel_server::{routes, AppState, Metrics, RateLimits};
     use sentinel_types::{Policy, PolicyType};
     use std::sync::Arc;
     use tempfile::TempDir;
@@ -367,6 +367,7 @@ mod server_auth {
             api_key: Some(Arc::new(api_key.to_string())),
             rate_limits: Arc::new(RateLimits::disabled()),
             cors_origins: vec![],
+            metrics: Arc::new(Metrics::default()),
         };
         (state, tmp)
     }
@@ -479,6 +480,7 @@ mod server_auth {
             api_key: None, // No key configured
             rate_limits: Arc::new(RateLimits::disabled()),
             cors_origins: vec![],
+            metrics: Arc::new(Metrics::default()),
         };
         let app = routes::build_router(state);
 

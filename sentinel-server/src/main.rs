@@ -202,6 +202,7 @@ async fn cmd_serve(port: u16, config: String, bind: String) -> Result<()> {
         api_key,
         rate_limits,
         cors_origins,
+        metrics: Arc::new(sentinel_server::Metrics::default()),
     };
 
     tracing::info!("Audit log: {}", audit_path.display());

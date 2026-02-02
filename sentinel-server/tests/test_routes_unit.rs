@@ -6,7 +6,7 @@ use axum::http::{Request, StatusCode};
 use sentinel_approval::ApprovalStore;
 use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
-use sentinel_server::{routes, AppState, RateLimits};
+use sentinel_server::{routes, AppState, Metrics, RateLimits};
 use sentinel_types::{Policy, PolicyType};
 use serde_json::json;
 use std::sync::Arc;
@@ -40,6 +40,7 @@ fn test_state() -> (AppState, TempDir) {
         api_key: None,
         rate_limits: Arc::new(RateLimits::disabled()),
         cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
     };
     (state, tmp)
 }

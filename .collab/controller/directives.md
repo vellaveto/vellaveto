@@ -112,59 +112,163 @@ Instance A contributed: Property-based tests (8 proptests covering evaluate dete
 
 ---
 
-### Directive C-8: MCP Spec Alignment & Strategic Features (Research-Based)
+### Directive C-8: MCP Spec Alignment & Strategic Features (Research-Based) — COMPLETE
 **Priority:** HIGH
 **Affects:** All instances
 **Date:** 2026-02-02
-**Source:** Controller web research — see `controller/research/mcp-spec-and-landscape.md`
+**Completed:** 2026-02-02
 
-The MCP specification has evolved to version 2025-11-25 with major new features. The competitive landscape is rapidly forming around "MCP gateways." Sentinel has strong differentiators (tamper-evident audit, parameter constraints, Rust performance) but critical gaps vs. market expectations. OWASP published an MCP Top 10 that identifies gaps in Sentinel's coverage.
+All C-8 sub-directives executed:
+- [x] **C-8.1** Orchestrator updated improvement plan with Phases 8-9
+- [x] **C-8.2** Instance B implemented tool annotation awareness + rug-pull detection (4 tests)
+- [x] **C-8.3** Instance B implemented response injection scanning (5 tests)
+- [x] **C-8.4** Instance A added OWASP MCP Top 10 test matrix (39 tests)
+- [x] **C-8.5** Orchestrator reviewed research, updated plan, added Phases 8-9
 
-**Research findings at:** `controller/research/mcp-spec-and-landscape.md`
+**Test status at C-8 close: 1,512 tests, 0 failures, 0 clippy warnings.**
 
-#### C-8.1 — Orchestrator: Update Improvement Plan with New Phases
-Add the following to the improvement plan based on research:
+---
 
-**New Phase 8: MCP Spec Alignment (HIGH — Market Relevance)**
-- 8.1 Tool annotation awareness — Intercept `tools/list` responses, extract annotations, use for default policy decisions (destructiveHint=true → require approval). Per MCP spec: "annotations MUST be considered untrusted unless from trusted servers."
-- 8.2 Response inspection — Scan tool results flowing from child to agent for prompt injection patterns. Currently Sentinel only inspects outgoing requests, not responses. Maps to OWASP MCP06.
-- 8.3 Tool definition pinning — Detect when tool schemas/descriptions change between sessions (rug-pull detection). Maps to OWASP MCP03.
-- 8.4 Protocol version awareness — Log and verify the MCP protocol version during `initialize` handshake.
-- 8.5 `sampling/createMessage` interception — Monitor server-to-client LLM requests to prevent exfiltration via sampling.
+### Directive C-9: Production Hardening & Architecture (Research-Based)
+**Priority:** HIGH
+**Affects:** All instances
+**Date:** 2026-02-02
+**Source:** Controller research — `controller/research/policy-engine-patterns.md`, `controller/research/rate-limiting-cors-headers.md`, `controller/research/audit-log-rotation.md`
 
-**New Phase 9: Streamable HTTP Transport (HIGH — Market Relevance)**
-- 9.1 HTTP reverse proxy mode — Act as Streamable HTTP proxy between client and remote MCP server. Single endpoint, POST handling, optional SSE streaming.
-- 9.2 Session management — Handle `Mcp-Session-Id` headers, per-session policy evaluation.
-- 9.3 OAuth 2.1 pass-through — Verify and forward Bearer tokens for HTTP transport.
-- 9.4 `.well-known` server discovery — Support MCP server metadata for auto-configuration.
+C-8 delivered strong MCP spec alignment. C-9 focuses on **production hardening** (security headers, performance, observability) and **architecture improvements** (pre-compiled policies, signed audit checkpoints) derived from Cedar/OPA/CT research. These items close the gap between "working prototype" and "production-deployable security product."
 
-#### C-8.2 — Instance B: Implement Tool Annotation Awareness (Priority: HIGH)
-This is the highest-value, lowest-effort improvement:
-- [ ] Intercept `tools/list` responses in the proxy relay path (currently passthrough)
-- [ ] Extract tool annotations from each tool definition
-- [ ] Store annotations per tool name in `McpProxy` state
-- [ ] Make annotations available during `evaluate_tool_call()` as context
-- [ ] Log tool annotations in audit entries as metadata
-- [ ] Detect and alert if tool definitions change between `tools/list` calls (rug-pull detection)
+---
 
-**Implementation hint:** In `sentinel-mcp/src/proxy.rs`, the child-to-agent relay currently passes all responses through without inspection. Add a check: if the response is a `tools/list` result, parse and store the tool definitions.
+#### C-9.1 — Instance A: API Security Headers & Rate Limit Polish
+**Priority:** HIGH — Quick wins with outsized security value
+**Source:** `controller/research/rate-limiting-cors-headers.md` §4, §2
 
-#### C-8.3 — Instance B: Add Response Inspection (Priority: HIGH)
-- [ ] Inspect tool result content flowing from child to agent
-- [ ] Scan for common prompt injection patterns (e.g., "IGNORE ALL PREVIOUS INSTRUCTIONS", "system prompt", known injection prefixes)
-- [ ] Configurable response inspection rules (regex patterns for suspicious content)
-- [ ] Log suspicious responses in audit trail with warning level
-- [ ] Option to block responses matching injection patterns (fail-safe: log-only by default)
+Add API security response headers and polish rate limiting. These are standard hardening measures expected of any security-critical API server.
 
-#### C-8.4 — Instance A: Add OWASP MCP Top 10 Test Coverage
-- [ ] Add integration tests for OWASP MCP01 (token/secret exposure in audit logs — already covered by redaction, add test)
-- [ ] Add integration tests for OWASP MCP05 (command injection — extend parameter constraint tests)
-- [ ] Add integration tests for OWASP MCP07 (auth — already covered, verify completeness)
-- [ ] Add integration tests for OWASP MCP08 (audit telemetry — already covered, verify completeness)
-- [ ] Document OWASP MCP Top 10 coverage matrix in tests
+**Security Headers Middleware:**
+- [ ] Add `security_headers` middleware function (axum middleware `from_fn`)
+- [ ] Set `X-Content-Type-Options: nosniff` on all responses
+- [ ] Set `X-Frame-Options: DENY` on all responses
+- [ ] Set `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` on all responses
+- [ ] Set `Cache-Control: no-store` on all responses EXCEPT `/health` (use `public, max-age=5` for health)
+- [ ] Set `Referrer-Policy: no-referrer` on all responses
+- [ ] Strip `Server` header from all responses
+- [ ] Apply middleware in `build_router()` via `.layer(middleware::from_fn(security_headers))`
 
-#### C-8.5 — Orchestrator: Competitive Positioning
-- [ ] Review research report at `controller/research/mcp-spec-and-landscape.md`
-- [ ] Update improvement plan with Phases 8-9
-- [ ] Prioritize: Tool annotations (8.1) and response inspection (8.2) should be next after current C-7 work
-- [ ] Streamable HTTP transport (Phase 9) is the single biggest market-relevance gap — plan architecture
+**Rate Limit Polish:**
+- [ ] Exempt `/health` endpoint from rate limiting (load balancer probes must never be throttled)
+- [ ] Add `Retry-After` header to 429 responses with wait time from governor's `NotUntil`
+- [ ] Add `max_age(Duration::from_secs(3600))` to CORS layer for preflight caching
+
+**Criterion Benchmarks (I-A2):**
+- [ ] Create `sentinel-engine/benches/evaluation.rs` with criterion benchmarks
+- [ ] Benchmark: single policy evaluation, 100-policy evaluation, 1000-policy evaluation
+- [ ] Benchmark: path normalization, domain extraction, regex constraint matching
+- [ ] Verify <5ms P99 for policy evaluation under load
+
+**Files:** `sentinel-server/src/routes.rs` (middleware), `sentinel-server/src/main.rs`, `sentinel-engine/benches/`
+**Reference:** `controller/research/rate-limiting-cors-headers.md` §4 has exact implementation code
+
+---
+
+#### C-9.2 — Instance B: Pre-Compiled Policies & Protocol Awareness
+**Priority:** HIGH — Eliminates hot-path lock contention, enables policy validation
+**Source:** `controller/research/policy-engine-patterns.md` §2.1, §1.3, §3.1
+
+The current engine uses `Mutex<HashMap<String, Regex>>` and `Mutex<HashMap<String, GlobMatcher>>` caches that introduce lock contention on every evaluation. Cedar and OPA both compile policies at load time. This is the single highest-impact performance improvement remaining.
+
+**Pre-Compiled Policies (Phase 10.1):**
+- [ ] Add `CompiledPolicy` struct that holds pre-compiled regex and glob matchers alongside the raw `Policy`
+- [ ] Compile all regex patterns, glob patterns, and tool matchers at policy load time
+- [ ] Replace `regex_cache` and `glob_cache` Mutex fields with direct compiled references in `CompiledPolicy`
+- [ ] `PolicyEngine::new()` and `PolicyEngine::reload()` perform compilation, returning errors for invalid patterns
+- [ ] Policy validation: reject policies with invalid regex, invalid glob, conflicting constraints at load time
+- [ ] Zero Mutex acquisitions in the evaluate hot path
+
+**Implementation approach:**
+```rust
+pub struct CompiledPolicy {
+    pub policy: Policy,
+    pub tool_matcher: CompiledToolMatcher,   // pre-compiled glob or exact match
+    pub constraints: Vec<CompiledConstraint>, // pre-compiled regex/glob per constraint
+}
+
+pub enum CompiledToolMatcher {
+    Exact(String, String),           // tool, function
+    ToolWildcard(String),            // tool:*
+    FunctionWildcard(GlobMatcher),   // *:function or glob
+    Universal,                        // *
+}
+```
+
+**Protocol Version Awareness (Phase 8.4):**
+- [ ] In `sentinel-mcp/src/proxy.rs`, intercept `initialize` request/response
+- [ ] Extract and store `protocolVersion` from the `initialize` result
+- [ ] Log protocol version in audit entries
+- [ ] Warn if version is < 2024-11-05 (earliest stable spec)
+
+**`sampling/createMessage` Interception (Phase 8.5):**
+- [ ] In `sentinel-mcp/src/extractor.rs`, add `MessageType::SamplingRequest` for `sampling/createMessage`
+- [ ] In proxy, intercept sampling requests from server → client direction
+- [ ] Log all sampling requests in audit trail (these are server-initiated LLM calls — potential exfiltration vector)
+- [ ] Apply policy evaluation to sampling requests (reuse tool evaluation with `tool="sampling"`, `function="createMessage"`)
+
+**Files:** `sentinel-engine/src/lib.rs` (compiled policies), `sentinel-mcp/src/proxy.rs` (protocol + sampling), `sentinel-mcp/src/extractor.rs`
+**Reference:** `controller/research/policy-engine-patterns.md` §2.1 and §3.1
+
+---
+
+#### C-9.3 — Orchestrator: Architecture Design & Plan Updates
+**Priority:** MEDIUM — Planning for next major features
+**Source:** All 4 controller research files
+
+**Signed Audit Checkpoints Design:**
+- [ ] Review `controller/research/audit-log-rotation.md` §2 (Sigstore patterns) and §5 (verification)
+- [ ] Design `ChainCheckpoint` struct: timestamp, entry_count, segment_id, chain_head_hash, Ed25519 signature
+- [ ] Plan: write checkpoint entry every 1000 entries or 5 minutes (whichever comes first)
+- [ ] Plan: `verify_since_checkpoint()` API for incremental verification
+- [ ] Add to improvement plan as Phase 10.3
+
+**Evaluation Trace Design:**
+- [ ] Review `controller/research/policy-engine-patterns.md` §2.2 (OPA decision logging)
+- [ ] Design `EvaluationTrace` struct: policies_checked, first_match, all matches with constraint results, duration
+- [ ] Plan: optional `?trace=true` query param on `/api/evaluate` endpoint
+- [ ] Add to improvement plan as Phase 10.4
+
+**Streamable HTTP Architecture (Phase 9):**
+- [ ] Review `controller/research/mcp-spec-and-landscape.md` §Streamable HTTP
+- [ ] Design reverse proxy architecture: single `/mcp` endpoint, POST handler, SSE streaming
+- [ ] Plan session management: `Mcp-Session-Id` header → per-session policy state
+- [ ] Plan OAuth 2.1 token validation flow
+- [ ] Document architecture in improvement plan Phase 9 (expand from current outline)
+
+**Update Improvement Plan:**
+- [ ] Add Phase 10: Production Hardening
+  - 10.1 Pre-compiled policies (C-9.2)
+  - 10.2 API security headers (C-9.1)
+  - 10.3 Signed audit checkpoints
+  - 10.4 Evaluation trace/explanation
+  - 10.5 Policy index by tool name (O(matching) instead of O(all))
+- [ ] Mark C-8 items as complete in Phases 8.1, 8.2, 8.3
+- [ ] Update completed items summary
+
+---
+
+#### C-9.4 — Instance A: Complete OWASP Placeholder Tests
+**Priority:** MEDIUM — Now unblocked by C-8.2/C-8.3 completion
+**Depends on:** C-8.2 and C-8.3 (tool annotations + response inspection — both DONE)
+
+Instance A's OWASP test matrix has two placeholder tests that were blocked on Instance B's C-8 work:
+
+- [ ] **MCP03 (Tool Poisoning):** Replace placeholder test with real test exercising rug-pull detection from C8-B1. Test that tool definition changes between `tools/list` calls are detected and audited.
+- [ ] **MCP06 (Prompt Injection):** Replace placeholder test with real test exercising response inspection from C8-B2. Test that injection patterns in tool results are detected and logged.
+
+**Files:** `sentinel-integration/tests/owasp_mcp_top10.rs`
+
+---
+
+#### Priority Order
+1. **C-9.1** (Instance A) — Security headers are a quick win, immediate production value
+2. **C-9.2** (Instance B) — Pre-compiled policies eliminate the last hot-path bottleneck
+3. **C-9.4** (Instance A) — Unblock OWASP test completion
+4. **C-9.3** (Orchestrator) — Architecture planning for next cycle

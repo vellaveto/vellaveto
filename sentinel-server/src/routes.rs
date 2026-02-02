@@ -1,6 +1,6 @@
 use axum::{
     extract::{DefaultBodyLimit, Path, Request, State},
-    http::{header, HeaderValue, Method, StatusCode},
+    http::{header, HeaderName, HeaderValue, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
@@ -11,6 +11,7 @@ use sentinel_engine::PolicyEngine;
 use sentinel_types::{Action, Policy, Verdict};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::sync::atomic::Ordering;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
@@ -35,11 +36,14 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/approvals/:id", get(get_approval))
         .route("/api/approvals/:id/approve", post(approve_approval))
         .route("/api/approvals/:id/deny", post(deny_approval))
+        .route("/api/metrics", get(metrics))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_api_key,
         ))
         .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit))
+        .layer(middleware::from_fn(request_id))
+        .layer(middleware::from_fn(security_headers))
         .layer(DefaultBodyLimit::max(1_048_576)) // 1 MB max request body
         .layer(TraceLayer::new_for_http())
         .layer(cors)
@@ -67,6 +71,53 @@ fn build_cors_layer(origins: &[String]) -> CorsLayer {
             .collect();
         base.allow_origin(allowed)
     }
+}
+
+/// Middleware that adds standard security headers to all responses.
+///
+/// Headers added:
+/// - `X-Content-Type-Options: nosniff` — prevents MIME-type sniffing
+/// - `X-Frame-Options: DENY` — prevents clickjacking via iframes
+/// - `Content-Security-Policy: default-src 'none'` — blocks all content loading (API-only server)
+/// - `Cache-Control: no-store` — prevents caching of sensitive API responses
+async fn security_headers(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        header::HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::HeaderName::from_static("x-frame-options"),
+        HeaderValue::from_static("DENY"),
+    );
+    headers.insert(
+        header::HeaderName::from_static("content-security-policy"),
+        HeaderValue::from_static("default-src 'none'"),
+    );
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+/// Middleware that adds a unique request ID to every response.
+///
+/// Generates a UUID v4 and sets it as the `X-Request-Id` response header.
+/// If the client sends an `X-Request-Id` header, that value is preserved.
+async fn request_id(request: Request, next: Next) -> Response {
+    let incoming_id = request
+        .headers()
+        .get("x-request-id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let mut response = next.run(request).await;
+    let id = incoming_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    if let Ok(val) = HeaderValue::from_str(&id) {
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static("x-request-id"), val);
+    }
+    response
 }
 
 /// Middleware that requires API key authentication for mutating (non-GET) requests.
@@ -148,6 +199,7 @@ async fn evaluate(
         .evaluate_action(&action, &policies)
         .map_err(|e| {
             tracing::error!("Engine evaluation error: {}", e);
+            state.metrics.record_error();
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -176,6 +228,9 @@ async fn evaluate(
     } else {
         (verdict, None)
     };
+
+    // Record metrics
+    state.metrics.record_evaluation(&verdict);
 
     // Log to audit — fire-and-forget on error (don't fail the request)
     if let Err(e) = state
@@ -325,6 +380,24 @@ async fn audit_verify(
         )
     })?;
     Ok(Json(value))
+}
+
+// === Metrics Endpoint ===
+
+async fn metrics(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let m = &state.metrics;
+    let uptime = m.start_time.elapsed();
+    Json(json!({
+        "uptime_seconds": uptime.as_secs(),
+        "policies_loaded": state.policies.load().len(),
+        "evaluations": {
+            "total": m.evaluations_total.load(Ordering::Relaxed),
+            "allow": m.evaluations_allow.load(Ordering::Relaxed),
+            "deny": m.evaluations_deny.load(Ordering::Relaxed),
+            "require_approval": m.evaluations_require_approval.load(Ordering::Relaxed),
+            "error": m.evaluations_error.load(Ordering::Relaxed),
+        }
+    }))
 }
 
 // === Approval Endpoints ===

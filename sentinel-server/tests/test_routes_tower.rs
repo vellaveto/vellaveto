@@ -8,7 +8,7 @@ use axum::http::{Request, StatusCode};
 use sentinel_approval::ApprovalStore;
 use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
-use sentinel_server::{routes, AppState, RateLimits};
+use sentinel_server::{routes, AppState, Metrics, RateLimits};
 use sentinel_types::{Policy, PolicyType};
 use serde_json::json;
 use std::sync::Arc;
@@ -42,6 +42,7 @@ fn make_state() -> (AppState, TempDir) {
         api_key: None,
         rate_limits: Arc::new(RateLimits::disabled()),
         cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
     };
     (state, tmp)
 }
@@ -60,6 +61,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         api_key: None,
         rate_limits: Arc::new(RateLimits::disabled()),
         cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
     };
     (state, tmp)
 }
@@ -519,6 +521,7 @@ priority = 1
         api_key: None,
         rate_limits: Arc::new(RateLimits::disabled()),
         cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
     };
     let app = routes::build_router(state.clone());
 
@@ -562,4 +565,75 @@ async fn delete_policy_with_url_encoded_colon() {
     // "bash:*" should have been removed, leaving only "file:read"
     assert_eq!(remaining.len(), 1, "bash:* should be removed");
     assert_eq!(remaining[0].id, "file:read");
+}
+
+// ════════════════════════════════
+// SECURITY HEADERS
+// ════════════════════════════════
+
+#[tokio::test]
+async fn security_headers_present_on_get() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    let resp = app
+        .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers().get("x-content-type-options").map(|v| v.as_bytes()),
+        Some(b"nosniff".as_slice()),
+        "X-Content-Type-Options header should be 'nosniff'"
+    );
+    assert_eq!(
+        resp.headers().get("x-frame-options").map(|v| v.as_bytes()),
+        Some(b"DENY".as_slice()),
+        "X-Frame-Options header should be 'DENY'"
+    );
+    assert_eq!(
+        resp.headers().get("content-security-policy").map(|v| v.as_bytes()),
+        Some(b"default-src 'none'".as_slice()),
+        "Content-Security-Policy header should be set"
+    );
+    assert_eq!(
+        resp.headers().get("cache-control").map(|v| v.as_bytes()),
+        Some(b"no-store".as_slice()),
+        "Cache-Control header should be 'no-store'"
+    );
+}
+
+#[tokio::test]
+async fn security_headers_present_on_post() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "tool": "file",
+        "function": "read",
+        "parameters": {"path": "/tmp/test"}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers().get("x-content-type-options").map(|v| v.as_bytes()),
+        Some(b"nosniff".as_slice()),
+        "Security headers must be present on POST responses too"
+    );
+    assert_eq!(
+        resp.headers().get("cache-control").map(|v| v.as_bytes()),
+        Some(b"no-store".as_slice()),
+    );
 }

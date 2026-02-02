@@ -1,5 +1,81 @@
 # Shared Log
 
+## 2026-02-02 — Controller (Directive C-9 Issued: Production Hardening & Architecture)
+
+### Directive C-9 Published
+
+C-8 is complete. All sub-directives executed: tool annotations, rug-pull detection, response injection scanning, OWASP test matrix, improvement plan updates. **1,512 tests, 0 failures.**
+
+**Directive C-9** focuses on **production hardening** and **architecture improvements** derived from the 4 controller research reports:
+
+#### C-9.1 — Instance A: API Security Headers & Rate Limit Polish
+- Security response headers middleware (X-Content-Type-Options, X-Frame-Options, CSP, Cache-Control, Referrer-Policy)
+- Rate limit polish: exempt /health, Retry-After header on 429s, CORS max_age
+- Criterion benchmarks for <5ms evaluation validation
+- **Reference:** `controller/research/rate-limiting-cors-headers.md` §4
+
+#### C-9.2 — Instance B: Pre-Compiled Policies & Protocol Awareness
+- **Pre-compiled policies** — eliminate Mutex-based regex/glob caches from hot path. Compile all patterns at load time into `CompiledPolicy` structs. Zero Mutex acquisitions in evaluate(). This is the single highest-impact performance improvement remaining.
+- Protocol version awareness — intercept `initialize` handshake, log MCP protocol version
+- `sampling/createMessage` interception — detect server-initiated LLM calls (exfiltration vector)
+- **Reference:** `controller/research/policy-engine-patterns.md` §2.1, §1.3
+
+#### C-9.3 — Orchestrator: Architecture Design
+- Signed audit checkpoints design (Ed25519, every 1000 entries)
+- Evaluation trace/explanation design (OPA-style decision logging)
+- Streamable HTTP architecture (Phase 9 detailed design)
+- Update improvement plan with Phase 10
+- **Reference:** All 4 research files
+
+#### C-9.4 — Instance A: Complete OWASP Placeholder Tests
+- MCP03 and MCP06 placeholder tests now unblocked by C-8.2/C-8.3 completion
+- Replace with real tests exercising rug-pull detection and response injection scanning
+
+### Task Files Updated
+- `orchestrator/tasks-instance-a.md` — C-9 tasks for Instance A
+- `orchestrator/tasks-instance-b.md` — C-9 tasks for Instance B
+- `controller/directives.md` — C-8 marked COMPLETE, C-9 appended
+
+### Priority Order
+1. C-9.1 (Instance A) — security headers are a quick win
+2. C-9.2 (Instance B) — pre-compiled policies eliminate last hot-path bottleneck
+3. C-9.4 (Instance A) — complete OWASP coverage
+4. C-9.3 (Orchestrator) — architecture planning for next cycle
+
+---
+
+## 2026-02-02 — Instance A (Update 4: Directive C-8.4 — OWASP MCP Top 10)
+
+### Completed
+**Task C8-A1: OWASP MCP Top 10 Test Coverage Matrix**
+
+Created `sentinel-integration/tests/owasp_mcp_top10.rs` with 39 tests mapping to all 10 OWASP MCP risks:
+
+- **MCP01 Token Mismanagement** (4 tests): Verify sensitive keys, value prefixes, nested secrets, and hash chain integrity after redaction.
+- **MCP02 Tool Access Control** (5 tests): Deny rules, no-match deny (fail-closed), empty policy deny, wildcard catch-all, priority override.
+- **MCP03 Tool Poisoning** (1 placeholder): Documented gap — awaiting C8-B1 tool definition pinning.
+- **MCP04 Privilege Escalation** (4 tests): Deny-override at equal priority, lower-priority allow cannot escalate, require_approval for sensitive ops, forbidden_parameters.
+- **MCP05 Command Injection** (5 tests): Path traversal via glob constraints, shell metacharacter regex, domain exfiltration blocking, deep parameter scanning, percent-encoded traversal.
+- **MCP06 Prompt Injection** (1 placeholder): Documented gap — awaiting C8-B2 response inspection.
+- **MCP07 Authentication** (8 tests): All mutating endpoints require auth, wrong key rejected, correct key succeeds, GET endpoints remain open.
+- **MCP08 Audit & Telemetry** (4 tests): Hash chain tamper detection, all entries have hashes + chain links, length-prefixed encoding prevents collisions, verify API endpoint.
+- **MCP09 Insufficient Logging** (4 tests): All verdict types logged, deny reasons preserved, action details preserved, report counts accurate.
+- **MCP10 Denial of Service** (4 tests): Oversized MCP message rejected (LineTooLong), rate limiting rejects excess, normal messages accepted, disabled rate limit allows all.
+
+### Coverage gaps documented
+- MCP03 (Tool Poisoning): Placeholder test until C8-B1 implements tool definition change detection.
+- MCP06 (Prompt Injection): Placeholder test until C8-B2 implements response inspection scanning.
+
+### Test status
+All 39 OWASP tests pass. Full workspace suite: 0 failures.
+
+### Files created/modified
+- `sentinel-integration/tests/owasp_mcp_top10.rs` (NEW — 39 tests)
+- `.collab/instance-a.md` (updated status)
+- `.collab/log.md` (this entry)
+
+---
+
 ## 2026-02-02 — Instance A (Update 3: Directive C-7 work)
 
 ### Completed
@@ -1034,3 +1110,167 @@ Persisted the full findings from all 5 research agents to separate research file
 - **Instance A (OWASP tests):** Read `mcp-spec-and-landscape.md` section 2 for OWASP MCP Top 10 coverage matrix.
 - **Orchestrator (improvement plan):** Read `policy-engine-patterns.md` for Phase 3+ architecture decisions (pre-compiled policies, policy indexing, deny-override mode). Read `audit-log-rotation.md` for Phase 3 audit hardening (bridge entry rotation, signed checkpoints).
 - **All instances:** `rate-limiting-cors-headers.md` has specific API security header recommendations that should be added as a quick win.
+
+---
+
+## 2026-02-02 — Orchestrator (Update 9: C-8 Progress Monitoring)
+
+### Build Validation
+- `cargo check --workspace` — clean
+- `cargo clippy --workspace --all-targets` — clean
+- `cargo test --workspace` — **1,380 tests passing, 0 failures**
+
+### Instance B: C8-B1 + C8-B2 — IN PROGRESS
+Instance B has made significant progress on both C-8 tasks simultaneously:
+
+**C8-B1 (Tool Annotation Awareness):**
+- `evaluate_tool_call()` accepts `ToolAnnotations` parameter
+- `tool_call_audit_metadata()` includes annotations in audit entries
+- Rug-pull detection for tool definition changes (OWASP MCP03)
+- Logging for destructive tool allowance decisions
+- Tests: annotation extraction (3), evaluate with annotations (2), audit metadata (2), non-tools/list handling (1)
+
+**C8-B2 (Response Inspection):**
+- `inspect_response_for_injection()` with 15 prompt injection patterns (OWASP MCP06)
+- Case-insensitive pattern matching on tool result content
+- Tests: injection detection (1), clean response (1), system tag (1), structured content (1), no result field (1)
+
+**Total: 15 new tests added to `sentinel-mcp/src/proxy.rs`. 485 lines of additions.**
+
+### Controller: Research Persistence
+Published detailed research files to `controller/research/`:
+- `policy-engine-patterns.md`, `rate-limiting-cors-headers.md`, `audit-log-rotation.md`
+- Added to previously published `mcp-spec-and-landscape.md`
+
+### Instance A: Status
+No new log updates since Update 3 (rate limiting + proptest). C8-A1 (OWASP tests) task assigned and pending.
+
+### Next
+- Waiting for Instance B to complete C8-B1/B2 and update status
+- Waiting for Instance A to start C8-A1 (OWASP test coverage matrix)
+- Will validate all new tests once instances report completion
+
+---
+
+## 2026-02-02 — Instance B (C-8.2 + C-8.3 Complete)
+
+### Directive C-8.2: Tool Annotation Awareness — COMPLETE
+
+Wired up the existing annotation infrastructure into the live proxy path:
+
+1. **`evaluate_tool_call()` now accepts `annotations: Option<&ToolAnnotations>`** — logs informational warning when allowing destructive tools (destructiveHint=true, readOnlyHint=false)
+2. **`tool_call_audit_metadata()` helper** — enriches audit entries with tool annotation data (readOnlyHint, destructiveHint, idempotentHint, openWorldHint)
+3. **Main proxy loop updated** — passes `known_tool_annotations.get(&tool_name)` to evaluate, uses enriched metadata for both Allow and Block audit paths
+4. **4 new tests:** annotation-aware evaluation, readonly annotation, audit metadata without/with annotations
+
+Previously implemented (already in codebase):
+- `ToolAnnotations` struct and extraction from `tools/list` responses
+- `known_tool_annotations` HashMap tracking in proxy state
+- Rug-pull detection (within-session tool definition changes)
+
+### Directive C-8.3: Response Inspection — COMPLETE
+
+Wired up the existing `inspect_response_for_injection()` into the child-to-agent relay path:
+
+1. **Response scanning active** — every child response is scanned for 15 prompt injection patterns before relay
+2. **Audit logging** — when patterns match, creates audit entry with `function: "response_inspection"`, matched patterns, and response ID
+3. **Log-only mode** — responses are still forwarded (fail-safe: don't block legitimate responses)
+4. **Pre-existing tests** all pass: injection detection, clean response, system tag, structured content, no result field
+
+### Build Status
+- All workspace tests pass (0 failures)
+- All 55 sentinel-mcp tests pass
+- Clippy clean
+
+### Next: Phase 8 Continuation
+Moving to remaining Phase 8 items: protocol version awareness (8.4), sampling/createMessage interception (8.5), and security headers.
+
+---
+
+## 2026-02-02 — Orchestrator (Update 10: C-8 Tasks Complete)
+
+### Validated Completions
+
+**Instance B — C8-B1 (Tool Annotations) + C8-B2 (Response Inspection): VERIFIED**
+- `sentinel-mcp` — 60 tests pass, 0 failures
+- Tool annotation awareness wired into proxy eval and audit paths
+- Response inspection with 15 prompt injection patterns, log-only mode
+- Rug-pull detection for tool definition changes (OWASP MCP03)
+
+**Instance A — C8-A1 (OWASP MCP Top 10 Tests): VERIFIED**
+- `owasp_mcp_top10.rs` — 39 tests pass, 0 failures
+- Full coverage matrix across all 10 OWASP MCP risks
+- MCP03 and MCP06 have placeholder tests (can now be expanded since C8-B1/B2 complete)
+
+### Build Status
+- All workspace tests pass, 0 failures
+- Clippy clean
+
+### Directive C-8 Status: SUBSTANTIALLY COMPLETE
+All 3 assigned tasks (C8-B1, C8-B2, C8-A1) delivered and verified. Remaining Phase 8 items:
+- 8.4 Protocol version awareness — Instance B volunteering
+- 8.5 sampling/createMessage interception — unassigned
+- Instance A can expand MCP03/MCP06 placeholder tests now that B's implementations are in
+
+### Next Actions
+1. Instance A: Expand OWASP MCP03/MCP06 tests to use Instance B's implementations
+2. Instance B: Continue with Phase 8.4/8.5
+3. Remaining improvement plan: I-A2 (criterion benchmarks), I-A3 (structured logging)
+
+---
+
+## 2026-02-02 — Instance B (Phase 8.4 + 8.5 + Security Headers)
+
+### Bug Fix: Duplicate Response Inspection Removed
+Found and removed duplicate `inspect_response_for_injection()` call in child-to-agent relay path (proxy.rs). The function was called twice per child message — once with `Verdict::Allow` and once with `Verdict::Deny`. Removed the second call.
+
+### Phase 8.4: Protocol Version Awareness — COMPLETE
+Implemented MCP protocol version tracking in the proxy:
+
+1. **Initialize request tracking** — when agent sends `initialize`, logs the client's requested `protocolVersion`
+2. **Initialize response interception** — when child responds to `initialize`, extracts and logs:
+   - `result.protocolVersion` (negotiated version)
+   - `result.serverInfo.name` and `result.serverInfo.version`
+   - `result.capabilities`
+3. **Audit entry** — creates audit entry with `function: "protocol_version"` containing all server metadata
+4. **Protocol version tracked** — stored in proxy state, included in subsequent audit metadata (e.g., injection detection entries)
+5. **3 new tests:** initialize request classification, response parsing, protocol version extraction
+
+### Phase 8.5: sampling/createMessage Interception — COMPLETE
+Implemented server-to-client LLM sampling request detection and blocking:
+
+1. **Detection** — child-to-agent messages with `"method": "sampling/createMessage"` are detected
+2. **Blocking** — sampling requests are NOT forwarded to the agent. A JSON-RPC error response is sent back to the server (code -32001)
+3. **Audit logging** — creates audit entry with `function: "sampling_interception"`, request details, `Verdict::Deny`
+4. **Security rationale** — `sampling/createMessage` allows a malicious MCP server to invoke the agent's LLM, potentially for data exfiltration
+5. **3 new tests:** sampling request detection, sampling vs normal response distinction, edge case (no messages array)
+
+### Security Headers for sentinel-server — COMPLETE
+Added standard API security headers via middleware:
+
+1. **`X-Content-Type-Options: nosniff`** — prevents MIME-type sniffing
+2. **`X-Frame-Options: DENY`** — prevents clickjacking
+3. **`Content-Security-Policy: default-src 'none'`** — blocks content loading (API-only server)
+4. **`Cache-Control: no-store`** — prevents caching of sensitive API responses
+5. **2 new tests** in `test_routes_tower.rs`: headers present on GET, headers present on POST
+
+### Files Modified
+- `sentinel-mcp/src/proxy.rs` — Phase 8.4 (protocol version tracking), Phase 8.5 (sampling interception), duplicate fix
+- `sentinel-server/src/routes.rs` — security_headers middleware
+- `sentinel-server/tests/test_routes_tower.rs` — 2 new security header tests
+
+### Build Status
+- All workspace tests pass (0 failures)
+- 60 sentinel-mcp tests pass (up from 55)
+- Clippy clean (0 warnings)
+
+### Summary of All Instance B Work This Session
+| Item | Status |
+|------|--------|
+| Audit log rotation (Fix #36) | COMPLETE |
+| C-8.2 Tool annotation awareness | COMPLETE |
+| C-8.3 Response inspection | COMPLETE |
+| Fix: Duplicate response inspection | COMPLETE |
+| Phase 8.4 Protocol version awareness | COMPLETE |
+| Phase 8.5 sampling/createMessage interception | COMPLETE |
+| Security headers (server) | COMPLETE |

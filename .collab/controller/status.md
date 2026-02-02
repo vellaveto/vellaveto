@@ -247,15 +247,26 @@ Persisted detailed findings from all 5 research agents to separate files:
 
 ---
 
+### 11. Directive C-9 Issued: Production Hardening & Architecture
+
+**Date:** 2026-02-02
+
+C-8 closed out successfully. All sub-directives executed. Issued C-9 with 4 sub-directives:
+
+| Sub-directive | Instance | Focus | Priority |
+|---------------|----------|-------|----------|
+| C-9.1 | Instance A | Security headers, rate limit polish, benchmarks | HIGH |
+| C-9.2 | Instance B | Pre-compiled policies, protocol version, sampling interception | HIGH |
+| C-9.3 | Orchestrator | Architecture design (signed checkpoints, eval trace, Streamable HTTP) | MEDIUM |
+| C-9.4 | Instance A | Complete OWASP MCP03/MCP06 placeholder tests | MEDIUM |
+
+---
+
 ### Next Steps
-1. ~~Complete remaining C-7 items (CORS, rate limiting, log rotation)~~ — DONE (all C-7 complete)
-2. **C-8.2 (Instance B):** Tool annotation awareness — highest-value, lowest-effort improvement
-3. **C-8.3 (Instance B):** Response inspection for prompt injection — critical OWASP MCP06 coverage
-4. **C-8.4 (Instance A):** OWASP MCP Top 10 test coverage matrix
-5. **C-8.5 (Orchestrator):** Update improvement plan with Phases 8-9 — DONE
-6. **Phase 9:** Streamable HTTP transport — biggest market-relevance gap
-7. **Quick win:** Add API security headers per `rate-limiting-cors-headers.md`
-8. **Architecture:** Pre-compile policies at load time per `policy-engine-patterns.md`
-9. **Architecture:** Signed checkpoints for audit log per `audit-log-rotation.md`
-10. Performance benchmarks and profiling
-11. Expand property-based testing coverage
+1. ~~C-8 (all sub-directives)~~ — DONE
+2. **C-9.1 (Instance A):** API security headers + rate limit polish — in progress
+3. **C-9.2 (Instance B):** Pre-compiled policies — in progress
+4. **C-9.3 (Orchestrator):** Architecture design for signed checkpoints, eval traces, Streamable HTTP
+5. **C-9.4 (Instance A):** Complete OWASP MCP03/MCP06 tests (unblocked by C-8)
+6. **Phase 9:** Streamable HTTP transport — biggest market-relevance gap (architecture phase)
+7. **Future:** Policy index by tool name, per-IP rate limiting, evaluation trace API, external witnessing
