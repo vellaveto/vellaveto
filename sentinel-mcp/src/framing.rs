@@ -93,16 +93,16 @@ async fn read_bounded_line<R: tokio::io::AsyncRead + Unpin>(
 }
 
 /// Write a JSON-RPC message followed by a newline to a writer.
+///
+/// Uses `to_vec` to serialize directly to bytes, then appends a newline
+/// and writes the whole buffer in a single `write_all` call.
 pub async fn write_message<W: tokio::io::AsyncWrite + Unpin>(
     writer: &mut W,
     msg: &Value,
 ) -> Result<(), FramingError> {
-    let serialized = serde_json::to_string(msg).map_err(FramingError::Json)?;
-    writer
-        .write_all(serialized.as_bytes())
-        .await
-        .map_err(FramingError::Io)?;
-    writer.write_all(b"\n").await.map_err(FramingError::Io)?;
+    let mut buf = serde_json::to_vec(msg).map_err(FramingError::Json)?;
+    buf.push(b'\n');
+    writer.write_all(&buf).await.map_err(FramingError::Io)?;
     writer.flush().await.map_err(FramingError::Io)?;
     Ok(())
 }

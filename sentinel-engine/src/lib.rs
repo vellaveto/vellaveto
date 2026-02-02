@@ -3,6 +3,7 @@ use thiserror::Error;
 
 use globset::{Glob, GlobMatcher};
 use regex::Regex;
+use std::collections::HashMap;
 use std::path::{Component, PathBuf};
 
 #[derive(Error, Debug)]
@@ -229,6 +230,14 @@ pub struct CompiledPolicy {
     pub forbidden_parameters: Vec<String>,
     pub required_parameters: Vec<String>,
     pub constraints: Vec<CompiledConstraint>,
+    /// Pre-computed "Denied by policy '<name>'" reason string.
+    pub deny_reason: String,
+    /// Pre-computed "Approval required by policy '<name>'" reason string.
+    pub approval_reason: String,
+    /// Pre-computed "Parameter '<p>' is forbidden by policy '<name>'" for each forbidden param.
+    pub forbidden_reasons: Vec<String>,
+    /// Pre-computed "Required parameter '<p>' missing (policy '<name>')" for each required param.
+    pub required_reasons: Vec<String>,
 }
 
 /// The core policy evaluation engine.
@@ -243,6 +252,13 @@ pub struct CompiledPolicy {
 pub struct PolicyEngine {
     strict_mode: bool,
     compiled_policies: Vec<CompiledPolicy>,
+    /// Maps exact tool names to sorted indices in `compiled_policies`.
+    /// Only policies with an exact tool name pattern are indexed here.
+    tool_index: HashMap<String, Vec<usize>>,
+    /// Indices of policies that cannot be indexed by tool name
+    /// (Universal, prefix, suffix, or Any tool patterns).
+    /// Already sorted by position in `compiled_policies` (= priority order).
+    always_check: Vec<usize>,
 }
 
 impl std::fmt::Debug for PolicyEngine {
@@ -250,6 +266,8 @@ impl std::fmt::Debug for PolicyEngine {
         f.debug_struct("PolicyEngine")
             .field("strict_mode", &self.strict_mode)
             .field("compiled_policies_count", &self.compiled_policies.len())
+            .field("indexed_tools", &self.tool_index.len())
+            .field("always_check_count", &self.always_check.len())
             .finish()
     }
 }
@@ -263,6 +281,8 @@ impl PolicyEngine {
         Self {
             strict_mode,
             compiled_policies: Vec::new(),
+            tool_index: HashMap::new(),
+            always_check: Vec::new(),
         }
     }
 
@@ -276,10 +296,32 @@ impl PolicyEngine {
         policies: &[Policy],
     ) -> Result<Self, Vec<PolicyValidationError>> {
         let compiled = Self::compile_policies(policies, strict_mode)?;
+        let (tool_index, always_check) = Self::build_tool_index(&compiled);
         Ok(Self {
             strict_mode,
             compiled_policies: compiled,
+            tool_index,
+            always_check,
         })
+    }
+
+    /// Build a tool-name index for O(matching) evaluation.
+    fn build_tool_index(compiled: &[CompiledPolicy]) -> (HashMap<String, Vec<usize>>, Vec<usize>) {
+        let mut index: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut always_check = Vec::new();
+        for (i, cp) in compiled.iter().enumerate() {
+            match &cp.tool_matcher {
+                CompiledToolMatcher::Universal => always_check.push(i),
+                CompiledToolMatcher::ToolOnly(PatternMatcher::Exact(name)) => {
+                    index.entry(name.clone()).or_default().push(i);
+                }
+                CompiledToolMatcher::ToolAndFunction(PatternMatcher::Exact(name), _) => {
+                    index.entry(name.clone()).or_default().push(i);
+                }
+                _ => always_check.push(i),
+            }
+        }
+        (index, always_check)
     }
 
     /// Compile a set of policies, validating all patterns at load time.
@@ -336,6 +378,22 @@ impl PolicyEngine {
                 }
             };
 
+        let deny_reason = format!("Denied by policy '{}'", policy.name);
+        let approval_reason = format!("Approval required by policy '{}'", policy.name);
+        let forbidden_reasons = forbidden_parameters
+            .iter()
+            .map(|p| format!("Parameter '{}' is forbidden by policy '{}'", p, policy.name))
+            .collect();
+        let required_reasons = required_parameters
+            .iter()
+            .map(|p| {
+                format!(
+                    "Required parameter '{}' missing (policy '{}')",
+                    p, policy.name
+                )
+            })
+            .collect();
+
         Ok(CompiledPolicy {
             policy: policy.clone(),
             tool_matcher,
@@ -343,6 +401,10 @@ impl PolicyEngine {
             forbidden_parameters,
             required_parameters,
             constraints,
+            deny_reason,
+            approval_reason,
+            forbidden_reasons,
+            required_reasons,
         })
     }
 
@@ -791,10 +853,53 @@ impl PolicyEngine {
 
     /// Evaluate an action using pre-compiled policies. Zero Mutex acquisitions.
     /// Compiled policies are already sorted at compile time.
+    ///
+    /// Uses the tool-name index when available: only checks policies whose tool
+    /// pattern could match `action.tool`, plus `always_check` (wildcard/prefix/suffix).
+    /// Falls back to linear scan when no index has been built.
     fn evaluate_with_compiled(&self, action: &Action) -> Result<Verdict, EngineError> {
-        for cp in &self.compiled_policies {
-            if cp.tool_matcher.matches(action) {
-                return self.apply_compiled_policy(action, cp);
+        // If index was built, use it for O(matching) instead of O(all)
+        if !self.tool_index.is_empty() || !self.always_check.is_empty() {
+            let tool_specific = self.tool_index.get(&action.tool);
+            let tool_slice = tool_specific.map(|v| v.as_slice()).unwrap_or(&[]);
+            let always_slice = &self.always_check;
+
+            // Merge two sorted index slices, iterating in priority order
+            let mut ti = 0;
+            let mut ai = 0;
+            loop {
+                let next_idx = match (tool_slice.get(ti), always_slice.get(ai)) {
+                    (Some(&t), Some(&a)) => {
+                        if t <= a {
+                            ti += 1;
+                            t
+                        } else {
+                            ai += 1;
+                            a
+                        }
+                    }
+                    (Some(&t), None) => {
+                        ti += 1;
+                        t
+                    }
+                    (None, Some(&a)) => {
+                        ai += 1;
+                        a
+                    }
+                    (None, None) => break,
+                };
+
+                let cp = &self.compiled_policies[next_idx];
+                if cp.tool_matcher.matches(action) {
+                    return self.apply_compiled_policy(action, cp);
+                }
+            }
+        } else {
+            // No index: linear scan (legacy compiled path)
+            for cp in &self.compiled_policies {
+                if cp.tool_matcher.matches(action) {
+                    return self.apply_compiled_policy(action, cp);
+                }
             }
         }
 
@@ -812,7 +917,7 @@ impl PolicyEngine {
         match &cp.policy.policy_type {
             PolicyType::Allow => Ok(Verdict::Allow),
             PolicyType::Deny => Ok(Verdict::Deny {
-                reason: format!("Denied by policy '{}'", cp.policy.name),
+                reason: cp.deny_reason.clone(),
             }),
             PolicyType::Conditional { .. } => self.evaluate_compiled_conditions(action, cp),
         }
@@ -827,30 +932,24 @@ impl PolicyEngine {
         // Check require_approval first
         if cp.require_approval {
             return Ok(Verdict::RequireApproval {
-                reason: format!("Approval required by policy '{}'", cp.policy.name),
+                reason: cp.approval_reason.clone(),
             });
         }
 
         // Check forbidden parameters
-        for param_str in &cp.forbidden_parameters {
+        for (i, param_str) in cp.forbidden_parameters.iter().enumerate() {
             if action.parameters.get(param_str).is_some() {
                 return Ok(Verdict::Deny {
-                    reason: format!(
-                        "Parameter '{}' is forbidden by policy '{}'",
-                        param_str, cp.policy.name
-                    ),
+                    reason: cp.forbidden_reasons[i].clone(),
                 });
             }
         }
 
         // Check required parameters
-        for param_str in &cp.required_parameters {
+        for (i, param_str) in cp.required_parameters.iter().enumerate() {
             if action.parameters.get(param_str).is_none() {
                 return Ok(Verdict::Deny {
-                    reason: format!(
-                        "Required parameter '{}' missing (policy '{}')",
-                        param_str, cp.policy.name
-                    ),
+                    reason: cp.required_reasons[i].clone(),
                 });
             }
         }
@@ -894,7 +993,7 @@ impl PolicyEngine {
                 )?));
             }
             for (value_path, value_str) in &all_values {
-                let json_val = serde_json::Value::String(value_str.clone());
+                let json_val = serde_json::Value::String((*value_str).to_string());
                 if let Some(verdict) = self.evaluate_compiled_constraint_value(
                     policy, value_path, on_match, &json_val, constraint,
                 )? {
@@ -1396,7 +1495,7 @@ impl PolicyEngine {
                     )?));
                 }
                 for (value_path, value_str) in &all_values {
-                    let json_val = serde_json::Value::String(value_str.clone());
+                    let json_val = serde_json::Value::String((*value_str).to_string());
                     if let Some(verdict) = self.evaluate_single_constraint(
                         policy, value_path, op, on_match, &json_val, obj,
                     )? {
@@ -1891,19 +1990,21 @@ impl PolicyEngine {
         // Without loop decode, inputs like "%2570" produce "%70" on first call,
         // which decodes to "p" on the next call — breaking idempotency.
         // Max 5 iterations prevents DoS from deeply-nested encodings.
-        let mut current = raw.to_string();
+        //
+        // Uses Cow to avoid allocation when no percent sequences are present.
+        let mut current = std::borrow::Cow::Borrowed(raw);
         for _ in 0..5 {
             let decoded = percent_encoding::percent_decode_str(&current).decode_utf8_lossy();
             if decoded.contains('\0') {
                 return "/".to_string();
             }
-            if decoded.as_ref() == current.as_str() {
+            if decoded.as_ref() == current.as_ref() {
                 break; // Stable — no more percent sequences to decode
             }
-            current = decoded.into_owned();
+            current = std::borrow::Cow::Owned(decoded.into_owned());
         }
 
-        let path = PathBuf::from(&current);
+        let path = PathBuf::from(current.as_ref());
         let mut components = Vec::new();
 
         for component in path.components() {
@@ -1927,7 +2028,7 @@ impl PolicyEngine {
         }
 
         let result: PathBuf = components.iter().collect();
-        let s = result.to_string_lossy().to_string();
+        let s = result.to_string_lossy();
         if s.is_empty() {
             // Fix #9: Return "/" (root) instead of the raw input when normalization
             // produces an empty string. The raw input contains the traversal sequences
@@ -1935,7 +2036,7 @@ impl PolicyEngine {
             return "/".to_string();
         }
 
-        s
+        s.into_owned()
     }
 
     /// Extract the domain from a URL string.
@@ -1985,23 +2086,54 @@ impl PolicyEngine {
         let decoded_host = percent_encoding::percent_decode_str(host).decode_utf8_lossy();
         // Fix #33: Strip trailing dot (DNS FQDN notation) to prevent bypass.
         // "evil.com." and "evil.com" must resolve to the same domain.
-        decoded_host
-            .to_lowercase()
-            .trim_end_matches('.')
-            .to_string()
+        // Single allocation: lowercase first, then strip trailing dots in-place.
+        let mut result = decoded_host.to_lowercase();
+        while result.ends_with('.') {
+            result.pop();
+        }
+        result
     }
 
     /// Match a domain against a pattern like `*.example.com` or `example.com`.
+    ///
+    /// Both domain and pattern are lowercased for case-insensitive comparison.
+    /// When called from `extract_domain` (already lowercased), the domain
+    /// lowercasing is a no-op. Trailing dots are stripped from both.
     pub fn match_domain_pattern(domain: &str, pattern: &str) -> bool {
-        let domain = domain.to_lowercase().trim_end_matches('.').to_string();
-        let pattern = pattern.to_lowercase().trim_end_matches('.').to_string();
+        // Normalize domain: lowercase + strip trailing dots.
+        // Use Cow to avoid allocation when already lowercase with no trailing dots.
+        let dom = Self::normalize_domain_for_match(domain);
+        let pat = Self::normalize_domain_for_match(pattern);
 
-        if let Some(suffix) = pattern.strip_prefix("*.") {
-            // Wildcard: domain must end with .suffix or be exactly suffix
-            domain == suffix || domain.ends_with(&format!(".{}", suffix))
+        if let Some(suffix) = pat.strip_prefix("*.") {
+            // Wildcard: domain must end with .suffix or be exactly suffix.
+            // Use byte-level check to avoid format!() allocation.
+            dom == suffix
+                || (dom.len() > suffix.len()
+                    && dom.ends_with(suffix)
+                    && dom.as_bytes()[dom.len() - suffix.len() - 1] == b'.')
         } else {
-            domain == pattern
+            dom == pat
         }
+    }
+
+    /// Lowercase and strip trailing dots from a domain/pattern string.
+    /// Returns a Cow::Borrowed when no changes are needed.
+    fn normalize_domain_for_match(s: &str) -> std::borrow::Cow<'_, str> {
+        let needs_lower = s.bytes().any(|b| b.is_ascii_uppercase());
+        let has_trailing_dot = s.ends_with('.');
+        if !needs_lower && !has_trailing_dot {
+            return std::borrow::Cow::Borrowed(s);
+        }
+        let mut result = if needs_lower {
+            s.to_lowercase()
+        } else {
+            s.to_string()
+        };
+        while result.ends_with('.') {
+            result.pop();
+        }
+        std::borrow::Cow::Owned(result)
     }
 
     /// Compile a regex pattern and test whether it matches the input.
@@ -2069,7 +2201,7 @@ impl PolicyEngine {
     /// Uses an iterative approach to avoid stack overflow on deep JSON.
     ///
     /// Bounded by [`MAX_SCAN_VALUES`] total values and [`MAX_SCAN_DEPTH`] nesting depth.
-    fn collect_all_string_values(params: &serde_json::Value) -> Vec<(String, String)> {
+    fn collect_all_string_values(params: &serde_json::Value) -> Vec<(String, &str)> {
         let mut results = Vec::new();
         // Stack: (value, current_path, depth)
         let mut stack: Vec<(&serde_json::Value, String, usize)> = vec![(params, String::new(), 0)];
@@ -2081,7 +2213,7 @@ impl PolicyEngine {
             match val {
                 serde_json::Value::String(s) => {
                     if !path.is_empty() {
-                        results.push((path, s.clone()));
+                        results.push((path, s.as_str()));
                     }
                 }
                 serde_json::Value::Object(obj) => {
@@ -2092,7 +2224,11 @@ impl PolicyEngine {
                         let child_path = if path.is_empty() {
                             key.clone()
                         } else {
-                            format!("{}.{}", path, key)
+                            let mut p = String::with_capacity(path.len() + 1 + key.len());
+                            p.push_str(&path);
+                            p.push('.');
+                            p.push_str(key);
+                            p
                         };
                         stack.push((child, child_path, depth + 1));
                     }
@@ -3835,7 +3971,7 @@ mod tests {
         });
 
         let values = PolicyEngine::collect_all_string_values(&params);
-        let string_values: Vec<&str> = values.iter().map(|(_, v)| v.as_str()).collect();
+        let string_values: Vec<&str> = values.iter().map(|(_, v)| *v).collect();
 
         assert!(string_values.contains(&"hello"), "Should contain 'hello'");
         assert!(string_values.contains(&"world"), "Should contain 'world'");
@@ -4520,5 +4656,174 @@ mod tests {
 
         let tool_only = CompiledToolMatcher::compile("file_system");
         assert!(tool_only.matches(&action));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // TOOL INDEX TESTS (Phase 10.5)
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_tool_index_is_populated() {
+        let policies = vec![
+            Policy {
+                id: "bash:*".to_string(),
+                name: "Block bash".to_string(),
+                policy_type: PolicyType::Deny,
+                priority: 200,
+            },
+            Policy {
+                id: "file_system:read_file".to_string(),
+                name: "Block file read".to_string(),
+                policy_type: PolicyType::Deny,
+                priority: 150,
+            },
+            Policy {
+                id: "*".to_string(),
+                name: "Allow all".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 1,
+            },
+        ];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        assert!(engine.tool_index.contains_key("bash"));
+        assert!(engine.tool_index.contains_key("file_system"));
+        assert_eq!(engine.tool_index.len(), 2);
+        assert_eq!(engine.always_check.len(), 1);
+    }
+
+    #[test]
+    fn test_tool_index_prefix_goes_to_always_check() {
+        let policies = vec![
+            Policy {
+                id: "file*:read".to_string(),
+                name: "Prefix tool".to_string(),
+                policy_type: PolicyType::Deny,
+                priority: 100,
+            },
+            Policy {
+                id: "bash:*".to_string(),
+                name: "Exact tool".to_string(),
+                policy_type: PolicyType::Deny,
+                priority: 100,
+            },
+        ];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        assert!(engine.tool_index.contains_key("bash"));
+        assert_eq!(engine.always_check.len(), 1);
+    }
+
+    #[test]
+    fn test_tool_index_evaluation_matches_linear_scan() {
+        let mut policies = Vec::new();
+        for i in 0..50 {
+            policies.push(Policy {
+                id: format!("tool_{}:func", i),
+                name: format!("Policy {}", i),
+                policy_type: PolicyType::Deny,
+                priority: 100,
+            });
+        }
+        policies.push(Policy {
+            id: "*".to_string(),
+            name: "Default allow".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 1,
+        });
+
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // Indexed policy matches → deny
+        let action_deny = action_with("tool_5", "func", json!({}));
+        assert!(matches!(
+            engine.evaluate_action(&action_deny, &[]).unwrap(),
+            Verdict::Deny { .. }
+        ));
+
+        // No indexed policy matches → falls through to universal allow
+        let action_allow = action_with("tool_99", "func", json!({}));
+        assert!(matches!(
+            engine.evaluate_action(&action_allow, &[]).unwrap(),
+            Verdict::Allow
+        ));
+
+        // Indexed tool but wrong function → falls through to universal allow
+        let action_other = action_with("tool_5", "other_func", json!({}));
+        assert!(matches!(
+            engine.evaluate_action(&action_other, &[]).unwrap(),
+            Verdict::Allow
+        ));
+    }
+
+    #[test]
+    fn test_tool_index_priority_order_preserved() {
+        let policies = vec![
+            Policy {
+                id: "bash:*".to_string(),
+                name: "Allow bash".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 200,
+            },
+            Policy {
+                id: "bash:*".to_string(),
+                name: "Deny bash".to_string(),
+                policy_type: PolicyType::Deny,
+                priority: 100,
+            },
+        ];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        let action = action_with("bash", "run", json!({}));
+        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_tool_index_universal_interleaves_with_indexed() {
+        let policies = vec![
+            Policy {
+                id: "bash:safe".to_string(),
+                name: "Allow safe bash".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 200,
+            },
+            Policy {
+                id: "*".to_string(),
+                name: "Universal deny".to_string(),
+                policy_type: PolicyType::Deny,
+                priority: 150,
+            },
+            Policy {
+                id: "bash:*".to_string(),
+                name: "Allow all bash".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 100,
+            },
+        ];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // bash:safe → allowed by priority 200 indexed policy
+        let safe = action_with("bash", "safe", json!({}));
+        assert!(matches!(
+            engine.evaluate_action(&safe, &[]).unwrap(),
+            Verdict::Allow
+        ));
+
+        // bash:run → universal deny at 150 fires before bash:* allow at 100
+        let run = action_with("bash", "run", json!({}));
+        assert!(matches!(
+            engine.evaluate_action(&run, &[]).unwrap(),
+            Verdict::Deny { .. }
+        ));
+    }
+
+    #[test]
+    fn test_tool_index_empty_policies() {
+        let engine = PolicyEngine::with_policies(false, &[]).unwrap();
+        assert!(engine.tool_index.is_empty());
+        assert!(engine.always_check.is_empty());
+
+        let action = action_with("any", "func", json!({}));
+        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
     }
 }

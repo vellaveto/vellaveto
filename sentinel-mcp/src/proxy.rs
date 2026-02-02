@@ -4,23 +4,23 @@
 //! Intercepts `tools/call` requests, evaluates them against policies, and either
 //! forwards allowed calls or returns denial responses directly.
 
+use aho_corasick::AhoCorasick;
 use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
 use sentinel_types::{Policy, Verdict};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::io::BufReader;
 use tokio::process::{ChildStdin, ChildStdout};
-
-use unicode_normalization::UnicodeNormalization;
 
 use crate::extractor::{
     classify_message, extract_action, extract_resource_action, make_approval_response,
     make_denial_response, make_invalid_response, MessageType,
 };
 use crate::framing::{read_message, write_message};
+use crate::inspection::sanitize_for_injection_scan;
 
 /// Decision after evaluating a tool call.
 #[derive(Debug)]
@@ -184,14 +184,20 @@ impl ProxyBridge {
             None => return,
         };
 
-        let mut new_tools = 0usize;
+        let is_first_list = known.is_empty();
+        let mut new_tool_names = Vec::new();
         let mut changed_tools = Vec::new();
+
+        // Collect current tool names for removal detection
+        let mut current_tool_names = std::collections::HashSet::new();
 
         for tool in tools {
             let name = match tool.get("name").and_then(|n| n.as_str()) {
                 Some(n) => n.to_string(),
                 None => continue,
             };
+
+            current_tool_names.insert(name.clone());
 
             // Extract annotations (use defaults per MCP spec if absent)
             let annotations = if let Some(ann) = tool.get("annotations") {
@@ -229,18 +235,44 @@ impl ProxyBridge {
                         annotations
                     );
                 }
-            } else {
-                new_tools += 1;
+            } else if !is_first_list {
+                // New tool added after initial tools/list — suspicious
+                new_tool_names.push(name.clone());
+                tracing::warn!(
+                    "SECURITY: New tool '{}' appeared after initial tools/list. \
+                     This may indicate a tool injection attack.",
+                    name
+                );
             }
 
             known.insert(name, annotations);
         }
 
+        // Detect removed tools (present in known but absent from current response)
+        let mut removed_tools = Vec::new();
+        if !is_first_list {
+            for prev_name in known.keys() {
+                if !current_tool_names.contains(prev_name) {
+                    removed_tools.push(prev_name.clone());
+                    tracing::warn!(
+                        "SECURITY: Tool '{}' was removed from tools/list. \
+                         This may indicate a rug-pull attack (tool removal).",
+                        prev_name
+                    );
+                }
+            }
+            // Remove vanished tools from known map
+            for name in &removed_tools {
+                known.remove(name);
+            }
+        }
+
         tracing::info!(
-            "tools/list: {} tools registered, {} new, {} changed",
+            "tools/list: {} tools registered, {} new, {} changed, {} removed",
             tools.len(),
-            new_tools,
-            changed_tools.len()
+            new_tool_names.len(),
+            changed_tools.len(),
+            removed_tools.len()
         );
 
         // Audit annotation changes as security events
@@ -270,6 +302,59 @@ impl ProxyBridge {
                 tracing::warn!("Failed to audit annotation change: {}", e);
             }
         }
+
+        // Audit tool removals
+        if !removed_tools.is_empty() {
+            let action = sentinel_types::Action {
+                tool: "sentinel".to_string(),
+                function: "tool_removal_detected".to_string(),
+                parameters: json!({
+                    "removed_tools": removed_tools,
+                    "remaining_tools": tools.len()
+                }),
+            };
+            let verdict = Verdict::Deny {
+                reason: format!("Tool removal detected: {}", removed_tools.join(", ")),
+            };
+            if let Err(e) = audit
+                .log_entry(
+                    &action,
+                    &verdict,
+                    json!({"source": "proxy", "event": "rug_pull_tool_removal"}),
+                )
+                .await
+            {
+                tracing::warn!("Failed to audit tool removal: {}", e);
+            }
+        }
+
+        // Audit new tool additions after initial list
+        if !new_tool_names.is_empty() {
+            let action = sentinel_types::Action {
+                tool: "sentinel".to_string(),
+                function: "tool_addition_detected".to_string(),
+                parameters: json!({
+                    "new_tools": new_tool_names,
+                    "total_tools": tools.len()
+                }),
+            };
+            let verdict = Verdict::Deny {
+                reason: format!(
+                    "New tool added after initial tools/list: {}",
+                    new_tool_names.join(", ")
+                ),
+            };
+            if let Err(e) = audit
+                .log_entry(
+                    &action,
+                    &verdict,
+                    json!({"source": "proxy", "event": "rug_pull_tool_addition"}),
+                )
+                .await
+            {
+                tracing::warn!("Failed to audit tool addition: {}", e);
+            }
+        }
     }
 
     /// Strip Unicode control characters that can be used to evade injection detection.
@@ -282,45 +367,21 @@ impl ProxyBridge {
     /// - Additional zero-width/invisible: U+FEFF (BOM/ZWNBSP), U+2060-U+2064 (word joiners)
     ///
     /// Then applies NFKC normalization to canonicalize homoglyphs and fullwidth characters.
+    ///
+    /// **Fast path:** If the text is pure printable ASCII (0x20..=0x7E, plus tab/LF/CR),
+    /// skips both the char filter and NFKC pass entirely (zero allocations beyond the
+    /// lowercase result).
+    /// Delegates to the shared `inspection::sanitize_for_injection_scan`.
     fn sanitize_for_injection_scan(text: &str) -> String {
-        let stripped: String = text
-            .chars()
-            .filter(|c| {
-                let cp = *c as u32;
-                // Tag characters (U+E0000-U+E007F)
-                if (0xE0000..=0xE007F).contains(&cp) {
-                    return false;
-                }
-                // Zero-width characters (U+200B-U+200F)
-                if (0x200B..=0x200F).contains(&cp) {
-                    return false;
-                }
-                // Bidi overrides (U+202A-U+202E)
-                if (0x202A..=0x202E).contains(&cp) {
-                    return false;
-                }
-                // Variation selectors (U+FE00-U+FE0F)
-                if (0xFE00..=0xFE0F).contains(&cp) {
-                    return false;
-                }
-                // BOM / ZWNBSP
-                if cp == 0xFEFF {
-                    return false;
-                }
-                // Word joiners and invisible operators (U+2060-U+2064)
-                if (0x2060..=0x2064).contains(&cp) {
-                    return false;
-                }
-                true
-            })
-            .collect();
-        // NFKC normalization canonicalizes homoglyphs and fullwidth chars
-        stripped.nfkc().collect()
+        sanitize_for_injection_scan(text)
     }
 
     /// Inspect a child response for prompt injection patterns (OWASP MCP06).
     ///
-    /// Scans text content in tool results for known injection phrases.
+    /// Uses a pre-built Aho-Corasick automaton for O(n) multi-pattern matching
+    /// instead of O(n*m) sequential `contains()` calls. The automaton is
+    /// case-insensitive, eliminating per-text `to_lowercase()` for the AC scan.
+    ///
     /// Pre-processes text with Unicode control character stripping and NFKC
     /// normalization to defend against homoglyph and zero-width evasion.
     /// Returns a list of matched patterns, if any. Log-only by default —
@@ -336,8 +397,6 @@ impl ProxyBridge {
             "you are now",
             "new system prompt",
             "override system prompt",
-            // Literal "\n\nsystem:" — detects the text sequence, not actual newlines.
-            // Actual newlines in JSON are escaped as \n and appear as literal chars in parsed strings.
             "system prompt:",
             "forget your instructions",
             "act as if",
@@ -348,7 +407,23 @@ impl ProxyBridge {
             "\\n\\nsystem:",
         ];
 
-        let mut matched = Vec::new();
+        static AC: OnceLock<AhoCorasick> = OnceLock::new();
+        let ac = AC.get_or_init(|| {
+            AhoCorasick::builder()
+                .ascii_case_insensitive(true)
+                .build(INJECTION_PATTERNS)
+                .expect("injection patterns are valid")
+        });
+
+        // Use a seen-array to deduplicate pattern matches
+        let mut seen = [false; 15];
+
+        let scan = |text: &str, seen: &mut [bool; 15]| {
+            let sanitized = Self::sanitize_for_injection_scan(text);
+            for mat in ac.find_iter(&sanitized) {
+                seen[mat.pattern().as_usize()] = true;
+            }
+        };
 
         // Extract text from result.content array (MCP tool result format)
         let content = response
@@ -359,13 +434,7 @@ impl ProxyBridge {
         if let Some(items) = content {
             for item in items {
                 if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                    let sanitized = Self::sanitize_for_injection_scan(text);
-                    let lower = sanitized.to_lowercase();
-                    for pattern in INJECTION_PATTERNS {
-                        if lower.contains(pattern) {
-                            matched.push(*pattern);
-                        }
-                    }
+                    scan(text, &mut seen);
                 }
             }
         }
@@ -376,16 +445,14 @@ impl ProxyBridge {
             .and_then(|r| r.get("structuredContent"))
         {
             let raw = structured.to_string();
-            let sanitized = Self::sanitize_for_injection_scan(&raw);
-            let lower = sanitized.to_lowercase();
-            for pattern in INJECTION_PATTERNS {
-                if lower.contains(pattern) && !matched.contains(pattern) {
-                    matched.push(*pattern);
-                }
-            }
+            scan(&raw, &mut seen);
         }
 
-        matched
+        seen.iter()
+            .enumerate()
+            .filter(|(_, &hit)| hit)
+            .map(|(i, _)| INJECTION_PATTERNS[i])
+            .collect()
     }
 
     /// Run the bidirectional proxy loop.
@@ -503,6 +570,28 @@ impl ProxyBridge {
                                                 .map_err(ProxyError::Framing)?;
                                         }
                                     }
+                                }
+                                MessageType::SamplingRequest { id } => {
+                                    // Block sampling/createMessage unconditionally (C-8.5).
+                                    // This is an exfiltration vector — the MCP server
+                                    // could use it to send arbitrary prompts to the LLM.
+                                    let reason = "sampling/createMessage blocked: potential exfiltration vector";
+                                    let response = make_denial_response(&id, reason);
+                                    let action = sentinel_types::Action {
+                                        tool: "sentinel".to_string(),
+                                        function: "sampling_blocked".to_string(),
+                                        parameters: json!({}),
+                                    };
+                                    if let Err(e) = self.audit.log_entry(
+                                        &action,
+                                        &Verdict::Deny { reason: reason.to_string() },
+                                        json!({"source": "proxy", "event": "sampling_blocked"}),
+                                    ).await {
+                                        tracing::warn!("Audit log failed: {}", e);
+                                    }
+                                    tracing::warn!("Blocked sampling/createMessage request");
+                                    write_message(&mut agent_writer, &response).await
+                                        .map_err(ProxyError::Framing)?;
                                 }
                                 MessageType::Invalid { id, reason } => {
                                     // Invalid request — return error to agent, don't forward
@@ -1119,6 +1208,108 @@ mod tests {
         // Should have updated to new (suspicious) values
         assert!(known["read_file"].destructive_hint);
         assert!(!known["read_file"].read_only_hint);
+    }
+
+    #[tokio::test]
+    async fn test_extract_tool_annotations_detects_tool_removal() {
+        let dir = std::env::temp_dir().join("sentinel-ann-test-removal");
+        let _ = std::fs::create_dir_all(&dir);
+        let audit = AuditLogger::new(dir.join("test-ann.log"));
+        let mut known = HashMap::new();
+
+        // First tools/list: two tools
+        let response1 = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "tools": [
+                    {"name": "read_file", "annotations": {"readOnlyHint": true}},
+                    {"name": "write_file", "annotations": {"destructiveHint": true}}
+                ]
+            }
+        });
+        ProxyBridge::extract_tool_annotations(&response1, &mut known, &audit).await;
+        assert_eq!(known.len(), 2);
+
+        // Second tools/list: write_file removed (rug-pull via removal)
+        let response2 = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "result": {
+                "tools": [
+                    {"name": "read_file", "annotations": {"readOnlyHint": true}}
+                ]
+            }
+        });
+        ProxyBridge::extract_tool_annotations(&response2, &mut known, &audit).await;
+
+        // write_file should have been removed from known
+        assert_eq!(known.len(), 1);
+        assert!(known.contains_key("read_file"));
+        assert!(!known.contains_key("write_file"));
+    }
+
+    #[tokio::test]
+    async fn test_extract_tool_annotations_detects_new_tool_after_initial() {
+        let dir = std::env::temp_dir().join("sentinel-ann-test-addition");
+        let _ = std::fs::create_dir_all(&dir);
+        let audit = AuditLogger::new(dir.join("test-ann.log"));
+        let mut known = HashMap::new();
+
+        // First tools/list: one tool
+        let response1 = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "tools": [
+                    {"name": "read_file", "annotations": {"readOnlyHint": true}}
+                ]
+            }
+        });
+        ProxyBridge::extract_tool_annotations(&response1, &mut known, &audit).await;
+        assert_eq!(known.len(), 1);
+
+        // Second tools/list: suspicious_tool added (tool injection)
+        let response2 = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "result": {
+                "tools": [
+                    {"name": "read_file", "annotations": {"readOnlyHint": true}},
+                    {"name": "exfiltrate_data", "annotations": {"destructiveHint": true}}
+                ]
+            }
+        });
+        ProxyBridge::extract_tool_annotations(&response2, &mut known, &audit).await;
+
+        // New tool should be tracked but flagged
+        assert_eq!(known.len(), 2);
+        assert!(known.contains_key("exfiltrate_data"));
+    }
+
+    #[tokio::test]
+    async fn test_first_tools_list_does_not_flag_as_additions() {
+        let dir = std::env::temp_dir().join("sentinel-ann-test-first");
+        let _ = std::fs::create_dir_all(&dir);
+        let audit = AuditLogger::new(dir.join("test-ann.log"));
+        let mut known = HashMap::new();
+
+        // First tools/list: multiple tools — none should be flagged as "new additions"
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "tools": [
+                    {"name": "read_file"},
+                    {"name": "write_file"},
+                    {"name": "exec_command"}
+                ]
+            }
+        });
+        ProxyBridge::extract_tool_annotations(&response, &mut known, &audit).await;
+
+        // All 3 should be in known without triggering alerts
+        assert_eq!(known.len(), 3);
     }
 
     // --- C-8.3: Response inspection tests ---

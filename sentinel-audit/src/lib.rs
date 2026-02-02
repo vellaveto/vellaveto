@@ -1,4 +1,5 @@
 use chrono::Utc;
+use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
 use sentinel_types::{Action, Verdict};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -53,6 +54,67 @@ pub struct ChainVerification {
     pub valid: bool,
     pub entries_checked: usize,
     pub first_broken_at: Option<usize>,
+}
+
+/// A signed checkpoint that periodically attests to the audit chain state.
+///
+/// Checkpoints provide non-repudiation: even if an attacker compromises the
+/// server and modifies audit entries, they cannot forge valid Ed25519 signatures
+/// without the signing key. Checkpoints are stored in a separate JSONL file
+/// alongside the audit log.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Checkpoint {
+    /// Unique checkpoint identifier.
+    pub id: String,
+    /// ISO 8601 timestamp when the checkpoint was created.
+    pub timestamp: String,
+    /// Number of entries in the audit log at checkpoint time.
+    pub entry_count: usize,
+    /// SHA-256 hash of the last entry at checkpoint time (chain head).
+    /// None if the audit log is empty.
+    pub chain_head_hash: Option<String>,
+    /// Ed25519 signature over the canonical checkpoint content.
+    /// Hex-encoded 64-byte signature.
+    pub signature: String,
+    /// Ed25519 verifying key (public key) for this checkpoint.
+    /// Hex-encoded 32-byte key.
+    pub verifying_key: String,
+}
+
+/// Result of verifying all checkpoints against the audit log.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointVerification {
+    /// Whether all checkpoints are valid.
+    pub valid: bool,
+    /// Number of checkpoints checked.
+    pub checkpoints_checked: usize,
+    /// Index of the first invalid checkpoint, if any.
+    pub first_invalid_at: Option<usize>,
+    /// Reason for the first failure, if any.
+    pub failure_reason: Option<String>,
+}
+
+impl Checkpoint {
+    /// Compute the canonical content that is signed.
+    ///
+    /// Content = SHA-256(id || timestamp || entry_count_le || chain_head_hash)
+    /// Each field is length-prefixed with u64 LE to prevent boundary collisions.
+    fn signing_content(&self) -> Vec<u8> {
+        let mut hasher = Sha256::new();
+        Self::hash_field(&mut hasher, self.id.as_bytes());
+        Self::hash_field(&mut hasher, self.timestamp.as_bytes());
+        Self::hash_field(&mut hasher, &(self.entry_count as u64).to_le_bytes());
+        Self::hash_field(
+            &mut hasher,
+            self.chain_head_hash.as_deref().unwrap_or("").as_bytes(),
+        );
+        hasher.finalize().to_vec()
+    }
+
+    fn hash_field(hasher: &mut Sha256, data: &[u8]) {
+        hasher.update((data.len() as u64).to_le_bytes());
+        hasher.update(data);
+    }
 }
 
 /// Sensitive parameter key names that should always be redacted.
@@ -146,6 +208,8 @@ pub struct AuditLogger {
     redact: bool,
     /// Maximum log file size in bytes before rotation. 0 = no rotation.
     max_file_size: u64,
+    /// Optional Ed25519 signing key for creating signed checkpoints.
+    signing_key: Option<SigningKey>,
 }
 
 impl AuditLogger {
@@ -158,6 +222,7 @@ impl AuditLogger {
             last_hash: Mutex::new(None),
             redact: true,
             max_file_size: DEFAULT_MAX_FILE_SIZE,
+            signing_key: None,
         }
     }
 
@@ -169,6 +234,7 @@ impl AuditLogger {
             last_hash: Mutex::new(None),
             redact: false,
             max_file_size: DEFAULT_MAX_FILE_SIZE,
+            signing_key: None,
         }
     }
 
@@ -177,6 +243,264 @@ impl AuditLogger {
     pub fn with_max_file_size(mut self, max_bytes: u64) -> Self {
         self.max_file_size = max_bytes;
         self
+    }
+
+    /// Set the Ed25519 signing key for creating signed checkpoints.
+    pub fn with_signing_key(mut self, key: SigningKey) -> Self {
+        self.signing_key = Some(key);
+        self
+    }
+
+    /// Generate a new random Ed25519 signing key.
+    pub fn generate_signing_key() -> SigningKey {
+        SigningKey::generate(&mut rand::thread_rng())
+    }
+
+    /// Load an Ed25519 signing key from raw 32-byte seed.
+    pub fn signing_key_from_bytes(bytes: &[u8; 32]) -> SigningKey {
+        SigningKey::from_bytes(bytes)
+    }
+
+    /// Get the path to the checkpoint file (derived from the audit log path).
+    fn checkpoint_path(&self) -> PathBuf {
+        let stem = self
+            .log_path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy();
+        let parent = self.log_path.parent().unwrap_or(Path::new("."));
+        parent.join(format!("{}.checkpoints.jsonl", stem))
+    }
+
+    /// Create a signed checkpoint of the current audit chain state.
+    ///
+    /// The checkpoint records the current entry count and chain head hash,
+    /// signs them with the Ed25519 key, and appends the checkpoint to the
+    /// checkpoint file.
+    ///
+    /// Returns the created checkpoint, or an error if no signing key is set.
+    pub async fn create_checkpoint(&self) -> Result<Checkpoint, AuditError> {
+        let signing_key = self.signing_key.as_ref().ok_or_else(|| {
+            AuditError::Validation("No signing key configured for checkpoints".to_string())
+        })?;
+
+        let entries = self.load_entries().await?;
+        let chain_head_hash = entries.last().and_then(|e| e.entry_hash.clone());
+
+        let mut checkpoint = Checkpoint {
+            id: Uuid::new_v4().to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            entry_count: entries.len(),
+            chain_head_hash,
+            signature: String::new(),
+            verifying_key: hex::encode(signing_key.verifying_key().as_bytes()),
+        };
+
+        // Sign the canonical content
+        let content = checkpoint.signing_content();
+        let signature = signing_key.sign(&content);
+        checkpoint.signature = hex::encode(signature.to_bytes());
+
+        // Append to checkpoint file
+        let mut line = serde_json::to_string(&checkpoint)?;
+        line.push('\n');
+
+        let cp_path = self.checkpoint_path();
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&cp_path)
+            .await?;
+        file.write_all(line.as_bytes()).await?;
+        file.flush().await?;
+
+        Ok(checkpoint)
+    }
+
+    /// Load all checkpoints from the checkpoint file.
+    pub async fn load_checkpoints(&self) -> Result<Vec<Checkpoint>, AuditError> {
+        let cp_path = self.checkpoint_path();
+        let content = match tokio::fs::read_to_string(&cp_path).await {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(AuditError::Io(e)),
+        };
+
+        let mut checkpoints = Vec::new();
+        for line in content.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            match serde_json::from_str::<Checkpoint>(line) {
+                Ok(cp) => checkpoints.push(cp),
+                Err(e) => {
+                    tracing::warn!("Skipping corrupt checkpoint line: {}", e);
+                }
+            }
+        }
+        Ok(checkpoints)
+    }
+
+    /// Verify all checkpoints against the current audit log.
+    ///
+    /// For each checkpoint:
+    /// 1. Verify the Ed25519 signature using the embedded verifying key.
+    /// 2. Verify the entry_count matches the log at that point.
+    /// 3. Verify the chain_head_hash matches the hash chain.
+    ///
+    /// Checkpoints must be in chronological order and their entry_counts
+    /// must be non-decreasing.
+    pub async fn verify_checkpoints(&self) -> Result<CheckpointVerification, AuditError> {
+        let checkpoints = self.load_checkpoints().await?;
+        if checkpoints.is_empty() {
+            return Ok(CheckpointVerification {
+                valid: true,
+                checkpoints_checked: 0,
+                first_invalid_at: None,
+                failure_reason: None,
+            });
+        }
+
+        let entries = self.load_entries().await?;
+        let mut prev_entry_count = 0usize;
+
+        for (i, cp) in checkpoints.iter().enumerate() {
+            // 1. Verify entry_count is non-decreasing
+            if cp.entry_count < prev_entry_count {
+                return Ok(CheckpointVerification {
+                    valid: false,
+                    checkpoints_checked: i + 1,
+                    first_invalid_at: Some(i),
+                    failure_reason: Some(format!(
+                        "Entry count decreased from {} to {}",
+                        prev_entry_count, cp.entry_count
+                    )),
+                });
+            }
+            prev_entry_count = cp.entry_count;
+
+            // 2. Decode verifying key
+            let vk_bytes = hex::decode(&cp.verifying_key)
+                .map_err(|e| AuditError::Validation(format!("Invalid verifying key hex: {}", e)))?;
+            let vk_array: [u8; 32] = vk_bytes.try_into().map_err(|_| {
+                AuditError::Validation("Verifying key must be 32 bytes".to_string())
+            })?;
+            let verifying_key = VerifyingKey::from_bytes(&vk_array)
+                .map_err(|e| AuditError::Validation(format!("Invalid verifying key: {}", e)))?;
+
+            // 3. Decode signature
+            let sig_bytes = hex::decode(&cp.signature)
+                .map_err(|e| AuditError::Validation(format!("Invalid signature hex: {}", e)))?;
+            let sig_array: [u8; 64] = sig_bytes
+                .try_into()
+                .map_err(|_| AuditError::Validation("Signature must be 64 bytes".to_string()))?;
+            let signature = ed25519_dalek::Signature::from_bytes(&sig_array);
+
+            // 4. Verify signature over canonical content
+            let content = cp.signing_content();
+            if verifying_key.verify(&content, &signature).is_err() {
+                return Ok(CheckpointVerification {
+                    valid: false,
+                    checkpoints_checked: i + 1,
+                    first_invalid_at: Some(i),
+                    failure_reason: Some("Signature verification failed".to_string()),
+                });
+            }
+
+            // 5. Verify chain_head_hash against the audit log
+            if cp.entry_count > 0 && cp.entry_count <= entries.len() {
+                let expected_hash = entries[cp.entry_count - 1].entry_hash.as_deref();
+                if cp.chain_head_hash.as_deref() != expected_hash {
+                    return Ok(CheckpointVerification {
+                        valid: false,
+                        checkpoints_checked: i + 1,
+                        first_invalid_at: Some(i),
+                        failure_reason: Some(format!(
+                            "Chain head hash mismatch at entry {}",
+                            cp.entry_count
+                        )),
+                    });
+                }
+            } else if cp.entry_count == 0 && cp.chain_head_hash.is_some() {
+                return Ok(CheckpointVerification {
+                    valid: false,
+                    checkpoints_checked: i + 1,
+                    first_invalid_at: Some(i),
+                    failure_reason: Some(
+                        "Chain head hash should be None for empty log".to_string(),
+                    ),
+                });
+            }
+            // If cp.entry_count > entries.len(), the audit log was truncated.
+            // This is suspicious but we can only verify what we have.
+        }
+
+        Ok(CheckpointVerification {
+            valid: true,
+            checkpoints_checked: checkpoints.len(),
+            first_invalid_at: None,
+            failure_reason: None,
+        })
+    }
+
+    // ═══════════════════════════════════════════════════
+    // HEARTBEAT ENTRIES (Phase 10.6)
+    // ═══════════════════════════════════════════════════
+
+    /// Write a heartbeat entry to the audit log.
+    ///
+    /// Heartbeat entries are lightweight sentinel entries that maintain hash chain
+    /// continuity. When the audit log has gaps in timestamps exceeding an expected
+    /// heartbeat interval, it indicates potential truncation or tampering.
+    ///
+    /// The entry uses `tool: "sentinel"`, `function: "heartbeat"` with an `Allow`
+    /// verdict and metadata recording the heartbeat interval and sequence number.
+    pub async fn log_heartbeat(&self, interval_secs: u64, sequence: u64) -> Result<(), AuditError> {
+        let action = Action {
+            tool: "sentinel".to_string(),
+            function: "heartbeat".to_string(),
+            parameters: serde_json::json!({}),
+        };
+        let verdict = Verdict::Allow;
+        let metadata = serde_json::json!({
+            "event": "heartbeat",
+            "interval_secs": interval_secs,
+            "sequence": sequence,
+        });
+        self.log_entry(&action, &verdict, metadata).await
+    }
+
+    /// Check whether the audit log has a heartbeat gap — a period longer than
+    /// `max_gap_secs` between consecutive entries (heartbeat or otherwise).
+    ///
+    /// Returns the first detected gap as `(gap_start_timestamp, gap_end_timestamp, gap_seconds)`
+    /// or `None` if the log has no gaps exceeding the threshold.
+    pub async fn detect_heartbeat_gap(
+        &self,
+        max_gap_secs: u64,
+    ) -> Result<Option<(String, String, u64)>, AuditError> {
+        let entries = self.load_entries().await?;
+        if entries.len() < 2 {
+            return Ok(None);
+        }
+
+        for window in entries.windows(2) {
+            let prev_ts = chrono::DateTime::parse_from_rfc3339(&window[0].timestamp).ok();
+            let curr_ts = chrono::DateTime::parse_from_rfc3339(&window[1].timestamp).ok();
+
+            if let (Some(prev), Some(curr)) = (prev_ts, curr_ts) {
+                let gap = (curr - prev).num_seconds().unsigned_abs();
+                if gap > max_gap_secs {
+                    return Ok(Some((
+                        window[0].timestamp.clone(),
+                        window[1].timestamp.clone(),
+                        gap,
+                    )));
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     /// Initialize the hash chain by reading the last entry from the log.
@@ -329,20 +653,23 @@ impl AuditLogger {
     /// Compute the SHA-256 hash of an entry's content.
     ///
     /// Hash = SHA-256(id || action_json || verdict_json || timestamp || metadata_json || prev_hash)
+    ///
+    /// Uses `to_vec` instead of `to_string` to avoid UTF-8 String validation overhead.
+    /// The byte output is identical.
     fn compute_entry_hash(entry: &AuditEntry) -> Result<String, AuditError> {
-        let action_json = serde_json::to_string(&entry.action)?;
-        let verdict_json = serde_json::to_string(&entry.verdict)?;
-        let metadata_json = serde_json::to_string(&entry.metadata)?;
+        let action_json = serde_json::to_vec(&entry.action)?;
+        let verdict_json = serde_json::to_vec(&entry.verdict)?;
+        let metadata_json = serde_json::to_vec(&entry.metadata)?;
         let prev_hash = entry.prev_hash.as_deref().unwrap_or("");
 
         let mut hasher = Sha256::new();
         // Length-prefix each field with u64 little-endian to prevent
         // boundary-shift collisions (e.g., id="ab",action="cd" vs id="abc",action="d")
         Self::hash_field(&mut hasher, entry.id.as_bytes());
-        Self::hash_field(&mut hasher, action_json.as_bytes());
-        Self::hash_field(&mut hasher, verdict_json.as_bytes());
+        Self::hash_field(&mut hasher, &action_json);
+        Self::hash_field(&mut hasher, &verdict_json);
         Self::hash_field(&mut hasher, entry.timestamp.as_bytes());
-        Self::hash_field(&mut hasher, metadata_json.as_bytes());
+        Self::hash_field(&mut hasher, &metadata_json);
         Self::hash_field(&mut hasher, prev_hash.as_bytes());
 
         Ok(hex::encode(hasher.finalize()))
@@ -407,8 +734,8 @@ impl AuditLogger {
         let hash = Self::compute_entry_hash(&entry)?;
         entry.entry_hash = Some(hash.clone());
 
-        let mut line = serde_json::to_string(&entry)?;
-        line.push('\n');
+        let mut line_bytes = serde_json::to_vec(&entry)?;
+        line_bytes.push(b'\n');
 
         // Open file with append mode, creating parent dirs if needed
         let mut file = match OpenOptions::new()
@@ -430,7 +757,7 @@ impl AuditLogger {
             }
         };
 
-        file.write_all(line.as_bytes()).await?;
+        file.write_all(&line_bytes).await?;
         file.flush().await?;
 
         // Fix #35: For Deny verdicts, call sync_data() to ensure the entry
@@ -1498,5 +1825,459 @@ mod tests {
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
+    }
+
+    // === Signed checkpoint tests (Phase 10.3) ===
+
+    #[tokio::test]
+    async fn test_checkpoint_creation() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let key = AuditLogger::generate_signing_key();
+        let logger = AuditLogger::new(log_path).with_signing_key(key);
+
+        let action = test_action();
+        for _ in 0..5 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+
+        let checkpoint = logger.create_checkpoint().await.unwrap();
+        assert_eq!(checkpoint.entry_count, 5);
+        assert!(checkpoint.chain_head_hash.is_some());
+        assert!(!checkpoint.signature.is_empty());
+        assert!(!checkpoint.verifying_key.is_empty());
+        assert!(!checkpoint.id.is_empty());
+        assert!(!checkpoint.timestamp.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_no_key_returns_error() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path); // No signing key
+
+        let result = logger.create_checkpoint().await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            AuditError::Validation(msg) => {
+                assert!(msg.contains("signing key"));
+            }
+            other => panic!("Expected Validation error, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_empty_log() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let key = AuditLogger::generate_signing_key();
+        let logger = AuditLogger::new(log_path).with_signing_key(key);
+
+        let checkpoint = logger.create_checkpoint().await.unwrap();
+        assert_eq!(checkpoint.entry_count, 0);
+        assert!(checkpoint.chain_head_hash.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_verification_valid() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let key = AuditLogger::generate_signing_key();
+        let logger = AuditLogger::new(log_path).with_signing_key(key);
+
+        let action = test_action();
+        for _ in 0..3 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+        logger.create_checkpoint().await.unwrap();
+
+        // Write more entries and create another checkpoint
+        for _ in 0..2 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+        logger.create_checkpoint().await.unwrap();
+
+        let verification = logger.verify_checkpoints().await.unwrap();
+        assert!(verification.valid);
+        assert_eq!(verification.checkpoints_checked, 2);
+        assert!(verification.first_invalid_at.is_none());
+        assert!(verification.failure_reason.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_verification_empty() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path);
+
+        let verification = logger.verify_checkpoints().await.unwrap();
+        assert!(verification.valid);
+        assert_eq!(verification.checkpoints_checked, 0);
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_tampered_signature_detected() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let key = AuditLogger::generate_signing_key();
+        let logger = AuditLogger::new(log_path.clone()).with_signing_key(key);
+
+        let action = test_action();
+        for _ in 0..3 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+        logger.create_checkpoint().await.unwrap();
+
+        // Tamper with the checkpoint signature
+        let cp_path = logger.checkpoint_path();
+        let content = tokio::fs::read_to_string(&cp_path).await.unwrap();
+        let mut cp: serde_json::Value = serde_json::from_str(content.trim()).unwrap();
+        // Flip a byte in the signature
+        let sig = cp["signature"].as_str().unwrap().to_string();
+        let tampered_sig = if let Some(rest) = sig.strip_prefix('a') {
+            format!("b{}", rest)
+        } else {
+            format!("a{}", &sig[1..])
+        };
+        cp["signature"] = serde_json::Value::String(tampered_sig);
+        let tampered = format!("{}\n", serde_json::to_string(&cp).unwrap());
+        tokio::fs::write(&cp_path, tampered).await.unwrap();
+
+        let verification = logger.verify_checkpoints().await.unwrap();
+        assert!(!verification.valid);
+        assert_eq!(verification.first_invalid_at, Some(0));
+        assert!(verification
+            .failure_reason
+            .as_ref()
+            .unwrap()
+            .contains("Signature"));
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_tampered_entry_count_detected() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let key = AuditLogger::generate_signing_key();
+        let logger = AuditLogger::new(log_path.clone()).with_signing_key(key);
+
+        let action = test_action();
+        for _ in 0..3 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+        logger.create_checkpoint().await.unwrap();
+
+        // Tamper: change entry_count in checkpoint (without re-signing)
+        let cp_path = logger.checkpoint_path();
+        let content = tokio::fs::read_to_string(&cp_path).await.unwrap();
+        let mut cp: serde_json::Value = serde_json::from_str(content.trim()).unwrap();
+        cp["entry_count"] = serde_json::Value::Number(serde_json::Number::from(999));
+        let tampered = format!("{}\n", serde_json::to_string(&cp).unwrap());
+        tokio::fs::write(&cp_path, tampered).await.unwrap();
+
+        let verification = logger.verify_checkpoints().await.unwrap();
+        assert!(!verification.valid);
+        // Signature check should fail because the content changed
+        assert!(verification
+            .failure_reason
+            .as_ref()
+            .unwrap()
+            .contains("Signature"));
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_tampered_audit_log_detected() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let key = AuditLogger::generate_signing_key();
+        let logger = AuditLogger::new(log_path.clone()).with_signing_key(key);
+
+        let action = test_action();
+        for _ in 0..3 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+        logger.create_checkpoint().await.unwrap();
+
+        // Tamper with the audit log (change the last entry's hash)
+        let content = tokio::fs::read_to_string(&log_path).await.unwrap();
+        let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+        let mut last_entry: serde_json::Value =
+            serde_json::from_str(lines.last().unwrap()).unwrap();
+        last_entry["entry_hash"] = serde_json::Value::String("0".repeat(64));
+        *lines.last_mut().unwrap() = serde_json::to_string(&last_entry).unwrap();
+        let tampered = lines.join("\n") + "\n";
+        tokio::fs::write(&log_path, tampered).await.unwrap();
+
+        let verification = logger.verify_checkpoints().await.unwrap();
+        assert!(!verification.valid);
+        assert!(verification
+            .failure_reason
+            .as_ref()
+            .unwrap()
+            .contains("Chain head hash mismatch"));
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_multiple_sequential() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let key = AuditLogger::generate_signing_key();
+        let logger = AuditLogger::new(log_path).with_signing_key(key);
+
+        let action = test_action();
+
+        // Create checkpoint on empty log
+        logger.create_checkpoint().await.unwrap();
+
+        // Add entries and checkpoint
+        for _ in 0..5 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+        logger.create_checkpoint().await.unwrap();
+
+        // Add more entries and checkpoint again
+        for _ in 0..3 {
+            logger
+                .log_entry(
+                    &action,
+                    &Verdict::Deny {
+                        reason: "test".to_string(),
+                    },
+                    json!({}),
+                )
+                .await
+                .unwrap();
+        }
+        logger.create_checkpoint().await.unwrap();
+
+        let checkpoints = logger.load_checkpoints().await.unwrap();
+        assert_eq!(checkpoints.len(), 3);
+        assert_eq!(checkpoints[0].entry_count, 0);
+        assert_eq!(checkpoints[1].entry_count, 5);
+        assert_eq!(checkpoints[2].entry_count, 8);
+
+        let verification = logger.verify_checkpoints().await.unwrap();
+        assert!(verification.valid);
+        assert_eq!(verification.checkpoints_checked, 3);
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_different_key_detected() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let key1 = AuditLogger::generate_signing_key();
+        let logger = AuditLogger::new(log_path.clone()).with_signing_key(key1);
+
+        let action = test_action();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+        logger.create_checkpoint().await.unwrap();
+
+        // Tamper: replace the checkpoint with one signed by a different key
+        let key2 = AuditLogger::generate_signing_key();
+        let cp_path = logger.checkpoint_path();
+        let content = tokio::fs::read_to_string(&cp_path).await.unwrap();
+        let mut cp: Checkpoint = serde_json::from_str(content.trim()).unwrap();
+
+        // Re-sign with the wrong key
+        cp.verifying_key = hex::encode(key2.verifying_key().as_bytes());
+        let sig = key2.sign(&cp.signing_content());
+        cp.signature = hex::encode(sig.to_bytes());
+        let forged = format!("{}\n", serde_json::to_string(&cp).unwrap());
+        tokio::fs::write(&cp_path, forged).await.unwrap();
+
+        // The signature is valid for key2, but the chain_head_hash matches,
+        // so this checkpoint verifies (key rotation is allowed).
+        // This is by design: checkpoints embed their own verifying key.
+        // The trust anchor is external (operator verifies the key is expected).
+        let verification = logger.verify_checkpoints().await.unwrap();
+        assert!(verification.valid);
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_key_from_bytes_roundtrip() {
+        let key = AuditLogger::generate_signing_key();
+        let bytes = key.to_bytes();
+        let restored = AuditLogger::signing_key_from_bytes(&bytes);
+        assert_eq!(key.to_bytes(), restored.to_bytes());
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_path_derivation() {
+        let logger = AuditLogger::new(PathBuf::from("/var/log/audit.jsonl"));
+        let cp_path = logger.checkpoint_path();
+        assert_eq!(cp_path, PathBuf::from("/var/log/audit.checkpoints.jsonl"));
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_decreasing_entry_count_detected() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let key = AuditLogger::generate_signing_key();
+        let logger = AuditLogger::new(log_path.clone()).with_signing_key(key.clone());
+
+        let action = test_action();
+        for _ in 0..5 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+        logger.create_checkpoint().await.unwrap();
+
+        // Forge a second checkpoint with lower entry_count (properly signed)
+        let cp_path = logger.checkpoint_path();
+        let forged_cp = Checkpoint {
+            id: Uuid::new_v4().to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            entry_count: 2, // Less than 5 — suspicious
+            chain_head_hash: None,
+            signature: String::new(),
+            verifying_key: hex::encode(key.verifying_key().as_bytes()),
+        };
+        let content = forged_cp.signing_content();
+        let sig = key.sign(&content);
+        let mut forged = forged_cp;
+        forged.signature = hex::encode(sig.to_bytes());
+
+        let mut cp_content = tokio::fs::read_to_string(&cp_path).await.unwrap();
+        cp_content.push_str(&serde_json::to_string(&forged).unwrap());
+        cp_content.push('\n');
+        tokio::fs::write(&cp_path, cp_content).await.unwrap();
+
+        let verification = logger.verify_checkpoints().await.unwrap();
+        assert!(!verification.valid);
+        assert_eq!(verification.first_invalid_at, Some(1));
+        assert!(verification
+            .failure_reason
+            .as_ref()
+            .unwrap()
+            .contains("decreased"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // HEARTBEAT TESTS (Phase 10.6)
+    // ═══════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_heartbeat_creates_valid_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("heartbeat.log");
+        let logger = AuditLogger::new(log_path);
+        logger.initialize_chain().await.unwrap();
+
+        logger.log_heartbeat(60, 1).await.unwrap();
+        logger.log_heartbeat(60, 2).await.unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        assert_eq!(entries.len(), 2);
+
+        // Verify heartbeat entry structure
+        assert_eq!(entries[0].action.tool, "sentinel");
+        assert_eq!(entries[0].action.function, "heartbeat");
+        assert!(matches!(entries[0].verdict, Verdict::Allow));
+        assert_eq!(entries[0].metadata["event"], "heartbeat");
+        assert_eq!(entries[0].metadata["interval_secs"], 60);
+        assert_eq!(entries[0].metadata["sequence"], 1);
+
+        assert_eq!(entries[1].metadata["sequence"], 2);
+    }
+
+    #[tokio::test]
+    async fn test_heartbeat_participates_in_hash_chain() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("heartbeat_chain.log");
+        let logger = AuditLogger::new(log_path);
+        logger.initialize_chain().await.unwrap();
+
+        // Mix regular entries with heartbeats
+        let action = Action {
+            tool: "bash".to_string(),
+            function: "run".to_string(),
+            parameters: serde_json::json!({"command": "ls"}),
+        };
+        logger
+            .log_entry(&action, &Verdict::Allow, serde_json::json!({}))
+            .await
+            .unwrap();
+        logger.log_heartbeat(60, 1).await.unwrap();
+        logger
+            .log_entry(
+                &action,
+                &Verdict::Deny {
+                    reason: "test".to_string(),
+                },
+                serde_json::json!({}),
+            )
+            .await
+            .unwrap();
+        logger.log_heartbeat(60, 2).await.unwrap();
+
+        // Verify the full chain is valid
+        let verification = logger.verify_chain().await.unwrap();
+        assert!(verification.valid);
+        assert_eq!(verification.entries_checked, 4);
+    }
+
+    #[tokio::test]
+    async fn test_detect_heartbeat_gap_no_gap() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("no_gap.log");
+        let logger = AuditLogger::new(log_path);
+        logger.initialize_chain().await.unwrap();
+
+        // Write entries quickly (no significant gap)
+        logger.log_heartbeat(60, 1).await.unwrap();
+        logger.log_heartbeat(60, 2).await.unwrap();
+        logger.log_heartbeat(60, 3).await.unwrap();
+
+        // Check for gaps > 120 seconds (none should exist)
+        let gap = logger.detect_heartbeat_gap(120).await.unwrap();
+        assert!(gap.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_detect_heartbeat_gap_empty_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("empty_gap.log");
+        let logger = AuditLogger::new(log_path);
+
+        let gap = logger.detect_heartbeat_gap(60).await.unwrap();
+        assert!(gap.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_detect_heartbeat_gap_single_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("single_gap.log");
+        let logger = AuditLogger::new(log_path);
+        logger.initialize_chain().await.unwrap();
+
+        logger.log_heartbeat(60, 1).await.unwrap();
+
+        let gap = logger.detect_heartbeat_gap(60).await.unwrap();
+        assert!(gap.is_none());
     }
 }

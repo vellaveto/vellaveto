@@ -11,6 +11,7 @@ members = [
     "sentinel-server",
     "sentinel-approval",
     "sentinel-proxy",
+    "sentinel-http-proxy",
 ]
 
 [workspace.dependencies]
@@ -22,3 +23,13 @@ uuid = { version = "1.0", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1.0"
 tracing = "0.1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3
+strip = "symbols"
+
+[profile.bench]
+inherits = "release"
+debug = true
