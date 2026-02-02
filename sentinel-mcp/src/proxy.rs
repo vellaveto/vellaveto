@@ -13,7 +13,8 @@ use tokio::io::BufReader;
 use tokio::process::{ChildStdin, ChildStdout};
 
 use crate::extractor::{
-    classify_message, extract_action, make_approval_response, make_denial_response, MessageType,
+    classify_message, extract_action, extract_resource_action, make_approval_response,
+    make_denial_response, make_invalid_response, MessageType,
 };
 use crate::framing::{read_message, write_message};
 
@@ -22,8 +23,9 @@ use crate::framing::{read_message, write_message};
 pub enum ProxyDecision {
     /// Forward the message to the child MCP server.
     Forward,
-    /// Block the message and return an error to the agent.
-    Block(Value),
+    /// Block the message and return an error response to the agent.
+    /// Carries both the JSON-RPC error response and the actual verdict for audit logging.
+    Block(Value, Verdict),
 }
 
 /// The proxy bridge that sits between agent and child MCP server.
@@ -53,14 +55,63 @@ impl ProxyBridge {
 
         match self.engine.evaluate_action(&action, &self.policies) {
             Ok(Verdict::Allow) => ProxyDecision::Forward,
-            Ok(Verdict::Deny { reason }) => ProxyDecision::Block(make_denial_response(id, &reason)),
-            Ok(Verdict::RequireApproval { reason }) => {
-                ProxyDecision::Block(make_approval_response(id, &reason))
+            Ok(verdict @ Verdict::Deny { .. }) => {
+                let response = make_denial_response(
+                    id,
+                    match &verdict {
+                        Verdict::Deny { reason } => reason.as_str(),
+                        _ => unreachable!(),
+                    },
+                );
+                ProxyDecision::Block(response, verdict)
             }
-            Err(e) => ProxyDecision::Block(make_denial_response(
-                id,
-                &format!("Policy evaluation error: {}", e),
-            )),
+            Ok(verdict @ Verdict::RequireApproval { .. }) => {
+                let response = make_approval_response(
+                    id,
+                    match &verdict {
+                        Verdict::RequireApproval { reason } => reason.as_str(),
+                        _ => unreachable!(),
+                    },
+                );
+                ProxyDecision::Block(response, verdict)
+            }
+            Err(e) => {
+                let reason = format!("Policy evaluation error: {}", e);
+                ProxyDecision::Block(make_denial_response(id, &reason), Verdict::Deny { reason })
+            }
+        }
+    }
+
+    /// Evaluate a `resources/read` request and decide whether to forward or block.
+    pub fn evaluate_resource_read(&self, id: &Value, uri: &str) -> ProxyDecision {
+        let action = extract_resource_action(uri);
+
+        match self.engine.evaluate_action(&action, &self.policies) {
+            Ok(Verdict::Allow) => ProxyDecision::Forward,
+            Ok(verdict @ Verdict::Deny { .. }) => {
+                let response = make_denial_response(
+                    id,
+                    match &verdict {
+                        Verdict::Deny { reason } => reason.as_str(),
+                        _ => unreachable!(),
+                    },
+                );
+                ProxyDecision::Block(response, verdict)
+            }
+            Ok(verdict @ Verdict::RequireApproval { .. }) => {
+                let response = make_approval_response(
+                    id,
+                    match &verdict {
+                        Verdict::RequireApproval { reason } => reason.as_str(),
+                        _ => unreachable!(),
+                    },
+                );
+                ProxyDecision::Block(response, verdict)
+            }
+            Err(e) => {
+                let reason = format!("Policy evaluation error: {}", e);
+                ProxyDecision::Block(make_denial_response(id, &reason), Verdict::Deny { reason })
+            }
         }
     }
 
@@ -113,15 +164,9 @@ impl ProxyBridge {
                                             write_message(&mut child_stdin, &msg).await
                                                 .map_err(ProxyError::Framing)?;
                                         }
-                                        ProxyDecision::Block(response) => {
-                                            // Audit the denial
+                                        ProxyDecision::Block(response, verdict) => {
+                                            // Audit with the actual verdict (Deny or RequireApproval)
                                             let action = extract_action(&tool_name, &arguments);
-                                            let verdict = Verdict::Deny {
-                                                reason: response["error"]["message"]
-                                                    .as_str()
-                                                    .unwrap_or("blocked")
-                                                    .to_string(),
-                                            };
                                             if let Err(e) = self.audit.log_entry(
                                                 &action,
                                                 &verdict,
@@ -129,11 +174,37 @@ impl ProxyBridge {
                                             ).await {
                                                 tracing::warn!("Audit log failed: {}", e);
                                             }
-                                            // Send denial directly to agent
                                             write_message(&mut agent_writer, &response).await
                                                 .map_err(ProxyError::Framing)?;
                                         }
                                     }
+                                }
+                                MessageType::ResourceRead { id, uri } => {
+                                    match self.evaluate_resource_read(&id, &uri) {
+                                        ProxyDecision::Forward => {
+                                            write_message(&mut child_stdin, &msg).await
+                                                .map_err(ProxyError::Framing)?;
+                                        }
+                                        ProxyDecision::Block(response, verdict) => {
+                                            let action = extract_resource_action(&uri);
+                                            if let Err(e) = self.audit.log_entry(
+                                                &action,
+                                                &verdict,
+                                                json!({"source": "proxy", "resource_uri": uri}),
+                                            ).await {
+                                                tracing::warn!("Audit log failed: {}", e);
+                                            }
+                                            write_message(&mut agent_writer, &response).await
+                                                .map_err(ProxyError::Framing)?;
+                                        }
+                                    }
+                                }
+                                MessageType::Invalid { id, reason } => {
+                                    // Invalid request — return error to agent, don't forward
+                                    let response = make_invalid_response(&id, &reason);
+                                    tracing::warn!("Invalid MCP request: {}", reason);
+                                    write_message(&mut agent_writer, &response).await
+                                        .map_err(ProxyError::Framing)?;
                                 }
                                 MessageType::PassThrough => {
                                     // Non-tool-call messages pass through unmodified
@@ -221,12 +292,13 @@ mod tests {
         let decision =
             bridge.evaluate_tool_call(&json!(2), "bash", &json!({"command": "rm -rf /"}));
         match decision {
-            ProxyDecision::Block(resp) => {
-                assert_eq!(resp["error"]["code"], -32600);
+            ProxyDecision::Block(resp, verdict) => {
+                assert_eq!(resp["error"]["code"], -32001);
                 assert!(resp["error"]["message"]
                     .as_str()
                     .unwrap()
                     .contains("Denied by policy"));
+                assert!(matches!(verdict, Verdict::Deny { .. }));
             }
             _ => panic!("Expected Block"),
         }
@@ -243,7 +315,7 @@ mod tests {
         }];
         let bridge = test_bridge(policies);
         let decision = bridge.evaluate_tool_call(&json!(3), "unknown_tool", &json!({}));
-        assert!(matches!(decision, ProxyDecision::Block(_)));
+        assert!(matches!(decision, ProxyDecision::Block(_, _)));
     }
 
     #[test]
@@ -259,12 +331,14 @@ mod tests {
         let bridge = test_bridge(policies);
         let decision = bridge.evaluate_tool_call(&json!(4), "write_file", &json!({}));
         match decision {
-            ProxyDecision::Block(resp) => {
-                assert_eq!(resp["error"]["code"], -32001);
+            ProxyDecision::Block(resp, verdict) => {
+                assert_eq!(resp["error"]["code"], -32002);
                 assert!(resp["error"]["message"]
                     .as_str()
                     .unwrap()
                     .contains("Approval required"));
+                // Fix #13: Verify the actual verdict is RequireApproval, not Deny
+                assert!(matches!(verdict, Verdict::RequireApproval { .. }));
             }
             _ => panic!("Expected Block"),
         }
@@ -292,7 +366,7 @@ mod tests {
         // Should be blocked
         let decision =
             bridge.evaluate_tool_call(&json!(5), "read_file", &json!({"path": "/etc/passwd"}));
-        assert!(matches!(decision, ProxyDecision::Block(_)));
+        assert!(matches!(decision, ProxyDecision::Block(_, _)));
 
         // Should be allowed
         let decision =
@@ -304,6 +378,109 @@ mod tests {
     fn test_evaluate_empty_policies_denies() {
         let bridge = test_bridge(vec![]);
         let decision = bridge.evaluate_tool_call(&json!(7), "any_tool", &json!({}));
-        assert!(matches!(decision, ProxyDecision::Block(_)));
+        assert!(matches!(decision, ProxyDecision::Block(_, _)));
+    }
+
+    // --- resources/read proxy tests ---
+
+    #[test]
+    fn test_resource_read_allowed() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Allow all".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+        }];
+        let bridge = test_bridge(policies);
+        let decision = bridge.evaluate_resource_read(&json!(10), "file:///tmp/safe.txt");
+        assert!(matches!(decision, ProxyDecision::Forward));
+    }
+
+    #[test]
+    fn test_resource_read_denied_by_policy() {
+        let policies = vec![Policy {
+            id: "resources:*".to_string(),
+            name: "Block all resource reads".to_string(),
+            policy_type: PolicyType::Deny,
+            priority: 200,
+        }];
+        let bridge = test_bridge(policies);
+        let decision = bridge.evaluate_resource_read(&json!(11), "file:///etc/passwd");
+        match decision {
+            ProxyDecision::Block(resp, verdict) => {
+                assert_eq!(resp["error"]["code"], -32001);
+                assert!(resp["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("Denied by policy"));
+                assert!(matches!(verdict, Verdict::Deny { .. }));
+            }
+            _ => panic!("Expected Block"),
+        }
+    }
+
+    #[test]
+    fn test_resource_read_blocked_by_path_constraint() {
+        let policies = vec![Policy {
+            id: "resources:*".to_string(),
+            name: "Block sensitive paths via resources".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [{
+                        "param": "path",
+                        "op": "glob",
+                        "pattern": "/etc/**",
+                        "on_match": "deny"
+                    }]
+                }),
+            },
+            priority: 200,
+        }];
+        let bridge = test_bridge(policies);
+
+        // file:///etc/shadow → path=/etc/shadow → blocked by glob
+        let decision = bridge.evaluate_resource_read(&json!(12), "file:///etc/shadow");
+        assert!(matches!(decision, ProxyDecision::Block(_, _)));
+
+        // file:///tmp/ok.txt → path=/tmp/ok.txt → allowed
+        let decision = bridge.evaluate_resource_read(&json!(13), "file:///tmp/ok.txt");
+        assert!(matches!(decision, ProxyDecision::Forward));
+    }
+
+    #[test]
+    fn test_resource_read_http_domain_blocked() {
+        let policies = vec![Policy {
+            id: "resources:*".to_string(),
+            name: "Block external domains".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [{
+                        "param": "url",
+                        "op": "domain_match",
+                        "pattern": "*.evil.com",
+                        "on_match": "deny"
+                    }]
+                }),
+            },
+            priority: 200,
+        }];
+        let bridge = test_bridge(policies);
+
+        let decision = bridge.evaluate_resource_read(&json!(14), "https://data.evil.com/exfil");
+        assert!(matches!(decision, ProxyDecision::Block(_, _)));
+    }
+
+    #[test]
+    fn test_resource_read_no_matching_policy_denies() {
+        // Fail-closed: no matching policy for resources:read → deny
+        let policies = vec![Policy {
+            id: "some_other_tool:*".to_string(),
+            name: "Allow other tool".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+        }];
+        let bridge = test_bridge(policies);
+        let decision = bridge.evaluate_resource_read(&json!(15), "file:///etc/passwd");
+        assert!(matches!(decision, ProxyDecision::Block(_, _)));
     }
 }

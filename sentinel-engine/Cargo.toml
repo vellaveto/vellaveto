@@ -11,6 +11,7 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 globset = "0.4"
 regex = "1"
+percent-encoding = "2.3"
 
 [dev-dependencies]
 tokio = { workspace = true }

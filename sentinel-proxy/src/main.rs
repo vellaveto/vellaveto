@@ -101,8 +101,9 @@ async fn main() -> Result<()> {
         .run(agent_stdin, agent_stdout, child_stdin, child_stdout)
         .await;
 
-    // Clean up child process
+    // Clean up child process — kill and then reap to prevent zombies
     let _ = child.kill().await;
+    let _ = child.wait().await;
 
     match proxy_result {
         Ok(()) => {

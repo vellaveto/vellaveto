@@ -1,6 +1,8 @@
 use axum::{
-    extract::{Path, State},
-    http::StatusCode,
+    extract::{Path, Request, State},
+    http::{header, Method, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
 };
@@ -9,7 +11,7 @@ use sentinel_engine::PolicyEngine;
 use sentinel_types::{Action, Policy, Verdict};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use crate::AppState;
@@ -29,9 +31,59 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/approvals/:id", get(get_approval))
         .route("/api/approvals/:id/approve", post(approve_approval))
         .route("/api/approvals/:id/deny", post(deny_approval))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_api_key,
+        ))
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive())
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
+                .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]),
+        )
         .with_state(state)
+}
+
+/// Middleware that requires API key authentication for mutating (non-GET) requests.
+/// If no API key is configured in AppState, all requests are allowed.
+async fn require_api_key(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    // Skip auth for read-only methods
+    if request.method() == Method::GET || request.method() == Method::OPTIONS {
+        return next.run(request).await;
+    }
+
+    // Skip auth if no API key configured
+    let api_key = match &state.api_key {
+        Some(key) => key.clone(),
+        None => return next.run(request).await,
+    };
+
+    let auth_header = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    match auth_header {
+        Some(ref h) if h.starts_with("Bearer ") => {
+            let token = &h[7..];
+            if token == api_key.as_str() {
+                next.run(request).await
+            } else {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({"error": "Invalid API key"})),
+                )
+                    .into_response()
+            }
+        }
+        _ => (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Missing or invalid Authorization header. Expected: Bearer <api_key>"})),
+        )
+            .into_response(),
+    }
 }
 
 #[derive(Serialize)]
@@ -80,17 +132,25 @@ async fn evaluate(
             )
         })?;
 
-    // If RequireApproval, create a pending approval
-    let approval_id = if let Verdict::RequireApproval { ref reason } = verdict {
+    // If RequireApproval, create a pending approval.
+    // Fail-closed: if approval creation fails, convert to Deny so the caller
+    // can't proceed without a resolvable approval_id.
+    let (verdict, approval_id) = if let Verdict::RequireApproval { ref reason } = verdict {
         match state.approvals.create(action.clone(), reason.clone()).await {
-            Ok(id) => Some(id),
+            Ok(id) => (verdict, Some(id)),
             Err(e) => {
-                tracing::warn!("Failed to create approval: {}", e);
-                None
+                tracing::error!("Failed to create approval (fail-closed → Deny): {}", e);
+                let deny_reason = format!("Approval required but could not be created: {}", e);
+                (
+                    Verdict::Deny {
+                        reason: deny_reason,
+                    },
+                    None,
+                )
             }
         }
     } else {
-        None
+        (verdict, None)
     };
 
     // Log to audit — fire-and-forget on error (don't fail the request)
@@ -203,7 +263,15 @@ async fn audit_report(
         )
     })?;
 
-    Ok(Json(serde_json::to_value(report).unwrap_or_default()))
+    let value = serde_json::to_value(report).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Serialization error: {}", e),
+            }),
+        )
+    })?;
+    Ok(Json(value))
 }
 
 async fn audit_verify(
@@ -219,7 +287,15 @@ async fn audit_verify(
         )
     })?;
 
-    Ok(Json(serde_json::to_value(verification).unwrap_or_default()))
+    let value = serde_json::to_value(verification).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Serialization error: {}", e),
+            }),
+        )
+    })?;
+    Ok(Json(value))
 }
 
 // === Approval Endpoints ===
@@ -242,7 +318,15 @@ async fn get_approval(
         )
     })?;
 
-    Ok(Json(serde_json::to_value(approval).unwrap_or_default()))
+    let value = serde_json::to_value(approval).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Serialization error: {}", e),
+            }),
+        )
+    })?;
+    Ok(Json(value))
 }
 
 #[derive(Deserialize)]
@@ -283,7 +367,15 @@ async fn approve_approval(
             )
         })?;
 
-    Ok(Json(serde_json::to_value(approval).unwrap_or_default()))
+    let value = serde_json::to_value(approval).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Serialization error: {}", e),
+            }),
+        )
+    })?;
+    Ok(Json(value))
 }
 
 async fn deny_approval(
@@ -310,5 +402,13 @@ async fn deny_approval(
         )
     })?;
 
-    Ok(Json(serde_json::to_value(approval).unwrap_or_default()))
+    let value = serde_json::to_value(approval).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Serialization error: {}", e),
+            }),
+        )
+    })?;
+    Ok(Json(value))
 }

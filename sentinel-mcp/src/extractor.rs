@@ -30,6 +30,8 @@ pub enum MessageType {
     },
     /// A `resources/read` request that should be policy-checked.
     ResourceRead { id: Value, uri: String },
+    /// An invalid request that should be rejected with an error response.
+    Invalid { id: Value, reason: String },
     /// Any other message (notifications, responses, other methods).
     PassThrough,
 }
@@ -46,21 +48,25 @@ pub fn classify_message(msg: &Value) -> MessageType {
 
     match method {
         Some("tools/call") => {
-            let tool_name = params
-                .and_then(|p| p.get("name"))
-                .and_then(|n| n.as_str())
-                .unwrap_or("")
-                .to_string();
+            let tool_name = params.and_then(|p| p.get("name")).and_then(|n| n.as_str());
 
-            let arguments = params
-                .and_then(|p| p.get("arguments"))
-                .cloned()
-                .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
+            match tool_name {
+                Some(name) if !name.is_empty() => {
+                    let arguments = params
+                        .and_then(|p| p.get("arguments"))
+                        .cloned()
+                        .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
 
-            MessageType::ToolCall {
-                id,
-                tool_name,
-                arguments,
+                    MessageType::ToolCall {
+                        id,
+                        tool_name: name.to_string(),
+                        arguments,
+                    }
+                }
+                _ => MessageType::Invalid {
+                    id,
+                    reason: "tools/call missing or empty tool name".to_string(),
+                },
             }
         }
         Some("resources/read") => {
@@ -123,25 +129,42 @@ pub fn extract_resource_action(uri: &str) -> Action {
     }
 }
 
-/// Build a JSON-RPC error response for a denied tool call.
-pub fn make_denial_response(id: &Value, reason: &str) -> Value {
+/// Build a JSON-RPC error response for an invalid request.
+pub fn make_invalid_response(id: &Value, reason: &str) -> Value {
     serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,
         "error": {
             "code": -32600,
+            "message": format!("Invalid request: {}", reason)
+        }
+    })
+}
+
+/// Build a JSON-RPC error response for a denied tool call.
+///
+/// Uses custom application error code -32001 (policy denial).
+/// Per JSON-RPC 2.0, -32000 to -32099 are reserved for application-defined errors.
+pub fn make_denial_response(id: &Value, reason: &str) -> Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": -32001,
             "message": format!("Denied by policy: {}", reason)
         }
     })
 }
 
 /// Build a JSON-RPC error response for a tool call that requires approval.
+///
+/// Uses custom application error code -32002 (approval required).
 pub fn make_approval_response(id: &Value, reason: &str) -> Value {
     serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,
         "error": {
-            "code": -32001,
+            "code": -32002,
             "message": format!("Approval required: {}", reason)
         }
     })
@@ -210,7 +233,8 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_tool_call_missing_params() {
+    fn test_classify_tool_call_missing_params_returns_invalid() {
+        // Fix #5: Missing tool name must return Invalid, not ToolCall with empty name
         let msg = json!({
             "jsonrpc": "2.0",
             "id": 4,
@@ -218,11 +242,38 @@ mod tests {
         });
         let mt = classify_message(&msg);
         match mt {
-            MessageType::ToolCall { tool_name, .. } => {
-                assert_eq!(tool_name, "");
+            MessageType::Invalid { id, reason } => {
+                assert_eq!(id, json!(4));
+                assert!(reason.contains("missing or empty tool name"));
             }
-            _ => panic!("Expected ToolCall"),
+            _ => panic!("Expected Invalid, got {:?}", mt),
         }
+    }
+
+    #[test]
+    fn test_classify_tool_call_empty_name_returns_invalid() {
+        // Fix #5: Empty string tool name must also return Invalid
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {"name": "", "arguments": {}}
+        });
+        let mt = classify_message(&msg);
+        assert!(matches!(mt, MessageType::Invalid { .. }));
+    }
+
+    #[test]
+    fn test_classify_tool_call_non_string_name_returns_invalid() {
+        // Fix #5: Non-string name (e.g., integer) must return Invalid
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": {"name": 42, "arguments": {}}
+        });
+        let mt = classify_message(&msg);
+        assert!(matches!(mt, MessageType::Invalid { .. }));
     }
 
     #[test]
@@ -239,7 +290,7 @@ mod tests {
         let resp = make_denial_response(&json!(5), "blocked by policy");
         assert_eq!(resp["jsonrpc"], "2.0");
         assert_eq!(resp["id"], 5);
-        assert_eq!(resp["error"]["code"], -32600);
+        assert_eq!(resp["error"]["code"], -32001);
         assert!(resp["error"]["message"]
             .as_str()
             .unwrap()
@@ -249,10 +300,119 @@ mod tests {
     #[test]
     fn test_make_approval_response() {
         let resp = make_approval_response(&json!(6), "needs review");
-        assert_eq!(resp["error"]["code"], -32001);
+        assert_eq!(resp["error"]["code"], -32002);
         assert!(resp["error"]["message"]
             .as_str()
             .unwrap()
             .contains("Approval required"));
+    }
+
+    // --- resources/read classification tests ---
+
+    #[test]
+    fn test_classify_resource_read() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 10,
+            "method": "resources/read",
+            "params": {
+                "uri": "file:///etc/passwd"
+            }
+        });
+        let mt = classify_message(&msg);
+        match mt {
+            MessageType::ResourceRead { id, uri } => {
+                assert_eq!(id, json!(10));
+                assert_eq!(uri, "file:///etc/passwd");
+            }
+            _ => panic!("Expected ResourceRead, got {:?}", mt),
+        }
+    }
+
+    #[test]
+    fn test_classify_resource_read_http_uri() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 11,
+            "method": "resources/read",
+            "params": {
+                "uri": "https://evil.com/exfil"
+            }
+        });
+        let mt = classify_message(&msg);
+        match mt {
+            MessageType::ResourceRead { id, uri } => {
+                assert_eq!(id, json!(11));
+                assert_eq!(uri, "https://evil.com/exfil");
+            }
+            _ => panic!("Expected ResourceRead"),
+        }
+    }
+
+    #[test]
+    fn test_classify_resource_read_missing_params() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 12,
+            "method": "resources/read"
+        });
+        let mt = classify_message(&msg);
+        match mt {
+            MessageType::ResourceRead { uri, .. } => {
+                assert_eq!(uri, "");
+            }
+            _ => panic!("Expected ResourceRead"),
+        }
+    }
+
+    #[test]
+    fn test_classify_resources_list_is_passthrough() {
+        // resources/list is NOT intercepted (only resources/read)
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 13,
+            "method": "resources/list",
+            "params": {}
+        });
+        assert_eq!(classify_message(&msg), MessageType::PassThrough);
+    }
+
+    // --- extract_resource_action tests ---
+
+    #[test]
+    fn test_extract_resource_action_file_uri() {
+        let action = extract_resource_action("file:///etc/shadow");
+        assert_eq!(action.tool, "resources");
+        assert_eq!(action.function, "read");
+        assert_eq!(action.parameters["uri"], "file:///etc/shadow");
+        assert_eq!(action.parameters["path"], "/etc/shadow");
+        // No url field for file:// URIs
+        assert!(action.parameters.get("url").is_none());
+    }
+
+    #[test]
+    fn test_extract_resource_action_file_uri_with_localhost() {
+        let action = extract_resource_action("file://localhost/home/user/.ssh/id_rsa");
+        assert_eq!(action.parameters["path"], "/home/user/.ssh/id_rsa");
+    }
+
+    #[test]
+    fn test_extract_resource_action_http_uri() {
+        let action = extract_resource_action("https://evil.com/data");
+        assert_eq!(action.tool, "resources");
+        assert_eq!(action.function, "read");
+        assert_eq!(action.parameters["uri"], "https://evil.com/data");
+        assert_eq!(action.parameters["url"], "https://evil.com/data");
+        // No path field for http URIs
+        assert!(action.parameters.get("path").is_none());
+    }
+
+    #[test]
+    fn test_extract_resource_action_unknown_scheme() {
+        // Unknown schemes get uri only, no path or url extraction
+        let action = extract_resource_action("custom://something");
+        assert_eq!(action.parameters["uri"], "custom://something");
+        assert!(action.parameters.get("path").is_none());
+        assert!(action.parameters.get("url").is_none());
     }
 }

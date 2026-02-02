@@ -67,6 +67,26 @@ I'm implementing the full 5-feature plan from the approved plan document. I chos
 - Full workspace compiles and tests pass: 128 test suites, 0 failures
 - Fixed pre-existing `priority: i` type mismatch in policy_scaling_benchmark.rs example
 
+### Security Hardening (Controller Directive C-2) — COMPLETE
+
+All 9 assigned security fixes implemented with regression tests:
+- Fix #1: Hash chain bypass — reject hashless after hashed
+- Fix #2: Field separators — length-prefixed u64 LE encoding
+- Fix #3: initialize_chain — verify before trusting file
+- Fix #4: last_hash ordering — update after file write only
+- Fix #5: Empty tool name — Invalid variant rejects, not PassThrough
+- Fix #6: Unbounded read_line — 1MB max with LineTooLong error
+- Fix #8: extract_domain @ bypass — authority-only @ search
+- Fix #9: normalize_path empty — returns "/" not raw input
+- Fix #14: Empty line proxy — skip empty lines, only EOF terminates
+
+### Improvement Plan Items (Pre-C2) — COMPLETE
+
+- Phase 1.2: globset migration (glob → globset)
+- Phase 1.3: Pre-sort policies at load time
+- Phase 3.1: Deep parameter inspection (JSON path traversal)
+- Phase 4.2: Intercept resources/read in MCP proxy
+
 ### Files Modified/Created by Instance B
 - `Cargo.toml` (workspace) — added sentinel-approval, sentinel-proxy
 - `sentinel-engine/Cargo.toml` — added glob, regex
@@ -90,3 +110,22 @@ I'm implementing the full 5-feature plan from the approved plan document. I chos
 - `sentinel-integration/tests/audit_type_completeness.rs` — new AuditEntry fields
 - `sentinel-integration/tests/audit_serialization_roundtrip.rs` — new AuditEntry fields
 - `sentinel-integration/examples/policy_scaling_benchmark.rs` — type fix
+
+### Directive C-6: Protocol Compliance — COMPLETE
+
+- P-B1 (id type): Already using `Value` — no change needed
+- P-B2 (jsonrpc field): Already included in all responses — no change needed
+- P-B3 (error codes): Changed denial from -32600 to -32001 (custom app error), approval from -32001 to -32002. Updated all test assertions.
+- P-B4 (reap child): Added `child.wait().await` after kill in sentinel-proxy to prevent zombie processes
+
+### HIGH Findings #10-13 — COMPLETE
+
+- Fix #10 (Approval persistence): Added `load_from_file()` to `ApprovalStore` — reads JSONL on startup, later entries override earlier for same ID. Wired into server main.rs startup.
+- Fix #11 (unwrap_or_default): Replaced all 5 `unwrap_or_default()` calls in routes.rs with proper `map_err` that returns 500 with error message instead of silently returning null.
+- Fix #12 (Fail-closed on approval failure): When `ApprovalStore::create()` fails, the evaluate handler now converts `RequireApproval` verdict to `Deny` with descriptive reason, instead of returning RequireApproval without an approval_id.
+- Fix #13 (Audit verdict): `ProxyDecision::Block` now carries `(Value, Verdict)` — the actual verdict (Deny or RequireApproval) is logged to audit, not a hardcoded Deny.
+
+### Build Status (Final)
+- All workspace tests pass (0 failures)
+- Clippy clean with `-D warnings`
+- All 14 CRITICAL/HIGH findings from Controller audit: RESOLVED

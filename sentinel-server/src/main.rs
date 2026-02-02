@@ -29,6 +29,9 @@ enum Commands {
         port: u16,
         #[arg(short, long)]
         config: String,
+        /// Bind address (default: 127.0.0.1). Use 0.0.0.0 to listen on all interfaces.
+        #[arg(short, long, default_value = "127.0.0.1")]
+        bind: String,
     },
     /// One-shot action evaluation
     Evaluate {
@@ -65,7 +68,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Serve { port, config } => cmd_serve(port, config).await,
+        Commands::Serve { port, config, bind } => cmd_serve(port, config, bind).await,
         Commands::Evaluate {
             tool,
             function,
@@ -77,7 +80,7 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn cmd_serve(port: u16, config: String) -> Result<()> {
+async fn cmd_serve(port: u16, config: String, bind: String) -> Result<()> {
     let policy_config = PolicyConfig::load_file(&config)
         .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
     let mut policies = policy_config.to_policies();
@@ -103,12 +106,37 @@ async fn cmd_serve(port: u16, config: String) -> Result<()> {
         std::time::Duration::from_secs(900),
     ));
 
+    // Load existing approvals from persistence file
+    match approvals.load_from_file().await {
+        Ok(count) if count > 0 => tracing::info!(
+            "Loaded {} approval records from {}",
+            count,
+            approval_path.display()
+        ),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(
+            "Failed to load approvals from {}: {}",
+            approval_path.display(),
+            e
+        ),
+    }
+
+    // Read API key from environment variable for auth middleware
+    let api_key = std::env::var("SENTINEL_API_KEY").ok().map(Arc::new);
+
+    if api_key.is_some() {
+        tracing::info!("API key authentication enabled for mutating endpoints");
+    } else {
+        tracing::warn!("No SENTINEL_API_KEY set — mutating endpoints are unauthenticated");
+    }
+
     let state = AppState {
         engine: Arc::new(PolicyEngine::new(false)),
         policies: Arc::new(RwLock::new(policies)),
         audit,
         config_path: Arc::new(config),
         approvals: approvals.clone(),
+        api_key,
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -128,11 +156,11 @@ async fn cmd_serve(port: u16, config: String) -> Result<()> {
 
     let app = routes::build_router(state);
 
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
+    let listener = tokio::net::TcpListener::bind(format!("{}:{}", bind, port))
         .await
-        .context("Failed to bind to port")?;
+        .context("Failed to bind to address")?;
 
-    tracing::info!("Sentinel server listening on 0.0.0.0:{}", port);
+    tracing::info!("Sentinel server listening on {}:{}", bind, port);
 
     axum::serve(listener, app).await.context("Server error")?;
 

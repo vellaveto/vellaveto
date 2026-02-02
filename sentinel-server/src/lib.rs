@@ -15,4 +15,6 @@ pub struct AppState {
     pub audit: Arc<AuditLogger>,
     pub config_path: Arc<String>,
     pub approvals: Arc<ApprovalStore>,
+    /// API key for authenticating mutating requests. None disables auth.
+    pub api_key: Option<Arc<String>>,
 }

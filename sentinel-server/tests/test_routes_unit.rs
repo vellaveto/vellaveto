@@ -37,6 +37,7 @@ fn test_state() -> (AppState, TempDir) {
             tmp.path().join("approvals.jsonl"),
             std::time::Duration::from_secs(900),
         )),
+        api_key: None,
     };
     (state, tmp)
 }

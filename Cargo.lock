@@ -824,6 +824,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -852,6 +853,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "globset",
+ "percent-encoding",
  "regex",
  "sentinel-types",
  "serde",
@@ -864,15 +866,19 @@ dependencies = [
 name = "sentinel-integration"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "sentinel-approval",
  "sentinel-audit",
  "sentinel-config",
  "sentinel-engine",
+ "sentinel-mcp",
+ "sentinel-server",
  "sentinel-types",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "tower",
 ]
 
 [[package]]

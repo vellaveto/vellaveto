@@ -501,13 +501,12 @@ impl PolicyEngine {
                     policy_id: policy.id.clone(),
                     reason: "not_glob patterns must be strings".to_string(),
                 })?;
-            let matcher =
-                Glob::new(pat_str)
-                    .map_err(|e| EngineError::InvalidCondition {
-                        policy_id: policy.id.clone(),
-                        reason: format!("Invalid glob pattern '{}': {}", pat_str, e),
-                    })?
-                    .compile_matcher();
+            let matcher = Glob::new(pat_str)
+                .map_err(|e| EngineError::InvalidCondition {
+                    policy_id: policy.id.clone(),
+                    reason: format!("Invalid glob pattern '{}': {}", pat_str, e),
+                })?
+                .compile_matcher();
             if matcher.is_match(&normalized) {
                 return Ok(None); // Matched allowlist, no fire
             }
@@ -813,12 +812,23 @@ impl PolicyEngine {
 
     /// Normalize a file path: resolve `..`, `.`, reject null bytes, ensure deterministic form.
     pub fn normalize_path(raw: &str) -> String {
-        // Reject null bytes
+        // Reject null bytes — return root instead of empty/raw to prevent bypass
         if raw.contains('\0') {
-            return String::new();
+            return "/".to_string();
         }
 
-        let path = PathBuf::from(raw);
+        // Phase 4.2: Percent-decode the path before normalization.
+        // This prevents bypass via encoded characters (e.g., /etc/%70asswd → /etc/passwd).
+        // Single-pass decode only — double-encoded inputs are left partially encoded,
+        // which is intentional to prevent double-decode vulnerabilities.
+        let decoded = percent_encoding::percent_decode_str(raw).decode_utf8_lossy();
+
+        // After decoding, check for null bytes again (could have been encoded as %00)
+        if decoded.contains('\0') {
+            return "/".to_string();
+        }
+
+        let path = PathBuf::from(decoded.as_ref());
         let mut components = Vec::new();
 
         for component in path.components() {
@@ -844,7 +854,10 @@ impl PolicyEngine {
         let result: PathBuf = components.iter().collect();
         let s = result.to_string_lossy().to_string();
         if s.is_empty() {
-            raw.to_string()
+            // Fix #9: Return "/" (root) instead of the raw input when normalization
+            // produces an empty string. The raw input contains the traversal sequences
+            // that normalization was supposed to remove.
+            "/".to_string()
         } else {
             s
         }
@@ -860,18 +873,20 @@ impl PolicyEngine {
             url
         };
 
-        // Strip userinfo (user:pass@)
-        let without_userinfo = if let Some(pos) = without_scheme.find('@') {
-            &without_scheme[pos + 1..]
+        // Fix #8: Extract the authority portion FIRST (before the first '/'),
+        // then search for '@' only within the authority. This prevents
+        // ?email=user@safe.com in query params from being mistaken for userinfo.
+        let authority = without_scheme.split('/').next().unwrap_or(without_scheme);
+
+        // Strip userinfo (user:pass@) — only within the authority portion
+        let without_userinfo = if let Some(pos) = authority.rfind('@') {
+            &authority[pos + 1..]
         } else {
-            without_scheme
+            authority
         };
 
-        // Strip path, query, fragment
-        let host_port = without_userinfo
-            .split('/')
-            .next()
-            .unwrap_or(without_userinfo);
+        // Strip query and fragment (shouldn't normally be in authority, but defensive)
+        let host_port = without_userinfo;
         let host_port = host_port.split('?').next().unwrap_or(host_port);
         let host_port = host_port.split('#').next().unwrap_or(host_port);
 
@@ -890,7 +905,10 @@ impl PolicyEngine {
             host_port
         };
 
-        host.to_lowercase()
+        // Phase 4.2: Percent-decode the host to prevent bypass via encoded characters
+        // (e.g., evil%2ecom → evil.com bypassing domain patterns).
+        let decoded_host = percent_encoding::percent_decode_str(host).decode_utf8_lossy();
+        decoded_host.to_lowercase()
     }
 
     /// Match a domain against a pattern like `*.example.com` or `example.com`.
@@ -941,7 +959,10 @@ impl PolicyEngine {
     ///
     /// Supports both simple keys (`"path"`) and nested paths (`"config.output.path"`).
     /// Returns `None` if any segment along the path is missing or not an object.
-    pub fn get_param_by_path<'a>(params: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+    pub fn get_param_by_path<'a>(
+        params: &'a serde_json::Value,
+        path: &str,
+    ) -> Option<&'a serde_json::Value> {
         let mut current = params;
         for segment in path.split('.') {
             current = current.get(segment)?;
@@ -1917,8 +1938,9 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_path_empty_on_null_byte() {
-        assert_eq!(PolicyEngine::normalize_path("/a/b\0/c"), "");
+    fn test_normalize_path_root_on_null_byte() {
+        // Fix #9: Null byte paths now return "/" instead of empty string or raw input
+        assert_eq!(PolicyEngine::normalize_path("/a/b\0/c"), "/");
     }
 
     #[test]
@@ -2176,7 +2198,64 @@ mod tests {
             PolicyEngine::get_param_by_path(&params, "top"),
             Some(&json!("val"))
         );
-        assert_eq!(PolicyEngine::get_param_by_path(&params, "a.b.missing"), None);
-        assert_eq!(PolicyEngine::get_param_by_path(&params, "nonexistent"), None);
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "a.b.missing"),
+            None
+        );
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "nonexistent"),
+            None
+        );
+    }
+
+    // ═══════════════════════════════════════════════════
+    // SECURITY REGRESSION TESTS (Controller Directive C-2)
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_fix8_extract_domain_at_in_query_not_authority() {
+        // Fix #8: @-sign in query params must NOT be treated as userinfo separator.
+        // https://evil.com/path?email=user@safe.com should extract "evil.com", not "safe.com"
+        assert_eq!(
+            PolicyEngine::extract_domain("https://evil.com/path?email=user@safe.com"),
+            "evil.com"
+        );
+    }
+
+    #[test]
+    fn test_fix8_extract_domain_at_in_fragment() {
+        // @-sign in fragment must not affect domain extraction
+        assert_eq!(
+            PolicyEngine::extract_domain("https://evil.com/page#section@anchor"),
+            "evil.com"
+        );
+    }
+
+    #[test]
+    fn test_fix8_extract_domain_legitimate_userinfo_still_works() {
+        // Legitimate userinfo still strips correctly
+        assert_eq!(
+            PolicyEngine::extract_domain("https://admin:secret@internal.corp.com/api"),
+            "internal.corp.com"
+        );
+    }
+
+    #[test]
+    fn test_fix9_normalize_path_empty_returns_root() {
+        // Fix #9: When normalization produces empty string (e.g., null byte input),
+        // return "/" instead of the raw input containing dangerous sequences.
+        let result = PolicyEngine::normalize_path("/a/b\0/c");
+        assert_eq!(
+            result, "/",
+            "Null-byte path should normalize to root, not raw input"
+        );
+    }
+
+    #[test]
+    fn test_fix9_normalize_path_traversal_only() {
+        // A path that is ONLY traversal sequences should normalize to "/"
+        // (all components resolve away, leaving nothing)
+        let result = PolicyEngine::normalize_path("../../..");
+        assert_eq!(result, "/", "Pure traversal path should normalize to root");
     }
 }

@@ -62,6 +62,34 @@ impl ApprovalStore {
         }
     }
 
+    /// Load approvals from the persistence file into memory.
+    ///
+    /// Reads the JSONL file and loads the latest state of each approval.
+    /// Because the file is append-only (each state change appends a new line),
+    /// later entries override earlier ones for the same ID.
+    pub async fn load_from_file(&self) -> Result<usize, ApprovalError> {
+        let content = match tokio::fs::read_to_string(&self.log_path).await {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+            Err(e) => return Err(ApprovalError::Io(e)),
+        };
+
+        let mut pending = self.pending.write().await;
+        let mut count = 0;
+
+        for line in content.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(approval) = serde_json::from_str::<PendingApproval>(line) {
+                pending.insert(approval.id.clone(), approval);
+                count += 1;
+            }
+        }
+
+        Ok(count)
+    }
+
     /// Create a new pending approval for an action.
     ///
     /// Returns the approval ID.

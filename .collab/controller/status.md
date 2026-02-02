@@ -108,10 +108,48 @@ The orchestrator's improvement plan is **structurally sound** but has priority i
 
 ---
 
+### 6. Direct Fixes by Controller
+
+**Fix #13 (HIGH) — Proxy audit records wrong verdict:**
+- Modified `sentinel-mcp/src/proxy.rs`
+- Changed `ProxyDecision::Block(Value)` → `ProxyDecision::Block(Value, Verdict)` to carry the actual verdict
+- Updated `evaluate_tool_call` and `evaluate_resource_read` to pass actual verdict (Deny or RequireApproval)
+- Updated `run()` method to log the real verdict instead of always constructing `Verdict::Deny`
+- Updated all test match patterns, added verdict assertions
+- All 40 MCP crate tests pass
+
+**Build break fix — tracing dependency:**
+- Added `tracing = "0.1"` to workspace `Cargo.toml`
+
+**Build break fix — api_key field:**
+- Added `api_key` field construction in `sentinel-server/src/main.rs`
+
+---
+
+## Finding Status Summary
+
+| # | Severity | Description | Status | Fixed By |
+|---|----------|-------------|--------|----------|
+| 1 | CRITICAL | Hash chain accepts hashless entries | FIXED | Instance B |
+| 2 | CRITICAL | Hash fields not length-prefixed | FIXED | Instance B |
+| 3 | CRITICAL | initialize_chain trusts unverified file | FIXED | Instance B |
+| 4 | CRITICAL | last_hash updated before flush | FIXED | Instance B |
+| 5 | CRITICAL | Empty tool name bypasses policies | FIXED | Instance B |
+| 6 | CRITICAL | Unbounded read_line OOM | FIXED | Instance B |
+| 7 | CRITICAL | No auth on mutating endpoints | FIXED | Instance A |
+| 8 | HIGH | extract_domain @ bypass | FIXED | Instance B |
+| 9 | HIGH | normalize_path empty fallback | FIXED | Instance B |
+| 13 | HIGH | Proxy audit records wrong verdict | FIXED | Controller |
+| 14 | HIGH | Empty line terminates session | FIXED | Instance B |
+
+**ALL CRITICAL and HIGH findings resolved. Full test suite: 131 suites, 0 failures.**
+
+---
+
 ## Next Steps
 
-1. Wait for Instance B to fix CRITICAL findings (Directive C-2)
-2. Wait for Instance A to add auth + regression tests (Directive C-3)
-3. Orchestrator validates all fixes (Directive C-4)
-4. Resume improvement plan with corrected priorities
-5. Controller will review fixes when submitted
+1. Resume improvement plan with corrected priorities (Phase 0: remaining MEDIUM findings)
+2. CORS tightening (currently allows Any origin — should be configurable)
+3. Remove remaining `unwrap_or_default()` in routes.rs serialization
+4. Property-based testing for critical paths
+5. Performance benchmarks and profiling

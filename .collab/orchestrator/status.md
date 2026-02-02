@@ -48,24 +48,24 @@ Per Controller Correction 1, future audits must include:
 ### CRITICAL Security Issues (7)
 | # | Finding | Status |
 |---|---------|--------|
-| 1 | Hash chain bypass (hashless entries accepted) | OPEN — assigned Instance B |
-| 2 | Hash chain no field separators (collision risk) | OPEN — assigned Instance B |
-| 3 | initialize_chain trusts unverified file | OPEN — assigned Instance B |
-| 4 | last_hash updated before file write | OPEN — assigned Instance B |
-| 5 | Empty tool name bypasses policy | OPEN — assigned Instance B |
-| 6 | Unbounded read_line (OOM DoS) | OPEN — assigned Instance B |
-| 7 | No authentication on server endpoints | OPEN — assigned Instance A |
+| 1 | Hash chain bypass (hashless entries accepted) | **FIXED** — Instance B, verified |
+| 2 | Hash chain no field separators (collision risk) | **FIXED** — Instance B, verified |
+| 3 | initialize_chain trusts unverified file | **FIXED** — Instance B, verified |
+| 4 | last_hash updated before file write | **FIXED** — Instance B, verified |
+| 5 | Empty tool name bypasses policy | **FIXED** — Instance B, verified |
+| 6 | Unbounded read_line (OOM DoS) | **FIXED** — Instance B, verified |
+| 7 | No authentication on server endpoints | **FIXED** — Instance A, verified |
 
 ### HIGH Issues (7)
 | # | Finding | Status |
 |---|---------|--------|
-| 8 | extract_domain `@` bypass | OPEN — assigned Instance B |
-| 9 | normalize_path empty fallback | OPEN — assigned Instance B |
+| 8 | extract_domain `@` bypass | **FIXED** — Instance B, verified |
+| 9 | normalize_path empty fallback | **FIXED** — Instance B, verified |
 | 10 | Approval store persistence is write-only | OPEN |
 | 11 | unwrap_or_default swallows errors | OPEN |
 | 12 | Evaluate not fail-closed on approval creation failure | OPEN |
 | 13 | Audit records wrong verdict for RequireApproval | OPEN |
-| 14 | Empty line terminates proxy | OPEN — assigned Instance B |
+| 14 | Empty line terminates proxy | **FIXED** — Instance B, verified |
 
 ### Previously Fixed Issues (by Orchestrator)
 - unwrap() in engine library code -- FIXED

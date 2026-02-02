@@ -39,6 +39,7 @@ fn make_state() -> (AppState, TempDir) {
             tmp.path().join("approvals.jsonl"),
             std::time::Duration::from_secs(900),
         )),
+        api_key: None,
     };
     (state, tmp)
 }
@@ -54,6 +55,7 @@ fn make_empty_state() -> (AppState, TempDir) {
             tmp.path().join("approvals.jsonl"),
             std::time::Duration::from_secs(900),
         )),
+        api_key: None,
     };
     (state, tmp)
 }
@@ -510,6 +512,7 @@ priority = 1
             tmp.path().join("approvals.jsonl"),
             std::time::Duration::from_secs(900),
         )),
+        api_key: None,
     };
     let app = routes::build_router(state.clone());
 
