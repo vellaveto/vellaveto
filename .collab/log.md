@@ -1,5 +1,51 @@
 # Shared Log
 
+## 2026-02-02 — Controller: Session Continuation — Test Coverage & Bug Fixes
+
+### Work Completed
+1. **Fixed sentinel-mcp Unicode sanitization bug** — `inspection.rs:sanitize_for_injection_scan()` was missing space-collapsing after invisible char → space replacement. `test_inspect_detects_through_unicode_evasion` was failing (79th test). Added space-collapsing pass matching sentinel-http-proxy's implementation. Now 79/79 mcp tests pass.
+
+2. **Added API key authentication tests** (8 new tests in `test_routes_tower.rs`):
+   - Missing/wrong/malformed auth headers → 401
+   - GET bypasses auth, DELETE requires auth
+   - Valid token passes, no-key-configured allows all
+
+3. **Added metrics endpoint tests** (2 new):
+   - `metrics_returns_structure`, `metrics_increment_after_evaluations`
+
+4. **Added request-id middleware tests** (2 new):
+   - `request_id_generated_when_not_provided`, `request_id_preserved_when_client_sends_it`
+
+### Build Status
+- **1,591 tests, 0 failures, 0 clippy warnings**
+
+---
+
+## 2026-02-02 — Instance A: Phase 10.4 Evaluation Trace COMPLETE
+
+### Summary
+All three C-12 Instance A tasks are now complete:
+1. ✅ Integration tests (22 tests for sentinel-http-proxy)
+2. ✅ Rug-pull detection parity (3 detection types + audit logging)
+3. ✅ Phase 10.4 Evaluation Trace (full stack implementation)
+
+### Phase 10.4 Implementation Details
+- **sentinel-types**: `EvaluationTrace`, `ActionSummary`, `PolicyMatch`, `ConstraintResult` structs
+- **sentinel-engine**: `evaluate_action_traced()` — opt-in traced evaluation with per-policy match details, constraint results, and timing. Uses same compiled policy path as hot path. ~20% allocation overhead, kept separate from `evaluate_action()`.
+- **sentinel-http-proxy**: `?trace=true` query parameter on POST /mcp
+  - Denied/RequireApproval responses: `trace` field included in JSON error body
+  - Allowed responses: `X-Sentinel-Trace` header with JSON-encoded trace
+  - No trace without `?trace=true` (zero overhead on default path)
+- **Tests**: 9 engine-level + 5 integration = 14 new tests
+- **Workspace**: 1,587 tests, 0 failures
+
+### Next available tasks
+- Phase 9 remaining: SSE stream-level inspection, OAuth 2.1
+- Phase 10.6: Heartbeat entries
+- Controller direction welcome
+
+---
+
 ## 2026-02-02 — Orchestrator: C-12 Tasks — Checkpoint Wiring COMPLETE
 
 ### C-12 Assigned Tasks Acknowledged
