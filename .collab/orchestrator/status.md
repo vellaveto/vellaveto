@@ -95,34 +95,50 @@ Per Controller Correction 1, future audits must include:
 
 ---
 
-## Active Work — Directive C-8 (MCP Spec Alignment)
+## Active Work — Directives C-9/C-10 (Production Hardening)
 
 ### Build Status (Updated)
 - `cargo check --workspace` — clean
 - `cargo clippy --workspace --all-targets` — clean
-- `cargo test --workspace` — ~1,424 tests pass, 0 failures
+- `cargo test --workspace` — 1,460 tests pass, 0 failures
 
-### C-8 Task Status
+### C-8 — COMPLETE
+All Phase 8 items delivered: tool annotations, response inspection, rug-pull detection, protocol version tracking, sampling interception.
+
+### C-9/C-10 Task Status
 | Task | Instance | Status |
 |------|----------|--------|
-| C8-B1: Tool Annotation Awareness | Instance B | **COMPLETE** — annotations in eval, audit metadata, rug-pull detection, 60 MCP tests |
-| C8-B2: Response Inspection | Instance B | **COMPLETE** — 15 injection patterns, audit logging, log-only mode |
-| C8-A1: OWASP MCP Top 10 Tests | Instance A | **COMPLETE** — 39 tests across all 10 OWASP risks |
-| C7-A1: Finish C-7 Items | Instance A | **COMPLETE** (rate limiting, proptest) |
+| Security headers | Instance B + Controller | **COMPLETE** |
+| Protocol version awareness | Instance B | **COMPLETE** |
+| sampling/createMessage interception | Instance B | **COMPLETE** |
+| OWASP MCP03/MCP06 real tests | Controller | **COMPLETE** |
+| Pre-compiled policies | Instance B | **COMPLETE** — 1,772 lines, zero Mutex, 24 new tests |
+| Rate limit polish | Instance A | **COMPLETE** — /health exempt, Retry-After, CORS max_age |
+| Cross-review B by A | Instance A | **COMPLETE** — 6 LOW findings |
+| Cross-review A by B | Instance B | **PENDING** |
+| Criterion benchmarks | Instance A | **COMPLETE** — evaluation.rs (15KB) |
+| Architecture design | Orchestrator | **COMPLETE** (C-10.3 O1) |
+| Orchestrator cross-review | Orchestrator | **COMPLETE** (C-10.3 O2) |
+| Controller arbitration | Controller | **COMPLETE** — 4 must-fix, 4 should-fix, 4 defer |
 
-### OWASP MCP Top 10 Coverage
-| Risk | Coverage | Tests |
-|------|----------|-------|
-| MCP01 Token Mismanagement | GOOD | 4 |
-| MCP02 Tool Access Control | GOOD | 5 |
-| MCP03 Tool Poisoning | PARTIAL (placeholder, C8-B1 now available) | 1 |
-| MCP04 Privilege Escalation | GOOD | 4 |
-| MCP05 Command Injection | GOOD | 5 |
-| MCP06 Prompt Injection | PARTIAL (placeholder, C8-B2 now available) | 1 |
-| MCP07 Auth | GOOD | 8 |
-| MCP08 Audit & Telemetry | EXCELLENT | 4 |
-| MCP09 Insufficient Logging | GOOD | 4 |
-| MCP10 Denial of Service | GOOD | 4 |
+### Orchestrator Cross-Review Findings (O2)
+
+**Most Critical Issues (Ranked):**
+
+| # | File | Issue | Severity |
+|---|------|-------|----------|
+| 1 | routes.rs:149 | API key comparison is not constant-time (timing attack) | MEDIUM |
+| 2 | routes.rs:282-287 | `remove_policy` non-atomic load+store (race condition with ArcSwap) | MEDIUM |
+| 3 | proxy.rs:295 | Injection pattern `\\n\\nsystem:` uses literal backslashes, won't match actual newlines | LOW |
+| 4 | routes.rs:130 | GET audit endpoints unauthenticated — audit entries may contain sensitive metadata | LOW (design) |
+| 5 | engine/lib.rs:39-40 | `std::sync::Mutex` in async context — could block tokio runtime | LOW (perf) |
+| 6 | proxy.rs run() | No integration test coverage for proxy loop (most complex component) | LOW (test gap) |
+| 7 | proxy.rs:234 | Rug-pull detection updates annotations despite detection — suspicious values take effect | LOW (design) |
+| 8 | engine/lib.rs:98-110 | `is_sorted` check misses ID tiebreaker — potential non-determinism | LOW |
+
+**Instance A cross-review of B found 6 LOW findings (matching several of ours).**
+**Tests overwhelmingly exercise real functionality, not formatting.**
+**ArcSwap migration mostly correct — one non-atomic issue in `remove_policy`.**
 
 ### Controller Research
 Published 4 research files in `controller/research/`:

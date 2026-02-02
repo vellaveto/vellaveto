@@ -165,8 +165,32 @@ All 9 assigned security fixes implemented with regression tests:
 - Updated 6 files: lib.rs, routes.rs, main.rs, 3 test files + security_regression.rs
 - All workspace tests pass (0 failures)
 
+### C-8 Strategic Features — COMPLETE
+
+- C-8.2: Tool annotation awareness + rug-pull detection in proxy
+- C-8.3: Response injection scanning (OWASP MCP06) in proxy
+- C-8.4: Protocol version awareness (initialize handshake tracking)
+- C-8.5: sampling/createMessage interception (blocking exfiltration vector)
+- Security headers: X-Content-Type-Options, X-Frame-Options, CSP, Cache-Control
+
+### C-9.2 / C-10.2: Pre-Compiled Policies — COMPLETE
+
+**Task B1: Pre-compiled policies for zero-Mutex evaluation**
+- Added `CompiledPolicy`, `CompiledToolMatcher`, `CompiledConstraint`, `PatternMatcher` types
+- Added `PolicyEngine::with_policies(strict_mode, policies)` constructor that compiles all patterns at load time
+- Added `PolicyEngine::compile_policies()` standalone compilation method
+- All regex and glob patterns compiled at load time → zero Mutex acquisitions in `evaluate_action()`
+- Removed `regex_cache: Mutex<HashMap<String, Regex>>` and `glob_cache: Mutex<HashMap<String, GlobMatcher>>`
+- Policy validation at compile time: invalid regex/glob patterns rejected with descriptive errors
+- Multiple validation errors collected and reported together
+- Compiled policies sorted by priority at compile time (no runtime sort check needed)
+- Legacy `PolicyEngine::new(strict_mode)` + `evaluate_action(action, policies)` still works (backward compat)
+- 24 new tests for compiled path (total 128 unit tests, 99 external = 227 engine tests)
+- Full behavioral parity verified: `test_compiled_parity_with_legacy` checks both paths produce same results
+
 ### Build Status (Current)
 - All workspace tests pass (0 failures)
 - Clippy clean
 - All 14 CRITICAL/HIGH findings from Controller audit: RESOLVED
 - All 6 improvement plan tasks complete (I-B1 DEFERRED, I-B2–I-B6 DONE)
+- C-8 complete, C-9.2/C-10.2 (pre-compiled policies) complete

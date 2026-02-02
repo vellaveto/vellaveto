@@ -15,6 +15,10 @@ use std::sync::atomic::Ordering;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
+use governor::clock::Clock;
+
+use subtle::ConstantTimeEq;
+
 use crate::AppState;
 
 pub fn build_router(state: AppState) -> Router {
@@ -53,7 +57,8 @@ pub fn build_router(state: AppState) -> Router {
 fn build_cors_layer(origins: &[String]) -> CorsLayer {
     let base = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
-        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]);
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
+        .max_age(std::time::Duration::from_secs(3600)); // Cache preflight for 1 hour
 
     if origins.iter().any(|o| o == "*") {
         base.allow_origin(Any)
@@ -143,7 +148,7 @@ async fn require_api_key(State(state): State<AppState>, request: Request, next: 
     match auth_header {
         Some(ref h) if h.starts_with("Bearer ") => {
             let token = &h[7..];
-            if token == api_key.as_str() {
+            if token.as_bytes().ct_eq(api_key.as_bytes()).into() {
                 next.run(request).await
             } else {
                 (
@@ -269,6 +274,25 @@ async fn add_policy(
         new
     });
     tracing::info!("Added policy: {}", id);
+
+    // Audit trail for policy mutation
+    let action = Action {
+        tool: "sentinel".to_string(),
+        function: "add_policy".to_string(),
+        parameters: json!({"policy_id": id}),
+    };
+    if let Err(e) = state
+        .audit
+        .log_entry(
+            &action,
+            &Verdict::Allow,
+            json!({"source": "api", "event": "policy_added"}),
+        )
+        .await
+    {
+        tracing::warn!("Failed to audit add_policy: {}", e);
+    }
+
     (StatusCode::CREATED, Json(json!({"added": id})))
 }
 
@@ -276,15 +300,36 @@ async fn remove_policy(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    let old = state.policies.load();
-    let before = old.len();
-    let mut new_policies = old.as_ref().clone();
-    new_policies.retain(|p| p.id != id);
-    let removed = before - new_policies.len();
-    state.policies.store(std::sync::Arc::new(new_policies));
+    let before = state.policies.load().len();
+    state.policies.rcu(|old| {
+        let mut new = old.as_ref().clone();
+        new.retain(|p| p.id != id);
+        new
+    });
+    let after = state.policies.load().len();
+    let removed = before.saturating_sub(after);
 
     if removed > 0 {
         tracing::info!("Removed {} policy(ies) with id: {}", removed, id);
+
+        // Audit trail for policy mutation
+        let action = Action {
+            tool: "sentinel".to_string(),
+            function: "remove_policy".to_string(),
+            parameters: json!({"policy_id": id, "removed_count": removed}),
+        };
+        if let Err(e) = state
+            .audit
+            .log_entry(
+                &action,
+                &Verdict::Allow,
+                json!({"source": "api", "event": "policy_removed"}),
+            )
+            .await
+        {
+            tracing::warn!("Failed to audit remove_policy: {}", e);
+        }
+
         (StatusCode::OK, Json(json!({"removed": removed, "id": id})))
     } else {
         (
@@ -314,6 +359,24 @@ async fn reload_policies(
     let count = new_policies.len();
     state.policies.store(std::sync::Arc::new(new_policies));
     tracing::info!("Reloaded {} policies from {}", count, config_path);
+
+    // Audit trail for policy reload
+    let action = Action {
+        tool: "sentinel".to_string(),
+        function: "reload_policies".to_string(),
+        parameters: json!({"config_path": config_path, "policy_count": count}),
+    };
+    if let Err(e) = state
+        .audit
+        .log_entry(
+            &action,
+            &Verdict::Allow,
+            json!({"source": "api", "event": "policies_reloaded"}),
+        )
+        .await
+    {
+        tracing::warn!("Failed to audit reload_policies: {}", e);
+    }
 
     Ok(Json(json!({"reloaded": count, "config": config_path})))
 }
@@ -522,15 +585,26 @@ async fn deny_approval(
 /// - **admin**: All other non-GET/OPTIONS requests (policy changes, approvals)
 /// - **readonly**: GET requests (health, audit, policy listing)
 ///
-/// Returns 429 Too Many Requests when the rate limit is exceeded.
+/// The `/health` endpoint is always exempt from rate limiting so that
+/// load balancer probes are never throttled.
+///
+/// Returns 429 Too Many Requests with a `Retry-After` header when exceeded.
 async fn rate_limit(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    // Health endpoint is exempt — load balancer probes must never be throttled
+    if request.uri().path() == "/health" {
+        return next.run(request).await;
+    }
+
     let limiter = categorize_rate_limit(&state.rate_limits, request.method(), request.uri().path());
 
     if let Some(limiter) = limiter {
-        if limiter.check().is_err() {
+        if let Err(not_until) = limiter.check() {
+            let wait = not_until.wait_time_from(governor::clock::DefaultClock::default().now());
+            let retry_after = wait.as_secs().max(1);
             return (
                 StatusCode::TOO_MANY_REQUESTS,
-                Json(json!({"error": "Rate limit exceeded. Try again later."})),
+                [(header::RETRY_AFTER, retry_after.to_string())],
+                Json(json!({"error": "Rate limit exceeded. Try again later.", "retry_after_seconds": retry_after})),
             )
                 .into_response();
         }

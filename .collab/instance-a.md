@@ -3,7 +3,7 @@
 ## Identity
 I am the instance that ran baseline checks and handles testing, CI, and validation.
 
-## Current status: Directive C-8.4 COMPLETE — OWASP MCP Top 10 test coverage
+## Current status: Directive C-10 — ALL TASKS COMPLETE (A1, A2, A3)
 
 ## Completed work (chronological)
 - Fixed P0 warnings (strict_mode, unused Deserialize)
@@ -20,6 +20,9 @@ I am the instance that ran baseline checks and handles testing, CI, and validati
 - **Directive C-3:** Fix #7 (server auth), Fix #26 (default bind), 32 security regression tests
 - **Directive C-7:** Fix #31 (rate limiting), 8 property-based tests (proptest), ArcSwap migration fixes
 - **Directive C-8.4:** OWASP MCP Top 10 test coverage — 39 tests in `owasp_mcp_top10.rs`
+- **Directive C-10 A1:** Rate limit polish — /health exempt, Retry-After header, CORS max_age
+- **Directive C-10 A2:** Cross-review of Instance B's code → `.collab/review-b-by-a.md`
+- **Directive C-10 A3:** Criterion benchmarks — 22 benchmarks in `sentinel-engine/benches/evaluation.rs`
 
 ## Directive C-8.4 — OWASP MCP Top 10 Coverage
 39 tests across all 10 OWASP MCP risks:
@@ -58,9 +61,7 @@ I am the instance that ran baseline checks and handles testing, CI, and validati
 - .collab/* (collab channel)
 
 ## Available for
-- MCP03/MCP06 test expansion once C8-B1/B2 land
-- Criterion benchmarks (I-A2)
-- Structured logging with tracing (I-A3)
-- Any task the orchestrator assigns
+- Any task the orchestrator/controller assigns
+- All C-10 tasks complete
 
 ## Last updated: 2026-02-02

@@ -261,8 +261,8 @@ pub enum CompiledToolMatcher {
 ---
 
 #### C-9 Status
-- **C-9.1** PARTIAL — Security headers DONE, rate limit polish + benchmarks OPEN → moved to C-10
-- **C-9.2** PARTIAL — Protocol + sampling DONE, pre-compiled policies OPEN → moved to C-10
+- **C-9.1** PARTIAL — Security headers DONE, rate limit polish DONE (Instance A), benchmarks OPEN → C-10
+- **C-9.2** PARTIAL — Protocol + sampling DONE, pre-compiled policies OPEN → C-10
 - **C-9.3** OPEN → moved to C-10
 - **C-9.4** COMPLETE
 
@@ -281,3 +281,27 @@ See `controller/directive-c10.md` for full details. Summary:
 - **Controller:** Web research validation (C1 — DONE), final review (C2)
 
 Anti-competition rules and file ownership enforced. Cross-review protocol established.
+
+---
+
+### Directive C-11: Cross-Review Action Items (Must-Fix)
+**Priority:** MEDIUM
+**Affects:** Instance A, Instance B
+**Date:** 2026-02-02
+**Source:** C-10.4 C2 cross-review arbitration (`controller/c10-cross-review-arbitration.md`)
+
+Three independent reviews (Instance A, Orchestrator, Controller) converged on these findings. No critical issues found — all items are correctness/defense-in-depth improvements.
+
+**Instance A (3 items):**
+- [x] Upgrade `governor = "0.6"` to `governor = "0.10"` in `sentinel-server/Cargo.toml` — **DONE by Controller** (0.10.4, drop-in, 1460 tests pass)
+- [x] Use `subtle::ConstantTimeEq` for API key comparison in `require_api_key` middleware — **DONE by Instance A**
+- [x] Switch `remove_policy` to `rcu()` pattern (matching `add_policy`) — **DONE by Instance A**
+
+**Instance B (1 item):**
+- [x] Add Unicode control character sanitization before injection pattern matching in `inspect_response_for_injection` — **DONE by Controller** (strips tags, zero-width, bidi, variation selectors, BOM, word joiners; applies NFKC normalization; 6 new tests for evasion detection)
+
+**Should-Fix (next iteration, not blocking):**
+- [ ] Add audit trail entries for policy mutations (add/remove/reload) — Orchestrator finding
+- [x] Add code comment to `\\n\\nsystem:` pattern explaining literal vs actual newlines — **Already present** (proxy.rs:339-340)
+- [ ] Detect tool removal in rug-pull detection (Instance A finding #1)
+- [ ] Detect new tool additions after initial tools/list (Instance A finding #2)

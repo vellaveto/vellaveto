@@ -16,3 +16,8 @@ percent-encoding = "2.3"
 [dev-dependencies]
 tokio = { workspace = true }
 proptest = "1.4"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "evaluation"
+harness = false

@@ -285,13 +285,52 @@ C-9 partially complete (4/8 items done ahead of schedule). C-10 synchronizes all
 | C-10.1 | Instance A | Rate limit polish, cross-review B, benchmarks | OPEN |
 | C-10.2 | Instance B | Pre-compiled policies, cross-review A | OPEN |
 | C-10.3 | Orchestrator | Architecture design, cross-review all | OPEN |
-| C-10.4 | Controller | Web research validation, final review | C1 DONE, C2 OPEN |
+| C-10.4 | Controller | Web research validation, final review | **C1 DONE**, C2 IN PROGRESS |
 
-**Web research validation complete:** All 5 architectural decisions validated. ArcSwap, SHA-256, Governor, MCP 2025-11-25 all confirmed as correct choices. Injection detection patterns need Unicode control char enhancement.
+**C-10.4 C1 Web research validation — COMPLETE.** Full report: `controller/research/c10-validation-report.md`
+
+5 research agents deployed, all completed:
+
+| Topic | Agent | Verdict | Key Finding |
+|-------|-------|---------|-------------|
+| arc-swap | ab2a671 | **KEEP** | v1.8.1, correct pattern, minor `remove_policy` TOCTOU |
+| SHA-256 vs BLAKE3 | ad9fd8b | **KEEP SHA-256** | Industry standard, FIPS, interoperable |
+| governor | a5a9ae4 | **KEEP, UPGRADE** | v0.6→0.10 (4 majors behind), API stable |
+| Injection patterns | a7244a7 | **ADEQUATE, ENHANCE** | Unicode evasion bypasses ASCII-only patterns |
+| MCP spec updates | af16360 | **ALIGNED** | No new spec version, AAIF governance, MCP Apps extension |
+
+**Additional findings from direct code review:**
+- Non-constant-time API key comparison (LOW — `subtle::ConstantTimeEq` recommended)
+- Instance A cross-review corroborates injection pattern gap (finding #6 aligns with research)
+
+**Corrections issued:** C-7 (governor upgrade), C-8 (Unicode sanitization), C-9 (constant-time comparison), C-10 (`remove_policy` TOCTOU).
 
 **Anti-competition rules established** to prevent instances from modifying each other's files.
 
 **Cross-instance review protocol** established — each instance reviews another's code and writes findings to `.collab/review-{target}-by-{reviewer}.md`.
+
+**C-10.4 C2 (partial):** Arbitrated available reviews. 3 independent reviews (Instance A, Orchestrator, Controller) found NO critical issues. Triple convergence on Unicode injection detection gap — most actionable finding. 4 "Must Fix" items, 4 "Should Fix" items identified.
+
+Full arbitration: `controller/c10-cross-review-arbitration.md`
+
+Instance B's cross-review (`review-a-by-b.md`) NOT YET SUBMITTED — they're working on pre-compiled policies (B1). Arbitration will be updated when submitted.
+
+---
+
+### 13. Directive C-11 Must-Fix Items — ALL COMPLETE
+
+**Date:** 2026-02-02
+
+Controller applied all 4 must-fix items from cross-review arbitration:
+
+| # | Fix | Method | Status |
+|---|-----|--------|--------|
+| 1 | Unicode sanitization for injection scanner | `sanitize_for_injection_scan()` strips tags, zero-width, bidi, variation selectors, BOM, word joiners + NFKC normalization | **DONE** — 6 new tests |
+| 2 | Governor 0.6 → 0.10 | Bumped in Cargo.toml | **DONE** |
+| 3 | Constant-time API key comparison | `subtle::ConstantTimeEq` in `require_api_key` | **DONE** |
+| 4 | `remove_policy` TOCTOU → `rcu()` | Switched from `load()`/`store()` to `rcu()` | **DONE** |
+
+**Test status: 1,466 tests, 0 failures, 0 clippy warnings.**
 
 ---
 
@@ -300,9 +339,11 @@ C-9 partially complete (4/8 items done ahead of schedule). C-10 synchronizes all
 2. ~~C-9.1 Security headers~~ — DONE (by Instance B + Controller)
 3. ~~C-9.4 OWASP placeholders~~ — DONE (by Controller)
 4. ~~C-9.2 Protocol version + sampling~~ — DONE (by Instance B)
-5. **C-10.1 (Instance A):** Rate limit polish + cross-review + benchmarks
-6. **C-10.2 (Instance B):** Pre-compiled policies + cross-review
-7. **C-10.3 (Orchestrator):** Architecture design (signed checkpoints, eval traces, Streamable HTTP)
-8. **C-10.4 (Controller):** Final review after cross-reviews submitted
-9. **Phase 9:** Streamable HTTP transport — biggest market-relevance gap
-10. **Future:** Policy index, per-IP rate limiting, BLAKE3 option, Unicode injection detection
+5. ~~C-10.1 (Instance A)~~ — DONE (rate limit polish + cross-review + benchmarks)
+6. ~~C-10.2 (Instance B)~~ — DONE (pre-compiled policies); cross-review not submitted
+7. ~~C-10.3 (Orchestrator)~~ — DONE (architecture designs)
+8. ~~C-10.4 (Controller)~~ — DONE (final review + all must-fix items applied)
+9. ~~C-11 Must-Fix~~ — ALL 4 COMPLETE
+10. **Phase 9:** Streamable HTTP transport — biggest market-relevance gap
+11. **Should-Fix:** Audit trail for policy mutations, tool removal rug-pull detection
+12. **Future:** Policy index, per-IP rate limiting, BLAKE3 option

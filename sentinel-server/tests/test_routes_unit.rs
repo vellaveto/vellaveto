@@ -364,3 +364,165 @@ async fn responses_include_security_headers() {
         "Must have Cache-Control: no-store"
     );
 }
+
+#[tokio::test]
+async fn health_not_rate_limited() {
+    let tmp = TempDir::new().unwrap();
+    let state = AppState {
+        engine: Arc::new(PolicyEngine::new(false)),
+        policies: Arc::new(ArcSwap::from_pointee(vec![])),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("test.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: None,
+        // Set extremely low rate limit: 1 req/s for all categories
+        rate_limits: Arc::new(RateLimits::new(Some(1), Some(1), Some(1))),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+    };
+
+    // Rapid /health requests must all succeed despite strict rate limit
+    for i in 0..5 {
+        let app = routes::build_router(state.clone());
+        let resp = app
+            .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert!(
+            resp.status().is_success(),
+            "/health request {i} must not be rate-limited, got {}",
+            resp.status()
+        );
+    }
+}
+
+#[tokio::test]
+async fn rate_limit_429_includes_retry_after() {
+    let tmp = TempDir::new().unwrap();
+    let state = AppState {
+        engine: Arc::new(PolicyEngine::new(false)),
+        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
+            id: "file:read".to_string(),
+            name: "Allow".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+        }])),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("test.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: None,
+        rate_limits: Arc::new(RateLimits::new(Some(1), None, None)),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+    };
+
+    let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
+
+    // First request consumes the token
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(resp.status().is_success(), "First request must succeed");
+
+    // Second rapid request must be 429 with Retry-After header
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "Second rapid request must be 429"
+    );
+    let retry_after = resp
+        .headers()
+        .get("retry-after")
+        .expect("429 response must include Retry-After header");
+    let seconds: u64 = retry_after.to_str().unwrap().parse().unwrap();
+    assert!(
+        seconds >= 1,
+        "Retry-After must be at least 1 second, got {seconds}"
+    );
+}
+
+#[tokio::test]
+async fn add_policy_creates_audit_entry() {
+    let (state, _tmp) = test_state();
+    let app = routes::build_router(state.clone());
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/policies")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "id": "audit_test:*",
+                        "name": "Audit test policy",
+                        "policy_type": "Allow",
+                        "priority": 1
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert!(response.status().is_success());
+
+    // Verify audit trail contains the add_policy event
+    let entries = state.audit.load_entries().await.unwrap();
+    let add_entry = entries
+        .iter()
+        .find(|e| e.action.function == "add_policy")
+        .expect("Audit trail must contain add_policy event");
+    assert_eq!(add_entry.action.tool, "sentinel");
+    assert_eq!(add_entry.action.parameters["policy_id"], "audit_test:*");
+}
+
+#[tokio::test]
+async fn remove_policy_creates_audit_entry() {
+    let (state, _tmp) = test_state();
+
+    // First add, then remove
+    let app = routes::build_router(state.clone());
+    app.oneshot(
+        Request::builder()
+            .method("DELETE")
+            .uri("/api/policies/file:read")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    // Verify audit trail contains the remove_policy event
+    let entries = state.audit.load_entries().await.unwrap();
+    let remove_entry = entries
+        .iter()
+        .find(|e| e.action.function == "remove_policy")
+        .expect("Audit trail must contain remove_policy event");
+    assert_eq!(remove_entry.action.tool, "sentinel");
+    assert_eq!(remove_entry.action.parameters["policy_id"], "file:read");
+}

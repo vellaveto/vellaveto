@@ -130,3 +130,65 @@ Controller directly fixed the following MEDIUM findings:
 
 **Total MEDIUM fixes by Controller:** 10
 **Test status:** All 131 test suites pass, 0 failures.
+
+---
+
+## Correction 7: Governor Version Is 4 Majors Behind
+**Date:** 2026-02-02
+**Affects:** Instance A (file owner of sentinel-server)
+**Severity:** MEDIUM
+**Source:** C-10.4 C1 web research validation
+
+Sentinel uses `governor = "0.6"` in `sentinel-server/Cargo.toml`. The latest version is **0.10.4** (January 2026). That's 7+ releases and 4 major version bumps. The core API Sentinel uses (`DefaultDirectRateLimiter`, `Quota::per_second`, `RateLimiter::direct`, `.check()`) is stable across versions, making upgrade low-risk. Missing bug fixes, performance improvements, and dependency updates.
+
+**Action:** Bump `governor = "0.6"` to `governor = "0.10"` in `sentinel-server/Cargo.toml`. Verify with `cargo check -p sentinel-server`.
+
+---
+
+## Correction 8: Injection Detection Needs Unicode Sanitization
+**Date:** 2026-02-02
+**Affects:** Instance B (file owner of sentinel-mcp/)
+**Severity:** MEDIUM
+**Source:** C-10.4 C1 web research + Instance A's cross-review finding #6
+
+The 15 injection patterns in `sentinel-mcp/src/proxy.rs:280-296` are ASCII-only. Research shows:
+- Base64 encoding: 64-94% guardrail evasion success
+- Homoglyphs (Cyrillic/Latin confusion): up to 92%
+- Zero-width character injection: ~54%
+- Unicode tag characters (U+E0000-E007F): high evasion rates
+- Emoji smuggling: up to 100% in some guardrails
+
+The current patterns provide a reasonable v1 baseline, but any moderately sophisticated attacker can bypass them. This is not a blocking issue (injection scanning is defense-in-depth, not the primary control), but should be addressed in the next iteration.
+
+**Recommended pre-processing before pattern matching:**
+1. Strip Unicode control characters: tags (U+E0000-E007F), zero-width (U+200B-200F), bidi overrides (U+202A-202E), variation selectors (U+FE00-FE0F)
+2. Apply NFKC normalization (canonicalizes homoglyphs and fullwidth chars)
+3. Detect Base64-encoded injection payloads in responses
+
+---
+
+## Correction 9: Non-Constant-Time API Key Comparison
+**Date:** 2026-02-02
+**Affects:** Instance A (file owner of sentinel-server/src/routes.rs)
+**Severity:** LOW
+**Source:** C-10.4 C1 direct code review
+
+The `require_api_key` middleware in `sentinel-server/src/routes.rs` compares bearer tokens using standard string equality (`token == api_key.as_str()`), which short-circuits on first mismatch. This is theoretically vulnerable to timing side-channel attacks.
+
+Practical risk is very low (nanosecond timing differences over network with millisecond jitter, rate limiter throttles brute force). However, for a security product, using constant-time comparison is a defense-in-depth best practice.
+
+**Action:** Use `subtle::ConstantTimeEq` from the `subtle` crate (already in dependency tree via `sha2` → `digest` → `subtle`). Example: `use subtle::ConstantTimeEq; if token.as_bytes().ct_eq(api_key.as_bytes()).into() { ... }`.
+
+---
+
+## Correction 10: `remove_policy` TOCTOU Race
+**Date:** 2026-02-02
+**Affects:** Instance A (file owner of sentinel-server/src/routes.rs)
+**Severity:** LOW
+**Source:** C-10.4 C1 arc-swap research validation
+
+`remove_policy()` in `sentinel-server/src/routes.rs:282-287` uses `load()` then `store()` — not atomic with respect to concurrent writers. If two `remove_policy` calls race, one removal could be lost. `add_policy()` correctly uses `rcu()` for atomic read-copy-update.
+
+Low risk since admin operations are rare and typically single-operator, but the inconsistency is a code quality issue.
+
+**Action:** Switch `remove_policy` to use `rcu()` pattern, matching `add_policy`.

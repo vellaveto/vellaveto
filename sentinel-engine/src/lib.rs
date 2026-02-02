@@ -3,9 +3,7 @@ use thiserror::Error;
 
 use globset::{Glob, GlobMatcher};
 use regex::Regex;
-use std::collections::HashMap;
 use std::path::{Component, PathBuf};
-use std::sync::Mutex;
 
 #[derive(Error, Debug)]
 pub enum EngineError {
@@ -19,11 +17,219 @@ pub enum EngineError {
     JsonError(#[from] serde_json::Error),
 }
 
-/// Maximum number of cached compiled regex patterns.
-const REGEX_CACHE_MAX: usize = 1000;
+// ═══════════════════════════════════════════════════
+// PRE-COMPILED POLICY TYPES (C-9.2 / C-10.2)
+// ═══════════════════════════════════════════════════
 
-/// Maximum number of cached compiled glob matchers.
-const GLOB_CACHE_MAX: usize = 1000;
+/// Error during policy compilation at load time.
+#[derive(Debug, Clone)]
+pub struct PolicyValidationError {
+    pub policy_id: String,
+    pub policy_name: String,
+    pub reason: String,
+}
+
+impl std::fmt::Display for PolicyValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Policy '{}' ({}): {}",
+            self.policy_name, self.policy_id, self.reason
+        )
+    }
+}
+
+/// Pre-compiled pattern matcher for tool/function ID segments.
+#[derive(Debug, Clone)]
+pub enum PatternMatcher {
+    /// Matches anything ("*")
+    Any,
+    /// Exact string match
+    Exact(String),
+    /// Prefix match ("prefix*")
+    Prefix(String),
+    /// Suffix match ("*suffix")
+    Suffix(String),
+}
+
+impl PatternMatcher {
+    fn compile(pattern: &str) -> Self {
+        if pattern == "*" {
+            PatternMatcher::Any
+        } else if let Some(suffix) = pattern.strip_prefix('*') {
+            PatternMatcher::Suffix(suffix.to_string())
+        } else if let Some(prefix) = pattern.strip_suffix('*') {
+            PatternMatcher::Prefix(prefix.to_string())
+        } else {
+            PatternMatcher::Exact(pattern.to_string())
+        }
+    }
+
+    fn matches(&self, value: &str) -> bool {
+        match self {
+            PatternMatcher::Any => true,
+            PatternMatcher::Exact(s) => s == value,
+            PatternMatcher::Prefix(p) => value.starts_with(p.as_str()),
+            PatternMatcher::Suffix(s) => value.ends_with(s.as_str()),
+        }
+    }
+}
+
+/// Pre-compiled tool:function matcher derived from policy ID.
+#[derive(Debug, Clone)]
+pub enum CompiledToolMatcher {
+    /// Matches all tools and functions ("*")
+    Universal,
+    /// Matches tool only (no colon in policy ID)
+    ToolOnly(PatternMatcher),
+    /// Matches tool:function with independent matchers
+    ToolAndFunction(PatternMatcher, PatternMatcher),
+}
+
+impl CompiledToolMatcher {
+    fn compile(id: &str) -> Self {
+        if id == "*" {
+            CompiledToolMatcher::Universal
+        } else if let Some((tool_pat, func_pat)) = id.split_once(':') {
+            CompiledToolMatcher::ToolAndFunction(
+                PatternMatcher::compile(tool_pat),
+                PatternMatcher::compile(func_pat),
+            )
+        } else {
+            CompiledToolMatcher::ToolOnly(PatternMatcher::compile(id))
+        }
+    }
+
+    fn matches(&self, action: &Action) -> bool {
+        match self {
+            CompiledToolMatcher::Universal => true,
+            CompiledToolMatcher::ToolOnly(m) => m.matches(&action.tool),
+            CompiledToolMatcher::ToolAndFunction(t, f) => {
+                t.matches(&action.tool) && f.matches(&action.function)
+            }
+        }
+    }
+}
+
+/// A single pre-compiled parameter constraint with all patterns resolved at load time.
+#[derive(Debug, Clone)]
+pub enum CompiledConstraint {
+    Glob {
+        param: String,
+        matcher: GlobMatcher,
+        pattern_str: String,
+        on_match: String,
+        on_missing: String,
+    },
+    NotGlob {
+        param: String,
+        matchers: Vec<(String, GlobMatcher)>,
+        on_match: String,
+        on_missing: String,
+    },
+    Regex {
+        param: String,
+        regex: Regex,
+        pattern_str: String,
+        on_match: String,
+        on_missing: String,
+    },
+    DomainMatch {
+        param: String,
+        pattern: String,
+        on_match: String,
+        on_missing: String,
+    },
+    DomainNotIn {
+        param: String,
+        patterns: Vec<String>,
+        on_match: String,
+        on_missing: String,
+    },
+    Eq {
+        param: String,
+        value: serde_json::Value,
+        on_match: String,
+        on_missing: String,
+    },
+    Ne {
+        param: String,
+        value: serde_json::Value,
+        on_match: String,
+        on_missing: String,
+    },
+    OneOf {
+        param: String,
+        values: Vec<serde_json::Value>,
+        on_match: String,
+        on_missing: String,
+    },
+    NoneOf {
+        param: String,
+        values: Vec<serde_json::Value>,
+        on_match: String,
+        on_missing: String,
+    },
+}
+
+impl CompiledConstraint {
+    fn param(&self) -> &str {
+        match self {
+            Self::Glob { param, .. }
+            | Self::NotGlob { param, .. }
+            | Self::Regex { param, .. }
+            | Self::DomainMatch { param, .. }
+            | Self::DomainNotIn { param, .. }
+            | Self::Eq { param, .. }
+            | Self::Ne { param, .. }
+            | Self::OneOf { param, .. }
+            | Self::NoneOf { param, .. } => param,
+        }
+    }
+
+    fn on_match(&self) -> &str {
+        match self {
+            Self::Glob { on_match, .. }
+            | Self::NotGlob { on_match, .. }
+            | Self::Regex { on_match, .. }
+            | Self::DomainMatch { on_match, .. }
+            | Self::DomainNotIn { on_match, .. }
+            | Self::Eq { on_match, .. }
+            | Self::Ne { on_match, .. }
+            | Self::OneOf { on_match, .. }
+            | Self::NoneOf { on_match, .. } => on_match,
+        }
+    }
+
+    fn on_missing(&self) -> &str {
+        match self {
+            Self::Glob { on_missing, .. }
+            | Self::NotGlob { on_missing, .. }
+            | Self::Regex { on_missing, .. }
+            | Self::DomainMatch { on_missing, .. }
+            | Self::DomainNotIn { on_missing, .. }
+            | Self::Eq { on_missing, .. }
+            | Self::Ne { on_missing, .. }
+            | Self::OneOf { on_missing, .. }
+            | Self::NoneOf { on_missing, .. } => on_missing,
+        }
+    }
+}
+
+/// A policy with all patterns pre-compiled for zero-lock evaluation.
+///
+/// Created by [`PolicyEngine::compile_policies`] or [`PolicyEngine::with_policies`].
+/// Stores the original [`Policy`] alongside pre-compiled matchers so that
+/// `evaluate_action` requires zero Mutex acquisitions.
+#[derive(Debug, Clone)]
+pub struct CompiledPolicy {
+    pub policy: Policy,
+    pub tool_matcher: CompiledToolMatcher,
+    pub require_approval: bool,
+    pub forbidden_parameters: Vec<String>,
+    pub required_parameters: Vec<String>,
+    pub constraints: Vec<CompiledConstraint>,
+}
 
 /// The core policy evaluation engine.
 ///
@@ -36,8 +242,16 @@ const GLOB_CACHE_MAX: usize = 1000;
 /// - **Pattern matching**: Policy IDs use `"tool:function"` convention with wildcard support.
 pub struct PolicyEngine {
     strict_mode: bool,
-    regex_cache: Mutex<HashMap<String, Regex>>,
-    glob_cache: Mutex<HashMap<String, GlobMatcher>>,
+    compiled_policies: Vec<CompiledPolicy>,
+}
+
+impl std::fmt::Debug for PolicyEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PolicyEngine")
+            .field("strict_mode", &self.strict_mode)
+            .field("compiled_policies_count", &self.compiled_policies.len())
+            .finish()
+    }
 }
 
 impl PolicyEngine {
@@ -48,8 +262,438 @@ impl PolicyEngine {
     pub fn new(strict_mode: bool) -> Self {
         Self {
             strict_mode,
-            regex_cache: Mutex::new(HashMap::new()),
-            glob_cache: Mutex::new(HashMap::new()),
+            compiled_policies: Vec::new(),
+        }
+    }
+
+    /// Create a new policy engine with pre-compiled policies.
+    ///
+    /// All regex and glob patterns are compiled at construction time.
+    /// Invalid patterns cause immediate rejection with descriptive errors.
+    /// The compiled policies are sorted by priority (highest first, deny-overrides).
+    pub fn with_policies(
+        strict_mode: bool,
+        policies: &[Policy],
+    ) -> Result<Self, Vec<PolicyValidationError>> {
+        let compiled = Self::compile_policies(policies, strict_mode)?;
+        Ok(Self {
+            strict_mode,
+            compiled_policies: compiled,
+        })
+    }
+
+    /// Compile a set of policies, validating all patterns at load time.
+    ///
+    /// Returns pre-sorted `Vec<CompiledPolicy>` on success, or a list of
+    /// all validation errors found across all policies on failure.
+    pub fn compile_policies(
+        policies: &[Policy],
+        strict_mode: bool,
+    ) -> Result<Vec<CompiledPolicy>, Vec<PolicyValidationError>> {
+        let mut compiled = Vec::with_capacity(policies.len());
+        let mut errors = Vec::new();
+
+        for policy in policies {
+            match Self::compile_single_policy(policy, strict_mode) {
+                Ok(cp) => compiled.push(cp),
+                Err(e) => errors.push(e),
+            }
+        }
+
+        if !errors.is_empty() {
+            return Err(errors);
+        }
+
+        // Sort compiled policies by priority (same order as sort_policies)
+        compiled.sort_by(|a, b| {
+            let pri = b.policy.priority.cmp(&a.policy.priority);
+            if pri != std::cmp::Ordering::Equal {
+                return pri;
+            }
+            let a_deny = matches!(a.policy.policy_type, PolicyType::Deny);
+            let b_deny = matches!(b.policy.policy_type, PolicyType::Deny);
+            let deny_ord = b_deny.cmp(&a_deny);
+            if deny_ord != std::cmp::Ordering::Equal {
+                return deny_ord;
+            }
+            a.policy.id.cmp(&b.policy.id)
+        });
+        Ok(compiled)
+    }
+
+    /// Compile a single policy, resolving all patterns.
+    fn compile_single_policy(
+        policy: &Policy,
+        strict_mode: bool,
+    ) -> Result<CompiledPolicy, PolicyValidationError> {
+        let tool_matcher = CompiledToolMatcher::compile(&policy.id);
+
+        let (require_approval, forbidden_parameters, required_parameters, constraints) =
+            match &policy.policy_type {
+                PolicyType::Allow | PolicyType::Deny => (false, Vec::new(), Vec::new(), Vec::new()),
+                PolicyType::Conditional { conditions } => {
+                    Self::compile_conditions(policy, conditions, strict_mode)?
+                }
+            };
+
+        Ok(CompiledPolicy {
+            policy: policy.clone(),
+            tool_matcher,
+            require_approval,
+            forbidden_parameters,
+            required_parameters,
+            constraints,
+        })
+    }
+
+    /// Compile condition JSON into pre-parsed fields and compiled constraints.
+    ///
+    /// Returns: (require_approval, forbidden_parameters, required_parameters, constraints)
+    #[allow(clippy::type_complexity)]
+    fn compile_conditions(
+        policy: &Policy,
+        conditions: &serde_json::Value,
+        strict_mode: bool,
+    ) -> Result<(bool, Vec<String>, Vec<String>, Vec<CompiledConstraint>), PolicyValidationError>
+    {
+        // Validate JSON depth
+        if Self::json_depth(conditions) > 10 {
+            return Err(PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: "Condition JSON exceeds maximum nesting depth of 10".to_string(),
+            });
+        }
+
+        // Validate JSON size
+        let size = conditions.to_string().len();
+        if size > 100_000 {
+            return Err(PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: format!("Condition JSON too large: {} bytes (max 100000)", size),
+            });
+        }
+
+        let require_approval = conditions
+            .get("require_approval")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let forbidden_parameters = conditions
+            .get("forbidden_parameters")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let required_parameters = conditions
+            .get("required_parameters")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let mut constraints = Vec::new();
+        if let Some(constraint_arr) = conditions.get("parameter_constraints") {
+            let arr = constraint_arr
+                .as_array()
+                .ok_or_else(|| PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: "parameter_constraints must be an array".to_string(),
+                })?;
+
+            for constraint_val in arr {
+                constraints.push(Self::compile_constraint(policy, constraint_val)?);
+            }
+        }
+
+        // Validate strict mode unknown keys
+        if strict_mode {
+            let known_keys = [
+                "require_approval",
+                "forbidden_parameters",
+                "required_parameters",
+                "parameter_constraints",
+            ];
+            if let Some(obj) = conditions.as_object() {
+                for key in obj.keys() {
+                    if !known_keys.contains(&key.as_str()) {
+                        return Err(PolicyValidationError {
+                            policy_id: policy.id.clone(),
+                            policy_name: policy.name.clone(),
+                            reason: format!("Unknown condition key '{}' in strict mode", key),
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok((
+            require_approval,
+            forbidden_parameters,
+            required_parameters,
+            constraints,
+        ))
+    }
+
+    /// Compile a single constraint JSON object into a `CompiledConstraint`.
+    fn compile_constraint(
+        policy: &Policy,
+        constraint: &serde_json::Value,
+    ) -> Result<CompiledConstraint, PolicyValidationError> {
+        let obj = constraint
+            .as_object()
+            .ok_or_else(|| PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: "Each parameter constraint must be a JSON object".to_string(),
+            })?;
+
+        let param = obj
+            .get("param")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: "Constraint missing required 'param' string field".to_string(),
+            })?
+            .to_string();
+
+        let op = obj
+            .get("op")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: "Constraint missing required 'op' string field".to_string(),
+            })?;
+
+        let on_match = obj
+            .get("on_match")
+            .and_then(|v| v.as_str())
+            .unwrap_or("deny")
+            .to_string();
+        let on_missing = obj
+            .get("on_missing")
+            .and_then(|v| v.as_str())
+            .unwrap_or("deny")
+            .to_string();
+
+        match op {
+            "glob" => {
+                let pattern_str = obj
+                    .get("pattern")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "glob constraint missing 'pattern' string".to_string(),
+                    })?
+                    .to_string();
+
+                let matcher = Glob::new(&pattern_str)
+                    .map_err(|e| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!("Invalid glob pattern '{}': {}", pattern_str, e),
+                    })?
+                    .compile_matcher();
+
+                Ok(CompiledConstraint::Glob {
+                    param,
+                    matcher,
+                    pattern_str,
+                    on_match,
+                    on_missing,
+                })
+            }
+            "not_glob" => {
+                let patterns = obj
+                    .get("patterns")
+                    .and_then(|v| v.as_array())
+                    .ok_or_else(|| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "not_glob constraint missing 'patterns' array".to_string(),
+                    })?;
+
+                let mut matchers = Vec::new();
+                for pat_val in patterns {
+                    let pat_str = pat_val.as_str().ok_or_else(|| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "not_glob patterns must be strings".to_string(),
+                    })?;
+                    let matcher = Glob::new(pat_str)
+                        .map_err(|e| PolicyValidationError {
+                            policy_id: policy.id.clone(),
+                            policy_name: policy.name.clone(),
+                            reason: format!("Invalid glob pattern '{}': {}", pat_str, e),
+                        })?
+                        .compile_matcher();
+                    matchers.push((pat_str.to_string(), matcher));
+                }
+
+                Ok(CompiledConstraint::NotGlob {
+                    param,
+                    matchers,
+                    on_match,
+                    on_missing,
+                })
+            }
+            "regex" => {
+                let pattern_str = obj
+                    .get("pattern")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "regex constraint missing 'pattern' string".to_string(),
+                    })?
+                    .to_string();
+
+                let regex = Regex::new(&pattern_str).map_err(|e| PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!("Invalid regex pattern '{}': {}", pattern_str, e),
+                })?;
+
+                Ok(CompiledConstraint::Regex {
+                    param,
+                    regex,
+                    pattern_str,
+                    on_match,
+                    on_missing,
+                })
+            }
+            "domain_match" => {
+                let pattern = obj
+                    .get("pattern")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "domain_match constraint missing 'pattern' string".to_string(),
+                    })?
+                    .to_string();
+
+                Ok(CompiledConstraint::DomainMatch {
+                    param,
+                    pattern,
+                    on_match,
+                    on_missing,
+                })
+            }
+            "domain_not_in" => {
+                let patterns_arr =
+                    obj.get("patterns")
+                        .and_then(|v| v.as_array())
+                        .ok_or_else(|| PolicyValidationError {
+                            policy_id: policy.id.clone(),
+                            policy_name: policy.name.clone(),
+                            reason: "domain_not_in constraint missing 'patterns' array".to_string(),
+                        })?;
+
+                let mut patterns = Vec::new();
+                for pat_val in patterns_arr {
+                    let pat_str = pat_val.as_str().ok_or_else(|| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "domain_not_in patterns must be strings".to_string(),
+                    })?;
+                    patterns.push(pat_str.to_string());
+                }
+
+                Ok(CompiledConstraint::DomainNotIn {
+                    param,
+                    patterns,
+                    on_match,
+                    on_missing,
+                })
+            }
+            "eq" => {
+                let value = obj
+                    .get("value")
+                    .ok_or_else(|| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "eq constraint missing 'value' field".to_string(),
+                    })?
+                    .clone();
+
+                Ok(CompiledConstraint::Eq {
+                    param,
+                    value,
+                    on_match,
+                    on_missing,
+                })
+            }
+            "ne" => {
+                let value = obj
+                    .get("value")
+                    .ok_or_else(|| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "ne constraint missing 'value' field".to_string(),
+                    })?
+                    .clone();
+
+                Ok(CompiledConstraint::Ne {
+                    param,
+                    value,
+                    on_match,
+                    on_missing,
+                })
+            }
+            "one_of" => {
+                let values = obj
+                    .get("values")
+                    .and_then(|v| v.as_array())
+                    .ok_or_else(|| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "one_of constraint missing 'values' array".to_string(),
+                    })?
+                    .clone();
+
+                Ok(CompiledConstraint::OneOf {
+                    param,
+                    values,
+                    on_match,
+                    on_missing,
+                })
+            }
+            "none_of" => {
+                let values = obj
+                    .get("values")
+                    .and_then(|v| v.as_array())
+                    .ok_or_else(|| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "none_of constraint missing 'values' array".to_string(),
+                    })?
+                    .clone();
+
+                Ok(CompiledConstraint::NoneOf {
+                    param,
+                    values,
+                    on_match,
+                    on_missing,
+                })
+            }
+            _ => Err(PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: format!("Unknown constraint operator '{}'", op),
+            }),
         }
     }
 
@@ -88,6 +732,12 @@ impl PolicyEngine {
         action: &Action,
         policies: &[Policy],
     ) -> Result<Verdict, EngineError> {
+        // Fast path: use pre-compiled policies (zero Mutex, zero runtime compilation)
+        if !self.compiled_policies.is_empty() {
+            return self.evaluate_with_compiled(action);
+        }
+
+        // Legacy path: evaluate ad-hoc policies (compiles patterns on the fly)
         if policies.is_empty() {
             return Ok(Verdict::Deny {
                 reason: "No policies defined".to_string(),
@@ -98,13 +748,10 @@ impl PolicyEngine {
         let is_sorted = policies.windows(2).all(|w| {
             let pri = w[0].priority.cmp(&w[1].priority);
             if pri == std::cmp::Ordering::Equal {
-                // At equal priority, deny must come before allow
                 let a_deny = matches!(w[0].policy_type, PolicyType::Deny);
                 let b_deny = matches!(w[1].policy_type, PolicyType::Deny);
-                // OK if first is deny and second isn't, or both same type
                 b_deny <= a_deny
             } else {
-                // Higher priority must come first
                 pri != std::cmp::Ordering::Less
             }
         });
@@ -136,6 +783,402 @@ impl PolicyEngine {
         Ok(Verdict::Deny {
             reason: "No matching policy".to_string(),
         })
+    }
+
+    // ═══════════════════════════════════════════════════
+    // COMPILED EVALUATION PATH (zero Mutex, zero runtime compilation)
+    // ═══════════════════════════════════════════════════
+
+    /// Evaluate an action using pre-compiled policies. Zero Mutex acquisitions.
+    /// Compiled policies are already sorted at compile time.
+    fn evaluate_with_compiled(&self, action: &Action) -> Result<Verdict, EngineError> {
+        for cp in &self.compiled_policies {
+            if cp.tool_matcher.matches(action) {
+                return self.apply_compiled_policy(action, cp);
+            }
+        }
+
+        Ok(Verdict::Deny {
+            reason: "No matching policy".to_string(),
+        })
+    }
+
+    /// Apply a matched compiled policy to produce a verdict.
+    fn apply_compiled_policy(
+        &self,
+        action: &Action,
+        cp: &CompiledPolicy,
+    ) -> Result<Verdict, EngineError> {
+        match &cp.policy.policy_type {
+            PolicyType::Allow => Ok(Verdict::Allow),
+            PolicyType::Deny => Ok(Verdict::Deny {
+                reason: format!("Denied by policy '{}'", cp.policy.name),
+            }),
+            PolicyType::Conditional { .. } => self.evaluate_compiled_conditions(action, cp),
+        }
+    }
+
+    /// Evaluate pre-compiled conditions against an action.
+    fn evaluate_compiled_conditions(
+        &self,
+        action: &Action,
+        cp: &CompiledPolicy,
+    ) -> Result<Verdict, EngineError> {
+        // Check require_approval first
+        if cp.require_approval {
+            return Ok(Verdict::RequireApproval {
+                reason: format!("Approval required by policy '{}'", cp.policy.name),
+            });
+        }
+
+        // Check forbidden parameters
+        for param_str in &cp.forbidden_parameters {
+            if action.parameters.get(param_str).is_some() {
+                return Ok(Verdict::Deny {
+                    reason: format!(
+                        "Parameter '{}' is forbidden by policy '{}'",
+                        param_str, cp.policy.name
+                    ),
+                });
+            }
+        }
+
+        // Check required parameters
+        for param_str in &cp.required_parameters {
+            if action.parameters.get(param_str).is_none() {
+                return Ok(Verdict::Deny {
+                    reason: format!(
+                        "Required parameter '{}' missing (policy '{}')",
+                        param_str, cp.policy.name
+                    ),
+                });
+            }
+        }
+
+        // Evaluate compiled constraints
+        for constraint in &cp.constraints {
+            if let Some(verdict) =
+                self.evaluate_compiled_constraint(action, &cp.policy, constraint)?
+            {
+                return Ok(verdict);
+            }
+        }
+
+        Ok(Verdict::Allow)
+    }
+
+    /// Evaluate a single pre-compiled constraint against an action.
+    fn evaluate_compiled_constraint(
+        &self,
+        action: &Action,
+        policy: &Policy,
+        constraint: &CompiledConstraint,
+    ) -> Result<Option<Verdict>, EngineError> {
+        let param_name = constraint.param();
+        let on_match = constraint.on_match();
+        let on_missing = constraint.on_missing();
+
+        // Wildcard param "*": scan all string values
+        if param_name == "*" {
+            let all_values = Self::collect_all_string_values(&action.parameters);
+            if all_values.is_empty() {
+                if on_missing == "skip" {
+                    return Ok(None);
+                }
+                return Ok(Some(Self::make_constraint_verdict(
+                    "deny",
+                    &format!(
+                        "No string values found in parameters (fail-closed) in policy '{}'",
+                        policy.name
+                    ),
+                )?));
+            }
+            for (value_path, value_str) in &all_values {
+                let json_val = serde_json::Value::String(value_str.clone());
+                if let Some(verdict) = self.evaluate_compiled_constraint_value(
+                    policy, value_path, on_match, &json_val, constraint,
+                )? {
+                    return Ok(Some(verdict));
+                }
+            }
+            return Ok(None);
+        }
+
+        // Get the parameter value
+        let param_value = match Self::get_param_by_path(&action.parameters, param_name) {
+            Some(v) => v,
+            None => {
+                if on_missing == "skip" {
+                    return Ok(None);
+                }
+                return Ok(Some(Self::make_constraint_verdict(
+                    "deny",
+                    &format!(
+                        "Parameter '{}' missing (fail-closed) in policy '{}'",
+                        param_name, policy.name
+                    ),
+                )?));
+            }
+        };
+
+        self.evaluate_compiled_constraint_value(
+            policy,
+            param_name,
+            on_match,
+            param_value,
+            constraint,
+        )
+    }
+
+    /// Evaluate a compiled constraint against a specific parameter value.
+    fn evaluate_compiled_constraint_value(
+        &self,
+        policy: &Policy,
+        param_name: &str,
+        on_match: &str,
+        value: &serde_json::Value,
+        constraint: &CompiledConstraint,
+    ) -> Result<Option<Verdict>, EngineError> {
+        match constraint {
+            CompiledConstraint::Glob {
+                matcher,
+                pattern_str,
+                ..
+            } => {
+                let raw = match value.as_str() {
+                    Some(s) => s,
+                    None => {
+                        if self.strict_mode {
+                            return Err(EngineError::InvalidCondition {
+                                policy_id: policy.id.clone(),
+                                reason: format!(
+                                    "Parameter '{}' is not a string for glob operator",
+                                    param_name
+                                ),
+                            });
+                        }
+                        return Ok(Some(Self::make_constraint_verdict(
+                            "deny",
+                            &format!(
+                                "Parameter '{}' is not a string (policy '{}')",
+                                param_name, policy.name
+                            ),
+                        )?));
+                    }
+                };
+                let normalized = Self::normalize_path(raw);
+                if matcher.is_match(&normalized) {
+                    Ok(Some(Self::make_constraint_verdict(
+                        on_match,
+                        &format!(
+                            "Parameter '{}' path '{}' matches glob '{}' (policy '{}')",
+                            param_name, normalized, pattern_str, policy.name
+                        ),
+                    )?))
+                } else {
+                    Ok(None)
+                }
+            }
+            CompiledConstraint::NotGlob { matchers, .. } => {
+                let raw = match value.as_str() {
+                    Some(s) => s,
+                    None => {
+                        if self.strict_mode {
+                            return Err(EngineError::InvalidCondition {
+                                policy_id: policy.id.clone(),
+                                reason: format!(
+                                    "Parameter '{}' is not a string for not_glob operator",
+                                    param_name
+                                ),
+                            });
+                        }
+                        return Ok(Some(Self::make_constraint_verdict(
+                            "deny",
+                            &format!(
+                                "Parameter '{}' is not a string (policy '{}')",
+                                param_name, policy.name
+                            ),
+                        )?));
+                    }
+                };
+                let normalized = Self::normalize_path(raw);
+                for (_, m) in matchers {
+                    if m.is_match(&normalized) {
+                        return Ok(None); // Matched allowlist
+                    }
+                }
+                Ok(Some(Self::make_constraint_verdict(
+                    on_match,
+                    &format!(
+                        "Parameter '{}' path '{}' not in allowlist (policy '{}')",
+                        param_name, normalized, policy.name
+                    ),
+                )?))
+            }
+            CompiledConstraint::Regex {
+                regex, pattern_str, ..
+            } => {
+                let raw = match value.as_str() {
+                    Some(s) => s,
+                    None => {
+                        if self.strict_mode {
+                            return Err(EngineError::InvalidCondition {
+                                policy_id: policy.id.clone(),
+                                reason: format!(
+                                    "Parameter '{}' is not a string for regex operator",
+                                    param_name
+                                ),
+                            });
+                        }
+                        return Ok(Some(Self::make_constraint_verdict(
+                            "deny",
+                            &format!(
+                                "Parameter '{}' is not a string (policy '{}')",
+                                param_name, policy.name
+                            ),
+                        )?));
+                    }
+                };
+                if regex.is_match(raw) {
+                    Ok(Some(Self::make_constraint_verdict(
+                        on_match,
+                        &format!(
+                            "Parameter '{}' matches regex '{}' (policy '{}')",
+                            param_name, pattern_str, policy.name
+                        ),
+                    )?))
+                } else {
+                    Ok(None)
+                }
+            }
+            CompiledConstraint::DomainMatch { pattern, .. } => {
+                let raw = match value.as_str() {
+                    Some(s) => s,
+                    None => {
+                        if self.strict_mode {
+                            return Err(EngineError::InvalidCondition {
+                                policy_id: policy.id.clone(),
+                                reason: format!(
+                                    "Parameter '{}' is not a string for domain_match operator",
+                                    param_name
+                                ),
+                            });
+                        }
+                        return Ok(Some(Self::make_constraint_verdict(
+                            "deny",
+                            &format!(
+                                "Parameter '{}' is not a string (policy '{}')",
+                                param_name, policy.name
+                            ),
+                        )?));
+                    }
+                };
+                let domain = Self::extract_domain(raw);
+                if Self::match_domain_pattern(&domain, pattern) {
+                    Ok(Some(Self::make_constraint_verdict(
+                        on_match,
+                        &format!(
+                            "Parameter '{}' domain '{}' matches '{}' (policy '{}')",
+                            param_name, domain, pattern, policy.name
+                        ),
+                    )?))
+                } else {
+                    Ok(None)
+                }
+            }
+            CompiledConstraint::DomainNotIn { patterns, .. } => {
+                let raw = match value.as_str() {
+                    Some(s) => s,
+                    None => {
+                        if self.strict_mode {
+                            return Err(EngineError::InvalidCondition {
+                                policy_id: policy.id.clone(),
+                                reason: format!(
+                                    "Parameter '{}' is not a string for domain_not_in operator",
+                                    param_name
+                                ),
+                            });
+                        }
+                        return Ok(Some(Self::make_constraint_verdict(
+                            "deny",
+                            &format!(
+                                "Parameter '{}' is not a string (policy '{}')",
+                                param_name, policy.name
+                            ),
+                        )?));
+                    }
+                };
+                let domain = Self::extract_domain(raw);
+                for pat_str in patterns {
+                    if Self::match_domain_pattern(&domain, pat_str) {
+                        return Ok(None); // Matched allowlist
+                    }
+                }
+                Ok(Some(Self::make_constraint_verdict(
+                    on_match,
+                    &format!(
+                        "Parameter '{}' domain '{}' not in allowlist (policy '{}')",
+                        param_name, domain, policy.name
+                    ),
+                )?))
+            }
+            CompiledConstraint::Eq {
+                value: expected, ..
+            } => {
+                if value == expected {
+                    Ok(Some(Self::make_constraint_verdict(
+                        on_match,
+                        &format!(
+                            "Parameter '{}' equals {:?} (policy '{}')",
+                            param_name, expected, policy.name
+                        ),
+                    )?))
+                } else {
+                    Ok(None)
+                }
+            }
+            CompiledConstraint::Ne {
+                value: expected, ..
+            } => {
+                if value != expected {
+                    Ok(Some(Self::make_constraint_verdict(
+                        on_match,
+                        &format!(
+                            "Parameter '{}' != {:?} (policy '{}')",
+                            param_name, expected, policy.name
+                        ),
+                    )?))
+                } else {
+                    Ok(None)
+                }
+            }
+            CompiledConstraint::OneOf { values, .. } => {
+                if values.contains(value) {
+                    Ok(Some(Self::make_constraint_verdict(
+                        on_match,
+                        &format!(
+                            "Parameter '{}' is in the specified set (policy '{}')",
+                            param_name, policy.name
+                        ),
+                    )?))
+                } else {
+                    Ok(None)
+                }
+            }
+            CompiledConstraint::NoneOf { values, .. } => {
+                if !values.contains(value) {
+                    Ok(Some(Self::make_constraint_verdict(
+                        on_match,
+                        &format!(
+                            "Parameter '{}' is not in the allowed set (policy '{}')",
+                            param_name, policy.name
+                        ),
+                    )?))
+                } else {
+                    Ok(None)
+                }
+            }
+        }
     }
 
     /// Check if a policy matches an action.
@@ -961,67 +2004,40 @@ impl PolicyEngine {
         }
     }
 
-    /// Compile and cache a regex pattern, returning whether it matches the input.
+    /// Compile a regex pattern and test whether it matches the input.
     ///
-    /// The cache is bounded to [`REGEX_CACHE_MAX`] entries to prevent memory bloat.
-    /// When the cache is full, it is cleared before inserting the new pattern.
+    /// Legacy path: compiles the pattern on each call (no caching).
+    /// For zero-overhead evaluation, use `with_policies()` to pre-compile.
     fn regex_is_match(
         &self,
         pattern: &str,
         input: &str,
         policy_id: &str,
     ) -> Result<bool, EngineError> {
-        let mut cache = self.regex_cache.lock().unwrap_or_else(|e| e.into_inner());
-
-        if let Some(re) = cache.get(pattern) {
-            return Ok(re.is_match(input));
-        }
-
         let re = Regex::new(pattern).map_err(|e| EngineError::InvalidCondition {
             policy_id: policy_id.to_string(),
             reason: format!("Invalid regex pattern '{}': {}", pattern, e),
         })?;
-
-        let result = re.is_match(input);
-
-        if cache.len() >= REGEX_CACHE_MAX {
-            cache.clear();
-        }
-        cache.insert(pattern.to_string(), re);
-
-        Ok(result)
+        Ok(re.is_match(input))
     }
 
-    /// Compile and cache a glob pattern, returning whether it matches the input.
+    /// Compile a glob pattern and test whether it matches the input.
     ///
-    /// The cache is bounded to [`GLOB_CACHE_MAX`] entries to prevent memory bloat.
+    /// Legacy path: compiles the pattern on each call (no caching).
+    /// For zero-overhead evaluation, use `with_policies()` to pre-compile.
     fn glob_is_match(
         &self,
         pattern: &str,
         input: &str,
         policy_id: &str,
     ) -> Result<bool, EngineError> {
-        let mut cache = self.glob_cache.lock().unwrap_or_else(|e| e.into_inner());
-
-        if let Some(matcher) = cache.get(pattern) {
-            return Ok(matcher.is_match(input));
-        }
-
         let matcher = Glob::new(pattern)
             .map_err(|e| EngineError::InvalidCondition {
                 policy_id: policy_id.to_string(),
                 reason: format!("Invalid glob pattern '{}': {}", pattern, e),
             })?
             .compile_matcher();
-
-        let result = matcher.is_match(input);
-
-        if cache.len() >= GLOB_CACHE_MAX {
-            cache.clear();
-        }
-        cache.insert(pattern.to_string(), matcher);
-
-        Ok(result)
+        Ok(matcher.is_match(input))
     }
 
     /// Retrieve a parameter value by dot-separated path.
@@ -2848,5 +3864,661 @@ mod tests {
             values.is_empty(),
             "Values beyond MAX_SCAN_DEPTH should not be collected"
         );
+    }
+
+    // ═══════════════════════════════════════════════════
+    // PRE-COMPILED POLICY TESTS (C-9.2 / C-10.2)
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_compiled_with_policies_basic() {
+        let policies = vec![
+            Policy {
+                id: "bash:*".to_string(),
+                name: "Block bash".to_string(),
+                policy_type: PolicyType::Deny,
+                priority: 100,
+            },
+            Policy {
+                id: "*".to_string(),
+                name: "Allow all".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+            },
+        ];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        let bash_action = Action {
+            tool: "bash".to_string(),
+            function: "execute".to_string(),
+            parameters: json!({}),
+        };
+        let verdict = engine.evaluate_action(&bash_action, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+
+        let safe_action = Action {
+            tool: "file_system".to_string(),
+            function: "read".to_string(),
+            parameters: json!({}),
+        };
+        let verdict = engine.evaluate_action(&safe_action, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_compiled_glob_constraint() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Block sensitive paths".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [{
+                        "param": "path",
+                        "op": "glob",
+                        "pattern": "/home/*/.aws/**",
+                        "on_match": "deny"
+                    }]
+                }),
+            },
+            priority: 100,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        let action = action_with(
+            "file",
+            "read",
+            json!({"path": "/home/user/.aws/credentials"}),
+        );
+        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+
+        let safe = action_with(
+            "file",
+            "read",
+            json!({"path": "/home/user/project/main.rs"}),
+        );
+        let verdict = engine.evaluate_action(&safe, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_compiled_regex_constraint() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Block destructive SQL".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [{
+                        "param": "sql",
+                        "op": "regex",
+                        "pattern": "(?i)drop\\s+table",
+                        "on_match": "deny"
+                    }]
+                }),
+            },
+            priority: 100,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        let action = action_with("db", "query", json!({"sql": "DROP TABLE users;"}));
+        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+
+        let safe = action_with("db", "query", json!({"sql": "SELECT * FROM users"}));
+        let verdict = engine.evaluate_action(&safe, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_compiled_invalid_regex_rejected_at_load_time() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Bad regex".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [{
+                        "param": "x",
+                        "op": "regex",
+                        "pattern": "(unclosed",
+                        "on_match": "deny"
+                    }]
+                }),
+            },
+            priority: 100,
+        }];
+        let result = PolicyEngine::with_policies(false, &policies);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].reason.contains("Invalid regex pattern"));
+        assert!(errors[0].reason.contains("(unclosed"));
+    }
+
+    #[test]
+    fn test_compiled_invalid_glob_rejected_at_load_time() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Bad glob".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [{
+                        "param": "path",
+                        "op": "glob",
+                        "pattern": "[invalid",
+                        "on_match": "deny"
+                    }]
+                }),
+            },
+            priority: 100,
+        }];
+        let result = PolicyEngine::with_policies(false, &policies);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].reason.contains("Invalid glob pattern"));
+    }
+
+    #[test]
+    fn test_compiled_multiple_errors_collected() {
+        let policies = vec![
+            Policy {
+                id: "*".to_string(),
+                name: "Bad regex policy".to_string(),
+                policy_type: PolicyType::Conditional {
+                    conditions: json!({
+                        "parameter_constraints": [{
+                            "param": "x",
+                            "op": "regex",
+                            "pattern": "(unclosed",
+                            "on_match": "deny"
+                        }]
+                    }),
+                },
+                priority: 100,
+            },
+            Policy {
+                id: "tool:*".to_string(),
+                name: "Bad glob policy".to_string(),
+                policy_type: PolicyType::Conditional {
+                    conditions: json!({
+                        "parameter_constraints": [{
+                            "param": "path",
+                            "op": "glob",
+                            "pattern": "[invalid",
+                            "on_match": "deny"
+                        }]
+                    }),
+                },
+                priority: 50,
+            },
+        ];
+        let result = PolicyEngine::with_policies(false, &policies);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 2);
+        assert!(errors[0].reason.contains("regex"));
+        assert!(errors[1].reason.contains("glob"));
+    }
+
+    #[test]
+    fn test_compiled_validation_error_is_descriptive() {
+        let policies = vec![Policy {
+            id: "my_tool:my_func".to_string(),
+            name: "My Policy Name".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [{
+                        "param": "x",
+                        "op": "regex",
+                        "pattern": "[bad",
+                        "on_match": "deny"
+                    }]
+                }),
+            },
+            priority: 100,
+        }];
+        let result = PolicyEngine::with_policies(false, &policies);
+        let errors = result.unwrap_err();
+        assert_eq!(errors[0].policy_id, "my_tool:my_func");
+        assert_eq!(errors[0].policy_name, "My Policy Name");
+        let display = format!("{}", errors[0]);
+        assert!(display.contains("My Policy Name"));
+        assert!(display.contains("my_tool:my_func"));
+    }
+
+    #[test]
+    fn test_compiled_policies_are_sorted() {
+        let policies = vec![
+            Policy {
+                id: "*".to_string(),
+                name: "Low priority allow".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+            },
+            Policy {
+                id: "bash:*".to_string(),
+                name: "High priority deny".to_string(),
+                policy_type: PolicyType::Deny,
+                priority: 100,
+            },
+        ];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        // High priority deny should win even though allow was listed first
+        let action = Action {
+            tool: "bash".to_string(),
+            function: "execute".to_string(),
+            parameters: json!({}),
+        };
+        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_compiled_domain_not_in() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Domain allowlist".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [{
+                        "param": "url",
+                        "op": "domain_not_in",
+                        "patterns": ["api.anthropic.com", "*.github.com"],
+                        "on_match": "deny"
+                    }]
+                }),
+            },
+            priority: 100,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        let blocked = action_with("http", "post", json!({"url": "https://evil.com/exfil"}));
+        let verdict = engine.evaluate_action(&blocked, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+
+        let allowed = action_with(
+            "http",
+            "get",
+            json!({"url": "https://api.anthropic.com/v1/messages"}),
+        );
+        let verdict = engine.evaluate_action(&allowed, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_compiled_require_approval() {
+        let policies = vec![Policy {
+            id: "network:*".to_string(),
+            name: "Network approval".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({ "require_approval": true }),
+            },
+            priority: 100,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        let action = Action {
+            tool: "network".to_string(),
+            function: "connect".to_string(),
+            parameters: json!({}),
+        };
+        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::RequireApproval { .. }));
+    }
+
+    #[test]
+    fn test_compiled_forbidden_parameters() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Forbid admin".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "forbidden_parameters": ["admin_override", "sudo"]
+                }),
+            },
+            priority: 100,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        let action = action_with("tool", "func", json!({"admin_override": true}));
+        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+
+        let safe = action_with("tool", "func", json!({"normal_param": "value"}));
+        let verdict = engine.evaluate_action(&safe, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_compiled_not_glob_allowlist() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Path allowlist".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [{
+                        "param": "path",
+                        "op": "not_glob",
+                        "patterns": ["/home/user/project/**", "/tmp/**"],
+                        "on_match": "deny"
+                    }]
+                }),
+            },
+            priority: 100,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        let blocked = action_with("file", "read", json!({"path": "/etc/shadow"}));
+        let verdict = engine.evaluate_action(&blocked, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+
+        let allowed = action_with(
+            "file",
+            "read",
+            json!({"path": "/home/user/project/src/lib.rs"}),
+        );
+        let verdict = engine.evaluate_action(&allowed, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_compiled_eq_ne_one_of_none_of() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Value checks".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [
+                        { "param": "mode", "op": "eq", "value": "destructive", "on_match": "deny" }
+                    ]
+                }),
+            },
+            priority: 100,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        let blocked = action_with("tool", "func", json!({"mode": "destructive"}));
+        assert!(matches!(
+            engine.evaluate_action(&blocked, &[]).unwrap(),
+            Verdict::Deny { .. }
+        ));
+
+        let allowed = action_with("tool", "func", json!({"mode": "safe"}));
+        assert!(matches!(
+            engine.evaluate_action(&allowed, &[]).unwrap(),
+            Verdict::Allow
+        ));
+    }
+
+    #[test]
+    fn test_compiled_missing_param_fail_closed() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Require path".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [{
+                        "param": "path",
+                        "op": "glob",
+                        "pattern": "/safe/**",
+                        "on_match": "allow"
+                    }]
+                }),
+            },
+            priority: 100,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // Missing param → deny (fail-closed)
+        let action = action_with("file", "read", json!({}));
+        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_compiled_on_missing_skip() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Optional path check".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [{
+                        "param": "path",
+                        "op": "glob",
+                        "pattern": "/dangerous/**",
+                        "on_match": "deny",
+                        "on_missing": "skip"
+                    }]
+                }),
+            },
+            priority: 100,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        let action = action_with("file", "read", json!({}));
+        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_compiled_empty_policies_deny() {
+        let engine = PolicyEngine::with_policies(false, &[]).unwrap();
+        let action = Action {
+            tool: "any".to_string(),
+            function: "any".to_string(),
+            parameters: json!({}),
+        };
+        // Empty compiled policies → no matching policy → deny
+        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_compiled_parity_with_legacy() {
+        // Verify compiled path produces same results as legacy path
+        let policies = vec![
+            Policy {
+                id: "bash:*".to_string(),
+                name: "Block bash".to_string(),
+                policy_type: PolicyType::Deny,
+                priority: 200,
+            },
+            Policy {
+                id: "*".to_string(),
+                name: "Domain allowlist".to_string(),
+                policy_type: PolicyType::Conditional {
+                    conditions: json!({
+                        "parameter_constraints": [{
+                            "param": "url",
+                            "op": "domain_not_in",
+                            "patterns": ["api.anthropic.com"],
+                            "on_match": "deny"
+                        }]
+                    }),
+                },
+                priority: 100,
+            },
+            Policy {
+                id: "*".to_string(),
+                name: "Allow all".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 1,
+            },
+        ];
+
+        let legacy_engine = PolicyEngine::new(false);
+        let compiled_engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        let test_cases = vec![
+            action_with("bash", "execute", json!({"cmd": "ls"})),
+            action_with("http", "get", json!({"url": "https://evil.com/bad"})),
+            action_with(
+                "http",
+                "get",
+                json!({"url": "https://api.anthropic.com/v1/messages"}),
+            ),
+            action_with("file", "read", json!({"path": "/tmp/test"})),
+        ];
+
+        for action in &test_cases {
+            let legacy = legacy_engine.evaluate_action(action, &policies).unwrap();
+            let compiled = compiled_engine.evaluate_action(action, &[]).unwrap();
+            assert_eq!(
+                std::mem::discriminant(&legacy),
+                std::mem::discriminant(&compiled),
+                "Parity mismatch for action {}:{} — legacy={:?}, compiled={:?}",
+                action.tool,
+                action.function,
+                legacy,
+                compiled,
+            );
+        }
+    }
+
+    #[test]
+    fn test_compiled_strict_mode_unknown_key() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Unknown key".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "require_approval": false,
+                    "custom_unknown_key": "value"
+                }),
+            },
+            priority: 100,
+        }];
+        let result = PolicyEngine::with_policies(true, &policies);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors[0].reason.contains("Unknown condition key"));
+    }
+
+    #[test]
+    fn test_compiled_wildcard_scan() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Scan all values".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [{
+                        "param": "*",
+                        "op": "domain_match",
+                        "pattern": "*.evil.com",
+                        "on_match": "deny"
+                    }]
+                }),
+            },
+            priority: 100,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        let action = action_with(
+            "tool",
+            "func",
+            json!({"nested": {"url": "https://sub.evil.com/bad"}}),
+        );
+        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_compiled_unknown_operator_rejected_at_load_time() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Bad op".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [{
+                        "param": "x",
+                        "op": "bogus_op",
+                        "on_match": "deny"
+                    }]
+                }),
+            },
+            priority: 100,
+        }];
+        let result = PolicyEngine::with_policies(false, &policies);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors[0].reason.contains("Unknown constraint operator"));
+    }
+
+    #[test]
+    fn test_compiled_deep_json_rejected() {
+        let mut deep = json!("leaf");
+        for _ in 0..15 {
+            deep = json!({"nested": deep});
+        }
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Deep JSON".to_string(),
+            policy_type: PolicyType::Conditional { conditions: deep },
+            priority: 100,
+        }];
+        let result = PolicyEngine::with_policies(false, &policies);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors[0].reason.contains("nesting depth"));
+    }
+
+    #[test]
+    fn test_compile_policies_standalone() {
+        let policies = vec![
+            Policy {
+                id: "bash:*".to_string(),
+                name: "Block bash".to_string(),
+                policy_type: PolicyType::Deny,
+                priority: 100,
+            },
+            Policy {
+                id: "*".to_string(),
+                name: "Allow all".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+            },
+        ];
+        let compiled = PolicyEngine::compile_policies(&policies, false).unwrap();
+        assert_eq!(compiled.len(), 2);
+        // Should be sorted by priority (highest first)
+        assert_eq!(compiled[0].policy.name, "Block bash");
+        assert_eq!(compiled[1].policy.name, "Allow all");
+    }
+
+    #[test]
+    fn test_pattern_matcher_variants() {
+        assert!(PatternMatcher::Any.matches("anything"));
+        assert!(PatternMatcher::Exact("foo".to_string()).matches("foo"));
+        assert!(!PatternMatcher::Exact("foo".to_string()).matches("bar"));
+        assert!(PatternMatcher::Prefix("pre".to_string()).matches("prefix"));
+        assert!(!PatternMatcher::Prefix("pre".to_string()).matches("suffix"));
+        assert!(PatternMatcher::Suffix("fix".to_string()).matches("suffix"));
+        assert!(!PatternMatcher::Suffix("fix".to_string()).matches("other"));
+    }
+
+    #[test]
+    fn test_compiled_tool_matcher_variants() {
+        let action = Action {
+            tool: "file_system".to_string(),
+            function: "read_file".to_string(),
+            parameters: json!({}),
+        };
+
+        assert!(CompiledToolMatcher::Universal.matches(&action));
+
+        let exact = CompiledToolMatcher::compile("file_system:read_file");
+        assert!(exact.matches(&action));
+
+        let tool_wild = CompiledToolMatcher::compile("file_system:*");
+        assert!(tool_wild.matches(&action));
+
+        let func_wild = CompiledToolMatcher::compile("*:read_file");
+        assert!(func_wild.matches(&action));
+
+        let no_match = CompiledToolMatcher::compile("bash:execute");
+        assert!(!no_match.matches(&action));
+
+        let tool_only = CompiledToolMatcher::compile("file_system");
+        assert!(tool_only.matches(&action));
     }
 }

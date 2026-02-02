@@ -1,5 +1,173 @@
 # Shared Log
 
+## 2026-02-02 — Controller (C-11 Must-Fix: ALL 4 COMPLETE)
+
+### Applied Fixes
+Controller applied all 4 must-fix items from C-11 cross-review arbitration:
+
+1. **Unicode sanitization for injection scanner** — Added `sanitize_for_injection_scan()` to `sentinel-mcp/src/proxy.rs`. Strips Unicode tag chars (U+E0000-E007F), zero-width (U+200B-200F), bidi overrides (U+202A-202E), variation selectors (U+FE00-FE0F), BOM (U+FEFF), word joiners (U+2060-2064), then applies NFKC normalization. 6 new tests verify detection through zero-width, tag, bidi, variation selector, and fullwidth char evasion.
+
+2. **Constant-time API key comparison** — Replaced `token == api_key.as_str()` with `token.as_bytes().ct_eq(api_key.as_bytes()).into()` using `subtle::ConstantTimeEq` in `sentinel-server/src/routes.rs`.
+
+3. **`remove_policy` TOCTOU fix** — Switched from `load()`/`store()` to `rcu()` pattern (matching `add_policy`) in `sentinel-server/src/routes.rs`.
+
+4. **Governor 0.10 upgrade** — Already applied by Instance A. Confirmed working.
+
+### Dependencies Added
+- `subtle = "2"` to sentinel-server/Cargo.toml
+- `unicode-normalization = "0.1"` to sentinel-mcp/Cargo.toml
+
+### Test Status
+**1,466 tests, 0 failures, 0 clippy warnings across entire workspace.**
+
+### Directive Status
+- **C-11:** ALL COMPLETE. All 4 must-fix items resolved.
+- **C-10:** COMPLETE (all sub-directives done, except Instance B's cross-review not submitted)
+- **C-9:** COMPLETE (all items from C-9.1 through C-9.4 done)
+
+### Next Priority
+- Phase 9: Streamable HTTP transport (biggest market-relevance gap)
+- Should-Fix backlog: audit trail for policy mutations, tool removal rug-pull detection
+- Instance B cross-review still pending (non-blocking)
+
+---
+
+## 2026-02-02 — Instance A (Update 6: All C-10 Tasks Complete)
+
+### Task A3: Criterion Benchmarks — COMPLETE
+Created `sentinel-engine/benches/evaluation.rs` with 22 benchmarks across 7 groups:
+
+| Group | Benchmarks | Key Result |
+|-------|-----------|------------|
+| eval/single_policy | 3 (exact, wildcard, no_match) | 7-31 ns |
+| eval/100_policies | 2 (fallthrough, early_match) | 77 ns - 1.2 us |
+| eval/1000_policies | 1 (fallthrough) | ~12 us |
+| eval/scaling | 6 (10-1000 policies) | Linear scaling confirmed |
+| normalize_path | 7 (clean, traversal, encoded, etc) | 19-665 ns |
+| extract_domain | 6 (simple, port, userinfo, IPv6, etc) | 100-156 ns |
+| constraint | 7 (regex, glob, wildcard_scan) | 25-278 us |
+
+**All benchmarks well under the 5ms target.** Even worst case (wildcard scan with 20 nested params) is ~278 us = 0.28ms.
+
+All 3 C-10 tasks complete (A1, A2, A3). Awaiting further directives.
+
+---
+
+## 2026-02-02 — Instance B: Pre-Compiled Policies (C-9.2 / C-10.2 Task B1) — COMPLETE
+
+### What Changed
+Implemented pre-compiled policies for zero-Mutex evaluation in `sentinel-engine/src/lib.rs`:
+
+1. **New types**: `CompiledPolicy`, `CompiledToolMatcher`, `CompiledConstraint`, `PatternMatcher`, `PolicyValidationError`
+2. **New constructors**: `PolicyEngine::with_policies(strict_mode, policies)` compiles all patterns at load time
+3. **Compiled evaluation path**: `evaluate_with_compiled()` → zero Mutex acquisitions, zero runtime pattern compilation
+4. **Removed**: `regex_cache: Mutex<HashMap<String, Regex>>` and `glob_cache: Mutex<HashMap<String, GlobMatcher>>`
+5. **Policy validation at compile time**: invalid regex/glob patterns rejected with descriptive errors; multiple errors collected
+6. **Backward compatible**: `PolicyEngine::new(strict_mode)` + `evaluate_action(action, policies)` still works (legacy path compiles on the fly)
+
+### Performance Impact
+- Hot path (`evaluate_action` with pre-compiled policies): zero Mutex acquisitions, zero HashMap lookups, zero pattern compilation
+- All regex and glob patterns are `GlobMatcher` / `Regex` objects stored in `CompiledConstraint` variants
+- Tool matching pre-compiled into `PatternMatcher` enum (Any/Exact/Prefix/Suffix) — no string parsing at eval time
+- Compiled policies pre-sorted by priority at compile time
+
+### Tests
+- 24 new compiled-path tests added (parity, validation, error handling)
+- Total: 128 unit + 99 external = 227 engine tests, all pass
+- Full workspace: all tests pass, 0 clippy warnings, formatting clean
+
+---
+
+## 2026-02-02 — Controller (C-10.4 C2: Cross-Review Arbitration — Partial)
+
+### Available Reviews Arbitrated
+- Instance A's review of B: 6 LOW findings — **accepted**
+- Orchestrator's review (O2): 8 findings (2 MEDIUM, 6 LOW) + 6 additional — **accepted**
+- Controller's validation report: 7 action items — **accepted**
+- Instance B's review of A: **NOT YET SUBMITTED**
+
+### Key Convergence
+**Triple convergence** on: Unicode injection detection gap, API key constant-time, `remove_policy` TOCTOU.
+**Double convergence** on: `\\n\\nsystem:` literal backslashes, rug-pull tool removal, `rotated_path()` sync, cache eviction.
+
+### Severity Arbitrations
+- API key timing: Orchestrator rated MEDIUM, Controller rated LOW → **Final: LOW** (network jitter makes exploitation infeasible)
+- `remove_policy` race: Orchestrator rated MEDIUM, Controller rated LOW → **Final: LOW** (admin operation, single-operator)
+
+### Consolidated Must-Fix (4 items)
+1. Unicode sanitization for injection scanner (Instance B)
+2. Upgrade governor 0.6 → 0.10 (Instance A)
+3. Constant-time API key comparison (Instance A)
+4. Switch `remove_policy` to `rcu()` (Instance A)
+
+### Overall Assessment
+**No critical issues found** across 3 independent reviews. Codebase is in strong shape. 1,436 tests, 0 failures.
+
+Full arbitration: `controller/c10-cross-review-arbitration.md`
+
+---
+
+## 2026-02-02 — Controller (C-10.4 C1: Web Research Validation Complete)
+
+### Task C1: Validate Architectural Decisions — COMPLETE
+
+Deployed 5 research agents to validate all major technology choices. Results:
+
+| Decision | Verdict | Action Needed |
+|----------|---------|---------------|
+| arc-swap for lock-free reads | **KEEP** | Minor: `remove_policy` should use `rcu()` |
+| SHA-256 for audit hash chain | **KEEP** | None — industry standard, FIPS, interoperable |
+| governor for rate limiting | **KEEP, UPGRADE** | Bump 0.6 → 0.10 (4 major versions behind) |
+| 15 injection detection patterns | **ADEQUATE** | Add Unicode sanitization preprocessing |
+| MCP spec alignment (2025-11-25) | **ALIGNED** | No new spec version; plan Tasks primitive support |
+
+### Additional Findings (Direct Code Review)
+- Non-constant-time API key comparison in `require_api_key` (LOW)
+- Instance A's cross-review independently corroborated injection Unicode gap
+
+### Corrections Issued
+- **C-7:** Governor version upgrade (MEDIUM)
+- **C-8:** Unicode sanitization for injection scanner (MEDIUM)
+- **C-9:** Constant-time API key comparison (LOW)
+- **C-10:** `remove_policy` TOCTOU race (LOW)
+
+### Full Report
+`controller/research/c10-validation-report.md`
+
+### C-10.4 C2 Status
+- Instance A's cross-review: **SUBMITTED** (`review-b-by-a.md`) — 6 low-severity findings
+- Instance B's cross-review: **NOT YET SUBMITTED** — awaiting before final arbitration
+
+---
+
+## 2026-02-02 — Instance A (Update 5: C-10 Tasks A1 + A2 Complete)
+
+### Task A1: Rate Limit Polish — COMPLETE
+- Exempted `/health` from rate limiting (load balancer probes never throttled)
+- Added `Retry-After` header to 429 responses (extracted from governor `NotUntil`)
+- Added `max_age(3600)` to CORS preflight caching
+- 2 new unit tests in `test_routes_unit.rs` (health_not_rate_limited, rate_limit_429_includes_retry_after)
+- All 194 sentinel-server tests pass
+
+### Task A2: Cross-Review Instance B's Code — COMPLETE
+Reviewed 4 files, 6 minor findings, no critical issues. Full report: `.collab/review-b-by-a.md`
+
+**Summary of findings:**
+| # | Component | Finding | Severity |
+|---|-----------|---------|----------|
+| 1 | proxy.rs | Rug-pull detection doesn't flag tool removal | Low |
+| 2 | proxy.rs | New tools after initial tools/list don't trigger alert | Low |
+| 3 | audit/lib.rs | Value prefix redaction is case-sensitive | Low |
+| 4 | audit/lib.rs | `rotated_path()` uses sync `exists()` in async | Low |
+| 5 | engine/lib.rs | Glob/regex cache uses clear-all eviction | Low (perf) |
+| 6 | proxy.rs | Injection patterns are ASCII-only | Low |
+
+**Positive observations:** Fail-closed design, comprehensive tests, defense in depth, proper DoS bounds, correct async patterns.
+
+### Next: Task A3 (Criterion Benchmarks)
+
+---
+
 ## 2026-02-02 — Controller (Directive C-10: Coordination Update & Cross-Instance Review)
 
 ### Context
@@ -1375,3 +1543,124 @@ Added standard API security headers via middleware:
 | Phase 8.4 Protocol version awareness | COMPLETE |
 | Phase 8.5 sampling/createMessage interception | COMPLETE |
 | Security headers (server) | COMPLETE |
+
+---
+
+## 2026-02-02 — Orchestrator (Update 11: C-10.3 Architecture + Cross-Review)
+
+### Task O1: Architecture Design Documents — COMPLETE
+
+Published `orchestrator/architecture-designs.md` with 3 detailed designs:
+
+**1. Signed Audit Checkpoints (Phase 10.3)**
+- `ChainCheckpoint` struct: timestamp, entry_count, segment_id, chain_head_hash, Ed25519 signature
+- Triggers: every 1000 entries OR 5 minutes, on rotation, on shutdown
+- Verification API: `GET /api/audit/verify-checkpoints`, incremental `verify-since`
+- External witnessing trait: `ChainWitness` with File/Http/Syslog implementations
+- Dependency: `ed25519-dalek = "2"`
+
+**2. Evaluation Trace/Explanation (Phase 10.4)**
+- `EvaluationTrace` struct: policies_checked, matches with per-policy constraint results, duration
+- API: `POST /api/evaluate?trace=true` returns structured decision explanation
+- Simulation endpoint: `POST /api/simulate` for batch policy testing
+- Opt-in only (20% overhead) — non-traced path remains hot path default
+
+**3. Streamable HTTP Transport (Phase 9)**
+- New `sentinel-http-proxy` crate with `HttpMcpProxy` struct
+- Single `/mcp` endpoint, JSON-RPC POST + SSE stream proxying
+- Session management via `DashMap<String, SessionState>`
+- OAuth 2.1 integration with JWT validation
+- Shares evaluation logic with stdio proxy via `McpInterceptor` trait
+- Dependencies: hyper, dashmap, jsonwebtoken
+
+### Task O1b: Improvement Plan Updated
+- Phase 8 marked COMPLETE (all 5 items)
+- Phase 9 architecture note added
+- Phase 10 added with 6 items (pre-compiled policies, security headers, signed checkpoints, evaluation traces, policy index, heartbeat entries)
+- Dependency budget updated
+
+### Task O2: Cross-Review All Instance Code — COMPLETE
+
+Reviewed all 7 key files across both instances. Findings:
+
+**Top 8 issues (ranked by severity):**
+
+| # | File | Issue | Severity |
+|---|------|-------|----------|
+| 1 | routes.rs:149 | API key comparison not constant-time (timing attack) | MEDIUM |
+| 2 | routes.rs:282-287 | `remove_policy` non-atomic load+store (ArcSwap race) | MEDIUM |
+| 3 | proxy.rs:295 | Injection pattern `\\n\\nsystem:` uses literal backslashes, not actual newlines | LOW |
+| 4 | routes.rs:130 | GET audit endpoints unauthenticated — sensitive metadata exposed | LOW (design) |
+| 5 | engine/lib.rs:39-40 | `std::sync::Mutex` in async context — tokio runtime blocking | LOW (perf) |
+| 6 | proxy.rs run() | No integration test for proxy loop (most complex component) | LOW (gap) |
+| 7 | proxy.rs:234 | Rug-pull detection still updates annotations with suspicious values | LOW (design) |
+| 8 | engine/lib.rs:98-110 | `is_sorted` misses ID tiebreaker — potential non-determinism | LOW |
+
+**Additional findings:**
+- audit/lib.rs: TOCTOU race in `rotated_path()`, sync `exists()` in async context
+- engine: Regex without complexity limits (ReDoS risk, mitigated by regex crate defaults)
+- routes.rs: `remove_policy` has no audit trail entry
+- routes.rs: `add_policy` doesn't validate policy structure
+- main.rs: Audit logger path derived from config directory (could be read-only FS)
+- security_regression.rs: Missing tests for Findings #4, #11, #12
+
+**Positive findings:**
+- Tests overwhelmingly exercise real functionality, not formatting
+- Fail-closed design consistently applied
+- Defense in depth (multiple layers for path, domain, parameter attacks)
+- ArcSwap migration mostly correct (one race in `remove_policy`)
+- OWASP test suite is comprehensive and maps to real risk scenarios
+
+### Instance A Cross-Review of B
+Instance A independently found 6 LOW findings (rug-pull removal, case-sensitive redaction, sync `exists()`, cache eviction, ASCII-only injection patterns). No critical issues.
+
+### Build Status
+- Instance B mid-edit on pre-compiled policies (14 compile errors — in progress)
+- Instance A completed rate limit polish + cross-review, starting benchmarks
+
+---
+
+## 2026-02-02 — Orchestrator (Update 12: C-10 Substantially Complete)
+
+### Validated Completions
+
+**Instance B — Pre-Compiled Policies (C-10.2 B1): VERIFIED**
+- 1,772 lines added to `sentinel-engine/src/lib.rs`
+- Removed `Mutex<HashMap<String, Regex>>` and `Mutex<HashMap<String, GlobMatcher>>` entirely
+- New types: `CompiledPolicy`, `CompiledToolMatcher`, `CompiledConstraint`, `PatternMatcher`
+- `PolicyEngine::with_policies()` compiles all patterns at load time
+- Zero Mutex acquisitions in `evaluate_action()` hot path
+- 24 new tests, full behavioral parity with legacy path
+- Resolves cross-review finding #5 (Mutex in async context)
+
+**Instance A — Rate Limit Polish + Benchmarks (C-10.1): VERIFIED**
+- Rate limit: `/health` exempt, `Retry-After` header, CORS `max_age`
+- 2 new unit tests for rate limit behavior
+- Criterion benchmarks: `sentinel-engine/benches/evaluation.rs` (15KB)
+- Cross-review of Instance B completed (6 LOW findings)
+
+**Controller — Cross-Review Arbitration: COMPLETE**
+- 4 must-fix: Unicode injection scanner, governor upgrade, constant-time API key, rcu() for remove_policy
+- 4 should-fix: Audit policy mutations, proxy loop test, \\n pattern comment, rug-pull tool removal
+- 4 deferred: LRU cache (eliminated by B1), async exists, case-sensitive redaction, proxy loop test
+
+### Build Status
+- **1,460 tests, 0 failures, 0 clippy warnings**
+- Pre-compiled policies working, Mutex caches removed
+
+### C-10 Status
+| Task | Status |
+|------|--------|
+| A1: Rate limit polish | COMPLETE |
+| A2: Cross-review B | COMPLETE |
+| A3: Criterion benchmarks | COMPLETE |
+| B1: Pre-compiled policies | COMPLETE |
+| B2: Cross-review A | PENDING |
+| O1: Architecture designs | COMPLETE |
+| O2: Cross-review all code | COMPLETE |
+| Controller arbitration | COMPLETE |
+
+### Remaining Work
+1. Instance B: Submit cross-review of Instance A (`review-a-by-b.md`)
+2. All: Address 4 must-fix items from Controller arbitration
+3. Phase 9 (Streamable HTTP) and Phase 10.3-10.6 ready for implementation

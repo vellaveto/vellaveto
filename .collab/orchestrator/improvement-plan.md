@@ -215,64 +215,75 @@ Ensure all decisions are traced with structured fields.
 
 ---
 
-## Phase 8: MCP Spec Alignment (HIGH — Market Relevance)
+## Phase 8: MCP Spec Alignment (HIGH — Market Relevance) — COMPLETE
 
-**Status: NEW — Per Controller Directive C-8, based on web research.**
+**Status: COMPLETE — All 5 items delivered per Directives C-8 and C-9.**
 **Source:** `controller/research/mcp-spec-and-landscape.md`
 
-MCP spec is at version 2025-11-25. OWASP published MCP Top 10. Competitive landscape forming around MCP gateways (Lasso Security, Palo Alto Prisma AIRS). Sentinel has strong differentiators but critical gaps.
+### 8.1 Tool Annotation Awareness — COMPLETE (Instance B)
+- Intercepts `tools/list` responses, extracts annotations per tool
+- Annotations available during `evaluate_tool_call()` and in audit metadata
+- Rug-pull detection: warns on tool definition changes between calls (OWASP MCP03)
 
-### 8.1 Tool Annotation Awareness (HIGH — Lowest effort, highest value)
-**Assigned to:** Instance B (Directive C-8.2)
+### 8.2 Response Inspection — COMPLETE (Instance B)
+- 15 prompt injection patterns scanned on tool results (OWASP MCP06)
+- Log-only mode (fail-safe default), audit logging of suspicious responses
 
-MCP tools now have annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`. Per spec: "annotations MUST be considered untrusted unless from trusted servers."
+### 8.3 Tool Definition Pinning — COMPLETE (Instance B)
+- Within-session rug-pull detection via annotation change comparison
 
-- Intercept `tools/list` responses in proxy relay path
-- Extract and store tool annotations per tool name
-- Make annotations available during `evaluate_tool_call()` as context
-- Default policy: `destructiveHint=true` → require approval
-- Log annotations in audit entries
-- Detect tool definition changes between calls (rug-pull, OWASP MCP03)
+### 8.4 Protocol Version Awareness — COMPLETE (Instance B)
+- Intercepts `initialize` handshake, extracts protocol version and server info
+- Logs protocol version in audit entries
 
-### 8.2 Response Inspection (HIGH — OWASP MCP06)
-**Assigned to:** Instance B (Directive C-8.3)
-
-Sentinel only inspects outgoing requests, not responses. Prompt injection via tool results is a known attack vector.
-
-- Inspect tool result content flowing child → agent
-- Scan for prompt injection patterns (e.g., "IGNORE ALL PREVIOUS INSTRUCTIONS")
-- Configurable regex patterns for suspicious content
-- Log suspicious responses with warning level
-- Option to block (default: log-only for safety)
-
-### 8.3 Tool Definition Pinning
-Detect when tool schemas/descriptions change between sessions (rug-pull detection). Maps to OWASP MCP03.
-
-### 8.4 Protocol Version Awareness
-Log and verify MCP protocol version during `initialize` handshake.
-
-### 8.5 `sampling/createMessage` Interception
-Monitor server-to-client LLM requests to prevent exfiltration via sampling.
+### 8.5 `sampling/createMessage` Interception — COMPLETE (Instance B)
+- Blocks server-initiated LLM sampling requests (exfiltration vector)
+- Logs with `Verdict::Deny` in audit trail
 
 ---
 
 ## Phase 9: Streamable HTTP Transport (HIGH — Market Relevance)
 
-**Status: NEW — Architecture planning phase.**
+**Status: ARCHITECTURE DESIGNED — See `orchestrator/architecture-designs.md` §3.**
 
 Sentinel only supports stdio, limiting it to local deployments. The MCP spec now has Streamable HTTP transport replacing SSE. This is the single biggest market-relevance gap.
 
 ### 9.1 HTTP Reverse Proxy Mode
-Act as Streamable HTTP proxy between client and remote MCP server. Single endpoint, POST handling, optional SSE streaming.
+New `sentinel-http-proxy` crate. Single `/mcp` endpoint, POST handler, SSE stream proxying. Shares policy evaluation logic with stdio proxy via `McpInterceptor` trait.
 
 ### 9.2 Session Management
-Handle `Mcp-Session-Id` headers, per-session policy evaluation.
+`DashMap<String, SessionState>` for per-session state. `Mcp-Session-Id` header tracking. Session timeout (30min default), max sessions (1000 default).
 
 ### 9.3 OAuth 2.1 Pass-Through
-Verify and forward Bearer tokens for HTTP transport.
+JWT validation, scope enforcement, token forwarding to upstream. `OAuthConfig` struct with issuer, audience, required scopes.
 
 ### 9.4 `.well-known` Server Discovery
 Support MCP server metadata for auto-configuration.
+
+---
+
+## Phase 10: Production Hardening (HIGH — Per Directive C-9)
+
+**Status: IN PROGRESS — Architecture designs complete, implementation starting.**
+**Source:** Controller research files + `orchestrator/architecture-designs.md`
+
+### 10.1 Pre-Compiled Policies — IN PROGRESS (Instance B, C-9.2)
+Eliminate Mutex-based regex/glob caches from hot path. Compile all patterns at `PolicyEngine::new()` into `CompiledPolicy` structs. Zero Mutex acquisitions in `evaluate_action()`.
+
+### 10.2 API Security Headers — COMPLETE (Instance B + Controller)
+Standard security response headers: X-Content-Type-Options, X-Frame-Options, CSP, Cache-Control, Referrer-Policy.
+
+### 10.3 Signed Audit Checkpoints — DESIGNED (Orchestrator)
+Ed25519 signed checkpoints every 1000 entries or 5 minutes. `ChainCheckpoint` struct with external witnessing trait. See architecture design §1.
+
+### 10.4 Evaluation Trace / Explanation — DESIGNED (Orchestrator)
+OPA-style decision logging. `EvaluationTrace` struct with per-policy match details. `?trace=true` query parameter on evaluate endpoint. See architecture design §2.
+
+### 10.5 Policy Index by Tool Name
+Build HashMap index for O(matching) instead of O(all) evaluation. Critical for 1000+ policy sets.
+
+### 10.6 Heartbeat Entries
+Periodic empty audit entries (every 5 min) to detect log truncation gaps.
 
 ---
 
@@ -287,6 +298,10 @@ Support MCP server metadata for auto-configuration.
 | 7.2 | `criterion` (dev only) | Medium | Benchmarking |
 | 9.1 | `hyper` / `axum` (already dep) | — | HTTP proxy |
 | 9.3 | `oauth2` or similar | Small | OAuth 2.1 token validation |
+| 9.1 | `dashmap` | Small | Concurrent session map |
+| 10.1 | (no new deps) | — | Pre-compiled uses existing regex/globset |
+| 10.3 | `ed25519-dalek` | Small | Checkpoint signing |
+| 10.5 | (no new deps) | — | HashMap index from std |
 
 ---
 
@@ -325,4 +340,4 @@ Support MCP server metadata for auto-configuration.
 
 ---
 
-*Last updated: 2026-02-02 — All CRITICAL/HIGH/MEDIUM findings resolved. LOW findings #38/#39 fixed. Phase 8 (MCP spec alignment) substantially complete. Phase 9 (Streamable HTTP) is the main remaining gap.*
+*Last updated: 2026-02-02 — Phase 8 COMPLETE. Phase 10 added (production hardening). Phase 9 architecture designed. Pre-compiled policies (10.1) in progress. Signed checkpoints (10.3) and evaluation traces (10.4) designed, pending implementation.*

@@ -21,7 +21,7 @@ Update `.collab/instance-a.md` and append to `.collab/log.md` after completing e
 ## Task A1: Rate Limit Polish
 **Priority: HIGH — Quick win**
 **Directive:** C-10.1
-**Status:** OPEN
+**Status:** DONE
 
 Polish the rate limiting implementation added in C-7:
 
@@ -41,7 +41,7 @@ Polish the rate limiting implementation added in C-7:
 ## Task A2: Cross-Review Instance B's Code
 **Priority: HIGH — Quality assurance**
 **Directive:** C-10.1
-**Status:** OPEN
+**Status:** DONE — Review written to `.collab/review-b-by-a.md`
 
 Review Instance B's code for correctness, edge cases, and security gaps. Focus areas:
 
@@ -74,7 +74,7 @@ Review Instance B's code for correctness, edge cases, and security gaps. Focus a
 ## Task A3: Criterion Benchmarks
 **Priority: MEDIUM**
 **Directive:** C-10.1
-**Status:** OPEN
+**Status:** DONE
 
 Create performance benchmarks to validate <5ms evaluation latency.
 

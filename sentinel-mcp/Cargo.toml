@@ -13,3 +13,4 @@ tokio = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 tracing = "0.1"
+unicode-normalization = "0.1"
