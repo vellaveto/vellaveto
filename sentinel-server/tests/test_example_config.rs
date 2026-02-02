@@ -10,8 +10,10 @@ fn example_config_toml_is_parseable() {
         .or_else(|_| PolicyConfig::load_file("example-config.toml"))
         .expect("example-config.toml should be parseable");
 
-    assert!(!config.policies.is_empty(),
-        "example config should have at least one policy");
+    assert!(
+        !config.policies.is_empty(),
+        "example config should have at least one policy"
+    );
 }
 
 #[test]
@@ -37,11 +39,21 @@ fn example_config_has_expected_policy_types() {
         .expect("load example config");
 
     let policies = config.to_policies();
-    let has_allow = policies.iter().any(|p| matches!(p.policy_type, PolicyType::Allow));
-    let has_deny = policies.iter().any(|p| matches!(p.policy_type, PolicyType::Deny));
+    let has_allow = policies
+        .iter()
+        .any(|p| matches!(p.policy_type, PolicyType::Allow));
+    let has_deny = policies
+        .iter()
+        .any(|p| matches!(p.policy_type, PolicyType::Deny));
 
-    assert!(has_allow, "Example config should have at least one Allow policy");
-    assert!(has_deny, "Example config should have at least one Deny policy");
+    assert!(
+        has_allow,
+        "Example config should have at least one Allow policy"
+    );
+    assert!(
+        has_deny,
+        "Example config should have at least one Deny policy"
+    );
 }
 
 #[test]
@@ -64,8 +76,11 @@ fn example_config_evaluates_correctly_through_engine() {
         parameters: json!({}),
     };
     let verdict = engine.evaluate_action(&bash_action, &policies).unwrap();
-    assert!(matches!(verdict, Verdict::Deny { .. }),
-        "bash execute should be denied by example config. Got: {:?}", verdict);
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "bash execute should be denied by example config. Got: {:?}",
+        verdict
+    );
 
     // file:read should be allowed (priority 10 allow)
     let read_action = Action {
@@ -74,6 +89,9 @@ fn example_config_evaluates_correctly_through_engine() {
         parameters: json!({}),
     };
     let verdict = engine.evaluate_action(&read_action, &policies).unwrap();
-    assert!(matches!(verdict, Verdict::Allow),
-        "file:read should be allowed by example config. Got: {:?}", verdict);
+    assert!(
+        matches!(verdict, Verdict::Allow),
+        "file:read should be allowed by example config. Got: {:?}",
+        verdict
+    );
 }

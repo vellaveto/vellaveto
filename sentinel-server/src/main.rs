@@ -1,17 +1,21 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use sentinel_approval::ApprovalStore;
 use sentinel_audit::AuditLogger;
 use sentinel_canonical::CanonicalPolicies;
 use sentinel_config::PolicyConfig;
 use sentinel_engine::PolicyEngine;
+use sentinel_server::{routes, AppState};
 use sentinel_types::{Action, Policy};
-use sentinel_server::{AppState, routes};
 use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[derive(Parser)]
-#[command(name = "sentinel", about = "Sentinel policy engine — CLI and HTTP server")]
+#[command(
+    name = "sentinel",
+    about = "Sentinel policy engine — CLI and HTTP server"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -74,29 +78,53 @@ async fn main() -> Result<()> {
 }
 
 async fn cmd_serve(port: u16, config: String) -> Result<()> {
-    let policy_config =
-        PolicyConfig::load_file(&config).map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
-    let policies = policy_config.to_policies();
+    let policy_config = PolicyConfig::load_file(&config)
+        .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
+    let mut policies = policy_config.to_policies();
+    PolicyEngine::sort_policies(&mut policies);
 
-    tracing::info!(
-        "Loaded {} policies from {}",
-        policies.len(),
-        config
-    );
+    tracing::info!("Loaded {} policies from {}", policies.len(), config);
 
     let config_dir = std::path::Path::new(&config)
         .parent()
         .unwrap_or(std::path::Path::new("."));
     let audit_path = config_dir.join("audit.log");
 
+    let audit = Arc::new(AuditLogger::new(audit_path.clone()));
+
+    // Initialize hash chain from existing log
+    if let Err(e) = audit.initialize_chain().await {
+        tracing::warn!("Failed to initialize audit chain: {}", e);
+    }
+
+    let approval_path = config_dir.join("approvals.jsonl");
+    let approvals = Arc::new(ApprovalStore::new(
+        approval_path.clone(),
+        std::time::Duration::from_secs(900),
+    ));
+
     let state = AppState {
         engine: Arc::new(PolicyEngine::new(false)),
         policies: Arc::new(RwLock::new(policies)),
-        audit: Arc::new(AuditLogger::new(audit_path.clone())),
+        audit,
         config_path: Arc::new(config),
+        approvals: approvals.clone(),
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
+    tracing::info!("Approvals log: {}", approval_path.display());
+
+    // Spawn periodic expiry task
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            let expired = approvals.expire_stale().await;
+            if expired > 0 {
+                tracing::info!("Expired {} stale approvals", expired);
+            }
+        }
+    });
 
     let app = routes::build_router(state);
 
@@ -106,14 +134,17 @@ async fn cmd_serve(port: u16, config: String) -> Result<()> {
 
     tracing::info!("Sentinel server listening on 0.0.0.0:{}", port);
 
-    axum::serve(listener, app)
-        .await
-        .context("Server error")?;
+    axum::serve(listener, app).await.context("Server error")?;
 
     Ok(())
 }
 
-async fn cmd_evaluate(tool: String, function: String, params: String, config: String) -> Result<()> {
+async fn cmd_evaluate(
+    tool: String,
+    function: String,
+    params: String,
+    config: String,
+) -> Result<()> {
     let parameters: serde_json::Value =
         serde_json::from_str(&params).context("Invalid JSON in --params")?;
 
@@ -123,9 +154,10 @@ async fn cmd_evaluate(tool: String, function: String, params: String, config: St
         parameters,
     };
 
-    let policy_config =
-        PolicyConfig::load_file(&config).map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
-    let policies = policy_config.to_policies();
+    let policy_config = PolicyConfig::load_file(&config)
+        .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
+    let mut policies = policy_config.to_policies();
+    PolicyEngine::sort_policies(&mut policies);
 
     let engine = PolicyEngine::new(false);
     let verdict = engine
@@ -143,8 +175,8 @@ async fn cmd_evaluate(tool: String, function: String, params: String, config: St
 }
 
 async fn cmd_check(config: String) -> Result<()> {
-    let policy_config =
-        PolicyConfig::load_file(&config).map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
+    let policy_config = PolicyConfig::load_file(&config)
+        .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
     let policies = policy_config.to_policies();
 
     println!("Config OK: {} policies loaded", policies.len());
@@ -193,8 +225,8 @@ fn cmd_policies(preset: String) -> Result<()> {
         .collect();
 
     let config = PolicyConfig { policies: rules };
-    let toml_str = toml::to_string_pretty(&config)
-        .context("Failed to serialize policies to TOML")?;
+    let toml_str =
+        toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;
 
     println!("{}", toml_str);
     Ok(())

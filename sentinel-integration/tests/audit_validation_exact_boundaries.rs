@@ -54,7 +54,11 @@ fn nesting_depth_20_accepted() {
         let params = nested_json(20);
         let action = action_with_params(params);
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_ok(), "Depth 20 should be accepted: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Depth 20 should be accepted: {:?}",
+            result.err()
+        );
     });
 }
 
@@ -103,7 +107,10 @@ fn tool_with_unicode_is_accepted() {
             parameters: json!({}),
         };
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_ok(), "Unicode in tool/function names should be accepted");
+        assert!(
+            result.is_ok(),
+            "Unicode in tool/function names should be accepted"
+        );
     });
 }
 
@@ -212,6 +219,9 @@ fn very_long_tool_name_accepted() {
             parameters: json!({}),
         };
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_ok(), "Long tool/function names should be accepted");
+        assert!(
+            result.is_ok(),
+            "Long tool/function names should be accepted"
+        );
     });
 }

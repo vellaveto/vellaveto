@@ -38,8 +38,14 @@ fn load_after_file_deleted_returns_empty() {
 
         // Write some entries
         let action = make_action();
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
 
         // Verify entries exist
         let entries = logger.load_entries().await.unwrap();
@@ -65,15 +71,26 @@ fn write_after_file_deleted_recreates_file() {
         let action = make_action();
 
         // Write
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
         assert_eq!(logger.load_entries().await.unwrap().len(), 1);
 
         // Delete
         tokio::fs::remove_file(&log_path).await.unwrap();
 
         // Write again — should recreate file
-        logger.log_entry(&action, &Verdict::Deny { reason: "after delete".to_string() }, json!({}))
-            .await.unwrap();
+        logger
+            .log_entry(
+                &action,
+                &Verdict::Deny {
+                    reason: "after delete".to_string(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
 
         // Should have only the new entry
         let entries = logger.load_entries().await.unwrap();
@@ -97,7 +114,10 @@ fn load_after_file_truncated_returns_empty() {
         let logger = AuditLogger::new(log_path.clone());
         let action = make_action();
 
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
         assert_eq!(logger.load_entries().await.unwrap().len(), 1);
 
         // Truncate to empty
@@ -120,7 +140,10 @@ fn write_after_truncation_appends_to_empty_file() {
 
         // Write 3 entries
         for _ in 0..3 {
-            logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
         }
         assert_eq!(logger.load_entries().await.unwrap().len(), 3);
 
@@ -128,10 +151,26 @@ fn write_after_truncation_appends_to_empty_file() {
         tokio::fs::write(&log_path, "").await.unwrap();
 
         // Write 2 more
-        logger.log_entry(&action, &Verdict::Deny { reason: "post-truncate-1".to_string() }, json!({}))
-            .await.unwrap();
-        logger.log_entry(&action, &Verdict::Deny { reason: "post-truncate-2".to_string() }, json!({}))
-            .await.unwrap();
+        logger
+            .log_entry(
+                &action,
+                &Verdict::Deny {
+                    reason: "post-truncate-1".to_string(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
+        logger
+            .log_entry(
+                &action,
+                &Verdict::Deny {
+                    reason: "post-truncate-2".to_string(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 2, "Should only have post-truncation entries");
@@ -152,7 +191,10 @@ fn report_after_file_deleted_shows_zeros() {
         let logger = AuditLogger::new(log_path.clone());
         let action = make_action();
 
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
         tokio::fs::remove_file(&log_path).await.unwrap();
 
         let report = logger.generate_report().await.unwrap();
@@ -173,8 +215,20 @@ fn report_after_file_truncated_shows_zeros() {
         let logger = AuditLogger::new(log_path.clone());
         let action = make_action();
 
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
-        logger.log_entry(&action, &Verdict::Deny { reason: "x".to_string() }, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+        logger
+            .log_entry(
+                &action,
+                &Verdict::Deny {
+                    reason: "x".to_string(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
 
         // Truncate
         tokio::fs::write(&log_path, "").await.unwrap();

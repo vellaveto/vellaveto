@@ -54,10 +54,14 @@ fn concurrent_writers_and_readers_no_panic() {
                     let verdict = if i % 2 == 0 {
                         Verdict::Allow
                     } else {
-                        Verdict::Deny { reason: format!("w{}-e{}", w, i) }
+                        Verdict::Deny {
+                            reason: format!("w{}-e{}", w, i),
+                        }
                     };
                     // Writes should not panic
-                    let _ = logger.log_entry(&action, &verdict, json!({"writer": w})).await;
+                    let _ = logger
+                        .log_entry(&action, &verdict, json!({"writer": w}))
+                        .await;
                 }
             }));
         }
@@ -89,7 +93,7 @@ fn concurrent_writers_and_readers_no_panic() {
         );
         // We expect all entries to be written, but concurrent I/O
         // could theoretically lose some. At minimum, verify > 0.
-        assert!(entries.len() > 0, "Should have at least some entries");
+        assert!(!entries.is_empty(), "Should have at least some entries");
     });
 }
 
@@ -105,7 +109,10 @@ fn report_during_concurrent_writes_has_consistent_arithmetic() {
         // Pre-populate some entries
         let action = make_action(0);
         for _ in 0..10 {
-            logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
         }
 
         let mut handles = Vec::new();

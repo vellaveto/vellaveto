@@ -46,7 +46,10 @@ fn suffix_wildcard_tool_only_matches_prefix() {
     let action = make_action("file_system", "read");
     let policies = vec![allow_policy("file*", 10)];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow), "file* should match file_system");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "file* should match file_system"
+    );
 }
 
 /// "file*" does NOT match tool "my_file" (doesn't start with "file").
@@ -56,8 +59,10 @@ fn suffix_wildcard_tool_only_rejects_non_prefix() {
     let action = make_action("my_file", "read");
     let policies = vec![allow_policy("file*", 10)];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "file* should NOT match my_file — falls through to default deny");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "file* should NOT match my_file — falls through to default deny"
+    );
 }
 
 // ═══════════════════════════════
@@ -71,7 +76,10 @@ fn prefix_wildcard_tool_only_matches_suffix() {
     let action = make_action("file_system", "read");
     let policies = vec![allow_policy("*system", 10)];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow), "*system should match file_system");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "*system should match file_system"
+    );
 }
 
 /// "*system" does NOT match tool "system_admin" (doesn't end with "system").
@@ -81,8 +89,10 @@ fn prefix_wildcard_tool_only_rejects_non_suffix() {
     let action = make_action("system_admin", "read");
     let policies = vec![allow_policy("*system", 10)];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "*system should NOT match system_admin");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "*system should NOT match system_admin"
+    );
 }
 
 // ════════════════════════════════
@@ -96,8 +106,10 @@ fn suffix_wildcard_tool_prefix_wildcard_func() {
     let action = make_action("file_system", "batch_read");
     let policies = vec![allow_policy("file*:*read", 10)];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "file* matches file_system, *read matches batch_read");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "file* matches file_system, *read matches batch_read"
+    );
 }
 
 /// "file*:*read" does NOT match tool "file_system" function "write".
@@ -107,8 +119,10 @@ fn suffix_wildcard_tool_prefix_wildcard_func_rejects_wrong_func() {
     let action = make_action("file_system", "write");
     let policies = vec![allow_policy("file*:*read", 10)];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "*read should NOT match write");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "*read should NOT match write"
+    );
 }
 
 // ═══════════════════════════════
@@ -122,7 +136,10 @@ fn exact_match_tool_only() {
     let action = make_action("bash", "exec");
     let policies = vec![deny_policy("bash", 10)];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }), "bash matches bash exactly");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "bash matches bash exactly"
+    );
 }
 
 /// "bash" does NOT match tool "bash_shell" — exact match, not prefix.
@@ -133,8 +150,10 @@ fn exact_match_rejects_longer_tool() {
     let policies = vec![deny_policy("bash", 10)];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     // "bash" without wildcard is exact match — doesn't match "bash_shell"
-    assert!(matches!(result, Verdict::Deny { reason } if reason == "No matching policy"),
-        "Exact 'bash' should not match 'bash_shell'");
+    assert!(
+        matches!(result, Verdict::Deny { reason } if reason == "No matching policy"),
+        "Exact 'bash' should not match 'bash_shell'"
+    );
 }
 
 // ════════════════════════════════
@@ -153,8 +172,11 @@ fn star_alone_matches_everything() {
     let policies = vec![allow_policy("*", 10)];
     for action in &actions {
         let result = engine.evaluate_action(action, &policies).unwrap();
-        assert!(matches!(result, Verdict::Allow),
-            "* should match action {:?}", action);
+        assert!(
+            matches!(result, Verdict::Allow),
+            "* should match action {:?}",
+            action
+        );
     }
 }
 
@@ -200,6 +222,8 @@ fn wildcard_tool_exact_function_rejects_different_func() {
     let action = make_action("tool", "execute");
     let policies = vec![allow_policy("*:exec", 10)];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "*:exec should not match function 'execute'");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "*:exec should not match function 'execute'"
+    );
 }

@@ -38,13 +38,20 @@ fn entries_have_plausible_rfc3339_timestamps() {
         let (logger, _tmp) = setup_logger();
         let action = make_action("t", "f");
 
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
         let ts = &entries[0].timestamp;
         assert!(ts.contains('T'), "timestamp should contain 'T': {}", ts);
-        assert!(ts.len() >= 20, "timestamp should be at least 20 chars: {}", ts);
+        assert!(
+            ts.len() >= 20,
+            "timestamp should be at least 20 chars: {}",
+            ts
+        );
         assert!(
             ts.contains('+') || ts.contains('Z'),
             "timestamp should have timezone: {}",
@@ -65,22 +72,42 @@ fn report_counts_sum_to_total() {
         let action = make_action("tool", "func");
 
         // Log a mix of all three verdict types
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
         logger
-            .log_entry(&action, &Verdict::Deny { reason: "r1".into() }, json!({}))
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
             .await
             .unwrap();
         logger
             .log_entry(
                 &action,
-                &Verdict::RequireApproval { reason: "r2".into() },
+                &Verdict::Deny {
+                    reason: "r1".into(),
+                },
                 json!({}),
             )
             .await
             .unwrap();
         logger
-            .log_entry(&action, &Verdict::Deny { reason: "r3".into() }, json!({}))
+            .log_entry(
+                &action,
+                &Verdict::RequireApproval {
+                    reason: "r2".into(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
+        logger
+            .log_entry(
+                &action,
+                &Verdict::Deny {
+                    reason: "r3".into(),
+                },
+                json!({}),
+            )
             .await
             .unwrap();
 
@@ -134,11 +161,18 @@ fn report_entries_match_load_entries() {
             let verdict = if i % 3 == 0 {
                 Verdict::Allow
             } else if i % 3 == 1 {
-                Verdict::Deny { reason: format!("deny-{}", i) }
+                Verdict::Deny {
+                    reason: format!("deny-{}", i),
+                }
             } else {
-                Verdict::RequireApproval { reason: format!("approve-{}", i) }
+                Verdict::RequireApproval {
+                    reason: format!("approve-{}", i),
+                }
             };
-            logger.log_entry(&action, &verdict, json!({"i": i})).await.unwrap();
+            logger
+                .log_entry(&action, &verdict, json!({"i": i}))
+                .await
+                .unwrap();
         }
 
         let loaded = logger.load_entries().await.unwrap();
@@ -169,7 +203,9 @@ fn report_with_only_deny_verdicts() {
             logger
                 .log_entry(
                     &action,
-                    &Verdict::Deny { reason: format!("reason-{}", i) },
+                    &Verdict::Deny {
+                        reason: format!("reason-{}", i),
+                    },
                     json!({}),
                 )
                 .await

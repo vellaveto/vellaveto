@@ -34,13 +34,24 @@ fn two_loggers_to_separate_files_are_isolated() {
         let logger_a = AuditLogger::new(tmp.path().join("a.log"));
         let logger_b = AuditLogger::new(tmp.path().join("b.log"));
 
-        logger_a.log_entry(&make_action("alpha"), &Verdict::Allow, json!({})).await.unwrap();
-        logger_a.log_entry(&make_action("alpha2"), &Verdict::Allow, json!({})).await.unwrap();
-        logger_b.log_entry(
-            &make_action("beta"),
-            &Verdict::Deny { reason: "blocked".to_string() },
-            json!({}),
-        ).await.unwrap();
+        logger_a
+            .log_entry(&make_action("alpha"), &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+        logger_a
+            .log_entry(&make_action("alpha2"), &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+        logger_b
+            .log_entry(
+                &make_action("beta"),
+                &Verdict::Deny {
+                    reason: "blocked".to_string(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
 
         let a_entries = logger_a.load_entries().await.unwrap();
         assert_eq!(a_entries.len(), 2);
@@ -107,7 +118,10 @@ fn concurrent_loggers_to_different_files_no_interference() {
                         function: format!("func_{}", j),
                         parameters: json!({"logger": i, "entry": j}),
                     };
-                    logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+                    logger
+                        .log_entry(&action, &Verdict::Allow, json!({}))
+                        .await
+                        .unwrap();
                 }
             });
             join_handles.push(handle);
@@ -121,8 +135,13 @@ fn concurrent_loggers_to_different_files_no_interference() {
             let path = tmp.path().join(format!("logger_{}.log", i));
             let logger = AuditLogger::new(path);
             let entries = logger.load_entries().await.unwrap();
-            assert_eq!(entries.len(), entries_per_logger,
-                "Logger {} should have {} entries", i, entries_per_logger);
+            assert_eq!(
+                entries.len(),
+                entries_per_logger,
+                "Logger {} should have {} entries",
+                i,
+                entries_per_logger
+            );
             for entry in &entries {
                 assert_eq!(entry.action.tool, format!("tool_{}", i));
             }
@@ -142,8 +161,14 @@ fn fresh_logger_at_same_path_sees_previous_writes() {
         let path = tmp.path().join("shared.log");
 
         let logger1 = AuditLogger::new(path.clone());
-        logger1.log_entry(&make_action("first"), &Verdict::Allow, json!({})).await.unwrap();
-        logger1.log_entry(&make_action("second"), &Verdict::Allow, json!({})).await.unwrap();
+        logger1
+            .log_entry(&make_action("first"), &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+        logger1
+            .log_entry(&make_action("second"), &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
 
         let logger2 = AuditLogger::new(path);
         let entries = logger2.load_entries().await.unwrap();
@@ -151,7 +176,10 @@ fn fresh_logger_at_same_path_sees_previous_writes() {
         assert_eq!(entries[0].action.tool, "first");
         assert_eq!(entries[1].action.tool, "second");
 
-        logger2.log_entry(&make_action("third"), &Verdict::Allow, json!({})).await.unwrap();
+        logger2
+            .log_entry(&make_action("third"), &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
 
         let all_entries = logger1.load_entries().await.unwrap();
         assert_eq!(all_entries.len(), 3);

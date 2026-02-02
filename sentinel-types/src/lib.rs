@@ -50,8 +50,12 @@ mod tests {
     fn test_verdict_all_variants() {
         let variants = vec![
             Verdict::Allow,
-            Verdict::Deny { reason: "blocked".to_string() },
-            Verdict::RequireApproval { reason: "needs review".to_string() },
+            Verdict::Deny {
+                reason: "blocked".to_string(),
+            },
+            Verdict::RequireApproval {
+                reason: "needs review".to_string(),
+            },
         ];
         for v in variants {
             let json_str = serde_json::to_string(&v).unwrap();

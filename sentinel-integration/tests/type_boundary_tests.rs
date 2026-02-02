@@ -26,7 +26,7 @@ fn action_with_array_parameters_roundtrips() {
     let action = Action {
         tool: "t".to_string(),
         function: "f".to_string(),
-        parameters: json!([1, "two", null, true, 3.14]),
+        parameters: json!([1, "two", null, true, 3.15]),
     };
     let serialized = serde_json::to_string(&action).unwrap();
     let deserialized: Action = serde_json::from_str(&serialized).unwrap();
@@ -87,7 +87,9 @@ fn verdict_allow_roundtrips() {
 
 #[test]
 fn verdict_deny_with_empty_reason_roundtrips() {
-    let v = Verdict::Deny { reason: String::new() };
+    let v = Verdict::Deny {
+        reason: String::new(),
+    };
     let s = serde_json::to_string(&v).unwrap();
     let d: Verdict = serde_json::from_str(&s).unwrap();
     assert_eq!(v, d);
@@ -95,7 +97,9 @@ fn verdict_deny_with_empty_reason_roundtrips() {
 
 #[test]
 fn verdict_deny_with_long_reason_roundtrips() {
-    let v = Verdict::Deny { reason: "x".repeat(10_000) };
+    let v = Verdict::Deny {
+        reason: "x".repeat(10_000),
+    };
     let s = serde_json::to_string(&v).unwrap();
     let d: Verdict = serde_json::from_str(&s).unwrap();
     assert_eq!(v, d);
@@ -113,7 +117,9 @@ fn verdict_deny_with_special_chars_roundtrips() {
 
 #[test]
 fn verdict_require_approval_roundtrips() {
-    let v = Verdict::RequireApproval { reason: "needs manager sign-off".to_string() };
+    let v = Verdict::RequireApproval {
+        reason: "needs manager sign-off".to_string(),
+    };
     let s = serde_json::to_string(&v).unwrap();
     let d: Verdict = serde_json::from_str(&s).unwrap();
     assert_eq!(v, d);
@@ -186,7 +192,11 @@ fn policy_with_i32_extremes_roundtrips() {
         };
         let s = serde_json::to_string(&p).unwrap();
         let d: Policy = serde_json::from_str(&s).unwrap();
-        assert_eq!(d.priority, priority, "Priority {} should roundtrip", priority);
+        assert_eq!(
+            d.priority, priority,
+            "Priority {} should roundtrip",
+            priority
+        );
     }
 }
 
@@ -205,14 +215,20 @@ fn action_missing_tool_field_fails() {
 fn action_missing_function_field_fails() {
     let bad = json!({"tool": "t", "parameters": {}});
     let result: Result<Action, _> = serde_json::from_value(bad);
-    assert!(result.is_err(), "Action without 'function' field should fail");
+    assert!(
+        result.is_err(),
+        "Action without 'function' field should fail"
+    );
 }
 
 #[test]
 fn action_missing_parameters_field_fails() {
     let bad = json!({"tool": "t", "function": "f"});
     let result: Result<Action, _> = serde_json::from_value(bad);
-    assert!(result.is_err(), "Action without 'parameters' field should fail");
+    assert!(
+        result.is_err(),
+        "Action without 'parameters' field should fail"
+    );
 }
 
 #[test]
@@ -226,7 +242,10 @@ fn policy_missing_id_fails() {
 fn policy_with_wrong_priority_type_fails() {
     let bad = json!({"id": "x", "name": "n", "policy_type": "Allow", "priority": "high"});
     let result: Result<Policy, _> = serde_json::from_value(bad);
-    assert!(result.is_err(), "String priority should fail deserialization");
+    assert!(
+        result.is_err(),
+        "String priority should fail deserialization"
+    );
 }
 
 #[test]

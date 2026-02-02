@@ -15,7 +15,9 @@ fn verdict_allow_serializes_to_string() {
 
 #[test]
 fn verdict_deny_serializes_to_object_with_reason() {
-    let v = Verdict::Deny { reason: "blocked".to_string() };
+    let v = Verdict::Deny {
+        reason: "blocked".to_string(),
+    };
     let json_val = serde_json::to_value(&v).unwrap();
 
     // Serde's default enum serialization: {"Deny": {"reason": "blocked"}}
@@ -26,17 +28,26 @@ fn verdict_deny_serializes_to_object_with_reason() {
 
 #[test]
 fn verdict_require_approval_serializes_to_object_with_reason() {
-    let v = Verdict::RequireApproval { reason: "needs review".to_string() };
+    let v = Verdict::RequireApproval {
+        reason: "needs review".to_string(),
+    };
     let json_val = serde_json::to_value(&v).unwrap();
 
-    assert!(json_val.is_object(), "RequireApproval should serialize as object");
-    let approval_obj = json_val.get("RequireApproval").expect("Should have 'RequireApproval' key");
+    assert!(
+        json_val.is_object(),
+        "RequireApproval should serialize as object"
+    );
+    let approval_obj = json_val
+        .get("RequireApproval")
+        .expect("Should have 'RequireApproval' key");
     assert_eq!(approval_obj.get("reason").unwrap(), "needs review");
 }
 
 #[test]
 fn verdict_deny_with_empty_reason() {
-    let v = Verdict::Deny { reason: String::new() };
+    let v = Verdict::Deny {
+        reason: String::new(),
+    };
     let json_val = serde_json::to_value(&v).unwrap();
     let deny_obj = json_val.get("Deny").unwrap();
     assert_eq!(deny_obj.get("reason").unwrap(), "");
@@ -55,7 +66,9 @@ fn verdict_deny_deserializes_from_object() {
     let v: Verdict = serde_json::from_value(json_val).unwrap();
     assert_eq!(
         v,
-        Verdict::Deny { reason: "test".to_string() }
+        Verdict::Deny {
+            reason: "test".to_string()
+        }
     );
 }
 
@@ -65,7 +78,9 @@ fn verdict_require_approval_deserializes_from_object() {
     let v: Verdict = serde_json::from_value(json_val).unwrap();
     assert_eq!(
         v,
-        Verdict::RequireApproval { reason: "check".to_string() }
+        Verdict::RequireApproval {
+            reason: "check".to_string()
+        }
     );
 }
 

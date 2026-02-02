@@ -3,13 +3,6 @@
 use sentinel_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 
-fn runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("failed to create tokio runtime")
-}
-
 // Note: sentinel-integration doesn't depend on sentinel-mcp directly,
 // so these tests exercise the engine + types pipeline that MCP would use.
 
@@ -28,7 +21,8 @@ fn mcp_style_add_policy_then_evaluate() {
         "policy_type": "Deny",
         "priority": 100
     });
-    let policy: Policy = serde_json::from_value(policy_json).expect("policy deserialization failed");
+    let policy: Policy =
+        serde_json::from_value(policy_json).expect("policy deserialization failed");
 
     // Simulate MCP "evaluate_action" by deserializing action from JSON
     let action_json = json!({
@@ -36,7 +30,8 @@ fn mcp_style_add_policy_then_evaluate() {
         "function": "execute",
         "parameters": {"cmd": "rm -rf /"}
     });
-    let action: Action = serde_json::from_value(action_json).expect("action deserialization failed");
+    let action: Action =
+        serde_json::from_value(action_json).expect("action deserialization failed");
 
     let verdict = engine.evaluate_action(&action, &[policy]).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -44,7 +39,10 @@ fn mcp_style_add_policy_then_evaluate() {
     // Verify verdict serializes to expected JSON shape
     let verdict_json = serde_json::to_value(&verdict).unwrap();
     assert!(verdict_json.get("Deny").is_some());
-    assert!(verdict_json["Deny"]["reason"].as_str().unwrap().contains("Block bash"));
+    assert!(verdict_json["Deny"]["reason"]
+        .as_str()
+        .unwrap()
+        .contains("Block bash"));
 }
 
 #[test]
@@ -76,7 +74,10 @@ fn mcp_style_policy_lifecycle() {
     .unwrap();
     policies.push(p1);
 
-    assert_eq!(engine.evaluate_action(&action, &policies).unwrap(), Verdict::Allow);
+    assert_eq!(
+        engine.evaluate_action(&action, &policies).unwrap(),
+        Verdict::Allow
+    );
 
     // Add higher-priority deny
     let p2: Policy = serde_json::from_value(json!({
@@ -96,7 +97,10 @@ fn mcp_style_policy_lifecycle() {
     // Remove deny policy (simulate MCP remove_policy by id)
     policies.retain(|p| p.name != "Deny file ops");
 
-    assert_eq!(engine.evaluate_action(&action, &policies).unwrap(), Verdict::Allow);
+    assert_eq!(
+        engine.evaluate_action(&action, &policies).unwrap(),
+        Verdict::Allow
+    );
 }
 
 #[test]
@@ -109,37 +113,45 @@ fn mcp_style_batch_evaluation() {
             "name": "Allow reads",
             "policy_type": "Allow",
             "priority": 10
-        })).unwrap(),
+        }))
+        .unwrap(),
         serde_json::from_value(json!({
             "id": "file:write",
             "name": "Require approval for writes",
             "policy_type": {"Conditional": {"conditions": {"require_approval": true}}},
             "priority": 10
-        })).unwrap(),
+        }))
+        .unwrap(),
         serde_json::from_value(json!({
             "id": "file:delete",
             "name": "Block deletes",
             "policy_type": "Deny",
             "priority": 10
-        })).unwrap(),
+        }))
+        .unwrap(),
     ];
 
     // Batch evaluate multiple actions (simulating a burst of MCP requests)
+    #[allow(clippy::type_complexity)]
     let actions: Vec<(Action, Box<dyn Fn(&Verdict) -> bool>)> = vec![
         (
-            serde_json::from_value(json!({"tool": "file", "function": "read", "parameters": {}})).unwrap(),
+            serde_json::from_value(json!({"tool": "file", "function": "read", "parameters": {}}))
+                .unwrap(),
             Box::new(|v| *v == Verdict::Allow),
         ),
         (
-            serde_json::from_value(json!({"tool": "file", "function": "write", "parameters": {}})).unwrap(),
+            serde_json::from_value(json!({"tool": "file", "function": "write", "parameters": {}}))
+                .unwrap(),
             Box::new(|v| matches!(v, Verdict::RequireApproval { .. })),
         ),
         (
-            serde_json::from_value(json!({"tool": "file", "function": "delete", "parameters": {}})).unwrap(),
+            serde_json::from_value(json!({"tool": "file", "function": "delete", "parameters": {}}))
+                .unwrap(),
             Box::new(|v| matches!(v, Verdict::Deny { .. })),
         ),
         (
-            serde_json::from_value(json!({"tool": "file", "function": "chmod", "parameters": {}})).unwrap(),
+            serde_json::from_value(json!({"tool": "file", "function": "chmod", "parameters": {}}))
+                .unwrap(),
             Box::new(|v| matches!(v, Verdict::Deny { .. })), // no matching policy → deny
         ),
     ];
@@ -184,8 +196,14 @@ fn verdict_json_wire_format() {
 
 #[test]
 fn policy_type_json_wire_format() {
-    assert_eq!(serde_json::to_value(PolicyType::Allow).unwrap(), json!("Allow"));
-    assert_eq!(serde_json::to_value(PolicyType::Deny).unwrap(), json!("Deny"));
+    assert_eq!(
+        serde_json::to_value(PolicyType::Allow).unwrap(),
+        json!("Allow")
+    );
+    assert_eq!(
+        serde_json::to_value(PolicyType::Deny).unwrap(),
+        json!("Deny")
+    );
 
     let conditional = PolicyType::Conditional {
         conditions: json!({"require_approval": true}),

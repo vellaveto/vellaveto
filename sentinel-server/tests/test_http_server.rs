@@ -28,8 +28,10 @@ fn start_server(config_content: &str, port: u16) -> (ServerGuard, TempDir) {
     let child = Command::new(env!("CARGO_BIN_EXE_sentinel"))
         .args([
             "serve",
-            "--port", &port.to_string(),
-            "--config", config_path.to_str().unwrap(),
+            "--port",
+            &port.to_string(),
+            "--config",
+            config_path.to_str().unwrap(),
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -95,11 +97,7 @@ fn http_get(port: u16, path: &str) -> Result<(u16, String), std::io::Error> {
         .unwrap_or(0);
 
     // Find body after \r\n\r\n
-    let body = response
-        .split("\r\n\r\n")
-        .nth(1)
-        .unwrap_or("")
-        .to_string();
+    let body = response.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
 
     Ok((status_code, body))
 }
@@ -127,11 +125,7 @@ fn http_post(port: u16, path: &str, body: &str) -> Result<(u16, String), std::io
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
 
-    let body_str = response
-        .split("\r\n\r\n")
-        .nth(1)
-        .unwrap_or("")
-        .to_string();
+    let body_str = response.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
 
     Ok((status_code, body_str))
 }
@@ -145,12 +139,11 @@ fn health_endpoint_returns_200() {
     match result {
         Ok((status, body)) => {
             assert_eq!(status, 200, "Health should return 200. Body: {}", body);
-            let parsed: serde_json::Value = serde_json::from_str(&body)
-                .unwrap_or_else(|_| {
-                    // axum might use chunked transfer encoding
-                    // Try to extract JSON from chunked body
-                    serde_json::json!({"raw": body})
-                });
+            let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or_else(|_| {
+                // axum might use chunked transfer encoding
+                // Try to extract JSON from chunked body
+                serde_json::json!({"raw": body})
+            });
             // If parseable, check fields
             if let Some(status_val) = parsed.get("status") {
                 assert_eq!(status_val, "ok");
@@ -158,7 +151,10 @@ fn health_endpoint_returns_200() {
         }
         Err(e) => {
             // Server might not have started yet — this is a known race condition
-            eprintln!("WARN: Could not connect to server: {}. This may be a timing issue.", e);
+            eprintln!(
+                "WARN: Could not connect to server: {}. This may be a timing issue.",
+                e
+            );
         }
     }
 }
@@ -190,8 +186,11 @@ fn evaluate_endpoint_denied_action() {
     match result {
         Ok((status, resp_body)) => {
             assert_eq!(status, 200);
-            assert!(resp_body.contains("Deny"),
-                "bash:execute should be denied. Got: {}", resp_body);
+            assert!(
+                resp_body.contains("Deny"),
+                "bash:execute should be denied. Got: {}",
+                resp_body
+            );
         }
         Err(e) => {
             eprintln!("WARN: Could not connect to server: {}", e);
@@ -205,11 +204,12 @@ fn evaluate_endpoint_with_invalid_json_returns_error() {
     let (_guard, _tmp) = start_server(minimal_config(), port);
 
     let result = http_post(port, "/api/evaluate", "not-json");
-    match result {
-        Ok((status, _)) => {
-            assert!(status >= 400, "Invalid JSON should return 4xx. Got: {}", status);
-        }
-        Err(_) => {}
+    if let Ok((status, _)) = result {
+        assert!(
+            status >= 400,
+            "Invalid JSON should return 4xx. Got: {}",
+            status
+        );
     }
 }
 
@@ -219,17 +219,17 @@ fn list_policies_returns_array() {
     let (_guard, _tmp) = start_server(minimal_config(), port);
 
     let result = http_get(port, "/api/policies");
-    match result {
-        Ok((status, body)) => {
-            assert_eq!(status, 200);
-            // Body should be a JSON array
-            let parsed: Result<Vec<serde_json::Value>, _> = serde_json::from_str(&body);
-            if let Err(_) = parsed {
-                // Might be chunked encoding issue, just check it contains policy data
-                assert!(body.contains("policy") || body.contains("Allow") || body.contains("Deny"),
-                    "Policies endpoint should return policy data. Got: {}", body);
-            }
+    if let Ok((status, body)) = result {
+        assert_eq!(status, 200);
+        // Body should be a JSON array
+        let parsed: Result<Vec<serde_json::Value>, _> = serde_json::from_str(&body);
+        if parsed.is_err() {
+            // Might be chunked encoding issue, just check it contains policy data
+            assert!(
+                body.contains("policy") || body.contains("Allow") || body.contains("Deny"),
+                "Policies endpoint should return policy data. Got: {}",
+                body
+            );
         }
-        Err(_) => {}
     }
 }

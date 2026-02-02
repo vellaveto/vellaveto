@@ -22,7 +22,11 @@ fn bench_serialize<T: serde::Serialize>(label: &str, value: &T, iterations: usiz
     );
 }
 
-fn bench_deserialize<T: serde::de::DeserializeOwned>(label: &str, json_str: &str, iterations: usize) {
+fn bench_deserialize<T: serde::de::DeserializeOwned>(
+    label: &str,
+    json_str: &str,
+    iterations: usize,
+) {
     let start = Instant::now();
     for _ in 0..iterations {
         let _: T = serde_json::from_str(json_str).unwrap();

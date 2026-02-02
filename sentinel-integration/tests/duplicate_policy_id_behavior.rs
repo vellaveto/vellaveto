@@ -33,7 +33,12 @@ fn deny_policy(id: &str, name: &str, priority: i32) -> Policy {
     }
 }
 
-fn conditional_policy(id: &str, name: &str, priority: i32, conditions: serde_json::Value) -> Policy {
+fn conditional_policy(
+    id: &str,
+    name: &str,
+    priority: i32,
+    conditions: serde_json::Value,
+) -> Policy {
     Policy {
         id: id.to_string(),
         name: name.to_string(),

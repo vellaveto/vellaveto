@@ -25,9 +25,9 @@ impl PolicyRule {
 
     /// Effective ID (defaults to "tool_pattern:function_pattern").
     pub fn effective_id(&self) -> String {
-        self.id.clone().unwrap_or_else(|| {
-            format!("{}:{}", self.tool_pattern, self.function_pattern)
-        })
+        self.id
+            .clone()
+            .unwrap_or_else(|| format!("{}:{}", self.tool_pattern, self.function_pattern))
     }
 }
 

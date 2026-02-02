@@ -35,7 +35,10 @@ macro_rules! assert_report_invariant {
             $report.total_entries,
             $report.allow_count + $report.deny_count + $report.require_approval_count,
             "Invariant violated: {} != {} + {} + {}",
-            $report.total_entries, $report.allow_count, $report.deny_count, $report.require_approval_count
+            $report.total_entries,
+            $report.allow_count,
+            $report.deny_count,
+            $report.require_approval_count
         );
         assert_eq!(
             $report.entries.len(),
@@ -52,7 +55,10 @@ fn report_all_allows() {
         let (logger, _tmp) = setup_logger();
         let a = action();
         for _ in 0..20 {
-            logger.log_entry(&a, &Verdict::Allow, json!({})).await.unwrap();
+            logger
+                .log_entry(&a, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
         }
         let report = logger.generate_report().await.unwrap();
         assert_eq!(report.total_entries, 20);
@@ -70,7 +76,9 @@ fn report_all_denies() {
         let (logger, _tmp) = setup_logger();
         let a = action();
         for i in 0..15 {
-            let v = Verdict::Deny { reason: format!("reason_{}", i) };
+            let v = Verdict::Deny {
+                reason: format!("reason_{}", i),
+            };
             logger.log_entry(&a, &v, json!({})).await.unwrap();
         }
         let report = logger.generate_report().await.unwrap();
@@ -89,7 +97,9 @@ fn report_all_require_approval() {
         let (logger, _tmp) = setup_logger();
         let a = action();
         for i in 0..10 {
-            let v = Verdict::RequireApproval { reason: format!("approval_{}", i) };
+            let v = Verdict::RequireApproval {
+                reason: format!("approval_{}", i),
+            };
             logger.log_entry(&a, &v, json!({})).await.unwrap();
         }
         let report = logger.generate_report().await.unwrap();
@@ -108,9 +118,30 @@ fn report_single_entry_each_type() {
         let (logger, _tmp) = setup_logger();
         let a = action();
 
-        logger.log_entry(&a, &Verdict::Allow, json!({})).await.unwrap();
-        logger.log_entry(&a, &Verdict::Deny { reason: "no".to_string() }, json!({})).await.unwrap();
-        logger.log_entry(&a, &Verdict::RequireApproval { reason: "check".to_string() }, json!({})).await.unwrap();
+        logger
+            .log_entry(&a, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+        logger
+            .log_entry(
+                &a,
+                &Verdict::Deny {
+                    reason: "no".to_string(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
+        logger
+            .log_entry(
+                &a,
+                &Verdict::RequireApproval {
+                    reason: "check".to_string(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
 
         let report = logger.generate_report().await.unwrap();
         assert_eq!(report.total_entries, 3);
@@ -128,15 +159,22 @@ fn report_alternating_verdict_types() {
         let (logger, _tmp) = setup_logger();
         let a = action();
 
-        let verdicts = vec![
+        let verdicts = [
             Verdict::Allow,
-            Verdict::Deny { reason: "d".to_string() },
-            Verdict::RequireApproval { reason: "r".to_string() },
+            Verdict::Deny {
+                reason: "d".to_string(),
+            },
+            Verdict::RequireApproval {
+                reason: "r".to_string(),
+            },
         ];
 
         // Log 30 entries cycling through verdict types
         for i in 0..30 {
-            logger.log_entry(&a, &verdicts[i % 3], json!({"cycle": i})).await.unwrap();
+            logger
+                .log_entry(&a, &verdicts[i % 3], json!({"cycle": i}))
+                .await
+                .unwrap();
         }
 
         let report = logger.generate_report().await.unwrap();
@@ -153,7 +191,10 @@ fn report_single_allow_entry() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        logger.log_entry(&action(), &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action(), &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
 
         let report = logger.generate_report().await.unwrap();
         assert_eq!(report.total_entries, 1);
@@ -188,10 +229,31 @@ fn report_heavily_skewed_distribution() {
         let a = action();
 
         for _ in 0..1000 {
-            logger.log_entry(&a, &Verdict::Allow, json!({})).await.unwrap();
+            logger
+                .log_entry(&a, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
         }
-        logger.log_entry(&a, &Verdict::Deny { reason: "rare".to_string() }, json!({})).await.unwrap();
-        logger.log_entry(&a, &Verdict::RequireApproval { reason: "rare".to_string() }, json!({})).await.unwrap();
+        logger
+            .log_entry(
+                &a,
+                &Verdict::Deny {
+                    reason: "rare".to_string(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
+        logger
+            .log_entry(
+                &a,
+                &Verdict::RequireApproval {
+                    reason: "rare".to_string(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
 
         let report = logger.generate_report().await.unwrap();
         assert_eq!(report.total_entries, 1002);

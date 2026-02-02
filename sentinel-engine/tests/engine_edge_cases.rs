@@ -45,7 +45,8 @@ fn test_duplicate_allow_policies_still_allow() {
         allow_policy("file:read", "Allow reads 3", 0),
     ];
 
-    let verdict = engine.evaluate_action(&action, &policies)
+    let verdict = engine
+        .evaluate_action(&action, &policies)
         .expect("duplicate allows should not error");
 
     assert!(
@@ -65,7 +66,8 @@ fn test_duplicate_deny_policies_still_deny() {
         deny_policy("file:delete", "Deny 3", 10),
     ];
 
-    let verdict = engine.evaluate_action(&action, &policies)
+    let verdict = engine
+        .evaluate_action(&action, &policies)
         .expect("duplicate denies should not error");
 
     assert!(
@@ -86,7 +88,8 @@ fn test_policy_id_exact_match_required() {
     // Policy ID is "file:write" — should NOT match action "file"/"read"
     let policies = vec![allow_policy("file:write", "Allow writes only", 0)];
 
-    let result = engine.evaluate_action(&action, &policies)
+    let result = engine
+        .evaluate_action(&action, &policies)
         .expect("non-matching policy should not error");
 
     // If no policy matches, we get default behavior, not an allow
@@ -134,7 +137,10 @@ fn test_engine_can_evaluate_multiple_times() {
     for _ in 0..100 {
         let action = make_action("file", "read");
         let result = engine.evaluate_action(&action, &policies);
-        assert!(result.is_ok(), "engine should be reusable across evaluations");
+        assert!(
+            result.is_ok(),
+            "engine should be reusable across evaluations"
+        );
     }
 }
 
@@ -152,10 +158,22 @@ fn test_engine_alternating_strict_instances() {
     let v4 = lax.evaluate_action(&action, &policies).unwrap();
 
     // All should produce Allow since there's an explicit matching policy
-    assert!(matches!(v1, Verdict::Allow), "strict explicit allow: {:?}", v1);
+    assert!(
+        matches!(v1, Verdict::Allow),
+        "strict explicit allow: {:?}",
+        v1
+    );
     assert!(matches!(v2, Verdict::Allow), "lax explicit allow: {:?}", v2);
-    assert!(matches!(v3, Verdict::Allow), "strict explicit allow round 2: {:?}", v3);
-    assert!(matches!(v4, Verdict::Allow), "lax explicit allow round 2: {:?}", v4);
+    assert!(
+        matches!(v3, Verdict::Allow),
+        "strict explicit allow round 2: {:?}",
+        v3
+    );
+    assert!(
+        matches!(v4, Verdict::Allow),
+        "lax explicit allow round 2: {:?}",
+        v4
+    );
 }
 
 // ══════════════════════════════════════════════════════
@@ -206,7 +224,9 @@ fn test_empty_object_vs_populated_parameters() {
     };
 
     let v1 = engine.evaluate_action(&empty_params, &policies).unwrap();
-    let v2 = engine.evaluate_action(&populated_params, &policies).unwrap();
+    let v2 = engine
+        .evaluate_action(&populated_params, &policies)
+        .unwrap();
 
     assert_eq!(
         std::mem::discriminant(&v1),

@@ -41,7 +41,11 @@ fn condition_depth_exactly_10_is_accepted() {
 
     let policy = conditional_policy_with(val);
     let result = engine.evaluate_action(&action, &[policy]);
-    assert!(result.is_ok(), "Condition depth exactly 10 should be accepted, got: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Condition depth exactly 10 should be accepted, got: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -84,7 +88,10 @@ fn condition_depth_via_arrays_also_counted() {
 
     let policy = conditional_policy_with(val);
     let result = engine.evaluate_action(&action, &[policy]);
-    assert!(result.is_err(), "Mixed array/object depth >10 should be rejected");
+    assert!(
+        result.is_err(),
+        "Mixed array/object depth >10 should be rejected"
+    );
 }
 
 // ════════════════════════════════════════════════

@@ -2,7 +2,7 @@
 //! The config → engine pipeline depends on Policy deserializing correctly
 //! from user-provided JSON. These tests verify edge cases in that path.
 
-use sentinel_types::{Policy, PolicyType, Verdict};
+use sentinel_types::{Policy, PolicyType};
 use serde_json::json;
 
 // ═══════════════════════════════════
@@ -53,7 +53,11 @@ fn policy_with_conditional_type_from_json() {
     let policy: Policy = serde_json::from_value(val).unwrap();
     match &policy.policy_type {
         PolicyType::Conditional { conditions } => {
-            assert_eq!(conditions.get("require_approval").unwrap().as_bool().unwrap(), true);
+            assert!(conditions
+                .get("require_approval")
+                .unwrap()
+                .as_bool()
+                .unwrap());
             assert!(conditions.get("forbidden_parameters").unwrap().is_array());
         }
         _ => panic!("Expected Conditional"),

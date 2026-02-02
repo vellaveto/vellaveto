@@ -58,7 +58,10 @@ fn interleaved_policy_sets_no_state_leakage() {
     assert!(matches!(v3, Verdict::Deny { .. }));
 
     // v1 and v3 must be identical
-    assert_eq!(v1, v3, "Same input must produce same output regardless of prior evaluations");
+    assert_eq!(
+        v1, v3,
+        "Same input must produce same output regardless of prior evaluations"
+    );
 }
 
 /// Run 1000 alternating evaluations and verify no drift.
@@ -78,11 +81,17 @@ fn high_volume_interleaved_evaluations() {
         };
 
         if i % 2 == 0 {
-            assert!(matches!(verdict, Verdict::Deny { .. }),
-                "Iteration {}: expected Deny with deny_set", i);
+            assert!(
+                matches!(verdict, Verdict::Deny { .. }),
+                "Iteration {}: expected Deny with deny_set",
+                i
+            );
         } else {
-            assert!(matches!(verdict, Verdict::Allow),
-                "Iteration {}: expected Allow with allow_set", i);
+            assert!(
+                matches!(verdict, Verdict::Allow),
+                "Iteration {}: expected Allow with allow_set",
+                i
+            );
         }
     }
 }
@@ -92,15 +101,16 @@ fn high_volume_interleaved_evaluations() {
 fn separate_engine_instances_same_result() {
     let engines: Vec<PolicyEngine> = (0..10).map(|_| PolicyEngine::new(false)).collect();
     let action = make_action("net", "fetch");
-    let policies = vec![
-        deny_policy("net:*", 100),
-        allow_policy("*", 1),
-    ];
+    let policies = vec![deny_policy("net:*", 100), allow_policy("*", 1)];
 
     let baseline = engines[0].evaluate_action(&action, &policies).unwrap();
     for (i, engine) in engines.iter().enumerate().skip(1) {
         let v = engine.evaluate_action(&action, &policies).unwrap();
-        assert_eq!(baseline, v, "Engine instance {} produced different result", i);
+        assert_eq!(
+            baseline, v,
+            "Engine instance {} produced different result",
+            i
+        );
     }
 }
 
@@ -164,6 +174,10 @@ fn strict_and_nonstrict_identical_across_all_policy_types() {
     for (i, policies) in policy_sets.iter().enumerate() {
         let vs = strict.evaluate_action(&action, policies).unwrap();
         let vr = relaxed.evaluate_action(&action, policies).unwrap();
-        assert_eq!(vs, vr, "Policy set {} produced different results for strict vs relaxed", i);
+        assert_eq!(
+            vs, vr,
+            "Policy set {} produced different results for strict vs relaxed",
+            i
+        );
     }
 }

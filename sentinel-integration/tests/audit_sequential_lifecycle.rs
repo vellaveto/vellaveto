@@ -64,7 +64,10 @@ fn single_allow_entry_lifecycle() {
         let logger = AuditLogger::new(tmp.path().join("audit.log"));
         let action = make_action("file", "read");
 
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
@@ -87,9 +90,14 @@ fn single_deny_entry_lifecycle() {
         let tmp = TempDir::new().unwrap();
         let logger = AuditLogger::new(tmp.path().join("audit.log"));
         let action = make_action("shell", "exec");
-        let verdict = Verdict::Deny { reason: "blocked".to_string() };
+        let verdict = Verdict::Deny {
+            reason: "blocked".to_string(),
+        };
 
-        logger.log_entry(&action, &verdict, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &verdict, json!({}))
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
@@ -110,9 +118,14 @@ fn single_require_approval_entry_lifecycle() {
         let tmp = TempDir::new().unwrap();
         let logger = AuditLogger::new(tmp.path().join("audit.log"));
         let action = make_action("net", "connect");
-        let verdict = Verdict::RequireApproval { reason: "needs review".to_string() };
+        let verdict = Verdict::RequireApproval {
+            reason: "needs review".to_string(),
+        };
 
-        logger.log_entry(&action, &verdict, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &verdict, json!({}))
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
@@ -140,20 +153,33 @@ fn mixed_verdicts_counted_correctly() {
 
         // Log 3 allows, 2 denies, 1 require_approval
         for _ in 0..3 {
-            logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
         }
         for i in 0..2 {
-            logger.log_entry(
-                &action,
-                &Verdict::Deny { reason: format!("reason_{}", i) },
-                json!({}),
-            ).await.unwrap();
+            logger
+                .log_entry(
+                    &action,
+                    &Verdict::Deny {
+                        reason: format!("reason_{}", i),
+                    },
+                    json!({}),
+                )
+                .await
+                .unwrap();
         }
-        logger.log_entry(
-            &action,
-            &Verdict::RequireApproval { reason: "review".to_string() },
-            json!({}),
-        ).await.unwrap();
+        logger
+            .log_entry(
+                &action,
+                &Verdict::RequireApproval {
+                    reason: "review".to_string(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
 
         let report = logger.generate_report().await.unwrap();
         assert_eq!(report.total_entries, 6);
@@ -182,7 +208,10 @@ fn entry_ids_are_unique_uuids() {
         let action = make_action("t", "f");
 
         for _ in 0..10 {
-            logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
         }
 
         let entries = logger.load_entries().await.unwrap();
@@ -204,7 +233,10 @@ fn metadata_preserved_through_roundtrip() {
         let action = make_action("t", "f");
         let metadata = json!({"user": "admin", "source": "api", "count": 42});
 
-        logger.log_entry(&action, &Verdict::Allow, metadata.clone()).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, metadata.clone())
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries[0].metadata, metadata);

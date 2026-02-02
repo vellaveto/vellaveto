@@ -16,6 +16,12 @@ __pycache__/
 .vscode/
 .idea/
 
+# Legacy/scratch directories
+crates/
+scripts/agent_generated/
+policies/
+
 # OS
 .DS_Store
 Thumbs.db
+*:Zone.Identifier

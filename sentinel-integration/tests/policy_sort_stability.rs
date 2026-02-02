@@ -41,10 +41,7 @@ fn deny_wins_over_allow_at_same_priority_allow_first() {
     let engine = PolicyEngine::new(false);
     let action = make_action("x", "y");
 
-    let policies = vec![
-        allow_policy("*", 100),
-        deny_policy("*", 100),
-    ];
+    let policies = vec![allow_policy("*", 100), deny_policy("*", 100)];
 
     assert!(matches!(
         engine.evaluate_action(&action, &policies).unwrap(),
@@ -57,10 +54,7 @@ fn deny_wins_over_allow_at_same_priority_deny_first() {
     let engine = PolicyEngine::new(false);
     let action = make_action("x", "y");
 
-    let policies = vec![
-        deny_policy("*", 100),
-        allow_policy("*", 100),
-    ];
+    let policies = vec![deny_policy("*", 100), allow_policy("*", 100)];
 
     assert!(matches!(
         engine.evaluate_action(&action, &policies).unwrap(),
@@ -74,7 +68,7 @@ fn deny_overrides_allow_regardless_of_insertion_order() {
     let action = make_action("tool", "func");
 
     // Test all permutations of 3 policies at the same priority
-    let base = vec![
+    let base = [
         allow_policy("*", 50),
         deny_policy("*", 50),
         allow_policy("tool:*", 50),
@@ -94,7 +88,9 @@ fn deny_overrides_allow_regardless_of_insertion_order() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
-            "Permutation {:?} should produce Deny, got {:?}", perm, verdict
+            "Permutation {:?} should produce Deny, got {:?}",
+            perm,
+            verdict
         );
     }
 }
@@ -120,7 +116,8 @@ fn same_input_produces_same_verdict_1000_times() {
         let current = engine.evaluate_action(&action, &policies).unwrap();
         assert_eq!(
             first, current,
-            "Verdict changed on iteration {}: {:?} vs {:?}", i, first, current
+            "Verdict changed on iteration {}: {:?} vs {:?}",
+            i, first, current
         );
     }
 }
@@ -129,10 +126,7 @@ fn same_input_produces_same_verdict_1000_times() {
 fn evaluation_is_pure_no_side_effects() {
     let engine = PolicyEngine::new(false);
 
-    let policies = vec![
-        deny_policy("bash:*", 100),
-        allow_policy("*", 1),
-    ];
+    let policies = vec![deny_policy("bash:*", 100), allow_policy("*", 1)];
 
     // Evaluate many different actions, then re-evaluate the first
     let first_action = make_action("bash", "exec");
@@ -144,7 +138,10 @@ fn evaluation_is_pure_no_side_effects() {
     }
 
     let second_verdict = engine.evaluate_action(&first_action, &policies).unwrap();
-    assert_eq!(first_verdict, second_verdict, "Engine evaluation should be pure/stateless");
+    assert_eq!(
+        first_verdict, second_verdict,
+        "Engine evaluation should be pure/stateless"
+    );
 }
 
 // ═══════════════════════════════════════

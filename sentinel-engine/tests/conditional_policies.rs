@@ -4,7 +4,12 @@ use sentinel_engine::PolicyEngine;
 use sentinel_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 
-fn conditional_policy(id: &str, name: &str, priority: i32, conditions: serde_json::Value) -> Policy {
+fn conditional_policy(
+    id: &str,
+    name: &str,
+    priority: i32,
+    conditions: serde_json::Value,
+) -> Policy {
     Policy {
         id: id.to_string(),
         name: name.to_string(),
@@ -21,19 +26,28 @@ fn conditional_policy_requires_approval() {
         function: "execute".to_string(),
         parameters: json!({"command": "rm -rf /"}),
     };
-    let policies = vec![
-        conditional_policy("shell:*", "dangerous-commands", 10, json!({
+    let policies = vec![conditional_policy(
+        "shell:*",
+        "dangerous-commands",
+        10,
+        json!({
             "require_approval": true
-        })),
-    ];
+        }),
+    )];
 
     let result = engine.evaluate_action(&action, &policies);
     assert!(result.is_ok());
     match result.unwrap() {
         Verdict::RequireApproval { reason } => {
-            assert!(!reason.is_empty(), "RequireApproval should include a reason");
+            assert!(
+                !reason.is_empty(),
+                "RequireApproval should include a reason"
+            );
         }
-        other => panic!("Conditional policy with require_approval should require approval, got {:?}", other),
+        other => panic!(
+            "Conditional policy with require_approval should require approval, got {:?}",
+            other
+        ),
     }
 }
 
@@ -45,18 +59,24 @@ fn conditional_policy_with_non_matching_action() {
         function: "read".to_string(),
         parameters: json!({"path": "/tmp/safe.txt"}),
     };
-    let policies = vec![
-        conditional_policy("shell:*", "shell-guard", 10, json!({
+    let policies = vec![conditional_policy(
+        "shell:*",
+        "shell-guard",
+        10,
+        json!({
             "require_approval": true
-        })),
-    ];
+        }),
+    )];
 
     let result = engine.evaluate_action(&action, &policies);
     assert!(result.is_ok());
     // A conditional policy for "shell:*" shouldn't affect a "file:read" action
     match result.unwrap() {
         Verdict::Deny { .. } => {} // No matching policy -> deny (fail-closed)
-        other => panic!("Non-matching conditional should result in deny (no match), got {:?}", other),
+        other => panic!(
+            "Non-matching conditional should result in deny (no match), got {:?}",
+            other
+        ),
     }
 }
 
@@ -70,7 +90,12 @@ fn mixed_policies_conditional_and_deny() {
     };
 
     let policies = vec![
-        conditional_policy("shell:*", "shell-review", 5, json!({"require_approval": true})),
+        conditional_policy(
+            "shell:*",
+            "shell-review",
+            5,
+            json!({"require_approval": true}),
+        ),
         Policy {
             id: "shell:*".to_string(),
             name: "deny-all-shell".to_string(),
@@ -84,7 +109,10 @@ fn mixed_policies_conditional_and_deny() {
     // Higher-priority Deny should beat lower-priority Conditional
     match result.unwrap() {
         Verdict::Deny { .. } => {}
-        other => panic!("Higher-priority Deny should override Conditional, got {:?}", other),
+        other => panic!(
+            "Higher-priority Deny should override Conditional, got {:?}",
+            other
+        ),
     }
 }
 
@@ -96,16 +124,22 @@ fn conditional_with_forbidden_parameters() {
         function: "execute".to_string(),
         parameters: json!({"force": true, "path": "/etc"}),
     };
-    let policies = vec![
-        conditional_policy("shell:*", "no-force", 10, json!({
+    let policies = vec![conditional_policy(
+        "shell:*",
+        "no-force",
+        10,
+        json!({
             "forbidden_parameters": ["force"]
-        })),
-    ];
+        }),
+    )];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
         Verdict::Deny { reason } => {
-            assert!(reason.contains("force"), "Reason should mention forbidden param");
+            assert!(
+                reason.contains("force"),
+                "Reason should mention forbidden param"
+            );
         }
         other => panic!("Forbidden parameter should trigger deny, got {:?}", other),
     }
@@ -119,18 +153,27 @@ fn conditional_with_required_parameters() {
         function: "write".to_string(),
         parameters: json!({"content": "hello"}), // missing "reason" parameter
     };
-    let policies = vec![
-        conditional_policy("file:write", "require-reason", 10, json!({
+    let policies = vec![conditional_policy(
+        "file:write",
+        "require-reason",
+        10,
+        json!({
             "required_parameters": ["reason"]
-        })),
-    ];
+        }),
+    )];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
         Verdict::Deny { reason } => {
-            assert!(reason.contains("reason"), "Should mention missing required param");
+            assert!(
+                reason.contains("reason"),
+                "Should mention missing required param"
+            );
         }
-        other => panic!("Missing required parameter should trigger deny, got {:?}", other),
+        other => panic!(
+            "Missing required parameter should trigger deny, got {:?}",
+            other
+        ),
     }
 }
 
@@ -142,11 +185,14 @@ fn conditional_allows_when_no_conditions_triggered() {
         function: "read".to_string(),
         parameters: json!({"path": "/tmp/safe.txt"}),
     };
-    let policies = vec![
-        conditional_policy("file:*", "file-conditions", 10, json!({
+    let policies = vec![conditional_policy(
+        "file:*",
+        "file-conditions",
+        10,
+        json!({
             "forbidden_parameters": ["delete", "force"]
-        })),
-    ];
+        }),
+    )];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {

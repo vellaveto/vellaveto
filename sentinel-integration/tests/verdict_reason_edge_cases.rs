@@ -34,7 +34,9 @@ fn action() -> Action {
 
 #[test]
 fn deny_empty_reason_roundtrips() {
-    let v = Verdict::Deny { reason: String::new() };
+    let v = Verdict::Deny {
+        reason: String::new(),
+    };
     let json_str = serde_json::to_string(&v).unwrap();
     let deserialized: Verdict = serde_json::from_str(&json_str).unwrap();
     assert_eq!(v, deserialized);
@@ -42,7 +44,9 @@ fn deny_empty_reason_roundtrips() {
 
 #[test]
 fn deny_unicode_reason_roundtrips() {
-    let v = Verdict::Deny { reason: "否: アクセス止 🚫".to_string() };
+    let v = Verdict::Deny {
+        reason: "否: アクセス止 🚫".to_string(),
+    };
     let json_str = serde_json::to_string(&v).unwrap();
     let deserialized: Verdict = serde_json::from_str(&json_str).unwrap();
     assert_eq!(v, deserialized);
@@ -50,7 +54,9 @@ fn deny_unicode_reason_roundtrips() {
 
 #[test]
 fn deny_json_like_reason_roundtrips() {
-    let v = Verdict::Deny { reason: r#"{"injected": "json", "key": [1,2,3]}"#.to_string() };
+    let v = Verdict::Deny {
+        reason: r#"{"injected": "json", "key": [1,2,3]}"#.to_string(),
+    };
     let json_str = serde_json::to_string(&v).unwrap();
     let deserialized: Verdict = serde_json::from_str(&json_str).unwrap();
     assert_eq!(v, deserialized);
@@ -58,7 +64,9 @@ fn deny_json_like_reason_roundtrips() {
 
 #[test]
 fn deny_newline_reason_roundtrips() {
-    let v = Verdict::Deny { reason: "line1\nline2\nline3".to_string() };
+    let v = Verdict::Deny {
+        reason: "line1\nline2\nline3".to_string(),
+    };
     let json_str = serde_json::to_string(&v).unwrap();
     let deserialized: Verdict = serde_json::from_str(&json_str).unwrap();
     assert_eq!(v, deserialized);
@@ -67,7 +75,9 @@ fn deny_newline_reason_roundtrips() {
 #[test]
 fn require_approval_long_reason_roundtrips() {
     let long_reason = "a]".repeat(50_000);
-    let v = Verdict::RequireApproval { reason: long_reason.clone() };
+    let v = Verdict::RequireApproval {
+        reason: long_reason.clone(),
+    };
     let json_str = serde_json::to_string(&v).unwrap();
     let deserialized: Verdict = serde_json::from_str(&json_str).unwrap();
     assert_eq!(v, deserialized);
@@ -93,7 +103,9 @@ fn deny_reason_preserved_through_audit() {
 
         let a = action();
         for reason in &reasons {
-            let v = Verdict::Deny { reason: reason.clone() };
+            let v = Verdict::Deny {
+                reason: reason.clone(),
+            };
             logger.log_entry(&a, &v, json!({})).await.unwrap();
         }
 
@@ -141,11 +153,56 @@ fn report_counts_correct_with_varied_reasons() {
         let a = action();
 
         // 3 denies with different reasons, 2 approvals with different reasons
-        logger.log_entry(&a, &Verdict::Deny { reason: "".to_string() }, json!({})).await.unwrap();
-        logger.log_entry(&a, &Verdict::Deny { reason: "long".repeat(100) }, json!({})).await.unwrap();
-        logger.log_entry(&a, &Verdict::Deny { reason: "unicode: 🚫".to_string() }, json!({})).await.unwrap();
-        logger.log_entry(&a, &Verdict::RequireApproval { reason: "check".to_string() }, json!({})).await.unwrap();
-        logger.log_entry(&a, &Verdict::RequireApproval { reason: "".to_string() }, json!({})).await.unwrap();
+        logger
+            .log_entry(
+                &a,
+                &Verdict::Deny {
+                    reason: "".to_string(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
+        logger
+            .log_entry(
+                &a,
+                &Verdict::Deny {
+                    reason: "long".repeat(100),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
+        logger
+            .log_entry(
+                &a,
+                &Verdict::Deny {
+                    reason: "unicode: 🚫".to_string(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
+        logger
+            .log_entry(
+                &a,
+                &Verdict::RequireApproval {
+                    reason: "check".to_string(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
+        logger
+            .log_entry(
+                &a,
+                &Verdict::RequireApproval {
+                    reason: "".to_string(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
 
         let report = logger.generate_report().await.unwrap();
         assert_eq!(report.total_entries, 5);

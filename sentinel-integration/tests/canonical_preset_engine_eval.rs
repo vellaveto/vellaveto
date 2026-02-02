@@ -95,10 +95,7 @@ fn deny_all_denies_any_action() {
     for action in &actions {
         match engine.evaluate_action(action, &policies).unwrap() {
             Verdict::Deny { .. } => {}
-            other => panic!(
-                "deny_all should deny {:?}, got {:?}",
-                action.tool, other
-            ),
+            other => panic!("deny_all should deny {:?}, got {:?}", action.tool, other),
         }
     }
 }
@@ -140,7 +137,10 @@ fn deny_all_overrides_allow_all() {
     let action = make_action("any", "thing", json!({}));
     match engine.evaluate_action(&action, &policies).unwrap() {
         Verdict::Deny { .. } => {}
-        other => panic!("deny_all(1000) should override allow_all(1), got {:?}", other),
+        other => panic!(
+            "deny_all(1000) should override allow_all(1), got {:?}",
+            other
+        ),
     }
 }
 
@@ -162,16 +162,25 @@ fn bash_block_policy_id_matching_behavior() {
     let action = make_action("bash_block", "exec", json!({}));
     match engine.evaluate_action(&action, &dangerous).unwrap() {
         Verdict::RequireApproval { .. } => {}
-        other => panic!("bash_block ID should match tool 'bash_block', got {:?}", other),
+        other => panic!(
+            "bash_block ID should match tool 'bash_block', got {:?}",
+            other
+        ),
     }
 
     // An action with tool="bash" does NOT match id="bash_block" (no wildcard in ID)
     let action = make_action("bash", "exec", json!({}));
     match engine.evaluate_action(&action, &dangerous).unwrap() {
         Verdict::Deny { reason } => {
-            assert!(reason.contains("No matching policy"), "Should fall through to default deny");
+            assert!(
+                reason.contains("No matching policy"),
+                "Should fall through to default deny"
+            );
         }
-        other => panic!("tool='bash' should NOT match id='bash_block', got {:?}", other),
+        other => panic!(
+            "tool='bash' should NOT match id='bash_block', got {:?}",
+            other
+        ),
     }
 }
 
@@ -244,14 +253,20 @@ fn dangerous_tools_with_allow_all_fallback() {
     let bash = make_action("bash_block", "exec", json!({}));
     match engine.evaluate_action(&bash, &policies).unwrap() {
         Verdict::RequireApproval { .. } => {}
-        other => panic!("bash_block should require approval even with allow-all fallback, got {:?}", other),
+        other => panic!(
+            "bash_block should require approval even with allow-all fallback, got {:?}",
+            other
+        ),
     }
 
     // "system_block" with forbidden param → deny (priority 900)
     let sys = make_action("system_block", "run", json!({"delete": true}));
     match engine.evaluate_action(&sys, &policies).unwrap() {
         Verdict::Deny { .. } => {}
-        other => panic!("system_block with forbidden param should deny, got {:?}", other),
+        other => panic!(
+            "system_block with forbidden param should deny, got {:?}",
+            other
+        ),
     }
 
     // "system_block" without forbidden param → allow (conditional passes through)
@@ -287,7 +302,13 @@ fn canonical_policies_survive_serialization() {
 
     for action in &test_actions {
         let v1 = engine.evaluate_action(action, &original_policies).unwrap();
-        let v2 = engine.evaluate_action(action, &deserialized_policies).unwrap();
-        assert_eq!(v1, v2, "Verdict mismatch after roundtrip for action {:?}", action.tool);
+        let v2 = engine
+            .evaluate_action(action, &deserialized_policies)
+            .unwrap();
+        assert_eq!(
+            v1, v2,
+            "Verdict mismatch after roundtrip for action {:?}",
+            action.tool
+        );
     }
 }

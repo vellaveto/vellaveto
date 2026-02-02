@@ -4,6 +4,6 @@
 //! action evaluation through the engine, and audit logging/reporting.
 
 // Re-export workspace crates for convenient test access
-pub use sentinel_types;
-pub use sentinel_engine;
 pub use sentinel_audit;
+pub use sentinel_engine;
+pub use sentinel_types;

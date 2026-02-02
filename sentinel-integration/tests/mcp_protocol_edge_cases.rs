@@ -3,7 +3,7 @@
 //! that would hit the MCP server. Since sentinel-integration doesn't
 //! depend on sentinel-mcp, we test the shared type boundaries.
 
-use sentinel_types::{Action, Policy, PolicyType, Verdict};
+use sentinel_types::{Action, Policy, Verdict};
 use serde_json::json;
 
 // ═══════════════════════════════════════════
@@ -34,7 +34,10 @@ fn action_with_string_parameters_fails() {
     // So this should actually succeed — string is valid serde_json::Value
     let val = json!({"tool": "bash", "function": "exec", "parameters": "string_params"});
     let result = serde_json::from_value::<Action>(val);
-    assert!(result.is_ok(), "String is a valid serde_json::Value for parameters");
+    assert!(
+        result.is_ok(),
+        "String is a valid serde_json::Value for parameters"
+    );
     assert_eq!(result.unwrap().parameters, json!("string_params"));
 }
 
@@ -148,7 +151,10 @@ fn large_action_deserializes_successfully() {
     let large_params: serde_json::Value = {
         let mut map = serde_json::Map::new();
         for i in 0..1000 {
-            map.insert(format!("key_{}", i), json!(format!("value_{}", "x".repeat(100))));
+            map.insert(
+                format!("key_{}", i),
+                json!(format!("value_{}", "x".repeat(100))),
+            );
         }
         serde_json::Value::Object(map)
     };
@@ -167,12 +173,14 @@ fn large_action_deserializes_successfully() {
 #[test]
 fn many_policies_deserialize() {
     let policies_json: Vec<serde_json::Value> = (0..500)
-        .map(|i| json!({
-            "id": format!("tool_{}:func_{}", i, i),
-            "name": format!("Policy {}", i),
-            "policy_type": if i % 2 == 0 { json!("Allow") } else { json!("Deny") },
-            "priority": i
-        }))
+        .map(|i| {
+            json!({
+                "id": format!("tool_{}:func_{}", i, i),
+                "name": format!("Policy {}", i),
+                "policy_type": if i % 2 == 0 { json!("Allow") } else { json!("Deny") },
+                "priority": i
+            })
+        })
         .collect();
 
     let val = serde_json::Value::Array(policies_json);

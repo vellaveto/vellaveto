@@ -4,8 +4,8 @@
 use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
 use sentinel_types::{Action, Policy, PolicyType, Verdict};
-use tempfile::TempDir;
 use serde_json::json;
+use tempfile::TempDir;
 
 fn make_action(tool: &str, function: &str) -> Action {
     Action {
@@ -53,7 +53,10 @@ fn test_log_and_load_single_entry() {
         let action = make_action("file", "read");
         let verdict = Verdict::Allow;
 
-        logger.log_entry(&action, &verdict, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &verdict, json!({}))
+            .await
+            .unwrap();
         let entries = logger.load_entries().await.unwrap();
 
         assert_eq!(entries.len(), 1, "should have exactly one entry");
@@ -76,7 +79,10 @@ fn test_log_mixed_verdicts() {
                     reason: format!("denied action {}", i),
                 }
             };
-            logger.log_entry(&action, &verdict, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &verdict, json!({}))
+                .await
+                .unwrap();
         }
 
         let entries = logger.load_entries().await.unwrap();
@@ -163,7 +169,10 @@ fn test_report_on_empty_log() {
         let logger = AuditLogger::new(tmp.path().join("audit.log"));
 
         let report = logger.generate_report().await.unwrap();
-        assert_eq!(report.total_entries, 0, "empty log should have zero entries");
+        assert_eq!(
+            report.total_entries, 0,
+            "empty log should have zero entries"
+        );
     });
 }
 
@@ -179,9 +188,18 @@ fn test_separate_loggers_independent() {
         let action = make_action("file", "read");
         let verdict = Verdict::Allow;
 
-        logger1.log_entry(&action, &verdict, json!({})).await.unwrap();
-        logger1.log_entry(&action, &verdict, json!({})).await.unwrap();
-        logger2.log_entry(&action, &verdict, json!({})).await.unwrap();
+        logger1
+            .log_entry(&action, &verdict, json!({}))
+            .await
+            .unwrap();
+        logger1
+            .log_entry(&action, &verdict, json!({}))
+            .await
+            .unwrap();
+        logger2
+            .log_entry(&action, &verdict, json!({}))
+            .await
+            .unwrap();
 
         let entries1 = logger1.load_entries().await.unwrap();
         let entries2 = logger2.load_entries().await.unwrap();

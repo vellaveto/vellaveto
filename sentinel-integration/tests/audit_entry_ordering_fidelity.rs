@@ -70,10 +70,16 @@ fn verdict_order_preserved_through_load() {
 
         let verdicts = vec![
             Verdict::Allow,
-            Verdict::Deny { reason: "first deny".to_string() },
-            Verdict::RequireApproval { reason: "approval needed".to_string() },
+            Verdict::Deny {
+                reason: "first deny".to_string(),
+            },
+            Verdict::RequireApproval {
+                reason: "approval needed".to_string(),
+            },
             Verdict::Allow,
-            Verdict::Deny { reason: "second deny".to_string() },
+            Verdict::Deny {
+                reason: "second deny".to_string(),
+            },
         ];
 
         for v in &verdicts {
@@ -189,7 +195,10 @@ fn timestamps_are_non_decreasing() {
             assert!(
                 entries[i].timestamp >= entries[i - 1].timestamp,
                 "Timestamp at index {} ('{}') should be >= timestamp at index {} ('{}')",
-                i, entries[i].timestamp, i - 1, entries[i - 1].timestamp
+                i,
+                entries[i].timestamp,
+                i - 1,
+                entries[i - 1].timestamp
             );
         }
     });

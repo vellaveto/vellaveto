@@ -31,7 +31,10 @@ async fn log_and_retrieve_entries() {
         .unwrap();
 
     let entries = logger.load_entries().await.unwrap();
-    assert!(!entries.is_empty(), "Should have at least one entry after logging");
+    assert!(
+        !entries.is_empty(),
+        "Should have at least one entry after logging"
+    );
 }
 
 #[tokio::test]
@@ -57,17 +60,15 @@ async fn generate_report_with_entries() {
     logger
         .log_entry(
             &sample_action("shell", "execute"),
-            &Verdict::Deny { reason: "blocked".to_string() },
+            &Verdict::Deny {
+                reason: "blocked".to_string(),
+            },
             json!({}),
         )
         .await
         .unwrap();
     logger
-        .log_entry(
-            &sample_action("file", "read"),
-            &Verdict::Allow,
-            json!({}),
-        )
+        .log_entry(&sample_action("file", "read"), &Verdict::Allow, json!({}))
         .await
         .unwrap();
 
@@ -109,5 +110,9 @@ async fn logger_handles_concurrent_writes() {
     }
 
     let entries = logger.load_entries().await.unwrap();
-    assert_eq!(entries.len(), 10, "All concurrent writes should be captured");
+    assert_eq!(
+        entries.len(),
+        10,
+        "All concurrent writes should be captured"
+    );
 }

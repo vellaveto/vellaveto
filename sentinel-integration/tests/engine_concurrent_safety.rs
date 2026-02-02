@@ -65,7 +65,9 @@ fn concurrent_evaluations_are_deterministic() {
                     let verdict = engine.evaluate_action(&action, &policies).unwrap();
                     assert!(
                         matches!(verdict, Verdict::Deny { .. }),
-                        "Task {} expected Deny, got {:?}", i, verdict
+                        "Task {} expected Deny, got {:?}",
+                        i,
+                        verdict
                     );
                 } else {
                     let action = make_action("file", "read", json!({"i": i}));
@@ -73,14 +75,18 @@ fn concurrent_evaluations_are_deterministic() {
                     assert_eq!(
                         verdict,
                         Verdict::Allow,
-                        "Task {} expected Allow, got {:?}", i, verdict
+                        "Task {} expected Allow, got {:?}",
+                        i,
+                        verdict
                     );
                 }
             }));
         }
 
         for (i, handle) in handles.into_iter().enumerate() {
-            handle.await.unwrap_or_else(|e| panic!("Task {} panicked: {:?}", i, e));
+            handle
+                .await
+                .unwrap_or_else(|e| panic!("Task {} panicked: {:?}", i, e));
         }
     });
 }
@@ -118,15 +124,24 @@ fn concurrent_conditional_evaluations() {
                 match i % 3 {
                     0 => {
                         // Network action -> RequireApproval
-                        let action = make_action("net", "fetch", json!({"url": "http://example.com"}));
+                        let action =
+                            make_action("net", "fetch", json!({"url": "http://example.com"}));
                         let v = engine.evaluate_action(&action, &policies).unwrap();
-                        assert!(matches!(v, Verdict::RequireApproval { .. }), "Expected RequireApproval, got {:?}", v);
+                        assert!(
+                            matches!(v, Verdict::RequireApproval { .. }),
+                            "Expected RequireApproval, got {:?}",
+                            v
+                        );
                     }
                     1 => {
                         // Non-network with forbidden param -> Deny
                         let action = make_action("db", "query", json!({"secret": "value"}));
                         let v = engine.evaluate_action(&action, &policies).unwrap();
-                        assert!(matches!(v, Verdict::Deny { .. }), "Expected Deny, got {:?}", v);
+                        assert!(
+                            matches!(v, Verdict::Deny { .. }),
+                            "Expected Deny, got {:?}",
+                            v
+                        );
                     }
                     _ => {
                         // Non-network without forbidden param -> Allow (conditions pass)
@@ -166,10 +181,21 @@ fn concurrent_different_policy_sets_no_contamination() {
             handles.push(tokio::spawn(async move {
                 if i % 2 == 0 {
                     let v = engine.evaluate_action(&action, &allow_policies).unwrap();
-                    assert_eq!(v, Verdict::Allow, "Even task {} got {:?} instead of Allow", i, v);
+                    assert_eq!(
+                        v,
+                        Verdict::Allow,
+                        "Even task {} got {:?} instead of Allow",
+                        i,
+                        v
+                    );
                 } else {
                     let v = engine.evaluate_action(&action, &deny_policies).unwrap();
-                    assert!(matches!(v, Verdict::Deny { .. }), "Odd task {} got {:?} instead of Deny", i, v);
+                    assert!(
+                        matches!(v, Verdict::Deny { .. }),
+                        "Odd task {} got {:?} instead of Deny",
+                        i,
+                        v
+                    );
                 }
             }));
         }

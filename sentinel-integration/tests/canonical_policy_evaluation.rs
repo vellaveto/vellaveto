@@ -40,7 +40,12 @@ fn allow_policy(id: &str, name: &str, priority: i32) -> Policy {
     }
 }
 
-fn conditional_policy(id: &str, name: &str, priority: i32, conditions: serde_json::Value) -> Policy {
+fn conditional_policy(
+    id: &str,
+    name: &str,
+    priority: i32,
+    conditions: serde_json::Value,
+) -> Policy {
     Policy {
         id: id.to_string(),
         name: name.to_string(),
@@ -66,7 +71,9 @@ fn deny_all_blocks_every_action() {
     ];
 
     for action in &actions {
-        let verdict = engine.evaluate_action(action, &[deny_all.clone()]).unwrap();
+        let verdict = engine
+            .evaluate_action(action, std::slice::from_ref(&deny_all))
+            .unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
             "deny-all should block {:?}, got {:?}",
@@ -88,8 +95,15 @@ fn allow_all_permits_every_action() {
     ];
 
     for action in &actions {
-        let verdict = engine.evaluate_action(action, &[allow_all.clone()]).unwrap();
-        assert_eq!(verdict, Verdict::Allow, "allow-all should permit {:?}", action.tool);
+        let verdict = engine
+            .evaluate_action(action, std::slice::from_ref(&allow_all))
+            .unwrap();
+        assert_eq!(
+            verdict,
+            Verdict::Allow,
+            "allow-all should permit {:?}",
+            action.tool
+        );
     }
 }
 
@@ -154,9 +168,14 @@ fn conditional_forbidden_param_through_full_pipeline() {
         let logger = AuditLogger::new(tmp.path().join("audit.log"));
 
         let policies = vec![
-            conditional_policy("bash:*", "Dangerous bash", 100, json!({
-                "forbidden_parameters": ["force", "recursive"]
-            })),
+            conditional_policy(
+                "bash:*",
+                "Dangerous bash",
+                100,
+                json!({
+                    "forbidden_parameters": ["force", "recursive"]
+                }),
+            ),
             allow_policy("*", "Default allow", 1),
         ];
 
@@ -164,13 +183,19 @@ fn conditional_forbidden_param_through_full_pipeline() {
         let dangerous = make_action("bash", "execute", json!({"force": true, "cmd": "rm"}));
         let verdict = engine.evaluate_action(&dangerous, &policies).unwrap();
         assert!(matches!(verdict, Verdict::Deny { .. }));
-        logger.log_entry(&dangerous, &verdict, json!({"test": "forbidden_param"})).await.unwrap();
+        logger
+            .log_entry(&dangerous, &verdict, json!({"test": "forbidden_param"}))
+            .await
+            .unwrap();
 
         // Action without forbidden param → Allow (conditional doesn't trigger)
         let safe = make_action("bash", "execute", json!({"cmd": "ls"}));
         let verdict = engine.evaluate_action(&safe, &policies).unwrap();
         assert_eq!(verdict, Verdict::Allow);
-        logger.log_entry(&safe, &verdict, json!({"test": "safe_param"})).await.unwrap();
+        logger
+            .log_entry(&safe, &verdict, json!({"test": "safe_param"}))
+            .await
+            .unwrap();
 
         // Verify audit trail
         let report = logger.generate_report().await.unwrap();
@@ -199,7 +224,10 @@ fn require_approval_logged_correctly() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(matches!(verdict, Verdict::RequireApproval { .. }));
 
-        logger.log_entry(&action, &verdict, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &verdict, json!({}))
+            .await
+            .unwrap();
 
         let report = logger.generate_report().await.unwrap();
         assert_eq!(report.require_approval_count, 1);
@@ -249,18 +277,40 @@ fn complex_layered_policy_scenario() {
             deny_policy("*", "Default deny", 1),
             allow_policy("file:read", "Allow reads", 100),
             allow_policy("git:*", "Allow git", 100),
-            conditional_policy("network:*", "Network approval", 200, json!({"require_approval": true})),
+            conditional_policy(
+                "network:*",
+                "Network approval",
+                200,
+                json!({"require_approval": true}),
+            ),
             deny_policy("system:*", "Block system", 900),
         ];
 
+        #[allow(clippy::type_complexity)]
         let test_cases: Vec<(&str, &str, Box<dyn Fn(&Verdict) -> bool>)> = vec![
             ("file", "read", Box::new(|v| *v == Verdict::Allow)),
-            ("file", "write", Box::new(|v| matches!(v, Verdict::Deny { .. }))),
+            (
+                "file",
+                "write",
+                Box::new(|v| matches!(v, Verdict::Deny { .. })),
+            ),
             ("git", "commit", Box::new(|v| *v == Verdict::Allow)),
             ("git", "push", Box::new(|v| *v == Verdict::Allow)),
-            ("network", "fetch", Box::new(|v| matches!(v, Verdict::RequireApproval { .. }))),
-            ("system", "exec", Box::new(|v| matches!(v, Verdict::Deny { .. }))),
-            ("unknown", "thing", Box::new(|v| matches!(v, Verdict::Deny { .. }))),
+            (
+                "network",
+                "fetch",
+                Box::new(|v| matches!(v, Verdict::RequireApproval { .. })),
+            ),
+            (
+                "system",
+                "exec",
+                Box::new(|v| matches!(v, Verdict::Deny { .. })),
+            ),
+            (
+                "unknown",
+                "thing",
+                Box::new(|v| matches!(v, Verdict::Deny { .. })),
+            ),
         ];
 
         for (tool, func, check) in &test_cases {
@@ -273,7 +323,10 @@ fn complex_layered_policy_scenario() {
                 func,
                 verdict
             );
-            logger.log_entry(&action, &verdict, json!({"tool": tool, "func": func})).await.unwrap();
+            logger
+                .log_entry(&action, &verdict, json!({"tool": tool, "func": func}))
+                .await
+                .unwrap();
         }
 
         let report = logger.generate_report().await.unwrap();

@@ -6,7 +6,7 @@
 
 use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
-use sentinel_types::{Action, Policy, PolicyType, Verdict};
+use sentinel_types::{Action, Policy, PolicyType};
 use serde_json::json;
 use std::time::Instant;
 
@@ -48,12 +48,36 @@ fn make_policies() -> Vec<Policy> {
 
 fn make_actions() -> Vec<Action> {
     vec![
-        Action { tool: "file".to_string(), function: "read".to_string(), parameters: json!({"path": "/etc/config"}) },
-        Action { tool: "file".to_string(), function: "delete".to_string(), parameters: json!({"path": "/tmp/data"}) },
-        Action { tool: "shell".to_string(), function: "exec".to_string(), parameters: json!({"cmd": "ls"}) },
-        Action { tool: "net".to_string(), function: "post".to_string(), parameters: json!({"auth_token": "abc"}) },
-        Action { tool: "net".to_string(), function: "post".to_string(), parameters: json!({"exfiltrate": true}) },
-        Action { tool: "unknown".to_string(), function: "mystery".to_string(), parameters: json!({}) },
+        Action {
+            tool: "file".to_string(),
+            function: "read".to_string(),
+            parameters: json!({"path": "/etc/config"}),
+        },
+        Action {
+            tool: "file".to_string(),
+            function: "delete".to_string(),
+            parameters: json!({"path": "/tmp/data"}),
+        },
+        Action {
+            tool: "shell".to_string(),
+            function: "exec".to_string(),
+            parameters: json!({"cmd": "ls"}),
+        },
+        Action {
+            tool: "net".to_string(),
+            function: "post".to_string(),
+            parameters: json!({"auth_token": "abc"}),
+        },
+        Action {
+            tool: "net".to_string(),
+            function: "post".to_string(),
+            parameters: json!({"exfiltrate": true}),
+        },
+        Action {
+            tool: "unknown".to_string(),
+            function: "mystery".to_string(),
+            parameters: json!({}),
+        },
     ]
 }
 

@@ -1,5 +1,9 @@
-use sentinel_types::{Action, Policy};
+pub mod extractor;
+pub mod framing;
+pub mod proxy;
+
 use sentinel_engine::PolicyEngine;
+use sentinel_types::{Action, Policy};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::RwLock;
@@ -90,14 +94,20 @@ impl McpServer {
         }
     }
 
-    async fn handle_evaluate_action(&self, params: serde_json::Value) -> Result<serde_json::Value, McpError> {
+    async fn handle_evaluate_action(
+        &self,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, McpError> {
         let action: Action = serde_json::from_value(params)?;
         let policies = self.policies.read().await;
         let verdict = self.engine.evaluate_action(&action, &policies)?;
         Ok(serde_json::to_value(verdict)?)
     }
 
-    async fn handle_add_policy(&self, params: serde_json::Value) -> Result<serde_json::Value, McpError> {
+    async fn handle_add_policy(
+        &self,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, McpError> {
         let policy: Policy = serde_json::from_value(params)?;
         let mut policies = self.policies.write().await;
         policies.push(policy);
@@ -109,7 +119,10 @@ impl McpServer {
         Ok(serde_json::to_value(&*policies)?)
     }
 
-    async fn handle_remove_policy(&self, params: serde_json::Value) -> Result<serde_json::Value, McpError> {
+    async fn handle_remove_policy(
+        &self,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, McpError> {
         let policy_id: String = serde_json::from_value(params)?;
         let mut policies = self.policies.write().await;
         let initial_len = policies.len();
@@ -135,7 +148,7 @@ mod tests {
     #[tokio::test]
     async fn test_mcp_evaluate_action() {
         let server = McpServer::new(false);
-        
+
         // Add a test policy
         let add_request = json!({
             "id": "test_add",
@@ -147,8 +160,11 @@ mod tests {
                 "priority": 100
             }
         });
-        
-        let response = server.handle_request(&serde_json::to_string(&add_request).unwrap()).await.unwrap();
+
+        let response = server
+            .handle_request(&serde_json::to_string(&add_request).unwrap())
+            .await
+            .unwrap();
         assert!(response.contains("\"result\":true"));
 
         // Test action evaluation
@@ -162,7 +178,10 @@ mod tests {
             }
         });
 
-        let response = server.handle_request(&serde_json::to_string(&eval_request).unwrap()).await.unwrap();
+        let response = server
+            .handle_request(&serde_json::to_string(&eval_request).unwrap())
+            .await
+            .unwrap();
         assert!(response.contains("Deny"));
     }
 
@@ -170,7 +189,7 @@ mod tests {
     async fn test_mcp_request_size_protection() {
         let server = McpServer::new(false);
         let large_request = "A".repeat(2_000_000); // 2MB request
-        
+
         let result = server.handle_request(&large_request).await;
         assert!(matches!(result, Err(McpError::RequestTooLarge(_))));
     }
@@ -184,7 +203,10 @@ mod tests {
             "params": {}
         });
 
-        let response = server.handle_request(&serde_json::to_string(&request).unwrap()).await.unwrap();
+        let response = server
+            .handle_request(&serde_json::to_string(&request).unwrap())
+            .await
+            .unwrap();
         assert!(response.contains("Method not found"));
     }
 }

@@ -2,7 +2,7 @@
 //! from_toml, load_file, to_policies, priority/id defaults.
 
 use sentinel_config::{PolicyConfig, PolicyRule};
-use sentinel_types::{Policy, PolicyType};
+use sentinel_types::PolicyType;
 use serde_json::json;
 use tempfile::TempDir;
 
@@ -75,8 +75,11 @@ policy_type = "Allow"
 "#;
     let config = PolicyConfig::from_toml(toml_str).unwrap();
     let rule = &config.policies[0];
-    assert_eq!(rule.effective_priority(), 100,
-        "Default priority should be 100");
+    assert_eq!(
+        rule.effective_priority(),
+        100,
+        "Default priority should be 100"
+    );
 }
 
 #[test]
@@ -127,16 +130,14 @@ id = "my-custom-id"
 #[test]
 fn to_policies_produces_correct_policy_structs() {
     let config = PolicyConfig {
-        policies: vec![
-            PolicyRule {
-                name: "test rule".to_string(),
-                tool_pattern: "file".to_string(),
-                function_pattern: "delete".to_string(),
-                policy_type: PolicyType::Deny,
-                priority: Some(200),
-                id: None,
-            },
-        ],
+        policies: vec![PolicyRule {
+            name: "test rule".to_string(),
+            tool_pattern: "file".to_string(),
+            function_pattern: "delete".to_string(),
+            policy_type: PolicyType::Deny,
+            priority: Some(200),
+            id: None,
+        }],
     };
     let policies = config.to_policies();
     assert_eq!(policies.len(), 1);
@@ -149,25 +150,27 @@ fn to_policies_produces_correct_policy_structs() {
 #[test]
 fn to_policies_uses_default_priority_when_none() {
     let config = PolicyConfig {
-        policies: vec![
-            PolicyRule {
-                name: "test".to_string(),
-                tool_pattern: "a".to_string(),
-                function_pattern: "b".to_string(),
-                policy_type: PolicyType::Allow,
-                priority: None,
-                id: None,
-            },
-        ],
+        policies: vec![PolicyRule {
+            name: "test".to_string(),
+            tool_pattern: "a".to_string(),
+            function_pattern: "b".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: None,
+            id: None,
+        }],
     };
     let policies = config.to_policies();
-    assert_eq!(policies[0].priority, 100, "None priority should default to 100");
+    assert_eq!(
+        policies[0].priority, 100,
+        "None priority should default to 100"
+    );
 }
 
 #[test]
 fn to_policies_roundtrip_through_engine() {
     // Config → Policies → Engine evaluation
-    let config = PolicyConfig::from_toml(r#"
+    let config = PolicyConfig::from_toml(
+        r#"
 [[policies]]
 name = "Block bash"
 tool_pattern = "bash"
@@ -182,7 +185,9 @@ tool_pattern = "*"
 function_pattern = "*"
 policy_type = "Allow"
 priority = 1
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     let policies = config.to_policies();
     let engine = sentinel_engine::PolicyEngine::new(false);
@@ -193,8 +198,11 @@ priority = 1
         parameters: json!({}),
     };
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(verdict, sentinel_types::Verdict::Deny { .. }),
-        "bash:execute should be denied. Got: {:?}", verdict);
+    assert!(
+        matches!(verdict, sentinel_types::Verdict::Deny { .. }),
+        "bash:execute should be denied. Got: {:?}",
+        verdict
+    );
 
     let safe_action = sentinel_types::Action {
         tool: "file".to_string(),
@@ -202,8 +210,11 @@ priority = 1
         parameters: json!({}),
     };
     let verdict = engine.evaluate_action(&safe_action, &policies).unwrap();
-    assert!(matches!(verdict, sentinel_types::Verdict::Allow),
-        "file:read should be allowed. Got: {:?}", verdict);
+    assert!(
+        matches!(verdict, sentinel_types::Verdict::Allow),
+        "file:read should be allowed. Got: {:?}",
+        verdict
+    );
 }
 
 // ═════════════════════════════
@@ -214,13 +225,17 @@ priority = 1
 fn load_file_toml_extension() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("config.toml");
-    std::fs::write(&path, r#"
+    std::fs::write(
+        &path,
+        r#"
 [[policies]]
 name = "test"
 tool_pattern = "*"
 function_pattern = "*"
 policy_type = "Allow"
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     let config = PolicyConfig::load_file(path.to_str().unwrap()).unwrap();
     assert_eq!(config.policies.len(), 1);
@@ -246,13 +261,17 @@ fn load_file_nonexistent_returns_error() {
 fn load_file_unknown_extension_tries_toml() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("config.yaml"); // .yaml extension but TOML content
-    std::fs::write(&path, r#"
+    std::fs::write(
+        &path,
+        r#"
 [[policies]]
 name = "test"
 tool_pattern = "*"
 function_pattern = "*"
 policy_type = "Allow"
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     let config = PolicyConfig::load_file(path.to_str().unwrap()).unwrap();
     assert_eq!(config.policies.len(), 1);
@@ -265,16 +284,14 @@ policy_type = "Allow"
 #[test]
 fn policy_config_toml_roundtrip() {
     let original = PolicyConfig {
-        policies: vec![
-            PolicyRule {
-                name: "test".to_string(),
-                tool_pattern: "file".to_string(),
-                function_pattern: "read".to_string(),
-                policy_type: PolicyType::Allow,
-                priority: Some(50),
-                id: Some("file:read".to_string()),
-            },
-        ],
+        policies: vec![PolicyRule {
+            name: "test".to_string(),
+            tool_pattern: "file".to_string(),
+            function_pattern: "read".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: Some(50),
+            id: Some("file:read".to_string()),
+        }],
     };
     let toml_str = toml::to_string(&original).unwrap();
     let parsed = PolicyConfig::from_toml(&toml_str).unwrap();
@@ -294,8 +311,10 @@ fn toml_with_missing_required_fields_fails() {
 name = "incomplete"
 "#;
     let result = PolicyConfig::from_toml(bad_toml);
-    assert!(result.is_err(),
-        "Missing tool_pattern/function_pattern/policy_type should fail");
+    assert!(
+        result.is_err(),
+        "Missing tool_pattern/function_pattern/policy_type should fail"
+    );
 }
 
 #[test]

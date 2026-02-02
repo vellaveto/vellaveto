@@ -58,8 +58,11 @@ fn conditional_vs_deny_at_i32_max() {
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     // Deny should win because the sort puts Deny before non-Deny at equal priority
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Deny should win over Conditional at equal i32::MAX priority: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Deny should win over Conditional at equal i32::MAX priority: got {:?}",
+        result
+    );
 }
 
 /// Conditional at i32::MAX vs Allow at i32::MAX.
@@ -80,14 +83,18 @@ fn conditional_vs_allow_at_i32_max_both_match() {
         conditional_policy("*", i32::MAX, json!({"require_approval": true})),
         allow_policy("*", i32::MAX),
     ];
-    let result1 = engine.evaluate_action(&action, &policies_cond_first).unwrap();
+    let result1 = engine
+        .evaluate_action(&action, &policies_cond_first)
+        .unwrap();
 
     // Allow first in input
     let policies_allow_first = vec![
         allow_policy("*", i32::MAX),
         conditional_policy("*", i32::MAX, json!({"require_approval": true})),
     ];
-    let result2 = engine.evaluate_action(&action, &policies_allow_first).unwrap();
+    let result2 = engine
+        .evaluate_action(&action, &policies_allow_first)
+        .unwrap();
 
     // Both should produce the same result (sort is deterministic).
     // The sort uses b_deny.cmp(&a_deny) as tiebreaker. Neither is Deny,
@@ -97,11 +104,13 @@ fn conditional_vs_allow_at_i32_max_both_match() {
     // Let's just document both are valid verdicts:
     assert!(
         matches!(result1, Verdict::RequireApproval { .. }) || matches!(result1, Verdict::Allow),
-        "Should be RequireApproval or Allow: got {:?}", result1
+        "Should be RequireApproval or Allow: got {:?}",
+        result1
     );
     assert!(
         matches!(result2, Verdict::RequireApproval { .. }) || matches!(result2, Verdict::Allow),
-        "Should be RequireApproval or Allow: got {:?}", result2
+        "Should be RequireApproval or Allow: got {:?}",
+        result2
     );
 }
 
@@ -120,8 +129,11 @@ fn deny_at_min_plus_1_beats_conditional_at_min() {
         deny_policy("*", i32::MIN + 1),
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Deny at MIN+1 should beat Conditional at MIN: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Deny at MIN+1 should beat Conditional at MIN: got {:?}",
+        result
+    );
 }
 
 /// Conditional at i32::MIN as the only policy. Should still produce RequireApproval.
@@ -129,12 +141,17 @@ fn deny_at_min_plus_1_beats_conditional_at_min() {
 fn sole_conditional_at_i32_min_produces_require_approval() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({}));
-    let policies = vec![
-        conditional_policy("*", i32::MIN, json!({"require_approval": true})),
-    ];
+    let policies = vec![conditional_policy(
+        "*",
+        i32::MIN,
+        json!({"require_approval": true}),
+    )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::RequireApproval { .. }),
-        "Sole conditional at i32::MIN should produce RequireApproval: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::RequireApproval { .. }),
+        "Sole conditional at i32::MIN should produce RequireApproval: got {:?}",
+        result
+    );
 }
 
 // ═══════════════════════════════════════
@@ -147,12 +164,17 @@ fn sole_conditional_at_i32_min_produces_require_approval() {
 fn conditional_forbidden_at_max_priority_denies() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({"secret": "value"}));
-    let policies = vec![
-        conditional_policy("*", i32::MAX, json!({"forbidden_parameters": ["secret"]})),
-    ];
+    let policies = vec![conditional_policy(
+        "*",
+        i32::MAX,
+        json!({"forbidden_parameters": ["secret"]}),
+    )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Forbidden param at MAX priority should deny: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Forbidden param at MAX priority should deny: got {:?}",
+        result
+    );
 }
 
 /// Conditional with forbidden_parameters at i32::MAX, but param absent → Allow.
@@ -160,12 +182,17 @@ fn conditional_forbidden_at_max_priority_denies() {
 fn conditional_forbidden_at_max_priority_allows_when_absent() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({"safe": "value"}));
-    let policies = vec![
-        conditional_policy("*", i32::MAX, json!({"forbidden_parameters": ["secret"]})),
-    ];
+    let policies = vec![conditional_policy(
+        "*",
+        i32::MAX,
+        json!({"forbidden_parameters": ["secret"]}),
+    )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "Absent forbidden param at MAX priority should allow: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Absent forbidden param at MAX priority should allow: got {:?}",
+        result
+    );
 }
 
 // ══════════════════════════════════════════
@@ -184,8 +211,11 @@ fn allow_at_max_deny_at_zero_conditional_at_min() {
         allow_policy("*", i32::MAX),
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "Allow at i32::MAX should win: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Allow at i32::MAX should win: got {:?}",
+        result
+    );
 }
 
 /// Deny at i32::MAX, Allow at 0, Conditional at i32::MIN.
@@ -200,8 +230,11 @@ fn deny_at_max_allow_at_zero_conditional_at_min() {
         deny_policy("*", i32::MAX),
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Deny at i32::MAX should win: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Deny at i32::MAX should win: got {:?}",
+        result
+    );
 }
 
 /// Conditional at i32::MAX, Allow at 0, Deny at i32::MIN.
@@ -216,6 +249,9 @@ fn conditional_at_max_allow_at_zero_deny_at_min() {
         conditional_policy("*", i32::MAX, json!({"require_approval": true})),
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::RequireApproval { .. }),
-        "Conditional at i32::MAX should win: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::RequireApproval { .. }),
+        "Conditional at i32::MAX should win: got {:?}",
+        result
+    );
 }

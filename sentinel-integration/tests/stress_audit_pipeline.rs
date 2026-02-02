@@ -52,10 +52,7 @@ fn report_counts_sum_to_total_entries() {
         let logger = AuditLogger::new(tmp.path().join("audit.log"));
         let engine = PolicyEngine::new(false);
 
-        let policies = vec![
-            allow_policy("safe:*", 10),
-            deny_policy("danger:*", 100),
-        ];
+        let policies = vec![allow_policy("safe:*", 10), deny_policy("danger:*", 100)];
 
         // Log a mix of verdicts
         let actions_and_tools = vec![
@@ -69,7 +66,10 @@ fn report_counts_sum_to_total_entries() {
         for (tool, func) in &actions_and_tools {
             let action = make_action(tool, func);
             let verdict = engine.evaluate_action(&action, &policies).unwrap();
-            logger.log_entry(&action, &verdict, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &verdict, json!({}))
+                .await
+                .unwrap();
         }
 
         let report = logger.generate_report().await.unwrap();
@@ -109,7 +109,10 @@ fn bulk_logging_preserves_all_entries() {
         let count = 200;
         for i in 0..count {
             let metadata = json!({"index": i});
-            logger.log_entry(&action, &Verdict::Allow, metadata).await.unwrap();
+            logger
+                .log_entry(&action, &Verdict::Allow, metadata)
+                .await
+                .unwrap();
         }
 
         let entries = logger.load_entries().await.unwrap();
@@ -164,11 +167,16 @@ fn two_loggers_same_file_appends_correctly() {
         let action1 = make_action("tool_a", "func_a");
         let action2 = make_action("tool_b", "func_b");
 
-        logger1.log_entry(&action1, &Verdict::Allow, json!({})).await.unwrap();
+        logger1
+            .log_entry(&action1, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
         logger2
             .log_entry(
                 &action2,
-                &Verdict::Deny { reason: "test".to_string() },
+                &Verdict::Deny {
+                    reason: "test".to_string(),
+                },
                 json!({}),
             )
             .await
@@ -176,7 +184,11 @@ fn two_loggers_same_file_appends_correctly() {
 
         // Both loggers read from the same file, should see both entries
         let entries = logger1.load_entries().await.unwrap();
-        assert_eq!(entries.len(), 2, "Both entries should be present in shared log");
+        assert_eq!(
+            entries.len(),
+            2,
+            "Both entries should be present in shared log"
+        );
         assert_eq!(entries[0].action.tool, "tool_a");
         assert_eq!(entries[1].action.tool, "tool_b");
     });
@@ -229,13 +241,18 @@ fn all_verdict_types_counted_correctly_in_report() {
 
         // Log 3 Allow, 2 Deny, 4 RequireApproval
         for _ in 0..3 {
-            logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
         }
         for _ in 0..2 {
             logger
                 .log_entry(
                     &action,
-                    &Verdict::Deny { reason: "blocked".to_string() },
+                    &Verdict::Deny {
+                        reason: "blocked".to_string(),
+                    },
                     json!({}),
                 )
                 .await
@@ -245,7 +262,9 @@ fn all_verdict_types_counted_correctly_in_report() {
             logger
                 .log_entry(
                     &action,
-                    &Verdict::RequireApproval { reason: "review".to_string() },
+                    &Verdict::RequireApproval {
+                        reason: "review".to_string(),
+                    },
                     json!({}),
                 )
                 .await

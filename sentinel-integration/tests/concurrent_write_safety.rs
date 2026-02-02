@@ -3,11 +3,11 @@
 //! opens the file in append mode independently. This test verifies
 //! whether concurrent tokio tasks produce a valid JSONL file.
 
-use sentinel_audit::{AuditLogger, AuditEntry};
+use sentinel_audit::{AuditEntry, AuditLogger};
 use sentinel_types::{Action, Verdict};
 use serde_json::json;
-use tempfile::TempDir;
 use std::sync::Arc;
+use tempfile::TempDir;
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_multi_thread()

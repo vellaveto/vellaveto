@@ -21,6 +21,8 @@ fn make_entry(verdict: Verdict, metadata: serde_json::Value) -> AuditEntry {
         verdict,
         timestamp: "2025-01-01T00:00:00+00:00".to_string(),
         metadata,
+        entry_hash: None,
+        prev_hash: None,
     }
 }
 
@@ -39,7 +41,9 @@ fn audit_entry_allow_roundtrip() {
 #[test]
 fn audit_entry_deny_roundtrip() {
     let entry = make_entry(
-        Verdict::Deny { reason: "policy violation".to_string() },
+        Verdict::Deny {
+            reason: "policy violation".to_string(),
+        },
         json!({"user": "admin", "ip": "10.0.0.1"}),
     );
     let serialized = serde_json::to_string(&entry).unwrap();
@@ -51,7 +55,9 @@ fn audit_entry_deny_roundtrip() {
 #[test]
 fn audit_entry_require_approval_roundtrip() {
     let entry = make_entry(
-        Verdict::RequireApproval { reason: "needs manager sign-off".to_string() },
+        Verdict::RequireApproval {
+            reason: "needs manager sign-off".to_string(),
+        },
         json!({"escalation_level": 2}),
     );
     let serialized = serde_json::to_string(&entry).unwrap();
@@ -102,8 +108,14 @@ fn audit_entry_serializes_to_single_line() {
     let entry = make_entry(Verdict::Allow, json!({"multi": "field", "data": [1,2,3]}));
     let serialized = serde_json::to_string(&entry).unwrap();
     // serde_json::to_string (not to_string_pretty) should produce a single line
-    assert!(!serialized.contains('\n'), "Serialized entry should be a single line");
-    assert!(!serialized.contains('\r'), "Serialized entry should not contain carriage returns");
+    assert!(
+        !serialized.contains('\n'),
+        "Serialized entry should be a single line"
+    );
+    assert!(
+        !serialized.contains('\r'),
+        "Serialized entry should not contain carriage returns"
+    );
 }
 
 // ══════════════════════════════════
@@ -146,8 +158,18 @@ fn empty_report_roundtrip() {
 fn report_with_mixed_verdicts_roundtrip() {
     let entries = vec![
         make_entry(Verdict::Allow, json!({})),
-        make_entry(Verdict::Deny { reason: "bad".to_string() }, json!({})),
-        make_entry(Verdict::RequireApproval { reason: "review".to_string() }, json!({})),
+        make_entry(
+            Verdict::Deny {
+                reason: "bad".to_string(),
+            },
+            json!({}),
+        ),
+        make_entry(
+            Verdict::RequireApproval {
+                reason: "review".to_string(),
+            },
+            json!({}),
+        ),
         make_entry(Verdict::Allow, json!({})),
     ];
     let report = make_report(entries);
@@ -164,9 +186,24 @@ fn report_with_mixed_verdicts_roundtrip() {
 #[test]
 fn report_counts_match_entries_after_roundtrip() {
     let entries = vec![
-        make_entry(Verdict::Deny { reason: "a".to_string() }, json!({})),
-        make_entry(Verdict::Deny { reason: "b".to_string() }, json!({})),
-        make_entry(Verdict::Deny { reason: "c".to_string() }, json!({})),
+        make_entry(
+            Verdict::Deny {
+                reason: "a".to_string(),
+            },
+            json!({}),
+        ),
+        make_entry(
+            Verdict::Deny {
+                reason: "b".to_string(),
+            },
+            json!({}),
+        ),
+        make_entry(
+            Verdict::Deny {
+                reason: "c".to_string(),
+            },
+            json!({}),
+        ),
     ];
     let report = make_report(entries);
     let serialized = serde_json::to_string(&report).unwrap();
@@ -215,7 +252,12 @@ fn audit_entry_from_raw_json_deny_verdict() {
         "metadata": {}
     });
     let entry: AuditEntry = serde_json::from_value(raw).unwrap();
-    assert_eq!(entry.verdict, Verdict::Deny { reason: "forbidden file".to_string() });
+    assert_eq!(
+        entry.verdict,
+        Verdict::Deny {
+            reason: "forbidden file".to_string()
+        }
+    );
 }
 
 #[test]

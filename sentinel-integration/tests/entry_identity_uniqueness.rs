@@ -4,8 +4,8 @@
 use sentinel_audit::AuditLogger;
 use sentinel_types::{Action, Verdict};
 use serde_json::json;
-use tempfile::TempDir;
 use std::collections::HashSet;
+use tempfile::TempDir;
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
@@ -94,7 +94,9 @@ fn entries_across_different_verdicts_have_unique_ids() {
         logger
             .log_entry(
                 &action,
-                &Verdict::Deny { reason: "no".to_string() },
+                &Verdict::Deny {
+                    reason: "no".to_string(),
+                },
                 json!({}),
             )
             .await
@@ -102,7 +104,9 @@ fn entries_across_different_verdicts_have_unique_ids() {
         logger
             .log_entry(
                 &action,
-                &Verdict::RequireApproval { reason: "maybe".to_string() },
+                &Verdict::RequireApproval {
+                    reason: "maybe".to_string(),
+                },
                 json!({}),
             )
             .await
@@ -137,7 +141,10 @@ fn logged_entry_preserves_action_fields() {
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries[0].action.tool, "my_tool");
         assert_eq!(entries[0].action.function, "my_func");
-        assert_eq!(entries[0].action.parameters, json!({"key": "value", "num": 42}));
+        assert_eq!(
+            entries[0].action.parameters,
+            json!({"key": "value", "num": 42})
+        );
         assert_eq!(entries[0].metadata, json!({"meta": "data"}));
     });
 }
@@ -153,7 +160,9 @@ fn logged_entry_preserves_deny_reason() {
         logger
             .log_entry(
                 &action,
-                &Verdict::Deny { reason: reason.clone() },
+                &Verdict::Deny {
+                    reason: reason.clone(),
+                },
                 json!({}),
             )
             .await

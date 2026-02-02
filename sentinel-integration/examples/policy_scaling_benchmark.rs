@@ -24,7 +24,12 @@ fn make_policies(count: usize) -> Vec<Policy> {
         .collect()
 }
 
-fn bench_evaluation(engine: &PolicyEngine, action: &Action, policies: &[Policy], iterations: usize) -> std::time::Duration {
+fn bench_evaluation(
+    engine: &PolicyEngine,
+    action: &Action,
+    policies: &[Policy],
+    iterations: usize,
+) -> std::time::Duration {
     let start = Instant::now();
     for _ in 0..iterations {
         let _ = engine.evaluate_action(action, policies);
@@ -55,8 +60,10 @@ fn main() {
     println!("Iterations per measurement: {}", iterations);
     println!();
 
-    println!("{:<15} {:>15} {:>15} {:>15} {:>15}",
-        "# Policies", "Miss Total", "Miss/iter", "Hit Total", "Hit/iter");
+    println!(
+        "{:<15} {:>15} {:>15} {:>15} {:>15}",
+        "# Policies", "Miss Total", "Miss/iter", "Hit Total", "Hit/iter"
+    );
     println!("{}", "-".repeat(75));
 
     for &count in &[1, 10, 50, 100, 500, 1000, 5000] {
@@ -65,7 +72,8 @@ fn main() {
         let miss_dur = bench_evaluation(&engine, &miss_action, &policies, iterations);
         let hit_dur = bench_evaluation(&engine, &hit_action, &policies, iterations);
 
-        println!("{:<15} {:>15.2?} {:>15.2?} {:>15.2?} {:>15.2?}",
+        println!(
+            "{:<15} {:>15.2?} {:>15.2?} {:>15.2?} {:>15.2?}",
             count,
             miss_dur,
             miss_dur / iterations as u32,
@@ -78,7 +86,7 @@ fn main() {
     println!("=== Conditional Policy Scaling ===");
     println!();
 
-    let conditional_policies: Vec<Policy> = (0..1000)
+    let conditional_policies: Vec<Policy> = (0i32..1000)
         .map(|i| Policy {
             id: format!("tool_{}:func_{}", i, i),
             name: format!("Conditional {}", i),
@@ -88,7 +96,7 @@ fn main() {
                     "required_parameters": ["auth"],
                 }),
             },
-            priority: i as i32,
+            priority: i,
         })
         .collect();
 
@@ -99,6 +107,10 @@ fn main() {
     };
 
     let dur = bench_evaluation(&engine, &cond_action, &conditional_policies, iterations);
-    println!("1000 conditional policies, {} iterations: {:?} ({:?}/iter)",
-        iterations, dur, dur / iterations as u32);
+    println!(
+        "1000 conditional policies, {} iterations: {:?} ({:?}/iter)",
+        iterations,
+        dur,
+        dur / iterations as u32
+    );
 }

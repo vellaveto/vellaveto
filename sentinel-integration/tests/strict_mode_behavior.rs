@@ -93,7 +93,11 @@ fn strict_deny_policy_still_denies() {
 fn strict_conditional_require_approval_still_works() {
     let engine = PolicyEngine::new(true);
     let action = make_action("shell", "exec");
-    let policies = vec![conditional_policy("*", 10, json!({"require_approval": true}))];
+    let policies = vec![conditional_policy(
+        "*",
+        10,
+        json!({"require_approval": true}),
+    )];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(verdict, Verdict::RequireApproval { .. }));
 }
@@ -102,9 +106,13 @@ fn strict_conditional_require_approval_still_works() {
 fn strict_conditional_forbidden_params_still_denies() {
     let engine = PolicyEngine::new(true);
     let action = make_action_with_params("net", "upload", json!({"credentials": "secret"}));
-    let policies = vec![conditional_policy("*", 10, json!({
-        "forbidden_parameters": ["credentials"]
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        10,
+        json!({
+            "forbidden_parameters": ["credentials"]
+        }),
+    )];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
@@ -113,9 +121,13 @@ fn strict_conditional_forbidden_params_still_denies() {
 fn strict_conditional_required_params_missing_denies() {
     let engine = PolicyEngine::new(true);
     let action = make_action("api", "call");
-    let policies = vec![conditional_policy("*", 10, json!({
-        "required_parameters": ["auth_token"]
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        10,
+        json!({
+            "required_parameters": ["auth_token"]
+        }),
+    )];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
@@ -129,10 +141,7 @@ fn strict_priority_ordering_same_as_non_strict() {
     let strict_engine = PolicyEngine::new(true);
     let normal_engine = PolicyEngine::new(false);
     let action = make_action("tool", "func");
-    let policies = vec![
-        allow_policy("*", 1),
-        deny_policy("*", 100),
-    ];
+    let policies = vec![allow_policy("*", 1), deny_policy("*", 100)];
 
     let strict_verdict = strict_engine.evaluate_action(&action, &policies).unwrap();
     let normal_verdict = normal_engine.evaluate_action(&action, &policies).unwrap();
@@ -147,10 +156,7 @@ fn strict_tie_breaking_same_as_non_strict() {
     let strict_engine = PolicyEngine::new(true);
     let normal_engine = PolicyEngine::new(false);
     let action = make_action("tool", "func");
-    let policies = vec![
-        allow_policy("*", 50),
-        deny_policy("*", 50),
-    ];
+    let policies = vec![allow_policy("*", 50), deny_policy("*", 50)];
 
     let strict_verdict = strict_engine.evaluate_action(&action, &policies).unwrap();
     let normal_verdict = normal_engine.evaluate_action(&action, &policies).unwrap();

@@ -34,13 +34,18 @@ async fn verify_invariant(allows: usize, denies: usize, approvals: usize) {
     let action = make_action();
 
     for _ in 0..allows {
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
     }
     for i in 0..denies {
         logger
             .log_entry(
                 &action,
-                &Verdict::Deny { reason: format!("deny_{}", i) },
+                &Verdict::Deny {
+                    reason: format!("deny_{}", i),
+                },
                 json!({}),
             )
             .await
@@ -50,7 +55,9 @@ async fn verify_invariant(allows: usize, denies: usize, approvals: usize) {
         logger
             .log_entry(
                 &action,
-                &Verdict::RequireApproval { reason: format!("approval_{}", i) },
+                &Verdict::RequireApproval {
+                    reason: format!("approval_{}", i),
+                },
                 json!({}),
             )
             .await
@@ -67,7 +74,10 @@ async fn verify_invariant(allows: usize, denies: usize, approvals: usize) {
     );
     assert_eq!(report.allow_count, allows, "allow_count mismatch");
     assert_eq!(report.deny_count, denies, "deny_count mismatch");
-    assert_eq!(report.require_approval_count, approvals, "require_approval_count mismatch");
+    assert_eq!(
+        report.require_approval_count, approvals,
+        "require_approval_count mismatch"
+    );
 
     // Structural invariant: entries vec length matches total
     assert_eq!(

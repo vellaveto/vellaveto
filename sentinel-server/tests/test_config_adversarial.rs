@@ -1,10 +1,8 @@
 //! Adversarial tests for sentinel-config TOML enhancements.
 //! Tries to break from_toml, load_file, to_policies, and default handling.
 
-use sentinel_config::{PolicyConfig, PolicyRule};
-use sentinel_types::{Policy, PolicyType};
-use serde_json::json;
-use std::io::Write;
+use sentinel_config::PolicyConfig;
+use sentinel_types::PolicyType;
 use tempfile::TempDir;
 
 // ═══════════════════════════════════
@@ -65,7 +63,10 @@ conditions = { require_approval = true }
     assert_eq!(config.policies.len(), 1);
     match &config.policies[0].policy_type {
         PolicyType::Conditional { conditions } => {
-            assert_eq!(conditions.get("require_approval").unwrap().as_bool(), Some(true));
+            assert_eq!(
+                conditions.get("require_approval").unwrap().as_bool(),
+                Some(true)
+            );
         }
         other => panic!("Expected Conditional, got {:?}", other),
     }
@@ -131,8 +132,10 @@ policy_type = "Deny"
 "#;
     let config = PolicyConfig::from_toml(toml).unwrap();
     let policies = config.to_policies();
-    assert_eq!(policies[0].id, "bash:execute",
-        "Default id should be tool_pattern:function_pattern");
+    assert_eq!(
+        policies[0].id, "bash:execute",
+        "Default id should be tool_pattern:function_pattern"
+    );
 }
 
 #[test]
@@ -159,10 +162,11 @@ fn from_toml_empty_string_is_error() {
     let result = PolicyConfig::from_toml("");
     // Empty TOML has no [[policies]] array — should either error or produce empty list
     // If it succeeds, policies should be empty
-    match result {
-        Ok(config) => assert!(config.policies.is_empty(),
-            "Empty TOML should produce empty policy list"),
-        Err(_) => {} // Also acceptable
+    if let Ok(config) = result {
+        assert!(
+            config.policies.is_empty(),
+            "Empty TOML should produce empty policy list"
+        )
     }
 }
 
@@ -230,13 +234,17 @@ policy_type = "InvalidType"
 fn load_file_toml_extension() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("config.toml");
-    std::fs::write(&path, r#"
+    std::fs::write(
+        &path,
+        r#"
 [[policies]]
 name = "test"
 tool_pattern = "t"
 function_pattern = "f"
 policy_type = "Allow"
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     let config = PolicyConfig::load_file(path.to_str().unwrap()).unwrap();
     assert_eq!(config.policies.len(), 1);
@@ -262,13 +270,17 @@ fn load_file_nonexistent_path_is_error() {
 fn load_file_unknown_extension_defaults_to_toml() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("config.yaml"); // Not .toml or .json
-    std::fs::write(&path, r#"
+    std::fs::write(
+        &path,
+        r#"
 [[policies]]
 name = "test"
 tool_pattern = "t"
 function_pattern = "f"
 policy_type = "Allow"
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     // Should try TOML parsing for unknown extensions
     let config = PolicyConfig::load_file(path.to_str().unwrap()).unwrap();
@@ -282,7 +294,10 @@ fn load_file_json_content_in_toml_extension_fails() {
     std::fs::write(&path, r#"{"policies": []}"#).unwrap(); // JSON, not TOML
 
     let result = PolicyConfig::load_file(path.to_str().unwrap());
-    assert!(result.is_err(), "JSON content in .toml file should fail TOML parsing");
+    assert!(
+        result.is_err(),
+        "JSON content in .toml file should fail TOML parsing"
+    );
 }
 
 // ═══════════════════════════════════
@@ -313,8 +328,10 @@ policy_type = "Deny"
 "#;
     let policies = PolicyConfig::from_toml(toml).unwrap().to_policies();
     // The id should work with the engine's split_once(':') parsing
-    assert!(policies[0].id.contains(':'),
-        "Generated id should use tool:function format");
+    assert!(
+        policies[0].id.contains(':'),
+        "Generated id should use tool:function format"
+    );
     assert_eq!(policies[0].id, "bash:*");
 }
 
@@ -355,12 +372,9 @@ policy_type = "Deny"
 #[test]
 fn to_policies_empty_config_produces_empty_vec() {
     let toml = ""; // or a TOML with no [[policies]]
-    match PolicyConfig::from_toml(toml) {
-        Ok(config) => {
-            let policies = config.to_policies();
-            assert!(policies.is_empty());
-        }
-        Err(_) => {} // Also acceptable if empty TOML is rejected
+    if let Ok(config) = PolicyConfig::from_toml(toml) {
+        let policies = config.to_policies();
+        assert!(policies.is_empty());
     }
 }
 
@@ -403,12 +417,16 @@ priority = 1
     };
 
     let bash_verdict = engine.evaluate_action(&bash_action, &policies).unwrap();
-    assert!(matches!(bash_verdict, Verdict::Deny { .. }),
-        "bash should be denied by config policy");
+    assert!(
+        matches!(bash_verdict, Verdict::Deny { .. }),
+        "bash should be denied by config policy"
+    );
 
     let file_verdict = engine.evaluate_action(&file_action, &policies).unwrap();
-    assert!(matches!(file_verdict, Verdict::Allow),
-        "file:read should be allowed by wildcard fallback");
+    assert!(
+        matches!(file_verdict, Verdict::Allow),
+        "file:read should be allowed by wildcard fallback"
+    );
 }
 
 // ═══════════════════════════════════
@@ -432,5 +450,8 @@ id = "file:read"
 
     assert_eq!(config.policies.len(), reparsed.policies.len());
     assert_eq!(config.policies[0].name, reparsed.policies[0].name);
-    assert_eq!(config.policies[0].tool_pattern, reparsed.policies[0].tool_pattern);
+    assert_eq!(
+        config.policies[0].tool_pattern,
+        reparsed.policies[0].tool_pattern
+    );
 }

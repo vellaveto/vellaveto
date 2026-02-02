@@ -50,8 +50,8 @@ fn specific_deny_overrides_wildcard_allow_at_higher_priority() {
     let action = make_action("file", "delete");
 
     let policies = vec![
-        allow_policy("*", 10),              // low-priority allow-all
-        deny_policy("file:delete", 100),    // high-priority specific deny
+        allow_policy("*", 10),           // low-priority allow-all
+        deny_policy("file:delete", 100), // high-priority specific deny
     ];
 
     match engine.evaluate_action(&action, &policies).unwrap() {
@@ -67,10 +67,7 @@ fn specific_allow_overrides_wildcard_deny_at_higher_priority() {
     let engine = PolicyEngine::new(false);
     let action = make_action("file", "read");
 
-    let policies = vec![
-        deny_policy("*", 10),
-        allow_policy("file:read", 100),
-    ];
+    let policies = vec![deny_policy("*", 10), allow_policy("file:read", 100)];
 
     assert!(matches!(
         engine.evaluate_action(&action, &policies).unwrap(),
@@ -83,10 +80,7 @@ fn wildcard_deny_wins_when_specific_allow_has_lower_priority() {
     let engine = PolicyEngine::new(false);
     let action = make_action("file", "read");
 
-    let policies = vec![
-        deny_policy("*", 500),
-        allow_policy("file:read", 10),
-    ];
+    let policies = vec![deny_policy("*", 500), allow_policy("file:read", 10)];
 
     assert!(matches!(
         engine.evaluate_action(&action, &policies).unwrap(),
@@ -104,10 +98,7 @@ fn no_matching_policy_falls_through_to_deny() {
     let action = make_action("network", "connect");
 
     // Policies that don't match this action
-    let policies = vec![
-        allow_policy("file:read", 10),
-        deny_policy("bash:*", 100),
-    ];
+    let policies = vec![allow_policy("file:read", 10), deny_policy("bash:*", 100)];
 
     match engine.evaluate_action(&action, &policies).unwrap() {
         Verdict::Deny { reason } => {
@@ -145,10 +136,18 @@ fn tool_only_id_matches_any_function_for_that_tool() {
     let action2 = make_action("bash", "eval");
     let action3 = make_action("file", "read");
 
-    assert!(matches!(engine.evaluate_action(&action1, &policies).unwrap(), Verdict::Deny { .. }));
-    assert!(matches!(engine.evaluate_action(&action2, &policies).unwrap(), Verdict::Deny { .. }));
+    assert!(matches!(
+        engine.evaluate_action(&action1, &policies).unwrap(),
+        Verdict::Deny { .. }
+    ));
+    assert!(matches!(
+        engine.evaluate_action(&action2, &policies).unwrap(),
+        Verdict::Deny { .. }
+    ));
     // "file" tool should NOT match "bash" policy
-    assert!(matches!(engine.evaluate_action(&action3, &policies).unwrap(), Verdict::Deny { reason } if reason.contains("No matching")));
+    assert!(
+        matches!(engine.evaluate_action(&action3, &policies).unwrap(), Verdict::Deny { reason } if reason.contains("No matching"))
+    );
 }
 
 #[test]
@@ -159,10 +158,15 @@ fn prefix_wildcard_on_tool_part() {
     let policies = vec![deny_policy("*system:read", 100)];
 
     let action = make_action("file_system", "read");
-    assert!(matches!(engine.evaluate_action(&action, &policies).unwrap(), Verdict::Deny { .. }));
+    assert!(matches!(
+        engine.evaluate_action(&action, &policies).unwrap(),
+        Verdict::Deny { .. }
+    ));
 
     let action2 = make_action("network", "read");
-    assert!(matches!(engine.evaluate_action(&action2, &policies).unwrap(), Verdict::Deny { reason } if reason.contains("No matching")));
+    assert!(
+        matches!(engine.evaluate_action(&action2, &policies).unwrap(), Verdict::Deny { reason } if reason.contains("No matching"))
+    );
 }
 
 #[test]
@@ -173,10 +177,15 @@ fn suffix_wildcard_on_function_part() {
     let policies = vec![deny_policy("file:delete*", 100)];
 
     let action = make_action("file", "delete_recursive");
-    assert!(matches!(engine.evaluate_action(&action, &policies).unwrap(), Verdict::Deny { .. }));
+    assert!(matches!(
+        engine.evaluate_action(&action, &policies).unwrap(),
+        Verdict::Deny { .. }
+    ));
 
     let action2 = make_action("file", "read");
-    assert!(matches!(engine.evaluate_action(&action2, &policies).unwrap(), Verdict::Deny { reason } if reason.contains("No matching")));
+    assert!(
+        matches!(engine.evaluate_action(&action2, &policies).unwrap(), Verdict::Deny { reason } if reason.contains("No matching"))
+    );
 }
 
 // ═════════════════════════════════════════
@@ -187,9 +196,11 @@ fn suffix_wildcard_on_function_part() {
 fn conditional_wildcard_applies_to_all_actions() {
     let engine = PolicyEngine::new(false);
 
-    let policies = vec![
-        conditional_policy("*", 100, json!({ "require_approval": true })),
-    ];
+    let policies = vec![conditional_policy(
+        "*",
+        100,
+        json!({ "require_approval": true }),
+    )];
 
     let action = make_action("anything", "at_all");
     match engine.evaluate_action(&action, &policies).unwrap() {
@@ -208,24 +219,30 @@ fn specific_allow_at_higher_priority_bypasses_conditional_wildcard() {
     ];
 
     let action = make_action("file", "read");
-    assert!(matches!(engine.evaluate_action(&action, &policies).unwrap(), Verdict::Allow));
+    assert!(matches!(
+        engine.evaluate_action(&action, &policies).unwrap(),
+        Verdict::Allow
+    ));
 
     // But other actions still hit the conditional
     let action2 = make_action("bash", "exec");
-    assert!(matches!(engine.evaluate_action(&action2, &policies).unwrap(), Verdict::RequireApproval { .. }));
+    assert!(matches!(
+        engine.evaluate_action(&action2, &policies).unwrap(),
+        Verdict::RequireApproval { .. }
+    ));
 }
 
 #[test]
 fn multiple_wildcards_highest_priority_wins() {
     let engine = PolicyEngine::new(false);
 
-    let policies = vec![
-        allow_policy("*", 10),
-        deny_policy("*", 100),
-    ];
+    let policies = vec![allow_policy("*", 10), deny_policy("*", 100)];
 
     let action = make_action("any", "thing");
-    assert!(matches!(engine.evaluate_action(&action, &policies).unwrap(), Verdict::Deny { .. }));
+    assert!(matches!(
+        engine.evaluate_action(&action, &policies).unwrap(),
+        Verdict::Deny { .. }
+    ));
 }
 
 // ══════════════════════════════════════════
@@ -236,26 +253,26 @@ fn multiple_wildcards_highest_priority_wins() {
 fn i32_max_priority_beats_everything() {
     let engine = PolicyEngine::new(false);
 
-    let policies = vec![
-        deny_policy("*", i32::MAX),
-        allow_policy("*", i32::MAX - 1),
-    ];
+    let policies = vec![deny_policy("*", i32::MAX), allow_policy("*", i32::MAX - 1)];
 
     let action = make_action("x", "y");
-    assert!(matches!(engine.evaluate_action(&action, &policies).unwrap(), Verdict::Deny { .. }));
+    assert!(matches!(
+        engine.evaluate_action(&action, &policies).unwrap(),
+        Verdict::Deny { .. }
+    ));
 }
 
 #[test]
 fn i32_min_priority_loses_to_everything() {
     let engine = PolicyEngine::new(false);
 
-    let policies = vec![
-        allow_policy("*", i32::MIN),
-        deny_policy("*", 0),
-    ];
+    let policies = vec![allow_policy("*", i32::MIN), deny_policy("*", 0)];
 
     let action = make_action("x", "y");
-    assert!(matches!(engine.evaluate_action(&action, &policies).unwrap(), Verdict::Deny { .. }));
+    assert!(matches!(
+        engine.evaluate_action(&action, &policies).unwrap(),
+        Verdict::Deny { .. }
+    ));
 }
 
 #[test]
@@ -264,9 +281,12 @@ fn negative_priority_is_valid_and_ordered_correctly() {
 
     let policies = vec![
         allow_policy("*", -100),
-        deny_policy("*", -50),  // -50 > -100, so deny wins
+        deny_policy("*", -50), // -50 > -100, so deny wins
     ];
 
     let action = make_action("x", "y");
-    assert!(matches!(engine.evaluate_action(&action, &policies).unwrap(), Verdict::Deny { .. }));
+    assert!(matches!(
+        engine.evaluate_action(&action, &policies).unwrap(),
+        Verdict::Deny { .. }
+    ));
 }

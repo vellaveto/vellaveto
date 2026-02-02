@@ -10,10 +10,7 @@ use sentinel_types::{Action, Policy, PolicyType};
 use serde_json::json;
 use std::time::Instant;
 
-fn make_conditional_policy(
-    num_forbidden: usize,
-    num_required: usize,
-) -> Policy {
+fn make_conditional_policy(num_forbidden: usize, num_required: usize) -> Policy {
     let forbidden: Vec<String> = (0..num_forbidden)
         .map(|i| format!("forbidden_{}", i))
         .collect();
@@ -58,11 +55,11 @@ fn main() {
     println!();
 
     // Vary forbidden parameter count
-    println!("Forbidden parameter count scaling ({} iterations each):", iterations);
     println!(
-        "{:<15} {:>12} {:>12}",
-        "Forbidden", "Total", "Per-eval"
+        "Forbidden parameter count scaling ({} iterations each):",
+        iterations
     );
+    println!("{:<15} {:>12} {:>12}", "Forbidden", "Total", "Per-eval");
     println!("{}", "-".repeat(39));
 
     for &count in &[0, 5, 10, 50, 100] {
@@ -87,11 +84,11 @@ fn main() {
     println!();
 
     // Vary required parameter count (all present in action)
-    println!("Required parameter count scaling ({} iterations each):", iterations);
     println!(
-        "{:<15} {:>12} {:>12}",
-        "Required", "Total", "Per-eval"
+        "Required parameter count scaling ({} iterations each):",
+        iterations
     );
+    println!("{:<15} {:>12} {:>12}", "Required", "Total", "Per-eval");
     println!("{}", "-".repeat(39));
 
     for &count in &[0, 5, 10, 50, 100] {
@@ -116,7 +113,10 @@ fn main() {
     println!();
 
     // Combined: both forbidden and required
-    println!("Combined forbidden+required scaling ({} iterations each):", iterations);
+    println!(
+        "Combined forbidden+required scaling ({} iterations each):",
+        iterations
+    );
     println!(
         "{:<10} {:<10} {:>12} {:>12}",
         "Forbidden", "Required", "Total", "Per-eval"

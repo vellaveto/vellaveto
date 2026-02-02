@@ -45,7 +45,15 @@ fn all_policy_types() -> Vec<PolicyType> {
 
 /// Various policy ID patterns to combine.
 fn all_patterns() -> Vec<&'static str> {
-    vec!["*", "tool:*", "*:func", "tool:func", "other:other", "tool", "nonexistent"]
+    vec![
+        "*",
+        "tool:*",
+        "*:func",
+        "tool:func",
+        "other:other",
+        "tool",
+        "nonexistent",
+    ]
 }
 
 /// Various priority values including edge cases.
@@ -117,7 +125,9 @@ fn all_simple_policy_combos_return_ok() {
                 assert!(
                     result.is_ok(),
                     "Expected Ok for pattern={}, priority={}, type={:?}",
-                    pattern, priority, pt
+                    pattern,
+                    priority,
+                    pt
                 );
             }
         }
@@ -149,8 +159,13 @@ fn higher_priority_always_wins_in_pairwise_combos() {
 
             if p1 > p2 {
                 // Allow has higher priority
-                assert_eq!(verdict, Verdict::Allow,
-                    "Allow(pri={}) should beat Deny(pri={})", p1, p2);
+                assert_eq!(
+                    verdict,
+                    Verdict::Allow,
+                    "Allow(pri={}) should beat Deny(pri={})",
+                    p1,
+                    p2
+                );
             } else {
                 // Deny has higher priority
                 match &verdict {
@@ -179,19 +194,32 @@ fn three_way_policy_highest_priority_wins() {
     let policies = vec![
         make_policy("*", "allow", PolicyType::Allow, 100),
         make_policy("*", "deny", PolicyType::Deny, 50),
-        make_policy("*", "cond", PolicyType::Conditional {
-            conditions: json!({"require_approval": true}),
-        }, 10),
+        make_policy(
+            "*",
+            "cond",
+            PolicyType::Conditional {
+                conditions: json!({"require_approval": true}),
+            },
+            10,
+        ),
     ];
-    assert_eq!(engine.evaluate_action(&action, &policies).unwrap(), Verdict::Allow);
+    assert_eq!(
+        engine.evaluate_action(&action, &policies).unwrap(),
+        Verdict::Allow
+    );
 
     // Conditional=100 > Deny=50 > Allow=10
     let policies = vec![
         make_policy("*", "allow", PolicyType::Allow, 10),
         make_policy("*", "deny", PolicyType::Deny, 50),
-        make_policy("*", "cond", PolicyType::Conditional {
-            conditions: json!({"require_approval": true}),
-        }, 100),
+        make_policy(
+            "*",
+            "cond",
+            PolicyType::Conditional {
+                conditions: json!({"require_approval": true}),
+            },
+            100,
+        ),
     ];
     match engine.evaluate_action(&action, &policies).unwrap() {
         Verdict::RequireApproval { .. } => {}
@@ -202,9 +230,14 @@ fn three_way_policy_highest_priority_wins() {
     let policies = vec![
         make_policy("*", "allow", PolicyType::Allow, 10),
         make_policy("*", "deny", PolicyType::Deny, 100),
-        make_policy("*", "cond", PolicyType::Conditional {
-            conditions: json!({"require_approval": true}),
-        }, 50),
+        make_policy(
+            "*",
+            "cond",
+            PolicyType::Conditional {
+                conditions: json!({"require_approval": true}),
+            },
+            50,
+        ),
     ];
     match engine.evaluate_action(&action, &policies).unwrap() {
         Verdict::Deny { .. } => {}
@@ -222,23 +255,37 @@ fn forbidden_parameters_combinatorial() {
     let engine = PolicyEngine::new(false);
 
     let forbidden = vec!["a", "b", "c"];
-    let policy = make_policy("*", "forbid-abc", PolicyType::Conditional {
-        conditions: json!({"forbidden_parameters": forbidden}),
-    }, 100);
+    let policy = make_policy(
+        "*",
+        "forbid-abc",
+        PolicyType::Conditional {
+            conditions: json!({"forbidden_parameters": forbidden}),
+        },
+        100,
+    );
 
     // No forbidden params present → Allow
     let action = make_action("tool", "func", json!({"x": 1, "y": 2}));
     assert_eq!(
-        engine.evaluate_action(&action, &[policy.clone()]).unwrap(),
+        engine
+            .evaluate_action(&action, std::slice::from_ref(&policy))
+            .unwrap(),
         Verdict::Allow
     );
 
     // Each forbidden param individually triggers Deny
     for &param in &["a", "b", "c"] {
         let action = make_action("tool", "func", json!({param: "val"}));
-        match engine.evaluate_action(&action, &[policy.clone()]).unwrap() {
+        match engine
+            .evaluate_action(&action, std::slice::from_ref(&policy))
+            .unwrap()
+        {
             Verdict::Deny { reason } => {
-                assert!(reason.contains(param), "Reason should mention forbidden param '{}'", param);
+                assert!(
+                    reason.contains(param),
+                    "Reason should mention forbidden param '{}'",
+                    param
+                );
             }
             other => panic!("Expected Deny for param '{}', got {:?}", param, other),
         }
@@ -246,7 +293,10 @@ fn forbidden_parameters_combinatorial() {
 
     // All forbidden params present → still Deny (first one found)
     let action = make_action("tool", "func", json!({"a": 1, "b": 2, "c": 3}));
-    match engine.evaluate_action(&action, &[policy.clone()]).unwrap() {
+    match engine
+        .evaluate_action(&action, std::slice::from_ref(&policy))
+        .unwrap()
+    {
         Verdict::Deny { .. } => {}
         other => panic!("Expected Deny with all forbidden params, got {:?}", other),
     }
@@ -257,20 +307,30 @@ fn forbidden_parameters_combinatorial() {
 fn required_parameters_combinatorial() {
     let engine = PolicyEngine::new(false);
 
-    let policy = make_policy("*", "require-ab", PolicyType::Conditional {
-        conditions: json!({"required_parameters": ["a", "b"]}),
-    }, 100);
+    let policy = make_policy(
+        "*",
+        "require-ab",
+        PolicyType::Conditional {
+            conditions: json!({"required_parameters": ["a", "b"]}),
+        },
+        100,
+    );
 
     // Both present  Allow
     let action = make_action("tool", "func", json!({"a": 1, "b": 2}));
     assert_eq!(
-        engine.evaluate_action(&action, &[policy.clone()]).unwrap(),
+        engine
+            .evaluate_action(&action, std::slice::from_ref(&policy))
+            .unwrap(),
         Verdict::Allow
     );
 
     // Only "a" present  Deny (missing "b")
     let action = make_action("tool", "func", json!({"a": 1}));
-    match engine.evaluate_action(&action, &[policy.clone()]).unwrap() {
+    match engine
+        .evaluate_action(&action, std::slice::from_ref(&policy))
+        .unwrap()
+    {
         Verdict::Deny { reason } => {
             assert!(reason.contains("b"), "Should mention missing param 'b'");
         }
@@ -279,7 +339,10 @@ fn required_parameters_combinatorial() {
 
     // Neither present → Deny
     let action = make_action("tool", "func", json!({}));
-    match engine.evaluate_action(&action, &[policy.clone()]).unwrap() {
+    match engine
+        .evaluate_action(&action, std::slice::from_ref(&policy))
+        .unwrap()
+    {
         Verdict::Deny { .. } => {}
         other => panic!("Expected Deny with no params, got {:?}", other),
     }

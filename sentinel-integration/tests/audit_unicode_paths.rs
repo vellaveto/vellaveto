@@ -76,7 +76,13 @@ fn emoji_filename_write_and_load() {
         let logger = AuditLogger::new(log_path);
 
         logger
-            .log_entry(&action(), &Verdict::Deny { reason: "test".to_string() }, json!({}))
+            .log_entry(
+                &action(),
+                &Verdict::Deny {
+                    reason: "test".to_string(),
+                },
+                json!({}),
+            )
             .await
             .unwrap();
 
@@ -100,11 +106,16 @@ fn report_generation_with_unicode_path() {
         let tmp = TempDir::new().unwrap();
         let logger = AuditLogger::new(tmp.path().join("рапорт.log"));
 
-        logger.log_entry(&action(), &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action(), &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
         logger
             .log_entry(
                 &action(),
-                &Verdict::Deny { reason: "blocked".to_string() },
+                &Verdict::Deny {
+                    reason: "blocked".to_string(),
+                },
                 json!({}),
             )
             .await

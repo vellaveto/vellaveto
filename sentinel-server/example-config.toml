@@ -39,3 +39,42 @@ id = "network:*"
 
 [policies.policy_type.Conditional]
 conditions = { require_approval = true }
+
+# --- Parameter Constraint Examples ---
+
+[[policies]]
+name = "Block credential access"
+tool_pattern = "file_system"
+function_pattern = "read_file"
+priority = 200
+id = "file_system:read_file"
+
+[policies.policy_type.Conditional.conditions]
+parameter_constraints = [
+  { param = "path", op = "glob", pattern = "/home/*/.aws/**", on_match = "deny" },
+  { param = "path", op = "glob", pattern = "/home/*/.ssh/**", on_match = "deny" },
+]
+
+[[policies]]
+name = "HTTP domain allowlist"
+tool_pattern = "http_request"
+function_pattern = "*"
+priority = 200
+id = "http_request:*"
+
+[policies.policy_type.Conditional.conditions]
+parameter_constraints = [
+  { param = "url", op = "domain_not_in", patterns = ["*.example.com", "api.anthropic.com"], on_match = "deny" },
+]
+
+[[policies]]
+name = "Dangerous command detection"
+tool_pattern = "bash"
+function_pattern = "execute"
+priority = 300
+id = "bash:execute"
+
+[policies.policy_type.Conditional.conditions]
+parameter_constraints = [
+  { param = "command", op = "regex", pattern = "(?i)rm\\s+-rf", on_match = "require_approval" },
+]

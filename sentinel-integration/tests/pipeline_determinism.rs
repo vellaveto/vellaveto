@@ -79,7 +79,11 @@ fn engine_produces_same_verdict_on_repeated_calls() {
     for action in &actions {
         let v1 = engine.evaluate_action(action, &policies).unwrap();
         let v2 = engine.evaluate_action(action, &policies).unwrap();
-        assert_eq!(v1, v2, "engine must be deterministic for action {:?}", action);
+        assert_eq!(
+            v1, v2,
+            "engine must be deterministic for action {:?}",
+            action
+        );
     }
 }
 
@@ -120,7 +124,11 @@ fn strict_mode_flag_does_not_change_basic_verdicts() {
     for action in &actions {
         let v_lax = engine_lax.evaluate_action(action, &policies).unwrap();
         let v_strict = engine_strict.evaluate_action(action, &policies).unwrap();
-        assert_eq!(v_lax, v_strict, "strict_mode should not change basic verdict for {:?}", action);
+        assert_eq!(
+            v_lax, v_strict,
+            "strict_mode should not change basic verdict for {:?}",
+            action
+        );
     }
 }
 
@@ -149,7 +157,10 @@ fn audit_entries_match_engine_verdicts() {
         assert_eq!(entries.len(), expected_verdicts.len());
 
         for (entry, expected) in entries.iter().zip(expected_verdicts.iter()) {
-            assert_eq!(&entry.verdict, expected, "audit entry verdict must match engine output");
+            assert_eq!(
+                &entry.verdict, expected,
+                "audit entry verdict must match engine output"
+            );
         }
     });
 }
@@ -200,8 +211,14 @@ fn two_loggers_same_file_see_each_others_entries() {
         let logger2 = AuditLogger::new(path);
         let action = make_action("t", "f", json!({}));
 
-        logger1.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
-        logger2.log_entry(&action, &Verdict::Deny { reason: "r".into() }, json!({})).await.unwrap();
+        logger1
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+        logger2
+            .log_entry(&action, &Verdict::Deny { reason: "r".into() }, json!({}))
+            .await
+            .unwrap();
 
         // Both should see 2 entries
         let entries1 = logger1.load_entries().await.unwrap();

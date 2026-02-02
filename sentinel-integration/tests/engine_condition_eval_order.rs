@@ -47,8 +47,10 @@ fn require_approval_true_overrides_forbidden_param() {
         "forbidden_parameters": ["secret"]
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::RequireApproval { .. }),
-        "require_approval checked first, should return RequireApproval not Deny");
+    assert!(
+        matches!(result, Verdict::RequireApproval { .. }),
+        "require_approval checked first, should return RequireApproval not Deny"
+    );
 }
 
 // ════════════════════════════════
@@ -65,8 +67,10 @@ fn require_approval_true_overrides_missing_required() {
         "required_parameters": ["token"]
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::RequireApproval { .. }),
-        "require_approval checked first, should return RequireApproval not Deny");
+    assert!(
+        matches!(result, Verdict::RequireApproval { .. }),
+        "require_approval checked first, should return RequireApproval not Deny"
+    );
 }
 
 // ════════════════════════════════
@@ -85,8 +89,11 @@ fn forbidden_checked_before_required() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
         Verdict::Deny { reason } => {
-            assert!(reason.contains("forbidden"),
-                "Should deny for forbidden param, not missing required. Got: {}", reason);
+            assert!(
+                reason.contains("forbidden"),
+                "Should deny for forbidden param, not missing required. Got: {}",
+                reason
+            );
         }
         other => panic!("Expected Deny, got {:?}", other),
     }
@@ -106,8 +113,10 @@ fn require_approval_false_falls_through_to_allow() {
         "require_approval": false
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "require_approval=false should fall through to Allow");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "require_approval=false should fall through to Allow"
+    );
 }
 
 /// require_approval absent entirely → falls through.
@@ -117,8 +126,10 @@ fn require_approval_absent_falls_through_to_allow() {
     let action = make_action(json!({}));
     let policies = cond_policy(json!({}));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "Empty conditions should fall through to Allow");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Empty conditions should fall through to Allow"
+    );
 }
 
 // ════════════════════════════════
@@ -136,8 +147,10 @@ fn all_three_conditions_require_approval_wins() {
         "required_parameters": ["missing_key"]
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::RequireApproval { .. }),
-        "require_approval=true always wins, regardless of other conditions");
+    assert!(
+        matches!(result, Verdict::RequireApproval { .. }),
+        "require_approval=true always wins, regardless of other conditions"
+    );
 }
 
 // ════════════════════════════════
@@ -153,8 +166,10 @@ fn forbidden_params_not_present_allows() {
         "forbidden_parameters": ["danger", "secret"]
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "No forbidden params match, should allow");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "No forbidden params match, should allow"
+    );
 }
 
 /// Required params all present → Allow.
@@ -166,8 +181,10 @@ fn required_params_all_present_allows() {
         "required_parameters": ["token", "user"]
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "All required params present, should allow");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "All required params present, should allow"
+    );
 }
 
 // ═══════════════════════════════
@@ -184,8 +201,10 @@ fn require_approval_string_true_does_not_trigger() {
         "require_approval": "true"  // string, not bool
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "String 'true' is not bool true — as_bool() returns None, falls through to Allow");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "String 'true' is not bool true — as_bool() returns None, falls through to Allow"
+    );
 }
 
 /// require_approval set to integer 1 — as_bool() returns None for integers.
@@ -197,6 +216,8 @@ fn require_approval_integer_1_does_not_trigger() {
         "require_approval": 1
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "Integer 1 is not bool true — as_bool() returns None, falls through to Allow");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Integer 1 is not bool true — as_bool() returns None, falls through to Allow"
+    );
 }

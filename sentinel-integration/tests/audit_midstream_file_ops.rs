@@ -39,7 +39,10 @@ fn write_after_file_deletion_recreates_file() {
 
         // Write 3 entries
         for _ in 0..3 {
-            logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
         }
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 3);
@@ -53,7 +56,10 @@ fn write_after_file_deletion_recreates_file() {
 
         // Write 2 more entries — file should be recreated
         for _ in 0..2 {
-            logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
         }
 
         // Should only see the 2 new entries
@@ -79,7 +85,10 @@ fn write_after_truncation_appends_to_empty_file() {
 
         // Write 3 entries
         for _ in 0..3 {
-            logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
         }
         assert_eq!(logger.load_entries().await.unwrap().len(), 3);
 
@@ -91,7 +100,9 @@ fn write_after_truncation_appends_to_empty_file() {
             logger
                 .log_entry(
                     &action,
-                    &Verdict::Deny { reason: "post-truncation".to_string() },
+                    &Verdict::Deny {
+                        reason: "post-truncation".to_string(),
+                    },
                     json!({}),
                 )
                 .await
@@ -122,7 +133,10 @@ fn report_after_file_deletion_shows_zero() {
         let logger = AuditLogger::new(log_path.clone());
         let action = make_action();
 
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
         assert_eq!(logger.generate_report().await.unwrap().total_entries, 1);
 
         tokio::fs::remove_file(&log_path).await.unwrap();
@@ -151,7 +165,10 @@ fn load_reads_replaced_file_content() {
         let action = make_action();
 
         // Write an Allow entry
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
         assert!(matches!(entries[0].verdict, Verdict::Allow));

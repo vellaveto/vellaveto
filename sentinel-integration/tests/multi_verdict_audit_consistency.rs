@@ -112,7 +112,10 @@ fn bulk_allow_verdicts_counted_correctly() {
             let action = make_action("tool", &format!("func_{}", i), json!({}));
             let verdict = engine.evaluate_action(&action, &policies).unwrap();
             assert!(matches!(verdict, Verdict::Allow));
-            logger.log_entry(&action, &verdict, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &verdict, json!({}))
+                .await
+                .unwrap();
         }
 
         let report = logger.generate_report().await.unwrap();
@@ -137,7 +140,10 @@ fn bulk_deny_verdicts_from_empty_policies() {
             let action = make_action("t", &format!("f_{}", i), json!({}));
             let verdict = engine.evaluate_action(&action, &policies).unwrap();
             assert!(matches!(verdict, Verdict::Deny { .. }));
-            logger.log_entry(&action, &verdict, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &verdict, json!({}))
+                .await
+                .unwrap();
         }
 
         let report = logger.generate_report().await.unwrap();
@@ -180,7 +186,11 @@ fn action_fields_survive_roundtrip_through_audit() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let action = make_action("file_system", "read_file", json!({"path": "/tmp/test.txt", "encoding": "utf-8"}));
+        let action = make_action(
+            "file_system",
+            "read_file",
+            json!({"path": "/tmp/test.txt", "encoding": "utf-8"}),
+        );
 
         logger
             .log_entry(&action, &Verdict::Allow, json!({}))
@@ -209,7 +219,9 @@ fn verdict_reason_strings_survive_roundtrip() {
         logger
             .log_entry(
                 &action,
-                &Verdict::Deny { reason: deny_reason.to_string() },
+                &Verdict::Deny {
+                    reason: deny_reason.to_string(),
+                },
                 json!({}),
             )
             .await
@@ -218,7 +230,9 @@ fn verdict_reason_strings_survive_roundtrip() {
         logger
             .log_entry(
                 &action,
-                &Verdict::RequireApproval { reason: approval_reason.to_string() },
+                &Verdict::RequireApproval {
+                    reason: approval_reason.to_string(),
+                },
                 json!({}),
             )
             .await
@@ -270,15 +284,24 @@ fn report_invariant_counts_equal_entries_length() {
 
         // Log actions hitting each policy multiple times
         let combos: Vec<(&str, &str)> = vec![
-            ("a", "x"), ("a", "y"), ("a", "z"),
-            ("b", "x"), ("b", "y"),
-            ("c", "x"), ("c", "y"), ("c", "z"), ("c", "w"),
+            ("a", "x"),
+            ("a", "y"),
+            ("a", "z"),
+            ("b", "x"),
+            ("b", "y"),
+            ("c", "x"),
+            ("c", "y"),
+            ("c", "z"),
+            ("c", "w"),
         ];
 
         for (tool, func) in &combos {
             let action = make_action(tool, func, json!({}));
             let verdict = engine.evaluate_action(&action, &policies).unwrap();
-            logger.log_entry(&action, &verdict, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &verdict, json!({}))
+                .await
+                .unwrap();
         }
 
         let report = logger.generate_report().await.unwrap();
@@ -288,8 +311,8 @@ fn report_invariant_counts_equal_entries_length() {
             report.total_entries,
             "Sum of verdict counts must equal total_entries"
         );
-        assert_eq!(report.allow_count, 3);  // a:x, a:y, a:z
-        assert_eq!(report.deny_count, 2);   // b:x, b:y
+        assert_eq!(report.allow_count, 3); // a:x, a:y, a:z
+        assert_eq!(report.deny_count, 2); // b:x, b:y
         assert_eq!(report.require_approval_count, 4); // c:x, c:y, c:z, c:w
         assert_eq!(report.entries.len(), report.total_entries);
     });

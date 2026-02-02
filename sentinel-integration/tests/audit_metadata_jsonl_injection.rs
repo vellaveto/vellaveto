@@ -41,7 +41,10 @@ fn metadata_with_newline_in_string_produces_single_jsonl_line() {
     rt.block_on(async {
         let (logger, tmp) = setup_logger();
         let metadata = json!({"note": "line1\nline2\nline3"});
-        logger.log_entry(&action(), &Verdict::Allow, metadata.clone()).await.unwrap();
+        logger
+            .log_entry(&action(), &Verdict::Allow, metadata.clone())
+            .await
+            .unwrap();
 
         // Read raw file — should be exactly one line (plus trailing newline)
         let raw = tokio::fs::read_to_string(tmp.path().join("audit.log"))
@@ -49,7 +52,8 @@ fn metadata_with_newline_in_string_produces_single_jsonl_line() {
             .unwrap();
         let lines: Vec<&str> = raw.lines().collect();
         assert_eq!(
-            lines.len(), 1,
+            lines.len(),
+            1,
             "Metadata with embedded \\n should produce exactly 1 JSONL line, got {}",
             lines.len()
         );
@@ -68,7 +72,10 @@ fn metadata_with_json_like_string_value_is_safe() {
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
         let metadata = json!({"payload": "{\"injected\": true}\n{\"extra\": \"line\"}"});
-        logger.log_entry(&action(), &Verdict::Allow, metadata.clone()).await.unwrap();
+        logger
+            .log_entry(&action(), &Verdict::Allow, metadata.clone())
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
@@ -91,8 +98,12 @@ fn deeply_nested_metadata_survives_roundtrip() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let deep = json!({"a": {"b": {"c": {"d": {"e": {"f": {"g": {"h": {"i": {"j": "leaf"}}}}}}}}}});
-        logger.log_entry(&action(), &Verdict::Allow, deep.clone()).await.unwrap();
+        let deep =
+            json!({"a": {"b": {"c": {"d": {"e": {"f": {"g": {"h": {"i": {"j": "leaf"}}}}}}}}}});
+        logger
+            .log_entry(&action(), &Verdict::Allow, deep.clone())
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
@@ -116,9 +127,18 @@ fn multiple_tricky_metadata_entries_all_survive() {
         let meta2 = json!({"key": "value\"with\"quotes"});
         let meta3 = json!({"key": "value\\with\\backslashes"});
 
-        logger.log_entry(a, &Verdict::Allow, meta1.clone()).await.unwrap();
-        logger.log_entry(a, &Verdict::Allow, meta2.clone()).await.unwrap();
-        logger.log_entry(a, &Verdict::Allow, meta3.clone()).await.unwrap();
+        logger
+            .log_entry(a, &Verdict::Allow, meta1.clone())
+            .await
+            .unwrap();
+        logger
+            .log_entry(a, &Verdict::Allow, meta2.clone())
+            .await
+            .unwrap();
+        logger
+            .log_entry(a, &Verdict::Allow, meta3.clone())
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 3);
@@ -143,7 +163,10 @@ fn metadata_with_unicode_and_emoji_survives() {
             "arabic": "اختبار",
             "mixed": "hello 世界 🌍"
         });
-        logger.log_entry(&action(), &Verdict::Allow, meta.clone()).await.unwrap();
+        logger
+            .log_entry(&action(), &Verdict::Allow, meta.clone())
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);

@@ -15,21 +15,30 @@ use serde_json::json;
 fn action_missing_tool_field_fails_deserialization() {
     let bad_json = json!({"function": "exec", "parameters": {}});
     let result: Result<Action, _> = serde_json::from_value(bad_json);
-    assert!(result.is_err(), "Missing 'tool' should fail deserialization");
+    assert!(
+        result.is_err(),
+        "Missing 'tool' should fail deserialization"
+    );
 }
 
 #[test]
 fn action_missing_function_field_fails_deserialization() {
     let bad_json = json!({"tool": "bash", "parameters": {}});
     let result: Result<Action, _> = serde_json::from_value(bad_json);
-    assert!(result.is_err(), "Missing 'function' should fail deserialization");
+    assert!(
+        result.is_err(),
+        "Missing 'function' should fail deserialization"
+    );
 }
 
 #[test]
 fn action_missing_parameters_field_fails_deserialization() {
     let bad_json = json!({"tool": "bash", "function": "exec"});
     let result: Result<Action, _> = serde_json::from_value(bad_json);
-    assert!(result.is_err(), "Missing 'parameters' should fail deserialization");
+    assert!(
+        result.is_err(),
+        "Missing 'parameters' should fail deserialization"
+    );
 }
 
 #[test]
@@ -43,7 +52,10 @@ fn action_with_extra_fields_still_deserializes() {
     });
     let result: Result<Action, _> = serde_json::from_value(json_with_extra);
     // serde by default ignores unknown fields (unless deny_unknown_fields)
-    assert!(result.is_ok(), "Extra fields should be silently ignored by default");
+    assert!(
+        result.is_ok(),
+        "Extra fields should be silently ignored by default"
+    );
 }
 
 #[test]
@@ -90,7 +102,9 @@ fn verdict_allow_roundtrips_through_json() {
 
 #[test]
 fn verdict_deny_roundtrips_through_json() {
-    let v = Verdict::Deny { reason: "test reason".to_string() };
+    let v = Verdict::Deny {
+        reason: "test reason".to_string(),
+    };
     let json_str = serde_json::to_string(&v).unwrap();
     let back: Verdict = serde_json::from_str(&json_str).unwrap();
     assert_eq!(v, back);
@@ -98,7 +112,9 @@ fn verdict_deny_roundtrips_through_json() {
 
 #[test]
 fn verdict_deny_with_empty_reason_roundtrips() {
-    let v = Verdict::Deny { reason: String::new() };
+    let v = Verdict::Deny {
+        reason: String::new(),
+    };
     let json_str = serde_json::to_string(&v).unwrap();
     let back: Verdict = serde_json::from_str(&json_str).unwrap();
     assert_eq!(v, back);
@@ -106,7 +122,9 @@ fn verdict_deny_with_empty_reason_roundtrips() {
 
 #[test]
 fn verdict_require_approval_roundtrips() {
-    let v = Verdict::RequireApproval { reason: "needs human".to_string() };
+    let v = Verdict::RequireApproval {
+        reason: "needs human".to_string(),
+    };
     let json_str = serde_json::to_string(&v).unwrap();
     let back: Verdict = serde_json::from_str(&json_str).unwrap();
     assert_eq!(v, back);
@@ -124,7 +142,7 @@ fn action_with_unicode_tool_name_works() {
         "parameters": {"パス": "/tmp/テスト"}
     });
     let action: Action = serde_json::from_value(action_json).unwrap();
-    
+
     let engine = PolicyEngine::new(false);
     let policies = vec![Policy {
         id: "*".to_string(),
@@ -132,7 +150,7 @@ fn action_with_unicode_tool_name_works() {
         policy_type: PolicyType::Allow,
         priority: 1,
     }];
-    
+
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert_eq!(result, Verdict::Allow);
 }
@@ -175,7 +193,11 @@ fn policy_id_with_multiple_colons_only_splits_on_first() {
     }];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(result, Verdict::Allow, "split_once should match tool=a, func=b:c");
+    assert_eq!(
+        result,
+        Verdict::Allow,
+        "split_once should match tool=a, func=b:c"
+    );
 }
 
 #[test]
@@ -218,5 +240,9 @@ fn policy_id_with_empty_tool_before_colon() {
     }];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(result, Verdict::Allow, ":execute should match tool=\"\", func=execute");
+    assert_eq!(
+        result,
+        Verdict::Allow,
+        ":execute should match tool=\"\", func=execute"
+    );
 }

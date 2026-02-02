@@ -63,7 +63,10 @@ fn non_strict_mode_also_denies_with_empty_policy_list() {
     assert!(result.is_ok());
     match result.unwrap() {
         Verdict::Deny { .. } => {}
-        other => panic!("Non-strict + no policies must also deny (fail-closed), got {:?}", other),
+        other => panic!(
+            "Non-strict + no policies must also deny (fail-closed), got {:?}",
+            other
+        ),
     }
 }
 
@@ -76,7 +79,10 @@ fn strict_mode_allows_when_explicit_allow_exists() {
     assert!(result.is_ok());
     match result.unwrap() {
         Verdict::Allow => {}
-        other => panic!("Strict mode with explicit allow should allow, got {:?}", other),
+        other => panic!(
+            "Strict mode with explicit allow should allow, got {:?}",
+            other
+        ),
     }
 }
 
@@ -111,7 +117,10 @@ fn highest_priority_deny_overrides_multiple_allows() {
     let result = engine.evaluate_action(&act, &policies).unwrap();
     match result {
         Verdict::Deny { .. } => {}
-        other => panic!("Single high-priority deny must override all allows, got {:?}", other),
+        other => panic!(
+            "Single high-priority deny must override all allows, got {:?}",
+            other
+        ),
     }
 }
 
@@ -126,7 +135,10 @@ fn highest_priority_allow_overrides_lower_deny() {
     let result = engine.evaluate_action(&act, &policies).unwrap();
     match result {
         Verdict::Allow => {}
-        other => panic!("High-priority allow should override low deny, got {:?}", other),
+        other => panic!(
+            "High-priority allow should override low deny, got {:?}",
+            other
+        ),
     }
 }
 
@@ -136,15 +148,21 @@ fn highest_priority_allow_overrides_lower_deny() {
 fn conditional_triggers_require_approval_on_match() {
     let engine = PolicyEngine::new(false);
     let act = action("shell", "execute", json!({"command": "rm -rf /"}));
-    let policies = vec![
-        conditional("shell:*", "shell-guard", 10, json!({"require_approval": true})),
-    ];
+    let policies = vec![conditional(
+        "shell:*",
+        "shell-guard",
+        10,
+        json!({"require_approval": true}),
+    )];
     let result = engine.evaluate_action(&act, &policies).unwrap();
     match result {
         Verdict::RequireApproval { reason } => {
             assert!(!reason.is_empty(), "Approval reason must not be empty");
         }
-        other => panic!("Matching conditional should require approval, got {:?}", other),
+        other => panic!(
+            "Matching conditional should require approval, got {:?}",
+            other
+        ),
     }
 }
 
@@ -152,13 +170,19 @@ fn conditional_triggers_require_approval_on_match() {
 fn conditional_does_not_trigger_on_non_matching_action() {
     let engine = PolicyEngine::new(false);
     let act = action("file", "read", json!({}));
-    let policies = vec![
-        conditional("shell:*", "shell-guard", 10, json!({"require_approval": true})),
-    ];
+    let policies = vec![conditional(
+        "shell:*",
+        "shell-guard",
+        10,
+        json!({"require_approval": true}),
+    )];
     let result = engine.evaluate_action(&act, &policies).unwrap();
     match result {
         Verdict::Deny { .. } => {} // No matching policy -> deny (fail-closed)
-        other => panic!("Non-matching conditional should result in deny, got {:?}", other),
+        other => panic!(
+            "Non-matching conditional should result in deny, got {:?}",
+            other
+        ),
     }
 }
 
@@ -167,13 +191,21 @@ fn deny_overrides_conditional_at_higher_priority() {
     let engine = PolicyEngine::new(false);
     let act = action("shell", "execute", json!({}));
     let policies = vec![
-        conditional("shell:*", "shell-review", 5, json!({"require_approval": true})),
+        conditional(
+            "shell:*",
+            "shell-review",
+            5,
+            json!({"require_approval": true}),
+        ),
         deny("shell:*", "shell-block", 10),
     ];
     let result = engine.evaluate_action(&act, &policies).unwrap();
     match result {
         Verdict::Deny { .. } => {}
-        other => panic!("Higher-priority deny must beat conditional, got {:?}", other),
+        other => panic!(
+            "Higher-priority deny must beat conditional, got {:?}",
+            other
+        ),
     }
 }
 
@@ -185,7 +217,10 @@ fn empty_string_tool_and_function() {
     let act = action("", "", json!({}));
     let policies = vec![allow("*", "allow-all", 1)];
     let result = engine.evaluate_action(&act, &policies);
-    assert!(result.is_ok(), "Empty tool/function should not cause errors");
+    assert!(
+        result.is_ok(),
+        "Empty tool/function should not cause errors"
+    );
 }
 
 #[test]
@@ -198,7 +233,10 @@ fn very_large_parameter_set() {
     let act = action("shell", "execute", serde_json::Value::Object(params));
     let policies = vec![allow("shell:*", "allow-shell", 1)];
     let result = engine.evaluate_action(&act, &policies);
-    assert!(result.is_ok(), "Large parameter set should not cause errors");
+    assert!(
+        result.is_ok(),
+        "Large parameter set should not cause errors"
+    );
 }
 
 #[test]
@@ -213,9 +251,13 @@ fn null_parameters() {
 #[test]
 fn nested_json_parameters() {
     let engine = PolicyEngine::new(false);
-    let act = action("shell", "execute", json!({
-        "env": { "nested": { "deeply": { "value": true } } }
-    }));
+    let act = action(
+        "shell",
+        "execute",
+        json!({
+            "env": { "nested": { "deeply": { "value": true } } }
+        }),
+    );
     let policies = vec![allow("shell:*", "allow-shell", 1)];
     let result = engine.evaluate_action(&act, &policies);
     assert!(result.is_ok(), "Nested JSON parameters must be handled");
@@ -227,7 +269,10 @@ fn unicode_in_tool_and_function_names() {
     let act = action("日語ツール", "функция", json!({"키": "值"}));
     let policies = vec![allow("*", "allow-all", 1)];
     let result = engine.evaluate_action(&act, &policies);
-    assert!(result.is_ok(), "Unicode in action fields should not cause errors");
+    assert!(
+        result.is_ok(),
+        "Unicode in action fields should not cause errors"
+    );
 }
 
 // --- Engine reusability ---
@@ -274,6 +319,9 @@ fn handles_many_policies() {
     let result = engine.evaluate_action(&act, &policies).unwrap();
     match result {
         Verdict::Deny { .. } => {}
-        other => panic!("Single high-priority deny among 100 allows should deny, got {:?}", other),
+        other => panic!(
+            "Single high-priority deny among 100 allows should deny, got {:?}",
+            other
+        ),
     }
 }

@@ -72,7 +72,10 @@ fn empty_policies_always_deny() {
         assert!(result.is_ok());
         match result.unwrap() {
             Verdict::Deny { .. } => {}
-            other => panic!("Empty policies should deny (strict={}), got {:?}", strict, other),
+            other => panic!(
+                "Empty policies should deny (strict={}), got {:?}",
+                strict, other
+            ),
         }
     }
 }
@@ -98,9 +101,7 @@ fn higher_priority_policy_wins() {
 #[test]
 fn evaluate_multiple_actions_sequentially() {
     let engine = PolicyEngine::new(false);
-    let policies = vec![
-        allow_policy("file:*", "allow-read", 1),
-    ];
+    let policies = vec![allow_policy("file:*", "allow-read", 1)];
 
     // Engine should be reusable across multiple evaluations
     for i in 0..10 {

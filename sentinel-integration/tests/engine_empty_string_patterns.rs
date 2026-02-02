@@ -23,6 +23,7 @@ fn allow_policy(id: &str, priority: i32) -> Policy {
     }
 }
 
+#[allow(dead_code)]
 fn deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
@@ -45,7 +46,10 @@ fn empty_policy_id_matches_empty_tool() {
 
     let policies = vec![allow_policy("", 10)];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(verdict, Verdict::Allow), "Empty ID should match empty tool");
+    assert!(
+        matches!(verdict, Verdict::Allow),
+        "Empty ID should match empty tool"
+    );
 }
 
 #[test]
@@ -56,8 +60,10 @@ fn empty_policy_id_does_not_match_nonempty_tool() {
     let policies = vec![allow_policy("", 10)];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     // No match → default deny
-    assert!(matches!(verdict, Verdict::Deny { .. }),
-        "Empty ID should not match non-empty tool, falling through to default deny");
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "Empty ID should not match non-empty tool, falling through to default deny"
+    );
 }
 
 // ══════════════════════════════════════
@@ -72,8 +78,10 @@ fn colon_only_id_matches_empty_tool_and_function() {
 
     let policies = vec![allow_policy(":", 10)];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(verdict, Verdict::Allow),
-        "':' should match empty tool and empty function");
+    assert!(
+        matches!(verdict, Verdict::Allow),
+        "':' should match empty tool and empty function"
+    );
 }
 
 /// Policy ID ":" should NOT match non-empty tool.
@@ -84,8 +92,10 @@ fn colon_only_id_does_not_match_nonempty_tool() {
 
     let policies = vec![allow_policy(":", 10)];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(verdict, Verdict::Deny { .. }),
-        "':' means empty:empty, should not match 'bash:\"\"'");
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "':' means empty:empty, should not match 'bash:\"\"'"
+    );
 }
 
 /// Policy ID ":func" — empty tool pattern, "func" function pattern.
@@ -99,14 +109,18 @@ fn empty_tool_pattern_with_function() {
     let action_empty = make_action("", "func");
     let policies = vec![allow_policy(":func", 10)];
     let v = engine.evaluate_action(&action_empty, &policies).unwrap();
-    assert!(matches!(v, Verdict::Allow),
-        "':func' should match empty tool + 'func' function");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "':func' should match empty tool + 'func' function"
+    );
 
     // Action with non-empty tool
     let action_bash = make_action("bash", "func");
     let v = engine.evaluate_action(&action_bash, &policies).unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }),
-        "':func' should NOT match non-empty tool");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "':func' should NOT match non-empty tool"
+    );
 }
 
 /// Policy ID "tool:" — "tool" pattern, empty function pattern.
@@ -119,13 +133,17 @@ fn tool_pattern_with_empty_function() {
     let action_match = make_action("tool", "");
     let policies = vec![allow_policy("tool:", 10)];
     let v = engine.evaluate_action(&action_match, &policies).unwrap();
-    assert!(matches!(v, Verdict::Allow),
-        "'tool:' should match 'tool' tool + empty function");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "'tool:' should match 'tool' tool + empty function"
+    );
 
     let action_no_match = make_action("tool", "exec");
     let v = engine.evaluate_action(&action_no_match, &policies).unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }),
-        "'tool:' should NOT match non-empty function");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "'tool:' should NOT match non-empty function"
+    );
 }
 
 // ══════════════════════════════════════
@@ -140,14 +158,22 @@ fn wildcard_tool_empty_function() {
 
     let action_empty_func = make_action("bash", "");
     let policies = vec![allow_policy("*:", 10)];
-    let v = engine.evaluate_action(&action_empty_func, &policies).unwrap();
-    assert!(matches!(v, Verdict::Allow),
-        "'*:' should match any tool + empty function");
+    let v = engine
+        .evaluate_action(&action_empty_func, &policies)
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Allow),
+        "'*:' should match any tool + empty function"
+    );
 
     let action_nonempty_func = make_action("bash", "exec");
-    let v = engine.evaluate_action(&action_nonempty_func, &policies).unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }),
-        "'*:' should NOT match non-empty function");
+    let v = engine
+        .evaluate_action(&action_nonempty_func, &policies)
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "'*:' should NOT match non-empty function"
+    );
 }
 
 /// Policy ID ":*" — empty tool, wildcard function.
@@ -158,14 +184,22 @@ fn empty_tool_wildcard_function() {
 
     let action_empty_tool = make_action("", "anything");
     let policies = vec![allow_policy(":*", 10)];
-    let v = engine.evaluate_action(&action_empty_tool, &policies).unwrap();
-    assert!(matches!(v, Verdict::Allow),
-        "':*' should match empty tool + any function");
+    let v = engine
+        .evaluate_action(&action_empty_tool, &policies)
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Allow),
+        "':*' should match empty tool + any function"
+    );
 
     let action_nonempty_tool = make_action("bash", "anything");
-    let v = engine.evaluate_action(&action_nonempty_tool, &policies).unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }),
-        "':*' should NOT match non-empty tool");
+    let v = engine
+        .evaluate_action(&action_nonempty_tool, &policies)
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "':*' should NOT match non-empty tool"
+    );
 }
 
 // ═══════════════════════════════════════
@@ -184,8 +218,10 @@ fn suffix_wildcard_matches_empty_string() {
     // "tool:*" should match tool="tool", function="" because "*" matches all
     let policies = vec![allow_policy("tool:*", 10)];
     let v = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(v, Verdict::Allow),
-        "'tool:*' should match even when function is empty");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "'tool:*' should match even when function is empty"
+    );
 }
 
 /// Pattern "prefix*" with empty value: match_pattern("prefix*", "")
@@ -198,8 +234,10 @@ fn prefix_wildcard_does_not_match_empty() {
     // "bash*" as tool pattern: match_pattern("bash*", "") → "".starts_with("bash") → false
     let policies = vec![allow_policy("bash*:func", 10)];
     let v = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }),
-        "'bash*' should not match empty tool");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "'bash*' should not match empty tool"
+    );
 }
 
 /// Pattern "*suffix" with value that IS the suffix.
@@ -211,6 +249,8 @@ fn suffix_match_works_when_value_equals_suffix() {
 
     let policies = vec![allow_policy("*bash:*func", 10)];
     let v = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(v, Verdict::Allow),
-        "'*bash' should match 'bash' since 'bash'.ends_with('bash')");
+    assert!(
+        matches!(v, Verdict::Allow),
+        "'*bash' should match 'bash' since 'bash'.ends_with('bash')"
+    );
 }

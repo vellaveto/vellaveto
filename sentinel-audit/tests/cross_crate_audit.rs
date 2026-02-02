@@ -6,8 +6,8 @@
 
 use sentinel_audit::AuditLogger;
 use sentinel_types::{Action, Verdict};
-use tempfile::TempDir;
 use serde_json::json;
+use tempfile::TempDir;
 
 fn make_action(tool: &str, function: &str) -> Action {
     Action {
@@ -37,10 +37,17 @@ fn test_log_and_load_single_entry() {
         let action = make_action("file", "read");
         let verdict = Verdict::Allow;
 
-        logger.log_entry(&action, &verdict, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &verdict, json!({}))
+            .await
+            .unwrap();
         let entries = logger.load_entries().await.unwrap();
 
-        assert_eq!(entries.len(), 1, "should have exactly one entry after one log");
+        assert_eq!(
+            entries.len(),
+            1,
+            "should have exactly one entry after one log"
+        );
     });
 }
 
@@ -60,7 +67,10 @@ fn test_log_and_load_multiple_entries() {
                     reason: format!("denied action {}", i),
                 }
             };
-            logger.log_entry(&action, &verdict, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &verdict, json!({}))
+                .await
+                .unwrap();
         }
 
         let entries = logger.load_entries().await.unwrap();

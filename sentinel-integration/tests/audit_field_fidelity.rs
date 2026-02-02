@@ -35,13 +35,19 @@ fn action_tool_and_function_preserved_through_audit() {
             function: "do_something_complex".to_string(),
             parameters: json!({"key1": "val1", "key2": 42, "key3": [1, 2, 3]}),
         };
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].action.tool, "my_special_tool");
         assert_eq!(entries[0].action.function, "do_something_complex");
-        assert_eq!(entries[0].action.parameters, json!({"key1": "val1", "key2": 42, "key3": [1, 2, 3]}));
+        assert_eq!(
+            entries[0].action.parameters,
+            json!({"key1": "val1", "key2": 42, "key3": [1, 2, 3]})
+        );
     });
 }
 
@@ -55,8 +61,13 @@ fn deny_reason_preserved_through_audit() {
             function: "f".to_string(),
             parameters: json!({}),
         };
-        let verdict = Verdict::Deny { reason: "specific denial reason with unicode: 日本語".to_string() };
-        logger.log_entry(&action, &verdict, json!({})).await.unwrap();
+        let verdict = Verdict::Deny {
+            reason: "specific denial reason with unicode: 日本語".to_string(),
+        };
+        logger
+            .log_entry(&action, &verdict, json!({}))
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
@@ -82,7 +93,10 @@ fn require_approval_reason_preserved_through_audit() {
         let verdict = Verdict::RequireApproval {
             reason: "needs manager sign-off: level >= 3".to_string(),
         };
-        logger.log_entry(&action, &verdict, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &verdict, json!({}))
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
@@ -116,7 +130,10 @@ fn complex_metadata_preserved_through_audit() {
             "nested": {"level": 2, "flag": true},
             "nullable": null
         });
-        logger.log_entry(&action, &Verdict::Allow, metadata.clone()).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, metadata.clone())
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
@@ -134,7 +151,10 @@ fn empty_object_metadata_preserved() {
             function: "f".to_string(),
             parameters: json!({}),
         };
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries[0].metadata, json!({}));
@@ -151,7 +171,10 @@ fn null_metadata_preserved() {
             function: "f".to_string(),
             parameters: json!({}),
         };
-        logger.log_entry(&action, &Verdict::Allow, json!(null)).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!(null))
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries[0].metadata, json!(null));
@@ -170,24 +193,43 @@ fn three_entries_with_different_verdicts_preserve_all_fields() {
 
         let actions_verdicts_meta = vec![
             (
-                Action { tool: "file".to_string(), function: "read".to_string(), parameters: json!({"path": "/etc/hosts"}) },
+                Action {
+                    tool: "file".to_string(),
+                    function: "read".to_string(),
+                    parameters: json!({"path": "/etc/hosts"}),
+                },
                 Verdict::Allow,
                 json!({"user": "alice"}),
             ),
             (
-                Action { tool: "bash".to_string(), function: "exec".to_string(), parameters: json!({"cmd": "ls"}) },
-                Verdict::Deny { reason: "bash blocked".to_string() },
+                Action {
+                    tool: "bash".to_string(),
+                    function: "exec".to_string(),
+                    parameters: json!({"cmd": "ls"}),
+                },
+                Verdict::Deny {
+                    reason: "bash blocked".to_string(),
+                },
                 json!({"user": "bob", "attempt": 3}),
             ),
             (
-                Action { tool: "net".to_string(), function: "connect".to_string(), parameters: json!({"host": "example.com"}) },
-                Verdict::RequireApproval { reason: "external network".to_string() },
+                Action {
+                    tool: "net".to_string(),
+                    function: "connect".to_string(),
+                    parameters: json!({"host": "example.com"}),
+                },
+                Verdict::RequireApproval {
+                    reason: "external network".to_string(),
+                },
                 json!({"policy_version": "2.0"}),
             ),
         ];
 
         for (action, verdict, meta) in &actions_verdicts_meta {
-            logger.log_entry(action, verdict, meta.clone()).await.unwrap();
+            logger
+                .log_entry(action, verdict, meta.clone())
+                .await
+                .unwrap();
         }
 
         let entries = logger.load_entries().await.unwrap();

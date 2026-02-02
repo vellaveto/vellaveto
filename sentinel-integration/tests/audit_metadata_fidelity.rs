@@ -112,7 +112,7 @@ fn array_metadata_preserved() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let metadata = json!([1, "two", null, true, 3.14, {"nested": "obj"}]);
+        let metadata = json!([1, "two", null, true, 3.15, {"nested": "obj"}]);
 
         logger
             .log_entry(&make_action(), &Verdict::Allow, metadata.clone())

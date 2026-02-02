@@ -97,7 +97,10 @@ fn fifty_tasks_produce_valid_jsonl_lines() {
             "Found {} lines that are not valid JSON. First failure at line {}: {:?}",
             parse_failures.len(),
             parse_failures.first().map(|(i, _)| *i).unwrap_or(0),
-            parse_failures.first().map(|(_, l)| l.as_str()).unwrap_or("")
+            parse_failures
+                .first()
+                .map(|(_, l)| l.as_str())
+                .unwrap_or("")
         );
     });
 }
@@ -175,7 +178,9 @@ fn report_counts_consistent_after_concurrent_writes() {
                 logger
                     .log_entry(
                         &action,
-                        &Verdict::Deny { reason: format!("deny-{}", i) },
+                        &Verdict::Deny {
+                            reason: format!("deny-{}", i),
+                        },
                         json!({}),
                     )
                     .await
@@ -191,7 +196,9 @@ fn report_counts_consistent_after_concurrent_writes() {
                 logger
                     .log_entry(
                         &action,
-                        &Verdict::RequireApproval { reason: format!("approve-{}", i) },
+                        &Verdict::RequireApproval {
+                            reason: format!("approve-{}", i),
+                        },
                         json!({}),
                     )
                     .await
@@ -204,7 +211,10 @@ fn report_counts_consistent_after_concurrent_writes() {
         }
 
         let report = logger.generate_report().await.unwrap();
-        assert_eq!(report.total_entries, allow_count + deny_count + approval_count);
+        assert_eq!(
+            report.total_entries,
+            allow_count + deny_count + approval_count
+        );
         assert_eq!(report.allow_count, allow_count);
         assert_eq!(report.deny_count, deny_count);
         assert_eq!(report.require_approval_count, approval_count);

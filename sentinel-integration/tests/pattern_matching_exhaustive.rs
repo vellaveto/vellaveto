@@ -108,7 +108,6 @@ fn id_without_colon_does_not_match_different_tool() {
     let engine = PolicyEngine::new(false);
     let action = make_action("file", "read");
     let policies = vec![deny_policy("bash", 10)];
-    let verdict = engine.evaluate_action(&action, &policies).unwrap();
     // No match → default deny (different reason)
     match engine.evaluate_action(&action, &policies).unwrap() {
         Verdict::Deny { reason } => {
@@ -230,8 +229,8 @@ fn specific_pattern_overrides_wildcard_by_priority() {
     let engine = PolicyEngine::new(false);
     let action = make_action("file", "delete");
     let policies = vec![
-        allow_policy("*", 1),               // Low priority: allow all
-        deny_policy("file:delete", 100),     // High priority: deny this specific action
+        allow_policy("*", 1),            // Low priority: allow all
+        deny_policy("file:delete", 100), // High priority: deny this specific action
     ];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -242,8 +241,8 @@ fn wildcard_at_higher_priority_beats_specific() {
     let engine = PolicyEngine::new(false);
     let action = make_action("file", "delete");
     let policies = vec![
-        allow_policy("*", 1000),              // High priority: allow everything
-        deny_policy("file:delete", 1),        // Low priority: deny specific
+        allow_policy("*", 1000),       // High priority: allow everything
+        deny_policy("file:delete", 1), // Low priority: deny specific
     ];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(verdict, Verdict::Allow));
@@ -254,10 +253,7 @@ fn first_match_wins_among_equal_priority_different_patterns() {
     let engine = PolicyEngine::new(false);
     let action = make_action("file", "read");
     // Both match, same priority. Deny should win due to tie-breaking.
-    let policies = vec![
-        allow_policy("file:*", 50),
-        deny_policy("*:read", 50),
-    ];
+    let policies = vec![allow_policy("file:*", 50), deny_policy("*:read", 50)];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     // At equal priority, Deny sorts before Allow (deny-overrides)
     assert!(matches!(verdict, Verdict::Deny { .. }));

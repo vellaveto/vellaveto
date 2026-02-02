@@ -23,6 +23,7 @@ fn allow_policy(id: &str, priority: i32) -> Policy {
     }
 }
 
+#[allow(dead_code)]
 fn deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
@@ -72,7 +73,9 @@ fn id_with_leading_colon_has_empty_tool_pattern() {
 
     // Tool "" should match tool_pat "" (exact match)
     let action_empty_tool = make_action("", "read");
-    let result = engine.evaluate_action(&action_empty_tool, &policies).unwrap();
+    let result = engine
+        .evaluate_action(&action_empty_tool, &policies)
+        .unwrap();
     assert!(
         matches!(result, Verdict::Allow),
         "empty tool should match empty tool pattern from ':read', got {:?}",
@@ -123,7 +126,9 @@ fn id_is_just_colon_matches_only_empty_tool_and_function() {
     let policies = vec![allow_policy(":", 10)];
 
     let action_both_empty = make_action("", "");
-    let result = engine.evaluate_action(&action_both_empty, &policies).unwrap();
+    let result = engine
+        .evaluate_action(&action_both_empty, &policies)
+        .unwrap();
     assert!(
         matches!(result, Verdict::Allow),
         "both-empty action should match ':', got {:?}",
@@ -151,7 +156,9 @@ fn star_colon_star_matches_everything() {
         assert!(
             matches!(result, Verdict::Allow),
             "'*:*' should match ({}, {}), got {:?}",
-            tool, func, result
+            tool,
+            func,
+            result
         );
     }
 }

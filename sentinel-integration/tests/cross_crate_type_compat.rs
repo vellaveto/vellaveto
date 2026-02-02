@@ -2,8 +2,8 @@
 //! across all crate boundaries. Verifies that engine, audit, and MCP-style
 //! flows all agree on type serialization formats.
 
+use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
-use sentinel_audit::{AuditLogger, AuditEntry, AuditReport};
 use sentinel_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 use tempfile::TempDir;
@@ -54,10 +54,16 @@ fn action_type_shared_across_crates() {
         // Use in audit logger
         let tmp = TempDir::new().unwrap();
         let logger = AuditLogger::new(tmp.path().join("audit.log"));
-        logger.log_entry(&audit_action, &verdict, json!({})).await.unwrap();
+        logger
+            .log_entry(&audit_action, &verdict, json!({}))
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
-        assert_eq!(entries[0].action, action, "Action should be identical across crate boundaries");
+        assert_eq!(
+            entries[0].action, action,
+            "Action should be identical across crate boundaries"
+        );
     });
 }
 
@@ -116,7 +122,10 @@ fn verdict_flows_from_engine_to_audit() {
         for (policies, expected_type) in &policy_sets {
             let verdict = engine.evaluate_action(&action, policies).unwrap();
             // Engine verdict can be directly passed to audit
-            logger.log_entry(&action, &verdict, json!({"test": expected_type})).await.unwrap();
+            logger
+                .log_entry(&action, &verdict, json!({"test": expected_type}))
+                .await
+                .unwrap();
         }
 
         let report = logger.generate_report().await.unwrap();
@@ -210,14 +219,21 @@ fn conditional_policy_json_roundtrip_preserves_behavior() {
     ];
 
     for (action, should_allow) in &test_cases {
-        let v1 = engine.evaluate_action(action, &[original.clone()]).unwrap();
-        let v2 = engine.evaluate_action(action, &[roundtripped.clone()]).unwrap();
+        let v1 = engine
+            .evaluate_action(action, std::slice::from_ref(&original))
+            .unwrap();
+        let v2 = engine
+            .evaluate_action(action, std::slice::from_ref(&roundtripped))
+            .unwrap();
         assert_eq!(v1, v2, "Behavior should be identical after roundtrip");
 
         match (should_allow, &v1) {
             (true, Verdict::Allow) => {}
             (false, Verdict::Deny { .. }) => {}
-            _ => panic!("Expected allow={} for {:?}, got {:?}", should_allow, action.parameters, v1),
+            _ => panic!(
+                "Expected allow={} for {:?}, got {:?}",
+                should_allow, action.parameters, v1
+            ),
         }
     }
 }
@@ -251,7 +267,10 @@ fn audit_entry_verdict_matches_engine_output_exactly() {
         }];
 
         let engine_verdict = engine.evaluate_action(&action, &policies).unwrap();
-        logger.log_entry(&action, &engine_verdict, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &engine_verdict, json!({}))
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
@@ -292,6 +311,10 @@ fn extreme_priorities_survive_json_roundtrip() {
         };
         let json_str = serde_json::to_string(&policy).unwrap();
         let deserialized: Policy = serde_json::from_str(&json_str).unwrap();
-        assert_eq!(deserialized.priority, priority, "Priority {} should survive roundtrip", priority);
+        assert_eq!(
+            deserialized.priority, priority,
+            "Priority {} should survive roundtrip",
+            priority
+        );
     }
 }

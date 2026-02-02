@@ -35,7 +35,12 @@ fn creates_parent_directories_on_demand() {
     rt.block_on(async {
         let tmp = TempDir::new().unwrap();
         // deep/nested/path doesn't exist yet
-        let log_path = tmp.path().join("deep").join("nested").join("path").join("audit.log");
+        let log_path = tmp
+            .path()
+            .join("deep")
+            .join("nested")
+            .join("path")
+            .join("audit.log");
         let logger = AuditLogger::new(log_path.clone());
 
         let action = make_action();
@@ -110,12 +115,7 @@ fn each_log_line_is_independent_valid_json() {
                 continue;
             }
             let parsed: Result<serde_json::Value, _> = serde_json::from_str(line);
-            assert!(
-                parsed.is_ok(),
-                "Line {} is not valid JSON: {}",
-                count,
-                line
-            );
+            assert!(parsed.is_ok(), "Line {} is not valid JSON: {}", count, line);
             count += 1;
         }
         assert_eq!(count, 5);
@@ -203,6 +203,9 @@ fn multiple_writes_across_all_verdict_types() {
         // Verify verdict types match in order
         assert!(matches!(entries[0].verdict, Verdict::Allow));
         assert!(matches!(entries[1].verdict, Verdict::Deny { .. }));
-        assert!(matches!(entries[2].verdict, Verdict::RequireApproval { .. }));
+        assert!(matches!(
+            entries[2].verdict,
+            Verdict::RequireApproval { .. }
+        ));
     });
 }

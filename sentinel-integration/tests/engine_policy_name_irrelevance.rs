@@ -61,8 +61,10 @@ fn very_long_name_policy_still_matches() {
     match result {
         Verdict::Deny { reason } => {
             // The reason includes the name
-            assert!(reason.contains(&long_name),
-                "Deny reason should contain the policy name");
+            assert!(
+                reason.contains(&long_name),
+                "Deny reason should contain the policy name"
+            );
         }
         other => panic!("Expected Deny, got {:?}", other),
     }
@@ -95,8 +97,10 @@ fn name_does_not_affect_tiebreaking() {
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Deny should win at same priority regardless of name ordering");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Deny should win at same priority regardless of name ordering"
+    );
 }
 
 // ═══════════════════════════════
@@ -118,8 +122,11 @@ fn conditional_require_approval_reason_includes_name() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
         Verdict::RequireApproval { reason } => {
-            assert!(reason.contains("My Custom Policy Name"),
-                "RequireApproval reason should contain policy name, got: {}", reason);
+            assert!(
+                reason.contains("My Custom Policy Name"),
+                "RequireApproval reason should contain policy name, got: {}",
+                reason
+            );
         }
         other => panic!("Expected RequireApproval, got {:?}", other),
     }
@@ -144,10 +151,16 @@ fn conditional_forbidden_param_reason_includes_name() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
         Verdict::Deny { reason } => {
-            assert!(reason.contains("DB Safety Rule"),
-                "Deny reason should contain policy name, got: {}", reason);
-            assert!(reason.contains("drop_table"),
-                "Deny reason should mention the forbidden parameter, got: {}", reason);
+            assert!(
+                reason.contains("DB Safety Rule"),
+                "Deny reason should contain policy name, got: {}",
+                reason
+            );
+            assert!(
+                reason.contains("drop_table"),
+                "Deny reason should mention the forbidden parameter, got: {}",
+                reason
+            );
         }
         other => panic!("Expected Deny, got {:?}", other),
     }

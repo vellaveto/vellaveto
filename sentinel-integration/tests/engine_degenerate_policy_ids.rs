@@ -23,7 +23,7 @@ fn allow_policy(id: &str, priority: i32) -> Policy {
     }
 }
 
-fn deny_policy(id: &str, priority: i32) -> Policy {
+fn _deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
         name: format!("deny-{}", id),
@@ -55,8 +55,10 @@ fn colon_only_id_does_not_match_nonempty_tool() {
     let policies = vec![allow_policy(":", 10)];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     // ":" splits to ("", "") which does exact match: "" != "bash"
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Colon-only ID should not match non-empty tool");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Colon-only ID should not match non-empty tool"
+    );
 }
 
 /// Policy ID ":" with empty tool but non-empty function.
@@ -67,8 +69,10 @@ fn colon_only_id_does_not_match_nonempty_function() {
     let policies = vec![allow_policy(":", 10)];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     // split(":", ":") → ("", "") — match_pattern("", "exec") is "" == "exec" → false
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Colon-only ID should not match non-empty function");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Colon-only ID should not match non-empty function"
+    );
 }
 
 // ═══════════════════════════════════
@@ -134,8 +138,10 @@ fn whitespace_colon_does_not_match_trimmed_action() {
     let policies = vec![allow_policy(" bash : exec ", 10)];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     // " bash " != "bash", so no match → default deny
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Engine should not trim whitespace from patterns");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Engine should not trim whitespace from patterns"
+    );
 }
 
 // ═══════════════════════════════════
@@ -159,8 +165,10 @@ fn star_colon_does_not_match_nonempty_function() {
     let policies = vec![allow_policy("*:", 10)];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     // Tool matches (wildcard), but function pattern "" != "exec"
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Function pattern '' should not match 'exec'");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Function pattern '' should not match 'exec'"
+    );
 }
 
 /// ":*" → split_once(':') → ("", "*"). Tool must be "", function matches anything.

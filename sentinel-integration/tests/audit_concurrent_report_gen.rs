@@ -16,6 +16,7 @@ fn runtime_mt() -> tokio::runtime::Runtime {
         .expect("failed to create multi-thread runtime")
 }
 
+#[allow(dead_code)]
 fn runtime_st() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -49,19 +50,26 @@ fn concurrent_reports_after_sequential_writes_agree() {
         for i in 0..100u32 {
             let verdict = match i % 20 {
                 0..=7 => Verdict::Allow,
-                8..=14 => Verdict::Deny { reason: format!("deny-{}", i) },
-                _ => Verdict::RequireApproval { reason: format!("approval-{}", i) },
+                8..=14 => Verdict::Deny {
+                    reason: format!("deny-{}", i),
+                },
+                _ => Verdict::RequireApproval {
+                    reason: format!("approval-{}", i),
+                },
             };
-            logger.log_entry(&action, &verdict, json!({"i": i})).await.unwrap();
+            logger
+                .log_entry(&action, &verdict, json!({"i": i}))
+                .await
+                .unwrap();
         }
 
         // Generate 10 reports concurrently
         let mut handles = Vec::new();
         for _ in 0..10 {
             let lg = Arc::clone(&logger);
-            handles.push(tokio::spawn(async move {
-                lg.generate_report().await.unwrap()
-            }));
+            handles.push(tokio::spawn(
+                async move { lg.generate_report().await.unwrap() },
+            ));
         }
 
         let mut reports = Vec::new();
@@ -71,8 +79,11 @@ fn concurrent_reports_after_sequential_writes_agree() {
 
         // All reports must agree
         for report in &reports {
-            assert_eq!(report.total_entries, 100,
-                "Report should have 100 entries, got {}", report.total_entries);
+            assert_eq!(
+                report.total_entries, 100,
+                "Report should have 100 entries, got {}",
+                report.total_entries
+            );
             assert_eq!(
                 report.total_entries,
                 report.allow_count + report.deny_count + report.require_approval_count,
@@ -81,7 +92,10 @@ fn concurrent_reports_after_sequential_writes_agree() {
             // All reports should have identical counts
             assert_eq!(report.allow_count, reports[0].allow_count);
             assert_eq!(report.deny_count, reports[0].deny_count);
-            assert_eq!(report.require_approval_count, reports[0].require_approval_count);
+            assert_eq!(
+                report.require_approval_count,
+                reports[0].require_approval_count
+            );
         }
     });
 }
@@ -102,9 +116,9 @@ fn concurrent_reports_on_empty_log() {
         let mut handles = Vec::new();
         for _ in 0..5 {
             let lg = Arc::clone(&logger);
-            handles.push(tokio::spawn(async move {
-                lg.generate_report().await.unwrap()
-            }));
+            handles.push(tokio::spawn(
+                async move { lg.generate_report().await.unwrap() },
+            ));
         }
 
         for handle in handles {
@@ -128,15 +142,23 @@ fn concurrent_reports_with_single_entry() {
     rt.block_on(async {
         let tmp = TempDir::new().unwrap();
         let logger = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
-        logger.log_entry(&make_action(), &Verdict::Deny { reason: "test".to_string() }, json!({}))
-            .await.unwrap();
+        logger
+            .log_entry(
+                &make_action(),
+                &Verdict::Deny {
+                    reason: "test".to_string(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
 
         let mut handles = Vec::new();
         for _ in 0..8 {
             let lg = Arc::clone(&logger);
-            handles.push(tokio::spawn(async move {
-                lg.generate_report().await.unwrap()
-            }));
+            handles.push(tokio::spawn(
+                async move { lg.generate_report().await.unwrap() },
+            ));
         }
 
         for handle in handles {
@@ -173,7 +195,9 @@ fn interleaved_writes_and_report_generation() {
                     let verdict = if (w + i) % 2 == 0 {
                         Verdict::Allow
                     } else {
-                        Verdict::Deny { reason: format!("w{}-i{}", w, i) }
+                        Verdict::Deny {
+                            reason: format!("w{}-i{}", w, i),
+                        }
                     };
                     lg.log_entry(&a, &verdict, json!({})).await.unwrap();
                 }
@@ -188,9 +212,8 @@ fn interleaved_writes_and_report_generation() {
                 // Generate report multiple times
                 let mut reports = Vec::new();
                 for _ in 0..3 {
-                    match lg.generate_report().await {
-                        Ok(report) => reports.push(report),
-                        Err(_) => {} // Concurrent read during write might fail; that's acceptable
+                    if let Ok(report) = lg.generate_report().await {
+                        reports.push(report)
                     }
                     tokio::task::yield_now().await;
                 }
@@ -212,8 +235,10 @@ fn interleaved_writes_and_report_generation() {
                     report.total_entries,
                     report.allow_count + report.deny_count + report.require_approval_count,
                     "Invariant violated: {} != {} + {} + {}",
-                    report.total_entries, report.allow_count,
-                    report.deny_count, report.require_approval_count
+                    report.total_entries,
+                    report.allow_count,
+                    report.deny_count,
+                    report.require_approval_count
                 );
                 assert_eq!(report.entries.len(), report.total_entries);
             }

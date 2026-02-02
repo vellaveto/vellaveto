@@ -86,7 +86,10 @@ fn rejects_tool_name_with_null_byte() {
         let (logger, _tmp) = setup_logger();
         let action = make_action("bad\0tool", "func", json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_err(), "Tool name with null byte should be rejected");
+        assert!(
+            result.is_err(),
+            "Tool name with null byte should be rejected"
+        );
     });
 }
 
@@ -97,7 +100,10 @@ fn rejects_function_name_with_null_byte() {
         let (logger, _tmp) = setup_logger();
         let action = make_action("tool", "func\0evil", json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_err(), "Function name with null byte should be rejected");
+        assert!(
+            result.is_err(),
+            "Function name with null byte should be rejected"
+        );
     });
 }
 
@@ -119,7 +125,10 @@ fn rejects_deeply_nested_parameters() {
 
         let action = make_action("tool", "func", val);
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_err(), "Parameters nested >20 levels should be rejected");
+        assert!(
+            result.is_err(),
+            "Parameters nested >20 levels should be rejected"
+        );
     });
 }
 
@@ -142,7 +151,11 @@ fn accepts_parameters_at_exactly_depth_20() {
 
         let action = make_action("tool", "func", val);
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_ok(), "Parameters at depth <=20 should be accepted, got: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Parameters at depth <=20 should be accepted, got: {:?}",
+            result.err()
+        );
     });
 }
 
@@ -202,7 +215,10 @@ fn allows_unicode_in_tool_name() {
         let (logger, _tmp) = setup_logger();
         let action = make_action("工具_🔧", "数_func", json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_ok(), "Unicode tool/function names should be allowed");
+        assert!(
+            result.is_ok(),
+            "Unicode tool/function names should be allowed"
+        );
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
@@ -216,13 +232,12 @@ fn allows_special_characters_without_newlines() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let action = make_action(
-            "tool-with.dots_and-dashes",
-            "func/with/slashes",
-            json!({}),
-        );
+        let action = make_action("tool-with.dots_and-dashes", "func/with/slashes", json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_ok(), "Special chars (no newlines) should be allowed");
+        assert!(
+            result.is_ok(),
+            "Special chars (no newlines) should be allowed"
+        );
     });
 }
 
@@ -234,7 +249,10 @@ fn allows_tab_character_in_tool_name() {
         let (logger, _tmp) = setup_logger();
         let action = make_action("tool\twith\ttabs", "func", json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_ok(), "Tab characters should be allowed (not newlines)");
+        assert!(
+            result.is_ok(),
+            "Tab characters should be allowed (not newlines)"
+        );
     });
 }
 
@@ -249,7 +267,10 @@ fn tool_with_both_newline_and_null_rejected() {
         let (logger, _tmp) = setup_logger();
         let action = make_action("bad\n\0tool", "func", json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_err(), "Both newline and null byte should be rejected");
+        assert!(
+            result.is_err(),
+            "Both newline and null byte should be rejected"
+        );
     });
 }
 
@@ -265,17 +286,24 @@ fn rejected_entry_does_not_appear_in_log() {
 
         // Log a valid entry first
         let good_action = make_action("good_tool", "good_func", json!({}));
-        logger.log_entry(&good_action, &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&good_action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
 
         // Try to log an invalid entry
         let bad_action = make_action("bad\ntool", "func", json!({}));
-        let _ = logger.log_entry(&bad_action, &Verdict::Allow, json!({})).await;
+        let _ = logger
+            .log_entry(&bad_action, &Verdict::Allow, json!({}))
+            .await;
 
         // Log another valid entry
         logger
             .log_entry(
                 &good_action,
-                &Verdict::Deny { reason: "test".to_string() },
+                &Verdict::Deny {
+                    reason: "test".to_string(),
+                },
                 json!({}),
             )
             .await

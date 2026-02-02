@@ -44,7 +44,9 @@ fn smoke_wildcard_allow_permits() {
         policy_type: PolicyType::Allow,
         priority: 1,
     }];
-    let result = engine.evaluate_action(&action("x", "y"), &policies).unwrap();
+    let result = engine
+        .evaluate_action(&action("x", "y"), &policies)
+        .unwrap();
     assert_eq!(result, Verdict::Allow);
 }
 
@@ -57,7 +59,9 @@ fn smoke_wildcard_deny_denies() {
         policy_type: PolicyType::Deny,
         priority: 1,
     }];
-    let result = engine.evaluate_action(&action("x", "y"), &policies).unwrap();
+    let result = engine
+        .evaluate_action(&action("x", "y"), &policies)
+        .unwrap();
     match result {
         Verdict::Deny { reason } => assert!(reason.contains("deny-all")),
         other => panic!("Expected Deny, got {:?}", other),
@@ -86,7 +90,9 @@ fn smoke_higher_priority_wins() {
             priority: 100,
         },
     ];
-    let result = engine.evaluate_action(&action("a", "b"), &policies).unwrap();
+    let result = engine
+        .evaluate_action(&action("a", "b"), &policies)
+        .unwrap();
     assert!(matches!(result, Verdict::Deny { .. }));
 }
 
@@ -112,7 +118,9 @@ fn smoke_equal_priority_deny_wins() {
             priority: 50,
         },
     ];
-    let result = engine.evaluate_action(&action("a", "b"), &policies).unwrap();
+    let result = engine
+        .evaluate_action(&action("a", "b"), &policies)
+        .unwrap();
     assert!(matches!(result, Verdict::Deny { .. }));
 }
 
@@ -130,7 +138,9 @@ fn smoke_exact_colon_match() {
         policy_type: PolicyType::Allow,
         priority: 10,
     }];
-    let result = engine.evaluate_action(&action("file", "read"), &policies).unwrap();
+    let result = engine
+        .evaluate_action(&action("file", "read"), &policies)
+        .unwrap();
     assert_eq!(result, Verdict::Allow);
 }
 
@@ -143,7 +153,9 @@ fn smoke_exact_colon_no_match_denies() {
         policy_type: PolicyType::Allow,
         priority: 10,
     }];
-    let result = engine.evaluate_action(&action("file", "write"), &policies).unwrap();
+    let result = engine
+        .evaluate_action(&action("file", "write"), &policies)
+        .unwrap();
     assert!(matches!(result, Verdict::Deny { .. }));
 }
 
@@ -163,7 +175,9 @@ fn smoke_conditional_require_approval() {
         },
         priority: 10,
     }];
-    let result = engine.evaluate_action(&action("a", "b"), &policies).unwrap();
+    let result = engine
+        .evaluate_action(&action("a", "b"), &policies)
+        .unwrap();
     assert!(matches!(result, Verdict::RequireApproval { .. }));
 }
 

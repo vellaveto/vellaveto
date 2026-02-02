@@ -15,21 +15,33 @@ fn load_example_config() -> PolicyConfig {
 #[test]
 fn example_config_has_at_least_three_policies() {
     let config = load_example_config();
-    assert!(config.policies.len() >= 3,
-        "Example should demonstrate multiple policy types, has {}", config.policies.len());
+    assert!(
+        config.policies.len() >= 3,
+        "Example should demonstrate multiple policy types, has {}",
+        config.policies.len()
+    );
 }
 
 #[test]
 fn example_config_has_all_three_policy_types() {
     let config = load_example_config();
     let policies = config.to_policies();
-    let has_allow = policies.iter().any(|p| matches!(p.policy_type, PolicyType::Allow));
-    let has_deny = policies.iter().any(|p| matches!(p.policy_type, PolicyType::Deny));
-    let has_conditional = policies.iter().any(|p| matches!(p.policy_type, PolicyType::Conditional { .. }));
+    let has_allow = policies
+        .iter()
+        .any(|p| matches!(p.policy_type, PolicyType::Allow));
+    let has_deny = policies
+        .iter()
+        .any(|p| matches!(p.policy_type, PolicyType::Deny));
+    let has_conditional = policies
+        .iter()
+        .any(|p| matches!(p.policy_type, PolicyType::Conditional { .. }));
 
     assert!(has_allow, "Example should have at least one Allow policy");
     assert!(has_deny, "Example should have at least one Deny policy");
-    assert!(has_conditional, "Example should have at least one Conditional policy");
+    assert!(
+        has_conditional,
+        "Example should have at least one Conditional policy"
+    );
 }
 
 #[test]
@@ -42,8 +54,11 @@ fn example_config_file_read_is_allowed() {
         parameters: json!({}),
     };
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "file:read should be allowed, got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Allow),
+        "file:read should be allowed, got {:?}",
+        result
+    );
 }
 
 #[test]
@@ -56,8 +71,11 @@ fn example_config_file_delete_is_denied() {
         parameters: json!({}),
     };
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "file:delete should be denied, got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "file:delete should be denied, got {:?}",
+        result
+    );
 }
 
 #[test]
@@ -70,8 +88,11 @@ fn example_config_bash_execute_is_denied() {
         parameters: json!({}),
     };
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "bash:execute should be denied, got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "bash:execute should be denied, got {:?}",
+        result
+    );
 }
 
 #[test]
@@ -84,8 +105,11 @@ fn example_config_network_requires_approval() {
         parameters: json!({}),
     };
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::RequireApproval { .. }),
-        "network:connect should require approval, got {:?}", result);
+    assert!(
+        matches!(result, Verdict::RequireApproval { .. }),
+        "network:connect should require approval, got {:?}",
+        result
+    );
 }
 
 #[test]
@@ -99,19 +123,20 @@ fn example_config_unknown_tool_gets_default_allow() {
     };
     let result = engine.evaluate_action(&action, &policies).unwrap();
     // The default allow at priority 1 should catch this
-    assert!(matches!(result, Verdict::Allow),
-        "Unknown tool should fall through to default allow, got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Unknown tool should fall through to default allow, got {:?}",
+        result
+    );
 }
 
 #[test]
 fn example_config_toml_roundtrips_through_serialize() {
     let config = load_example_config();
     // Serialize to TOML
-    let toml_str = toml::to_string_pretty(&config)
-        .expect("config should serialize to TOML");
+    let toml_str = toml::to_string_pretty(&config).expect("config should serialize to TOML");
     // Parse it back
-    let reparsed = PolicyConfig::from_toml(&toml_str)
-        .expect("serialized TOML should be parseable");
+    let reparsed = PolicyConfig::from_toml(&toml_str).expect("serialized TOML should be parseable");
     // Same number of policies
     assert_eq!(config.policies.len(), reparsed.policies.len());
 }

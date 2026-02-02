@@ -38,12 +38,21 @@ fn large_string_parameter_survives_roundtrip() {
             parameters: json!({"data": big_value}),
         };
 
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].action.tool, "large_test");
-        let loaded_data = entries[0].action.parameters.get("data").unwrap().as_str().unwrap();
+        let loaded_data = entries[0]
+            .action
+            .parameters
+            .get("data")
+            .unwrap()
+            .as_str()
+            .unwrap();
         assert_eq!(loaded_data.len(), 500_000);
     });
 }
@@ -62,14 +71,23 @@ fn multiple_large_entries_report_consistent() {
                 function: "test".to_string(),
                 parameters: json!({"payload": big_value}),
             };
-            let verdict = if i % 2 == 0 { Verdict::Allow } else { Verdict::Deny { reason: "test".to_string() } };
-            logger.log_entry(&action, &verdict, json!({"index": i})).await.unwrap();
+            let verdict = if i % 2 == 0 {
+                Verdict::Allow
+            } else {
+                Verdict::Deny {
+                    reason: "test".to_string(),
+                }
+            };
+            logger
+                .log_entry(&action, &verdict, json!({"index": i}))
+                .await
+                .unwrap();
         }
 
         let report = logger.generate_report().await.unwrap();
         assert_eq!(report.total_entries, 5);
         assert_eq!(report.allow_count, 3); // i=0,2,4
-        assert_eq!(report.deny_count, 2);  // i=1,3
+        assert_eq!(report.deny_count, 2); // i=1,3
         assert_eq!(report.require_approval_count, 0);
         assert_eq!(report.entries.len(), 5);
     });
@@ -94,7 +112,10 @@ fn deep_but_valid_nesting_survives_pipeline() {
             parameters: val.clone(),
         };
 
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
@@ -124,7 +145,10 @@ fn large_metadata_survives_roundtrip() {
             }
         });
 
-        logger.log_entry(&action, &Verdict::Allow, big_meta.clone()).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, big_meta.clone())
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
@@ -147,7 +171,10 @@ fn long_tool_and_function_names_accepted() {
             parameters: json!({}),
         };
 
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);

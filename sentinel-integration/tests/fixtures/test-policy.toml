@@ -1,0 +1,46 @@
+# Test policy configuration for parameter constraints E2E tests.
+# Exercises path constraints, domain constraints, and mixed policies.
+#
+# ID format: "tool:function" (used by engine for matching)
+# "*" = match all, "tool:*" = match all functions of a tool
+
+# 1. Block credential file access via glob (highest priority for reads)
+[[policies]]
+name = "Block credential access"
+tool_pattern = "file_system"
+function_pattern = "read_file"
+priority = 200
+id = "file_system:read_file"
+
+[policies.policy_type.Conditional.conditions]
+parameter_constraints = [
+  { param = "path", op = "glob", pattern = "**/.aws/**", on_match = "deny" },
+  { param = "path", op = "glob", pattern = "**/.ssh/**", on_match = "deny" },
+  { param = "path", op = "glob", pattern = "/etc/shadow", on_match = "deny" },
+]
+
+# 2. Path allowlist — only /home/user/project/** and /tmp/** are allowed for writes
+[[policies]]
+name = "Path allowlist"
+tool_pattern = "file_system"
+function_pattern = "write_file"
+priority = 150
+id = "file_system:write_file"
+
+[policies.policy_type.Conditional.conditions]
+parameter_constraints = [
+  { param = "path", op = "not_glob", patterns = ["/home/user/project/**", "/tmp/**"], on_match = "deny" },
+]
+
+# 3. Domain allowlist for HTTP requests
+[[policies]]
+name = "HTTP domain allowlist"
+tool_pattern = "http_request"
+function_pattern = "*"
+priority = 200
+id = "http_request:*"
+
+[policies.policy_type.Conditional.conditions]
+parameter_constraints = [
+  { param = "url", op = "domain_not_in", patterns = ["api.example.com", "*.internal.dev"], on_match = "deny" },
+]

@@ -4,8 +4,8 @@
 //!
 //!   export PATH=$HOME/.cargo/bin:$PATH && cargo run -p sentinel-integration --example audit_trail
 
-use sentinel_engine::PolicyEngine;
 use sentinel_audit::AuditLogger;
+use sentinel_engine::PolicyEngine;
 use sentinel_types::{Action, Policy, PolicyType};
 use serde_json::json;
 
@@ -52,11 +52,15 @@ fn main() {
                 parameters: json!({}),
             };
 
-            let verdict = engine.evaluate_action(&action, &policies)
+            let verdict = engine
+                .evaluate_action(&action, &policies)
                 .expect("evaluation failed");
 
             println!("  {}:{} -> {:?}", tool, function, verdict);
-            logger.log_entry(&action, &verdict, json!({})).await.expect("log failed");
+            logger
+                .log_entry(&action, &verdict, json!({}))
+                .await
+                .expect("log failed");
         }
 
         let entries = logger.load_entries().await.expect("load failed");

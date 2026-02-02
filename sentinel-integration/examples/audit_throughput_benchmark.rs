@@ -22,7 +22,7 @@ fn main() {
 
         // === Write throughput ===
         let tmp = tempfile::TempDir::new().unwrap();
-        let logger = AuditLogger::new(tmp.path().join("bench_audit.log"));
+        let _logger = AuditLogger::new(tmp.path().join("bench_audit.log"));
 
         let action = Action {
             tool: "benchmark".to_string(),
@@ -32,8 +32,10 @@ fn main() {
 
         let counts = [100, 500, 1000, 5000];
 
-        println!("{:<15} {:>15} {:>15} {:>15}",
-            "Entries", "Write Total", "Write/entry", "Entries/sec");
+        println!(
+            "{:<15} {:>15} {:>15} {:>15}",
+            "Entries", "Write Total", "Write/entry", "Entries/sec"
+        );
         println!("{}", "-".repeat(60));
 
         for &count in &counts {
@@ -44,17 +46,26 @@ fn main() {
             for i in 0..count {
                 let verdict = match i % 3 {
                     0 => Verdict::Allow,
-                    1 => Verdict::Deny { reason: format!("reason_{}", i) },
-                    _ => Verdict::RequireApproval { reason: format!("review_{}", i) },
+                    1 => Verdict::Deny {
+                        reason: format!("reason_{}", i),
+                    },
+                    _ => Verdict::RequireApproval {
+                        reason: format!("review_{}", i),
+                    },
                 };
-                logger_inner.log_entry(&action, &verdict, json!({"i": i})).await.unwrap();
+                logger_inner
+                    .log_entry(&action, &verdict, json!({"i": i}))
+                    .await
+                    .unwrap();
             }
             let write_dur = start.elapsed();
             let per_entry = write_dur / count as u32;
             let entries_per_sec = count as f64 / write_dur.as_secs_f64();
 
-            println!("{:<15} {:>15.2?} {:>15.2?} {:>15.0}",
-                count, write_dur, per_entry, entries_per_sec);
+            println!(
+                "{:<15} {:>15.2?} {:>15.2?} {:>15.0}",
+                count, write_dur, per_entry, entries_per_sec
+            );
         }
 
         println!();
@@ -71,7 +82,10 @@ fn main() {
                 1 => Verdict::Deny { reason: "d".into() },
                 _ => Verdict::RequireApproval { reason: "r".into() },
             };
-            logger_read.log_entry(&action, &verdict, json!({})).await.unwrap();
+            logger_read
+                .log_entry(&action, &verdict, json!({}))
+                .await
+                .unwrap();
         }
 
         // Measure load_entries
@@ -80,7 +94,11 @@ fn main() {
             let _ = logger_read.load_entries().await.unwrap();
         }
         let load_dur = start.elapsed();
-        println!("load_entries (1000 entries) x100: {:?} ({:?}/call)", load_dur, load_dur / 100);
+        println!(
+            "load_entries (1000 entries) x100: {:?} ({:?}/call)",
+            load_dur,
+            load_dur / 100
+        );
 
         // Measure generate_report
         let start = Instant::now();
@@ -88,14 +106,23 @@ fn main() {
             let _ = logger_read.generate_report().await.unwrap();
         }
         let report_dur = start.elapsed();
-        println!("generate_report (1000 entries) x100: {:?} ({:?}/call)", report_dur, report_dur / 100);
+        println!(
+            "generate_report (1000 entries) x100: {:?} ({:?}/call)",
+            report_dur,
+            report_dur / 100
+        );
 
         println!();
 
         // Verify report correctness after benchmark
         let report = logger_read.generate_report().await.unwrap();
         assert_eq!(report.total_entries, 1000);
-        println!("Report verification: {} entries, {} allow, {} deny, {} approval",
-            report.total_entries, report.allow_count, report.deny_count, report.require_approval_count);
+        println!(
+            "Report verification: {} entries, {} allow, {} deny, {} approval",
+            report.total_entries,
+            report.allow_count,
+            report.deny_count,
+            report.require_approval_count
+        );
     });
 }

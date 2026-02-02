@@ -80,19 +80,39 @@ fn main() {
     // Small policy set (10 policies, 1000 actions)
     let small_policies = make_policies(10);
     let actions_1k = make_actions(1_000);
-    bench_evaluation(&engine, &actions_1k, &small_policies, "10 policies × 1K actions");
+    bench_evaluation(
+        &engine,
+        &actions_1k,
+        &small_policies,
+        "10 policies × 1K actions",
+    );
 
     // Medium policy set (100 policies, 10000 actions)
     let medium_policies = make_policies(100);
     let actions_10k = make_actions(10_000);
-    bench_evaluation(&engine, &actions_10k, &medium_policies, "100 policies × 10K actions");
+    bench_evaluation(
+        &engine,
+        &actions_10k,
+        &medium_policies,
+        "100 policies × 10K actions",
+    );
 
     // Large policy set (1000 policies, 10000 actions)
     let large_policies = make_policies(1_000);
-    bench_evaluation(&engine, &actions_10k, &large_policies, "1000 policies × 10K actions");
+    bench_evaluation(
+        &engine,
+        &actions_10k,
+        &large_policies,
+        "1000 policies × 10K actions",
+    );
 
     // Strict mode comparison
-    bench_evaluation(&strict_engine, &actions_10k, &medium_policies, "100 policies × 10K actions (strict)");
+    bench_evaluation(
+        &strict_engine,
+        &actions_10k,
+        &medium_policies,
+        "100 policies × 10K actions (strict)",
+    );
 
     // Worst case: many conditional policies with complex conditions
     let conditional_policies: Vec<Policy> = (0..200)
@@ -106,7 +126,7 @@ fn main() {
                     "require_approval": false
                 }),
             },
-            priority: i as i32,
+            priority: i,
         })
         .collect();
     let actions_with_params: Vec<Action> = (0..5_000)

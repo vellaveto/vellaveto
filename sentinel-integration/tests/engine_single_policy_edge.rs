@@ -45,7 +45,12 @@ fn single_wildcard_allow_permits_any_action() {
 
     for action in &actions {
         let v = engine.evaluate_action(action, &policies).unwrap();
-        assert_eq!(v, Verdict::Allow, "Wildcard allow should permit {:?}", action);
+        assert_eq!(
+            v,
+            Verdict::Allow,
+            "Wildcard allow should permit {:?}",
+            action
+        );
     }
 }
 
@@ -59,7 +64,9 @@ fn single_wildcard_deny_blocks_any_action() {
         priority: 0,
     }];
 
-    let v = engine.evaluate_action(&make_action("anything", "at_all"), &policies).unwrap();
+    let v = engine
+        .evaluate_action(&make_action("anything", "at_all"), &policies)
+        .unwrap();
     assert!(matches!(v, Verdict::Deny { .. }));
 }
 
@@ -74,15 +81,27 @@ fn single_exact_match_allows_only_matching_action() {
     }];
 
     // Matching action
-    let v = engine.evaluate_action(&make_action("file", "read"), &policies).unwrap();
+    let v = engine
+        .evaluate_action(&make_action("file", "read"), &policies)
+        .unwrap();
     assert_eq!(v, Verdict::Allow);
 
     // Non-matching actions fall through to default deny
-    let v = engine.evaluate_action(&make_action("file", "write"), &policies).unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Non-matching function should deny");
+    let v = engine
+        .evaluate_action(&make_action("file", "write"), &policies)
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Non-matching function should deny"
+    );
 
-    let v = engine.evaluate_action(&make_action("shell", "read"), &policies).unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Non-matching tool should deny");
+    let v = engine
+        .evaluate_action(&make_action("shell", "read"), &policies)
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Non-matching tool should deny"
+    );
 }
 
 #[test]
@@ -96,14 +115,27 @@ fn single_tool_only_id_matches_by_tool() {
         priority: 0,
     }];
 
-    let v = engine.evaluate_action(&make_action("bash", "anything"), &policies).unwrap();
-    assert_eq!(v, Verdict::Allow, "Tool-only ID should match regardless of function");
+    let v = engine
+        .evaluate_action(&make_action("bash", "anything"), &policies)
+        .unwrap();
+    assert_eq!(
+        v,
+        Verdict::Allow,
+        "Tool-only ID should match regardless of function"
+    );
 
-    let v = engine.evaluate_action(&make_action("bash", "execute"), &policies).unwrap();
+    let v = engine
+        .evaluate_action(&make_action("bash", "execute"), &policies)
+        .unwrap();
     assert_eq!(v, Verdict::Allow);
 
-    let v = engine.evaluate_action(&make_action("shell", "bash"), &policies).unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Should not match different tool");
+    let v = engine
+        .evaluate_action(&make_action("shell", "bash"), &policies)
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Should not match different tool"
+    );
 }
 
 // ═══════════════════════════════════
@@ -124,7 +156,9 @@ fn single_conditional_with_empty_conditions_allows() {
         priority: 0,
     }];
 
-    let v = engine.evaluate_action(&make_action("any", "thing"), &policies).unwrap();
+    let v = engine
+        .evaluate_action(&make_action("any", "thing"), &policies)
+        .unwrap();
     assert_eq!(v, Verdict::Allow, "Empty conditions should allow");
 }
 
@@ -140,7 +174,9 @@ fn single_conditional_with_require_approval_false_allows() {
         priority: 0,
     }];
 
-    let v = engine.evaluate_action(&make_action("any", "thing"), &policies).unwrap();
+    let v = engine
+        .evaluate_action(&make_action("any", "thing"), &policies)
+        .unwrap();
     assert_eq!(v, Verdict::Allow, "require_approval=false should allow");
 }
 
@@ -158,7 +194,10 @@ fn single_conditional_forbidden_param_present_denies() {
 
     let action = make_action_with_params("tool", "func", json!({"secret": "value", "other": "ok"}));
     let v = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Forbidden param present should deny");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Forbidden param present should deny"
+    );
 }
 
 #[test]
@@ -192,7 +231,10 @@ fn single_conditional_required_param_missing_denies() {
 
     let action = make_action_with_params("tool", "func", json!({"other": "stuff"}));
     let v = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Missing required param should deny");
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Missing required param should deny"
+    );
 }
 
 #[test]
@@ -226,8 +268,14 @@ fn single_policy_at_i32_min_still_matches() {
         priority: i32::MIN,
     }];
 
-    let v = engine.evaluate_action(&make_action("t", "f"), &policies).unwrap();
-    assert_eq!(v, Verdict::Allow, "Single policy should match regardless of priority value");
+    let v = engine
+        .evaluate_action(&make_action("t", "f"), &policies)
+        .unwrap();
+    assert_eq!(
+        v,
+        Verdict::Allow,
+        "Single policy should match regardless of priority value"
+    );
 }
 
 #[test]
@@ -240,7 +288,9 @@ fn single_policy_at_i32_max_still_matches() {
         priority: i32::MAX,
     }];
 
-    let v = engine.evaluate_action(&make_action("t", "f"), &policies).unwrap();
+    let v = engine
+        .evaluate_action(&make_action("t", "f"), &policies)
+        .unwrap();
     assert!(matches!(v, Verdict::Deny { .. }));
 }
 
@@ -259,20 +309,36 @@ fn suffix_wildcard_on_tool_part() {
         priority: 10,
     }];
 
-    let v = engine.evaluate_action(&make_action("file_system", "read"), &policies).unwrap();
+    let v = engine
+        .evaluate_action(&make_action("file_system", "read"), &policies)
+        .unwrap();
     assert_eq!(v, Verdict::Allow, "file_system starts with 'file'");
 
-    let v = engine.evaluate_action(&make_action("filesystem", "read"), &policies).unwrap();
+    let v = engine
+        .evaluate_action(&make_action("filesystem", "read"), &policies)
+        .unwrap();
     assert_eq!(v, Verdict::Allow);
 
-    let v = engine.evaluate_action(&make_action("file", "read"), &policies).unwrap();
+    let v = engine
+        .evaluate_action(&make_action("file", "read"), &policies)
+        .unwrap();
     assert_eq!(v, Verdict::Allow, "Exact prefix match");
 
-    let v = engine.evaluate_action(&make_action("file_system", "write"), &policies).unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Function doesn't match 'read'");
+    let v = engine
+        .evaluate_action(&make_action("file_system", "write"), &policies)
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Function doesn't match 'read'"
+    );
 
-    let v = engine.evaluate_action(&make_action("myfile", "read"), &policies).unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "'myfile' doesn't start with 'file'");
+    let v = engine
+        .evaluate_action(&make_action("myfile", "read"), &policies)
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "'myfile' doesn't start with 'file'"
+    );
 }
 
 #[test]
@@ -286,17 +352,27 @@ fn prefix_wildcard_on_function_part() {
         priority: 10,
     }];
 
-    let v = engine.evaluate_action(&make_action("shell", "execute"), &policies).unwrap();
+    let v = engine
+        .evaluate_action(&make_action("shell", "execute"), &policies)
+        .unwrap();
     assert!(matches!(v, Verdict::Deny { .. }), "Exact suffix match");
 
-    let v = engine.evaluate_action(&make_action("shell", "safe_execute"), &policies).unwrap();
+    let v = engine
+        .evaluate_action(&make_action("shell", "safe_execute"), &policies)
+        .unwrap();
     assert!(matches!(v, Verdict::Deny { .. }), "Ends with 'execute'");
 
     // "execute_cmd" does NOT end with "execute", so the *execute pattern won't match.
     // Engine is fail-closed: no match → Deny with "No matching policy" (not the policy's own deny).
-    let v = engine.evaluate_action(&make_action("shell", "execute_cmd"), &policies).unwrap();
+    let v = engine
+        .evaluate_action(&make_action("shell", "execute_cmd"), &policies)
+        .unwrap();
     match &v {
-        Verdict::Deny { reason } => assert!(reason.contains("No matching policy"), "Should be default deny, got: {}", reason),
+        Verdict::Deny { reason } => assert!(
+            reason.contains("No matching policy"),
+            "Should be default deny, got: {}",
+            reason
+        ),
         other => panic!("Expected Deny, got {:?}", other),
     }
 }

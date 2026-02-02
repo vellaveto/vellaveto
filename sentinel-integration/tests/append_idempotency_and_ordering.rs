@@ -43,8 +43,14 @@ fn identical_inputs_produce_different_ids() {
         let verdict = Verdict::Allow;
         let metadata = json!({"same": "data"});
 
-        logger.log_entry(&action, &verdict, metadata.clone()).await.unwrap();
-        logger.log_entry(&action, &verdict, metadata.clone()).await.unwrap();
+        logger
+            .log_entry(&action, &verdict, metadata.clone())
+            .await
+            .unwrap();
+        logger
+            .log_entry(&action, &verdict, metadata.clone())
+            .await
+            .unwrap();
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 2);
@@ -64,7 +70,10 @@ fn fifty_identical_writes_all_unique_ids() {
         let action = make_action();
 
         for _ in 0..50 {
-            logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
         }
 
         let entries = logger.load_entries().await.unwrap();
@@ -93,7 +102,10 @@ fn load_order_matches_write_order() {
                 function: "ordered".to_string(),
                 parameters: json!({}),
             };
-            logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
         }
 
         let entries = logger.load_entries().await.unwrap();
@@ -119,10 +131,16 @@ fn mixed_verdicts_maintain_order() {
 
         let verdicts = vec![
             Verdict::Allow,
-            Verdict::Deny { reason: "r1".to_string() },
-            Verdict::RequireApproval { reason: "r2".to_string() },
+            Verdict::Deny {
+                reason: "r1".to_string(),
+            },
+            Verdict::RequireApproval {
+                reason: "r2".to_string(),
+            },
             Verdict::Allow,
-            Verdict::Deny { reason: "r3".to_string() },
+            Verdict::Deny {
+                reason: "r3".to_string(),
+            },
         ];
 
         for v in &verdicts {
@@ -163,7 +181,10 @@ fn sequential_timestamps_are_non_decreasing() {
         let action = make_action();
 
         for _ in 0..20 {
-            logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
         }
 
         let entries = logger.load_entries().await.unwrap();

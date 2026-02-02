@@ -3,6 +3,7 @@
 //! - require_approval is false or absent
 //! - no forbidden_parameters match
 //! - no required_parameters are missing
+//!
 //! The result should be Verdict::Allow (the fall-through default).
 //! This documents a potentially surprising security behavior.
 
@@ -48,8 +49,10 @@ fn empty_conditions_object_allows_action() {
     let action = make_action("bash", "rm_rf", json!({"target": "/"}));
     let policies = vec![conditional_policy("*", 100, json!({}))];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "Empty conditions should fall through to Allow — SECURITY NOTE: this is permissive");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Empty conditions should fall through to Allow — SECURITY NOTE: this is permissive"
+    );
 }
 
 /// Multiple empty conditional policies, all pass through to Allow.
@@ -75,9 +78,13 @@ fn multiple_empty_conditionals_all_allow() {
 fn require_approval_false_allows() {
     let engine = PolicyEngine::new(false);
     let action = make_action("bash", "exec", json!({}));
-    let policies = vec![conditional_policy("*", 100, json!({
-        "require_approval": false
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        100,
+        json!({
+            "require_approval": false
+        }),
+    )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(result, Verdict::Allow));
 }
@@ -88,13 +95,19 @@ fn require_approval_false_allows() {
 fn require_approval_string_true_does_not_trigger() {
     let engine = PolicyEngine::new(false);
     let action = make_action("bash", "exec", json!({}));
-    let policies = vec![conditional_policy("*", 100, json!({
-        "require_approval": "true"  // string, not boolean
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        100,
+        json!({
+            "require_approval": "true"  // string, not boolean
+        }),
+    )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     // as_bool() on "true" returns None → unwrap_or(false) → no approval required
-    assert!(matches!(result, Verdict::Allow),
-        "String 'true' should not trigger require_approval (as_bool returns None)");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "String 'true' should not trigger require_approval (as_bool returns None)"
+    );
 }
 
 /// require_approval as integer 1 should not trigger.
@@ -102,12 +115,18 @@ fn require_approval_string_true_does_not_trigger() {
 fn require_approval_integer_one_does_not_trigger() {
     let engine = PolicyEngine::new(false);
     let action = make_action("bash", "exec", json!({}));
-    let policies = vec![conditional_policy("*", 100, json!({
-        "require_approval": 1
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        100,
+        json!({
+            "require_approval": 1
+        }),
+    )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "Integer 1 should not trigger require_approval (as_bool returns None for integers)");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Integer 1 should not trigger require_approval (as_bool returns None for integers)"
+    );
 }
 
 // ═══════════════════════════════════
@@ -119,9 +138,13 @@ fn require_approval_integer_one_does_not_trigger() {
 fn forbidden_params_not_present_allows() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({"safe_key": "value"}));
-    let policies = vec![conditional_policy("*", 100, json!({
-        "forbidden_parameters": ["danger", "evil", "bad"]
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        100,
+        json!({
+            "forbidden_parameters": ["danger", "evil", "bad"]
+        }),
+    )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(result, Verdict::Allow));
 }
@@ -131,9 +154,13 @@ fn forbidden_params_not_present_allows() {
 fn empty_forbidden_params_array_allows() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({"any": "param"}));
-    let policies = vec![conditional_policy("*", 100, json!({
-        "forbidden_parameters": []
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        100,
+        json!({
+            "forbidden_parameters": []
+        }),
+    )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(result, Verdict::Allow));
 }
@@ -146,13 +173,21 @@ fn empty_forbidden_params_array_allows() {
 #[test]
 fn all_required_params_present_allows() {
     let engine = PolicyEngine::new(false);
-    let action = make_action("tool", "func", json!({
-        "token": "abc123",
-        "user": "admin"
-    }));
-    let policies = vec![conditional_policy("*", 100, json!({
-        "required_parameters": ["token", "user"]
-    }))];
+    let action = make_action(
+        "tool",
+        "func",
+        json!({
+            "token": "abc123",
+            "user": "admin"
+        }),
+    );
+    let policies = vec![conditional_policy(
+        "*",
+        100,
+        json!({
+            "required_parameters": ["token", "user"]
+        }),
+    )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(result, Verdict::Allow));
 }
@@ -162,9 +197,13 @@ fn all_required_params_present_allows() {
 fn empty_required_params_array_allows() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({}));
-    let policies = vec![conditional_policy("*", 100, json!({
-        "required_parameters": []
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        100,
+        json!({
+            "required_parameters": []
+        }),
+    )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(result, Verdict::Allow));
 }
@@ -179,13 +218,19 @@ fn empty_required_params_array_allows() {
 fn unknown_condition_keys_silently_allow() {
     let engine = PolicyEngine::new(false);
     let action = make_action("bash", "rm_rf", json!({"target": "/"}));
-    let policies = vec![conditional_policy("*", 1000, json!({
-        "requir_approval": true,  // typo: missing 'e'
-        "forbiden_parameters": ["target"]  // typo: missing 'd'
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        1000,
+        json!({
+            "requir_approval": true,  // typo: missing 'e'
+            "forbiden_parameters": ["target"]  // typo: missing 'd'
+        }),
+    )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "Typos in condition keys should silently fall through to Allow — SECURITY BUG POTENTIAL");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Typos in condition keys should silently fall through to Allow — SECURITY BUG POTENTIAL"
+    );
 }
 
 /// Conditions with non-standard types for known keys.
@@ -194,13 +239,19 @@ fn unknown_condition_keys_silently_allow() {
 fn forbidden_parameters_as_string_silently_skipped() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({"danger": true}));
-    let policies = vec![conditional_policy("*", 100, json!({
-        "forbidden_parameters": "danger"  // string, not array
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        100,
+        json!({
+            "forbidden_parameters": "danger"  // string, not array
+        }),
+    )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     // Source: forbidden.as_array() returns None for string → skips check
-    assert!(matches!(result, Verdict::Allow),
-        "String forbidden_parameters should be silently skipped (as_array returns None)");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "String forbidden_parameters should be silently skipped (as_array returns None)"
+    );
 }
 
 /// required_parameters as an object instead of array → silently skipped.
@@ -208,12 +259,18 @@ fn forbidden_parameters_as_string_silently_skipped() {
 fn required_parameters_as_object_silently_skipped() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({})); // missing everything
-    let policies = vec![conditional_policy("*", 100, json!({
-        "required_parameters": {"token": true}  // object, not array
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        100,
+        json!({
+            "required_parameters": {"token": true}  // object, not array
+        }),
+    )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "Object required_parameters should be silently skipped");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Object required_parameters should be silently skipped"
+    );
 }
 
 // ═══════════════════════════════════
@@ -227,10 +284,12 @@ fn conditional_passthrough_shadows_lower_deny() {
     let engine = PolicyEngine::new(false);
     let action = make_action("bash", "exec", json!({}));
     let policies = vec![
-        conditional_policy("*", 100, json!({})),  // passes through  Allow
-        deny_policy("*", 50),  // never reached
+        conditional_policy("*", 100, json!({})), // passes through  Allow
+        deny_policy("*", 50),                    // never reached
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "High-priority conditional passthrough should shadow lower-priority deny");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "High-priority conditional passthrough should shadow lower-priority deny"
+    );
 }

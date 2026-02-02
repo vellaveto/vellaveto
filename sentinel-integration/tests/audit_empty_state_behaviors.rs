@@ -72,7 +72,10 @@ fn single_write_then_load_returns_one_entry() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        logger.log_entry(&action(), &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action(), &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
     });
@@ -86,7 +89,10 @@ fn n_writes_then_load_returns_n_entries() {
         let (logger, _tmp) = setup_logger();
         let n = 25;
         for _ in 0..n {
-            logger.log_entry(&action(), &Verdict::Allow, json!({})).await.unwrap();
+            logger
+                .log_entry(&action(), &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
         }
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), n);
@@ -107,12 +113,33 @@ fn report_counts_match_written_verdicts_exactly() {
 
         // 3 Allow, 2 Deny, 1 RequireApproval
         for _ in 0..3 {
-            logger.log_entry(&a, &Verdict::Allow, json!({})).await.unwrap();
+            logger
+                .log_entry(&a, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
         }
         for i in 0..2 {
-            logger.log_entry(&a, &Verdict::Deny { reason: format!("r{}", i) }, json!({})).await.unwrap();
+            logger
+                .log_entry(
+                    &a,
+                    &Verdict::Deny {
+                        reason: format!("r{}", i),
+                    },
+                    json!({}),
+                )
+                .await
+                .unwrap();
         }
-        logger.log_entry(&a, &Verdict::RequireApproval { reason: "review".into() }, json!({})).await.unwrap();
+        logger
+            .log_entry(
+                &a,
+                &Verdict::RequireApproval {
+                    reason: "review".into(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
 
         let report = logger.generate_report().await.unwrap();
         assert_eq!(report.total_entries, 6);
@@ -139,7 +166,10 @@ fn all_entries_have_nonempty_ids() {
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
         for _ in 0..5 {
-            logger.log_entry(&action(), &Verdict::Allow, json!({})).await.unwrap();
+            logger
+                .log_entry(&action(), &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
         }
         let entries = logger.load_entries().await.unwrap();
         for entry in &entries {
@@ -155,7 +185,10 @@ fn all_entries_have_nonempty_timestamps() {
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
         for _ in 0..5 {
-            logger.log_entry(&action(), &Verdict::Allow, json!({})).await.unwrap();
+            logger
+                .log_entry(&action(), &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
         }
         let entries = logger.load_entries().await.unwrap();
         for entry in &entries {

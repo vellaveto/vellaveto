@@ -27,8 +27,10 @@ fn empty_policies_deny_reason_is_exact() {
     let result = engine.evaluate_action(&action, &[]).unwrap();
     match result {
         Verdict::Deny { reason } => {
-            assert_eq!(reason, "No policies defined",
-                "Empty policies must produce exact reason string");
+            assert_eq!(
+                reason, "No policies defined",
+                "Empty policies must produce exact reason string"
+            );
         }
         other => panic!("Expected Deny, got {:?}", other),
     }
@@ -133,7 +135,10 @@ fn forbidden_param_reason_includes_param_and_policy_name() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
         Verdict::Deny { reason } => {
-            assert_eq!(reason, "Parameter 'secret' is forbidden by policy 'No Secrets'");
+            assert_eq!(
+                reason,
+                "Parameter 'secret' is forbidden by policy 'No Secrets'"
+            );
         }
         other => panic!("Expected Deny, got {:?}", other),
     }
@@ -160,7 +165,10 @@ fn required_param_missing_reason_format() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
         Verdict::Deny { reason } => {
-            assert_eq!(reason, "Required parameter 'token' missing (policy 'Auth Required')");
+            assert_eq!(
+                reason,
+                "Required parameter 'token' missing (policy 'Auth Required')"
+            );
         }
         other => panic!("Expected Deny, got {:?}", other),
     }
@@ -192,5 +200,9 @@ fn condition_depth_11_returns_error() {
     let result = engine.evaluate_action(&action, &policies);
     assert!(result.is_err(), "Depth >10 must produce an error");
     let err_msg = result.unwrap_err().to_string();
-    assert!(err_msg.contains("nesting depth"), "Error should mention nesting depth: {}", err_msg);
+    assert!(
+        err_msg.contains("nesting depth"),
+        "Error should mention nesting depth: {}",
+        err_msg
+    );
 }

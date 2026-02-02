@@ -5,7 +5,7 @@
 
 use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
-use sentinel_types::{Action, Policy, PolicyType, Verdict};
+use sentinel_types::{Action, Policy, Verdict};
 use serde_json::json;
 use tempfile::TempDir;
 
@@ -50,10 +50,10 @@ fn basic_config_to_audit_pipeline() {
         let policies = policies_from_json(config);
 
         let scenarios = vec![
-            (make_action("file", "read", json!({})), true),       // allowed
-            (make_action("file", "write", json!({})), true),      // allowed
-            (make_action("file", "delete", json!({})), false),    // denied
-            (make_action("network", "fetch", json!({})), false),  // default deny
+            (make_action("file", "read", json!({})), true), // allowed
+            (make_action("file", "write", json!({})), true), // allowed
+            (make_action("file", "delete", json!({})), false), // denied
+            (make_action("network", "fetch", json!({})), false), // default deny
         ];
 
         for (action, should_allow) in &scenarios {
@@ -174,37 +174,36 @@ fn layered_conditional_config() {
     let policies = policies_from_json(config);
 
     // shell:exec → RequireApproval (priority 100)
-    match engine.evaluate_action(
-        &make_action("shell", "exec", json!({})),
-        &policies,
-    ).unwrap() {
+    match engine
+        .evaluate_action(&make_action("shell", "exec", json!({})), &policies)
+        .unwrap()
+    {
         Verdict::RequireApproval { .. } => {}
         other => panic!("shell:exec should require approval, got {:?}", other),
     }
 
     // file:read → Allow (priority 50, "file:*" matches)
     assert_eq!(
-        engine.evaluate_action(
-            &make_action("file", "read", json!({})),
-            &policies,
-        ).unwrap(),
+        engine
+            .evaluate_action(&make_action("file", "read", json!({})), &policies,)
+            .unwrap(),
         Verdict::Allow,
     );
 
     // file:delete  Deny (priority 90 beats Allow at 50)
-    match engine.evaluate_action(
-        &make_action("file", "delete", json!({})),
-        &policies,
-    ).unwrap() {
+    match engine
+        .evaluate_action(&make_action("file", "delete", json!({})), &policies)
+        .unwrap()
+    {
         Verdict::Deny { .. } => {}
         other => panic!("file:delete should be denied, got {:?}", other),
     }
 
     // network:fetch  Default deny (priority 0)
-    match engine.evaluate_action(
-        &make_action("network", "fetch", json!({})),
-        &policies,
-    ).unwrap() {
+    match engine
+        .evaluate_action(&make_action("network", "fetch", json!({})), &policies)
+        .unwrap()
+    {
         Verdict::Deny { .. } => {}
         other => panic!("network:fetch should hit default deny, got {:?}", other),
     }
@@ -228,29 +227,30 @@ fn config_with_negative_priorities() {
     // file:read matches both "file:read"(-100) and "file:*"(-500) and "*"(-1000)
     // -100 > -500 > -1000, so Allow wins
     assert_eq!(
-        engine.evaluate_action(
-            &make_action("file", "read", json!({})),
-            &policies,
-        ).unwrap(),
+        engine
+            .evaluate_action(&make_action("file", "read", json!({})), &policies,)
+            .unwrap(),
         Verdict::Allow,
     );
 
     // file:write matches "file:*"(-500) and "*"(-1000)
     // -500 > -1000, so Deny wins
-    match engine.evaluate_action(
-        &make_action("file", "write", json!({})),
-        &policies,
-    ).unwrap() {
+    match engine
+        .evaluate_action(&make_action("file", "write", json!({})), &policies)
+        .unwrap()
+    {
         Verdict::Deny { .. } => {}
-        other => panic!("file:write should be denied at priority -500, got {:?}", other),
+        other => panic!(
+            "file:write should be denied at priority -500, got {:?}",
+            other
+        ),
     }
 
     // network:fetch matches only "*"(-1000) → Allow
     assert_eq!(
-        engine.evaluate_action(
-            &make_action("network", "fetch", json!({})),
-            &policies,
-        ).unwrap(),
+        engine
+            .evaluate_action(&make_action("network", "fetch", json!({})), &policies,)
+            .unwrap(),
         Verdict::Allow,
     );
 }

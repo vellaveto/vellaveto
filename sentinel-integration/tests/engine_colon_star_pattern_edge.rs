@@ -64,7 +64,10 @@ fn star_colon_does_not_match_nonempty_function() {
         Verdict::Deny { reason } => {
             assert_eq!(reason, "No matching policy");
         }
-        other => panic!("Policy '*:' should NOT match function='exec', got {:?}", other),
+        other => panic!(
+            "Policy '*:' should NOT match function='exec', got {:?}",
+            other
+        ),
     }
 }
 
@@ -125,7 +128,8 @@ fn star_colon_star_matches_everything() {
         assert!(
             matches!(result, Verdict::Allow),
             "Policy '*:*' should match {:?}, got {:?}",
-            action, result
+            action,
+            result
         );
     }
 }
@@ -138,10 +142,7 @@ fn star_colon_star_vs_star_priority_decides() {
     let action = make_action("tool", "func");
 
     // "*" Allow at 100, "*:*" Deny at 50
-    let policies = vec![
-        allow_policy("*", 100),
-        deny_policy("*:*", 50),
-    ];
+    let policies = vec![allow_policy("*", 100), deny_policy("*:*", 50)];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
@@ -150,10 +151,7 @@ fn star_colon_star_vs_star_priority_decides() {
     );
 
     // Flip: "*:*" Deny at 100, "*" Allow at 50
-    let policies = vec![
-        allow_policy("*", 50),
-        deny_policy("*:*", 100),
-    ];
+    let policies = vec![allow_policy("*", 50), deny_policy("*:*", 100)];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),

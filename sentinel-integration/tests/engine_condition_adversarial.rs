@@ -44,7 +44,11 @@ fn conditions_with_null_value_does_not_crash() {
 
     // null conditions: no forbidden/required/require_approval keys → falls through to Allow
     let result = engine.evaluate_action(&action, &policies);
-    assert!(result.is_ok(), "null conditions should not crash: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "null conditions should not crash: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -54,7 +58,11 @@ fn conditions_with_string_value_does_not_crash() {
     let policies = vec![conditional_policy("*", 10, json!("not an object"))];
 
     let result = engine.evaluate_action(&action, &policies);
-    assert!(result.is_ok(), "string conditions should not crash: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "string conditions should not crash: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -64,7 +72,11 @@ fn conditions_with_array_value_does_not_crash() {
     let policies = vec![conditional_policy("*", 10, json!([1, 2, 3]))];
 
     let result = engine.evaluate_action(&action, &policies);
-    assert!(result.is_ok(), "array conditions should not crash: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "array conditions should not crash: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -74,7 +86,11 @@ fn conditions_with_integer_value_does_not_crash() {
     let policies = vec![conditional_policy("*", 10, json!(42))];
 
     let result = engine.evaluate_action(&action, &policies);
-    assert!(result.is_ok(), "integer conditions should not crash: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "integer conditions should not crash: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -84,7 +100,11 @@ fn conditions_with_boolean_value_does_not_crash() {
     let policies = vec![conditional_policy("*", 10, json!(true))];
 
     let result = engine.evaluate_action(&action, &policies);
-    assert!(result.is_ok(), "boolean conditions should not crash: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "boolean conditions should not crash: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -129,7 +149,10 @@ fn condition_depth_11_is_rejected() {
     let policies = vec![conditional_policy("*", 10, conditions)];
 
     let result = engine.evaluate_action(&action, &policies);
-    assert!(result.is_err(), "depth 11 should be rejected as InvalidCondition");
+    assert!(
+        result.is_err(),
+        "depth 11 should be rejected as InvalidCondition"
+    );
     let err_msg = format!("{}", result.unwrap_err());
     assert!(
         err_msg.contains("nesting depth"),
@@ -193,7 +216,10 @@ fn condition_depth_mixed_object_array_11_is_rejected() {
     let policies = vec![conditional_policy("*", 10, val)];
 
     let result = engine.evaluate_action(&action, &policies);
-    assert!(result.is_err(), "depth 11 via mixed nesting should be rejected");
+    assert!(
+        result.is_err(),
+        "depth 11 via mixed nesting should be rejected"
+    );
 }
 
 // ═══════════════════════════════════════════
@@ -214,7 +240,11 @@ fn condition_just_under_100kb_is_accepted() {
     }
     let conditions = serde_json::Value::Object(obj);
     let size = conditions.to_string().len();
-    assert!(size < 100_000, "precondition: size {} should be < 100000", size);
+    assert!(
+        size < 100_000,
+        "precondition: size {} should be < 100000",
+        size
+    );
 
     let policies = vec![conditional_policy("*", 10, conditions)];
     let result = engine.evaluate_action(&action, &policies);
@@ -233,7 +263,11 @@ fn condition_over_100kb_is_rejected() {
     }
     let conditions = serde_json::Value::Object(obj);
     let size = conditions.to_string().len();
-    assert!(size > 100_000, "precondition: size {} should be > 100000", size);
+    assert!(
+        size > 100_000,
+        "precondition: size {} should be > 100000",
+        size
+    );
 
     let policies = vec![conditional_policy("*", 10, conditions)];
     let result = engine.evaluate_action(&action, &policies);
@@ -263,8 +297,16 @@ fn forbidden_parameter_present_causes_deny() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match &result {
         Verdict::Deny { reason } => {
-            assert!(reason.contains("force"), "Reason should name the param: {}", reason);
-            assert!(reason.contains("forbidden"), "Reason should say forbidden: {}", reason);
+            assert!(
+                reason.contains("force"),
+                "Reason should name the param: {}",
+                reason
+            );
+            assert!(
+                reason.contains("forbidden"),
+                "Reason should say forbidden: {}",
+                reason
+            );
         }
         other => panic!("Expected Deny for forbidden param, got {:?}", other),
     }
@@ -281,7 +323,11 @@ fn forbidden_parameter_absent_allows() {
     )];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(result, Verdict::Allow, "No forbidden params present → Allow");
+    assert_eq!(
+        result,
+        Verdict::Allow,
+        "No forbidden params present → Allow"
+    );
 }
 
 #[test]
@@ -323,7 +369,10 @@ fn forbidden_param_with_null_value_still_matches() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
         Verdict::Deny { .. } => {} // correct: key exists even though value is null
-        other => panic!("Key 'secret' with null value should still be forbidden, got {:?}", other),
+        other => panic!(
+            "Key 'secret' with null value should still be forbidden, got {:?}",
+            other
+        ),
     }
 }
 
@@ -361,7 +410,11 @@ fn required_parameter_missing_causes_deny() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match &result {
         Verdict::Deny { reason } => {
-            assert!(reason.contains("auth_token"), "Should name missing param: {}", reason);
+            assert!(
+                reason.contains("auth_token"),
+                "Should name missing param: {}",
+                reason
+            );
         }
         other => panic!("Expected Deny for missing required param, got {:?}", other),
     }
@@ -393,7 +446,11 @@ fn required_parameter_present_as_null_still_satisfies() {
     )];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(result, Verdict::Allow, "Null-valued key should satisfy required_parameters");
+    assert_eq!(
+        result,
+        Verdict::Allow,
+        "Null-valued key should satisfy required_parameters"
+    );
 }
 
 // ═══════════════════════════════════════════
@@ -434,7 +491,11 @@ fn require_approval_false_does_not_trigger() {
     )];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(result, Verdict::Allow, "require_approval: false should not trigger approval");
+    assert_eq!(
+        result,
+        Verdict::Allow,
+        "require_approval: false should not trigger approval"
+    );
 }
 
 #[test]
@@ -461,11 +522,7 @@ fn require_approval_as_string_does_not_trigger() {
 fn require_approval_as_integer_does_not_trigger() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({}));
-    let policies = vec![conditional_policy(
-        "*",
-        10,
-        json!({"require_approval": 1}),
-    )];
+    let policies = vec![conditional_policy("*", 10, json!({"require_approval": 1}))];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert_eq!(
@@ -643,7 +700,11 @@ fn empty_forbidden_parameters_array_allows() {
     )];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(result, Verdict::Allow, "Empty forbidden array should allow everything");
+    assert_eq!(
+        result,
+        Verdict::Allow,
+        "Empty forbidden array should allow everything"
+    );
 }
 
 #[test]
@@ -657,5 +718,9 @@ fn empty_required_parameters_array_allows() {
     )];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(result, Verdict::Allow, "Empty required array should allow everything");
+    assert_eq!(
+        result,
+        Verdict::Allow,
+        "Empty required array should allow everything"
+    );
 }

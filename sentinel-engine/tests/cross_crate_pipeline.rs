@@ -54,7 +54,8 @@ fn test_single_allow_policy_permits_action() {
     let action = make_action("file", "read");
     let policies = vec![allow_policy("file:read", "Allow file reads", 0)];
 
-    let verdict = engine.evaluate_action(&action, &policies)
+    let verdict = engine
+        .evaluate_action(&action, &policies)
         .expect("evaluation should not error");
 
     assert!(
@@ -70,7 +71,8 @@ fn test_single_deny_policy_blocks_action() {
     let action = make_action("file", "delete");
     let policies = vec![deny_policy("file:delete", "Block file deletes", 0)];
 
-    let verdict = engine.evaluate_action(&action, &policies)
+    let verdict = engine
+        .evaluate_action(&action, &policies)
         .expect("evaluation should not error");
 
     assert!(
@@ -93,7 +95,8 @@ fn test_deny_overrides_allow_same_priority() {
         deny_policy("file:write", "Deny writes", 0),
     ];
 
-    let verdict = engine.evaluate_action(&action, &policies)
+    let verdict = engine
+        .evaluate_action(&action, &policies)
         .expect("evaluation should not error");
 
     assert!(
@@ -114,7 +117,8 @@ fn test_deny_overrides_allow_regardless_of_order() {
         allow_policy("file:write", "Allow writes", 0),
     ];
 
-    let verdict = engine.evaluate_action(&action, &policies)
+    let verdict = engine
+        .evaluate_action(&action, &policies)
         .expect("evaluation should not error");
 
     assert!(
@@ -137,7 +141,8 @@ fn test_higher_priority_policy_wins() {
         allow_policy("net:connect", "Allow connect specifically", 10),
     ];
 
-    let verdict = engine.evaluate_action(&action, &policies)
+    let verdict = engine
+        .evaluate_action(&action, &policies)
         .expect("evaluation should not error");
 
     // Higher priority allow should beat lower priority deny
@@ -208,7 +213,8 @@ fn test_no_matching_policy_non_strict() {
     // Policy exists but doesn't match the action
     let policies = vec![allow_policy("net:connect", "Allow network only", 0)];
 
-    let result = engine.evaluate_action(&action, &policies)
+    let result = engine
+        .evaluate_action(&action, &policies)
         .expect("should not error with non-matching policy");
 
     // Non-strict: unmatched action gets default verdict
@@ -322,7 +328,11 @@ fn test_very_long_strings() {
     let engine = PolicyEngine::new(false);
     let long_str = "a".repeat(10_000);
     let action = make_action(&long_str, &long_str);
-    let policies = vec![allow_policy(&format!("{}:{}", long_str, long_str), "Long policy", 0)];
+    let policies = vec![allow_policy(
+        &format!("{}:{}", long_str, long_str),
+        "Long policy",
+        0,
+    )];
 
     let result = engine.evaluate_action(&action, &policies);
     assert!(
@@ -340,7 +350,8 @@ fn test_negative_priority() {
         deny_policy("file:read", "Positive priority deny", 100),
     ];
 
-    let verdict = engine.evaluate_action(&action, &policies)
+    let verdict = engine
+        .evaluate_action(&action, &policies)
         .expect("negative priority should not cause error");
 
     // Higher priority (100) deny should beat lower priority (-100) allow
@@ -386,7 +397,8 @@ fn test_action_with_complex_parameters() {
     );
     let policies = vec![allow_policy("database:query", "Allow queries", 0)];
 
-    let verdict = engine.evaluate_action(&action, &policies)
+    let verdict = engine
+        .evaluate_action(&action, &policies)
         .expect("complex parameters should not cause error");
 
     assert!(
@@ -419,17 +431,20 @@ fn test_large_policy_set() {
     let action = make_action("file", "read");
 
     let mut policies: Vec<Policy> = (0..1000)
-        .map(|i| allow_policy(
-            &format!("other_tool_{}:other_func_{}", i, i),
-            &format!("Unrelated policy {}", i),
-            i,
-        ))
+        .map(|i| {
+            allow_policy(
+                &format!("other_tool_{}:other_func_{}", i, i),
+                &format!("Unrelated policy {}", i),
+                i,
+            )
+        })
         .collect();
 
     // Add one matching deny at the end
     policies.push(deny_policy("file:read", "The one deny", 999));
 
-    let verdict = engine.evaluate_action(&action, &policies)
+    let verdict = engine
+        .evaluate_action(&action, &policies)
         .expect("large policy set should not error");
 
     assert!(
@@ -451,9 +466,11 @@ fn test_strict_and_non_strict_agree_on_explicit_allow() {
     let engine_strict = PolicyEngine::new(true);
     let engine_lax = PolicyEngine::new(false);
 
-    let verdict_strict = engine_strict.evaluate_action(&action, &policies)
+    let verdict_strict = engine_strict
+        .evaluate_action(&action, &policies)
         .expect("strict mode should not error on explicit allow");
-    let verdict_lax = engine_lax.evaluate_action(&action, &policies)
+    let verdict_lax = engine_lax
+        .evaluate_action(&action, &policies)
         .expect("non-strict mode should not error on explicit allow");
 
     // Both modes should agree when there's an explicit matching Allow policy
@@ -477,9 +494,11 @@ fn test_strict_and_non_strict_agree_on_explicit_deny() {
     let engine_strict = PolicyEngine::new(true);
     let engine_lax = PolicyEngine::new(false);
 
-    let verdict_strict = engine_strict.evaluate_action(&action, &policies)
+    let verdict_strict = engine_strict
+        .evaluate_action(&action, &policies)
         .expect("strict should not error on explicit deny");
-    let verdict_lax = engine_lax.evaluate_action(&action, &policies)
+    let verdict_lax = engine_lax
+        .evaluate_action(&action, &policies)
         .expect("non-strict should not error on explicit deny");
 
     assert!(

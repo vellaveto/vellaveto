@@ -77,7 +77,10 @@ fn rejects_function_with_null_byte() {
         let (logger, _tmp) = setup_logger();
         let action = make_action("tool", "func\0tion");
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_err(), "Function with null byte should be rejected");
+        assert!(
+            result.is_err(),
+            "Function with null byte should be rejected"
+        );
     });
 }
 
@@ -105,7 +108,10 @@ fn accepts_tool_with_form_feed() {
         let (logger, _tmp) = setup_logger();
         let action = make_action("tool\x0cfunc", "func");
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_ok(), "Form feed should be accepted (not in reject list)");
+        assert!(
+            result.is_ok(),
+            "Form feed should be accepted (not in reject list)"
+        );
     });
 }
 
@@ -117,7 +123,10 @@ fn accepts_tool_with_backspace() {
         let (logger, _tmp) = setup_logger();
         let action = make_action("tool\x08here", "func");
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_ok(), "Backspace should be accepted (not in reject list)");
+        assert!(
+            result.is_ok(),
+            "Backspace should be accepted (not in reject list)"
+        );
     });
 }
 
@@ -176,6 +185,9 @@ fn accepts_very_long_tool_name() {
         let long_name = "a".repeat(100_000);
         let action = make_action(&long_name, "func");
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_ok(), "Long tool name without control chars should be accepted");
+        assert!(
+            result.is_ok(),
+            "Long tool name without control chars should be accepted"
+        );
     });
 }

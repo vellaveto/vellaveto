@@ -64,7 +64,10 @@ fn error_log_entry_deserialization_from_json_value() {
 fn error_log_entry_missing_field_fails() {
     let incomplete = json!({"timestamp": "t", "error": "e"});
     let result: Result<ErrorLogEntry, _> = serde_json::from_value(incomplete);
-    assert!(result.is_err(), "Missing 'context' should fail deserialization");
+    assert!(
+        result.is_err(),
+        "Missing 'context' should fail deserialization"
+    );
 }
 
 #[test]
@@ -107,19 +110,19 @@ fn audit_report_clone_preserves_all_fields() {
         allow_count: 1,
         deny_count: 1,
         require_approval_count: 1,
-        entries: vec![
-            AuditEntry {
-                id: "id1".to_string(),
-                action: Action {
-                    tool: "t".to_string(),
-                    function: "f".to_string(),
-                    parameters: json!({}),
-                },
-                verdict: Verdict::Allow,
-                timestamp: "ts1".to_string(),
-                metadata: json!({"k": "v"}),
+        entries: vec![AuditEntry {
+            id: "id1".to_string(),
+            action: Action {
+                tool: "t".to_string(),
+                function: "f".to_string(),
+                parameters: json!({}),
             },
-        ],
+            verdict: Verdict::Allow,
+            timestamp: "ts1".to_string(),
+            metadata: json!({"k": "v"}),
+            entry_hash: None,
+            prev_hash: None,
+        }],
     };
     let cloned = report.clone();
     assert_eq!(cloned.total_entries, report.total_entries);
@@ -150,6 +153,8 @@ fn audit_report_with_mixed_verdicts_roundtrips() {
                 verdict: Verdict::Allow,
                 timestamp: "2025-01-01T00:00:00Z".to_string(),
                 metadata: json!({}),
+                entry_hash: None,
+                prev_hash: None,
             },
             AuditEntry {
                 id: "b".to_string(),
@@ -158,9 +163,13 @@ fn audit_report_with_mixed_verdicts_roundtrips() {
                     function: "func".to_string(),
                     parameters: json!({}),
                 },
-                verdict: Verdict::Deny { reason: "blocked".to_string() },
+                verdict: Verdict::Deny {
+                    reason: "blocked".to_string(),
+                },
                 timestamp: "2025-01-01T00:00:01Z".to_string(),
                 metadata: json!({"user": "test"}),
+                entry_hash: None,
+                prev_hash: None,
             },
             AuditEntry {
                 id: "c".to_string(),
@@ -169,9 +178,13 @@ fn audit_report_with_mixed_verdicts_roundtrips() {
                     function: "func".to_string(),
                     parameters: json!({}),
                 },
-                verdict: Verdict::RequireApproval { reason: "needs review".to_string() },
+                verdict: Verdict::RequireApproval {
+                    reason: "needs review".to_string(),
+                },
                 timestamp: "2025-01-01T00:00:02Z".to_string(),
                 metadata: json!(null),
+                entry_hash: None,
+                prev_hash: None,
             },
         ],
     };
@@ -183,7 +196,12 @@ fn audit_report_with_mixed_verdicts_roundtrips() {
     assert_eq!(deserialized.deny_count, 1);
     assert_eq!(deserialized.require_approval_count, 1);
     assert_eq!(deserialized.entries.len(), 3);
-    assert_eq!(deserialized.entries[1].verdict, Verdict::Deny { reason: "blocked".to_string() });
+    assert_eq!(
+        deserialized.entries[1].verdict,
+        Verdict::Deny {
+            reason: "blocked".to_string()
+        }
+    );
 }
 
 /// NOTE: AuditReport has no is_empty() method. Verify total_entries == 0 is the idiom.

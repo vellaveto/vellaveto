@@ -2,6 +2,7 @@
 //! - Parameter size limit: 1,000,000 bytes
 //! - Nesting depth limit: 20 levels
 //! - Tool/function name character restrictions
+//!
 //! These tests try to find off-by-one errors.
 
 use sentinel_audit::AuditLogger;
@@ -65,7 +66,10 @@ fn nesting_depth_20_accepted() {
         let params = nested_json(20);
         let action = make_action_with_params("tool", "func", params);
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_ok(), "Depth 20 should be accepted (limit is >20, not >=20)");
+        assert!(
+            result.is_ok(),
+            "Depth 20 should be accepted (limit is >20, not >=20)"
+        );
     });
 }
 
@@ -118,7 +122,11 @@ fn parameters_just_under_1mb_accepted() {
         // 999,990 bytes — safely under 1,000,000
         let params = sized_json(999_990);
         let actual_size = params.to_string().len();
-        assert!(actual_size < 1_000_000, "Test setup: size should be under 1MB, got {}", actual_size);
+        assert!(
+            actual_size < 1_000_000,
+            "Test setup: size should be under 1MB, got {}",
+            actual_size
+        );
 
         let action = make_action_with_params("tool", "func", params);
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
@@ -135,7 +143,11 @@ fn parameters_over_1mb_rejected() {
         // 1,000,010 bytes — safely over 1,000,000
         let params = sized_json(1_000_010);
         let actual_size = params.to_string().len();
-        assert!(actual_size > 1_000_000, "Test setup: size should be over 1MB, got {}", actual_size);
+        assert!(
+            actual_size > 1_000_000,
+            "Test setup: size should be over 1MB, got {}",
+            actual_size
+        );
 
         let action = make_action_with_params("tool", "func", params);
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
@@ -155,7 +167,10 @@ fn tool_name_with_carriage_return_rejected() {
         let (logger, _tmp) = setup_logger();
         let action = make_action_with_params("bad\rtool", "func", json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_err(), "Carriage return in tool name should be rejected");
+        assert!(
+            result.is_err(),
+            "Carriage return in tool name should be rejected"
+        );
     });
 }
 
@@ -167,7 +182,10 @@ fn function_name_with_null_byte_rejected() {
         let (logger, _tmp) = setup_logger();
         let action = make_action_with_params("tool", "func\0tion", json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_err(), "Null byte in function name should be rejected");
+        assert!(
+            result.is_err(),
+            "Null byte in function name should be rejected"
+        );
     });
 }
 
@@ -180,7 +198,10 @@ fn very_long_tool_name_accepted() {
         let long_name = "a".repeat(10_000);
         let action = make_action_with_params(&long_name, "func", json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_ok(), "Long tool name without forbidden chars should be accepted");
+        assert!(
+            result.is_ok(),
+            "Long tool name without forbidden chars should be accepted"
+        );
     });
 }
 
@@ -192,7 +213,10 @@ fn tool_name_with_spaces_and_tabs_accepted() {
         let (logger, _tmp) = setup_logger();
         let action = make_action_with_params("  \t  ", "func", json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_ok(), "Spaces and tabs in tool name should be accepted");
+        assert!(
+            result.is_ok(),
+            "Spaces and tabs in tool name should be accepted"
+        );
     });
 }
 
@@ -204,7 +228,10 @@ fn empty_tool_name_accepted() {
         let (logger, _tmp) = setup_logger();
         let action = make_action_with_params("", "", json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_ok(), "Empty tool/function names should be accepted (no empty check)");
+        assert!(
+            result.is_ok(),
+            "Empty tool/function names should be accepted (no empty check)"
+        );
     });
 }
 
@@ -242,10 +269,17 @@ fn deep_and_large_but_within_limits_accepted() {
             val = json!({"nested": val});
         }
         let size = val.to_string().len();
-        assert!(size < 1_000_000, "Test setup: combined size {} should be under 1MB", size);
+        assert!(
+            size < 1_000_000,
+            "Test setup: combined size {} should be under 1MB",
+            size
+        );
 
         let action = make_action_with_params("tool", "func", val);
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_ok(), "Deep but within limits + large but within limits should pass both checks");
+        assert!(
+            result.is_ok(),
+            "Deep but within limits + large but within limits should pass both checks"
+        );
     });
 }

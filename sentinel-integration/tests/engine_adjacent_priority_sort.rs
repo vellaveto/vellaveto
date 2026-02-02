@@ -39,8 +39,11 @@ fn allow_at_100_beats_deny_at_99() {
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "Allow at priority 100 should beat Deny at 99: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Allow at priority 100 should beat Deny at 99: got {:?}",
+        result
+    );
 }
 
 /// Deny at 100, Allow at 99. Deny wins because 100 > 99.
@@ -63,8 +66,11 @@ fn deny_at_100_beats_allow_at_99() {
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Deny at priority 100 should beat Allow at 99: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Deny at priority 100 should beat Allow at 99: got {:?}",
+        result
+    );
 }
 
 /// Confirm that deny-overrides IS active at equal priority (not adjacent).
@@ -87,8 +93,11 @@ fn deny_overrides_allow_at_equal_priority_50() {
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Deny should override Allow at equal priority 50: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Deny should override Allow at equal priority 50: got {:?}",
+        result
+    );
 }
 
 /// Allow at 1, Deny at 0. Allow wins (1 > 0), deny-overrides does NOT apply.
@@ -111,8 +120,11 @@ fn allow_at_1_beats_deny_at_0() {
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "Allow at 1 should beat Deny at 0: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Allow at 1 should beat Deny at 0: got {:?}",
+        result
+    );
 }
 
 /// Deny at -1, Allow at 0. Allow wins (0 > -1).
@@ -135,8 +147,11 @@ fn allow_at_0_beats_deny_at_negative_1() {
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "Allow at 0 should beat Deny at -1: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Allow at 0 should beat Deny at -1: got {:?}",
+        result
+    );
 }
 
 // ═════════════════════════════════
@@ -166,8 +181,11 @@ fn conditional_at_100_beats_deny_at_99() {
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::RequireApproval { .. }),
-        "Conditional at 100 should beat Deny at 99: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::RequireApproval { .. }),
+        "Conditional at 100 should beat Deny at 99: got {:?}",
+        result
+    );
 }
 
 /// Deny at 100, Conditional at 99. Deny wins.
@@ -192,6 +210,9 @@ fn deny_at_100_beats_conditional_at_99() {
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Deny at 100 should beat Conditional at 99: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Deny at 100 should beat Conditional at 99: got {:?}",
+        result
+    );
 }

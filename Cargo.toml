@@ -9,6 +9,8 @@ members = [
     "sentinel-config",
     "sentinel-integration",
     "sentinel-server",
+    "sentinel-approval",
+    "sentinel-proxy",
 ]
 
 [workspace.dependencies]

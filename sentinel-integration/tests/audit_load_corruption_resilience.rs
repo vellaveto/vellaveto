@@ -36,11 +36,16 @@ fn load_entries_fails_on_garbage_file() {
         let log_path = tmp.path().join("audit.log");
 
         // Write garbage directly to the file
-        tokio::fs::write(&log_path, "this is not json\n").await.unwrap();
+        tokio::fs::write(&log_path, "this is not json\n")
+            .await
+            .unwrap();
 
         let logger = AuditLogger::new(log_path);
         let result = logger.load_entries().await;
-        assert!(result.is_err(), "Garbage file should cause load_entries to fail");
+        assert!(
+            result.is_err(),
+            "Garbage file should cause load_entries to fail"
+        );
     });
 }
 
@@ -56,8 +61,14 @@ fn corruption_after_valid_entries_loses_all_data() {
 
         // Log two valid entries
         let action = make_action();
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
-        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
 
         // Verify they load correctly before corruption
         let entries = logger.load_entries().await.unwrap();
@@ -101,12 +112,15 @@ fn generate_report_fails_on_corrupted_log() {
         tokio::fs::write(&log_path, "not json\n").await.unwrap();
 
         let result = logger.generate_report().await;
-        assert!(result.is_err(), "Report generation should fail on corrupted log");
+        assert!(
+            result.is_err(),
+            "Report generation should fail on corrupted log"
+        );
     });
 }
 
 /// Blank lines in the middle of the file are silently skipped (the code
-/// checks `line.trim().is_empty()`). This is NOT corruption handling 
+/// checks `line.trim().is_empty()`). This is NOT corruption handling
 /// it's whitespace tolerance.
 #[test]
 fn blank_lines_between_valid_entries_are_skipped() {
@@ -134,7 +148,13 @@ fn blank_lines_between_valid_entries_are_skipped() {
 
         // Log another valid entry
         logger
-            .log_entry(&make_action(), &Verdict::Deny { reason: "test".to_string() }, json!({}))
+            .log_entry(
+                &make_action(),
+                &Verdict::Deny {
+                    reason: "test".to_string(),
+                },
+                json!({}),
+            )
             .await
             .unwrap();
 

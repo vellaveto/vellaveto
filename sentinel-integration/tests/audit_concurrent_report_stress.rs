@@ -51,19 +51,24 @@ fn concurrent_reports_after_sequential_writes() {
         for i in 0..50 {
             let verdict = match i % 3 {
                 0 => Verdict::Allow,
-                1 => Verdict::Deny { reason: format!("deny-{}", i) },
-                _ => Verdict::RequireApproval { reason: format!("approval-{}", i) },
+                1 => Verdict::Deny {
+                    reason: format!("deny-{}", i),
+                },
+                _ => Verdict::RequireApproval {
+                    reason: format!("approval-{}", i),
+                },
             };
-            logger.log_entry(&action, &verdict, json!({})).await.unwrap();
+            logger
+                .log_entry(&action, &verdict, json!({}))
+                .await
+                .unwrap();
         }
 
         // Generate 10 reports concurrently
         let mut handles = Vec::new();
         for _ in 0..10 {
             let l = Arc::clone(&logger);
-            handles.push(tokio::spawn(async move {
-                l.generate_report().await
-            }));
+            handles.push(tokio::spawn(async move { l.generate_report().await }));
         }
 
         for handle in handles {
@@ -108,7 +113,9 @@ fn concurrent_writes_and_reports_maintain_invariant() {
                     let verdict = if (task_id + i) % 2 == 0 {
                         Verdict::Allow
                     } else {
-                        Verdict::Deny { reason: format!("d-{}-{}", task_id, i) }
+                        Verdict::Deny {
+                            reason: format!("d-{}-{}", task_id, i),
+                        }
                     };
                     l.log_entry(&a, &verdict, json!({})).await.unwrap();
                 }
@@ -192,7 +199,10 @@ fn report_with_single_allow_entry() {
     rt.block_on(async {
         let tmp = TempDir::new().unwrap();
         let logger = AuditLogger::new(tmp.path().join("audit.log"));
-        logger.log_entry(&make_action(), &Verdict::Allow, json!({})).await.unwrap();
+        logger
+            .log_entry(&make_action(), &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
         let report = logger.generate_report().await.unwrap();
         assert_eq!(report.total_entries, 1);
         assert_eq!(report.allow_count, 1);
@@ -207,11 +217,16 @@ fn report_with_single_deny_entry() {
     rt.block_on(async {
         let tmp = TempDir::new().unwrap();
         let logger = AuditLogger::new(tmp.path().join("audit.log"));
-        logger.log_entry(
-            &make_action(),
-            &Verdict::Deny { reason: "test".to_string() },
-            json!({}),
-        ).await.unwrap();
+        logger
+            .log_entry(
+                &make_action(),
+                &Verdict::Deny {
+                    reason: "test".to_string(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
         let report = logger.generate_report().await.unwrap();
         assert_eq!(report.total_entries, 1);
         assert_eq!(report.allow_count, 0);
@@ -226,11 +241,16 @@ fn report_with_single_require_approval_entry() {
     rt.block_on(async {
         let tmp = TempDir::new().unwrap();
         let logger = AuditLogger::new(tmp.path().join("audit.log"));
-        logger.log_entry(
-            &make_action(),
-            &Verdict::RequireApproval { reason: "needs review".to_string() },
-            json!({}),
-        ).await.unwrap();
+        logger
+            .log_entry(
+                &make_action(),
+                &Verdict::RequireApproval {
+                    reason: "needs review".to_string(),
+                },
+                json!({}),
+            )
+            .await
+            .unwrap();
         let report = logger.generate_report().await.unwrap();
         assert_eq!(report.total_entries, 1);
         assert_eq!(report.allow_count, 0);

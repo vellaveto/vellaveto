@@ -40,10 +40,7 @@ fn deny_policy(id: &str, priority: i32) -> Policy {
 fn positive_deny_beats_negative_allow() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func");
-    let policies = vec![
-        allow_policy("*", -100),
-        deny_policy("*", 1),
-    ];
+    let policies = vec![allow_policy("*", -100), deny_policy("*", 1)];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
@@ -54,8 +51,8 @@ fn less_negative_wins_over_more_negative() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func");
     let policies = vec![
-        allow_policy("*", -1),   // higher
-        deny_policy("*", -100),  // lower
+        allow_policy("*", -1),  // higher
+        deny_policy("*", -100), // lower
     ];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(verdict, Verdict::Allow));
@@ -66,10 +63,7 @@ fn less_negative_wins_over_more_negative() {
 fn i32_max_beats_i32_min() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func");
-    let policies = vec![
-        deny_policy("*", i32::MIN),
-        allow_policy("*", i32::MAX),
-    ];
+    let policies = vec![deny_policy("*", i32::MIN), allow_policy("*", i32::MAX)];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(verdict, Verdict::Allow));
 }
@@ -79,10 +73,7 @@ fn i32_max_beats_i32_min() {
 fn i32_max_tie_deny_wins() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func");
-    let policies = vec![
-        allow_policy("*", i32::MAX),
-        deny_policy("*", i32::MAX),
-    ];
+    let policies = vec![allow_policy("*", i32::MAX), deny_policy("*", i32::MAX)];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
@@ -92,10 +83,7 @@ fn i32_max_tie_deny_wins() {
 fn i32_min_tie_deny_wins() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func");
-    let policies = vec![
-        allow_policy("*", i32::MIN),
-        deny_policy("*", i32::MIN),
-    ];
+    let policies = vec![allow_policy("*", i32::MIN), deny_policy("*", i32::MIN)];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }
@@ -109,10 +97,7 @@ fn i32_min_tie_deny_wins() {
 fn specific_negative_deny_loses_to_wildcard_zero_allow() {
     let engine = PolicyEngine::new(false);
     let action = make_action("file", "read");
-    let policies = vec![
-        deny_policy("file:read", -1),
-        allow_policy("*", 0),
-    ];
+    let policies = vec![deny_policy("file:read", -1), allow_policy("*", 0)];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(verdict, Verdict::Allow));
 }
@@ -122,10 +107,7 @@ fn specific_negative_deny_loses_to_wildcard_zero_allow() {
 fn zero_priority_deny_overrides_zero_allow() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func");
-    let policies = vec![
-        allow_policy("*", 0),
-        deny_policy("*", 0),
-    ];
+    let policies = vec![allow_policy("*", 0), deny_policy("*", 0)];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));
 }

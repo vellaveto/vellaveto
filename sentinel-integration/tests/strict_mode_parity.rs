@@ -3,7 +3,7 @@
 //! These tests will BREAK if someone implements strict mode — that's intentional.
 
 use sentinel_engine::PolicyEngine;
-use sentinel_types::{Action, Policy, PolicyType, Verdict};
+use sentinel_types::{Action, Policy, PolicyType};
 use serde_json::json;
 
 fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action {
@@ -98,7 +98,11 @@ fn wildcard_policy_same_in_both_modes() {
 #[test]
 fn require_approval_same_in_both_modes() {
     let action = make_action("shell", "exec", json!({}));
-    let policies = vec![conditional_policy("*", 10, json!({"require_approval": true}))];
+    let policies = vec![conditional_policy(
+        "*",
+        10,
+        json!({"require_approval": true}),
+    )];
     assert!(verdicts_match(&action, &policies));
 }
 
@@ -131,10 +135,7 @@ fn required_param_missing_denial_same_in_both_modes() {
 #[test]
 fn deny_before_allow_at_same_priority_same_in_both_modes() {
     let action = make_action("bash", "exec", json!({}));
-    let policies = vec![
-        allow_policy("*", 100),
-        deny_policy("*", 100),
-    ];
+    let policies = vec![allow_policy("*", 100), deny_policy("*", 100)];
     assert!(verdicts_match(&action, &policies));
 }
 
@@ -144,9 +145,9 @@ fn many_policies_same_verdict_in_both_modes() {
     let mut policies = Vec::new();
     for i in 0..50 {
         if i % 3 == 0 {
-            policies.push(allow_policy(&format!("tool_{}:func_{}", i, i % 10), i as i32));
+            policies.push(allow_policy(&format!("tool_{}:func_{}", i, i % 10), i));
         } else {
-            policies.push(deny_policy(&format!("tool_{}:*", i), i as i32 * 2));
+            policies.push(deny_policy(&format!("tool_{}:*", i), i * 2));
         }
     }
     assert!(verdicts_match(&action, &policies));

@@ -111,7 +111,11 @@ fn missing_required_param_denies() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
         Verdict::Deny { reason } => {
-            assert!(reason.contains("token"), "Reason should mention 'token', got: {}", reason);
+            assert!(
+                reason.contains("token"),
+                "Reason should mention 'token', got: {}",
+                reason
+            );
         }
         other => panic!("Expected Deny for missing required param, got {:?}", other),
     }
@@ -159,7 +163,11 @@ fn require_approval_false_does_not_trigger() {
         "require_approval": false
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(result, Verdict::Allow, "require_approval=false should not trigger RequireApproval");
+    assert_eq!(
+        result,
+        Verdict::Allow,
+        "require_approval=false should not trigger RequireApproval"
+    );
 }
 
 // ═════════════════════════════
@@ -175,7 +183,11 @@ fn require_approval_string_value_does_not_trigger() {
         "require_approval": "true"
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(result, Verdict::Allow, "String 'true' is not bool true, should fall through to Allow");
+    assert_eq!(
+        result,
+        Verdict::Allow,
+        "String 'true' is not bool true, should fall through to Allow"
+    );
 }
 
 #[test]
@@ -187,7 +199,11 @@ fn require_approval_integer_one_does_not_trigger() {
         "require_approval": 1
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(result, Verdict::Allow, "Integer 1 is not bool true, should fall through");
+    assert_eq!(
+        result,
+        Verdict::Allow,
+        "Integer 1 is not bool true, should fall through"
+    );
 }
 
 // ═════════════════════════════
@@ -203,7 +219,11 @@ fn forbidden_parameters_as_string_is_ignored() {
         "forbidden_parameters": "danger"
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(result, Verdict::Allow, "Non-array forbidden_parameters should be silently skipped");
+    assert_eq!(
+        result,
+        Verdict::Allow,
+        "Non-array forbidden_parameters should be silently skipped"
+    );
 }
 
 // ═════════════════════════════
@@ -214,12 +234,16 @@ fn forbidden_parameters_as_string_is_ignored() {
 fn required_parameters_as_object_is_ignored() {
     let engine = PolicyEngine::new(false);
     let action = make_action(json!({})); // missing everything
-    // required_parameters is an object, not array
+                                         // required_parameters is an object, not array
     let policies = cond(json!({
         "required_parameters": {"key": "token"}
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(result, Verdict::Allow, "Non-array required_parameters should be silently skipped");
+    assert_eq!(
+        result,
+        Verdict::Allow,
+        "Non-array required_parameters should be silently skipped"
+    );
 }
 
 // ═════════════════════════════
@@ -235,5 +259,9 @@ fn forbidden_parameters_with_integer_items_skipped() {
         "forbidden_parameters": [123, true, null]
     }));
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(result, Verdict::Allow, "Non-string items in forbidden array should be skipped");
+    assert_eq!(
+        result,
+        Verdict::Allow,
+        "Non-string items in forbidden array should be skipped"
+    );
 }

@@ -1,8 +1,8 @@
 //! Stress and adversarial tests for sentinel-config enhancements.
 //! Targets from_toml, load_file, to_policies, and default field handling.
 
-use sentinel_config::{PolicyConfig, PolicyRule};
-use sentinel_types::{Policy, PolicyType};
+use sentinel_config::PolicyConfig;
+use sentinel_types::PolicyType;
 use tempfile::TempDir;
 
 // ════════════════════════════════
@@ -50,7 +50,10 @@ conditions = { require_approval = true }
     assert_eq!(config.policies.len(), 1);
     match &config.policies[0].policy_type {
         PolicyType::Conditional { conditions } => {
-            assert_eq!(conditions.get("require_approval").unwrap().as_bool(), Some(true));
+            assert_eq!(
+                conditions.get("require_approval").unwrap().as_bool(),
+                Some(true)
+            );
         }
         other => panic!("Expected Conditional, got {:?}", other),
     }
@@ -183,13 +186,17 @@ policy_type = "Allow"
 fn load_file_toml_extension() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("test.toml");
-    std::fs::write(&path, r#"
+    std::fs::write(
+        &path,
+        r#"
 [[policies]]
 name = "t"
 tool_pattern = "a"
 function_pattern = "b"
 policy_type = "Allow"
-"#).unwrap();
+"#,
+    )
+    .unwrap();
     let config = PolicyConfig::load_file(path.to_str().unwrap()).unwrap();
     assert_eq!(config.policies.len(), 1);
 }
@@ -208,13 +215,17 @@ fn load_file_json_extension() {
 fn load_file_unknown_extension_tries_toml() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("test.cfg");
-    std::fs::write(&path, r#"
+    std::fs::write(
+        &path,
+        r#"
 [[policies]]
 name = "fallback"
 tool_pattern = "*"
 function_pattern = "*"
 policy_type = "Allow"
-"#).unwrap();
+"#,
+    )
+    .unwrap();
     let config = PolicyConfig::load_file(path.to_str().unwrap()).unwrap();
     assert_eq!(config.policies[0].name, "fallback");
 }
@@ -232,7 +243,10 @@ fn load_file_empty_file_fails() {
     std::fs::write(&path, "").unwrap();
     let result = PolicyConfig::load_file(path.to_str().unwrap());
     // Empty TOML has no `policies` key — should fail deserialization
-    assert!(result.is_err(), "Empty TOML file should fail to parse as PolicyConfig");
+    assert!(
+        result.is_err(),
+        "Empty TOML file should fail to parse as PolicyConfig"
+    );
 }
 
 #[test]
@@ -290,8 +304,10 @@ tool_pattern = "a"
 function_pattern = "b"
 policy_type = "BlockAll"
 "#;
-    assert!(PolicyConfig::from_toml(toml).is_err(),
-        "Invalid policy_type variant should fail deserialization");
+    assert!(
+        PolicyConfig::from_toml(toml).is_err(),
+        "Invalid policy_type variant should fail deserialization"
+    );
 }
 
 // ════════════════════════════════

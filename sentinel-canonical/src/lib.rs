@@ -25,38 +25,22 @@ impl CanonicalPolicies {
     pub fn block_dangerous_tools() -> Vec<Policy> {
         vec![
             Policy {
-                id: "bash_block".to_string(),
+                id: "bash:*".to_string(),
                 name: "Block Bash Commands".to_string(),
-                policy_type: PolicyType::Conditional {
-                    conditions: json!({
-                        "tool_pattern": "bash",
-                        "require_approval": true
-                    }),
-                },
+                policy_type: PolicyType::Deny,
                 priority: 900,
             },
             Policy {
-                id: "system_block".to_string(),
-                name: "Block System Commands".to_string(),
-                policy_type: PolicyType::Conditional {
-                    conditions: json!({
-                        "tool_pattern": "system",
-                        "forbidden_parameters": ["rm", "delete", "format"]
-                    }),
-                },
+                id: "shell:*".to_string(),
+                name: "Block Shell Commands".to_string(),
+                policy_type: PolicyType::Deny,
                 priority: 900,
             },
             Policy {
-                id: "file_protection".to_string(),
-                name: "File Operation Protection".to_string(),
-                policy_type: PolicyType::Conditional {
-                    conditions: json!({
-                        "tool_pattern": "file",
-                        "function_pattern": "delete",
-                        "require_approval": true
-                    }),
-                },
-                priority: 800,
+                id: "exec:*".to_string(),
+                name: "Block Exec Commands".to_string(),
+                policy_type: PolicyType::Deny,
+                priority: 900,
             },
         ]
     }
@@ -64,23 +48,27 @@ impl CanonicalPolicies {
     pub fn network_security() -> Vec<Policy> {
         vec![
             Policy {
-                id: "external_network".to_string(),
-                name: "External Network Access".to_string(),
+                id: "http_request:*".to_string(),
+                name: "HTTP Domain Allowlist".to_string(),
                 policy_type: PolicyType::Conditional {
                     conditions: json!({
-                        "tool_pattern": "network",
-                        "require_approval": true
+                        "parameter_constraints": [
+                            {
+                                "param": "url",
+                                "op": "domain_not_in",
+                                "patterns": ["localhost", "127.0.0.1"],
+                                "on_match": "deny"
+                            }
+                        ]
                     }),
                 },
                 priority: 700,
             },
             Policy {
-                id: "data_exfiltration".to_string(),
+                id: "*:*upload*".to_string(),
                 name: "Prevent Data Exfiltration".to_string(),
                 policy_type: PolicyType::Conditional {
                     conditions: json!({
-                        "tool_pattern": "*",
-                        "function_pattern": "*upload*",
                         "forbidden_parameters": ["personal_data", "credentials", "tokens"]
                     }),
                 },
@@ -92,19 +80,25 @@ impl CanonicalPolicies {
     pub fn development_environment() -> Vec<Policy> {
         vec![
             Policy {
-                id: "safe_dev_tools".to_string(),
-                name: "Allow Safe Development Tools".to_string(),
+                id: "file_system:*".to_string(),
+                name: "Restrict File Access to Project Directory".to_string(),
                 policy_type: PolicyType::Conditional {
                     conditions: json!({
-                        "tool_pattern": "*",
-                        "function_pattern": "*",
-                        "allowed_tools": ["git", "npm", "cargo", "python", "node"]
+                        "parameter_constraints": [
+                            {
+                                "param": "path",
+                                "op": "not_glob",
+                                "patterns": ["/home/*/projects/**", "/tmp/**"],
+                                "on_match": "deny",
+                                "on_missing": "skip"
+                            }
+                        ]
                     }),
                 },
                 priority: 100,
             },
             Policy {
-                id: "test_environment".to_string(),
+                id: "test:*".to_string(),
                 name: "Test Environment Access".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 50,
@@ -126,13 +120,31 @@ mod tests {
         let dangerous_tools = CanonicalPolicies::block_dangerous_tools();
         assert_eq!(dangerous_tools.len(), 3);
         assert!(dangerous_tools.iter().all(|p| p.priority >= 800));
+
+        // All dangerous tool policies should be plain Deny with proper IDs
+        for p in &dangerous_tools {
+            assert!(matches!(p.policy_type, PolicyType::Deny));
+            assert!(
+                p.id.contains(':'),
+                "ID '{}' should use tool:function format",
+                p.id
+            );
+        }
     }
 
     #[test]
     fn test_network_security_policies() {
         let policies = CanonicalPolicies::network_security();
         assert!(!policies.is_empty());
-        assert!(policies.iter().any(|p| p.name.contains("Network")));
+
+        // First policy should use parameter_constraints for domain allowlisting
+        let http_policy = &policies[0];
+        assert_eq!(http_policy.id, "http_request:*");
+        if let PolicyType::Conditional { conditions } = &http_policy.policy_type {
+            assert!(conditions.get("parameter_constraints").is_some());
+        } else {
+            panic!("HTTP policy should be Conditional with parameter_constraints");
+        }
     }
 
     #[test]
@@ -140,5 +152,37 @@ mod tests {
         let policies = CanonicalPolicies::development_environment();
         assert!(!policies.is_empty());
         assert!(policies.iter().any(|p| p.priority == 50));
+
+        // File system policy should use not_glob constraint
+        let fs_policy = &policies[0];
+        assert_eq!(fs_policy.id, "file_system:*");
+        if let PolicyType::Conditional { conditions } = &fs_policy.policy_type {
+            let constraints = conditions.get("parameter_constraints").unwrap();
+            let first = &constraints.as_array().unwrap()[0];
+            assert_eq!(first["op"], "not_glob");
+        } else {
+            panic!("File system policy should be Conditional with parameter_constraints");
+        }
+    }
+
+    #[test]
+    fn test_block_dangerous_tools_match_engine() {
+        // Verify that the IDs actually match the tools they're supposed to block
+        let policies = CanonicalPolicies::block_dangerous_tools();
+        let ids: Vec<&str> = policies.iter().map(|p| p.id.as_str()).collect();
+        assert!(ids.contains(&"bash:*"));
+        assert!(ids.contains(&"shell:*"));
+        assert!(ids.contains(&"exec:*"));
+    }
+
+    #[test]
+    fn test_deny_all_allow_all_are_simple() {
+        let deny = CanonicalPolicies::deny_all();
+        assert!(matches!(deny.policy_type, PolicyType::Deny));
+        assert_eq!(deny.id, "*");
+
+        let allow = CanonicalPolicies::allow_all();
+        assert!(matches!(allow.policy_type, PolicyType::Allow));
+        assert_eq!(allow.id, "*");
     }
 }

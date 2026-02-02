@@ -4,9 +4,10 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use sentinel_approval::ApprovalStore;
 use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
-use sentinel_server::{AppState, routes};
+use sentinel_server::{routes, AppState};
 use sentinel_types::{Policy, PolicyType};
 use serde_json::json;
 use std::sync::Arc;
@@ -34,6 +35,10 @@ fn make_state() -> (AppState, TempDir) {
         ])),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
     };
     (state, tmp)
 }
@@ -45,6 +50,10 @@ fn make_empty_state() -> (AppState, TempDir) {
         policies: Arc::new(RwLock::new(vec![])),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
     };
     (state, tmp)
 }
@@ -64,7 +73,9 @@ async fn health_returns_200_with_ok_status() {
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json.get("status").unwrap(), "ok");
     assert_eq!(json.get("policies_loaded").unwrap(), 2);
@@ -80,7 +91,9 @@ async fn health_with_no_policies_shows_zero() {
         .await
         .unwrap();
 
-    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json.get("policies_loaded").unwrap(), 0);
 }
@@ -98,7 +111,8 @@ async fn evaluate_allowed_action_returns_allow() {
         "tool": "file",
         "function": "read",
         "parameters": {"path": "/tmp/test"}
-    })).unwrap();
+    }))
+    .unwrap();
 
     let resp = app
         .oneshot(
@@ -111,7 +125,9 @@ async fn evaluate_allowed_action_returns_allow() {
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let verdict = json.get("verdict").unwrap();
     assert_eq!(verdict, "Allow");
@@ -126,7 +142,8 @@ async fn evaluate_denied_action_returns_deny() {
         "tool": "bash",
         "function": "execute",
         "parameters": {}
-    })).unwrap();
+    }))
+    .unwrap();
 
     let resp = app
         .oneshot(
@@ -139,11 +156,16 @@ async fn evaluate_denied_action_returns_deny() {
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let verdict = json.get("verdict").unwrap();
-    assert!(verdict.get("Deny").is_some(),
-        "bash should be denied, got: {}", verdict);
+    assert!(
+        verdict.get("Deny").is_some(),
+        "bash should be denied, got: {}",
+        verdict
+    );
 }
 
 #[tokio::test]
@@ -155,7 +177,8 @@ async fn evaluate_with_empty_policies_returns_deny() {
         "tool": "any",
         "function": "thing",
         "parameters": {}
-    })).unwrap();
+    }))
+    .unwrap();
 
     let resp = app
         .oneshot(
@@ -168,11 +191,16 @@ async fn evaluate_with_empty_policies_returns_deny() {
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let verdict = json.get("verdict").unwrap();
-    assert!(verdict.get("Deny").is_some(),
-        "Empty policies should fail-closed with deny, got: {}", verdict);
+    assert!(
+        verdict.get("Deny").is_some(),
+        "Empty policies should fail-closed with deny, got: {}",
+        verdict
+    );
 }
 
 #[tokio::test]
@@ -191,8 +219,11 @@ async fn evaluate_invalid_json_returns_error() {
         .unwrap();
 
     // Should be 4xx, not 5xx
-    assert!(resp.status().is_client_error(),
-        "Invalid JSON should return client error, got {}", resp.status());
+    assert!(
+        resp.status().is_client_error(),
+        "Invalid JSON should return client error, got {}",
+        resp.status()
+    );
 }
 
 #[tokio::test]
@@ -203,7 +234,8 @@ async fn evaluate_missing_required_fields_returns_error() {
     let body = serde_json::to_string(&json!({
         "tool": "file"
         // missing function and parameters
-    })).unwrap();
+    }))
+    .unwrap();
 
     let resp = app
         .oneshot(
@@ -228,7 +260,8 @@ async fn evaluate_logs_to_audit() {
         "tool": "file",
         "function": "read",
         "parameters": {}
-    })).unwrap();
+    }))
+    .unwrap();
 
     let resp = app
         .oneshot(
@@ -246,15 +279,21 @@ async fn evaluate_logs_to_audit() {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     // Verify audit log was written
-    let content = tokio::fs::read_to_string(&audit_path).await
+    let content = tokio::fs::read_to_string(&audit_path)
+        .await
         .expect("audit log should exist after evaluate");
-    assert!(!content.trim().is_empty(), "audit log should have at least one entry");
+    assert!(
+        !content.trim().is_empty(),
+        "audit log should have at least one entry"
+    );
 
     // Each line should be valid JSON
     for line in content.lines() {
-        if line.trim().is_empty() { continue; }
-        let entry: serde_json::Value = serde_json::from_str(line)
-            .expect("each audit line should be valid JSON");
+        if line.trim().is_empty() {
+            continue;
+        }
+        let entry: serde_json::Value =
+            serde_json::from_str(line).expect("each audit line should be valid JSON");
         assert!(entry.get("action").is_some());
         assert!(entry.get("verdict").is_some());
     }
@@ -275,7 +314,9 @@ async fn list_policies_returns_loaded_policies() {
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let policies = json.as_array().expect("policies should be an array");
     assert_eq!(policies.len(), 2);
@@ -291,7 +332,8 @@ async fn add_policy_increases_policy_count() {
         "name": "Block network",
         "policy_type": "Deny",
         "priority": 50
-    })).unwrap();
+    }))
+    .unwrap();
 
     let resp = app
         .oneshot(
@@ -303,8 +345,11 @@ async fn add_policy_increases_policy_count() {
         .await
         .unwrap();
 
-    assert!(resp.status().is_success(),
-        "Add policy should succeed, got {}", resp.status());
+    assert!(
+        resp.status().is_success(),
+        "Add policy should succeed, got {}",
+        resp.status()
+    );
 
     // Verify count increased
     let count = state.policies.read().await.len();
@@ -346,8 +391,11 @@ async fn delete_nonexistent_policy_returns_ok_but_no_change() {
         .unwrap();
 
     // Should not 500 — either 200 (idempotent) or 404 (not found) is acceptable
-    assert_ne!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR,
-        "Deleting nonexistent policy should not be a server error");
+    assert_ne!(
+        resp.status(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Deleting nonexistent policy should not be a server error"
+    );
     let count = state.policies.read().await.len();
     assert_eq!(count, 2, "Count unchanged when deleting nonexistent policy");
 }
@@ -362,15 +410,25 @@ async fn audit_entries_returns_empty_initially() {
     let app = routes::build_router(state);
 
     let resp = app
-        .oneshot(Request::get("/api/audit/entries").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::get("/api/audit/entries")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     // Route returns {"count": N, "entries": [...]}
-    assert!(json.is_object(), "audit entries should be an object: {:?}", json);
+    assert!(
+        json.is_object(),
+        "audit entries should be an object: {:?}",
+        json
+    );
     assert_eq!(json["count"], 0);
     assert!(json["entries"].as_array().unwrap().is_empty());
 }
@@ -381,12 +439,18 @@ async fn audit_report_on_empty_log() {
     let app = routes::build_router(state);
 
     let resp = app
-        .oneshot(Request::get("/api/audit/report").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::get("/api/audit/report")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json.get("total_entries").unwrap(), 0);
     assert_eq!(json.get("allow_count").unwrap(), 0);
@@ -413,28 +477,39 @@ async fn reload_with_nonexistent_config_returns_500() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR,
-        "Reload with missing config file should return 500");
+    assert_eq!(
+        resp.status(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Reload with missing config file should return 500"
+    );
 }
 
 #[tokio::test]
 async fn reload_with_valid_config_updates_policies() {
     let tmp = TempDir::new().unwrap();
     let config_path = tmp.path().join("reload.toml");
-    std::fs::write(&config_path, r#"
+    std::fs::write(
+        &config_path,
+        r#"
 [[policies]]
 name = "Reloaded allow"
 tool_pattern = "*"
 function_pattern = "*"
 policy_type = "Allow"
 priority = 1
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     let state = AppState {
         engine: Arc::new(PolicyEngine::new(false)),
         policies: Arc::new(RwLock::new(vec![])),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new(config_path.to_str().unwrap().to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
     };
     let app = routes::build_router(state.clone());
 

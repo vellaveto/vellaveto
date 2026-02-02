@@ -42,8 +42,10 @@ fn allow_100_beats_deny_99() {
     let engine = PolicyEngine::new(false);
     let policies = vec![deny(99), allow(100)];
     let result = engine.evaluate_action(&make_action(), &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "Allow at 100 should beat Deny at 99");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Allow at 100 should beat Deny at 99"
+    );
 }
 
 /// Deny at 100, Allow at 99 → Deny wins.
@@ -52,8 +54,10 @@ fn deny_100_beats_allow_99() {
     let engine = PolicyEngine::new(false);
     let policies = vec![allow(99), deny(100)];
     let result = engine.evaluate_action(&make_action(), &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Deny at 100 should beat Allow at 99");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Deny at 100 should beat Allow at 99"
+    );
 }
 
 /// Allow at 1, Deny at 0  Allow wins.
@@ -130,22 +134,22 @@ fn deny_overrides_allow_at_negative_priority() {
 #[test]
 fn chain_of_adjacent_priorities_highest_wins() {
     let engine = PolicyEngine::new(false);
-    let policies = vec![
-        deny(1), allow(2), deny(3), allow(4), deny(5),
-    ];
+    let policies = vec![deny(1), allow(2), deny(3), allow(4), deny(5)];
     let result = engine.evaluate_action(&make_action(), &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Deny at priority 5 should win");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Deny at priority 5 should win"
+    );
 }
 
 /// Allow(5), Deny(4), Allow(3), Deny(2), Allow(1) — Allow at 5 wins.
 #[test]
 fn chain_of_adjacent_priorities_allow_highest_wins() {
     let engine = PolicyEngine::new(false);
-    let policies = vec![
-        allow(1), deny(2), allow(3), deny(4), allow(5),
-    ];
+    let policies = vec![allow(1), deny(2), allow(3), deny(4), allow(5)];
     let result = engine.evaluate_action(&make_action(), &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "Allow at priority 5 should win");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Allow at priority 5 should win"
+    );
 }

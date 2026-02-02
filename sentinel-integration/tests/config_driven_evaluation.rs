@@ -17,7 +17,7 @@ fn runtime() -> tokio::runtime::Runtime {
 
 /// Convert a JSON policy definition (like what sentinel-config would parse)
 /// into a Policy struct. This simulates the config → types pipeline.
-fn policy_from_json(value: serde_json::Value) -> Policy {
+fn _policy_from_json(value: serde_json::Value) -> Policy {
     serde_json::from_value(value).expect("failed to deserialize policy")
 }
 
@@ -61,15 +61,27 @@ fn json_config_driven_full_pipeline() {
         // Evaluate and audit a series of actions
         let actions_and_expected: Vec<(Action, &str)> = vec![
             (
-                Action { tool: "file".into(), function: "read".into(), parameters: json!({}) },
+                Action {
+                    tool: "file".into(),
+                    function: "read".into(),
+                    parameters: json!({}),
+                },
                 "allow",
             ),
             (
-                Action { tool: "file".into(), function: "delete".into(), parameters: json!({}) },
+                Action {
+                    tool: "file".into(),
+                    function: "delete".into(),
+                    parameters: json!({}),
+                },
                 "deny",
             ),
             (
-                Action { tool: "network".into(), function: "http_get".into(), parameters: json!({}) },
+                Action {
+                    tool: "network".into(),
+                    function: "http_get".into(),
+                    parameters: json!({}),
+                },
                 "approval",
             ),
         ];
@@ -82,7 +94,10 @@ fn json_config_driven_full_pipeline() {
                 "approval" => assert!(matches!(verdict, Verdict::RequireApproval { .. })),
                 _ => panic!("unknown expected type"),
             }
-            logger.log_entry(action, &verdict, json!({"source": "config_test"})).await.unwrap();
+            logger
+                .log_entry(action, &verdict, json!({"source": "config_test"}))
+                .await
+                .unwrap();
         }
 
         // Verify complete audit trail

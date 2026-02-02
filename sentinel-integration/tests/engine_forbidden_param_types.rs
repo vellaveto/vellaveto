@@ -36,8 +36,10 @@ fn forbidden_param_with_null_value_is_denied() {
         "forbidden_parameters": ["danger"]
     }))];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Forbidden param with null value should still be denied (key exists)");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Forbidden param with null value should still be denied (key exists)"
+    );
 }
 
 /// Forbidden param with boolean value.
@@ -49,8 +51,10 @@ fn forbidden_param_with_boolean_value_is_denied() {
         "forbidden_parameters": ["danger"]
     }))];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Forbidden param with boolean value should be denied (key exists)");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Forbidden param with boolean value should be denied (key exists)"
+    );
 }
 
 /// Forbidden param with numeric value.
@@ -62,8 +66,10 @@ fn forbidden_param_with_numeric_value_is_denied() {
         "forbidden_parameters": ["danger"]
     }))];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Forbidden param with numeric value should be denied (key exists)");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Forbidden param with numeric value should be denied (key exists)"
+    );
 }
 
 /// Forbidden param with array value.
@@ -75,8 +81,10 @@ fn forbidden_param_with_array_value_is_denied() {
         "forbidden_parameters": ["danger"]
     }))];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Forbidden param with array value should be denied (key exists)");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Forbidden param with array value should be denied (key exists)"
+    );
 }
 
 /// Forbidden param with object value.
@@ -88,8 +96,10 @@ fn forbidden_param_with_object_value_is_denied() {
         "forbidden_parameters": ["danger"]
     }))];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Forbidden param with object value should be denied (key exists)");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Forbidden param with object value should be denied (key exists)"
+    );
 }
 
 /// Forbidden param with empty string value.
@@ -101,8 +111,10 @@ fn forbidden_param_with_empty_string_is_denied() {
         "forbidden_parameters": ["danger"]
     }))];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Forbidden param with empty string value should be denied (key exists)");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Forbidden param with empty string value should be denied (key exists)"
+    );
 }
 
 // ════════════════════════════════
@@ -118,8 +130,11 @@ fn forbidden_param_absent_allows() {
         "forbidden_parameters": ["danger"]
     }))];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "Absent forbidden param should allow: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Absent forbidden param should allow: got {:?}",
+        result
+    );
 }
 
 /// Action parameters is null (not an object) — get() returns None  Allow.
@@ -131,8 +146,11 @@ fn forbidden_param_with_null_params_allows() {
         "forbidden_parameters": ["danger"]
     }))];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "Null params should not match forbidden param: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Null params should not match forbidden param: got {:?}",
+        result
+    );
 }
 
 /// Action parameters is an array — get("danger") on array returns None → Allow.
@@ -144,8 +162,11 @@ fn forbidden_param_with_array_params_allows() {
         "forbidden_parameters": ["danger"]
     }))];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "Array params should not match forbidden param key: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Array params should not match forbidden param key: got {:?}",
+        result
+    );
 }
 
 // ═══════════════════════════════════
@@ -161,8 +182,10 @@ fn one_of_two_forbidden_params_present_denies() {
         "forbidden_parameters": ["danger", "secret"]
     }))];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Deny { .. }),
-        "Should deny when any forbidden param is present");
+    assert!(
+        matches!(result, Verdict::Deny { .. }),
+        "Should deny when any forbidden param is present"
+    );
 }
 
 /// Two forbidden params, neither present → Allow.
@@ -174,6 +197,9 @@ fn neither_forbidden_param_present_allows() {
         "forbidden_parameters": ["danger", "secret"]
     }))];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow),
-        "Should allow when no forbidden param is present: got {:?}", result);
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Should allow when no forbidden param is present: got {:?}",
+        result
+    );
 }

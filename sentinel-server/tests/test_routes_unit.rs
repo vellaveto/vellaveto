@@ -2,9 +2,10 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use sentinel_approval::ApprovalStore;
 use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
-use sentinel_server::{AppState, routes};
+use sentinel_server::{routes, AppState};
 use sentinel_types::{Policy, PolicyType};
 use serde_json::json;
 use std::sync::Arc;
@@ -32,6 +33,10 @@ fn test_state() -> (AppState, TempDir) {
         ])),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test-config.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
     };
     (state, tmp)
 }
@@ -175,8 +180,11 @@ async fn add_policy_increases_count() {
         .await
         .unwrap();
 
-    assert!(response.status().is_success(),
-        "Add policy should succeed, got {}", response.status());
+    assert!(
+        response.status().is_success(),
+        "Add policy should succeed, got {}",
+        response.status()
+    );
 
     // Verify count increased
     let policies = state.policies.read().await;

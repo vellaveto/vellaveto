@@ -107,9 +107,11 @@ fn conditional_at_min_with_no_trigger_falls_through_to_allow() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({}));
     // Conditional with require_approval=false and no forbidden/required params
-    let policies = vec![
-        conditional_policy("*", i32::MIN, json!({"require_approval": false})),
-    ];
+    let policies = vec![conditional_policy(
+        "*",
+        i32::MIN,
+        json!({"require_approval": false}),
+    )];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),

@@ -39,7 +39,12 @@ fn deny_policy(id: &str, name: &str, priority: i32) -> Policy {
     }
 }
 
-fn conditional_policy(id: &str, name: &str, priority: i32, conditions: serde_json::Value) -> Policy {
+fn conditional_policy(
+    id: &str,
+    name: &str,
+    priority: i32,
+    conditions: serde_json::Value,
+) -> Policy {
     Policy {
         id: id.to_string(),
         name: name.to_string(),
@@ -66,7 +71,10 @@ fn negative_priority_is_lower_than_zero() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
         Verdict::Deny { .. } => {} // correct: higher priority wins
-        other => panic!("Expected Deny from priority 0 over Allow at -100, got {:?}", other),
+        other => panic!(
+            "Expected Deny from priority 0 over Allow at -100, got {:?}",
+            other
+        ),
     }
 }
 
@@ -93,12 +101,14 @@ fn i32_min_priority_policy_still_evaluated() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func");
 
-    let policies = vec![
-        allow_policy("*", "min-priority", i32::MIN),
-    ];
+    let policies = vec![allow_policy("*", "min-priority", i32::MIN)];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(verdict, Verdict::Allow, "Policy at i32::MIN should still match");
+    assert_eq!(
+        verdict,
+        Verdict::Allow,
+        "Policy at i32::MIN should still match"
+    );
 }
 
 #[test]
@@ -112,7 +122,11 @@ fn i32_max_priority_policy_wins() {
     ];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(verdict, Verdict::Allow, "i32::MAX priority should beat i32::MAX-1");
+    assert_eq!(
+        verdict,
+        Verdict::Allow,
+        "i32::MAX priority should beat i32::MAX-1"
+    );
 }
 
 // ═════════════════════════════════════════════════
@@ -133,7 +147,10 @@ fn deny_overrides_allow_at_same_priority_with_many_policies() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
         Verdict::Deny { .. } => {} // deny-overrides
-        other => panic!("Deny should override many Allows at same priority, got {:?}", other),
+        other => panic!(
+            "Deny should override many Allows at same priority, got {:?}",
+            other
+        ),
     }
 }
 
@@ -147,9 +164,7 @@ fn empty_tool_and_function_match_exact_empty_id() {
     let action = make_action("", "");
 
     // Policy with empty id — does it match empty tool?
-    let policies = vec![
-        allow_policy("", "empty-id", 10),
-    ];
+    let policies = vec![allow_policy("", "empty-id", 10)];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     // Empty pattern "" should match empty tool "" via exact match
@@ -161,9 +176,7 @@ fn wildcard_star_matches_empty_strings() {
     let engine = PolicyEngine::new(false);
     let action = make_action("", "");
 
-    let policies = vec![
-        deny_policy("*", "wildcard-deny", 10),
-    ];
+    let policies = vec![deny_policy("*", "wildcard-deny", 10)];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
@@ -177,14 +190,15 @@ fn colon_in_id_splits_tool_and_function_patterns() {
     let engine = PolicyEngine::new(false);
     let action = make_action("bash", "execute");
 
-    let policies = vec![
-        deny_policy("bash:execute", "exact-match", 10),
-    ];
+    let policies = vec![deny_policy("bash:execute", "exact-match", 10)];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
         Verdict::Deny { .. } => {}
-        other => panic!("'bash:execute' should match action bash/execute, got {:?}", other),
+        other => panic!(
+            "'bash:execute' should match action bash/execute, got {:?}",
+            other
+        ),
     }
 }
 
@@ -193,9 +207,7 @@ fn colon_id_with_wildcard_function() {
     let engine = PolicyEngine::new(false);
     let action = make_action("file", "delete");
 
-    let policies = vec![
-        deny_policy("file:*", "file-any-func", 10),
-    ];
+    let policies = vec![deny_policy("file:*", "file-any-func", 10)];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
@@ -209,9 +221,7 @@ fn colon_id_with_wildcard_tool() {
     let engine = PolicyEngine::new(false);
     let action = make_action("network", "upload");
 
-    let policies = vec![
-        deny_policy("*:upload", "any-tool-upload", 10),
-    ];
+    let policies = vec![deny_policy("*:upload", "any-tool-upload", 10)];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
@@ -226,9 +236,7 @@ fn prefix_wildcard_in_tool_pattern() {
     let action = make_action("my_bash_tool", "run");
 
     // "my_bash*" should match "my_bash_tool" (suffix wildcard)
-    let policies = vec![
-        deny_policy("my_bash*", "prefix-match", 10),
-    ];
+    let policies = vec![deny_policy("my_bash*", "prefix-match", 10)];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
@@ -243,9 +251,7 @@ fn suffix_wildcard_in_tool_pattern() {
     let action = make_action("super_bash", "run");
 
     // "*bash" should match "super_bash" (prefix wildcard / suffix match)
-    let policies = vec![
-        deny_policy("*bash", "suffix-match", 10),
-    ];
+    let policies = vec![deny_policy("*bash", "suffix-match", 10)];
 
     // Actually wait: match_pattern("*bash", "super_bash") strips leading * and checks ends_with("bash")
     // "super_bash" ends with "bash"? Yes!
@@ -276,7 +282,10 @@ fn no_match_falls_through_to_default_deny() {
                 reason
             );
         }
-        other => panic!("Unmatched action should be denied by default, got {:?}", other),
+        other => panic!(
+            "Unmatched action should be denied by default, got {:?}",
+            other
+        ),
     }
 }
 
@@ -290,12 +299,14 @@ fn conditional_with_empty_conditions_allows() {
     let action = make_action("tool", "func");
 
     // Conditional with no recognized condition keys should fall through to Allow
-    let policies = vec![
-        conditional_policy("*", "empty-conditions", 10, json!({})),
-    ];
+    let policies = vec![conditional_policy("*", "empty-conditions", 10, json!({}))];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(verdict, Verdict::Allow, "Empty conditions should result in Allow");
+    assert_eq!(
+        verdict,
+        Verdict::Allow,
+        "Empty conditions should result in Allow"
+    );
 }
 
 #[test]
@@ -303,16 +314,23 @@ fn conditional_forbidden_param_present_denies() {
     let engine = PolicyEngine::new(false);
     let action = make_action_with_params("tool", "func", json!({"force": true, "path": "/tmp"}));
 
-    let policies = vec![
-        conditional_policy("*", "forbid-force", 10, json!({
+    let policies = vec![conditional_policy(
+        "*",
+        "forbid-force",
+        10,
+        json!({
             "forbidden_parameters": ["force"]
-        })),
-    ];
+        }),
+    )];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
         Verdict::Deny { reason } => {
-            assert!(reason.contains("force"), "Reason should mention forbidden param 'force': {}", reason);
+            assert!(
+                reason.contains("force"),
+                "Reason should mention forbidden param 'force': {}",
+                reason
+            );
         }
         other => panic!("Forbidden parameter present should deny, got {:?}", other),
     }
@@ -323,11 +341,14 @@ fn conditional_forbidden_param_absent_allows() {
     let engine = PolicyEngine::new(false);
     let action = make_action_with_params("tool", "func", json!({"path": "/tmp"}));
 
-    let policies = vec![
-        conditional_policy("*", "forbid-force", 10, json!({
+    let policies = vec![conditional_policy(
+        "*",
+        "forbid-force",
+        10,
+        json!({
             "forbidden_parameters": ["force"]
-        })),
-    ];
+        }),
+    )];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert_eq!(verdict, Verdict::Allow);
@@ -338,16 +359,23 @@ fn conditional_required_param_missing_denies() {
     let engine = PolicyEngine::new(false);
     let action = make_action_with_params("tool", "func", json!({"path": "/tmp"}));
 
-    let policies = vec![
-        conditional_policy("*", "require-auth", 10, json!({
+    let policies = vec![conditional_policy(
+        "*",
+        "require-auth",
+        10,
+        json!({
             "required_parameters": ["auth_token"]
-        })),
-    ];
+        }),
+    )];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
         Verdict::Deny { reason } => {
-            assert!(reason.contains("auth_token"), "Should mention missing param: {}", reason);
+            assert!(
+                reason.contains("auth_token"),
+                "Should mention missing param: {}",
+                reason
+            );
         }
         other => panic!("Missing required param should deny, got {:?}", other),
     }
@@ -358,11 +386,14 @@ fn conditional_required_param_present_allows() {
     let engine = PolicyEngine::new(false);
     let action = make_action_with_params("tool", "func", json!({"auth_token": "abc123"}));
 
-    let policies = vec![
-        conditional_policy("*", "require-auth", 10, json!({
+    let policies = vec![conditional_policy(
+        "*",
+        "require-auth",
+        10,
+        json!({
             "required_parameters": ["auth_token"]
-        })),
-    ];
+        }),
+    )];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert_eq!(verdict, Verdict::Allow);
@@ -376,12 +407,15 @@ fn conditional_require_approval_takes_precedence_over_forbidden() {
     // Both require_approval and forbidden_parameters are set.
     // The code checks require_approval FIRST, so it should return RequireApproval
     // even though a forbidden parameter is present.
-    let policies = vec![
-        conditional_policy("*", "approval-and-forbidden", 10, json!({
+    let policies = vec![conditional_policy(
+        "*",
+        "approval-and-forbidden",
+        10,
+        json!({
             "require_approval": true,
             "forbidden_parameters": ["force"]
-        })),
-    ];
+        }),
+    )];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
@@ -412,7 +446,10 @@ fn hundred_policies_correct_verdict_from_highest_priority() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
         Verdict::Deny { .. } => {}
-        other => panic!("Highest priority deny among 100 policies should win, got {:?}", other),
+        other => panic!(
+            "Highest priority deny among 100 policies should win, got {:?}",
+            other
+        ),
     }
 }
 
@@ -431,7 +468,10 @@ fn policies_evaluated_in_priority_order_not_insertion_order() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
         Verdict::Deny { .. } => {} // priority 100 deny wins
-        other => panic!("Highest priority should win regardless of insertion order, got {:?}", other),
+        other => panic!(
+            "Highest priority should win regardless of insertion order, got {:?}",
+            other
+        ),
     }
 
     // Now reverse: high priority first, but it's Allow
@@ -456,7 +496,11 @@ fn strict_mode_empty_policies_still_denies() {
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     match &verdict {
         Verdict::Deny { reason } => {
-            assert!(reason.contains("No policies"), "Strict mode empty policies reason: {}", reason);
+            assert!(
+                reason.contains("No policies"),
+                "Strict mode empty policies reason: {}",
+                reason
+            );
         }
         other => panic!("Strict mode empty policies should deny, got {:?}", other),
     }
@@ -471,5 +515,8 @@ fn strict_and_non_strict_agree_on_simple_policies() {
 
     let v1 = strict.evaluate_action(&action, &policies).unwrap();
     let v2 = relaxed.evaluate_action(&action, &policies).unwrap();
-    assert_eq!(v1, v2, "Strict and non-strict should agree on simple policies");
+    assert_eq!(
+        v1, v2,
+        "Strict and non-strict should agree on simple policies"
+    );
 }

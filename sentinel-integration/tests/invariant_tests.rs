@@ -43,7 +43,11 @@ fn action_roundtrip_preserves_equality() {
     for action in &actions {
         let serialized = serde_json::to_string(action).unwrap();
         let deserialized: Action = serde_json::from_str(&serialized).unwrap();
-        assert_eq!(action, &deserialized, "Roundtrip failed for action: {:?}", action);
+        assert_eq!(
+            action, &deserialized,
+            "Roundtrip failed for action: {:?}",
+            action
+        );
     }
 }
 
@@ -51,17 +55,31 @@ fn action_roundtrip_preserves_equality() {
 fn verdict_roundtrip_preserves_equality() {
     let verdicts = vec![
         Verdict::Allow,
-        Verdict::Deny { reason: String::new() },
-        Verdict::Deny { reason: "x".repeat(10000) },
-        Verdict::Deny { reason: "newline\nand\ttab".to_string() },
-        Verdict::RequireApproval { reason: String::new() },
-        Verdict::RequireApproval { reason: "unicode: 日本 🔥".to_string() },
+        Verdict::Deny {
+            reason: String::new(),
+        },
+        Verdict::Deny {
+            reason: "x".repeat(10000),
+        },
+        Verdict::Deny {
+            reason: "newline\nand\ttab".to_string(),
+        },
+        Verdict::RequireApproval {
+            reason: String::new(),
+        },
+        Verdict::RequireApproval {
+            reason: "unicode: 日本 🔥".to_string(),
+        },
     ];
 
     for verdict in &verdicts {
         let serialized = serde_json::to_string(verdict).unwrap();
         let deserialized: Verdict = serde_json::from_str(&serialized).unwrap();
-        assert_eq!(verdict, &deserialized, "Roundtrip failed for verdict: {:?}", verdict);
+        assert_eq!(
+            verdict, &deserialized,
+            "Roundtrip failed for verdict: {:?}",
+            verdict
+        );
     }
 }
 
@@ -70,11 +88,21 @@ fn policy_type_roundtrip_preserves_equality() {
     let types = vec![
         PolicyType::Allow,
         PolicyType::Deny,
-        PolicyType::Conditional { conditions: json!(null) },
-        PolicyType::Conditional { conditions: json!({}) },
-        PolicyType::Conditional { conditions: json!("string") },
-        PolicyType::Conditional { conditions: json!(42) },
-        PolicyType::Conditional { conditions: json!([1, 2, 3]) },
+        PolicyType::Conditional {
+            conditions: json!(null),
+        },
+        PolicyType::Conditional {
+            conditions: json!({}),
+        },
+        PolicyType::Conditional {
+            conditions: json!("string"),
+        },
+        PolicyType::Conditional {
+            conditions: json!(42),
+        },
+        PolicyType::Conditional {
+            conditions: json!([1, 2, 3]),
+        },
         PolicyType::Conditional {
             conditions: json!({
                 "forbidden_parameters": ["a", "b"],
@@ -87,7 +115,11 @@ fn policy_type_roundtrip_preserves_equality() {
     for pt in &types {
         let serialized = serde_json::to_string(pt).unwrap();
         let deserialized: PolicyType = serde_json::from_str(&serialized).unwrap();
-        assert_eq!(pt, &deserialized, "Roundtrip failed for policy type: {:?}", pt);
+        assert_eq!(
+            pt, &deserialized,
+            "Roundtrip failed for policy type: {:?}",
+            pt
+        );
     }
 }
 
@@ -118,9 +150,21 @@ fn policy_roundtrip_with_various_priorities() {
 fn empty_policies_always_deny_for_any_action() {
     let engine = PolicyEngine::new(false);
     let actions = vec![
-        Action { tool: String::new(), function: String::new(), parameters: json!(null) },
-        Action { tool: "*".to_string(), function: "*".to_string(), parameters: json!({}) },
-        Action { tool: "a".repeat(10000), function: "b".to_string(), parameters: json!({"x": 1}) },
+        Action {
+            tool: String::new(),
+            function: String::new(),
+            parameters: json!(null),
+        },
+        Action {
+            tool: "*".to_string(),
+            function: "*".to_string(),
+            parameters: json!({}),
+        },
+        Action {
+            tool: "a".repeat(10000),
+            function: "b".to_string(),
+            parameters: json!({"x": 1}),
+        },
     ];
 
     for action in &actions {
@@ -145,9 +189,21 @@ fn wildcard_allow_always_allows() {
     }];
 
     let actions = vec![
-        Action { tool: "".to_string(), function: "".to_string(), parameters: json!(null) },
-        Action { tool: "bash".to_string(), function: "exec".to_string(), parameters: json!({"cmd": "rm -rf /"}) },
-        Action { tool: "🔥".to_string(), function: "💀".to_string(), parameters: json!([]) },
+        Action {
+            tool: "".to_string(),
+            function: "".to_string(),
+            parameters: json!(null),
+        },
+        Action {
+            tool: "bash".to_string(),
+            function: "exec".to_string(),
+            parameters: json!({"cmd": "rm -rf /"}),
+        },
+        Action {
+            tool: "🔥".to_string(),
+            function: "💀".to_string(),
+            parameters: json!([]),
+        },
     ];
 
     for action in &actions {
@@ -172,8 +228,16 @@ fn wildcard_deny_always_denies() {
     }];
 
     let actions = vec![
-        Action { tool: "safe".to_string(), function: "read".to_string(), parameters: json!({}) },
-        Action { tool: "".to_string(), function: "".to_string(), parameters: json!(null) },
+        Action {
+            tool: "safe".to_string(),
+            function: "read".to_string(),
+            parameters: json!({}),
+        },
+        Action {
+            tool: "".to_string(),
+            function: "".to_string(),
+            parameters: json!(null),
+        },
     ];
 
     for action in &actions {
@@ -229,7 +293,8 @@ fn higher_priority_always_wins_over_lower() {
         assert!(
             matches!(verdict, Verdict::Allow),
             "Priority {} allow should beat priority {} deny",
-            high, low
+            high,
+            low
         );
 
         // High-priority deny vs low-priority allow  deny wins
@@ -251,7 +316,8 @@ fn higher_priority_always_wins_over_lower() {
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
             "Priority {} deny should beat priority {} allow",
-            high, low
+            high,
+            low
         );
     }
 }
@@ -306,10 +372,26 @@ fn evaluate_never_panics_with_valid_inputs() {
     let engine = PolicyEngine::new(false);
 
     let actions = vec![
-        Action { tool: "".to_string(), function: "".to_string(), parameters: json!(null) },
-        Action { tool: "*".to_string(), function: "*".to_string(), parameters: json!({}) },
-        Action { tool: ":".to_string(), function: ":".to_string(), parameters: json!("str") },
-        Action { tool: "a:b:c".to_string(), function: "d".to_string(), parameters: json!([]) },
+        Action {
+            tool: "".to_string(),
+            function: "".to_string(),
+            parameters: json!(null),
+        },
+        Action {
+            tool: "*".to_string(),
+            function: "*".to_string(),
+            parameters: json!({}),
+        },
+        Action {
+            tool: ":".to_string(),
+            function: ":".to_string(),
+            parameters: json!("str"),
+        },
+        Action {
+            tool: "a:b:c".to_string(),
+            function: "d".to_string(),
+            parameters: json!([]),
+        },
     ];
 
     let policy_sets: Vec<Vec<Policy>> = vec![
@@ -323,7 +405,9 @@ fn evaluate_never_panics_with_valid_inputs() {
         vec![Policy {
             id: "*".to_string(),
             name: "c".to_string(),
-            policy_type: PolicyType::Conditional { conditions: json!(null) },
+            policy_type: PolicyType::Conditional {
+                conditions: json!(null),
+            },
             priority: 0,
         }],
     ];

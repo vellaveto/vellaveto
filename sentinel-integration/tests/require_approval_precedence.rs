@@ -39,10 +39,14 @@ fn conditional_policy(id: &str, priority: i32, conditions: serde_json::Value) ->
 fn require_approval_beats_forbidden_param() {
     let engine = PolicyEngine::new(false);
     let action = make_action("shell", "exec", json!({"dangerous": true}));
-    let policies = vec![conditional_policy("*", 10, json!({
-        "require_approval": true,
-        "forbidden_parameters": ["dangerous"]
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        10,
+        json!({
+            "require_approval": true,
+            "forbidden_parameters": ["dangerous"]
+        }),
+    )];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
@@ -57,10 +61,14 @@ fn require_approval_beats_forbidden_param() {
 fn require_approval_beats_missing_required_param() {
     let engine = PolicyEngine::new(false);
     let action = make_action("shell", "exec", json!({})); // missing "auth_token"
-    let policies = vec![conditional_policy("*", 10, json!({
-        "require_approval": true,
-        "required_parameters": ["auth_token"]
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        10,
+        json!({
+            "require_approval": true,
+            "required_parameters": ["auth_token"]
+        }),
+    )];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
@@ -75,10 +83,14 @@ fn require_approval_beats_missing_required_param() {
 fn require_approval_false_does_not_short_circuit() {
     let engine = PolicyEngine::new(false);
     let action = make_action("shell", "exec", json!({"dangerous": true}));
-    let policies = vec![conditional_policy("*", 10, json!({
-        "require_approval": false,
-        "forbidden_parameters": ["dangerous"]
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        10,
+        json!({
+            "require_approval": false,
+            "forbidden_parameters": ["dangerous"]
+        }),
+    )];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
@@ -97,10 +109,14 @@ fn require_approval_false_does_not_short_circuit() {
 fn forbidden_checked_before_required() {
     let engine = PolicyEngine::new(false);
     let action = make_action("net", "post", json!({"password": "secret"}));
-    let policies = vec![conditional_policy("*", 10, json!({
-        "forbidden_parameters": ["password"],
-        "required_parameters": ["auth_token"]
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        10,
+        json!({
+            "forbidden_parameters": ["password"],
+            "required_parameters": ["auth_token"]
+        }),
+    )];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
@@ -121,10 +137,14 @@ fn forbidden_checked_before_required() {
 fn missing_required_param_denied_when_no_forbidden_match() {
     let engine = PolicyEngine::new(false);
     let action = make_action("net", "post", json!({"safe_key": "value"}));
-    let policies = vec![conditional_policy("*", 10, json!({
-        "forbidden_parameters": ["password"],
-        "required_parameters": ["auth_token"]
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        10,
+        json!({
+            "forbidden_parameters": ["password"],
+            "required_parameters": ["auth_token"]
+        }),
+    )];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
@@ -146,11 +166,15 @@ fn missing_required_param_denied_when_no_forbidden_match() {
 fn all_conditions_satisfied_allows() {
     let engine = PolicyEngine::new(false);
     let action = make_action("net", "post", json!({"auth_token": "abc123", "safe": true}));
-    let policies = vec![conditional_policy("*", 10, json!({
-        "require_approval": false,
-        "forbidden_parameters": ["password", "secret"],
-        "required_parameters": ["auth_token"]
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        10,
+        json!({
+            "require_approval": false,
+            "forbidden_parameters": ["password", "secret"],
+            "required_parameters": ["auth_token"]
+        }),
+    )];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
@@ -170,9 +194,13 @@ fn all_conditions_satisfied_allows() {
 fn require_approval_string_true_is_not_bool_true() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({}));
-    let policies = vec![conditional_policy("*", 10, json!({
-        "require_approval": "true"
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        10,
+        json!({
+            "require_approval": "true"
+        }),
+    )];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
@@ -187,9 +215,13 @@ fn require_approval_string_true_is_not_bool_true() {
 fn require_approval_integer_1_is_not_bool_true() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({}));
-    let policies = vec![conditional_policy("*", 10, json!({
-        "require_approval": 1
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        10,
+        json!({
+            "require_approval": 1
+        }),
+    )];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
@@ -204,9 +236,13 @@ fn require_approval_integer_1_is_not_bool_true() {
 fn require_approval_null_is_not_bool_true() {
     let engine = PolicyEngine::new(false);
     let action = make_action("tool", "func", json!({}));
-    let policies = vec![conditional_policy("*", 10, json!({
-        "require_approval": null
-    }))];
+    let policies = vec![conditional_policy(
+        "*",
+        10,
+        json!({
+            "require_approval": null
+        }),
+    )];
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
