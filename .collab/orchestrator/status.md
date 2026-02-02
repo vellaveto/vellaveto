@@ -1,120 +1,99 @@
 # Orchestrator Status
 
 ## Identity
-I am the orchestrator instance (Opus 4.5). I audit, coordinate, and assign work to Instance A and Instance B. I also fix issues directly when needed. I report to the Controller instance.
+I am the orchestrator instance (Opus 4.5). I audit, coordinate, and assign work to Instance A and Instance B. I report to the Controller instance.
 
-## Current State: AUDIT UPDATE 2
+## Current State: SECURITY HARDENING MODE
 Timestamp: 2026-02-02
 
+**Per Controller Directive C-1: ALL FEATURE WORK HALTED. Security fixes only.**
+
 ---
 
-## Codebase Health Assessment
+## Controller Security Audit Findings — ACKNOWLEDGED
 
-### Build Status: ALL PASS
+The Controller conducted an independent security audit that found **39 issues** including **7 CRITICAL vulnerabilities** that my original audit missed. I acknowledge the following gaps in my initial review:
+
+### What I Got Wrong
+1. **Surface-level audit only** -- I focused on "does it compile and pass tests" rather than "does it actually provide the security guarantees it claims"
+2. **Priority inversion** -- My improvement plan put performance optimization (Phase 1) before security correctness (Phase 3). For a security product, this is backwards.
+3. **Incomplete threat modeling** -- I didn't test adversarial inputs (empty tool names, `@` in URLs, hashless entries, unbounded reads)
+4. **False confidence** -- By declaring "Build Status: ALL PASS" and "1,385 tests passing," I implied the codebase was healthy when it had fundamental security bypasses
+
+### What I Got Right
+- Identified and fixed the `unwrap()` in library code
+- Identified missing approval endpoints
+- Identified regex compilation performance issue
+- Set up clear file ownership and prevented instance conflicts
+- Found and fixed the `is_sorted` deny-override bug (security-relevant)
+- Improvement plan structure was sound (just wrong priorities)
+
+### Lessons for Future Audits
+Per Controller Correction 1, future audits must include:
+- Security-focused review: "Can an attacker bypass this?"
+- Boundary analysis: "What happens with missing/empty/malformed input?"
+- Crash analysis: "What happens on I/O failure, memory pressure, process death?"
+- Protocol compliance: "Does this follow the spec (JSON-RPC 2.0, MCP)?"
+
+---
+
+## Codebase Health Assessment (Updated)
+
+### Build Status
 - `cargo check --workspace` -- clean
-- `cargo clippy --workspace` -- clean (zero warnings)
-- `cargo test --workspace` -- ALL 1,359 TESTS PASS
-- `cargo fmt --check` -- PASS (fixed in previous session)
+- `cargo clippy --workspace` -- clean
+- `cargo test --workspace` -- 1,385 tests pass, 0 failures
+- `cargo fmt --check` -- clean
 
-### Test Count Summary
-| Crate | Tests |
-|---|---|
-| sentinel-engine | ~145 (71 unit + 74 integration) |
-| sentinel-audit | ~46 |
-| sentinel-approval | ~9 |
-| sentinel-canonical | ~5 |
-| sentinel-config | ~6 |
-| sentinel-types | ~4 |
-| sentinel-mcp | ~21 (3 server + 8 extractor + 5 framing + 5 proxy) |
-| sentinel-integration | ~15 |
-| sentinel-server (tower/adversarial/unit) | ~1000+ |
-| **Total** | **~1,359** |
+### CRITICAL Security Issues (7)
+| # | Finding | Status |
+|---|---------|--------|
+| 1 | Hash chain bypass (hashless entries accepted) | OPEN — assigned Instance B |
+| 2 | Hash chain no field separators (collision risk) | OPEN — assigned Instance B |
+| 3 | initialize_chain trusts unverified file | OPEN — assigned Instance B |
+| 4 | last_hash updated before file write | OPEN — assigned Instance B |
+| 5 | Empty tool name bypasses policy | OPEN — assigned Instance B |
+| 6 | Unbounded read_line (OOM DoS) | OPEN — assigned Instance B |
+| 7 | No authentication on server endpoints | OPEN — assigned Instance A |
 
-### Workspace Crates (10)
-1. sentinel-types (leaf)
-2. sentinel-canonical (types)
-3. sentinel-engine (types, canonical)
-4. sentinel-audit (types, engine)
-5. sentinel-config (types)
-6. sentinel-approval (types)
-7. sentinel-mcp (types, engine, audit) -- now includes proxy.rs, extractor.rs, framing.rs
-8. sentinel-server (all above)
-9. sentinel-integration (all above, test only)
-10. sentinel-proxy (binary, uses mcp/engine/audit/config)
+### HIGH Issues (7)
+| # | Finding | Status |
+|---|---------|--------|
+| 8 | extract_domain `@` bypass | OPEN — assigned Instance B |
+| 9 | normalize_path empty fallback | OPEN — assigned Instance B |
+| 10 | Approval store persistence is write-only | OPEN |
+| 11 | unwrap_or_default swallows errors | OPEN |
+| 12 | Evaluate not fail-closed on approval creation failure | OPEN |
+| 13 | Audit records wrong verdict for RequireApproval | OPEN |
+| 14 | Empty line terminates proxy | OPEN — assigned Instance B |
 
----
-
-## What's Working (Complete Feature List)
-
-1. **Parameter-Aware Firewall** (9 constraint operators, path normalization, domain extraction)
-2. **Tamper-Evident Audit** (SHA-256 hash chain, verify_chain(), backward compat)
-3. **Approval Store** (create/approve/deny/expire/persist with JSONL)
-4. **Canonical Disconnect Fix** (policies rewritten to use parameter_constraints)
-5. **Server Integration** (all endpoints wired: evaluate, audit, approval CRUD, policy CRUD)
-6. **MCP Stdio Proxy** (bidirectional relay, tools/call interception, policy enforcement)
-7. **CI Workflow** (.github/workflows/ci.yml: check, clippy, fmt, test, doc)
+### Previously Fixed Issues (by Orchestrator)
+- unwrap() in engine library code -- FIXED
+- Misleading test name -- FIXED
+- Formatting -- FIXED
+- Benchmark example compile error -- FIXED
+- Proxy unwrap in main.rs -- FIXED
+- kill_on_drop missing -- FIXED
+- is_sorted deny-override bug -- FIXED
 
 ---
 
-## Issues Found in Latest Audit
+## Active Directives (from Controller)
 
-### RESOLVED (this session)
-1. ~~**Compile error in benchmark example**~~ -- `priority: i` was `usize`, needed `i32` cast. Fixed.
-2. ~~**`unwrap()` in sentinel-proxy/src/main.rs:74**~~ -- Replaced with `.context()`. Fixed.
-3. ~~**Missing `kill_on_drop(true)` on child process**~~ -- Added. Fixed.
+### My Assignments (Directive C-4)
+- [ ] After Instance B submits fixes: run full test suite, verify CRITICAL findings addressed
+- [ ] After Instance A submits auth + tests: review auth middleware, verify tests
+- [x] Update orchestrator/status.md to reflect security audit -- DONE
+- [ ] Resume improvement plan ONLY after all CRITICAL/HIGH findings fixed
+- [ ] Update external audit report with fix status
 
-### STILL OPEN
-
-#### HIGH
-1. **Regex compiled on every evaluation call** (Task B2 -- assigned to Instance B, NOT DONE)
-   - `eval_regex_constraint()` calls `Regex::new()` per invocation
-   - See improvement plan Phase 1.1 for solution
-
-#### MEDIUM
-2. **`glob` crate should be replaced with `globset`** -- See improvement plan Phase 1.2
-3. **Policies re-sorted on every evaluation** -- See improvement plan Phase 1.3
-4. **No integration tests for MCP proxy flow** -- Need end-to-end test
-5. **`resources/read` not intercepted by proxy** -- Only `tools/call` is checked
-
-#### LOW
-6. **No property-based tests** -- Important for security-critical code
-7. **No performance benchmarks** -- Have benchmark example but no criterion setup
-8. **Audit logging in request hot path** -- See improvement plan Phase 2.1
-
----
-
-## Work Assignment Summary
-
-### Instance A
-- CI workflow: DONE
-- Integration tests: PARTIAL (15 path/domain tests, need proxy flow tests)
-- Property-based tests: NOT STARTED
-- Benchmarks: NOT STARTED
-
-### Instance B
-- Features 1-5: DONE
-- Approval endpoints: DONE
-- MCP proxy: DONE (proxy.rs, extractor.rs, framing.rs, sentinel-proxy binary)
-- Regex caching (B2): NOT DONE
-- `globset` migration: NOT STARTED
-- Pre-sort policies: NOT STARTED
-
-### Orchestrator (me)
-- Initial audit: DONE
-- unwrap fix: DONE
-- Test name fix: DONE
-- Formatting fix: DONE
-- Benchmark example fix: DONE
-- Proxy unwrap fix: DONE
-- kill_on_drop fix: DONE
-- Improvement plan: DONE
-- Controller infrastructure: DONE
-
-### Controller
-- AWAITING ACTIVATION
-- Infrastructure set up at `.collab/controller/`
+### My Assignments (Directive C-5)
+- [ ] Add Phase 0 (Security Hardening) to improvement plan
+- [ ] Mark completed items (kill_on_drop, regex cache)
+- [ ] Defer Merkle tree until hash chain is correct
+- [x] Acknowledge gap in original audit -- DONE (above)
 
 ---
 
 ## Monitoring
-Tailing instance status files and log.md for updates.
+Polling instance files every 15s for updates. Waiting for Instance A and Instance B to begin security fixes.

@@ -28,6 +28,8 @@ pub enum MessageType {
         tool_name: String,
         arguments: Value,
     },
+    /// A `resources/read` request that should be policy-checked.
+    ResourceRead { id: Value, uri: String },
     /// Any other message (notifications, responses, other methods).
     PassThrough,
 }
@@ -35,32 +37,42 @@ pub enum MessageType {
 /// Classify a JSON-RPC message.
 ///
 /// Returns `ToolCall` for `"method": "tools/call"` requests with valid params.
+/// Returns `ResourceRead` for `"method": "resources/read"` requests with a URI.
 /// Returns `PassThrough` for everything else.
 pub fn classify_message(msg: &Value) -> MessageType {
     let method = msg.get("method").and_then(|v| v.as_str());
-
-    if method != Some("tools/call") {
-        return MessageType::PassThrough;
-    }
-
     let id = msg.get("id").cloned().unwrap_or(Value::Null);
     let params = msg.get("params");
 
-    let tool_name = params
-        .and_then(|p| p.get("name"))
-        .and_then(|n| n.as_str())
-        .unwrap_or("")
-        .to_string();
+    match method {
+        Some("tools/call") => {
+            let tool_name = params
+                .and_then(|p| p.get("name"))
+                .and_then(|n| n.as_str())
+                .unwrap_or("")
+                .to_string();
 
-    let arguments = params
-        .and_then(|p| p.get("arguments"))
-        .cloned()
-        .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
+            let arguments = params
+                .and_then(|p| p.get("arguments"))
+                .cloned()
+                .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
 
-    MessageType::ToolCall {
-        id,
-        tool_name,
-        arguments,
+            MessageType::ToolCall {
+                id,
+                tool_name,
+                arguments,
+            }
+        }
+        Some("resources/read") => {
+            let uri = params
+                .and_then(|p| p.get("uri"))
+                .and_then(|u| u.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            MessageType::ResourceRead { id, uri }
+        }
+        _ => MessageType::PassThrough,
     }
 }
 
@@ -74,6 +86,40 @@ pub fn extract_action(tool_name: &str, arguments: &Value) -> Action {
         tool: tool_name.to_string(),
         function: "*".to_string(),
         parameters: arguments.clone(),
+    }
+}
+
+/// Extract an [`Action`] from a `resources/read` URI.
+///
+/// The `tool` field is `"resources"`, `function` is `"read"`.
+/// The `parameters` field contains:
+/// - `uri`: the raw URI string
+/// - `path`: extracted file path for `file://` URIs (for path constraint evaluation)
+/// - `url`: the full URI for `http://`/`https://` URIs (for domain constraint evaluation)
+pub fn extract_resource_action(uri: &str) -> Action {
+    let mut params = serde_json::Map::new();
+    params.insert("uri".to_string(), Value::String(uri.to_string()));
+
+    if let Some(path) = uri.strip_prefix("file://") {
+        // file:///etc/passwd → /etc/passwd
+        // file://localhost/etc/passwd → /etc/passwd (strip optional host)
+        let file_path = if let Some(rest) = path.strip_prefix("localhost") {
+            rest
+        } else if path.starts_with('/') {
+            path
+        } else {
+            // file://host/path — extract path after host
+            path.find('/').map(|i| &path[i..]).unwrap_or(path)
+        };
+        params.insert("path".to_string(), Value::String(file_path.to_string()));
+    } else if uri.starts_with("http://") || uri.starts_with("https://") {
+        params.insert("url".to_string(), Value::String(uri.to_string()));
+    }
+
+    Action {
+        tool: "resources".to_string(),
+        function: "read".to_string(),
+        parameters: Value::Object(params),
     }
 }
 

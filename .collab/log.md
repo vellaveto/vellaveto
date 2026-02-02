@@ -281,3 +281,105 @@ Per user request, a new **Controller** instance (web research + strategic guidan
 7. LOW: Audit channel decoupling from hot path
 
 **All instances: Read `.collab/README.md` for updated hierarchy and protocol.**
+
+---
+
+## 2026-02-02 — Orchestrator (Update 3)
+
+### Instance A Update Received -- Good Work
+Instance A completed all 4 assigned tasks (A1-A4):
+- A1: CI workflow created
+- A2: 16 E2E tests for parameter constraints
+- A3: 8 approval flow tests
+- A4: TASKS.md updated
+
+### Bug Found and Fixed: `is_sorted` Check Missing Deny-Override
+**Severity: HIGH -- Security-relevant**
+
+During monitoring, I found `test_deny_overrides_allow_same_priority` failing in `sentinel-engine/tests/cross_crate_pipeline.rs`.
+
+**Root cause:** The `is_sorted` fast-path check in `evaluate_action()` (line 87-90) only validated priority ordering but not deny-before-allow ordering at equal priority. When two policies had the same priority (one Allow, one Deny), the engine took the "already sorted" fast path and evaluated Allow first, violating the deny-overrides-allow invariant.
+
+**Fix:** Updated the `is_sorted` check to also verify deny-first ordering at equal priority, matching the sort criteria used by `sort_policies()`.
+
+This was a real security bug: at equal priority, Allow could override Deny, which violates fail-safe defaults.
+
+### Current State
+- **1,385 tests passing** (up from 1,359 -- Instance A added 26 new tests)
+- Zero failures, zero clippy warnings
+- All CI checks pass
+
+### Instance A: New Tasks Available
+Since all A1-A4 tasks are done, picking up from the improvement plan:
+- A2 (updated): Integration tests for MCP proxy flow
+- A3 (updated): Property-based tests with proptest
+- A4 (updated): Criterion benchmarks
+
+**See updated `orchestrator/tasks-instance-a.md`.**
+
+---
+
+## 2026-02-02 — Controller (Activation)
+
+### CONTROLLER ACTIVATED
+
+I am the Controller instance — the highest authority in the hierarchy (Controller > Orchestrator > Instance A/B). I have completed a **full independent security audit** of the entire codebase.
+
+### What I Did
+
+1. **Deployed 5 parallel audit agents** covering: engine constraints, audit/approval, MCP proxy, server routes, and best practices research
+2. **Direct code review** of all critical files (engine: 2005 lines, audit, approval, all MCP modules, server routes, proxy binary)
+3. **Build verification** — all tests pass, clippy clean, fmt clean, no unsafe, no unwrap in lib code
+4. **Produced comprehensive audit report** at `orchestrator/issues/external-audit-report.md`
+
+### Key Findings: 39 Issues (7 CRITICAL)
+
+**CRITICAL (security-breaking — fix immediately):**
+1. Hash chain tamper-evidence is bypassable (hashless entries accepted after chain starts)
+2. Hash chain has no field separators (boundary-shift collision attacks)
+3. `initialize_chain` trusts file without verification (tampered file poisons chain)
+4. `last_hash` updated before file write (chain diverges on I/O failure)
+5. Empty tool name bypasses policy (missing `name` → empty string evades deny rules)
+6. Unbounded `read_line` in MCP framing (OOM DoS)
+7. No authentication on server endpoints (combined with permissive CORS)
+
+**HIGH (production-blocking):**
+8. `extract_domain` `@` bypass — `?email=user@safe.com` extracts `safe.com` not `evil.com`
+9. `normalize_path` returns raw input on empty result (defeats traversal prevention)
+10. Approval store persistence is write-only (data lost on restart)
+11. `unwrap_or_default()` silently swallows errors (5 handlers)
+12. Evaluate handler not fail-closed on approval creation failure
+13. Audit always records Deny even for RequireApproval
+14. Empty line terminates proxy session
+
+**Plus 16 MEDIUM and 9 LOW findings.**
+
+### Directives Issued
+
+**ALL INSTANCES: Read `controller/directives.md` IMMEDIATELY. These override all orchestrator assignments.**
+
+- **C-1:** STOP all feature work. Fix security bugs first.
+- **C-2 (Instance B):** Fix CRITICAL findings 1-6, 8, 9, 14 — your code, detailed fix instructions provided
+- **C-3 (Instance A):** Add server authentication + regression tests for all 14 CRITICAL/HIGH findings
+- **C-4 (Orchestrator):** Validate fixes, update status, pause improvement plan
+- **C-5 (Orchestrator):** Correct improvement plan priorities (security before performance)
+- **C-6 (Instance B):** Fix MCP JSON-RPC 2.0 compliance issues
+
+### Corrections Issued
+
+See `controller/corrections.md` for detailed corrections to:
+- Orchestrator: audit was incomplete, improvement plan priorities inverted
+- Instance B: hash chain and MCP proxy declared "DONE" prematurely
+- Instance A: tests missed adversarial edge cases (minor)
+
+### Assessment
+
+All instances did good work. Instance B's architectures are sound. Instance A's testing is strong. Orchestrator's coordination was effective. The gap is in **security depth** — the code passes tests and compiles clean, but has exploitable vulnerabilities that tests don't cover. This is normal for a first implementation pass; the important thing is fixing them now before deployment.
+
+### What Happens Next
+
+1. Instance B fixes CRITICAL bugs (Directive C-2)
+2. Instance A adds auth + regression tests (Directive C-3)
+3. Orchestrator validates all fixes (Directive C-4)
+4. Controller reviews submitted fixes
+5. Resume improvement plan with corrected priorities (security first)

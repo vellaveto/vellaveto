@@ -326,8 +326,9 @@ impl PolicyEngine {
                 .and_then(|v| v.as_str())
                 .unwrap_or("deny");
 
-            // Get the parameter value from the action, handling missing case
-            let param_value = match action.parameters.get(param_name) {
+            // Get the parameter value from the action, supporting dot-separated paths
+            // e.g. "config.output.path" traverses into nested objects
+            let param_value = match Self::get_param_by_path(&action.parameters, param_name) {
                 Some(v) => v,
                 None => {
                     if on_missing == "skip" {
@@ -934,6 +935,18 @@ impl PolicyEngine {
         cache.insert(pattern.to_string(), re);
 
         Ok(result)
+    }
+
+    /// Retrieve a parameter value by dot-separated path.
+    ///
+    /// Supports both simple keys (`"path"`) and nested paths (`"config.output.path"`).
+    /// Returns `None` if any segment along the path is missing or not an object.
+    pub fn get_param_by_path<'a>(params: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+        let mut current = params;
+        for segment in path.split('.') {
+            current = current.get(segment)?;
+        }
+        Some(current)
     }
 
     /// Convert an `on_match` action string into a Verdict.
@@ -2046,5 +2059,124 @@ mod tests {
         }];
         let result = engine.evaluate_action(&action, &policies);
         assert!(result.is_err());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // JSON PATH TRAVERSAL (DEEP PARAMETER INSPECTION)
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_json_path_nested_parameter() {
+        let engine = PolicyEngine::new(false);
+        let action = action_with(
+            "tool",
+            "func",
+            json!({"config": {"output": {"path": "/etc/shadow"}}}),
+        );
+        let policies = constraint_policy(json!([{
+            "param": "config.output.path",
+            "op": "glob",
+            "pattern": "/etc/**",
+            "on_match": "deny"
+        }]));
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_json_path_nested_allows_safe_value() {
+        let engine = PolicyEngine::new(false);
+        let action = action_with(
+            "tool",
+            "func",
+            json!({"config": {"output": {"path": "/tmp/output.json"}}}),
+        );
+        let policies = constraint_policy(json!([{
+            "param": "config.output.path",
+            "op": "glob",
+            "pattern": "/etc/**",
+            "on_match": "deny"
+        }]));
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(matches!(verdict, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_json_path_missing_intermediate_denies() {
+        let engine = PolicyEngine::new(false);
+        // "config" exists but "config.output" doesn't
+        let action = action_with("tool", "func", json!({"config": {"other": "value"}}));
+        let policies = constraint_policy(json!([{
+            "param": "config.output.path",
+            "op": "glob",
+            "pattern": "/etc/**",
+            "on_match": "deny"
+        }]));
+        // Missing intermediate → fail-closed deny
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_json_path_missing_intermediate_skip() {
+        let engine = PolicyEngine::new(false);
+        let action = action_with("tool", "func", json!({"config": {"other": "value"}}));
+        let policies = constraint_policy(json!([{
+            "param": "config.output.path",
+            "op": "glob",
+            "pattern": "/etc/**",
+            "on_match": "deny",
+            "on_missing": "skip"
+        }]));
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(matches!(verdict, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_json_path_simple_key_still_works() {
+        // Simple keys (no dots) should work exactly as before
+        let engine = PolicyEngine::new(false);
+        let action = action_with("file", "read", json!({"path": "/etc/passwd"}));
+        let policies = constraint_policy(json!([{
+            "param": "path",
+            "op": "glob",
+            "pattern": "/etc/**",
+            "on_match": "deny"
+        }]));
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_json_path_domain_in_nested_object() {
+        let engine = PolicyEngine::new(false);
+        let action = action_with(
+            "http",
+            "request",
+            json!({"options": {"target": "https://evil.com/exfil"}}),
+        );
+        let policies = constraint_policy(json!([{
+            "param": "options.target",
+            "op": "domain_match",
+            "pattern": "evil.com",
+            "on_match": "deny"
+        }]));
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_get_param_by_path_unit() {
+        let params = json!({"a": {"b": {"c": 42}}, "top": "val"});
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "a.b.c"),
+            Some(&json!(42))
+        );
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "top"),
+            Some(&json!("val"))
+        );
+        assert_eq!(PolicyEngine::get_param_by_path(&params, "a.b.missing"), None);
+        assert_eq!(PolicyEngine::get_param_by_path(&params, "nonexistent"), None);
     }
 }
