@@ -583,7 +583,9 @@ async fn security_headers_present_on_get() {
 
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(
-        resp.headers().get("x-content-type-options").map(|v| v.as_bytes()),
+        resp.headers()
+            .get("x-content-type-options")
+            .map(|v| v.as_bytes()),
         Some(b"nosniff".as_slice()),
         "X-Content-Type-Options header should be 'nosniff'"
     );
@@ -593,7 +595,9 @@ async fn security_headers_present_on_get() {
         "X-Frame-Options header should be 'DENY'"
     );
     assert_eq!(
-        resp.headers().get("content-security-policy").map(|v| v.as_bytes()),
+        resp.headers()
+            .get("content-security-policy")
+            .map(|v| v.as_bytes()),
         Some(b"default-src 'none'".as_slice()),
         "Content-Security-Policy header should be set"
     );
@@ -628,7 +632,9 @@ async fn security_headers_present_on_post() {
 
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(
-        resp.headers().get("x-content-type-options").map(|v| v.as_bytes()),
+        resp.headers()
+            .get("x-content-type-options")
+            .map(|v| v.as_bytes()),
         Some(b"nosniff".as_slice()),
         "Security headers must be present on POST responses too"
     );

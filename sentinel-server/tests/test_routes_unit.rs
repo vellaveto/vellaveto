@@ -214,3 +214,153 @@ async fn delete_nonexistent_policy_returns_not_found() {
     // The current implementation returns 404 when no policy matched
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn metrics_returns_counters() {
+    let (state, _tmp) = test_state();
+
+    // Evaluate one allowed and one denied action first
+    let app = routes::build_router(state.clone());
+    app.oneshot(
+        Request::builder()
+            .method("POST")
+            .uri("/api/evaluate")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"tool":"file","function":"read","parameters":{}}"#,
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    let app = routes::build_router(state.clone());
+    app.oneshot(
+        Request::builder()
+            .method("POST")
+            .uri("/api/evaluate")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"tool":"bash","function":"exec","parameters":{}}"#,
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    // Check metrics
+    let app = routes::build_router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/metrics")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["evaluations"]["total"], 2);
+    assert_eq!(json["evaluations"]["allow"], 1);
+    assert_eq!(json["evaluations"]["deny"], 1);
+    assert!(json["uptime_seconds"].is_number());
+    assert_eq!(json["policies_loaded"], 2);
+}
+
+#[tokio::test]
+async fn responses_include_request_id_header() {
+    let (state, _tmp) = test_state();
+    let app = routes::build_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let request_id = response
+        .headers()
+        .get("x-request-id")
+        .expect("Response must include X-Request-Id header");
+    let id_str = request_id.to_str().unwrap();
+    // UUID v4 format: 8-4-4-4-12 hex digits
+    assert_eq!(id_str.len(), 36, "X-Request-Id should be UUID format");
+    assert_eq!(id_str.chars().filter(|c| *c == '-').count(), 4);
+}
+
+#[tokio::test]
+async fn request_id_preserved_when_client_sends_one() {
+    let (state, _tmp) = test_state();
+    let app = routes::build_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .header("x-request-id", "my-custom-id-12345")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let request_id = response
+        .headers()
+        .get("x-request-id")
+        .expect("Response must include X-Request-Id header");
+    assert_eq!(
+        request_id.to_str().unwrap(),
+        "my-custom-id-12345",
+        "Client-provided X-Request-Id must be preserved"
+    );
+}
+
+#[tokio::test]
+async fn responses_include_security_headers() {
+    let (state, _tmp) = test_state();
+    let app = routes::build_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let headers = response.headers();
+    assert_eq!(
+        headers.get("x-content-type-options").unwrap(),
+        "nosniff",
+        "Must have X-Content-Type-Options: nosniff"
+    );
+    assert_eq!(
+        headers.get("x-frame-options").unwrap(),
+        "DENY",
+        "Must have X-Frame-Options: DENY"
+    );
+    assert_eq!(
+        headers.get("content-security-policy").unwrap(),
+        "default-src 'none'",
+        "Must have Content-Security-Policy"
+    );
+    assert_eq!(
+        headers.get("cache-control").unwrap(),
+        "no-store",
+        "Must have Cache-Control: no-store"
+    );
+}

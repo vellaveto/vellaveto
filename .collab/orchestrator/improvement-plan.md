@@ -312,7 +312,17 @@ Support MCP server metadata for auto-configuration.
 | `is_sorted` deny-override bug fix | Orchestrator | (security) |
 | Server auth middleware (Bearer token) | Instance A | 0.7 |
 | Default bind 127.0.0.1 | Instance A | 0.15 |
+| Lock-free policy reads (arc-swap) | Instance B | 6.1 |
+| Tool annotation awareness (C-8.2) | Instance B + Controller | 8.1 |
+| Rug-pull detection (OWASP MCP03) | Instance B + Controller | 8.3 |
+| Response injection scanning (OWASP MCP06) | Instance B + Controller | 8.2 |
+| Protocol version tracking (C-8.4) | Instance B | 8.4 |
+| sampling/createMessage interception (C-8.5) | Instance B | 8.5 |
+| X-Request-Id header (LOW #38) | Controller | 5.1 |
+| /api/metrics endpoint (LOW #39) | Controller | 7 |
+| OWASP MCP Top 10 test matrix | Instance A + Controller | 7 |
+| Security headers (nosniff, DENY, CSP, no-store) | Controller | (server) |
 
 ---
 
-*Last updated: 2026-02-02 — Phases 8-9 added per C-8. Tool annotations and response inspection are next priorities.*
+*Last updated: 2026-02-02 — All CRITICAL/HIGH/MEDIUM findings resolved. LOW findings #38/#39 fixed. Phase 8 (MCP spec alignment) substantially complete. Phase 9 (Streamable HTTP) is the main remaining gap.*

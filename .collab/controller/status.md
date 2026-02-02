@@ -186,6 +186,18 @@ Direct fixes for remaining MEDIUM findings:
 
 **Test status: 1,512 tests, 0 failures, 0 clippy warnings, 0 format issues.**
 
+### 9. LOW Finding Fixes (Phase 3)
+
+| Feature | Description | File(s) | Tests |
+|---------|-------------|---------|-------|
+| X-Request-Id header (#38) | UUID v4 per response, preserves client-provided IDs | sentinel-server/src/routes.rs | 2 tests |
+| /api/metrics endpoint (#39) | Atomic counters: evaluations, allow/deny/approval, uptime | sentinel-server/src/{lib,routes}.rs | 1 test |
+| Security headers (quick win) | Already implemented: nosniff, DENY, CSP, no-store | sentinel-server/src/routes.rs | 1 test |
+| OWASP MCP03 tests updated | Replaced placeholder with rug-pull audit + allowlist tests | sentinel-integration/tests/owasp_mcp_top10.rs | 3 tests (was 1) |
+| OWASP MCP06 tests updated | Replaced placeholder with injection audit + chain integrity | sentinel-integration/tests/owasp_mcp_top10.rs | 3 tests (was 1) |
+
+**Test status: 1,434 tests, 0 failures, 0 clippy warnings.**
+
 ### 8. Research Agents Deployed
 
 5 background research agents completed with comprehensive findings:
@@ -208,8 +220,8 @@ Direct fixes for remaining MEDIUM findings:
 - ~~**#36**: Audit log rotation (unbounded file growth)~~ → FIXED by Instance B (100MB default, timestamped rotation)
 
 ### Still Open LOW Findings
-- **#38**: No request ID tracking/correlation
-- **#39**: Missing prometheus/metrics endpoint
+- ~~**#38**: No request ID tracking/correlation~~ → FIXED by Controller (X-Request-Id header, UUID v4)
+- ~~**#39**: Missing prometheus/metrics endpoint~~ → FIXED by Controller (/api/metrics with atomic counters)
 - Various polish items
 
 ### Active Instances
