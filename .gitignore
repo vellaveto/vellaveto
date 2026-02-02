@@ -1,0 +1,21 @@
+# Build artifacts
+/target/
+
+# Database
+*.db
+
+# Logs
+code-logs/
+*.log
+
+# Python cache
+.pytest_cache/
+__pycache__/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

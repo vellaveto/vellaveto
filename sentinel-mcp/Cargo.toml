@@ -1,0 +1,13 @@
+[package]
+name = "sentinel-mcp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sentinel-types = { path = "../sentinel-types" }
+sentinel-engine = { path = "../sentinel-engine" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }

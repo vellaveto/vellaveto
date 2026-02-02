@@ -1,0 +1,9 @@
+[package]
+name = "sentinel-canonical"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sentinel-types = { path = "../sentinel-types" }
+serde = { workspace = true }
+serde_json = { workspace = true }

@@ -1,0 +1,41 @@
+# Sentinel Policy Configuration
+# Each [[policies]] block defines one policy rule.
+
+[[policies]]
+name = "Allow file reads"
+tool_pattern = "file"
+function_pattern = "read"
+policy_type = "Allow"
+priority = 10
+
+[[policies]]
+name = "Block file deletes"
+tool_pattern = "file"
+function_pattern = "delete"
+policy_type = "Deny"
+priority = 100
+
+[[policies]]
+name = "Block bash execution"
+tool_pattern = "bash"
+function_pattern = "*"
+policy_type = "Deny"
+priority = 200
+id = "bash:*"
+
+[[policies]]
+name = "Default allow"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+priority = 1
+
+[[policies]]
+name = "Network requires approval"
+tool_pattern = "network"
+function_pattern = "*"
+priority = 150
+id = "network:*"
+
+[policies.policy_type.Conditional]
+conditions = { require_approval = true }

@@ -1,0 +1,13 @@
+[package]
+name = "sentinel-integration"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sentinel-types = { path = "../sentinel-types" }
+sentinel-engine = { path = "../sentinel-engine" }
+sentinel-audit = { path = "../sentinel-audit" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tempfile = "3.0"
