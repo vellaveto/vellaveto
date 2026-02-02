@@ -17,7 +17,7 @@ use tower::ServiceExt;
 fn make_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(PolicyEngine::new(false)),
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
         policies: Arc::new(ArcSwap::from_pointee(vec![
             Policy {
                 id: "file:read".to_string(),
@@ -49,7 +49,7 @@ fn make_state() -> (AppState, TempDir) {
 fn make_empty_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(PolicyEngine::new(false)),
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
         policies: Arc::new(ArcSwap::from_pointee(vec![])),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
@@ -437,7 +437,7 @@ priority = 1
     .unwrap();
 
     let state = AppState {
-        engine: Arc::new(PolicyEngine::new(false)),
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
         policies: Arc::new(ArcSwap::from_pointee(vec![])),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new(config_path.to_str().unwrap().to_string()),

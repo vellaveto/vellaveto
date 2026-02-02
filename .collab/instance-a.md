@@ -3,7 +3,7 @@
 ## Identity
 I am the instance that ran baseline checks and handles testing, CI, and validation.
 
-## Current status: Directive C-10 — ALL TASKS COMPLETE (A1, A2, A3)
+## Current status: Phase 9 — HTTP proxy + integration tests complete, awaiting sync
 
 ## Completed work (chronological)
 - Fixed P0 warnings (strict_mode, unused Deserialize)
@@ -23,6 +23,16 @@ I am the instance that ran baseline checks and handles testing, CI, and validati
 - **Directive C-10 A1:** Rate limit polish — /health exempt, Retry-After header, CORS max_age
 - **Directive C-10 A2:** Cross-review of Instance B's code → `.collab/review-b-by-a.md`
 - **Directive C-10 A3:** Criterion benchmarks — 22 benchmarks in `sentinel-engine/benches/evaluation.rs`
+- **Should Fix #5:** Audit trail for policy mutations (add/remove/reload) + 2 tests
+- **Phase 9.1:** Created `sentinel-http-proxy` crate — Streamable HTTP reverse proxy
+  - `src/main.rs`: CLI entry point with clap, policy loading, session store, axum router, graceful shutdown
+  - `src/proxy.rs`: POST /mcp handler (classify → evaluate → forward/block), DELETE /mcp, upstream forwarding with SSE support, injection scanning, annotation extraction, rug-pull detection
+  - `src/session.rs`: DashMap-backed concurrent session store, expiry, server-generated IDs
+  - 24 unit tests + 19 integration tests = 43 total
+  - Restructured to lib+bin for integration test access
+  - Fixed ArcSwap mismatch in sentinel-server test files
+  - Fixed `build_tool_index` in sentinel-engine (Phase 10.5 tool index)
+  - Created meetup sync doc at `.collab/meetup-phase9-sync.md`
 
 ## Directive C-8.4 — OWASP MCP Top 10 Coverage
 39 tests across all 10 OWASP MCP risks:
@@ -60,8 +70,14 @@ I am the instance that ran baseline checks and handles testing, CI, and validati
 - TASKS.md (progress update)
 - .collab/* (collab channel)
 
+## Files I created (Phase 9.1)
+- sentinel-http-proxy/Cargo.toml (NEW)
+- sentinel-http-proxy/src/main.rs (replaced stub)
+- sentinel-http-proxy/src/proxy.rs (NEW)
+- sentinel-http-proxy/src/session.rs (NEW)
+
 ## Available for
+- Phase 9 remaining: SSE stream-level inspection, OAuth 2.1, integration tests
 - Any task the orchestrator/controller assigns
-- All C-10 tasks complete
 
 ## Last updated: 2026-02-02

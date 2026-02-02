@@ -188,9 +188,39 @@ All 9 assigned security fixes implemented with regression tests:
 - 24 new tests for compiled path (total 128 unit tests, 99 external = 227 engine tests)
 - Full behavioral parity verified: `test_compiled_parity_with_legacy` checks both paths produce same results
 
+### C-10.2 Task B2: Cross-Review Instance A's Code — COMPLETE
+
+Reviewed 4 files (routes.rs, main.rs, security_regression.rs, owasp_mcp_top10.rs).
+Full review written to `.collab/review-a-by-b.md`.
+
+**Key findings:**
+- 2 MEDIUM: empty API key accepted, pre-compiled policies not wired into server
+- 4 LOW: HEAD not exempted from auth/rate-limit, no shutdown timeout, unbounded client request IDs
+- 3 test gaps: findings #4, #11, #12 not covered in regression suite
+- MCP03/MCP06 integration tests verify audit format only (unit tests cover detection logic)
+- Auth, CORS, security headers, hash chain tests, domain/path defense tests all solid
+
+### Phase 10.3: Signed Audit Checkpoints — COMPLETE
+
+Implemented Ed25519 digital signature checkpoints for the tamper-evident audit log:
+
+- Added `ed25519-dalek = { version = "2", features = ["rand_core"] }` and `rand = "0.8"` to sentinel-audit/Cargo.toml
+- Added `Checkpoint` struct (id, timestamp, entry_count, chain_head_hash, signature, verifying_key)
+- Added `CheckpointVerification` struct for verification results
+- `Checkpoint::signing_content()` uses SHA-256 with length-prefixed fields to prevent boundary-shift attacks
+- Added `signing_key: Option<SigningKey>` to `AuditLogger`
+- `with_signing_key()` builder, `generate_signing_key()`, `signing_key_from_bytes()` static methods
+- `create_checkpoint()` — signs current chain state, appends to `<stem>.checkpoints.jsonl`
+- `load_checkpoints()` — reads checkpoint JSONL file
+- `verify_checkpoints()` — validates all checkpoints (signature, entry_count monotonicity, chain_head_hash match)
+- 13 new checkpoint tests covering creation, verification, signature tampering, entry count tampering, audit log tampering, key rotation, decreasing count detection
+- All 65 sentinel-audit tests pass (45 unit + 20 external), clippy clean, fmt clean
+
 ### Build Status (Current)
 - All workspace tests pass (0 failures)
-- Clippy clean
+- Clippy clean, fmt clean
 - All 14 CRITICAL/HIGH findings from Controller audit: RESOLVED
 - All 6 improvement plan tasks complete (I-B1 DEFERRED, I-B2–I-B6 DONE)
 - C-8 complete, C-9.2/C-10.2 (pre-compiled policies) complete
+- C-10.2 Task B2 (cross-review) complete
+- Phase 10.3 (signed audit checkpoints) complete

@@ -16,7 +16,7 @@ use tower::ServiceExt;
 fn test_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(PolicyEngine::new(false)),
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
         policies: Arc::new(ArcSwap::from_pointee(vec![
             Policy {
                 id: "file:read".to_string(),
@@ -369,7 +369,7 @@ async fn responses_include_security_headers() {
 async fn health_not_rate_limited() {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(PolicyEngine::new(false)),
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
         policies: Arc::new(ArcSwap::from_pointee(vec![])),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
@@ -403,7 +403,7 @@ async fn health_not_rate_limited() {
 async fn rate_limit_429_includes_retry_after() {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(PolicyEngine::new(false)),
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
         policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
             id: "file:read".to_string(),
             name: "Allow".to_string(),

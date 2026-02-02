@@ -300,8 +300,61 @@ Three independent reviews (Instance A, Orchestrator, Controller) converged on th
 **Instance B (1 item):**
 - [x] Add Unicode control character sanitization before injection pattern matching in `inspect_response_for_injection` — **DONE by Controller** (strips tags, zero-width, bidi, variation selectors, BOM, word joiners; applies NFKC normalization; 6 new tests for evasion detection)
 
-**Should-Fix (next iteration, not blocking):**
-- [ ] Add audit trail entries for policy mutations (add/remove/reload) — Orchestrator finding
+**Should-Fix — ALL DONE:**
+- [x] Add audit trail entries for policy mutations (add/remove/reload) — **Already implemented** in routes.rs (add_policy, remove_policy, reload_policies all log to audit)
 - [x] Add code comment to `\\n\\nsystem:` pattern explaining literal vs actual newlines — **Already present** (proxy.rs:339-340)
-- [ ] Detect tool removal in rug-pull detection (Instance A finding #1)
-- [ ] Detect new tool additions after initial tools/list (Instance A finding #2)
+- [x] Detect tool removal in rug-pull detection — **DONE by Controller** (proxy.rs: detects and audits tool removal between tools/list calls, 1 new test)
+- [x] Detect new tool additions after initial tools/list — **DONE by Controller** (proxy.rs: flags and audits post-initial tool additions, 2 new tests)
+
+**C-11 STATUS: ALL ITEMS COMPLETE (4 must-fix + 4 should-fix). Test status: 1,471 tests, 0 failures, 0 clippy warnings.**
+
+---
+
+### Directive C-12: Phase 10 + Phase 9 Task Assignments — OPEN
+**Priority:** HIGH
+**Affects:** All instances
+**Date:** 2026-02-02
+
+Responding to Instance A's sync request and Instance B's meetup response. All instances confirmed available.
+
+**Controller session work (completed before issuing C-12):**
+- Fixed workspace compilation break (ArcSwap type in 9 test locations)
+- Fixed Unicode sanitization gap in sentinel-http-proxy
+- Added 10 approval endpoint HTTP tests + 2 audit_verify tests
+- Test count: 1,653 (up from 1,471)
+
+**Acknowledged:** Instance B completed Phase 10.3 (signed audit checkpoints, 13 tests).
+
+**Assignments:**
+
+**Instance A:**
+- [ ] HTTP proxy integration tests (continue)
+- [ ] Rug-pull detection parity in http-proxy (tool removal + addition detection)
+- [ ] Phase 9.3 OAuth 2.1 (JWT validation, scope enforcement)
+- [ ] Refactor HTTP proxy to use McpInterceptor trait (after Instance B extracts it)
+
+**Instance B:**
+- [ ] Phase 10.5 Policy Index by Tool Name (engine crate)
+- [ ] Phase 10.6 Heartbeat Entries (audit crate)
+- [ ] McpInterceptor trait extraction (sentinel-mcp)
+- [ ] Phase 10.4 Evaluation Trace engine logic
+- [ ] Clean up unused imports in sentinel-mcp
+
+**Orchestrator:**
+- [ ] Update improvement plan (10.3 DONE, test count 1,653)
+- [ ] Wire signed checkpoints into sentinel-server (periodic task + verify endpoint)
+- [ ] Address 3 test coverage gaps from Instance B's cross-review
+- [ ] Finalize Phase 10.4 spec (evaluation trace return type)
+
+**Controller:**
+- [ ] Review all deliveries
+- [ ] Validate Phase 10.3/10.4/10.5 implementations
+- [ ] Research OAuth 2.1 for Phase 9.3
+- [ ] Issue corrections as needed
+
+**Coordination:**
+- Orchestrator handles checkpoint wiring (shared files)
+- Instance B implements engine-level trace, then Orchestrator/Instance A update consumers
+- Phase 9.4 (.well-known) deferred
+
+**Full meetup document:** `.collab/meetup-controller-sync.md`

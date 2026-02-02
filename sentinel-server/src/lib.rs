@@ -101,7 +101,7 @@ impl Metrics {
 /// Shared application state for axum handlers.
 #[derive(Clone)]
 pub struct AppState {
-    pub engine: Arc<PolicyEngine>,
+    pub engine: Arc<ArcSwap<PolicyEngine>>,
     pub policies: Arc<ArcSwap<Vec<Policy>>>,
     pub audit: Arc<AuditLogger>,
     pub config_path: Arc<String>,

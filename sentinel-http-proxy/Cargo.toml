@@ -1,42 +1,42 @@
 [package]
-name = "sentinel-server"
+name = "sentinel-http-proxy"
 version = "0.1.0"
 edition = "2021"
-description = "Sentinel policy engine — CLI and HTTP server"
+description = "Sentinel MCP policy firewall — Streamable HTTP reverse proxy"
+
+[lib]
+name = "sentinel_http_proxy"
+path = "src/lib.rs"
 
 [[bin]]
-name = "sentinel"
+name = "sentinel-http-proxy"
 path = "src/main.rs"
 
 [dependencies]
 sentinel-types = { path = "../sentinel-types" }
 sentinel-engine = { path = "../sentinel-engine" }
 sentinel-audit = { path = "../sentinel-audit" }
-sentinel-mcp = { path = "../sentinel-mcp" }
-sentinel-canonical = { path = "../sentinel-canonical" }
 sentinel-config = { path = "../sentinel-config" }
-sentinel-approval = { path = "../sentinel-approval" }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }
-chrono = { workspace = true }
+uuid = { workspace = true }
 anyhow = { workspace = true }
+tracing = { workspace = true }
 
-arc-swap = "1"
 axum = "0.7"
 clap = { version = "4.0", features = ["derive"] }
-toml = "0.8"
+dashmap = "6"
+reqwest = { version = "0.12", features = ["json", "stream"] }
 tower-http = { version = "0.5", features = ["cors", "trace"] }
-tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+futures-util = "0.3"
+bytes = "1"
+http = "1"
 tower = "0.5"
-governor = "0.10"
-subtle = "2"
-uuid = { workspace = true }
-ed25519-dalek = { version = "2", features = ["rand_core"] }
-hex = "0.4"
+unicode-normalization = "0.1"
 
 [dev-dependencies]
 tempfile = "3.0"

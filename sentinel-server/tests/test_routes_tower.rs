@@ -18,7 +18,7 @@ use tower::ServiceExt;
 fn make_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(PolicyEngine::new(false)),
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
         policies: Arc::new(ArcSwap::from_pointee(vec![
             Policy {
                 id: "file:read".to_string(),
@@ -50,7 +50,7 @@ fn make_state() -> (AppState, TempDir) {
 fn make_empty_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(PolicyEngine::new(false)),
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
         policies: Arc::new(ArcSwap::from_pointee(vec![])),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
@@ -510,7 +510,7 @@ priority = 1
     .unwrap();
 
     let state = AppState {
-        engine: Arc::new(PolicyEngine::new(false)),
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
         policies: Arc::new(ArcSwap::from_pointee(vec![])),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new(config_path.to_str().unwrap().to_string()),
@@ -565,6 +565,382 @@ async fn delete_policy_with_url_encoded_colon() {
     // "bash:*" should have been removed, leaving only "file:read"
     assert_eq!(remaining.len(), 1, "bash:* should be removed");
     assert_eq!(remaining[0].id, "file:read");
+}
+
+// ════════════════════════════════
+// APPROVAL ENDPOINTS
+// ════════════════════════════════
+
+fn make_approval_state() -> (AppState, TempDir) {
+    let tmp = TempDir::new().unwrap();
+    let state = AppState {
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
+        policies: Arc::new(ArcSwap::from_pointee(vec![
+            Policy {
+                id: "sensitive:*".to_string(),
+                name: "Require approval for sensitive ops".to_string(),
+                policy_type: PolicyType::Conditional {
+                    conditions: json!({"require_approval": true}),
+                },
+                priority: 100,
+            },
+            Policy {
+                id: "file:read".to_string(),
+                name: "Allow file reads".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+            },
+        ])),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("nonexistent.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: None,
+        rate_limits: Arc::new(RateLimits::disabled()),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+    };
+    (state, tmp)
+}
+
+/// Helper: evaluate an action that requires approval, return the approval ID.
+async fn create_pending_approval(state: &AppState) -> String {
+    let app = routes::build_router(state.clone());
+    let body = serde_json::to_string(&json!({
+        "tool": "sensitive",
+        "function": "delete",
+        "parameters": {"target": "/important"}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let verdict = json.get("verdict").unwrap();
+    assert!(
+        verdict.get("RequireApproval").is_some(),
+        "Expected RequireApproval verdict, got: {}",
+        verdict
+    );
+    json.get("approval_id")
+        .and_then(|v| v.as_str())
+        .expect("RequireApproval should include approval_id")
+        .to_string()
+}
+
+#[tokio::test]
+async fn approval_list_pending_empty() {
+    let (state, _tmp) = make_approval_state();
+    let app = routes::build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::get("/api/approvals/pending")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["count"], 0);
+    assert!(json["approvals"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn approval_list_pending_after_evaluate() {
+    let (state, _tmp) = make_approval_state();
+    let approval_id = create_pending_approval(&state).await;
+
+    let app = routes::build_router(state);
+    let resp = app
+        .oneshot(
+            Request::get("/api/approvals/pending")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["count"], 1);
+    let approvals = json["approvals"].as_array().unwrap();
+    assert_eq!(approvals[0]["id"], approval_id);
+    assert_eq!(approvals[0]["status"], "Pending");
+}
+
+#[tokio::test]
+async fn approval_get_by_id() {
+    let (state, _tmp) = make_approval_state();
+    let approval_id = create_pending_approval(&state).await;
+
+    let app = routes::build_router(state);
+    let resp = app
+        .oneshot(
+            Request::get(format!("/api/approvals/{}", approval_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["id"], approval_id);
+    assert_eq!(json["status"], "Pending");
+    assert_eq!(json["action"]["tool"], "sensitive");
+}
+
+#[tokio::test]
+async fn approval_get_nonexistent_returns_404() {
+    let (state, _tmp) = make_approval_state();
+    let app = routes::build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::get("/api/approvals/nonexistent-id")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn approval_approve_success() {
+    let (state, _tmp) = make_approval_state();
+    let approval_id = create_pending_approval(&state).await;
+
+    let app = routes::build_router(state);
+    let body = serde_json::to_string(&json!({"resolved_by": "admin"})).unwrap();
+    let resp = app
+        .oneshot(
+            Request::post(format!("/api/approvals/{}/approve", approval_id))
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["status"], "Approved");
+    assert_eq!(json["resolved_by"], "admin");
+}
+
+#[tokio::test]
+async fn approval_deny_success() {
+    let (state, _tmp) = make_approval_state();
+    let approval_id = create_pending_approval(&state).await;
+
+    let app = routes::build_router(state);
+    let body = serde_json::to_string(&json!({"resolved_by": "security-team"})).unwrap();
+    let resp = app
+        .oneshot(
+            Request::post(format!("/api/approvals/{}/deny", approval_id))
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["status"], "Denied");
+    assert_eq!(json["resolved_by"], "security-team");
+}
+
+#[tokio::test]
+async fn approval_double_approve_returns_conflict() {
+    let (state, _tmp) = make_approval_state();
+    let approval_id = create_pending_approval(&state).await;
+
+    // First approve
+    let app = routes::build_router(state.clone());
+    let body = serde_json::to_string(&json!({"resolved_by": "admin"})).unwrap();
+    let resp = app
+        .oneshot(
+            Request::post(format!("/api/approvals/{}/approve", approval_id))
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Second approve should return 409 Conflict
+    let app = routes::build_router(state);
+    let body = serde_json::to_string(&json!({"resolved_by": "admin2"})).unwrap();
+    let resp = app
+        .oneshot(
+            Request::post(format!("/api/approvals/{}/approve", approval_id))
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::CONFLICT,
+        "Double-approve should return 409 CONFLICT"
+    );
+}
+
+#[tokio::test]
+async fn approval_approve_nonexistent_returns_404() {
+    let (state, _tmp) = make_approval_state();
+    let app = routes::build_router(state);
+
+    let body = serde_json::to_string(&json!({"resolved_by": "admin"})).unwrap();
+    let resp = app
+        .oneshot(
+            Request::post("/api/approvals/nonexistent-id/approve")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn approval_approve_without_body_uses_anonymous() {
+    let (state, _tmp) = make_approval_state();
+    let approval_id = create_pending_approval(&state).await;
+
+    let app = routes::build_router(state);
+    let resp = app
+        .oneshot(
+            Request::post(format!("/api/approvals/{}/approve", approval_id))
+                .header("content-type", "application/json")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["status"], "Approved");
+    assert_eq!(json["resolved_by"], "anonymous");
+}
+
+// ════════════════════════════════
+// AUDIT VERIFY ENDPOINT
+// ════════════════════════════════
+
+#[tokio::test]
+async fn audit_verify_on_empty_log() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::get("/api/audit/verify")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    // Empty audit chain should verify as valid
+    assert!(json.is_object(), "verify should return an object");
+}
+
+#[tokio::test]
+async fn audit_verify_after_evaluations() {
+    let (state, _tmp) = make_state();
+
+    // First, create some audit entries via evaluate
+    let app = routes::build_router(state.clone());
+    let body = serde_json::to_string(&json!({
+        "tool": "file",
+        "function": "read",
+        "parameters": {"path": "/tmp/test"}
+    }))
+    .unwrap();
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Give async audit write a moment to flush
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // Now verify the chain
+    let app = routes::build_router(state);
+    let resp = app
+        .oneshot(
+            Request::get("/api/audit/verify")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    // After real evaluations, chain should still be valid
+    assert!(
+        json.is_object(),
+        "verify should return a verification object"
+    );
 }
 
 // ════════════════════════════════

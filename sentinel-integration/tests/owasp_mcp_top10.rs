@@ -860,7 +860,7 @@ mod owasp_mcp07_auth {
     fn make_state(api_key: Option<&str>) -> (AppState, TempDir) {
         let tmp = TempDir::new().unwrap();
         let state = AppState {
-            engine: Arc::new(PolicyEngine::new(false)),
+            engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
             policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
                 id: "file:read".to_string(),
                 name: "Allow file reads".to_string(),
@@ -1185,7 +1185,7 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
             .unwrap();
 
         let state = AppState {
-            engine: Arc::new(PolicyEngine::new(false)),
+            engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
             policies: Arc::new(ArcSwap::from_pointee(vec![])),
             audit: logger,
             config_path: Arc::new("test.toml".to_string()),
@@ -1421,7 +1421,7 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
 
     // Set rate limit to 1 request per second for evaluate
     let state = AppState {
-        engine: Arc::new(PolicyEngine::new(false)),
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
         policies: Arc::new(ArcSwap::from_pointee(vec![allow_policy(
             "file:read",
             "Allow reads",
@@ -1497,7 +1497,7 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
 
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(PolicyEngine::new(false)),
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
         policies: Arc::new(ArcSwap::from_pointee(vec![allow_policy(
             "file:read",
             "Allow",

@@ -12,6 +12,7 @@ use sentinel_types::{Action, Policy, Verdict};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
@@ -20,6 +21,23 @@ use governor::clock::Clock;
 use subtle::ConstantTimeEq;
 
 use crate::AppState;
+
+/// Recompile the policy engine from the current policy set and swap it in.
+/// On compilation failure (invalid patterns), logs a warning and keeps the old engine.
+fn recompile_engine(state: &AppState) {
+    let policies = state.policies.load();
+    match PolicyEngine::with_policies(false, &policies) {
+        Ok(engine) => {
+            state.engine.store(Arc::new(engine));
+        }
+        Err(errors) => {
+            for e in &errors {
+                tracing::warn!("Policy recompilation error: {}", e);
+            }
+            tracing::warn!("Keeping previous compiled engine due to errors");
+        }
+    }
+}
 
 pub fn build_router(state: AppState) -> Router {
     // Build CORS layer from configured origins.
@@ -36,6 +54,12 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/audit/entries", get(audit_entries))
         .route("/api/audit/report", get(audit_report))
         .route("/api/audit/verify", get(audit_verify))
+        .route("/api/audit/checkpoints", get(list_checkpoints))
+        .route(
+            "/api/audit/checkpoints/verify",
+            get(verify_checkpoints),
+        )
+        .route("/api/audit/checkpoint", post(create_checkpoint))
         .route("/api/approvals/pending", get(list_pending_approvals))
         .route("/api/approvals/:id", get(get_approval))
         .route("/api/approvals/:id/approve", post(approve_approval))
@@ -201,6 +225,7 @@ async fn evaluate(
 
     let verdict = state
         .engine
+        .load()
         .evaluate_action(&action, &policies)
         .map_err(|e| {
             tracing::error!("Engine evaluation error: {}", e);
@@ -274,6 +299,7 @@ async fn add_policy(
         new
     });
     tracing::info!("Added policy: {}", id);
+    recompile_engine(&state);
 
     // Audit trail for policy mutation
     let action = Action {
@@ -311,6 +337,7 @@ async fn remove_policy(
 
     if removed > 0 {
         tracing::info!("Removed {} policy(ies) with id: {}", removed, id);
+        recompile_engine(&state);
 
         // Audit trail for policy mutation
         let action = Action {
@@ -358,6 +385,7 @@ async fn reload_policies(
     PolicyEngine::sort_policies(&mut new_policies);
     let count = new_policies.len();
     state.policies.store(std::sync::Arc::new(new_policies));
+    recompile_engine(&state);
     tracing::info!("Reloaded {} policies from {}", count, config_path);
 
     // Audit trail for policy reload
@@ -435,6 +463,74 @@ async fn audit_verify(
     })?;
 
     let value = serde_json::to_value(verification).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Serialization error: {}", e),
+            }),
+        )
+    })?;
+    Ok(Json(value))
+}
+
+// === Checkpoint Endpoints ===
+
+async fn list_checkpoints(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let checkpoints = state.audit.load_checkpoints().await.map_err(|e| {
+        tracing::error!("Failed to load checkpoints: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(
+        json!({"count": checkpoints.len(), "checkpoints": checkpoints}),
+    ))
+}
+
+async fn verify_checkpoints(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let verification = state.audit.verify_checkpoints().await.map_err(|e| {
+        tracing::error!("Failed to verify checkpoints: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    let value = serde_json::to_value(verification).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Serialization error: {}", e),
+            }),
+        )
+    })?;
+    Ok(Json(value))
+}
+
+async fn create_checkpoint(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let checkpoint = state.audit.create_checkpoint().await.map_err(|e| {
+        tracing::error!("Failed to create checkpoint: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    let value = serde_json::to_value(&checkpoint).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {

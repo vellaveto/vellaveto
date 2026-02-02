@@ -1,5 +1,6 @@
 pub mod extractor;
 pub mod framing;
+pub mod inspection;
 pub mod proxy;
 
 use sentinel_engine::PolicyEngine;

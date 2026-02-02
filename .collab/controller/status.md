@@ -334,16 +334,51 @@ Controller applied all 4 must-fix items from cross-review arbitration:
 
 ---
 
+### 14. Directive C-11 Should-Fix Items — ALL COMPLETE
+
+**Date:** 2026-02-02
+
+All 4 should-fix items resolved:
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 1 | Audit trail for policy mutations | **Already Done** | routes.rs: add_policy, remove_policy, reload_policies all log to audit |
+| 2 | `\\n\\nsystem:` pattern comment | **Already Done** | proxy.rs:339-340 has explanatory comment |
+| 3 | Tool removal rug-pull detection | **DONE by Controller** | proxy.rs: detects missing tools, audits removal, cleans known map. 1 new test. |
+| 4 | New tool additions after initial | **DONE by Controller** | proxy.rs: flags post-initial additions, audits. 2 new tests. |
+
+**Test status: 1,471 tests, 0 failures, 0 clippy warnings.**
+
+**All directives C-1 through C-11 are now FULLY COMPLETE.**
+
+---
+
+### 15. Controller Session Work — Compilation Fix, Coverage Gaps, Meetup
+
+**Date:** 2026-02-02
+
+1. **Fixed workspace compilation break** — ArcSwap migration was incomplete in 9 test file locations across sentinel-server and sentinel-integration tests. 15 occurrences fixed. Tests restored from broken to 1,623 passing.
+2. **Fixed Unicode sanitization gap in sentinel-http-proxy** — `inspect_for_injection()` lacked NFKC normalization. Ported `sanitize_for_injection_scan()` from stdio proxy. Added `unicode-normalization` dep. 6 new tests.
+3. **Added 10 approval endpoint HTTP tests** — Zero HTTP-level tests existed for approval system. Covers list_pending, get, approve, deny, double-approve (409), nonexistent (404), anonymous resolver.
+4. **Added 2 audit_verify endpoint HTTP tests** — Empty log + post-evaluation chain verification.
+5. **Issued Directive C-12** — Task assignments for Phase 10 and Phase 9 completion.
+6. **Created meetup document** — `.collab/meetup-controller-sync.md`
+
+**Test status: 1,653 tests, 0 failures, 0 clippy warnings.**
+
+---
+
 ### Next Steps
-1. ~~C-8 (all sub-directives)~~ — DONE
-2. ~~C-9.1 Security headers~~ — DONE (by Instance B + Controller)
-3. ~~C-9.4 OWASP placeholders~~ — DONE (by Controller)
-4. ~~C-9.2 Protocol version + sampling~~ — DONE (by Instance B)
-5. ~~C-10.1 (Instance A)~~ — DONE (rate limit polish + cross-review + benchmarks)
-6. ~~C-10.2 (Instance B)~~ — DONE (pre-compiled policies); cross-review not submitted
-7. ~~C-10.3 (Orchestrator)~~ — DONE (architecture designs)
-8. ~~C-10.4 (Controller)~~ — DONE (final review + all must-fix items applied)
-9. ~~C-11 Must-Fix~~ — ALL 4 COMPLETE
-10. **Phase 9:** Streamable HTTP transport — biggest market-relevance gap
-11. **Should-Fix:** Audit trail for policy mutations, tool removal rug-pull detection
-12. **Future:** Policy index, per-IP rate limiting, BLAKE3 option
+1. ~~C-1 through C-11~~ — ALL COMPLETE
+2. ~~Phase 9.1 (HTTP proxy)~~ — DONE (Instance A)
+3. ~~Phase 9.2 (Session management)~~ — DONE (Instance A)
+4. ~~Phase 10.1 (Pre-compiled policies)~~ — DONE (Instance B)
+5. ~~Phase 10.2 (Security headers)~~ — DONE (Controller + Instance B)
+6. ~~Phase 10.3 (Signed checkpoints)~~ — DONE (Instance B, 13 tests)
+7. **C-12: Phase 10.4** Evaluation Trace — Instance B (engine), coordinated rollout
+8. **C-12: Phase 10.5** Policy Index by Tool Name — Instance B
+9. **C-12: Phase 10.6** Heartbeat Entries — Instance B
+10. **C-12: Phase 9.3** OAuth 2.1 Pass-Through — Instance A
+11. **C-12: McpInterceptor** trait extraction — Instance B
+12. **C-12: Checkpoint wiring** into server — Orchestrator
+13. **Future:** Phase 9.4 (.well-known), per-IP rate limiting, BLAKE3 option

@@ -30,6 +30,8 @@ pub enum MessageType {
     },
     /// A `resources/read` request that should be policy-checked.
     ResourceRead { id: Value, uri: String },
+    /// A `sampling/createMessage` request — blocked unconditionally as an exfiltration vector.
+    SamplingRequest { id: Value },
     /// An invalid request that should be rejected with an error response.
     Invalid { id: Value, reason: String },
     /// Any other message (notifications, responses, other methods).
@@ -78,6 +80,7 @@ pub fn classify_message(msg: &Value) -> MessageType {
 
             MessageType::ResourceRead { id, uri }
         }
+        Some("sampling/createMessage") => MessageType::SamplingRequest { id },
         _ => MessageType::PassThrough,
     }
 }

@@ -351,7 +351,7 @@ mod server_auth {
     fn make_authed_state(api_key: &str) -> (AppState, TempDir) {
         let tmp = TempDir::new().unwrap();
         let state = AppState {
-            engine: Arc::new(PolicyEngine::new(false)),
+            engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
             policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
                 id: "file:read".to_string(),
                 name: "Allow file reads".to_string(),
@@ -469,7 +469,7 @@ mod server_auth {
     async fn no_api_key_configured_allows_all() {
         let tmp = TempDir::new().unwrap();
         let state = AppState {
-            engine: Arc::new(PolicyEngine::new(false)),
+            engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
             policies: Arc::new(ArcSwap::from_pointee(vec![])),
             audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
             config_path: Arc::new("test.toml".to_string()),

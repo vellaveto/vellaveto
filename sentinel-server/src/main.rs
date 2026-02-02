@@ -93,7 +93,42 @@ async fn cmd_serve(port: u16, config: String, bind: String) -> Result<()> {
         .unwrap_or(std::path::Path::new("."));
     let audit_path = config_dir.join("audit.log");
 
-    let audit = Arc::new(AuditLogger::new(audit_path.clone()));
+    // Load or generate Ed25519 signing key for audit checkpoints.
+    // SENTINEL_SIGNING_KEY: hex-encoded 32-byte Ed25519 seed.
+    // If unset, a key is auto-generated (logged public key for verification).
+    let signing_key = match std::env::var("SENTINEL_SIGNING_KEY") {
+        Ok(hex_key) if !hex_key.is_empty() => {
+            let bytes = hex::decode(&hex_key)
+                .map_err(|e| anyhow::anyhow!("Invalid SENTINEL_SIGNING_KEY hex: {}", e))?;
+            if bytes.len() != 32 {
+                anyhow::bail!(
+                    "SENTINEL_SIGNING_KEY must be exactly 32 bytes (64 hex chars), got {}",
+                    bytes.len()
+                );
+            }
+            let mut key_bytes = [0u8; 32];
+            key_bytes.copy_from_slice(&bytes);
+            tracing::info!("Loaded Ed25519 signing key from SENTINEL_SIGNING_KEY");
+            AuditLogger::signing_key_from_bytes(&key_bytes)
+        }
+        _ => {
+            let key = AuditLogger::generate_signing_key();
+            let vk = hex::encode(
+                ed25519_dalek::SigningKey::from_bytes(&key.to_bytes())
+                    .verifying_key()
+                    .as_bytes(),
+            );
+            tracing::info!(
+                "Auto-generated Ed25519 signing key (verifying key: {})",
+                vk
+            );
+            key
+        }
+    };
+
+    let audit = Arc::new(
+        AuditLogger::new(audit_path.clone()).with_signing_key(signing_key),
+    );
 
     // Initialize hash chain from existing log
     if let Err(e) = audit.initialize_chain().await {
@@ -122,7 +157,10 @@ async fn cmd_serve(port: u16, config: String, bind: String) -> Result<()> {
     }
 
     // Read API key from environment variable for auth middleware
-    let api_key = std::env::var("SENTINEL_API_KEY").ok().map(Arc::new);
+    let api_key = std::env::var("SENTINEL_API_KEY")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(Arc::new);
 
     if api_key.is_some() {
         tracing::info!("API key authentication enabled for mutating endpoints");
@@ -193,8 +231,27 @@ async fn cmd_serve(port: u16, config: String, bind: String) -> Result<()> {
         tracing::info!("CORS: allowed origins: {:?}", cors_origins);
     }
 
+    // Pre-compile policies for zero-Mutex evaluation on the hot path.
+    // Falls back to legacy (per-call compilation) if any pattern is invalid.
+    let engine = match PolicyEngine::with_policies(false, &policies) {
+        Ok(compiled) => {
+            tracing::info!(
+                "Pre-compiled {} policies — zero-Mutex evaluation enabled",
+                policies.len()
+            );
+            compiled
+        }
+        Err(errors) => {
+            for e in &errors {
+                tracing::warn!("Policy compilation error: {}", e);
+            }
+            tracing::warn!("Falling back to legacy evaluation (per-call pattern compilation)");
+            PolicyEngine::new(false)
+        }
+    };
+
     let state = AppState {
-        engine: Arc::new(PolicyEngine::new(false)),
+        engine: Arc::new(ArcSwap::from_pointee(engine)),
         policies: Arc::new(ArcSwap::from_pointee(policies)),
         audit,
         config_path: Arc::new(config),
@@ -208,7 +265,7 @@ async fn cmd_serve(port: u16, config: String, bind: String) -> Result<()> {
     tracing::info!("Audit log: {}", audit_path.display());
     tracing::info!("Approvals log: {}", approval_path.display());
 
-    // Spawn periodic expiry task
+    // Spawn periodic approval expiry task
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
         loop {
@@ -219,6 +276,38 @@ async fn cmd_serve(port: u16, config: String, bind: String) -> Result<()> {
             }
         }
     });
+
+    // Spawn periodic audit checkpoint task.
+    // Creates a signed Ed25519 checkpoint every SENTINEL_CHECKPOINT_INTERVAL seconds (default: 300).
+    let checkpoint_interval: u64 = std::env::var("SENTINEL_CHECKPOINT_INTERVAL")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(300);
+
+    if checkpoint_interval > 0 {
+        let checkpoint_audit = state.audit.clone();
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_secs(checkpoint_interval));
+            // Skip the first immediate tick — no point checkpointing an empty/just-loaded log
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                match checkpoint_audit.create_checkpoint().await {
+                    Ok(cp) => tracing::info!(
+                        "Audit checkpoint created: {} ({} entries)",
+                        cp.id,
+                        cp.entry_count
+                    ),
+                    Err(e) => tracing::warn!("Failed to create audit checkpoint: {}", e),
+                }
+            }
+        });
+        tracing::info!(
+            "Audit checkpoint task enabled (every {}s)",
+            checkpoint_interval
+        );
+    }
 
     let app = routes::build_router(state);
 
@@ -257,7 +346,10 @@ async fn cmd_evaluate(
     let mut policies = policy_config.to_policies();
     PolicyEngine::sort_policies(&mut policies);
 
-    let engine = PolicyEngine::new(false);
+    let engine = PolicyEngine::with_policies(false, &policies).map_err(|errors| {
+        let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+        anyhow::anyhow!("Policy compilation errors: {}", msgs.join("; "))
+    })?;
     let verdict = engine
         .evaluate_action(&action, &policies)
         .map_err(|e| anyhow::anyhow!("{}", e))?;

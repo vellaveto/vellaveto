@@ -244,21 +244,28 @@ Ensure all decisions are traced with structured fields.
 
 ## Phase 9: Streamable HTTP Transport (HIGH — Market Relevance)
 
-**Status: ARCHITECTURE DESIGNED — See `orchestrator/architecture-designs.md` §3.**
+**Status: IMPLEMENTATION IN PROGRESS — Controller building `sentinel-http-proxy/` (1,383 lines, 24 tests)**
 
 Sentinel only supports stdio, limiting it to local deployments. The MCP spec now has Streamable HTTP transport replacing SSE. This is the single biggest market-relevance gap.
 
-### 9.1 HTTP Reverse Proxy Mode
-New `sentinel-http-proxy` crate. Single `/mcp` endpoint, POST handler, SSE stream proxying. Shares policy evaluation logic with stdio proxy via `McpInterceptor` trait.
+### 9.1 HTTP Reverse Proxy Mode — COMPLETE (Controller)
+New `sentinel-http-proxy` crate (959-line proxy.rs, 221-line session.rs, 203-line main.rs). POST `/mcp` endpoint with JSON-RPC handling, SSE stream proxying, `DELETE /mcp` for session termination. Message classification pipeline: ToolCall, ResourceRead, SamplingRequest, PassThrough, Invalid. Full injection detection with Unicode evasion resistance (zero-width, bidi, tag chars, variation selectors, NFKC normalization). 18 unit tests for proxy logic.
 
-### 9.2 Session Management
-`DashMap<String, SessionState>` for per-session state. `Mcp-Session-Id` header tracking. Session timeout (30min default), max sessions (1000 default).
+### 9.2 Session Management — COMPLETE (Controller)
+`DashMap<String, SessionState>` for per-session state. `Mcp-Session-Id` header tracking. Session timeout (30min default), max sessions (1000 default). Background cleanup task. 6 unit tests. Minor: client-provided session IDs reused if valid (design intended server-only generation).
 
-### 9.3 OAuth 2.1 Pass-Through
-JWT validation, scope enforcement, token forwarding to upstream. `OAuthConfig` struct with issuer, audience, required scopes.
+### 9.3 OAuth 2.1 Pass-Through — NOT YET IMPLEMENTED
+JWT validation, scope enforcement, token forwarding to upstream. OAuthConfig struct with issuer, audience, required scopes. Identified as gap in cross-review.
 
-### 9.4 `.well-known` Server Discovery
+### 9.4 `.well-known` Server Discovery — NOT YET IMPLEMENTED
 Support MCP server metadata for auto-configuration.
+
+### 9.5 Remaining Gaps (from Orchestrator review)
+- SSE event-level injection inspection (events currently pass through without scanning)
+- Rate limiting (design calls for reusing governor from sentinel-server)
+- Integration tests (0 end-to-end tests, 24 unit tests)
+- Response size limits not enforced
+- McpInterceptor trait for shared logic with stdio proxy not extracted
 
 ---
 
@@ -267,14 +274,14 @@ Support MCP server metadata for auto-configuration.
 **Status: IN PROGRESS — Architecture designs complete, implementation starting.**
 **Source:** Controller research files + `orchestrator/architecture-designs.md`
 
-### 10.1 Pre-Compiled Policies — IN PROGRESS (Instance B, C-9.2)
-Eliminate Mutex-based regex/glob caches from hot path. Compile all patterns at `PolicyEngine::new()` into `CompiledPolicy` structs. Zero Mutex acquisitions in `evaluate_action()`.
+### 10.1 Pre-Compiled Policies — COMPLETE (Instance B + Orchestrator)
+Eliminated Mutex-based regex/glob caches from hot path. All patterns compiled at `PolicyEngine::with_policies()` into `CompiledPolicy` structs. Zero Mutex acquisitions in `evaluate_action()`. 24 new tests, full behavioral parity with legacy path. **Wired into server** by Orchestrator: `AppState.engine` changed to `ArcSwap<PolicyEngine>`, `recompile_engine()` called on add/remove/reload. Pre-compiled path now active on server hot path.
 
 ### 10.2 API Security Headers — COMPLETE (Instance B + Controller)
 Standard security response headers: X-Content-Type-Options, X-Frame-Options, CSP, Cache-Control, Referrer-Policy.
 
-### 10.3 Signed Audit Checkpoints — DESIGNED (Orchestrator)
-Ed25519 signed checkpoints every 1000 entries or 5 minutes. `ChainCheckpoint` struct with external witnessing trait. See architecture design §1.
+### 10.3 Signed Audit Checkpoints — COMPLETE (Instance B)
+Ed25519 signed checkpoints. `Checkpoint` struct with id, timestamp, entry_count, chain_head_hash, signature, verifying_key. `AuditLogger` extended with `with_signing_key()` builder, `create_checkpoint()`, `load_checkpoints()`, `verify_checkpoints()`. Length-prefixed signing content prevents boundary-shift attacks. 13 new tests covering creation, verification, signature/entry count/audit log tampering, key rotation. 65 total sentinel-audit tests passing.
 
 ### 10.4 Evaluation Trace / Explanation — DESIGNED (Orchestrator)
 OPA-style decision logging. `EvaluationTrace` struct with per-policy match details. `?trace=true` query parameter on evaluate endpoint. See architecture design §2.
@@ -337,7 +344,17 @@ Periodic empty audit entries (every 5 min) to detect log truncation gaps.
 | /api/metrics endpoint (LOW #39) | Controller | 7 |
 | OWASP MCP Top 10 test matrix | Instance A + Controller | 7 |
 | Security headers (nosniff, DENY, CSP, no-store) | Controller | (server) |
+| Pre-compiled policies (zero Mutex in hot path) | Instance B | 10.1 |
+| Rate limit polish (/health exempt, Retry-After, CORS max_age) | Instance A | C-9.1 |
+| Criterion benchmarks (22 benchmarks, all <5ms) | Instance A | 7.2 |
+| Property-based tests (8 proptests) | Instance A | 7.1 |
+| Governor 0.6 → 0.10 upgrade | Controller | C-11 |
+| Constant-time API key comparison (subtle) | Instance A | C-11 |
+| Unicode injection sanitization (NFKC + control char strip) | Controller | C-11 |
+| Tool removal rug-pull detection | Controller | C-11 |
+| New tool addition detection | Controller | C-11 |
+| Audit trail for policy mutations (add/remove/reload) | (already impl) | C-11 |
 
 ---
 
-*Last updated: 2026-02-02 — Phase 8 COMPLETE. Phase 10 added (production hardening). Phase 9 architecture designed. Pre-compiled policies (10.1) in progress. Signed checkpoints (10.3) and evaluation traces (10.4) designed, pending implementation.*
+*Last updated: 2026-02-02 — All directives C-1 through C-11 COMPLETE. Phase 8 COMPLETE. Phase 9.1-9.2 (Streamable HTTP + sessions) COMPLETE. Phase 10.1 (pre-compiled policies) COMPLETE and wired into server. Phase 10.2 (security headers) COMPLETE. Phase 10.3 (signed audit checkpoints) COMPLETE. Evaluation traces (10.4) designed, pending implementation. OAuth 2.1 (9.3) and SSE inspection pending. 1,519 tests, 0 failures.*

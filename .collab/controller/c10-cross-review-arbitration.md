@@ -2,7 +2,7 @@
 
 **Author:** Controller (final authority)
 **Date:** 2026-02-02
-**Status:** PARTIAL — Instance B's review of A not yet submitted
+**Status:** COMPLETE — All 4 reviews submitted and analyzed
 
 ---
 
@@ -13,7 +13,7 @@
 | Instance A | Instance B's code | `.collab/review-b-by-a.md` | SUBMITTED (6 LOW findings) |
 | Orchestrator | All code | `log.md` (O2 section) | SUBMITTED (8 findings + 6 additional) |
 | Controller | Architecture + code | `controller/research/c10-validation-report.md` | SUBMITTED (7 action items) |
-| Instance B | Instance A's code | `.collab/review-a-by-b.md` | **NOT SUBMITTED** |
+| Instance B | Instance A's code | `.collab/review-a-by-b.md` | **SUBMITTED** — 2 MEDIUM, 4 LOW findings |
 
 ---
 
@@ -96,21 +96,61 @@ Where reviewers assigned different severities:
 
 ---
 
-## Instance B Cross-Review: Pending
+## Instance B Cross-Review: SUBMITTED — Orchestrator Analysis
 
-Instance B has not yet submitted `review-a-by-b.md`. They are currently implementing pre-compiled policies (B1) with 14 compile errors to resolve. Once submitted, this arbitration will be updated with:
-- Any new findings from Instance B's review
-- Convergence analysis with existing findings
-- Additional action items if warranted
+Instance B submitted `review-a-by-b.md` (300 lines). Reviewed 4 files: `routes.rs`, `main.rs`, `security_regression.rs`, `owasp_mcp_top10.rs`.
+
+### New Findings from Instance B
+
+| # | Finding | Severity | Convergence |
+|---|---------|----------|-------------|
+| B-1 | Empty API key accepted (`SENTINEL_API_KEY=""`) | MEDIUM | **UNIQUE** — no other reviewer caught this |
+| B-2 | Pre-compiled policies not wired into server | MEDIUM | **UNIQUE** — self-critical finding about own work |
+| B-3 | HEAD not exempted from auth middleware | LOW | Partially overlaps with Orchestrator O2 #4 |
+| B-4 | HEAD falls into admin rate bucket | LOW | **UNIQUE** |
+| B-5 | No shutdown timeout | LOW | **UNIQUE** |
+| B-6 | Client X-Request-Id unbounded length | LOW | **UNIQUE** |
+
+### Convergence with Existing Reviews
+
+- **B-1 (Empty API key):** No other reviewer checked the empty-string edge case. This is a genuine gap.
+- **B-2 (Pre-compiled not wired):** Self-critical — Instance B identified that their own C-10.2 work isn't connected. Orchestrator confirmed: 0 usages of `PolicyEngine::with_policies()` in sentinel-server. **This is the most impactful finding** — with Mutex caches removed, the hot path has no caching at all.
+- **B-3 (HEAD auth):** Instance A and Orchestrator flagged HEAD-related issues but in different contexts (rate limiting, not auth).
+- **B-5 (Shutdown timeout):** Instance A's review of B flagged async `exists()` but not server shutdown timeout. Different scope.
+
+### Updated Action Items
+
+**New Must-Fix (from Instance B):**
+
+| # | Action | Owner | Priority |
+|---|--------|-------|----------|
+| 13 | Wire `PolicyEngine::with_policies()` into AppState init + reload | Instance A | **HIGH** — performance regression |
+| 14 | Reject empty API key (`.filter(\|s\| !s.is_empty())`) | Instance A | **MEDIUM** — security gap |
+
+**New Should-Fix (from Instance B):**
+
+| # | Action | Owner | Priority |
+|---|--------|-------|----------|
+| 15 | Exempt HEAD from auth middleware | Instance A | LOW |
+| 16 | Exempt HEAD from admin rate bucket | Instance A | LOW |
+| 17 | Add 30s shutdown timeout | Instance A | LOW |
+| 18 | Cap X-Request-Id to 128 chars | Instance A | LOW |
 
 ---
 
-## Overall Assessment
+## Overall Assessment (Updated)
 
-The codebase is in strong shape. Three independent reviews found **no critical issues** and **no high-severity security gaps**. The findings are predominantly LOW severity — code quality, defense-in-depth improvements, and edge cases. The triple convergence on Unicode injection detection is the most actionable finding.
+Four independent reviews are now complete. The codebase is in strong shape — **no critical issues** and **no high-severity security gaps**. The two new MEDIUM findings from Instance B are the most important remaining items:
 
-The cross-review process worked well: independent reviewers found overlapping issues (validating each other) and complementary issues (each catching things others missed). The Orchestrator's review was the most comprehensive, covering all files and finding additional issues like missing audit trails and validation.
+1. **Pre-compiled policies not wired** — Means the C-10 performance work is inactive. High-priority fix.
+2. **Empty API key accepted** — Edge case security gap in auth middleware.
 
-**Test status: 1,466 tests, 0 failures, 0 clippy warnings.**
+The cross-review process performed well. Each reviewer found complementary issues:
+- **Instance A** found injection pattern ASCII-only gap (triple convergence)
+- **Instance B** found the performance regression and empty-key gap (unique findings)
+- **Orchestrator** found timing attack and TOCTOU race (both fixed)
+- **Controller** validated with web research and fixed all must-fix items
 
-**All 4 must-fix items resolved. C-11 COMPLETE.**
+**Test status: 1,477 tests, 0 failures, 0 clippy warnings.**
+
+**All C-1 through C-11 directives COMPLETE. 2 new MEDIUM items pending action.**
