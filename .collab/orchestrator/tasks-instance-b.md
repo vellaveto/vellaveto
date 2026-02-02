@@ -1,8 +1,8 @@
-# Tasks for Instance B — Directive C-9 (Pre-Compiled Policies & Protocol)
+# Tasks for Instance B — Directive C-10 (Coordination Update)
 
 ## READ THIS FIRST
 
-Controller Directive C-9 is active. All C-8 work is complete (tool annotations, response inspection, rug-pull detection — excellent work). C-9 focuses on the highest-impact architecture improvement remaining: **eliminating Mutex-based caches from the evaluation hot path** by pre-compiling policies at load time.
+Controller Directive C-10 is active. Several C-9 tasks are already complete. This file reflects the CURRENT state. Read `controller/directive-c10.md` for full context.
 
 Update `.collab/instance-b.md` and append to `.collab/log.md` after completing each task.
 
@@ -15,12 +15,16 @@ Update `.collab/instance-b.md` and append to `.collab/log.md` after completing e
 - All C-7 items (CORS, log rotation)
 - All C-8 items (tool annotations, rug-pull detection, response inspection)
 - All improvement plan items (I-B2 through I-B6)
+- **C9-B2: Protocol version awareness** — DONE
+- **C9-B3: sampling/createMessage interception** — DONE
+- Security headers — DONE (also applied by Controller)
 
 ---
 
-## Task C9-B1: Pre-Compiled Policies (Phase 10.1)
+## Task B1: Pre-Compiled Policies (from C9-B1)
 **Priority: HIGH — Single highest-impact performance improvement remaining**
-**Directive:** C-9.2
+**Directive:** C-10.2
+**Status:** OPEN
 **Reference:** `controller/research/policy-engine-patterns.md` §2.1, §1.3, §3.1
 
 ### Problem
@@ -57,69 +61,79 @@ pub enum CompiledConstraint {
     DomainMatch { param: String, patterns: Vec<String> },
     Eq { param: String, value: String },
     OneOf { param: String, values: Vec<String> },
-    // ... other operators
+    // ... other operators from evaluate_parameter_constraints
 }
 ```
 
-2. **Compile at load time:** In `PolicyEngine::new()`, compile each `Policy` into a `CompiledPolicy`. Return `Result<PolicyEngine, Vec<PolicyValidationError>>` — invalid policies are rejected.
+2. **Compile at load time:** In `PolicyEngine::new()`, compile each `Policy` into a `CompiledPolicy`. Return `Result<PolicyEngine, Vec<PolicyValidationError>>` — invalid policies are rejected at load time with descriptive errors.
 
-3. **Remove `regex_cache` and `glob_cache`:** Replace with direct references from `CompiledConstraint`.
+3. **Remove `regex_cache` and `glob_cache`:** Replace with direct references from `CompiledConstraint`. The `Mutex<HashMap>` fields are gone.
 
-4. **Policy validation:** At compile time, check:
+4. **Policy validation at compile time:**
    - Regex patterns compile
    - Glob patterns compile
-   - Tool ID format is valid
-   - No self-contradictory constraints (e.g., `eq: "x"` + `ne: "x"`)
+   - Tool ID format is valid (contains `:` separator or is `*`)
+   - Constraint operator is recognized
 
-5. **Update `evaluate()`:** Use `CompiledPolicy` fields directly instead of cache lookups. Zero Mutex acquisitions in hot path.
+5. **Update `evaluate_action()`:** Use `CompiledPolicy` fields directly instead of cache lookups. Zero Mutex acquisitions in hot path.
 
-6. **Update `reload_policies()` / ArcSwap store:** Compile new policies before swapping. If compilation fails, keep old policies.
+6. **Update policy reload:** When policies change via ArcSwap, compile new policies before swapping. If compilation fails, keep old policies and return error.
 
-**Important:** Keep backward compatibility — `PolicyEngine::new(policies)` should work. Internal representation changes only.
+**Important:** Keep backward compatibility — existing `PolicyEngine::new(strict_mode)` API should still work. Store `Vec<CompiledPolicy>` internally.
 
 **Tests:**
-- Existing tests must continue to pass (behavioral parity)
-- New tests: invalid regex rejected at load time, invalid glob rejected, compilation errors reported
-- Benchmark: before/after with 100+ policies
+- All existing tests must continue to pass (behavioral parity)
+- New: invalid regex rejected at load time
+- New: invalid glob rejected at load time
+- New: compilation errors are descriptive
+- Optional: before/after benchmark
 
 ---
 
-## Task C9-B2: Protocol Version Awareness (Phase 8.4)
-**Priority: MEDIUM**
-**Directive:** C-9.2
+## Task B2: Cross-Review Instance A's Code
+**Priority: HIGH — Quality assurance**
+**Directive:** C-10.2
+**Status:** OPEN
 
-1. In `sentinel-mcp/src/proxy.rs`, intercept `initialize` request/response
-2. Extract `protocolVersion` from the `initialize` result
-3. Store as `Option<String>` in `ProxyBridge` state
-4. Log protocol version in audit entries
-5. Warn if version < `"2024-11-05"` (earliest stable MCP spec)
+Review Instance A's code for correctness, edge cases, and security gaps. Focus areas:
 
-**Files:** `sentinel-mcp/src/proxy.rs`, `sentinel-mcp/src/extractor.rs`
+### `sentinel-server/src/routes.rs`
+- **Auth middleware (`require_api_key`):** Is the Bearer token extraction correct? Does skipping GET/OPTIONS cover all read-only methods (HEAD?)? Could timing side-channels leak key validity?
+- **Rate limit middleware:** Is per-category classification correct? Are there paths that should be rate-limited but aren't?
+- **Request ID middleware:** Is the UUID generation cryptographically random enough? Is there an injection risk from client-provided X-Request-Id headers?
+- **Security headers middleware:** Are all recommended headers present? Any missing (HSTS, Permissions-Policy)?
+- **CORS configuration:** Is `AllowOrigin::Any` safe for a security API? Should credential-bearing requests be blocked?
 
----
+### `sentinel-server/src/main.rs`
+- **Env var parsing:** Are all env vars validated? What happens with invalid values (empty string, negative number)?
+- **Bind address:** Is the default 127.0.0.1 enforced correctly? Could a config file override it?
+- **Graceful shutdown:** Is the signal handler correct? Does it wait for in-flight requests?
+- **Approval store init:** Is `load_from_file()` called before serving requests?
 
-## Task C9-B3: `sampling/createMessage` Interception (Phase 8.5)
-**Priority: MEDIUM**
-**Directive:** C-9.2
+### `sentinel-integration/tests/security_regression.rs`
+- Are all 14 CRITICAL/HIGH findings tested?
+- Are the tests testing the actual vulnerability, or just the happy path?
+- Are there edge cases that should be added?
 
-`sampling/createMessage` is a server-initiated LLM call — a potential exfiltration vector where a malicious MCP server tricks the client into making additional LLM calls with attacker-controlled prompts.
+### `sentinel-integration/tests/owasp_mcp_top10.rs`
+- MCP03 tests: Are they testing real rug-pull detection, or just format?
+- MCP06 tests: Are they testing real injection detection, or just audit format?
+- Coverage gaps: Any OWASP categories that need more depth?
 
-1. In `sentinel-mcp/src/extractor.rs`, add `MessageType::SamplingRequest` variant for `sampling/createMessage` method
-2. In proxy, intercept sampling requests flowing server → client
-3. Log all sampling requests in audit trail
-4. Apply policy evaluation: reuse tool evaluation with `tool="sampling"`, `function="createMessage"`, parameters from the sampling request
-5. Add tests: sampling request detected, evaluated, logged, denied if policy forbids
-
-**Files:** `sentinel-mcp/src/extractor.rs`, `sentinel-mcp/src/proxy.rs`
+**Deliverable:** Write review to `.collab/review-a-by-b.md`
 
 ---
 
 ## Work Order
-1. C9-B1 (pre-compiled policies) — do first, highest impact, most complex
-2. C9-B2 (protocol version) — do second, straightforward
-3. C9-B3 (sampling interception) — do third, completes MCP coverage
+1. **B1** (pre-compiled policies) — highest impact, do first
+2. **B2** (cross-review) — do after B1
+
+## File Ownership (C-10 anti-competition rules)
+- You OWN: `sentinel-engine/src/lib.rs`, `sentinel-mcp/`, `sentinel-audit/`, `sentinel-approval/`, `sentinel-canonical/`
+- You may READ but NOT MODIFY: `sentinel-server/src/routes.rs`, `sentinel-integration/tests/`
+- Shared (coordinate first): `sentinel-server/src/main.rs`
 
 ## Communication Protocol
 1. After completing each task, update `.collab/instance-b.md`
 2. Append completion message to `.collab/log.md`
-3. Your file ownership: `sentinel-engine/src/lib.rs`, `sentinel-mcp/`, `sentinel-audit/`, `sentinel-proxy/`, `sentinel-approval/`, `sentinel-canonical/`
+3. Write cross-review to `.collab/review-a-by-b.md`

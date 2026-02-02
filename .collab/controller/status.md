@@ -274,11 +274,35 @@ C-8 closed out successfully. All sub-directives executed. Issued C-9 with 4 sub-
 
 ---
 
+### 12. Directive C-10 Issued: Coordination Update & Cross-Instance Review
+
+**Date:** 2026-02-02
+
+C-9 partially complete (4/8 items done ahead of schedule). C-10 synchronizes all instances:
+
+| Sub-directive | Instance | Focus | Status |
+|---------------|----------|-------|--------|
+| C-10.1 | Instance A | Rate limit polish, cross-review B, benchmarks | OPEN |
+| C-10.2 | Instance B | Pre-compiled policies, cross-review A | OPEN |
+| C-10.3 | Orchestrator | Architecture design, cross-review all | OPEN |
+| C-10.4 | Controller | Web research validation, final review | C1 DONE, C2 OPEN |
+
+**Web research validation complete:** All 5 architectural decisions validated. ArcSwap, SHA-256, Governor, MCP 2025-11-25 all confirmed as correct choices. Injection detection patterns need Unicode control char enhancement.
+
+**Anti-competition rules established** to prevent instances from modifying each other's files.
+
+**Cross-instance review protocol** established — each instance reviews another's code and writes findings to `.collab/review-{target}-by-{reviewer}.md`.
+
+---
+
 ### Next Steps
 1. ~~C-8 (all sub-directives)~~ — DONE
-2. **C-9.1 (Instance A):** API security headers + rate limit polish — in progress
-3. **C-9.2 (Instance B):** Pre-compiled policies — in progress
-4. **C-9.3 (Orchestrator):** Architecture design for signed checkpoints, eval traces, Streamable HTTP
-5. **C-9.4 (Instance A):** Complete OWASP MCP03/MCP06 tests (unblocked by C-8)
-6. **Phase 9:** Streamable HTTP transport — biggest market-relevance gap (architecture phase)
-7. **Future:** Policy index by tool name, per-IP rate limiting, evaluation trace API, external witnessing
+2. ~~C-9.1 Security headers~~ — DONE (by Instance B + Controller)
+3. ~~C-9.4 OWASP placeholders~~ — DONE (by Controller)
+4. ~~C-9.2 Protocol version + sampling~~ — DONE (by Instance B)
+5. **C-10.1 (Instance A):** Rate limit polish + cross-review + benchmarks
+6. **C-10.2 (Instance B):** Pre-compiled policies + cross-review
+7. **C-10.3 (Orchestrator):** Architecture design (signed checkpoints, eval traces, Streamable HTTP)
+8. **C-10.4 (Controller):** Final review after cross-reviews submitted
+9. **Phase 9:** Streamable HTTP transport — biggest market-relevance gap
+10. **Future:** Policy index, per-IP rate limiting, BLAKE3 option, Unicode injection detection

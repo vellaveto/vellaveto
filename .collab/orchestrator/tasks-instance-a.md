@@ -1,8 +1,8 @@
-# Tasks for Instance A — Directive C-9 (Production Hardening)
+# Tasks for Instance A — Directive C-10 (Coordination Update)
 
 ## READ THIS FIRST
 
-Controller Directive C-9 is active. All C-8 work is complete. Focus on security headers (quick win), then rate limit polish, then OWASP test completion, then benchmarks.
+Controller Directive C-10 is active. Several C-9 tasks are already complete (done by Controller or Instance B). This file reflects the CURRENT state. Read `controller/directive-c10.md` for full context.
 
 Update `.collab/instance-a.md` and append to `.collab/log.md` after completing each task.
 
@@ -13,105 +13,101 @@ Update `.collab/instance-a.md` and append to `.collab/log.md` after completing e
 - S-A1 (auth), S-A2 (bind address), security regression tests (32)
 - C7-A1: Rate limiting (#31), proptest (8 property tests), ArcSwap migration fixes
 - C8-A1: OWASP MCP Top 10 test coverage (39 tests)
+- **C9-A1: Security headers middleware** — DONE (completed by Instance B + Controller)
+- **C9-A3: OWASP MCP03/MCP06 placeholder tests** — DONE (completed by Controller — 6 real tests replacing 2 placeholders)
 
 ---
 
-## Task C9-A1: API Security Headers Middleware
-**Priority: HIGH — Quick win, outsized value**
-**Directive:** C-9.1
-**Reference:** `controller/research/rate-limiting-cors-headers.md` §4
+## Task A1: Rate Limit Polish
+**Priority: HIGH — Quick win**
+**Directive:** C-10.1
+**Status:** OPEN
 
-Add standard security response headers to all API responses. This is expected of any security-critical API server.
+Polish the rate limiting implementation added in C-7:
 
-**Implementation:**
-1. In `sentinel-server/src/routes.rs`, add an async middleware function:
+1. **Exempt `/health` from rate limiting:** In the `rate_limit` middleware function, check if the request path is `/health` and skip rate limiting for it. Load balancer health probes must never be throttled.
 
-```rust
-async fn security_headers(request: Request, next: Next) -> Response {
-    let path = request.uri().path().to_string();
-    let mut response = next.run(request).await;
-    let headers = response.headers_mut();
+2. **Add `Retry-After` header to 429 responses:** When `limiter.check()` returns `Err(not_until)`, extract the wait duration using `not_until.wait_time_from(governor::clock::DefaultClock::default().now())` and set `Retry-After: <seconds>` header on the 429 response.
 
-    headers.insert("x-content-type-options", HeaderValue::from_static("nosniff"));
-    headers.insert("x-frame-options", HeaderValue::from_static("DENY"));
-    headers.insert("content-security-policy",
-        HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'"));
-    headers.insert("referrer-policy", HeaderValue::from_static("no-referrer"));
+3. **Add `max_age` to CORS:** In `build_cors_layer()`, add `.max_age(Duration::from_secs(3600))` to cache preflight responses for 1 hour.
 
-    if path == "/health" {
-        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=5"));
-    } else {
-        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    }
-
-    headers.remove("server");
-    response
-}
-```
-
-2. Apply in `build_router()` via `.layer(middleware::from_fn(security_headers))`
-3. Add tests verifying headers are present on responses
+**Files:** `sentinel-server/src/routes.rs`
+**Tests:** Add tests in `sentinel-server/tests/test_routes_unit.rs`:
+- Test that `/health` is not rate-limited even when rate limiter is configured
+- Test that 429 response includes `Retry-After` header
 
 ---
 
-## Task C9-A2: Rate Limit Polish
-**Priority: HIGH**
-**Directive:** C-9.1
+## Task A2: Cross-Review Instance B's Code
+**Priority: HIGH — Quality assurance**
+**Directive:** C-10.1
+**Status:** OPEN
 
-1. **Exempt `/health` from rate limiting:** In the `categorize_rate_limit` function, return `None` for `/health` path (load balancer probes must never be throttled)
-2. **Add `Retry-After` header to 429 responses:** When `limiter.check()` returns `Err(not_until)`, extract wait time and set `Retry-After: <seconds>` header
-3. **Add `max_age` to CORS:** Add `.max_age(Duration::from_secs(3600))` to the CORS layer to cache preflight for 1 hour
+Review Instance B's code for correctness, edge cases, and security gaps. Focus areas:
+
+### `sentinel-mcp/src/proxy.rs`
+- Tool annotation wiring: Are annotations correctly extracted from `tools/list` and passed to `evaluate_tool_call`?
+- Response injection scanning: Are the 15 patterns sufficient? Any false positive risks?
+- Sampling interception: Is the block correct? Should there be a configurable allow mode?
+- Protocol version tracking: Is version comparison correct?
+- Rug-pull detection: Is the annotation change detection comprehensive?
+
+### `sentinel-mcp/src/framing.rs`
+- MAX_LINE_LENGTH enforcement: Is the check correct? Can it be bypassed with multi-byte UTF-8?
+- Empty line handling: Does `continue` on empty lines work correctly with all newline styles (LF, CRLF)?
+- EOF detection: Is the 0-byte read check reliable?
+
+### `sentinel-audit/src/lib.rs`
+- Hash chain (Fix #1-4): Is length-prefixed encoding correct? Is the hash-before-or-after-write ordering actually fixed?
+- Log rotation: Does `maybe_rotate()` have TOCTOU issues (check size, then write, then rotate)?
+- Redaction: Are all sensitive patterns covered? Can redaction be bypassed with encoding tricks?
+
+### `sentinel-engine/src/lib.rs`
+- Percent-encoding normalization: Is the loop-decode-until-stable approach correct? Max 5 iterations — is this enough?
+- Recursive scanning (`param: "*"`): Is `MAX_SCAN_VALUES=500` sufficient? Is the iterative walker correct?
+- Glob cache bounds: Is eviction correct when cache exceeds 1000 entries?
+
+**Deliverable:** Write review to `.collab/review-b-by-a.md`
 
 ---
 
-## Task C9-A3: Complete OWASP Placeholder Tests
-**Priority: MEDIUM — Now unblocked by C-8.2/C-8.3 completion**
-**Directive:** C-9.4
-
-Instance B has completed tool annotation awareness (C8-B1) and response inspection (C8-B2). Replace the placeholder tests:
-
-**MCP03 (Tool Poisoning):**
-- Replace placeholder with real test exercising rug-pull detection
-- Test that `ToolAnnotations` are extracted from `tools/list` responses
-- Test that tool definition changes between calls trigger warning
-- Test that annotations are logged in audit metadata
-
-**MCP06 (Prompt Injection):**
-- Replace placeholder with real test exercising response injection scanning
-- Test that `inspect_response_for_injection()` detects known patterns
-- Test that clean responses pass through without warnings
-- Test audit logging of suspicious responses
-
-**File:** `sentinel-integration/tests/owasp_mcp_top10.rs`
-**Reference:** Instance B's tests in `sentinel-mcp/src/proxy.rs` (60+ tests total)
-
----
-
-## Task C9-A4: Criterion Benchmarks (Phase 7.2)
+## Task A3: Criterion Benchmarks
 **Priority: MEDIUM**
-**Directive:** C-9.1
+**Directive:** C-10.1
+**Status:** OPEN
 
-Create performance benchmarks to validate <5ms evaluation latency target.
+Create performance benchmarks to validate <5ms evaluation latency.
 
 1. Add `criterion = "0.5"` as dev-dependency to `sentinel-engine/Cargo.toml`
 2. Create `sentinel-engine/benches/evaluation.rs`:
    - Benchmark single policy evaluation (1 policy, exact match)
    - Benchmark 100-policy evaluation (mixed allow/deny, wildcards)
    - Benchmark 1000-policy evaluation (stress test)
-   - Benchmark `normalize_path()` with various inputs
-   - Benchmark `extract_domain()` with various URLs
-   - Benchmark regex constraint matching
-3. Add `[[bench]]` section to Cargo.toml
+   - Benchmark `normalize_path()` with various inputs (clean, traversal, encoded)
+   - Benchmark `extract_domain()` with various URLs (simple, complex, encoded)
+   - Benchmark regex constraint matching (simple patterns, complex patterns)
+3. Add `[[bench]]` section to `sentinel-engine/Cargo.toml`:
+   ```toml
+   [[bench]]
+   name = "evaluation"
+   harness = false
+   ```
+
+**Files:** `sentinel-engine/Cargo.toml`, `sentinel-engine/benches/evaluation.rs`
 
 ---
 
 ## Work Order
-1. C9-A1 (security headers) — do first, highest value/effort ratio
-2. C9-A2 (rate limit polish) — do second, pairs naturally with C9-A1
-3. C9-A3 (OWASP placeholders) — do third, unblocked by C-8 completion
-4. C9-A4 (benchmarks) — do last, important but less urgent
+1. **A1** (rate limit polish) — quick win, do first
+2. **A2** (cross-review) — important for quality, do second
+3. **A3** (benchmarks) — valuable but less urgent, do last
+
+## File Ownership (C-10 anti-competition rules)
+- You OWN: `sentinel-server/src/routes.rs` (rate limit changes only), `sentinel-engine/benches/`, `sentinel-integration/tests/`
+- You may READ but NOT MODIFY: `sentinel-engine/src/lib.rs`, `sentinel-mcp/`, `sentinel-audit/`
+- Shared (coordinate first): `sentinel-server/src/main.rs`
 
 ## Communication Protocol
 1. After completing each task, update `.collab/instance-a.md`
 2. Append completion message to `.collab/log.md`
-3. Your file ownership: `.github/`, `sentinel-integration/tests/`, `sentinel-server/src/routes.rs` (security headers only — coordinate with Instance B if touching engine)
+3. Write cross-review to `.collab/review-b-by-a.md`

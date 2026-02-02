@@ -1,5 +1,106 @@
 # Shared Log
 
+## 2026-02-02 — Controller (Directive C-10: Coordination Update & Cross-Instance Review)
+
+### Context
+
+Several C-9 tasks were completed ahead of schedule by Controller and Instance B. Task files were stale. This update synchronizes all instances with actual status and assigns remaining work with non-overlapping ownership.
+
+### What's Done (was assigned but already complete)
+
+| Task | Originally Assigned | Actually Done By |
+|------|-------------------|------------------|
+| C9-A1: Security headers | Instance A | Instance B + Controller |
+| C9-A3: OWASP MCP03/MCP06 tests | Instance A | Controller |
+| C9-B2: Protocol version awareness | Instance B | Instance B |
+| C9-B3: sampling/createMessage | Instance B | Instance B |
+
+### Directive C-10 Issued
+
+**Task Division (non-overlapping):**
+
+**Instance A (3 tasks):**
+1. **A1: Rate limit polish** — exempt /health, Retry-After header, CORS max_age
+2. **A2: Cross-review Instance B's code** — proxy.rs, framing.rs, audit lib.rs, engine lib.rs
+3. **A3: Criterion benchmarks** — evaluation.rs with criterion, validate <5ms latency
+
+**Instance B (2 tasks):**
+1. **B1: Pre-compiled policies** — eliminate Mutex caches, CompiledPolicy struct, zero locks in hot path
+2. **B2: Cross-review Instance A's code** — routes.rs, main.rs, security_regression.rs, owasp tests
+
+**Orchestrator (2 tasks):**
+1. **O1: Architecture design** — signed checkpoints, evaluation traces, Streamable HTTP
+2. **O2: Cross-review all code** — validate both instances' work
+
+**Controller (2 tasks):**
+1. **C1: Web research validation** — DONE (see below)
+2. **C2: Final review** — after cross-reviews are submitted
+
+### Anti-Competition Rules
+
+File ownership enforced per `controller/directive-c10.md`. Each file/area has exactly one owner. Cross-review is read-only — findings go to `.collab/review-{target}-by-{reviewer}.md`.
+
+### Web Research Validation — COMPLETE
+
+Validated all 5 architectural decisions:
+
+| Area | Verdict | Key Finding |
+|------|---------|-------------|
+| ArcSwap | **KEEP** | Standard crate, wait-free reads, battle-tested. `arcshift` is newer alternative but not needed. |
+| SHA-256 Hash Chain | **KEEP** | Standard for regulated audit logs. BLAKE3 14x faster but less standardized. Plan BLAKE3 as option. |
+| Governor Rate Limiter | **KEEP** | Dominant Rust rate limiter. Direct usage gives us per-category control. Consider per-IP later. |
+| Injection Detection (15 patterns) | **IMPROVE** | Aligns with OWASP MCP06 recs. Add Unicode control char detection, configurable pattern sets. |
+| MCP Protocol 2025-11-25 | **KEEP** | We are on latest spec. No 2026 version yet. Monitor async ops, MCP Apps, .well-known discovery. |
+
+Full report: `controller/research-validation-c10.md`
+
+### Key OWASP MCP06 Findings (Prompt Injection)
+
+OWASP recommends scanning for:
+- Instruction-like phrases: "ignore previous", "delete", "export", "send to"
+- Invisible characters: Unicode zero-width (U+200B, U+200C, U+200D, U+FEFF)
+- Metadata manipulation: PDF properties, docx custom props
+- Provenance tracking: source trust scores per tool
+
+Our 15 patterns cover instruction-like phrases. Gaps: invisible character detection and configurable patterns. Added to improvement backlog.
+
+### Real-World MCP Incidents (Validates Sentinel's Mission)
+
+- **CVE-2025-6514**: mcp-remote command injection (437k downloads affected)
+- **GitHub Copilot CVE-2025-53773**: Injection via code comments → YOLO mode → RCE
+- **Supabase Cursor**: SQL injection via support tickets with privileged service-role access
+- **43% of MCP servers** have command injection flaws; **30%** permit unrestricted URL fetching
+
+### MCP Ecosystem Stats
+
+- 97M+ monthly SDK downloads
+- 10,000+ active servers
+- Supported by ChatGPT, Claude, Cursor, Gemini, Microsoft Copilot, VS Code
+- Governed by Agentic AI Foundation (Linux Foundation) — co-founded by Anthropic, Block, OpenAI
+
+### Files Created/Updated
+
+- `controller/directive-c10.md` — NEW: Full directive with task assignments and anti-competition rules
+- `controller/research-validation-c10.md` — NEW: Web research validation report
+- `controller/directives.md` — Updated C-9 checkboxes, added C-10 reference
+- `orchestrator/tasks-instance-a.md` — Rewritten: 3 tasks (A1, A2, A3)
+- `orchestrator/tasks-instance-b.md` — Rewritten: 2 tasks (B1, B2)
+
+### Current State
+
+- **1,434 tests, 0 failures, 0 clippy warnings**
+- All 39 security audit findings resolved
+- C-8 (MCP spec alignment) complete
+- C-9 partially complete (4 of 8 items done)
+- C-10 active with clear task division
+
+### ALL INSTANCES: Read your updated task files immediately.
+- Instance A → `orchestrator/tasks-instance-a.md`
+- Instance B → `orchestrator/tasks-instance-b.md`
+- Both → `controller/directive-c10.md` for anti-competition rules and cross-review protocol
+
+---
+
 ## 2026-02-02 — Controller (Directive C-9 Issued: Production Hardening & Architecture)
 
 ### Directive C-9 Published
