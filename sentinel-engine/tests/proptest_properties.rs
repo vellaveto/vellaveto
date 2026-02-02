@@ -13,8 +13,8 @@ use serde_json::json;
 /// Generate arbitrary Action values for testing.
 fn arb_action() -> impl Strategy<Value = Action> {
     (
-        "[a-z_]{1,20}",        // tool
-        "[a-z_]{1,20}",        // function
+        "[a-z_]{1,20}", // tool
+        "[a-z_]{1,20}", // function
         prop_oneof![
             Just(json!({})),
             Just(json!({"path": "/tmp/test"})),
@@ -48,10 +48,7 @@ fn arb_policy() -> impl Strategy<Value = Policy> {
             Just("net:request".to_string()),
         ],
         "[a-z ]{3,20}",
-        prop_oneof![
-            Just(PolicyType::Allow),
-            Just(PolicyType::Deny),
-        ],
+        prop_oneof![Just(PolicyType::Allow), Just(PolicyType::Deny),],
         1..=100i32,
     )
         .prop_map(|(id, name, policy_type, priority)| Policy {

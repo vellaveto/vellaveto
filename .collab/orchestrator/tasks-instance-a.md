@@ -1,118 +1,69 @@
-# Tasks for Instance A — Improvement Plan (Phase 3+)
+# Tasks for Instance A — Directive C-8 (OWASP Coverage) + Remaining
 
 ## READ THIS FIRST
 
-Phase 0 (Security) and Phases 1-2 (Protocol + Performance) are **COMPLETE**. Feature work resumes.
-
-Your focus: **testing, observability, and middleware** — testing infrastructure and cross-cutting concerns.
-
-Finish S-A3 (regression tests) first if not done, then proceed to these tasks.
+Controller Directive C-8 is active. Finish any in-progress C-7 work, then proceed to C-8.4.
 
 Update `.collab/instance-a.md` and append to `.collab/log.md` after completing each task.
 
 ---
 
-## Task S-A3: Security Regression Test Suite (if not complete)
-**Priority: HIGH — Validates all security fixes**
-
-If not already done, finish `sentinel-integration/tests/security_regression.rs` with tests for all 14 CRITICAL/HIGH findings. See previous task file for details.
-
----
-
-## Task I-A1: Property-Based Tests with `proptest` (Phase 7.1)
-**Priority: HIGH — Critical for security assurance**
-
-Add property-based tests to verify invariants hold for arbitrary inputs.
-
-**Implementation:**
-1. Add `proptest = "1"` as dev-dependency to `sentinel-engine/Cargo.toml`
-2. Create `sentinel-engine/tests/proptests.rs` with:
-   - **Evaluation is deterministic:** same input always produces same output
-   - **Fail-closed invariant:** empty policy list always denies
-   - **Path normalization is idempotent:** `normalize(normalize(x)) == normalize(x)`
-   - **Domain extraction never panics:** arbitrary strings don't crash `extract_domain()`
-   - **Blocked paths always deny:** any path matching a block pattern is denied regardless of encoding
-   - **Deny overrides allow at equal priority:** property holds for any policy combination
-
-**Files:** `sentinel-engine/Cargo.toml`, `sentinel-engine/tests/proptests.rs`
+## COMPLETED (previous work)
+- CI workflow, integration tests, approval flow tests
+- S-A1 (auth), S-A2 (bind address)
+- Fixed compile breaks from Instance B changes
 
 ---
 
-## Task I-A2: Performance Benchmarks with `criterion` (Phase 7.2)
-**Priority: MEDIUM — Baseline performance metrics**
+## Task C7-A1: Finish C-7 Items (if incomplete)
+**Priority: HIGH**
 
-Create benchmarks to validate the <5ms evaluation target and catch regressions.
+- [ ] Fix #31 — Rate limiting (if not done)
+- [ ] Property-based tests with proptest (I-A1)
+
+---
+
+## Task C8-A1: OWASP MCP Top 10 Test Coverage Matrix (Phase 8)
+**Priority: HIGH**
+**Directive:** C-8.4
+
+Create a test suite mapping to the OWASP MCP Top 10 risks.
 
 **Implementation:**
-1. Add to `sentinel-engine/Cargo.toml`:
-   ```toml
-   [dev-dependencies]
-   criterion = { version = "0.5", features = ["html_reports"] }
+1. Create `sentinel-integration/tests/owasp_mcp_top10.rs`
+2. Add tests for each OWASP risk where Sentinel has coverage:
 
-   [[bench]]
-   name = "evaluation"
-   harness = false
-   ```
-2. Create `sentinel-engine/benches/evaluation.rs` benchmarking:
-   - Policy evaluation with 10/100/1000 policies
-   - Regex cache hit vs miss
-   - Glob matching (globset) speed
-   - Path normalization throughput
-   - Domain extraction throughput
-   - Parameter constraint evaluation with nested JSON
+| OWASP Risk | Coverage | Test |
+|------------|----------|------|
+| MCP01 Token Mismanagement | GOOD (redaction) | Verify secrets redacted in audit |
+| MCP02 Tool Access Control | GOOD (policy engine) | Verify deny rules enforced |
+| MCP03 Tool Poisoning | PARTIAL (C8-B1 adds detection) | Verify tool definition change detection |
+| MCP04 Privilege Escalation | GOOD (priority deny-override) | Verify deny overrides allow |
+| MCP05 Command Injection | GOOD (param constraints) | Verify injection blocked by constraints |
+| MCP06 Prompt Injection | PARTIAL (C8-B2 adds detection) | Verify response inspection |
+| MCP07 Auth | GOOD (Bearer token) | Verify auth on mutating endpoints |
+| MCP08 Audit & Telemetry | EXCELLENT (tamper-evident) | Verify hash chain + rotation |
+| MCP09 Insufficient Logging | GOOD (comprehensive audit) | Verify all verdicts logged |
+| MCP10 Denial of Service | GOOD (line limits, body limits, rate limiting) | Verify DoS protections |
 
-**Files:** `sentinel-engine/Cargo.toml`, `sentinel-engine/benches/evaluation.rs`
+3. Document coverage gaps (MCP03 partial, MCP06 partial) with TODO comments
+4. Each test should reference the OWASP risk ID in its name (e.g., `test_owasp_mcp01_token_not_in_audit`)
+
+**Files:** `sentinel-integration/tests/owasp_mcp_top10.rs`
+
+---
+
+## Task I-A2: Criterion Benchmarks (Phase 7.2)
+**Priority: MEDIUM**
+
+Create benchmarks to validate <5ms evaluation target. See previous task file for details.
 
 ---
 
 ## Task I-A3: Structured Logging with `tracing` (Phase 7.3)
-**Priority: MEDIUM — Observability**
+**Priority: MEDIUM**
 
-Ensure all decision points emit structured trace events for debugging and monitoring.
-
-**Implementation:**
-1. Add `tracing` as dependency to `sentinel-engine` and `sentinel-server` (if not already)
-2. Add structured spans/events at key decision points:
-   - `tracing::info!(tool = %action.tool, verdict = %verdict, latency_us = elapsed.as_micros(), "Policy evaluated")`
-   - `tracing::warn!(tool = %tool_name, reason = %reason, "Tool call denied")`
-   - `tracing::debug!(policy_id = %id, "Policy matched")`
-3. Add `tracing-subscriber` setup in `sentinel-server/src/main.rs` with env filter (`RUST_LOG`)
-4. Ensure no sensitive parameter values are logged (coordinate with Instance B's redaction work)
-
-**Files:** `sentinel-engine/Cargo.toml`, `sentinel-engine/src/lib.rs`, `sentinel-server/Cargo.toml`, `sentinel-server/src/main.rs`
-
----
-
-## Task I-A4: Rate Limiting per Tool (Phase 6.3)
-**Priority: LOW — Abuse prevention**
-
-Add per-tool rate limiting as Tower middleware.
-
-**Implementation:**
-1. Add `tower` rate-limiting layer or custom middleware
-2. Configurable limits per tool (e.g., `bash: 10/min`, `read_file: 100/min`)
-3. Return 429 Too Many Requests when exceeded
-4. Configuration via server config file
-
-**Files:** `sentinel-server/src/routes.rs` or new `sentinel-server/src/middleware.rs`
-**Test:** Verify rate limit enforced and resets after window
-
----
-
-## Task I-A5: Bracket Notation for JSON Path (Phase 4.1 enhancement)
-**Priority: LOW — Completeness**
-
-Per Controller note: `get_param_by_path()` needs bracket notation for array access.
-
-**Implementation:**
-1. Extend `get_param_by_path()` in `sentinel-engine/src/lib.rs` to parse `[N]` segments
-2. `config.items[0].path` should traverse into JSON arrays
-3. Handle out-of-bounds gracefully (return None)
-
-**Files:** `sentinel-engine/src/lib.rs`
-**Test:** Verify `items[0].path`, `data[2].name`, mixed dot+bracket notation
-
-**Note:** This touches Instance B's code. Coordinate via log if needed.
+Add tracing spans/events at key decision points. See previous task file for details.
 
 ---
 
@@ -120,5 +71,5 @@ Per Controller note: `get_param_by_path()` needs bracket notation for array acce
 1. After completing each task, update `.collab/instance-a.md`
 2. Append completion message to `.collab/log.md`
 3. Your file ownership: `.github/`, `sentinel-integration/tests/`, TASKS.md
-4. Instance B owns engine/audit/MCP crates — coordinate via log for shared changes
-5. Work in order (S-A3 first if incomplete, then I-A1)
+4. Coordinate with Instance B for C8-B1/B2 tests (MCP03, MCP06 tests depend on their implementation)
+5. Work order: C7 items first, then C8-A1, then I-A2/I-A3

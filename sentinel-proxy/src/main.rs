@@ -92,7 +92,9 @@ async fn main() -> Result<()> {
     let child_pid = child.id().unwrap_or(0);
     tracing::info!(
         "Spawned child MCP server (PID {}): {} {:?}",
-        child_pid, child_cmd, child_args
+        child_pid,
+        child_cmd,
+        child_args
     );
 
     // Fix #25: Brief startup check — detect immediate crashes (bad binary, missing
@@ -103,7 +105,9 @@ async fn main() -> Result<()> {
             anyhow::bail!(
                 "Child MCP server exited immediately (PID {}, status: {}). \
                  Check that '{}' is a valid executable.",
-                child_pid, status, child_cmd
+                child_pid,
+                status,
+                child_cmd
             );
         }
         Ok(None) => {

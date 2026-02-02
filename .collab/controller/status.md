@@ -167,7 +167,6 @@ Direct fixes for remaining MEDIUM findings:
 
 **Total MEDIUM fixes by Controller: 12**
 **Total MEDIUM fixes by Instance B: 3** (#31 rate limiting, #32 CORS, #36 log rotation)
-**Test status: 1,499 tests across all suites, 0 failures, 0 clippy warnings.**
 
 **Additional fix — normalize_path idempotency:**
 - Proptest found `normalize_path("/%0%30")` was not idempotent (first pass: `/%00`, second: `/`)
@@ -175,6 +174,17 @@ Direct fixes for remaining MEDIUM findings:
 - Fix: loop-decode until stable (max 5 iterations) before path normalization
 - Updated test from "single-pass" to "fully decoded" — full decode is more secure (prevents multi-layer encoding bypass)
 - All 8 proptests pass, including `normalize_path_is_idempotent`
+
+### 8. C-8 Strategic Features Implemented
+
+| Feature | Description | File(s) | Tests |
+|---------|-------------|---------|-------|
+| Tool annotation awareness (C-8.2) | Intercept `tools/list` responses, extract annotations per tool | sentinel-mcp/src/proxy.rs | 4 tests |
+| Rug-pull detection (C-8.2) | Detect and audit when tool annotations change between calls | sentinel-mcp/src/proxy.rs | 1 test |
+| Response injection scanning (C-8.3) | Scan tool results for prompt injection patterns (OWASP MCP06) | sentinel-mcp/src/proxy.rs | 5 tests |
+| JSON-RPC error `data` field (C-8 polish) | Added structured `data` to denial/approval error responses | sentinel-mcp/src/extractor.rs | existing |
+
+**Test status: 1,512 tests, 0 failures, 0 clippy warnings, 0 format issues.**
 
 ### 8. Research Agents Deployed
 
@@ -224,11 +234,28 @@ Deployed 5 parallel research agents and conducted direct web research on:
 
 **Directive C-8 issued** with research-based strategic improvements (tool annotations, response inspection, Streamable HTTP).
 
+### 10. Detailed Research Files Published
+
+Persisted detailed findings from all 5 research agents to separate files:
+
+| File | Topic | Key Recommendations |
+|------|-------|-------------------|
+| `controller/research/mcp-spec-and-landscape.md` | MCP spec, OWASP, competitors | Streamable HTTP, tool annotations, response inspection |
+| `controller/research/policy-engine-patterns.md` | Cedar, OPA, ABAC patterns | Pre-compiled policies, deny-override, policy indexing |
+| `controller/research/rate-limiting-cors-headers.md` | Axum/Tower hardening | Security headers, per-IP limiting, CORS max_age |
+| `controller/research/audit-log-rotation.md` | Tamper-evident rotation | Bridge entries, signed checkpoints, external witnessing |
+
+---
+
 ### Next Steps
-1. Complete remaining C-7 items (CORS, rate limiting, log rotation)
+1. ~~Complete remaining C-7 items (CORS, rate limiting, log rotation)~~ — DONE (all C-7 complete)
 2. **C-8.2 (Instance B):** Tool annotation awareness — highest-value, lowest-effort improvement
 3. **C-8.3 (Instance B):** Response inspection for prompt injection — critical OWASP MCP06 coverage
-4. **C-8.5 (Orchestrator):** Update improvement plan with Phases 8-9
-5. **Phase 9:** Streamable HTTP transport — biggest market-relevance gap
-6. Performance benchmarks and profiling
-7. Expand property-based testing coverage
+4. **C-8.4 (Instance A):** OWASP MCP Top 10 test coverage matrix
+5. **C-8.5 (Orchestrator):** Update improvement plan with Phases 8-9 — DONE
+6. **Phase 9:** Streamable HTTP transport — biggest market-relevance gap
+7. **Quick win:** Add API security headers per `rate-limiting-cors-headers.md`
+8. **Architecture:** Pre-compile policies at load time per `policy-engine-patterns.md`
+9. **Architecture:** Signed checkpoints for audit log per `audit-log-rotation.md`
+10. Performance benchmarks and profiling
+11. Expand property-based testing coverage

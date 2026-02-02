@@ -276,13 +276,7 @@ impl AuditLogger {
         }
 
         // Fallback with UUID (should never happen)
-        parent.join(format!(
-            "{}.{}-{}{}",
-            stem,
-            timestamp,
-            Uuid::new_v4(),
-            ext
-        ))
+        parent.join(format!("{}.{}-{}{}", stem, timestamp, Uuid::new_v4(), ext))
     }
 
     /// List rotated log files in the same directory as the active log.
@@ -312,7 +306,14 @@ impl AuditLogger {
             let name = entry.file_name().to_string_lossy().to_string();
             // Match pattern: <stem>.<timestamp>.<ext>
             // e.g. "audit.2026-02-02T12-00-00.log"
-            if name.starts_with(&format!("{}.", stem)) && name != self.log_path.file_name().unwrap_or_default().to_string_lossy() {
+            if name.starts_with(&format!("{}.", stem))
+                && name
+                    != self
+                        .log_path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+            {
                 // Verify it looks like a rotated file (contains a timestamp-like segment)
                 let after_stem = &name[stem.len() + 1..];
                 if after_stem.contains('T') && after_stem.contains('-') {
@@ -1305,10 +1306,7 @@ mod tests {
 
         // At least one rotated file should exist
         let rotated = logger.list_rotated_files().unwrap();
-        assert!(
-            !rotated.is_empty(),
-            "Expected at least one rotated file"
-        );
+        assert!(!rotated.is_empty(), "Expected at least one rotated file");
 
         // The active log should still exist with entries
         let active_entries = logger.load_entries().await.unwrap();
@@ -1364,7 +1362,10 @@ mod tests {
         }
 
         let rotated = logger.list_rotated_files().unwrap();
-        assert!(rotated.is_empty(), "No rotation should occur when max_file_size=0");
+        assert!(
+            rotated.is_empty(),
+            "No rotation should occur when max_file_size=0"
+        );
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 20);
@@ -1486,8 +1487,7 @@ mod tests {
     async fn test_with_max_file_size_builder() {
         let dir = TempDir::new().unwrap();
         let log_path = dir.path().join("audit.jsonl");
-        let logger = AuditLogger::new(log_path)
-            .with_max_file_size(50 * 1024 * 1024); // 50 MB
+        let logger = AuditLogger::new(log_path).with_max_file_size(50 * 1024 * 1024); // 50 MB
 
         // Just verifying the builder doesn't panic and logger works
         let action = test_action();

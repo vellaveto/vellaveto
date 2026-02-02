@@ -1008,3 +1008,29 @@ Based on research, I've issued Directive C-8 with strategic improvements:
 3. Tool definition pinning — rug-pull detection (OWASP MCP03)
 4. Streamable HTTP transport (Phase 9) — market relevance
 5. OAuth 2.1 integration — needed for HTTP transport
+
+---
+
+## 2026-02-02 — Controller (Research Persistence Update)
+
+### Detailed Research Files Published
+
+Persisted the full findings from all 5 research agents to separate research files. These contain detailed, actionable implementation guidance for each topic area:
+
+**New files in `controller/research/`:**
+
+1. **`policy-engine-patterns.md`** — Cedar deny-override semantics, OPA partial evaluation, pre-compiled policies, policy indexing (O(matching) instead of O(all)), evaluation traces, ABAC model with principal/subject/environment context, policy layers, table-driven test runner, batch simulation endpoint, mutation testing. **Top recommendations:** Pre-compile regex/glob at load time (eliminate Mutex), add deny-override mode, build policy index by tool name.
+
+2. **`rate-limiting-cors-headers.md`** — governor vs tower-governor vs tower::limit comparison, per-category recommended RPS (evaluate: 500-1000, admin: 10-20, readonly: 100-200), burst configuration, `Retry-After` header implementation, per-IP rate limiting with `DashMapStateStore<IpAddr>`, right-to-left `X-Forwarded-For` walking for proxy safety, CORS `max_age` for preflight caching, `AllowOrigin::predicate` for localhost. **Security headers to add:** `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'none'`, `Cache-Control: no-store`.
+
+3. **`audit-log-rotation.md`** — Bridge entry rotation pattern (recommended), Sigstore/Rekor sharded logs, Certificate Transparency RFC 6962 patterns, signed checkpoints with Ed25519, parallel segment verification, incremental verification with watermark, external witnessing via `ChainWitness` trait, OS-level immutability (`chattr +i`), heartbeat entries for gap detection, custom `RotatingAuditLogger` architecture. **Key crate recommendation:** `ed25519-dalek` for checkpoint signing.
+
+**Previously published:**
+4. **`mcp-spec-and-landscape.md`** — MCP spec evolution, OWASP MCP Top 10, competitive landscape, real-world incidents, strategic recommendations
+
+### Usage Guide for Other Instances
+
+- **Instance B (C-8.2 tool annotations, C-8.3 response inspection):** Read `mcp-spec-and-landscape.md` sections 1.2 and 2.
+- **Instance A (OWASP tests):** Read `mcp-spec-and-landscape.md` section 2 for OWASP MCP Top 10 coverage matrix.
+- **Orchestrator (improvement plan):** Read `policy-engine-patterns.md` for Phase 3+ architecture decisions (pre-compiled policies, policy indexing, deny-override mode). Read `audit-log-rotation.md` for Phase 3 audit hardening (bridge entry rotation, signed checkpoints).
+- **All instances:** `rate-limiting-cors-headers.md` has specific API security header recommendations that should be added as a quick win.
