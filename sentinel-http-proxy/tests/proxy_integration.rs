@@ -1221,3 +1221,252 @@ async fn first_tools_list_does_not_flag_additions() {
         rug_pull_entries.len()
     );
 }
+
+// ════════════════════════════════
+// EVALUATION TRACE (Phase 10.4)
+// ════════════════════════════════
+
+#[tokio::test]
+async fn trace_denied_tool_call_includes_trace_in_response() {
+    let tmp = TempDir::new().unwrap();
+    let upstream_url = start_mock_upstream().await;
+    let state = build_test_state(&upstream_url, &tmp);
+    let app = build_router(state);
+
+    // bash:execute is denied — request with ?trace=true
+    let body = serde_json::to_vec(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "bash:execute", "arguments": {"command": "rm -rf /"}}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp?trace=true")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = json_body(resp).await;
+
+    // Response should include trace field
+    assert!(body.get("trace").is_some(), "Response should include trace field");
+    let trace = &body["trace"];
+
+    // Verify trace structure
+    assert!(trace.get("action_summary").is_some());
+    assert!(trace.get("verdict").is_some());
+    assert!(trace.get("policies_checked").is_some());
+    assert!(trace.get("policies_matched").is_some());
+    assert!(trace.get("matches").is_some());
+    assert!(trace.get("duration_us").is_some());
+
+    // Action summary should reflect the tool call
+    assert_eq!(trace["action_summary"]["tool"], "bash");
+    assert_eq!(trace["action_summary"]["function"], "execute");
+
+    // Verdict should be Deny
+    assert!(trace["verdict"].get("Deny").is_some());
+
+    // Should have matched at least one policy
+    let matched = trace["policies_matched"].as_u64().unwrap();
+    assert!(matched >= 1, "Should match at least one policy");
+}
+
+#[tokio::test]
+async fn trace_allowed_tool_call_has_trace_header() {
+    let tmp = TempDir::new().unwrap();
+    let upstream_url = start_mock_upstream().await;
+    let state = build_test_state(&upstream_url, &tmp);
+    let app = build_router(state);
+
+    // file:read is allowed
+    let body = serde_json::to_vec(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "file:read", "arguments": {"path": "/tmp/test.txt"}}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp?trace=true")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Allowed requests should have X-Sentinel-Trace header
+    let trace_header = resp.headers().get("x-sentinel-trace");
+    assert!(trace_header.is_some(), "Allowed request should have X-Sentinel-Trace header");
+
+    // Parse the trace header as JSON
+    let trace_json: Value = serde_json::from_str(trace_header.unwrap().to_str().unwrap()).unwrap();
+    assert_eq!(trace_json["action_summary"]["tool"], "file");
+    assert_eq!(trace_json["action_summary"]["function"], "read");
+    assert_eq!(trace_json["verdict"], "Allow");
+}
+
+#[tokio::test]
+async fn no_trace_without_query_param() {
+    let tmp = TempDir::new().unwrap();
+    let upstream_url = start_mock_upstream().await;
+    let state = build_test_state(&upstream_url, &tmp);
+    let app = build_router(state);
+
+    // Denied without ?trace — should NOT include trace
+    let body = serde_json::to_vec(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "bash:execute", "arguments": {"command": "ls"}}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(resp).await;
+    assert!(
+        body.get("trace").is_none(),
+        "Response should NOT include trace when ?trace is absent"
+    );
+}
+
+#[tokio::test]
+async fn trace_resource_read_denied_includes_trace() {
+    let tmp = TempDir::new().unwrap();
+    let upstream_url = start_mock_upstream().await;
+
+    // Build state with a policy that denies resources
+    let policies = vec![
+        Policy {
+            id: "resources:read".to_string(),
+            name: "Block all resources".to_string(),
+            policy_type: PolicyType::Deny,
+            priority: 100,
+        },
+    ];
+    let engine = PolicyEngine::with_policies(false, &policies).expect("compile");
+    let state = ProxyState {
+        engine: Arc::new(engine),
+        policies: Arc::new(policies),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
+        upstream_url,
+        http_client: reqwest::Client::new(),
+    };
+    let app = build_router(state);
+
+    let body = serde_json::to_vec(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "resources/read",
+        "params": {"uri": "file:///etc/passwd"}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp?trace=true")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(resp).await;
+    assert!(body.get("trace").is_some(), "Resource deny should include trace");
+    let trace = &body["trace"];
+    assert_eq!(trace["action_summary"]["tool"], "resources");
+    assert!(trace["verdict"].get("Deny").is_some());
+}
+
+#[tokio::test]
+async fn trace_constraint_details_visible() {
+    let tmp = TempDir::new().unwrap();
+    let upstream_url = start_mock_upstream().await;
+
+    // Build state with a conditional policy that has parameter constraints
+    let policies = vec![Policy {
+        id: "file:*".to_string(),
+        name: "Block etc paths".to_string(),
+        policy_type: PolicyType::Conditional {
+            conditions: json!({
+                "parameter_constraints": [{
+                    "param": "path",
+                    "op": "glob",
+                    "pattern": "/etc/**",
+                    "on_match": "deny"
+                }]
+            }),
+        },
+        priority: 100,
+    }];
+    let engine = PolicyEngine::with_policies(false, &policies).expect("compile");
+    let state = ProxyState {
+        engine: Arc::new(engine),
+        policies: Arc::new(policies),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
+        upstream_url,
+        http_client: reqwest::Client::new(),
+    };
+    let app = build_router(state);
+
+    let body = serde_json::to_vec(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "file:read", "arguments": {"path": "/etc/shadow"}}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp?trace=true")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = json_body(resp).await;
+    let trace = &body["trace"];
+    assert!(trace.get("matches").is_some());
+
+    // Check that constraint results are visible
+    let matches = trace["matches"].as_array().unwrap();
+    assert!(!matches.is_empty());
+    let first_match = &matches[0];
+    assert_eq!(first_match["policy_name"], "Block etc paths");
+    assert_eq!(first_match["policy_type"], "conditional");
+    assert!(first_match["tool_matched"].as_bool().unwrap());
+
+    let constraints = first_match["constraint_results"].as_array().unwrap();
+    assert!(!constraints.is_empty());
+    let glob_result = &constraints[0];
+    assert_eq!(glob_result["constraint_type"], "glob");
+    assert_eq!(glob_result["param"], "path");
+    assert!(!glob_result["passed"].as_bool().unwrap()); // glob matched → deny → passed=false
+}

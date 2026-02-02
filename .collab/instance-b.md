@@ -216,11 +216,44 @@ Implemented Ed25519 digital signature checkpoints for the tamper-evident audit l
 - 13 new checkpoint tests covering creation, verification, signature tampering, entry count tampering, audit log tampering, key rotation, decreasing count detection
 - All 65 sentinel-audit tests pass (45 unit + 20 external), clippy clean, fmt clean
 
+### Phase 10.5: Policy Index by Tool Name — COMPLETE
+
+- Added `tool_index: HashMap<String, Vec<usize>>` and `always_check: Vec<usize>` to `PolicyEngine`
+- `build_tool_index()` partitions compiled policies: exact tool names → indexed, wildcards/prefixes → always_check
+- `evaluate_with_compiled()` uses merge-iteration of two sorted index slices to preserve priority ordering
+- O(matching) evaluation instead of O(all) linear scan for exact tool name policies
+- 6 new tests — all 233 engine tests pass
+
+### Phase 10.6: Heartbeat Audit Entries — COMPLETE
+
+- Added `log_heartbeat(interval_secs, sequence)` to `AuditLogger`
+- Added `detect_heartbeat_gap(max_gap_secs)` for truncation detection
+- Heartbeat entries participate normally in the hash chain
+- 5 new tests — all 70 sentinel-audit tests pass
+
+### Phase 10.7: Shared Injection Scanning Module — COMPLETE
+
+- Created `sentinel-mcp/src/inspection.rs` — shared injection scanning used by both proxies:
+  - `INJECTION_PATTERNS` constant (15 patterns)
+  - `sanitize_for_injection_scan()` — Unicode control char stripping + NFKC normalization + space collapsing
+  - `inspect_for_injection()` — Aho-Corasick multi-pattern detection
+  - `scan_response_for_injection()` — JSON-RPC response content extraction
+  - 10 tests
+- Stdio proxy (`sentinel-mcp/src/proxy.rs`) delegates `sanitize_for_injection_scan` to shared module
+- HTTP proxy (`sentinel-http-proxy/src/proxy.rs`) fully replaced local `INJECTION_PATTERNS`, `sanitize_for_injection_scan`, and `inspect_for_injection` with imports from shared module
+- Removed `unicode-normalization` dependency from sentinel-http-proxy (now transitive through sentinel-mcp)
+- Added `sentinel-mcp` dependency to sentinel-http-proxy
+- Added `SamplingRequest` variant to `MessageType` in extractor.rs + handler in stdio proxy
+- All 137 workspace test suites pass (0 failures)
+
 ### Build Status (Current)
-- All workspace tests pass (0 failures)
+- All 137 workspace test suites pass (0 failures)
 - Clippy clean, fmt clean
 - All 14 CRITICAL/HIGH findings from Controller audit: RESOLVED
 - All 6 improvement plan tasks complete (I-B1 DEFERRED, I-B2–I-B6 DONE)
 - C-8 complete, C-9.2/C-10.2 (pre-compiled policies) complete
 - C-10.2 Task B2 (cross-review) complete
 - Phase 10.3 (signed audit checkpoints) complete
+- Phase 10.5 (policy index) complete
+- Phase 10.6 (heartbeat entries) complete
+- Phase 10.7 (shared injection scanning) complete

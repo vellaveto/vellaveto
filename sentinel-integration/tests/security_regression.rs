@@ -6,16 +6,22 @@
 //!
 //! Reference: `.collab/orchestrator/issues/external-audit-report.md`
 
+use arc_swap::ArcSwap;
+use axum::body::Body;
+use axum::http::Request;
+use sentinel_approval::ApprovalStore;
 use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
 use sentinel_mcp::extractor::{classify_message, MessageType};
 use sentinel_mcp::framing::{read_message, FramingError};
+use sentinel_server::{routes, AppState, Metrics, RateLimits};
 use sentinel_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 use std::io::Cursor;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::io::BufReader;
+use tower::ServiceExt;
 
 // ═══════════════════════════════════════════════════
 // FINDING #1 — Hash chain bypass (CRITICAL)
@@ -942,4 +948,260 @@ async fn combined_audit_integrity_full_lifecycle() {
     for entry in &entries {
         assert!(entry.entry_hash.is_some(), "All entries must have hashes");
     }
+}
+
+// ═══════════════════════════════════════════════════
+// CROSS-REVIEW FINDING #4 — Hash chain write ordering
+//
+// The audit log must update last_hash ONLY AFTER the file write
+// succeeds. If last_hash were updated before the write, a failed
+// write would leave an orphaned hash pointing to a non-existent
+// entry on disk, breaking the chain.
+//
+// This test verifies that after multiple writes, the chain is valid
+// and each entry's prev_hash correctly references the previous entry.
+// ═══════════════════════════════════════════════════
+
+#[tokio::test]
+async fn finding_4_hash_chain_ordering_consistent_after_writes() {
+    let tmp = TempDir::new().unwrap();
+    let log_path = tmp.path().join("audit.log");
+
+    let logger = AuditLogger::new(log_path.clone());
+    logger.initialize_chain().await.unwrap();
+
+    let action = Action {
+        tool: "test".to_string(),
+        function: "op".to_string(),
+        parameters: json!({}),
+    };
+
+    // Write 5 entries in sequence
+    for i in 0..5 {
+        logger
+            .log_entry(
+                &action,
+                &Verdict::Deny {
+                    reason: format!("entry {}", i),
+                },
+                json!({"seq": i}),
+            )
+            .await
+            .unwrap();
+    }
+
+    // Verify the chain is valid
+    let verification = logger.verify_chain().await.unwrap();
+    assert!(
+        verification.valid,
+        "Chain must be valid: first_broken_at={:?}",
+        verification.first_broken_at
+    );
+    assert_eq!(verification.entries_checked, 5);
+
+    // Verify prev_hash linkage: entry[i].prev_hash == entry[i-1].entry_hash
+    let entries = logger.load_entries().await.unwrap();
+    assert_eq!(entries.len(), 5);
+
+    // First entry has no prev_hash (or it's None)
+    assert!(
+        entries[0].prev_hash.is_none(),
+        "First entry should have no prev_hash"
+    );
+
+    for i in 1..entries.len() {
+        assert_eq!(
+            entries[i].prev_hash.as_deref(),
+            entries[i - 1].entry_hash.as_deref(),
+            "Entry {}'s prev_hash must equal entry {}'s entry_hash",
+            i,
+            i - 1
+        );
+    }
+}
+
+// ═══════════════════════════════════════════════════
+// CROSS-REVIEW FINDING #11 — Error propagation in evaluate
+//
+// When audit logging or approval creation encounters an error,
+// the server must not panic or silently return incorrect results.
+// Audit log failures are fire-and-forget (logged, don't fail the request).
+// Approval failures are fail-closed (converted to Deny).
+//
+// This test verifies evaluate works correctly even when the audit
+// logger points to a valid path but the approval store is unwritable.
+// ═══════════════════════════════════════════════════
+
+#[tokio::test]
+async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
+    let tmp = TempDir::new().unwrap();
+
+    // Create audit logger pointing to a file we make read-only
+    let audit_path = tmp.path().join("audit.log");
+    let logger = Arc::new(AuditLogger::new(audit_path.clone()));
+
+    // Write one valid entry first
+    let action = Action {
+        tool: "file".to_string(),
+        function: "read".to_string(),
+        parameters: json!({}),
+    };
+    logger
+        .log_entry(&action, &Verdict::Allow, json!({}))
+        .await
+        .unwrap();
+
+    // Now make the audit file read-only to force write failures
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o444);
+        std::fs::set_permissions(&audit_path, perms).unwrap();
+    }
+
+    let state = AppState {
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
+        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
+            id: "file:read".to_string(),
+            name: "Allow reads".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+        }])),
+        audit: logger,
+        config_path: Arc::new("test.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: None,
+        rate_limits: Arc::new(RateLimits::disabled()),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+    };
+
+    let app = routes::build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "tool": "file",
+        "function": "read",
+        "parameters": {"path": "/tmp/test"}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // The request should succeed (200 OK) even though audit write fails
+    // because audit is fire-and-forget
+    assert_eq!(
+        resp.status(),
+        axum::http::StatusCode::OK,
+        "Evaluate must succeed even when audit write fails"
+    );
+
+    let body_bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(json["verdict"], "Allow");
+}
+
+// ═══════════════════════════════════════════════════
+// CROSS-REVIEW FINDING #12 — Fail-closed on approval creation failure
+//
+// When a policy evaluates to RequireApproval but ApprovalStore::create()
+// fails, the server MUST deny the request (fail-closed), NOT allow it
+// through without an approval_id.
+//
+// This test creates an unwritable approval store, evaluates an action
+// against a RequireApproval policy, and verifies the response is Deny.
+// ═══════════════════════════════════════════════════
+
+#[tokio::test]
+async fn finding_12_approval_creation_failure_denies_request() {
+    let tmp = TempDir::new().unwrap();
+
+    // Create an approval store pointing to an unwritable path.
+    // /dev/null/impossible cannot be created as a file because /dev/null is not a directory.
+    let approvals = Arc::new(ApprovalStore::new(
+        std::path::PathBuf::from("/dev/null/impossible.jsonl"),
+        std::time::Duration::from_secs(900),
+    ));
+
+    let state = AppState {
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
+        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
+            id: "network:*".to_string(),
+            name: "Network requires approval".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "require_approval": true
+                }),
+            },
+            priority: 100,
+        }])),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("test.toml".to_string()),
+        approvals,
+        api_key: None,
+        rate_limits: Arc::new(RateLimits::disabled()),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+    };
+
+    let app = routes::build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "tool": "network",
+        "function": "connect",
+        "parameters": {"host": "example.com"}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // The request should return 200 OK with Deny verdict (fail-closed)
+    assert_eq!(resp.status(), axum::http::StatusCode::OK);
+
+    let body_bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    // Verdict must be Deny (not RequireApproval, not Allow)
+    let verdict = &json["verdict"];
+    assert!(
+        verdict.is_object() || verdict.is_string(),
+        "Expected verdict in response"
+    );
+
+    // Check for Deny verdict — it should contain the reason about approval failure
+    let verdict_str = serde_json::to_string(verdict).unwrap();
+    assert!(
+        verdict_str.contains("Deny") || verdict_str.contains("deny"),
+        "Verdict must be Deny when approval creation fails, got: {}",
+        verdict_str
+    );
+
+    // approval_id must be null/absent since creation failed
+    let approval_id = json.get("approval_id");
+    assert!(
+        approval_id.is_none() || approval_id.unwrap().is_null(),
+        "approval_id must be null when creation fails"
+    );
 }

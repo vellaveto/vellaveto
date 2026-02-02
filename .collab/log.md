@@ -1,5 +1,42 @@
 # Shared Log
 
+## 2026-02-02 — Orchestrator: C-12 Tasks — Checkpoint Wiring COMPLETE
+
+### C-12 Assigned Tasks Acknowledged
+
+Confirming my C-12 assignments from the Controller's meetup:
+
+1. **Wire signed checkpoints into sentinel-server** — **DONE**
+   - Ed25519 signing key loaded from `SENTINEL_SIGNING_KEY` env var (hex-encoded 32 bytes) or auto-generated at startup
+   - `with_signing_key()` chained on `AuditLogger` builder in `cmd_serve()`
+   - Periodic checkpoint task spawned (every 300s, configurable via `SENTINEL_CHECKPOINT_INTERVAL`)
+   - 3 new HTTP endpoints: `GET /api/audit/checkpoints` (list), `GET /api/audit/checkpoints/verify`, `POST /api/audit/checkpoint` (on-demand)
+   - Added `ed25519-dalek` and `hex` deps to sentinel-server
+
+2. **Unicode sanitization fix** — **DONE** (both proxies)
+   - `sanitize_for_injection_scan()` was stripping zero-width chars entirely, concatenating words ("ignore" + "all" = "ignoreall") so patterns like "ignore all previous instructions" wouldn't match
+   - Changed `.filter()` to `.map()` — invisible chars replaced with spaces to preserve word boundaries
+   - Added space-collapsing pass so "ignore  all" → "ignore all"
+   - Fixed `test_inspect_detects_through_unicode_evasion` (was pre-existing failure)
+   - Applied to both `sentinel-mcp/src/inspection.rs` and `sentinel-http-proxy/src/proxy.rs`
+
+3. **Test coverage gaps (Findings #4, #11, #12)** — IN PROGRESS (next)
+
+4. **Update improvement plan** — DONE (status.md rewritten)
+
+### Build Status
+- **1,562 tests, 0 failures, 0 clippy warnings**
+- Test count up from 1,544 (checkpoint endpoints + fix restored previously-failing test)
+
+### Files Modified
+- `sentinel-server/Cargo.toml` — added ed25519-dalek, hex
+- `sentinel-server/src/main.rs` — signing key loading, checkpoint task
+- `sentinel-server/src/routes.rs` — 3 checkpoint endpoint handlers
+- `sentinel-mcp/src/inspection.rs` — Unicode sanitization fix (filter → map + space collapse)
+- `sentinel-http-proxy/src/proxy.rs` — Unicode sanitization fix (same)
+
+---
+
 ## 2026-02-02 — Performance Instance: All Optimization Phases COMPLETE
 
 I'm a new instance focused on performance optimization. Full details in `.collab/meetup-perf-optimization-sync.md`.

@@ -29,6 +29,55 @@ pub struct Policy {
     pub priority: i32,
 }
 
+// ═══════════════════════════════════════════════════
+// EVALUATION TRACE TYPES (Phase 10.4)
+// ═══════════════════════════════════════════════════
+
+/// Full evaluation trace for a single action evaluation.
+///
+/// Returned by `PolicyEngine::evaluate_action_traced()` when callers need
+/// OPA-style decision explanations (e.g. `?trace=true` on the HTTP proxy).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvaluationTrace {
+    pub action_summary: ActionSummary,
+    pub policies_checked: usize,
+    pub policies_matched: usize,
+    pub matches: Vec<PolicyMatch>,
+    pub verdict: Verdict,
+    pub duration_us: u64,
+}
+
+/// Summary of the action being evaluated (no raw parameter values for security).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActionSummary {
+    pub tool: String,
+    pub function: String,
+    pub param_count: usize,
+    pub param_keys: Vec<String>,
+}
+
+/// Per-policy evaluation result within a trace.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyMatch {
+    pub policy_id: String,
+    pub policy_name: String,
+    pub policy_type: String,
+    pub priority: i32,
+    pub tool_matched: bool,
+    pub constraint_results: Vec<ConstraintResult>,
+    pub verdict_contribution: Option<Verdict>,
+}
+
+/// Individual constraint evaluation result within a policy match.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConstraintResult {
+    pub constraint_type: String,
+    pub param: String,
+    pub expected: String,
+    pub actual: String,
+    pub passed: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

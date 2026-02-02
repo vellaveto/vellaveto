@@ -17,6 +17,7 @@ sentinel-types = { path = "../sentinel-types" }
 sentinel-engine = { path = "../sentinel-engine" }
 sentinel-audit = { path = "../sentinel-audit" }
 sentinel-config = { path = "../sentinel-config" }
+sentinel-mcp = { path = "../sentinel-mcp" }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -36,7 +37,6 @@ futures-util = "0.3"
 bytes = "1"
 http = "1"
 tower = "0.5"
-unicode-normalization = "0.1"
 
 [dev-dependencies]
 tempfile = "3.0"

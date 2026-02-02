@@ -1019,3 +1019,386 @@ async fn security_headers_present_on_post() {
         Some(b"no-store".as_slice()),
     );
 }
+
+// ════════════════════════════════
+// API KEY AUTHENTICATION
+// ════════════════════════════════
+
+fn make_authed_state() -> (AppState, TempDir) {
+    let tmp = TempDir::new().unwrap();
+    let state = AppState {
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
+        policies: Arc::new(ArcSwap::from_pointee(vec![
+            Policy {
+                id: "file:read".to_string(),
+                name: "Allow file reads".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+            },
+        ])),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("nonexistent.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: Some(Arc::new("test-secret-key-42".to_string())),
+        rate_limits: Arc::new(RateLimits::disabled()),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+    };
+    (state, tmp)
+}
+
+#[tokio::test]
+async fn auth_post_without_header_returns_401() {
+    let (state, _tmp) = make_authed_state();
+    let app = routes::build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "tool": "file",
+        "function": "read",
+        "parameters": {"path": "/tmp/test"}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["error"].as_str().unwrap().contains("Authorization"));
+}
+
+#[tokio::test]
+async fn auth_post_with_wrong_token_returns_401() {
+    let (state, _tmp) = make_authed_state();
+    let app = routes::build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "tool": "file",
+        "function": "read",
+        "parameters": {"path": "/tmp/test"}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer wrong-key-99")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["error"].as_str().unwrap().contains("Invalid"));
+}
+
+#[tokio::test]
+async fn auth_post_with_malformed_header_returns_401() {
+    let (state, _tmp) = make_authed_state();
+    let app = routes::build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "tool": "file",
+        "function": "read",
+        "parameters": {}
+    }))
+    .unwrap();
+
+    // Not "Bearer <token>", just a raw token
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("authorization", "test-secret-key-42")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "Malformed auth header (no Bearer prefix) should be rejected"
+    );
+}
+
+#[tokio::test]
+async fn auth_get_bypasses_api_key_check() {
+    let (state, _tmp) = make_authed_state();
+    let app = routes::build_router(state);
+
+    // GET requests should NOT require auth (read-only)
+    let resp = app
+        .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "GET requests should bypass API key auth"
+    );
+}
+
+#[tokio::test]
+async fn auth_post_with_valid_token_succeeds() {
+    let (state, _tmp) = make_authed_state();
+    let app = routes::build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "tool": "file",
+        "function": "read",
+        "parameters": {"path": "/tmp/test"}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer test-secret-key-42")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "Valid Bearer token should pass auth"
+    );
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["verdict"], "Allow");
+}
+
+#[tokio::test]
+async fn auth_no_api_key_configured_allows_all() {
+    // Default make_state() has api_key: None
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "tool": "file",
+        "function": "read",
+        "parameters": {"path": "/tmp/test"}
+    }))
+    .unwrap();
+
+    // POST without any auth header — should work when no api_key configured
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "No api_key configured means auth is disabled"
+    );
+}
+
+#[tokio::test]
+async fn auth_delete_requires_api_key() {
+    let (state, _tmp) = make_authed_state();
+    let app = routes::build_router(state);
+
+    // DELETE is mutating — should require auth
+    let resp = app
+        .oneshot(
+            Request::delete("/api/policies/file:read")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "DELETE requests should require API key when configured"
+    );
+}
+
+#[tokio::test]
+async fn auth_get_policies_bypasses_api_key() {
+    let (state, _tmp) = make_authed_state();
+    let app = routes::build_router(state);
+
+    // GET /api/policies is read-only — should not require auth
+    let resp = app
+        .oneshot(
+            Request::get("/api/policies")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "GET /api/policies should not require auth"
+    );
+}
+
+// ════════════════════════════════
+// METRICS ENDPOINT
+// ════════════════════════════════
+
+#[tokio::test]
+async fn metrics_returns_structure() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    let resp = app
+        .oneshot(Request::get("/api/metrics").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(json.get("uptime_seconds").is_some());
+    assert_eq!(json["policies_loaded"], 2);
+    assert_eq!(json["evaluations"]["total"], 0);
+    assert_eq!(json["evaluations"]["allow"], 0);
+    assert_eq!(json["evaluations"]["deny"], 0);
+}
+
+#[tokio::test]
+async fn metrics_increment_after_evaluations() {
+    let (state, _tmp) = make_state();
+
+    // Evaluate an allow action
+    let app = routes::build_router(state.clone());
+    let body = serde_json::to_string(&json!({
+        "tool": "file", "function": "read", "parameters": {"path": "/tmp"}
+    }))
+    .unwrap();
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Evaluate a deny action
+    let app = routes::build_router(state.clone());
+    let body = serde_json::to_string(&json!({
+        "tool": "bash", "function": "execute", "parameters": {}
+    }))
+    .unwrap();
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Check metrics reflect the evaluations
+    let app = routes::build_router(state);
+    let resp = app
+        .oneshot(Request::get("/api/metrics").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["evaluations"]["total"], 2);
+    assert_eq!(json["evaluations"]["allow"], 1);
+    assert_eq!(json["evaluations"]["deny"], 1);
+}
+
+// ════════════════════════════════
+// REQUEST-ID MIDDLEWARE
+// ════════════════════════════════
+
+#[tokio::test]
+async fn request_id_generated_when_not_provided() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    let resp = app
+        .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let request_id = resp.headers().get("x-request-id");
+    assert!(
+        request_id.is_some(),
+        "X-Request-Id should be auto-generated"
+    );
+    // Should be a UUID (36 chars)
+    let id_str = request_id.unwrap().to_str().unwrap();
+    assert_eq!(id_str.len(), 36, "Auto-generated request ID should be UUID format");
+}
+
+#[tokio::test]
+async fn request_id_preserved_when_client_sends_it() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::get("/health")
+                .header("x-request-id", "client-id-12345")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let request_id = resp
+        .headers()
+        .get("x-request-id")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert_eq!(
+        request_id, "client-id-12345",
+        "Client-provided X-Request-Id should be echoed back"
+    );
+}

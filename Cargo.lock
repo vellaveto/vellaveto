@@ -1922,6 +1922,7 @@ dependencies = [
  "sentinel-audit",
  "sentinel-config",
  "sentinel-engine",
+ "sentinel-mcp",
  "sentinel-types",
  "serde",
  "serde_json",
@@ -1932,7 +1933,6 @@ dependencies = [
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
- "unicode-normalization",
  "uuid",
 ]
 

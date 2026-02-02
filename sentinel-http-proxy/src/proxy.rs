@@ -6,7 +6,7 @@
 
 use axum::{
     body::Body,
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
@@ -14,10 +14,20 @@ use axum::{
 use bytes::Bytes;
 use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
-use sentinel_types::{Action, Policy, Verdict};
+use sentinel_types::{Action, EvaluationTrace, Policy, Verdict};
 use serde_json::{json, Value};
 use std::sync::Arc;
-use unicode_normalization::UnicodeNormalization;
+use sentinel_mcp::inspection::inspect_for_injection;
+#[cfg(test)]
+use sentinel_mcp::inspection::sanitize_for_injection_scan;
+
+/// Query parameters for POST /mcp.
+#[derive(Debug, serde::Deserialize, Default)]
+pub struct McpQueryParams {
+    /// When true, include evaluation trace in the response.
+    #[serde(default)]
+    pub trace: bool,
+}
 
 use crate::session::{SessionStore, ToolAnnotationsCompact};
 
@@ -137,79 +147,6 @@ fn extract_resource_action(uri: &str) -> Action {
         function: "read".to_string(),
         parameters: json!({"uri": uri, "path": path, "url": uri}),
     }
-}
-
-/// Known prompt injection patterns for response inspection.
-const INJECTION_PATTERNS: &[&str] = &[
-    "ignore all previous instructions",
-    "ignore previous instructions",
-    "disregard all prior",
-    "disregard previous",
-    "you are now",
-    "new system prompt",
-    "override system prompt",
-    "system prompt:",
-    "forget your instructions",
-    "act as if",
-    "pretend you are",
-    "<system>",
-    "</system>",
-    "[system]",
-    "\\n\\nsystem:",
-];
-
-/// Sanitize text for injection scanning by stripping Unicode control characters
-/// and applying NFKC normalization. This prevents evasion via zero-width chars,
-/// bidi overrides, tag characters, variation selectors, and homoglyphs.
-fn sanitize_for_injection_scan(text: &str) -> String {
-    let stripped: String = text
-        .chars()
-        .map(|c| {
-            let cp = c as u32;
-            // Replace invisible/control characters with space so word boundaries
-            // are preserved (e.g. "ignore\u{200B}all" → "ignore all").
-            if (0xE0000..=0xE007F).contains(&cp)   // Tag characters
-                || (0x200B..=0x200F).contains(&cp)  // Zero-width characters
-                || (0x202A..=0x202E).contains(&cp)  // Bidi overrides
-                || (0xFE00..=0xFE0F).contains(&cp)  // Variation selectors
-                || cp == 0xFEFF                      // BOM / ZWNBSP
-                || (0x2060..=0x2064).contains(&cp)   // Word joiners / invisible operators
-            {
-                ' '
-            } else {
-                c
-            }
-        })
-        .collect();
-    // NFKC normalization canonicalizes homoglyphs and fullwidth chars
-    let normalized: String = stripped.nfkc().collect();
-    // Collapse consecutive spaces so "ignore\u{200B} all" → "ignore all" (not "ignore  all")
-    let mut result = String::with_capacity(normalized.len());
-    let mut prev_space = false;
-    for c in normalized.chars() {
-        if c == ' ' {
-            if !prev_space {
-                result.push(' ');
-            }
-            prev_space = true;
-        } else {
-            result.push(c);
-            prev_space = false;
-        }
-    }
-    result
-}
-
-/// Inspect response text for prompt injection patterns.
-/// Pre-processes text with Unicode sanitization to prevent evasion.
-fn inspect_for_injection(text: &str) -> Vec<&'static str> {
-    let sanitized = sanitize_for_injection_scan(text);
-    let lower = sanitized.to_lowercase();
-    INJECTION_PATTERNS
-        .iter()
-        .filter(|p| lower.contains(**p))
-        .copied()
-        .collect()
 }
 
 /// Extract tool annotations from a tools/list response and update session state.
@@ -421,6 +358,7 @@ async fn extract_annotations_from_response(
 /// 4. Forward allowed requests to upstream, return denials directly
 pub async fn handle_mcp_post(
     State(state): State<ProxyState>,
+    Query(params): Query<McpQueryParams>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -456,13 +394,27 @@ pub async fn handle_mcp_post(
         } => {
             let action = extract_tool_action(&tool_name, &arguments);
 
-            match state.engine.evaluate_action(&action, &state.policies) {
-                Ok(Verdict::Allow) => {
+            // Choose traced or non-traced evaluation path
+            let eval_result = if params.trace {
+                state
+                    .engine
+                    .evaluate_action_traced(&action)
+                    .map(|(v, t)| (v, Some(t)))
+            } else {
+                state
+                    .engine
+                    .evaluate_action(&action, &state.policies)
+                    .map(|v| (v, None))
+            };
+
+            match eval_result {
+                Ok((Verdict::Allow, trace)) => {
                     // Forward to upstream
                     let response = forward_to_upstream(&state, &session_id, body).await;
-                    attach_session_header(response, &session_id)
+                    let response = attach_session_header(response, &session_id);
+                    attach_trace_header(response, trace)
                 }
-                Ok(verdict @ Verdict::Deny { .. }) => {
+                Ok((verdict @ Verdict::Deny { .. }, trace)) => {
                     let reason = match &verdict {
                         Verdict::Deny { reason } => reason.clone(),
                         _ => unreachable!(),
@@ -481,7 +433,7 @@ pub async fn handle_mcp_post(
                         tracing::warn!("Audit log failed: {}", e);
                     }
 
-                    let response = json!({
+                    let mut response = json!({
                         "jsonrpc": "2.0",
                         "id": id,
                         "error": {
@@ -489,12 +441,15 @@ pub async fn handle_mcp_post(
                             "message": format!("Denied by policy: {}", reason)
                         }
                     });
+                    if let Some(t) = &trace {
+                        response["trace"] = serde_json::to_value(t).unwrap_or(Value::Null);
+                    }
                     attach_session_header(
                         (StatusCode::OK, Json(response)).into_response(),
                         &session_id,
                     )
                 }
-                Ok(verdict @ Verdict::RequireApproval { .. }) => {
+                Ok((verdict @ Verdict::RequireApproval { .. }, trace)) => {
                     let reason = match &verdict {
                         Verdict::RequireApproval { reason } => reason.clone(),
                         _ => unreachable!(),
@@ -512,7 +467,7 @@ pub async fn handle_mcp_post(
                         tracing::warn!("Audit log failed: {}", e);
                     }
 
-                    let response = json!({
+                    let mut response = json!({
                         "jsonrpc": "2.0",
                         "id": id,
                         "error": {
@@ -520,6 +475,9 @@ pub async fn handle_mcp_post(
                             "message": format!("Approval required: {}", reason)
                         }
                     });
+                    if let Some(t) = &trace {
+                        response["trace"] = serde_json::to_value(t).unwrap_or(Value::Null);
+                    }
                     attach_session_header(
                         (StatusCode::OK, Json(response)).into_response(),
                         &session_id,
@@ -545,12 +503,25 @@ pub async fn handle_mcp_post(
         McpMessageType::ResourceRead { id, uri } => {
             let action = extract_resource_action(&uri);
 
-            match state.engine.evaluate_action(&action, &state.policies) {
-                Ok(Verdict::Allow) => {
+            let eval_result = if params.trace {
+                state
+                    .engine
+                    .evaluate_action_traced(&action)
+                    .map(|(v, t)| (v, Some(t)))
+            } else {
+                state
+                    .engine
+                    .evaluate_action(&action, &state.policies)
+                    .map(|v| (v, None))
+            };
+
+            match eval_result {
+                Ok((Verdict::Allow, trace)) => {
                     let response = forward_to_upstream(&state, &session_id, body).await;
-                    attach_session_header(response, &session_id)
+                    let response = attach_session_header(response, &session_id);
+                    attach_trace_header(response, trace)
                 }
-                Ok(verdict) => {
+                Ok((verdict, trace)) => {
                     let (code, reason) = match &verdict {
                         Verdict::Deny { reason } => (-32001, reason.clone()),
                         Verdict::RequireApproval { reason } => (-32002, reason.clone()),
@@ -569,11 +540,14 @@ pub async fn handle_mcp_post(
                         tracing::warn!("Audit log failed: {}", e);
                     }
 
-                    let response = json!({
+                    let mut response = json!({
                         "jsonrpc": "2.0",
                         "id": id,
                         "error": { "code": code, "message": reason }
                     });
+                    if let Some(t) = &trace {
+                        response["trace"] = serde_json::to_value(t).unwrap_or(Value::Null);
+                    }
                     attach_session_header(
                         (StatusCode::OK, Json(response)).into_response(),
                         &session_id,
@@ -875,6 +849,20 @@ fn extract_text_from_result(result: &Value) -> String {
 fn attach_session_header(mut response: Response, session_id: &str) -> Response {
     if let Ok(value) = session_id.parse() {
         response.headers_mut().insert(MCP_SESSION_ID, value);
+    }
+    response
+}
+
+/// Attach evaluation trace as an X-Sentinel-Trace header for allowed (forwarded) requests.
+fn attach_trace_header(mut response: Response, trace: Option<EvaluationTrace>) -> Response {
+    if let Some(t) = trace {
+        if let Ok(json_str) = serde_json::to_string(&t) {
+            if let Ok(value) = json_str.parse() {
+                response
+                    .headers_mut()
+                    .insert("x-sentinel-trace", value);
+            }
+        }
     }
     response
 }
