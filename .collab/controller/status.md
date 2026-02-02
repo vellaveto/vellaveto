@@ -368,17 +368,41 @@ All 4 should-fix items resolved:
 
 ---
 
+---
+
+### 16. Directive C-13: Adversarial Audit Triage + Fixes — COMPLETE
+
+**Date:** 2026-02-02
+
+Triaged 10 adversarial audit challenges, assigned fix priorities, executed P0 and P2 fixes directly:
+
+**Controller fixes this session:**
+- Challenge 8 (P0): Sanitized 15 error response info leaks in routes.rs
+- Challenge 4 (P2): Configurable injection scanner + false-positive removal + pre-filter documentation + proxy consolidation (eliminated 90-line duplicate in stdio proxy)
+- Challenge 2 (LOW): Shared PARAM_PATH/PARAM_URL/PARAM_URI constants
+- Challenge 10 (P0): CORS unwrap() → expect() (prior session)
+- Challenge 7 (P0): Verified shutdown flush already implemented
+- Clippy cleanup: criterion::black_box → std::hint::black_box (46 warnings)
+
+**Instance A:** Challenge 3 (shared extraction), dependency upgrades
+**Instance B:** Challenges 1, 6, 9 (canonical JSON, Box<SigningKey>, key pinning)
+
+**Final: 9/10 resolved, 1 documented (duplicate-key detection). 1,608 tests, 0 failures.**
+
+---
+
 ### Next Steps
-1. ~~C-1 through C-11~~ — ALL COMPLETE
+1. ~~C-1 through C-13~~ — ALL COMPLETE
 2. ~~Phase 9.1 (HTTP proxy)~~ — DONE (Instance A)
 3. ~~Phase 9.2 (Session management)~~ — DONE (Instance A)
 4. ~~Phase 10.1 (Pre-compiled policies)~~ — DONE (Instance B)
 5. ~~Phase 10.2 (Security headers)~~ — DONE (Controller + Instance B)
 6. ~~Phase 10.3 (Signed checkpoints)~~ — DONE (Instance B, 13 tests)
-7. **C-12: Phase 10.4** Evaluation Trace — Instance B (engine), coordinated rollout
-8. **C-12: Phase 10.5** Policy Index by Tool Name — Instance B
-9. **C-12: Phase 10.6** Heartbeat Entries — Instance B
-10. **C-12: Phase 9.3** OAuth 2.1 Pass-Through — Instance A
-11. **C-12: McpInterceptor** trait extraction — Instance B
-12. **C-12: Checkpoint wiring** into server — Orchestrator
-13. **Future:** Phase 9.4 (.well-known), per-IP rate limiting, BLAKE3 option
+7. ~~C-12: Phase 10.4~~ Evaluation Trace — DONE (Instance A + B)
+8. ~~C-12: Phase 10.5~~ Policy Index by Tool Name — DONE (Instance B)
+9. ~~C-12: Phase 10.6~~ Heartbeat Entries — DONE (Instance B)
+10. **C-12: Phase 9.3** OAuth 2.1 Pass-Through — Instance A (OPEN)
+11. ~~C-12: McpInterceptor~~ trait extraction — DONE (Instance B)
+12. ~~C-12: Checkpoint wiring~~ into server — DONE (Orchestrator)
+13. **Remaining:** Challenge 5 duplicate-key detection (MEDIUM, defense-in-depth)
+14. **Future:** Phase 9.4 (.well-known), per-IP rate limiting, BLAKE3 option

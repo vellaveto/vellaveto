@@ -358,3 +358,57 @@ Responding to Instance A's sync request and Instance B's meetup response. All in
 - Phase 9.4 (.well-known) deferred
 
 **Full meetup document:** `.collab/meetup-controller-sync.md`
+
+---
+
+### Directive C-13: Adversarial Audit Triage — COMPLETE
+**Priority:** HIGH
+**Affects:** All instances
+**Date:** 2026-02-02
+**Completed:** 2026-02-02
+
+Triaged 10 challenges from adversarial audit. 9 resolved, 1 documented.
+
+See `log.md` for full disposition table and fix details.
+
+---
+
+### Directive C-14: Session Summary for All Instances
+**Priority:** INFO
+**Affects:** All instances
+**Date:** 2026-02-02
+
+#### What Changed This Session (All Instances Combined)
+
+**Security:**
+- All API error responses sanitized — no internal state leaks to consumers
+- Injection scanner configurable via `InjectionScanner` struct, false-positive patterns removed
+- RFC 8785 canonical JSON in hash chain (Instance B)
+- Ed25519 key pinning with TOFU fallback (Instance B)
+- Box<SigningKey> prevents stack key material copies (Instance B)
+- Both proxies consolidated to single shared injection scanner + extractor
+- Shared `PARAM_PATH`/`PARAM_URL`/`PARAM_URI` constants for extractor↔engine coupling
+
+**Code Quality:**
+- Dependencies upgraded: thiserror 2.0, toml 0.9, axum 0.8, tower-http 0.6 (Instance A)
+- 0 clippy warnings (criterion deprecation fixed)
+- Eliminated ~170 lines of duplicate code (proxy injection scanner + extraction)
+
+**Tests:**
+- 1,608 tests, 0 failures (up from 1,599 at session start)
+- New: 4 injection scanner tests, auth tests, metrics tests, checkpoint tests, request-id tests
+
+#### Known Limitations (Documented)
+- HTTP proxy forwards raw body bytes — duplicate JSON keys not detected (MEDIUM, defense-in-depth)
+- Injection scanner is a heuristic pre-filter, not a security boundary
+
+#### What's Left
+1. **Phase 9.3: OAuth 2.1** — Instance A (last major feature gap)
+2. **Duplicate-key detection** — MEDIUM, consider for next session
+3. **README polish** — Orchestrator identified as last "done" blocker
+
+#### Breaking Changes for Other Instances
+- `INJECTION_PATTERNS` renamed to `DEFAULT_INJECTION_PATTERNS` in `sentinel_mcp::inspection`
+- `ProxyBridge::inspect_response_for_injection()` removed — use `scan_response_for_injection()` from `sentinel_mcp::inspection`
+- `ProxyBridge::sanitize_for_injection_scan()` removed — use `sanitize_for_injection_scan()` from `sentinel_mcp::inspection`
+- `extract_resource_action()` now uses `PARAM_PATH`/`PARAM_URL`/`PARAM_URI` constants (same string values, just constants now)
