@@ -118,17 +118,34 @@ async fn cmd_serve(port: u16, config: String, bind: String) -> Result<()> {
                     .verifying_key()
                     .as_bytes(),
             );
-            tracing::info!(
-                "Auto-generated Ed25519 signing key (verifying key: {})",
-                vk
-            );
+            tracing::info!("Auto-generated Ed25519 signing key (verifying key: {})", vk);
             key
         }
     };
 
-    let audit = Arc::new(
-        AuditLogger::new(audit_path.clone()).with_signing_key(signing_key),
-    );
+    // Optional trusted verifying key for checkpoint verification.
+    // SENTINEL_TRUSTED_KEY: hex-encoded 32-byte Ed25519 public key.
+    // When set, verify_checkpoints() rejects checkpoints signed by any other key,
+    // preventing an attacker with file write access from forging checkpoints.
+    let mut audit_logger = AuditLogger::new(audit_path.clone()).with_signing_key(signing_key);
+
+    if let Ok(trusted_key) = std::env::var("SENTINEL_TRUSTED_KEY") {
+        if !trusted_key.is_empty() {
+            // Validate the key format early
+            let key_bytes = hex::decode(&trusted_key)
+                .map_err(|e| anyhow::anyhow!("Invalid SENTINEL_TRUSTED_KEY hex: {}", e))?;
+            if key_bytes.len() != 32 {
+                anyhow::bail!(
+                    "SENTINEL_TRUSTED_KEY must be exactly 32 bytes (64 hex chars), got {}",
+                    key_bytes.len()
+                );
+            }
+            tracing::info!("Checkpoint trust anchor pinned to key: {}", trusted_key);
+            audit_logger = audit_logger.with_trusted_key(trusted_key);
+        }
+    }
+
+    let audit = Arc::new(audit_logger);
 
     // Initialize hash chain from existing log
     if let Err(e) = audit.initialize_chain().await {
@@ -309,6 +326,9 @@ async fn cmd_serve(port: u16, config: String, bind: String) -> Result<()> {
         );
     }
 
+    // Keep a reference to audit for shutdown flush
+    let shutdown_audit = state.audit.clone();
+
     let app = routes::build_router(state);
 
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", bind, port))
@@ -321,6 +341,22 @@ async fn cmd_serve(port: u16, config: String, bind: String) -> Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("Server error")?;
+
+    // Flush audit log to durable storage before exit.
+    // This ensures Allow/RequireApproval entries (which skip per-write fsync)
+    // are not lost on graceful shutdown.
+    if let Err(e) = shutdown_audit.sync().await {
+        tracing::warn!("Failed to sync audit log during shutdown: {}", e);
+    }
+    // Create a final checkpoint to capture any entries since the last periodic checkpoint
+    match shutdown_audit.create_checkpoint().await {
+        Ok(cp) => tracing::info!(
+            "Shutdown checkpoint created: {} ({} entries)",
+            cp.id,
+            cp.entry_count
+        ),
+        Err(e) => tracing::debug!("Shutdown checkpoint skipped: {}", e),
+    }
 
     tracing::info!("Server shut down gracefully");
     Ok(())

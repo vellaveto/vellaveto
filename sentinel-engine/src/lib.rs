@@ -2295,11 +2295,7 @@ impl PolicyEngine {
         let action_summary = ActionSummary {
             tool: action.tool.clone(),
             function: action.function.clone(),
-            param_count: action
-                .parameters
-                .as_object()
-                .map(|o| o.len())
-                .unwrap_or(0),
+            param_count: action.parameters.as_object().map(|o| o.len()).unwrap_or(0),
             param_keys: action
                 .parameters
                 .as_object()
@@ -2344,8 +2340,7 @@ impl PolicyEngine {
             }
 
             // Tool matched — evaluate the policy and record constraint details
-            let (verdict, constraint_results) =
-                self.apply_compiled_policy_traced(action, cp)?;
+            let (verdict, constraint_results) = self.apply_compiled_policy_traced(action, cp)?;
 
             let pm = PolicyMatch {
                 policy_id: cp.policy.id.clone(),
@@ -2438,9 +2433,7 @@ impl PolicyEngine {
                 },
                 Vec::new(),
             )),
-            PolicyType::Conditional { .. } => {
-                self.evaluate_compiled_conditions_traced(action, cp)
-            }
+            PolicyType::Conditional { .. } => self.evaluate_compiled_conditions_traced(action, cp),
         }
     }
 
@@ -2631,8 +2624,13 @@ impl PolicyEngine {
         };
 
         if matched {
-            let verdict = self
-                .evaluate_compiled_constraint_value(policy, param_name, on_match, param_value, constraint)?;
+            let verdict = self.evaluate_compiled_constraint_value(
+                policy,
+                param_name,
+                on_match,
+                param_value,
+                constraint,
+            )?;
             Ok((verdict, vec![result]))
         } else {
             Ok((None, vec![result]))
@@ -2680,13 +2678,19 @@ impl PolicyEngine {
             CompiledConstraint::DomainNotIn { patterns, .. } => {
                 if let Some(s) = value.as_str() {
                     let domain = Self::extract_domain(s);
-                    !patterns.iter().any(|p| Self::match_domain_pattern(&domain, p))
+                    !patterns
+                        .iter()
+                        .any(|p| Self::match_domain_pattern(&domain, p))
                 } else {
                     true
                 }
             }
-            CompiledConstraint::Eq { value: expected, .. } => value == expected,
-            CompiledConstraint::Ne { value: expected, .. } => value != expected,
+            CompiledConstraint::Eq {
+                value: expected, ..
+            } => value == expected,
+            CompiledConstraint::Ne {
+                value: expected, ..
+            } => value != expected,
             CompiledConstraint::OneOf { values, .. } => values.contains(value),
             CompiledConstraint::NoneOf { values, .. } => !values.contains(value),
         }
@@ -5319,7 +5323,10 @@ mod tests {
         assert_eq!(trace.action_summary.tool, "bash");
         assert_eq!(trace.action_summary.function, "execute");
         assert_eq!(trace.action_summary.param_count, 1);
-        assert!(trace.action_summary.param_keys.contains(&"command".to_string()));
+        assert!(trace
+            .action_summary
+            .param_keys
+            .contains(&"command".to_string()));
         assert_eq!(trace.matches.len(), 1);
         assert_eq!(trace.matches[0].policy_name, "Allow all");
         assert!(trace.matches[0].tool_matched);
@@ -5449,7 +5456,10 @@ mod tests {
         let action = action_with("bash", "exec", json!({}));
         let (verdict, trace) = engine.evaluate_action_traced(&action).unwrap();
         assert!(matches!(verdict, Verdict::RequireApproval { .. }));
-        assert_eq!(trace.matches[0].constraint_results[0].constraint_type, "require_approval");
+        assert_eq!(
+            trace.matches[0].constraint_results[0].constraint_type,
+            "require_approval"
+        );
     }
 
     #[test]

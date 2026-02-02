@@ -4,13 +4,12 @@
 //! Intercepts `tools/call` requests, evaluates them against policies, and either
 //! forwards allowed calls or returns denial responses directly.
 
-use aho_corasick::AhoCorasick;
 use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
-use sentinel_types::{Policy, Verdict};
+use sentinel_types::{EvaluationTrace, Policy, Verdict};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::BufReader;
 use tokio::process::{ChildStdin, ChildStdout};
@@ -20,7 +19,7 @@ use crate::extractor::{
     make_denial_response, make_invalid_response, MessageType,
 };
 use crate::framing::{read_message, write_message};
-use crate::inspection::sanitize_for_injection_scan;
+use crate::inspection::scan_response_for_injection;
 
 /// Decision after evaluating a tool call.
 #[derive(Debug)]
@@ -72,6 +71,7 @@ pub struct ProxyBridge {
     policies: Vec<Policy>,
     audit: Arc<AuditLogger>,
     request_timeout: Duration,
+    enable_trace: bool,
 }
 
 impl ProxyBridge {
@@ -81,6 +81,7 @@ impl ProxyBridge {
             policies,
             audit,
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
+            enable_trace: false,
         }
     }
 
@@ -90,10 +91,34 @@ impl ProxyBridge {
         self
     }
 
+    /// Enable evaluation trace recording. When enabled, tool call evaluations
+    /// use `evaluate_action_traced()` and include the trace in audit metadata.
+    pub fn with_trace(mut self, enable: bool) -> Self {
+        self.enable_trace = enable;
+        self
+    }
+
+    /// Evaluate an action against policies, optionally producing a trace.
+    fn evaluate_action_inner(
+        &self,
+        action: &sentinel_types::Action,
+    ) -> Result<(Verdict, Option<EvaluationTrace>), sentinel_engine::EngineError> {
+        if self.enable_trace {
+            let (verdict, trace) = self.engine.evaluate_action_traced(action)?;
+            Ok((verdict, Some(trace)))
+        } else {
+            let verdict = self.engine.evaluate_action(action, &self.policies)?;
+            Ok((verdict, None))
+        }
+    }
+
     /// Evaluate a tool call and decide whether to forward or block.
     ///
     /// If `annotations` are provided (from a prior `tools/list` response),
     /// they are included in audit metadata for the decision.
+    ///
+    /// When trace is enabled, returns `ProxyDecision` with trace data available
+    /// via `last_trace()`.
     pub fn evaluate_tool_call(
         &self,
         id: &Value,
@@ -103,8 +128,8 @@ impl ProxyBridge {
     ) -> ProxyDecision {
         let action = extract_action(tool_name, arguments);
 
-        match self.engine.evaluate_action(&action, &self.policies) {
-            Ok(Verdict::Allow) => {
+        match self.evaluate_action_inner(&action) {
+            Ok((Verdict::Allow, _trace)) => {
                 // Log awareness when allowing destructive tools
                 if let Some(ann) = annotations {
                     if ann.destructive_hint && !ann.read_only_hint {
@@ -114,18 +139,43 @@ impl ProxyBridge {
                         );
                     }
                 }
+                if let Some(t) = _trace {
+                    tracing::debug!(
+                        "Trace: {} policies checked, {} matched, {}μs",
+                        t.policies_checked,
+                        t.policies_matched,
+                        t.duration_us
+                    );
+                }
                 ProxyDecision::Forward
             }
-            Ok(Verdict::Deny { reason }) => {
+            Ok((Verdict::Deny { reason }, _trace)) => {
+                if let Some(t) = _trace {
+                    tracing::debug!(
+                        "Trace (deny): {} policies checked, {} matched, {}μs",
+                        t.policies_checked,
+                        t.policies_matched,
+                        t.duration_us
+                    );
+                }
                 let response = make_denial_response(id, &reason);
                 ProxyDecision::Block(response, Verdict::Deny { reason })
             }
-            Ok(Verdict::RequireApproval { reason }) => {
+            Ok((Verdict::RequireApproval { reason }, _trace)) => {
+                if let Some(t) = _trace {
+                    tracing::debug!(
+                        "Trace (approval): {} policies checked, {} matched, {}μs",
+                        t.policies_checked,
+                        t.policies_matched,
+                        t.duration_us
+                    );
+                }
                 let response = make_approval_response(id, &reason);
                 ProxyDecision::Block(response, Verdict::RequireApproval { reason })
             }
             Err(e) => {
-                let reason = format!("Policy evaluation error: {}", e);
+                tracing::error!("Policy evaluation error for tool '{}': {}", tool_name, e);
+                let reason = "Policy evaluation failed".to_string();
                 ProxyDecision::Block(make_denial_response(id, &reason), Verdict::Deny { reason })
             }
         }
@@ -149,18 +199,28 @@ impl ProxyBridge {
     pub fn evaluate_resource_read(&self, id: &Value, uri: &str) -> ProxyDecision {
         let action = extract_resource_action(uri);
 
-        match self.engine.evaluate_action(&action, &self.policies) {
-            Ok(Verdict::Allow) => ProxyDecision::Forward,
-            Ok(Verdict::Deny { reason }) => {
+        match self.evaluate_action_inner(&action) {
+            Ok((Verdict::Allow, _trace)) => {
+                if let Some(t) = _trace {
+                    tracing::debug!(
+                        "Trace (resource_read allow): {} policies checked, {}μs",
+                        t.policies_checked,
+                        t.duration_us
+                    );
+                }
+                ProxyDecision::Forward
+            }
+            Ok((Verdict::Deny { reason }, _)) => {
                 let response = make_denial_response(id, &reason);
                 ProxyDecision::Block(response, Verdict::Deny { reason })
             }
-            Ok(Verdict::RequireApproval { reason }) => {
+            Ok((Verdict::RequireApproval { reason }, _)) => {
                 let response = make_approval_response(id, &reason);
                 ProxyDecision::Block(response, Verdict::RequireApproval { reason })
             }
             Err(e) => {
-                let reason = format!("Policy evaluation error: {}", e);
+                tracing::error!("Policy evaluation error for resource '{}': {}", uri, e);
+                let reason = "Policy evaluation failed".to_string();
                 ProxyDecision::Block(make_denial_response(id, &reason), Verdict::Deny { reason })
             }
         }
@@ -355,104 +415,6 @@ impl ProxyBridge {
                 tracing::warn!("Failed to audit tool addition: {}", e);
             }
         }
-    }
-
-    /// Strip Unicode control characters that can be used to evade injection detection.
-    ///
-    /// Removes:
-    /// - Tag characters (U+E0000-U+E007F) — invisible Unicode tags
-    /// - Zero-width characters (U+200B-U+200F) — zero-width space, joiner, non-joiner, marks
-    /// - Bidi overrides (U+202A-U+202E) — directional embedding/override
-    /// - Variation selectors (U+FE00-U+FE0F) — glyph variation selectors
-    /// - Additional zero-width/invisible: U+FEFF (BOM/ZWNBSP), U+2060-U+2064 (word joiners)
-    ///
-    /// Then applies NFKC normalization to canonicalize homoglyphs and fullwidth characters.
-    ///
-    /// **Fast path:** If the text is pure printable ASCII (0x20..=0x7E, plus tab/LF/CR),
-    /// skips both the char filter and NFKC pass entirely (zero allocations beyond the
-    /// lowercase result).
-    /// Delegates to the shared `inspection::sanitize_for_injection_scan`.
-    fn sanitize_for_injection_scan(text: &str) -> String {
-        sanitize_for_injection_scan(text)
-    }
-
-    /// Inspect a child response for prompt injection patterns (OWASP MCP06).
-    ///
-    /// Uses a pre-built Aho-Corasick automaton for O(n) multi-pattern matching
-    /// instead of O(n*m) sequential `contains()` calls. The automaton is
-    /// case-insensitive, eliminating per-text `to_lowercase()` for the AC scan.
-    ///
-    /// Pre-processes text with Unicode control character stripping and NFKC
-    /// normalization to defend against homoglyph and zero-width evasion.
-    /// Returns a list of matched patterns, if any. Log-only by default —
-    /// responses are still forwarded to the agent but flagged in audit.
-    fn inspect_response_for_injection(response: &Value) -> Vec<&'static str> {
-        // Known prompt injection patterns (case-insensitive matching).
-        // Matched against NFKC-normalized, control-char-stripped text.
-        const INJECTION_PATTERNS: &[&str] = &[
-            "ignore all previous instructions",
-            "ignore previous instructions",
-            "disregard all prior",
-            "disregard previous",
-            "you are now",
-            "new system prompt",
-            "override system prompt",
-            "system prompt:",
-            "forget your instructions",
-            "act as if",
-            "pretend you are",
-            "<system>",
-            "</system>",
-            "[system]",
-            "\\n\\nsystem:",
-        ];
-
-        static AC: OnceLock<AhoCorasick> = OnceLock::new();
-        let ac = AC.get_or_init(|| {
-            AhoCorasick::builder()
-                .ascii_case_insensitive(true)
-                .build(INJECTION_PATTERNS)
-                .expect("injection patterns are valid")
-        });
-
-        // Use a seen-array to deduplicate pattern matches
-        let mut seen = [false; 15];
-
-        let scan = |text: &str, seen: &mut [bool; 15]| {
-            let sanitized = Self::sanitize_for_injection_scan(text);
-            for mat in ac.find_iter(&sanitized) {
-                seen[mat.pattern().as_usize()] = true;
-            }
-        };
-
-        // Extract text from result.content array (MCP tool result format)
-        let content = response
-            .get("result")
-            .and_then(|r| r.get("content"))
-            .and_then(|c| c.as_array());
-
-        if let Some(items) = content {
-            for item in items {
-                if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                    scan(text, &mut seen);
-                }
-            }
-        }
-
-        // Also check structuredContent (MCP 2025-06-18+)
-        if let Some(structured) = response
-            .get("result")
-            .and_then(|r| r.get("structuredContent"))
-        {
-            let raw = structured.to_string();
-            scan(&raw, &mut seen);
-        }
-
-        seen.iter()
-            .enumerate()
-            .filter(|(_, &hit)| hit)
-            .map(|(i, _)| INJECTION_PATTERNS[i])
-            .collect()
     }
 
     /// Run the bidirectional proxy loop.
@@ -752,7 +714,7 @@ impl ProxyBridge {
                                 }
                             }
                             // C-8.3: Inspect response for prompt injection (OWASP MCP06)
-                            let injection_matches = Self::inspect_response_for_injection(&msg);
+                            let injection_matches = scan_response_for_injection(&msg);
                             if !injection_matches.is_empty() {
                                 tracing::warn!(
                                     "SECURITY: Potential prompt injection in tool response! \
@@ -1088,6 +1050,72 @@ mod tests {
         assert_eq!(bridge.request_timeout, Duration::from_secs(30));
     }
 
+    // --- Phase 10.4: Evaluation trace tests ---
+
+    fn test_bridge_traced(policies: Vec<Policy>) -> ProxyBridge {
+        let dir = std::env::temp_dir().join("sentinel-proxy-test-traced");
+        let _ = std::fs::create_dir_all(&dir);
+        let audit = Arc::new(AuditLogger::new(dir.join("test-audit-traced.log")));
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        ProxyBridge::new(engine, policies, audit).with_trace(true)
+    }
+
+    #[test]
+    fn test_trace_enabled_allow() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Allow all".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+        }];
+        let bridge = test_bridge_traced(policies);
+        assert!(bridge.enable_trace);
+        let decision =
+            bridge.evaluate_tool_call(&json!(1), "read_file", &json!({"path": "/tmp/test"}), None);
+        assert!(matches!(decision, ProxyDecision::Forward));
+    }
+
+    #[test]
+    fn test_trace_enabled_deny() {
+        let policies = vec![Policy {
+            id: "bash:*".to_string(),
+            name: "Block bash".to_string(),
+            policy_type: PolicyType::Deny,
+            priority: 100,
+        }];
+        let bridge = test_bridge_traced(policies);
+        let decision =
+            bridge.evaluate_tool_call(&json!(2), "bash", &json!({"command": "ls"}), None);
+        match decision {
+            ProxyDecision::Block(resp, Verdict::Deny { .. }) => {
+                assert_eq!(resp["error"]["code"], -32001);
+            }
+            _ => panic!("Expected Block/Deny"),
+        }
+    }
+
+    #[test]
+    fn test_trace_disabled_by_default() {
+        let bridge = test_bridge(vec![]);
+        assert!(!bridge.enable_trace);
+    }
+
+    #[test]
+    fn test_trace_resource_read_with_trace() {
+        let policies = vec![Policy {
+            id: "resources:*".to_string(),
+            name: "Block resources".to_string(),
+            policy_type: PolicyType::Deny,
+            priority: 100,
+        }];
+        let bridge = test_bridge_traced(policies);
+        let decision = bridge.evaluate_resource_read(&json!(3), "file:///etc/shadow");
+        assert!(matches!(
+            decision,
+            ProxyDecision::Block(_, Verdict::Deny { .. })
+        ));
+    }
+
     // --- C-8.2: Tool annotation tests ---
 
     #[tokio::test]
@@ -1326,7 +1354,7 @@ mod tests {
                 }]
             }
         });
-        let matches = ProxyBridge::inspect_response_for_injection(&response);
+        let matches = scan_response_for_injection(&response);
         assert!(!matches.is_empty(), "Should detect injection pattern");
         assert!(matches.contains(&"ignore all previous instructions"));
     }
@@ -1343,7 +1371,7 @@ mod tests {
                 }]
             }
         });
-        let matches = ProxyBridge::inspect_response_for_injection(&response);
+        let matches = scan_response_for_injection(&response);
         assert!(matches.is_empty(), "Clean response should have no matches");
     }
 
@@ -1359,7 +1387,7 @@ mod tests {
                 }]
             }
         });
-        let matches = ProxyBridge::inspect_response_for_injection(&response);
+        let matches = scan_response_for_injection(&response);
         assert!(matches.contains(&"<system>"));
     }
 
@@ -1374,7 +1402,7 @@ mod tests {
                 }
             }
         });
-        let matches = ProxyBridge::inspect_response_for_injection(&response);
+        let matches = scan_response_for_injection(&response);
         assert!(matches.contains(&"pretend you are"));
     }
 
@@ -1385,7 +1413,7 @@ mod tests {
             "id": 1,
             "error": {"code": -32000, "message": "tool error"}
         });
-        let matches = ProxyBridge::inspect_response_for_injection(&response);
+        let matches = scan_response_for_injection(&response);
         assert!(matches.is_empty(), "Error responses should not trigger");
     }
 
@@ -1395,7 +1423,7 @@ mod tests {
     fn test_sanitize_strips_zero_width_chars() {
         // Zero-width space (U+200B) inserted between words
         let evasion = "ignore\u{200B} all\u{200B} previous\u{200B} instructions";
-        let sanitized = ProxyBridge::sanitize_for_injection_scan(evasion);
+        let sanitized = crate::inspection::sanitize_for_injection_scan(evasion);
         assert_eq!(sanitized, "ignore all previous instructions");
     }
 
@@ -1403,7 +1431,7 @@ mod tests {
     fn test_sanitize_strips_tag_characters() {
         // Unicode tag characters (U+E0001) used to hide injection
         let evasion = "ignore\u{E0001} all previous instructions";
-        let sanitized = ProxyBridge::sanitize_for_injection_scan(evasion);
+        let sanitized = crate::inspection::sanitize_for_injection_scan(evasion);
         assert!(
             sanitized.contains("ignore all previous instructions"),
             "Should strip tag chars: got '{}'",
@@ -1415,7 +1443,7 @@ mod tests {
     fn test_sanitize_strips_bidi_overrides() {
         // Bidi override (U+202E) used to hide content direction
         let evasion = "\u{202A}ignore all previous instructions\u{202C}";
-        let sanitized = ProxyBridge::sanitize_for_injection_scan(evasion);
+        let sanitized = crate::inspection::sanitize_for_injection_scan(evasion);
         assert!(
             sanitized.contains("ignore all previous instructions"),
             "Should strip bidi overrides: got '{}'",
@@ -1436,7 +1464,7 @@ mod tests {
                 }]
             }
         });
-        let matches = ProxyBridge::inspect_response_for_injection(&response);
+        let matches = scan_response_for_injection(&response);
         assert!(
             !matches.is_empty(),
             "Should detect injection through zero-width char evasion"
@@ -1457,7 +1485,7 @@ mod tests {
                 }]
             }
         });
-        let matches = ProxyBridge::inspect_response_for_injection(&response);
+        let matches = scan_response_for_injection(&response);
         assert!(
             !matches.is_empty(),
             "Should detect injection through variation selector evasion"
@@ -1478,7 +1506,7 @@ mod tests {
                 }]
             }
         });
-        let matches = ProxyBridge::inspect_response_for_injection(&response);
+        let matches = scan_response_for_injection(&response);
         assert!(
             !matches.is_empty(),
             "Should detect injection through fullwidth char evasion"

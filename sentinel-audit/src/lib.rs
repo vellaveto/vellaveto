@@ -209,7 +209,13 @@ pub struct AuditLogger {
     /// Maximum log file size in bytes before rotation. 0 = no rotation.
     max_file_size: u64,
     /// Optional Ed25519 signing key for creating signed checkpoints.
-    signing_key: Option<SigningKey>,
+    /// Boxed to prevent stack copies of key material during moves.
+    signing_key: Option<Box<SigningKey>>,
+    /// Optional pinned verifying key (hex-encoded 32-byte Ed25519 public key).
+    /// When set, `verify_checkpoints()` rejects checkpoints signed by any other key.
+    /// This prevents an attacker with file write access from forging checkpoints
+    /// with their own keypair.
+    trusted_verifying_key: Option<String>,
 }
 
 impl AuditLogger {
@@ -223,6 +229,7 @@ impl AuditLogger {
             redact: true,
             max_file_size: DEFAULT_MAX_FILE_SIZE,
             signing_key: None,
+            trusted_verifying_key: None,
         }
     }
 
@@ -235,6 +242,7 @@ impl AuditLogger {
             redact: false,
             max_file_size: DEFAULT_MAX_FILE_SIZE,
             signing_key: None,
+            trusted_verifying_key: None,
         }
     }
 
@@ -246,8 +254,22 @@ impl AuditLogger {
     }
 
     /// Set the Ed25519 signing key for creating signed checkpoints.
+    /// The key is boxed to prevent stack copies of sensitive key material.
     pub fn with_signing_key(mut self, key: SigningKey) -> Self {
-        self.signing_key = Some(key);
+        self.signing_key = Some(Box::new(key));
+        self
+    }
+
+    /// Pin a trusted Ed25519 verifying key (hex-encoded 32-byte public key).
+    ///
+    /// When set, `verify_checkpoints()` rejects any checkpoint signed by a
+    /// different key. This prevents an attacker with file write access from
+    /// forging checkpoints with their own keypair.
+    ///
+    /// If not set, key continuity is still enforced: the first checkpoint's
+    /// key pins all subsequent ones (TOFU model).
+    pub fn with_trusted_key(mut self, hex_key: String) -> Self {
+        self.trusted_verifying_key = Some(hex_key);
         self
     }
 
@@ -259,6 +281,24 @@ impl AuditLogger {
     /// Load an Ed25519 signing key from raw 32-byte seed.
     pub fn signing_key_from_bytes(bytes: &[u8; 32]) -> SigningKey {
         SigningKey::from_bytes(bytes)
+    }
+
+    /// Perform a final fsync on the audit log file.
+    ///
+    /// Call this during graceful shutdown to ensure all buffered entries
+    /// (including Allow/RequireApproval verdicts that skip per-write fsync)
+    /// are flushed to durable storage.
+    pub async fn sync(&self) -> Result<(), AuditError> {
+        let file = OpenOptions::new().read(true).open(&self.log_path).await;
+
+        match file {
+            Ok(f) => {
+                f.sync_all().await?;
+                Ok(())
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(AuditError::Io(e)),
+        }
     }
 
     /// Get the path to the checkpoint file (derived from the audit log path).
@@ -351,6 +391,23 @@ impl AuditLogger {
     /// Checkpoints must be in chronological order and their entry_counts
     /// must be non-decreasing.
     pub async fn verify_checkpoints(&self) -> Result<CheckpointVerification, AuditError> {
+        self.verify_checkpoints_with_key(self.trusted_verifying_key.as_deref())
+            .await
+    }
+
+    /// Verify all checkpoints with optional key pinning.
+    ///
+    /// If `pinned_key` is provided (hex-encoded 32-byte verifying key), all
+    /// checkpoints MUST be signed by that key. This prevents an attacker with
+    /// file write access from forging checkpoints with their own keypair.
+    ///
+    /// Additionally, key continuity is enforced: all checkpoints must use the
+    /// same verifying key. If the first checkpoint establishes a key, all
+    /// subsequent checkpoints must use that same key.
+    pub async fn verify_checkpoints_with_key(
+        &self,
+        pinned_key: Option<&str>,
+    ) -> Result<CheckpointVerification, AuditError> {
         let checkpoints = self.load_checkpoints().await?;
         if checkpoints.is_empty() {
             return Ok(CheckpointVerification {
@@ -363,6 +420,8 @@ impl AuditLogger {
 
         let entries = self.load_entries().await?;
         let mut prev_entry_count = 0usize;
+        // Track the first checkpoint's key for continuity enforcement
+        let mut established_key: Option<String> = pinned_key.map(|k| k.to_string());
 
         for (i, cp) in checkpoints.iter().enumerate() {
             // 1. Verify entry_count is non-decreasing
@@ -379,7 +438,27 @@ impl AuditLogger {
             }
             prev_entry_count = cp.entry_count;
 
-            // 2. Decode verifying key
+            // 2. Key continuity: enforce all checkpoints use the same key
+            match &established_key {
+                Some(expected) if *expected != cp.verifying_key => {
+                    return Ok(CheckpointVerification {
+                        valid: false,
+                        checkpoints_checked: i + 1,
+                        first_invalid_at: Some(i),
+                        failure_reason: Some(
+                            "Verifying key changed between checkpoints (key continuity violated)"
+                                .to_string(),
+                        ),
+                    });
+                }
+                None => {
+                    // First checkpoint establishes the key
+                    established_key = Some(cp.verifying_key.clone());
+                }
+                _ => {} // Key matches
+            }
+
+            // 3. Decode verifying key
             let vk_bytes = hex::decode(&cp.verifying_key)
                 .map_err(|e| AuditError::Validation(format!("Invalid verifying key hex: {}", e)))?;
             let vk_array: [u8; 32] = vk_bytes.try_into().map_err(|_| {
@@ -388,7 +467,7 @@ impl AuditLogger {
             let verifying_key = VerifyingKey::from_bytes(&vk_array)
                 .map_err(|e| AuditError::Validation(format!("Invalid verifying key: {}", e)))?;
 
-            // 3. Decode signature
+            // 4. Decode signature
             let sig_bytes = hex::decode(&cp.signature)
                 .map_err(|e| AuditError::Validation(format!("Invalid signature hex: {}", e)))?;
             let sig_array: [u8; 64] = sig_bytes
@@ -396,7 +475,7 @@ impl AuditLogger {
                 .map_err(|_| AuditError::Validation("Signature must be 64 bytes".to_string()))?;
             let signature = ed25519_dalek::Signature::from_bytes(&sig_array);
 
-            // 4. Verify signature over canonical content
+            // 5. Verify signature over canonical content
             let content = cp.signing_content();
             if verifying_key.verify(&content, &signature).is_err() {
                 return Ok(CheckpointVerification {
@@ -407,7 +486,7 @@ impl AuditLogger {
                 });
             }
 
-            // 5. Verify chain_head_hash against the audit log
+            // 6. Verify chain_head_hash against the audit log
             if cp.entry_count > 0 && cp.entry_count <= entries.len() {
                 let expected_hash = entries[cp.entry_count - 1].entry_hash.as_deref();
                 if cp.chain_head_hash.as_deref() != expected_hash {
@@ -650,16 +729,25 @@ impl AuditLogger {
         Ok(rotated)
     }
 
+    /// Serialize a value to RFC 8785 canonical JSON (deterministic key order,
+    /// normalized numbers, minimal Unicode escaping).
+    fn canonical_json<T: Serialize>(value: &T) -> Result<Vec<u8>, AuditError> {
+        let raw = serde_json::to_vec(value)?;
+        let canonical = serde_json_canonicalizer::to_string(&raw)
+            .map_err(|e| AuditError::Validation(format!("Canonical JSON error: {e}")))?;
+        Ok(canonical.into_bytes())
+    }
+
     /// Compute the SHA-256 hash of an entry's content.
     ///
     /// Hash = SHA-256(id || action_json || verdict_json || timestamp || metadata_json || prev_hash)
     ///
-    /// Uses `to_vec` instead of `to_string` to avoid UTF-8 String validation overhead.
-    /// The byte output is identical.
+    /// Uses RFC 8785 (JSON Canonicalization Scheme) for deterministic JSON serialization.
+    /// This ensures hash stability across serde_json versions and key insertion orders.
     fn compute_entry_hash(entry: &AuditEntry) -> Result<String, AuditError> {
-        let action_json = serde_json::to_vec(&entry.action)?;
-        let verdict_json = serde_json::to_vec(&entry.verdict)?;
-        let metadata_json = serde_json::to_vec(&entry.metadata)?;
+        let action_json = Self::canonical_json(&entry.action)?;
+        let verdict_json = Self::canonical_json(&entry.verdict)?;
+        let metadata_json = Self::canonical_json(&entry.metadata)?;
         let prev_hash = entry.prev_hash.as_deref().unwrap_or("");
 
         let mut hasher = Sha256::new();
@@ -1348,6 +1436,53 @@ mod tests {
         assert_ne!(
             hash_a, hash_b,
             "Boundary-shifted fields must produce different hashes"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_canonical_json_produces_deterministic_hashes() {
+        // RFC 8785 canonical JSON ensures hash stability regardless of key insertion order.
+        // Construct two entries with semantically identical metadata but different key order.
+        let metadata_a =
+            serde_json::from_str::<serde_json::Value>(r#"{"zebra": 1, "alpha": 2, "middle": 3}"#)
+                .unwrap();
+        let metadata_b =
+            serde_json::from_str::<serde_json::Value>(r#"{"alpha": 2, "middle": 3, "zebra": 1}"#)
+                .unwrap();
+
+        let entry_a = AuditEntry {
+            id: "test-canonical".to_string(),
+            action: Action {
+                tool: "test".to_string(),
+                function: "run".to_string(),
+                parameters: json!({"b": 1, "a": 2}),
+            },
+            verdict: Verdict::Allow,
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            metadata: metadata_a,
+            entry_hash: None,
+            prev_hash: None,
+        };
+
+        let entry_b = AuditEntry {
+            id: "test-canonical".to_string(),
+            action: Action {
+                tool: "test".to_string(),
+                function: "run".to_string(),
+                parameters: json!({"a": 2, "b": 1}),
+            },
+            verdict: Verdict::Allow,
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            metadata: metadata_b,
+            entry_hash: None,
+            prev_hash: None,
+        };
+
+        let hash_a = AuditLogger::compute_entry_hash(&entry_a).unwrap();
+        let hash_b = AuditLogger::compute_entry_hash(&entry_b).unwrap();
+        assert_eq!(
+            hash_a, hash_b,
+            "Semantically identical entries must produce the same hash via canonical JSON"
         );
     }
 
@@ -2082,7 +2217,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_checkpoint_different_key_detected() {
+    async fn test_checkpoint_different_key_single_checkpoint_passes_without_pin() {
+        // A single forged checkpoint with a different key passes basic verification
+        // because there's no prior key to enforce continuity against.
         let dir = TempDir::new().unwrap();
         let log_path = dir.path().join("audit.jsonl");
         let key1 = AuditLogger::generate_signing_key();
@@ -2108,12 +2245,167 @@ mod tests {
         let forged = format!("{}\n", serde_json::to_string(&cp).unwrap());
         tokio::fs::write(&cp_path, forged).await.unwrap();
 
-        // The signature is valid for key2, but the chain_head_hash matches,
-        // so this checkpoint verifies (key rotation is allowed).
-        // This is by design: checkpoints embed their own verifying key.
-        // The trust anchor is external (operator verifies the key is expected).
+        // Without key pinning, a single re-signed checkpoint passes
         let verification = logger.verify_checkpoints().await.unwrap();
         assert!(verification.valid);
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_key_pinning_rejects_forged_key() {
+        // Key pinning catches a forged checkpoint signed by an unexpected key
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let key1 = AuditLogger::generate_signing_key();
+        let pinned_vk = hex::encode(key1.verifying_key().as_bytes());
+        let logger = AuditLogger::new(log_path.clone()).with_signing_key(key1);
+
+        let action = test_action();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+        logger.create_checkpoint().await.unwrap();
+
+        // Tamper: replace with checkpoint signed by key2
+        let key2 = AuditLogger::generate_signing_key();
+        let cp_path = logger.checkpoint_path();
+        let content = tokio::fs::read_to_string(&cp_path).await.unwrap();
+        let mut cp: Checkpoint = serde_json::from_str(content.trim()).unwrap();
+        cp.verifying_key = hex::encode(key2.verifying_key().as_bytes());
+        let sig = key2.sign(&cp.signing_content());
+        cp.signature = hex::encode(sig.to_bytes());
+        let forged = format!("{}\n", serde_json::to_string(&cp).unwrap());
+        tokio::fs::write(&cp_path, forged).await.unwrap();
+
+        // With key pinning, the forged checkpoint is rejected
+        let verification = logger
+            .verify_checkpoints_with_key(Some(&pinned_vk))
+            .await
+            .unwrap();
+        assert!(!verification.valid);
+        assert!(verification
+            .failure_reason
+            .as_ref()
+            .unwrap()
+            .contains("key continuity violated"));
+    }
+
+    #[tokio::test]
+    async fn test_trusted_key_builder_rejects_single_forged_checkpoint() {
+        // Challenge 9 fix: with_trusted_key() makes verify_checkpoints() reject
+        // a single forged checkpoint (which previously passed without pinning).
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let key1 = AuditLogger::generate_signing_key();
+        let pinned_vk = hex::encode(key1.verifying_key().as_bytes());
+        let logger = AuditLogger::new(log_path.clone())
+            .with_signing_key(key1)
+            .with_trusted_key(pinned_vk);
+
+        let action = test_action();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+        logger.create_checkpoint().await.unwrap();
+
+        // Tamper: replace checkpoint with one signed by attacker's key
+        let attacker_key = AuditLogger::generate_signing_key();
+        let cp_path = logger.checkpoint_path();
+        let content = tokio::fs::read_to_string(&cp_path).await.unwrap();
+        let mut cp: Checkpoint = serde_json::from_str(content.trim()).unwrap();
+        cp.verifying_key = hex::encode(attacker_key.verifying_key().as_bytes());
+        let sig = attacker_key.sign(&cp.signing_content());
+        cp.signature = hex::encode(sig.to_bytes());
+        let forged = format!("{}\n", serde_json::to_string(&cp).unwrap());
+        tokio::fs::write(&cp_path, forged).await.unwrap();
+
+        // Default verify_checkpoints() now rejects because trusted key is pinned
+        let verification = logger.verify_checkpoints().await.unwrap();
+        assert!(!verification.valid);
+        assert!(verification
+            .failure_reason
+            .as_ref()
+            .unwrap()
+            .contains("key continuity violated"));
+    }
+
+    #[tokio::test]
+    async fn test_trusted_key_builder_accepts_legitimate_checkpoint() {
+        // Legitimate checkpoints pass when the correct key is pinned.
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let key = AuditLogger::generate_signing_key();
+        let pinned_vk = hex::encode(key.verifying_key().as_bytes());
+        let logger = AuditLogger::new(log_path.clone())
+            .with_signing_key(key)
+            .with_trusted_key(pinned_vk);
+
+        let action = test_action();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+        logger.create_checkpoint().await.unwrap();
+
+        let verification = logger.verify_checkpoints().await.unwrap();
+        assert!(verification.valid);
+        assert_eq!(verification.checkpoints_checked, 1);
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_key_continuity_rejects_key_change() {
+        // Two checkpoints from different keys are rejected even without pinning
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let key1 = AuditLogger::generate_signing_key();
+        let key2 = AuditLogger::generate_signing_key();
+        let logger = AuditLogger::new(log_path.clone()).with_signing_key(key1);
+
+        let action = test_action();
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+        logger.create_checkpoint().await.unwrap();
+
+        // Add more entries and create a second checkpoint with a different key
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+        // Forge a second checkpoint with key2
+        let entries = logger.load_entries().await.unwrap();
+        let mut cp2 = Checkpoint {
+            id: Uuid::new_v4().to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            entry_count: entries.len(),
+            chain_head_hash: entries.last().and_then(|e| e.entry_hash.clone()),
+            signature: String::new(),
+            verifying_key: hex::encode(key2.verifying_key().as_bytes()),
+        };
+        let sig = key2.sign(&cp2.signing_content());
+        cp2.signature = hex::encode(sig.to_bytes());
+
+        let cp_path = logger.checkpoint_path();
+        let mut file = tokio::fs::OpenOptions::new()
+            .append(true)
+            .open(&cp_path)
+            .await
+            .unwrap();
+        let line = format!("{}\n", serde_json::to_string(&cp2).unwrap());
+        tokio::io::AsyncWriteExt::write_all(&mut file, line.as_bytes())
+            .await
+            .unwrap();
+
+        // Key continuity violation detected
+        let verification = logger.verify_checkpoints().await.unwrap();
+        assert!(!verification.valid);
+        assert!(verification
+            .failure_reason
+            .as_ref()
+            .unwrap()
+            .contains("key continuity violated"));
     }
 
     #[tokio::test]

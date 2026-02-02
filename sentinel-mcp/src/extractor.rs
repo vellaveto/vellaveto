@@ -19,6 +19,23 @@
 use sentinel_types::Action;
 use serde_json::Value;
 
+/// Standard parameter key for file system paths (extracted from tool arguments or URIs).
+///
+/// Both the extractor and the policy engine reference this key:
+/// - Extractor populates `action.parameters["path"]` for `file://` URIs
+/// - Engine's `ParameterConstraint` matches against `parameters.path`
+pub const PARAM_PATH: &str = "path";
+
+/// Standard parameter key for network URLs (extracted from tool arguments or URIs).
+///
+/// Both the extractor and the policy engine reference this key:
+/// - Extractor populates `action.parameters["url"]` for `http(s)://` URIs
+/// - Engine's `ParameterConstraint` matches against `parameters.url`
+pub const PARAM_URL: &str = "url";
+
+/// Standard parameter key for raw URIs (always populated for `resources/read`).
+pub const PARAM_URI: &str = "uri";
+
 /// Classification of an MCP JSON-RPC message.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MessageType {
@@ -42,14 +59,29 @@ pub enum MessageType {
 ///
 /// Returns `ToolCall` for `"method": "tools/call"` requests with valid params.
 /// Returns `ResourceRead` for `"method": "resources/read"` requests with a URI.
-/// Returns `PassThrough` for everything else.
+/// Returns `Invalid` for messages with no method AND no result/error fields.
+/// Returns `PassThrough` for responses and other recognized methods.
 pub fn classify_message(msg: &Value) -> MessageType {
-    let method = msg.get("method").and_then(|v| v.as_str());
+    let method = match msg.get("method").and_then(|v| v.as_str()) {
+        Some(m) => m,
+        None => {
+            // No method field — check if it's a JSON-RPC response or truly invalid
+            if msg.get("result").is_some() || msg.get("error").is_some() {
+                return MessageType::PassThrough; // It's a response
+            }
+            let id = msg.get("id").cloned().unwrap_or(Value::Null);
+            return MessageType::Invalid {
+                id,
+                reason: "Missing method field".to_string(),
+            };
+        }
+    };
+
     let id = msg.get("id").cloned().unwrap_or(Value::Null);
     let params = msg.get("params");
 
     match method {
-        Some("tools/call") => {
+        "tools/call" => {
             let tool_name = params.and_then(|p| p.get("name")).and_then(|n| n.as_str());
 
             match tool_name {
@@ -71,7 +103,7 @@ pub fn classify_message(msg: &Value) -> MessageType {
                 },
             }
         }
-        Some("resources/read") => {
+        "resources/read" => {
             let uri = params
                 .and_then(|p| p.get("uri"))
                 .and_then(|u| u.as_str())
@@ -80,7 +112,7 @@ pub fn classify_message(msg: &Value) -> MessageType {
 
             MessageType::ResourceRead { id, uri }
         }
-        Some("sampling/createMessage") => MessageType::SamplingRequest { id },
+        "sampling/createMessage" => MessageType::SamplingRequest { id },
         _ => MessageType::PassThrough,
     }
 }
@@ -107,7 +139,7 @@ pub fn extract_action(tool_name: &str, arguments: &Value) -> Action {
 /// - `url`: the full URI for `http://`/`https://` URIs (for domain constraint evaluation)
 pub fn extract_resource_action(uri: &str) -> Action {
     let mut params = serde_json::Map::new();
-    params.insert("uri".to_string(), Value::String(uri.to_string()));
+    params.insert(PARAM_URI.to_string(), Value::String(uri.to_string()));
 
     if let Some(path) = uri.strip_prefix("file://") {
         // file:///etc/passwd → /etc/passwd
@@ -120,9 +152,9 @@ pub fn extract_resource_action(uri: &str) -> Action {
             // file://host/path — extract path after host
             path.find('/').map(|i| &path[i..]).unwrap_or(path)
         };
-        params.insert("path".to_string(), Value::String(file_path.to_string()));
+        params.insert(PARAM_PATH.to_string(), Value::String(file_path.to_string()));
     } else if uri.starts_with("http://") || uri.starts_with("https://") {
-        params.insert("url".to_string(), Value::String(uri.to_string()));
+        params.insert(PARAM_URL.to_string(), Value::String(uri.to_string()));
     }
 
     Action {
@@ -233,6 +265,30 @@ mod tests {
             "result": {"content": []}
         });
         assert_eq!(classify_message(&msg), MessageType::PassThrough);
+    }
+
+    #[test]
+    fn test_classify_error_response() {
+        // JSON-RPC error responses (no method, has error) should be PassThrough
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 30,
+            "error": {"code": -32600, "message": "Invalid request"}
+        });
+        assert_eq!(classify_message(&msg), MessageType::PassThrough);
+    }
+
+    #[test]
+    fn test_classify_no_method_no_result_is_invalid() {
+        // A message with no method and no result/error is truly invalid
+        let msg = json!({"jsonrpc": "2.0", "id": 31});
+        match classify_message(&msg) {
+            MessageType::Invalid { id, reason } => {
+                assert_eq!(id, json!(31));
+                assert!(reason.contains("Missing method"));
+            }
+            other => panic!("Expected Invalid, got {:?}", other),
+        }
     }
 
     #[test]

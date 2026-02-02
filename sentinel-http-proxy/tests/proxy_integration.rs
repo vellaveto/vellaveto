@@ -22,10 +22,7 @@ use tower::ServiceExt;
 async fn start_mock_upstream() -> String {
     let app = axum::Router::new()
         .route("/mcp", axum::routing::post(mock_mcp_handler))
-        .route(
-            "/mcp",
-            axum::routing::delete(|| async { StatusCode::OK }),
-        );
+        .route("/mcp", axum::routing::delete(|| async { StatusCode::OK }));
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -45,10 +42,7 @@ async fn start_mock_upstream() -> String {
 async fn mock_mcp_handler(body: axum::body::Bytes) -> axum::Json<Value> {
     let msg: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
     let id = msg.get("id").cloned().unwrap_or(Value::Null);
-    let method = msg
-        .get("method")
-        .and_then(|m| m.as_str())
-        .unwrap_or("");
+    let method = msg.get("method").and_then(|m| m.as_str()).unwrap_or("");
 
     match method {
         "tools/call" => {
@@ -67,72 +61,64 @@ async fn mock_mcp_handler(body: axum::body::Bytes) -> axum::Json<Value> {
                 }
             }))
         }
-        "resources/read" => {
-            axum::Json(json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "result": {
-                    "contents": [
-                        {"uri": "file:///test", "text": "resource content"}
-                    ]
-                }
-            }))
-        }
-        "initialize" => {
-            axum::Json(json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "result": {
-                    "protocolVersion": "2025-11-25",
-                    "serverInfo": {"name": "mock-server", "version": "1.0.0"},
-                    "capabilities": {}
-                }
-            }))
-        }
-        "tools/list" => {
-            axum::Json(json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "result": {
-                    "tools": [
-                        {
-                            "name": "file:read",
-                            "description": "Read a file",
-                            "annotations": {
-                                "readOnlyHint": true,
-                                "destructiveHint": false,
-                                "idempotentHint": true,
-                                "openWorldHint": false
-                            }
-                        },
-                        {
-                            "name": "bash:run",
-                            "description": "Run bash command",
-                            "annotations": {
-                                "readOnlyHint": false,
-                                "destructiveHint": true,
-                                "idempotentHint": false,
-                                "openWorldHint": true
-                            }
+        "resources/read" => axum::Json(json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "contents": [
+                    {"uri": "file:///test", "text": "resource content"}
+                ]
+            }
+        })),
+        "initialize" => axum::Json(json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "protocolVersion": "2025-11-25",
+                "serverInfo": {"name": "mock-server", "version": "1.0.0"},
+                "capabilities": {}
+            }
+        })),
+        "tools/list" => axum::Json(json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "tools": [
+                    {
+                        "name": "file:read",
+                        "description": "Read a file",
+                        "annotations": {
+                            "readOnlyHint": true,
+                            "destructiveHint": false,
+                            "idempotentHint": true,
+                            "openWorldHint": false
                         }
-                    ]
-                }
-            }))
-        }
-        _ => {
-            axum::Json(json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "result": {}
-            }))
-        }
+                    },
+                    {
+                        "name": "bash:run",
+                        "description": "Run bash command",
+                        "annotations": {
+                            "readOnlyHint": false,
+                            "destructiveHint": true,
+                            "idempotentHint": false,
+                            "openWorldHint": true
+                        }
+                    }
+                ]
+            }
+        })),
+        _ => axum::Json(json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {}
+        })),
     }
 }
 
 fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
     let policies = vec![
         Policy {
-            id: "file:read".to_string(),
+            id: "read_file:*".to_string(),
             name: "Allow file reads".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
@@ -151,8 +137,7 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         },
     ];
 
-    let engine = PolicyEngine::with_policies(false, &policies)
-        .expect("policies should compile");
+    let engine = PolicyEngine::with_policies(false, &policies).expect("policies should compile");
 
     ProxyState {
         engine: Arc::new(engine),
@@ -171,10 +156,7 @@ fn build_router(state: ProxyState) -> axum::Router {
             axum::routing::post(sentinel_http_proxy::proxy::handle_mcp_post)
                 .delete(sentinel_http_proxy::proxy::handle_mcp_delete),
         )
-        .route(
-            "/health",
-            axum::routing::get(|| async { "ok" }),
-        )
+        .route("/health", axum::routing::get(|| async { "ok" }))
         .with_state(state)
 }
 
@@ -221,7 +203,7 @@ async fn tool_call_allowed_forwards_to_upstream() {
         "id": 1,
         "method": "tools/call",
         "params": {
-            "name": "file:read",
+            "name": "read_file",
             "arguments": {"path": "/tmp/test"}
         }
     }))
@@ -248,7 +230,7 @@ async fn tool_call_allowed_forwards_to_upstream() {
     assert!(json["result"]["content"][0]["text"]
         .as_str()
         .unwrap()
-        .contains("file:read"));
+        .contains("read_file"));
 }
 
 // ════════════════════════════════
@@ -267,7 +249,7 @@ async fn tool_call_denied_returns_policy_error() {
         "id": 2,
         "method": "tools/call",
         "params": {
-            "name": "bash:run",
+            "name": "bash",
             "arguments": {"command": "rm -rf /"}
         }
     }))
@@ -628,11 +610,7 @@ async fn delete_mcp_no_header_returns_400() {
     let app = build_router(state);
 
     let resp = app
-        .oneshot(
-            Request::delete("/mcp")
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .oneshot(Request::delete("/mcp").body(Body::empty()).unwrap())
         .await
         .unwrap();
 
@@ -655,7 +633,7 @@ async fn denied_tool_call_creates_audit_entry() {
         "id": 10,
         "method": "tools/call",
         "params": {
-            "name": "bash:run",
+            "name": "bash",
             "arguments": {"command": "ls"}
         }
     }))
@@ -679,10 +657,12 @@ async fn denied_tool_call_creates_audit_entry() {
 
     let entry = &entries[0];
     assert_eq!(entry.action.tool, "bash");
-    assert_eq!(entry.action.function, "run");
+    assert_eq!(entry.action.function, "*");
     match &entry.verdict {
         sentinel_types::Verdict::Deny { reason } => {
-            assert!(reason.contains("Denied") || reason.contains("denied") || reason.contains("Block"));
+            assert!(
+                reason.contains("Denied") || reason.contains("denied") || reason.contains("Block")
+            );
         }
         other => panic!("Expected Deny verdict, got {:?}", other),
     }
@@ -714,7 +694,10 @@ async fn sampling_interception_creates_audit_entry() {
         .unwrap();
 
     let entries = audit.load_entries().await.unwrap();
-    assert!(!entries.is_empty(), "Should have audit entry for sampling block");
+    assert!(
+        !entries.is_empty(),
+        "Should have audit entry for sampling block"
+    );
 
     let entry = &entries[0];
     assert_eq!(entry.action.tool, "sentinel");
@@ -830,10 +813,7 @@ async fn initialize_extracts_protocol_version() {
         .unwrap();
 
     let session = sessions.get_mut(session_id).unwrap();
-    assert_eq!(
-        session.protocol_version.as_deref(),
-        Some("2025-11-25")
-    );
+    assert_eq!(session.protocol_version.as_deref(), Some("2025-11-25"));
 }
 
 // ════════════════════════════════
@@ -976,10 +956,7 @@ async fn start_mock_upstream_tool_addition() -> String {
             async move {
                 let msg: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
                 let id = msg.get("id").cloned().unwrap_or(Value::Null);
-                let method = msg
-                    .get("method")
-                    .and_then(|m| m.as_str())
-                    .unwrap_or("");
+                let method = msg.get("method").and_then(|m| m.as_str()).unwrap_or("");
 
                 if method == "tools/list" {
                     let n = count.fetch_add(1, Ordering::SeqCst);
@@ -1090,7 +1067,9 @@ async fn rug_pull_tool_removal_audited() {
 
     // Verify audit entry for tool removal
     let entries = audit.load_entries().await.unwrap();
-    let removal_entry = entries.iter().find(|e| e.action.function == "tool_removal_detected");
+    let removal_entry = entries
+        .iter()
+        .find(|e| e.action.function == "tool_removal_detected");
     assert!(
         removal_entry.is_some(),
         "Should have audit entry for tool removal"
@@ -1168,7 +1147,9 @@ async fn rug_pull_tool_addition_audited() {
 
     // Verify audit entry for tool addition
     let entries = audit.load_entries().await.unwrap();
-    let addition_entry = entries.iter().find(|e| e.action.function == "tool_addition_detected");
+    let addition_entry = entries
+        .iter()
+        .find(|e| e.action.function == "tool_addition_detected");
     assert!(
         addition_entry.is_some(),
         "Should have audit entry for tool addition"
@@ -1233,12 +1214,12 @@ async fn trace_denied_tool_call_includes_trace_in_response() {
     let state = build_test_state(&upstream_url, &tmp);
     let app = build_router(state);
 
-    // bash:execute is denied — request with ?trace=true
+    // bash is denied — request with ?trace=true
     let body = serde_json::to_vec(&json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
-        "params": {"name": "bash:execute", "arguments": {"command": "rm -rf /"}}
+        "params": {"name": "bash", "arguments": {"command": "rm -rf /"}}
     }))
     .unwrap();
 
@@ -1256,7 +1237,10 @@ async fn trace_denied_tool_call_includes_trace_in_response() {
     let body = json_body(resp).await;
 
     // Response should include trace field
-    assert!(body.get("trace").is_some(), "Response should include trace field");
+    assert!(
+        body.get("trace").is_some(),
+        "Response should include trace field"
+    );
     let trace = &body["trace"];
 
     // Verify trace structure
@@ -1269,7 +1253,7 @@ async fn trace_denied_tool_call_includes_trace_in_response() {
 
     // Action summary should reflect the tool call
     assert_eq!(trace["action_summary"]["tool"], "bash");
-    assert_eq!(trace["action_summary"]["function"], "execute");
+    assert_eq!(trace["action_summary"]["function"], "*");
 
     // Verdict should be Deny
     assert!(trace["verdict"].get("Deny").is_some());
@@ -1286,12 +1270,12 @@ async fn trace_allowed_tool_call_has_trace_header() {
     let state = build_test_state(&upstream_url, &tmp);
     let app = build_router(state);
 
-    // file:read is allowed
+    // read_file is allowed
     let body = serde_json::to_vec(&json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
-        "params": {"name": "file:read", "arguments": {"path": "/tmp/test.txt"}}
+        "params": {"name": "read_file", "arguments": {"path": "/tmp/test.txt"}}
     }))
     .unwrap();
 
@@ -1309,12 +1293,15 @@ async fn trace_allowed_tool_call_has_trace_header() {
 
     // Allowed requests should have X-Sentinel-Trace header
     let trace_header = resp.headers().get("x-sentinel-trace");
-    assert!(trace_header.is_some(), "Allowed request should have X-Sentinel-Trace header");
+    assert!(
+        trace_header.is_some(),
+        "Allowed request should have X-Sentinel-Trace header"
+    );
 
     // Parse the trace header as JSON
     let trace_json: Value = serde_json::from_str(trace_header.unwrap().to_str().unwrap()).unwrap();
-    assert_eq!(trace_json["action_summary"]["tool"], "file");
-    assert_eq!(trace_json["action_summary"]["function"], "read");
+    assert_eq!(trace_json["action_summary"]["tool"], "read_file");
+    assert_eq!(trace_json["action_summary"]["function"], "*");
     assert_eq!(trace_json["verdict"], "Allow");
 }
 
@@ -1330,7 +1317,7 @@ async fn no_trace_without_query_param() {
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
-        "params": {"name": "bash:execute", "arguments": {"command": "ls"}}
+        "params": {"name": "bash", "arguments": {"command": "ls"}}
     }))
     .unwrap();
 
@@ -1357,14 +1344,12 @@ async fn trace_resource_read_denied_includes_trace() {
     let upstream_url = start_mock_upstream().await;
 
     // Build state with a policy that denies resources
-    let policies = vec![
-        Policy {
-            id: "resources:read".to_string(),
-            name: "Block all resources".to_string(),
-            policy_type: PolicyType::Deny,
-            priority: 100,
-        },
-    ];
+    let policies = vec![Policy {
+        id: "resources:read".to_string(),
+        name: "Block all resources".to_string(),
+        policy_type: PolicyType::Deny,
+        priority: 100,
+    }];
     let engine = PolicyEngine::with_policies(false, &policies).expect("compile");
     let state = ProxyState {
         engine: Arc::new(engine),
@@ -1395,7 +1380,10 @@ async fn trace_resource_read_denied_includes_trace() {
         .unwrap();
 
     let body = json_body(resp).await;
-    assert!(body.get("trace").is_some(), "Resource deny should include trace");
+    assert!(
+        body.get("trace").is_some(),
+        "Resource deny should include trace"
+    );
     let trace = &body["trace"];
     assert_eq!(trace["action_summary"]["tool"], "resources");
     assert!(trace["verdict"].get("Deny").is_some());
@@ -1408,7 +1396,7 @@ async fn trace_constraint_details_visible() {
 
     // Build state with a conditional policy that has parameter constraints
     let policies = vec![Policy {
-        id: "file:*".to_string(),
+        id: "read_file:*".to_string(),
         name: "Block etc paths".to_string(),
         policy_type: PolicyType::Conditional {
             conditions: json!({
@@ -1437,7 +1425,7 @@ async fn trace_constraint_details_visible() {
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
-        "params": {"name": "file:read", "arguments": {"path": "/etc/shadow"}}
+        "params": {"name": "read_file", "arguments": {"path": "/etc/shadow"}}
     }))
     .unwrap();
 

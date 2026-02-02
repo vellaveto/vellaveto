@@ -14,12 +14,13 @@ use axum::{
 use bytes::Bytes;
 use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
-use sentinel_types::{Action, EvaluationTrace, Policy, Verdict};
-use serde_json::{json, Value};
-use std::sync::Arc;
+use sentinel_mcp::extractor::{self, MessageType};
 use sentinel_mcp::inspection::inspect_for_injection;
 #[cfg(test)]
 use sentinel_mcp::inspection::sanitize_for_injection_scan;
+use sentinel_types::{Action, EvaluationTrace, Policy, Verdict};
+use serde_json::{json, Value};
+use std::sync::Arc;
 
 /// Query parameters for POST /mcp.
 #[derive(Debug, serde::Deserialize, Default)]
@@ -45,109 +46,9 @@ pub struct ProxyState {
 /// MCP Session ID header name.
 const MCP_SESSION_ID: &str = "mcp-session-id";
 
-/// Classify the type of a JSON-RPC message for policy evaluation.
-#[derive(Debug)]
-enum McpMessageType {
-    /// tools/call — requires policy evaluation
-    ToolCall {
-        id: Value,
-        tool_name: String,
-        arguments: Value,
-    },
-    /// resources/read — requires policy evaluation
-    ResourceRead { id: Value, uri: String },
-    /// sampling/createMessage — blocked unconditionally
-    SamplingRequest { id: Value },
-    /// initialize, tools/list, notifications, etc. — pass through
-    PassThrough,
-    /// Invalid or missing method
-    Invalid { id: Value, reason: String },
-}
-
-/// Classify a JSON-RPC message.
-fn classify_message(msg: &Value) -> McpMessageType {
-    let method = match msg.get("method").and_then(|m| m.as_str()) {
-        Some(m) => m,
-        None => {
-            // No method field — could be a response, or invalid request
-            if msg.get("result").is_some() || msg.get("error").is_some() {
-                return McpMessageType::PassThrough; // It's a response
-            }
-            let id = msg.get("id").cloned().unwrap_or(Value::Null);
-            return McpMessageType::Invalid {
-                id,
-                reason: "Missing method field".to_string(),
-            };
-        }
-    };
-
-    let id = msg.get("id").cloned().unwrap_or(Value::Null);
-
-    match method {
-        "tools/call" => {
-            let params = msg.get("params").unwrap_or(&Value::Null);
-            let tool_name = params
-                .get("name")
-                .and_then(|n| n.as_str())
-                .unwrap_or("")
-                .to_string();
-            let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
-            McpMessageType::ToolCall {
-                id,
-                tool_name,
-                arguments,
-            }
-        }
-        "resources/read" => {
-            let uri = msg
-                .get("params")
-                .and_then(|p| p.get("uri"))
-                .and_then(|u| u.as_str())
-                .unwrap_or("")
-                .to_string();
-            McpMessageType::ResourceRead { id, uri }
-        }
-        "sampling/createMessage" => McpMessageType::SamplingRequest { id },
-        _ => McpMessageType::PassThrough,
-    }
-}
-
-/// Extract an Action from a tool call for policy evaluation.
-fn extract_tool_action(tool_name: &str, arguments: &Value) -> Action {
-    // Split tool_name into tool:function if it contains a separator,
-    // otherwise use tool_name as both tool and function.
-    let (tool, function) = if let Some(pos) = tool_name.find(':') {
-        (&tool_name[..pos], &tool_name[pos + 1..])
-    } else {
-        (tool_name, "call")
-    };
-
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: arguments.clone(),
-    }
-}
-
-/// Extract an Action from a resources/read request.
-fn extract_resource_action(uri: &str) -> Action {
-    // Parse the URI to extract path and domain for policy evaluation
-    let path = if let Some(pos) = uri.find("://") {
-        let after_scheme = &uri[pos + 3..];
-        after_scheme
-            .find('/')
-            .map(|p| &after_scheme[p..])
-            .unwrap_or("/")
-    } else {
-        uri
-    };
-
-    Action {
-        tool: "resources".to_string(),
-        function: "read".to_string(),
-        parameters: json!({"uri": uri, "path": path, "url": uri}),
-    }
-}
+// Message classification and action extraction use the shared
+// sentinel_mcp::extractor module to ensure identical behavior
+// between the stdio and HTTP proxies (Challenge 3 fix).
 
 /// Extract tool annotations from a tools/list response and update session state.
 ///
@@ -366,13 +267,14 @@ pub async fn handle_mcp_post(
     let msg: Value = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(e) => {
+            tracing::debug!("JSON-RPC parse error: {}", e);
             return (
                 StatusCode::BAD_REQUEST,
                 Json(json!({
                     "jsonrpc": "2.0",
                     "error": {
                         "code": -32700,
-                        "message": format!("Parse error: {}", e)
+                        "message": "Parse error: invalid JSON"
                     },
                     "id": null
                 })),
@@ -385,14 +287,14 @@ pub async fn handle_mcp_post(
     let client_session_id = headers.get(MCP_SESSION_ID).and_then(|v| v.to_str().ok());
     let session_id = state.sessions.get_or_create(client_session_id);
 
-    // Classify the message
-    match classify_message(&msg) {
-        McpMessageType::ToolCall {
+    // Classify the message using shared extractor
+    match extractor::classify_message(&msg) {
+        MessageType::ToolCall {
             id,
             tool_name,
             arguments,
         } => {
-            let action = extract_tool_action(&tool_name, &arguments);
+            let action = extractor::extract_action(&tool_name, &arguments);
 
             // Choose traced or non-traced evaluation path
             let eval_result = if params.trace {
@@ -484,13 +386,13 @@ pub async fn handle_mcp_post(
                     )
                 }
                 Err(e) => {
-                    let reason = format!("Policy evaluation error: {}", e);
+                    tracing::error!("Policy evaluation error for tool '{}': {}", tool_name, e);
                     let response = json!({
                         "jsonrpc": "2.0",
                         "id": id,
                         "error": {
                             "code": -32001,
-                            "message": reason
+                            "message": "Policy evaluation failed"
                         }
                     });
                     attach_session_header(
@@ -500,8 +402,8 @@ pub async fn handle_mcp_post(
                 }
             }
         }
-        McpMessageType::ResourceRead { id, uri } => {
-            let action = extract_resource_action(&uri);
+        MessageType::ResourceRead { id, uri } => {
+            let action = extractor::extract_resource_action(&uri);
 
             let eval_result = if params.trace {
                 state
@@ -554,12 +456,13 @@ pub async fn handle_mcp_post(
                     )
                 }
                 Err(e) => {
+                    tracing::error!("Policy evaluation error for resource '{}': {}", uri, e);
                     let response = json!({
                         "jsonrpc": "2.0",
                         "id": id,
                         "error": {
                             "code": -32001,
-                            "message": format!("Policy evaluation error: {}", e)
+                            "message": "Policy evaluation failed"
                         }
                     });
                     attach_session_header(
@@ -569,7 +472,7 @@ pub async fn handle_mcp_post(
                 }
             }
         }
-        McpMessageType::SamplingRequest { id } => {
+        MessageType::SamplingRequest { id } => {
             tracing::warn!(
                 "SECURITY: Blocked sampling/createMessage request in session {}",
                 session_id
@@ -608,7 +511,7 @@ pub async fn handle_mcp_post(
                 &session_id,
             )
         }
-        McpMessageType::PassThrough => {
+        MessageType::PassThrough => {
             // Forward unmodified — includes initialize, tools/list, notifications, etc.
             let response = forward_to_upstream(&state, &session_id, body).await;
 
@@ -619,7 +522,7 @@ pub async fn handle_mcp_post(
 
             attach_session_header(response, &session_id)
         }
-        McpMessageType::Invalid { id, reason } => {
+        MessageType::Invalid { id, reason } => {
             let response = json!({
                 "jsonrpc": "2.0",
                 "id": id,
@@ -796,7 +699,7 @@ async fn forward_to_upstream(state: &ProxyState, session_id: &str, body: Bytes) 
                                 "jsonrpc": "2.0",
                                 "error": {
                                     "code": -32000,
-                                    "message": format!("Upstream error: {}", e)
+                                    "message": "Upstream server error"
                                 },
                                 "id": null
                             })),
@@ -814,7 +717,7 @@ async fn forward_to_upstream(state: &ProxyState, session_id: &str, body: Bytes) 
                     "jsonrpc": "2.0",
                     "error": {
                         "code": -32000,
-                        "message": format!("Upstream connection failed: {}", e)
+                        "message": "Upstream server unavailable"
                     },
                     "id": null
                 })),
@@ -858,9 +761,7 @@ fn attach_trace_header(mut response: Response, trace: Option<EvaluationTrace>) -
     if let Some(t) = trace {
         if let Ok(json_str) = serde_json::to_string(&t) {
             if let Ok(value) = json_str.parse() {
-                response
-                    .headers_mut()
-                    .insert("x-sentinel-trace", value);
+                response.headers_mut().insert("x-sentinel-trace", value);
             }
         }
     }
@@ -871,8 +772,11 @@ fn attach_trace_header(mut response: Response, trace: Option<EvaluationTrace>) -
 mod tests {
     use super::*;
 
+    // Classification and extraction are tested in sentinel-mcp::extractor.
+    // These tests verify the integration through the shared module.
+
     #[test]
-    fn test_classify_tool_call() {
+    fn test_classify_tool_call_via_shared_extractor() {
         let msg = json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -882,8 +786,8 @@ mod tests {
                 "arguments": {"path": "/tmp/test"}
             }
         });
-        match classify_message(&msg) {
-            McpMessageType::ToolCall {
+        match extractor::classify_message(&msg) {
+            MessageType::ToolCall {
                 id,
                 tool_name,
                 arguments,
@@ -897,51 +801,6 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_resource_read() {
-        let msg = json!({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "resources/read",
-            "params": {"uri": "file:///etc/passwd"}
-        });
-        match classify_message(&msg) {
-            McpMessageType::ResourceRead { id, uri } => {
-                assert_eq!(id, 2);
-                assert_eq!(uri, "file:///etc/passwd");
-            }
-            other => panic!("Expected ResourceRead, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn test_classify_sampling_request() {
-        let msg = json!({
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "sampling/createMessage",
-            "params": {"messages": []}
-        });
-        assert!(matches!(
-            classify_message(&msg),
-            McpMessageType::SamplingRequest { .. }
-        ));
-    }
-
-    #[test]
-    fn test_classify_passthrough() {
-        let msg = json!({
-            "jsonrpc": "2.0",
-            "id": 4,
-            "method": "initialize",
-            "params": {"protocolVersion": "2025-11-25"}
-        });
-        assert!(matches!(
-            classify_message(&msg),
-            McpMessageType::PassThrough
-        ));
-    }
-
-    #[test]
     fn test_classify_response_is_passthrough() {
         let msg = json!({
             "jsonrpc": "2.0",
@@ -949,8 +808,8 @@ mod tests {
             "result": {"tools": []}
         });
         assert!(matches!(
-            classify_message(&msg),
-            McpMessageType::PassThrough
+            extractor::classify_message(&msg),
+            MessageType::PassThrough
         ));
     }
 
@@ -958,32 +817,46 @@ mod tests {
     fn test_classify_invalid_no_method() {
         let msg = json!({"jsonrpc": "2.0", "id": 1});
         assert!(matches!(
-            classify_message(&msg),
-            McpMessageType::Invalid { .. }
+            extractor::classify_message(&msg),
+            MessageType::Invalid { .. }
         ));
     }
 
     #[test]
-    fn test_extract_tool_action_simple() {
-        let action = extract_tool_action("read_file", &json!({"path": "/tmp/test"}));
+    fn test_extract_action_uses_wildcard_function() {
+        // MCP tools don't have sub-functions — function is always "*"
+        let action = extractor::extract_action("read_file", &json!({"path": "/tmp/test"}));
         assert_eq!(action.tool, "read_file");
-        assert_eq!(action.function, "call");
+        assert_eq!(action.function, "*");
         assert_eq!(action.parameters["path"], "/tmp/test");
     }
 
     #[test]
-    fn test_extract_tool_action_with_colon() {
-        let action = extract_tool_action("file:read", &json!({"path": "/tmp/test"}));
-        assert_eq!(action.tool, "file");
-        assert_eq!(action.function, "read");
+    fn test_extract_action_preserves_colon_in_tool_name() {
+        // Colon is NOT split — tool name is used as-is per MCP spec
+        let action = extractor::extract_action("file:read", &json!({"path": "/tmp/test"}));
+        assert_eq!(action.tool, "file:read");
+        assert_eq!(action.function, "*");
     }
 
     #[test]
-    fn test_extract_resource_action() {
-        let action = extract_resource_action("file:///etc/passwd");
+    fn test_extract_resource_action_file_uri() {
+        let action = extractor::extract_resource_action("file:///etc/passwd");
         assert_eq!(action.tool, "resources");
         assert_eq!(action.function, "read");
         assert_eq!(action.parameters["uri"], "file:///etc/passwd");
+        assert_eq!(action.parameters["path"], "/etc/passwd");
+        // file:// URIs should NOT have a url field
+        assert!(action.parameters.get("url").is_none());
+    }
+
+    #[test]
+    fn test_extract_resource_action_http_uri() {
+        let action = extractor::extract_resource_action("https://evil.com/data");
+        assert_eq!(action.parameters["uri"], "https://evil.com/data");
+        assert_eq!(action.parameters["url"], "https://evil.com/data");
+        // http(s):// URIs should NOT have a path field
+        assert!(action.parameters.get("path").is_none());
     }
 
     #[test]

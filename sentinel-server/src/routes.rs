@@ -50,20 +50,17 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/policies", get(list_policies))
         .route("/api/policies", post(add_policy))
         .route("/api/policies/reload", post(reload_policies))
-        .route("/api/policies/:id", delete(remove_policy))
+        .route("/api/policies/{id}", delete(remove_policy))
         .route("/api/audit/entries", get(audit_entries))
         .route("/api/audit/report", get(audit_report))
         .route("/api/audit/verify", get(audit_verify))
         .route("/api/audit/checkpoints", get(list_checkpoints))
-        .route(
-            "/api/audit/checkpoints/verify",
-            get(verify_checkpoints),
-        )
+        .route("/api/audit/checkpoints/verify", get(verify_checkpoints))
         .route("/api/audit/checkpoint", post(create_checkpoint))
         .route("/api/approvals/pending", get(list_pending_approvals))
-        .route("/api/approvals/:id", get(get_approval))
-        .route("/api/approvals/:id/approve", post(approve_approval))
-        .route("/api/approvals/:id/deny", post(deny_approval))
+        .route("/api/approvals/{id}", get(get_approval))
+        .route("/api/approvals/{id}/approve", post(approve_approval))
+        .route("/api/approvals/{id}/deny", post(deny_approval))
         .route("/api/metrics", get(metrics))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -89,9 +86,15 @@ fn build_cors_layer(origins: &[String]) -> CorsLayer {
     } else if origins.is_empty() {
         // Strict default: localhost only
         base.allow_origin([
-            "http://localhost".parse::<HeaderValue>().unwrap(),
-            "http://127.0.0.1".parse::<HeaderValue>().unwrap(),
-            "http://[::1]".parse::<HeaderValue>().unwrap(),
+            "http://localhost"
+                .parse::<HeaderValue>()
+                .expect("static localhost origin"),
+            "http://127.0.0.1"
+                .parse::<HeaderValue>()
+                .expect("static 127.0.0.1 origin"),
+            "http://[::1]"
+                .parse::<HeaderValue>()
+                .expect("static [::1] origin"),
         ])
     } else {
         let allowed: Vec<HeaderValue> = origins
@@ -233,7 +236,7 @@ async fn evaluate(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: e.to_string(),
+                    error: "Policy evaluation failed".to_string(),
                 }),
             )
         })?;
@@ -246,7 +249,7 @@ async fn evaluate(
             Ok(id) => (verdict, Some(id)),
             Err(e) => {
                 tracing::error!("Failed to create approval (fail-closed → Deny): {}", e);
-                let deny_reason = format!("Approval required but could not be created: {}", e);
+                let deny_reason = "Approval required but could not be created".to_string();
                 (
                     Verdict::Deny {
                         reason: deny_reason,
@@ -376,7 +379,7 @@ async fn reload_policies(
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("Failed to reload: {}", e),
+                error: "Failed to reload policy configuration".to_string(),
             }),
         )
     })?;
@@ -417,7 +420,7 @@ async fn audit_entries(
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: e.to_string(),
+                error: "Failed to load audit entries".to_string(),
             }),
         )
     })?;
@@ -433,16 +436,17 @@ async fn audit_report(
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: e.to_string(),
+                error: "Failed to generate audit report".to_string(),
             }),
         )
     })?;
 
     let value = serde_json::to_value(report).map_err(|e| {
+        tracing::error!("Audit report serialization error: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("Serialization error: {}", e),
+                error: "Internal server error".to_string(),
             }),
         )
     })?;
@@ -457,16 +461,17 @@ async fn audit_verify(
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: e.to_string(),
+                error: "Failed to verify audit chain".to_string(),
             }),
         )
     })?;
 
     let value = serde_json::to_value(verification).map_err(|e| {
+        tracing::error!("Audit verification serialization error: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("Serialization error: {}", e),
+                error: "Internal server error".to_string(),
             }),
         )
     })?;
@@ -483,7 +488,7 @@ async fn list_checkpoints(
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: e.to_string(),
+                error: "Failed to load checkpoints".to_string(),
             }),
         )
     })?;
@@ -501,16 +506,17 @@ async fn verify_checkpoints(
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: e.to_string(),
+                error: "Failed to verify checkpoints".to_string(),
             }),
         )
     })?;
 
     let value = serde_json::to_value(verification).map_err(|e| {
+        tracing::error!("Checkpoint verification serialization error: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("Serialization error: {}", e),
+                error: "Internal server error".to_string(),
             }),
         )
     })?;
@@ -525,16 +531,17 @@ async fn create_checkpoint(
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: e.to_string(),
+                error: "Failed to create checkpoint".to_string(),
             }),
         )
     })?;
 
     let value = serde_json::to_value(&checkpoint).map_err(|e| {
+        tracing::error!("Checkpoint serialization error: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("Serialization error: {}", e),
+                error: "Internal server error".to_string(),
             }),
         )
     })?;
@@ -571,19 +578,21 @@ async fn get_approval(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let approval = state.approvals.get(&id).await.map_err(|e| {
+        tracing::debug!("Approval lookup failed for '{}': {}", id, e);
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: e.to_string(),
+                error: "Approval not found".to_string(),
             }),
         )
     })?;
 
     let value = serde_json::to_value(approval).map_err(|e| {
+        tracing::error!("Approval serialization error: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("Serialization error: {}", e),
+                error: "Internal server error".to_string(),
             }),
         )
     })?;
@@ -614,25 +623,35 @@ async fn approve_approval(
         .approve(&id, &resolved_by)
         .await
         .map_err(|e| {
-            let status = match &e {
-                sentinel_approval::ApprovalError::NotFound(_) => StatusCode::NOT_FOUND,
-                sentinel_approval::ApprovalError::AlreadyResolved(_) => StatusCode::CONFLICT,
-                sentinel_approval::ApprovalError::Expired(_) => StatusCode::GONE,
-                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            let (status, msg) = match &e {
+                sentinel_approval::ApprovalError::NotFound(_) => {
+                    (StatusCode::NOT_FOUND, "Approval not found")
+                }
+                sentinel_approval::ApprovalError::AlreadyResolved(_) => {
+                    (StatusCode::CONFLICT, "Approval already resolved")
+                }
+                sentinel_approval::ApprovalError::Expired(_) => {
+                    (StatusCode::GONE, "Approval expired")
+                }
+                _ => {
+                    tracing::error!("Approval approve error for '{}': {}", id, e);
+                    (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")
+                }
             };
             (
                 status,
                 Json(ErrorResponse {
-                    error: e.to_string(),
+                    error: msg.to_string(),
                 }),
             )
         })?;
 
     let value = serde_json::to_value(approval).map_err(|e| {
+        tracing::error!("Approval serialization error: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("Serialization error: {}", e),
+                error: "Internal server error".to_string(),
             }),
         )
     })?;
@@ -649,25 +668,33 @@ async fn deny_approval(
         .unwrap_or_else(|| "anonymous".to_string());
 
     let approval = state.approvals.deny(&id, &resolved_by).await.map_err(|e| {
-        let status = match &e {
-            sentinel_approval::ApprovalError::NotFound(_) => StatusCode::NOT_FOUND,
-            sentinel_approval::ApprovalError::AlreadyResolved(_) => StatusCode::CONFLICT,
-            sentinel_approval::ApprovalError::Expired(_) => StatusCode::GONE,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        let (status, msg) = match &e {
+            sentinel_approval::ApprovalError::NotFound(_) => {
+                (StatusCode::NOT_FOUND, "Approval not found")
+            }
+            sentinel_approval::ApprovalError::AlreadyResolved(_) => {
+                (StatusCode::CONFLICT, "Approval already resolved")
+            }
+            sentinel_approval::ApprovalError::Expired(_) => (StatusCode::GONE, "Approval expired"),
+            _ => {
+                tracing::error!("Approval deny error for '{}': {}", id, e);
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")
+            }
         };
         (
             status,
             Json(ErrorResponse {
-                error: e.to_string(),
+                error: msg.to_string(),
             }),
         )
     })?;
 
     let value = serde_json::to_value(approval).map_err(|e| {
+        tracing::error!("Approval serialization error: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: format!("Serialization error: {}", e),
+                error: "Internal server error".to_string(),
             }),
         )
     })?;

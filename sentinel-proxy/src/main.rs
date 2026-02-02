@@ -36,6 +36,11 @@ struct Cli {
     #[arg(long, default_value_t = 30)]
     timeout: u64,
 
+    /// Enable evaluation trace logging. Traces include per-policy evaluation
+    /// details and are emitted at DEBUG level.
+    #[arg(long, default_value_t = false)]
+    trace: bool,
+
     /// The MCP server command and arguments (after --)
     #[arg(trailing_var_arg = true, required = true)]
     command: Vec<String>,
@@ -122,11 +127,18 @@ async fn main() -> Result<()> {
     let child_stdin = child.stdin.take().context("Failed to get child stdin")?;
     let child_stdout = child.stdout.take().context("Failed to get child stdout")?;
 
-    // Create proxy bridge with configurable timeout
-    let engine = PolicyEngine::new(cli.strict);
+    // Create proxy bridge with pre-compiled policies and configurable timeout
+    let engine = PolicyEngine::with_policies(cli.strict, &policies).map_err(|errors| {
+        for e in &errors {
+            tracing::error!("Policy validation error: {}", e);
+        }
+        anyhow::anyhow!("{} policy validation errors", errors.len())
+    })?;
     let timeout = std::time::Duration::from_secs(cli.timeout);
-    let bridge = ProxyBridge::new(engine, policies, audit).with_timeout(timeout);
-    tracing::info!("Request timeout: {}s", cli.timeout);
+    let bridge = ProxyBridge::new(engine, policies, audit)
+        .with_timeout(timeout)
+        .with_trace(cli.trace);
+    tracing::info!("Request timeout: {}s, trace: {}", cli.timeout, cli.trace);
 
     // Run the proxy
     let agent_stdin = tokio::io::stdin();

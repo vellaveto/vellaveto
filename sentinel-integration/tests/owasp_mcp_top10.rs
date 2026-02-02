@@ -724,7 +724,7 @@ fn test_owasp_mcp06_injection_audit_entry_format() {
             json!({
                 "matched_patterns": [
                     "ignore all previous instructions",
-                    "you are now"
+                    "new system prompt"
                 ],
                 "response_id": 42
             }),

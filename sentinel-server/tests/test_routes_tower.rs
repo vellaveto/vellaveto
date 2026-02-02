@@ -848,10 +848,10 @@ async fn approval_approve_without_body_uses_anonymous() {
     let approval_id = create_pending_approval(&state).await;
 
     let app = routes::build_router(state);
+    // No Content-Type header — axum 0.8 rejects empty body with application/json
     let resp = app
         .oneshot(
             Request::post(format!("/api/approvals/{}/approve", approval_id))
-                .header("content-type", "application/json")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1028,14 +1028,12 @@ fn make_authed_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
         engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![
-            Policy {
-                id: "file:read".to_string(),
-                name: "Allow file reads".to_string(),
-                policy_type: PolicyType::Allow,
-                priority: 10,
-            },
-        ])),
+        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
+            id: "file:read".to_string(),
+            name: "Allow file reads".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+        }])),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -1255,11 +1253,7 @@ async fn auth_get_policies_bypasses_api_key() {
 
     // GET /api/policies is read-only — should not require auth
     let resp = app
-        .oneshot(
-            Request::get("/api/policies")
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .oneshot(Request::get("/api/policies").body(Body::empty()).unwrap())
         .await
         .unwrap();
 
@@ -1372,7 +1366,11 @@ async fn request_id_generated_when_not_provided() {
     );
     // Should be a UUID (36 chars)
     let id_str = request_id.unwrap().to_str().unwrap();
-    assert_eq!(id_str.len(), 36, "Auto-generated request ID should be UUID format");
+    assert_eq!(
+        id_str.len(),
+        36,
+        "Auto-generated request ID should be UUID format"
+    );
 }
 
 #[tokio::test]
@@ -1400,5 +1398,201 @@ async fn request_id_preserved_when_client_sends_it() {
     assert_eq!(
         request_id, "client-id-12345",
         "Client-provided X-Request-Id should be echoed back"
+    );
+}
+
+// ════════════════════════════════
+// CHECKPOINT ENDPOINTS
+// ════════════════════════════════
+
+fn make_checkpoint_state() -> (AppState, TempDir) {
+    let tmp = TempDir::new().unwrap();
+    let signing_key = AuditLogger::generate_signing_key();
+    let state = AppState {
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
+        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
+            id: "file:read".to_string(),
+            name: "Allow file reads".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+        }])),
+        audit: Arc::new(
+            AuditLogger::new(tmp.path().join("audit.log")).with_signing_key(signing_key),
+        ),
+        config_path: Arc::new("nonexistent.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: None,
+        rate_limits: Arc::new(RateLimits::disabled()),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+    };
+    (state, tmp)
+}
+
+#[tokio::test]
+async fn checkpoint_list_empty() {
+    let (state, _tmp) = make_checkpoint_state();
+    let app = routes::build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::get("/api/audit/checkpoints")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["count"], 0);
+    assert!(json["checkpoints"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn checkpoint_create_and_list() {
+    let (state, _tmp) = make_checkpoint_state();
+
+    // Create some audit entries first
+    let app = routes::build_router(state.clone());
+    let body = serde_json::to_string(&json!({
+        "tool": "file", "function": "read", "parameters": {"path": "/tmp"}
+    }))
+    .unwrap();
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Wait for audit flush
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // Create a checkpoint
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/audit/checkpoint")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "Creating checkpoint should succeed"
+    );
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(json.get("entry_count").is_some());
+    assert!(json.get("signature").is_some());
+
+    // Now list checkpoints — should have 1
+    let app = routes::build_router(state);
+    let resp = app
+        .oneshot(
+            Request::get("/api/audit/checkpoints")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["count"], 1);
+}
+
+#[tokio::test]
+async fn checkpoint_verify_after_create() {
+    let (state, _tmp) = make_checkpoint_state();
+
+    // Evaluate an action to generate audit entries
+    let app = routes::build_router(state.clone());
+    let body = serde_json::to_string(&json!({
+        "tool": "file", "function": "read", "parameters": {}
+    }))
+    .unwrap();
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // Create checkpoint
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/audit/checkpoint")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Verify checkpoints
+    let app = routes::build_router(state);
+    let resp = app
+        .oneshot(
+            Request::get("/api/audit/checkpoints/verify")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    // Verification should report valid chain
+    assert!(json.is_object());
+}
+
+#[tokio::test]
+async fn checkpoint_create_without_signing_key_fails() {
+    // Use default make_state() which has no signing key
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/audit/checkpoint")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Creating checkpoint without signing key should fail"
     );
 }

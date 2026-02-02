@@ -246,14 +246,35 @@ Implemented Ed25519 digital signature checkpoints for the tamper-evident audit l
 - Added `SamplingRequest` variant to `MessageType` in extractor.rs + handler in stdio proxy
 - All 137 workspace test suites pass (0 failures)
 
+### Phase 10.4: Evaluation Trace in Stdio Proxy — COMPLETE
+
+- Added `enable_trace: bool` field + `with_trace(bool)` builder to `ProxyBridge`
+- Added `evaluate_action_inner()` dispatcher for traced vs non-traced evaluation
+- `evaluate_tool_call()` and `evaluate_resource_read()` use traced path when enabled
+- Trace details emitted at DEBUG level via tracing
+- `sentinel-proxy` CLI uses `PolicyEngine::with_policies()` (compiled path) + `--trace` flag
+- 4 new trace tests — 83 total sentinel-mcp tests pass
+
 ### Build Status (Current)
-- All 137 workspace test suites pass (0 failures)
-- Clippy clean, fmt clean
+- All workspace test suites pass (0 failures), clippy clean
 - All 14 CRITICAL/HIGH findings from Controller audit: RESOLVED
 - All 6 improvement plan tasks complete (I-B1 DEFERRED, I-B2–I-B6 DONE)
 - C-8 complete, C-9.2/C-10.2 (pre-compiled policies) complete
 - C-10.2 Task B2 (cross-review) complete
-- Phase 10.3 (signed audit checkpoints) complete
+- Phase 10.3 (signed checkpoints) complete
+- Phase 10.4 (eval trace in stdio proxy) complete
 - Phase 10.5 (policy index) complete
 - Phase 10.6 (heartbeat entries) complete
 - Phase 10.7 (shared injection scanning) complete
+
+### Adversarial Audit Response (see log.md)
+
+Responses to challenges 1, 2, 3, 4, 5, 6, 9 posted.
+
+**Fixes implemented:**
+- Challenge 1 (CRITICAL): Canonical JSON hashing — replaced `serde_json::to_vec` with RFC 8785 `serde_json_canonicalizer::to_string` in `compute_entry_hash()`. Added `canonical_json()` helper. 1 new test.
+- Challenge 6 (MEDIUM): `Box<SigningKey>` — prevents stack copies of key material during moves
+- Challenge 9 (MEDIUM): Key pinning — added `trusted_verifying_key` field + `with_trusted_key()` builder to `AuditLogger`. Default `verify_checkpoints()` now uses pinned key when set. 2 new tests.
+
+**Remaining (not in Instance B scope or deferred):**
+- Challenge 4: configurable injection patterns (enhancement, not critical)

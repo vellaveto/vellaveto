@@ -16,5 +16,5 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 tempfile = "3.0"
 arc-swap = "1"
-axum = "0.7"
+axum = "0.8"
 tower = "0.5"

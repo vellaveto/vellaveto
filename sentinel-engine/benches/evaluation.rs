@@ -2,7 +2,9 @@
 //!
 //! Validates that evaluation latency stays under 5ms for realistic workloads.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use std::hint::black_box;
+
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use sentinel_engine::PolicyEngine;
 use sentinel_types::{Action, Policy, PolicyType};
 use serde_json::json;

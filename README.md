@@ -437,6 +437,16 @@ Benchmark results (from criterion, single-threaded):
 | **Tamper-evident audit** | SHA-256 hash chain with Ed25519 signed checkpoints; any modification breaks the chain |
 | **Sensitive redaction** | 15 key patterns and 10 value prefixes automatically redacted before audit logging |
 
+### Known Limitations
+
+- **Injection detection is a pre-filter, not a security boundary.** Pattern-based injection detection catches known attack signatures but can be evaded by motivated attackers using encoding, typoglycemia, semantic synonyms, or novel phrasing. It is one layer in a defense-in-depth strategy and should not be relied upon as the sole protection against prompt injection.
+
+- **TOCTOU (Time-of-Check to Time-of-Use).** The proxy evaluates a parsed representation of the JSON-RPC message. JSON round-tripping (duplicate keys, numeric precision) is handled deterministically by `serde_json` (last-key-wins, IEEE 754), but this represents a known limitation: the serialized bytes forwarded to upstream are the original request bytes, not a re-serialized copy, which mitigates but does not fully eliminate divergence risks.
+
+- **Action model design.** Path and domain enforcement is implemented via parameter constraints (`parameters` JSON deep scanning) rather than dedicated `Action` struct fields. This enables recursive inspection of arbitrary nested JSON parameters without requiring tool-specific schema knowledge. The tradeoff is that policies must express path/domain rules as parameter matchers rather than first-class fields.
+
+- **Checkpoint trust anchor.** Checkpoint signatures use self-embedded Ed25519 public keys by default (TOFU model). For stronger guarantees, pin a trusted verifying key via the `SENTINEL_TRUSTED_KEY` environment variable to prevent an attacker with file write access from forging checkpoints with their own keypair.
+
 ## CLI Reference
 
 ```bash
