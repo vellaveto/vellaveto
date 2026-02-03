@@ -419,6 +419,203 @@ fn bench_wildcard_scan(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
+// Benchmarks: COMPILED evaluation path (production hot path)
+// ---------------------------------------------------------------------------
+// The compiled path uses PolicyEngine::with_policies() which pre-compiles
+// regex, glob, and tool matchers at load time. This is the actual path used
+// in production — zero Mutex, zero runtime compilation.
+
+fn bench_compiled_single_policy(c: &mut Criterion) {
+    let policies = vec![make_allow_policy("file:read", 100)];
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+    let action = make_action("file", "read", json!({"path": "/tmp/test.txt"}));
+
+    c.bench_function("compiled/single_policy_exact", |b| {
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+}
+
+fn bench_compiled_wildcard(c: &mut Criterion) {
+    let policies = vec![make_allow_policy("*", 100)];
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+    let action = make_action("file", "read", json!({"path": "/tmp/test.txt"}));
+
+    c.bench_function("compiled/single_policy_wildcard", |b| {
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+}
+
+fn bench_compiled_100_policies(c: &mut Criterion) {
+    let mut policies = generate_mixed_policies(100);
+    PolicyEngine::sort_policies(&mut policies);
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+    let action = make_action("unknown_tool", "unknown_fn", json!({"path": "/tmp/safe"}));
+
+    c.bench_function("compiled/100_policies_fallthrough", |b| {
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+}
+
+fn bench_compiled_100_early_match(c: &mut Criterion) {
+    let mut policies = generate_mixed_policies(100);
+    PolicyEngine::sort_policies(&mut policies);
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+    let action = make_action("tool_0", "anything", json!({}));
+
+    c.bench_function("compiled/100_policies_early_match", |b| {
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+}
+
+fn bench_compiled_1000_policies(c: &mut Criterion) {
+    let mut policies = generate_mixed_policies(1000);
+    PolicyEngine::sort_policies(&mut policies);
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+    let action = make_action("unknown_tool", "unknown_fn", json!({"path": "/tmp/safe"}));
+
+    c.bench_function("compiled/1000_policies_fallthrough", |b| {
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+}
+
+fn bench_compiled_scaling(c: &mut Criterion) {
+    let action = make_action("unknown_tool", "unknown_fn", json!({"path": "/tmp/safe"}));
+
+    let mut group = c.benchmark_group("compiled/scaling");
+    for count in [10, 50, 100, 250, 500, 1000] {
+        let mut policies = generate_mixed_policies(count);
+        PolicyEngine::sort_policies(&mut policies);
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        group.bench_with_input(BenchmarkId::from_parameter(count), &engine, |b, engine| {
+            b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+        });
+    }
+    group.finish();
+}
+
+fn bench_compiled_conditional_glob(c: &mut Criterion) {
+    let policies = vec![
+        make_conditional_glob_policy("*:*:cred-block", "path", "/home/*/.aws/**", 300),
+        make_allow_policy("*", 1),
+    ];
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+    let mut group = c.benchmark_group("compiled/conditional_glob");
+
+    group.bench_function("deny_match", |b| {
+        let action = make_action(
+            "file",
+            "read",
+            json!({"path": "/home/user/.aws/credentials"}),
+        );
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.bench_function("allow_no_match", |b| {
+        let action = make_action("file", "read", json!({"path": "/tmp/safe.txt"}));
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.finish();
+}
+
+fn bench_compiled_conditional_regex(c: &mut Criterion) {
+    let policies = vec![
+        make_conditional_regex_policy(
+            "*:*:dangerous",
+            "command",
+            r"(?i)(rm\s+-rf|dd\s+if=|mkfs)",
+            300,
+        ),
+        make_allow_policy("*", 1),
+    ];
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+    let mut group = c.benchmark_group("compiled/conditional_regex");
+
+    group.bench_function("deny_match", |b| {
+        let action = make_action("bash", "execute", json!({"command": "rm -rf /important"}));
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.bench_function("allow_no_match", |b| {
+        let action = make_action("bash", "execute", json!({"command": "ls -la /tmp"}));
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.finish();
+}
+
+fn bench_compiled_on_no_match_chain(c: &mut Criterion) {
+    // Benchmark the on_no_match="continue" policy chain (demo scenario)
+    let policies = vec![
+        Policy {
+            id: "*:*:credential-block".to_string(),
+            name: "Block credential access".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [{
+                        "param": "*",
+                        "op": "glob",
+                        "pattern": "/home/*/.aws/**",
+                        "on_match": "deny",
+                        "on_missing": "skip"
+                    }],
+                    "on_no_match": "continue"
+                }),
+            },
+            priority: 300,
+        },
+        Policy {
+            id: "*:*:domain-block".to_string(),
+            name: "Block evil domains".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [{
+                        "param": "*",
+                        "op": "domain_match",
+                        "pattern": "*.evil.com",
+                        "on_match": "deny",
+                        "on_missing": "skip"
+                    }],
+                    "on_no_match": "continue"
+                }),
+            },
+            priority: 280,
+        },
+        make_allow_policy("*", 1),
+    ];
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+    let mut group = c.benchmark_group("compiled/on_no_match_chain");
+
+    group.bench_function("credential_deny", |b| {
+        let action = make_action(
+            "file",
+            "read",
+            json!({"path": "/home/user/.aws/credentials"}),
+        );
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.bench_function("domain_deny", |b| {
+        let action = make_action(
+            "http",
+            "get",
+            json!({"url": "https://exfil.evil.com/steal"}),
+        );
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.bench_function("safe_allow", |b| {
+        let action = make_action("file", "read", json!({"path": "/tmp/safe.txt"}));
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
 // Group and main
 // ---------------------------------------------------------------------------
 
@@ -442,4 +639,22 @@ criterion_group!(
     bench_wildcard_scan,
 );
 
-criterion_main!(eval_benches, path_benches, constraint_benches);
+criterion_group!(
+    compiled_benches,
+    bench_compiled_single_policy,
+    bench_compiled_wildcard,
+    bench_compiled_100_policies,
+    bench_compiled_100_early_match,
+    bench_compiled_1000_policies,
+    bench_compiled_scaling,
+    bench_compiled_conditional_glob,
+    bench_compiled_conditional_regex,
+    bench_compiled_on_no_match_chain,
+);
+
+criterion_main!(
+    eval_benches,
+    path_benches,
+    constraint_benches,
+    compiled_benches
+);
