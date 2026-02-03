@@ -1309,6 +1309,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_sync_flushes_entries_to_disk() {
+        // Verify that sync() makes all entries durable on disk.
+        // Write entries (Allow verdicts skip per-write fsync), then sync().
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone());
+
+        let action = test_action();
+        for _ in 0..5 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+
+        // Sync to ensure all data is flushed
+        logger.sync().await.unwrap();
+
+        // Read file directly (not through load_entries) to verify data is on disk
+        let content = tokio::fs::read_to_string(&log_path).await.unwrap();
+        let line_count = content.lines().filter(|l| !l.trim().is_empty()).count();
+        assert_eq!(line_count, 5, "All 5 entries should be flushed to disk");
+
+        // Each line should be valid JSON
+        for line in content.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let parsed: serde_json::Value = serde_json::from_str(line)
+                .unwrap_or_else(|e| panic!("Line is not valid JSON: {} — {}", line, e));
+            assert!(parsed.get("entry_hash").is_some());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_sync_on_nonexistent_file_is_ok() {
+        // sync() on a logger whose file doesn't exist yet should succeed
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("nonexistent.jsonl");
+        let logger = AuditLogger::new(log_path);
+
+        // Should not error
+        logger.sync().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn test_hash_chain_integrity() {
         let dir = TempDir::new().unwrap();
         let log_path = dir.path().join("audit.jsonl");
@@ -2902,5 +2948,89 @@ mod tests {
 
         let gap = logger.detect_heartbeat_gap(60).await.unwrap();
         assert!(gap.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_detect_heartbeat_gap_finds_gap() {
+        // Create entries with timestamps that have a known gap.
+        // We manually write entries with controlled timestamps.
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("gap_detect.log");
+
+        // Write two entries with a 300-second gap between them
+        let ts1 = "2026-02-03T12:00:00+00:00";
+        let ts2 = "2026-02-03T12:05:00+00:00"; // 5 minutes later
+
+        let entry1 = serde_json::json!({
+            "id": "entry-1",
+            "action": {"tool": "sentinel", "function": "heartbeat", "parameters": {}},
+            "verdict": "Allow",
+            "timestamp": ts1,
+            "metadata": {"event": "heartbeat", "sequence": 1}
+        });
+        let entry2 = serde_json::json!({
+            "id": "entry-2",
+            "action": {"tool": "sentinel", "function": "heartbeat", "parameters": {}},
+            "verdict": "Allow",
+            "timestamp": ts2,
+            "metadata": {"event": "heartbeat", "sequence": 2}
+        });
+
+        let content = format!(
+            "{}\n{}\n",
+            serde_json::to_string(&entry1).unwrap(),
+            serde_json::to_string(&entry2).unwrap()
+        );
+        tokio::fs::write(&log_path, content).await.unwrap();
+
+        let logger = AuditLogger::new(log_path);
+
+        // Gap of 300s exceeds threshold of 120s
+        let gap = logger.detect_heartbeat_gap(120).await.unwrap();
+        assert!(gap.is_some(), "Should detect 300-second gap");
+        let (start, end, secs) = gap.unwrap();
+        assert_eq!(start, ts1);
+        assert_eq!(end, ts2);
+        assert_eq!(secs, 300);
+
+        // Same gap but threshold is 600s — no gap detected
+        let gap2 = logger.detect_heartbeat_gap(600).await.unwrap();
+        assert!(gap2.is_none(), "300s gap should not exceed 600s threshold");
+    }
+
+    #[tokio::test]
+    async fn test_detect_heartbeat_gap_returns_first_gap() {
+        // When multiple gaps exist, return the first one
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("multi_gap.log");
+
+        let entries = vec![
+            ("entry-1", "2026-02-03T10:00:00+00:00"),
+            ("entry-2", "2026-02-03T10:01:00+00:00"), // 60s gap (ok)
+            ("entry-3", "2026-02-03T10:10:00+00:00"), // 540s gap (exceeds threshold)
+            ("entry-4", "2026-02-03T10:30:00+00:00"), // 1200s gap (also exceeds)
+        ];
+
+        let mut content = String::new();
+        for (id, ts) in &entries {
+            let entry = serde_json::json!({
+                "id": id,
+                "action": {"tool": "sentinel", "function": "heartbeat", "parameters": {}},
+                "verdict": "Allow",
+                "timestamp": ts,
+                "metadata": {"event": "heartbeat"}
+            });
+            content.push_str(&serde_json::to_string(&entry).unwrap());
+            content.push('\n');
+        }
+        tokio::fs::write(&log_path, content).await.unwrap();
+
+        let logger = AuditLogger::new(log_path);
+        let gap = logger.detect_heartbeat_gap(120).await.unwrap();
+        assert!(gap.is_some());
+        let (start, _end, secs) = gap.unwrap();
+        // Should be the FIRST gap (entries 2→3, 540 seconds)
+        assert_eq!(start, "2026-02-03T10:01:00+00:00");
+        assert_eq!(secs, 540);
     }
 }

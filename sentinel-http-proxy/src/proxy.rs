@@ -54,6 +54,45 @@ pub struct ProxyState {
 /// MCP Session ID header name.
 const MCP_SESSION_ID: &str = "mcp-session-id";
 
+/// Maximum response body size (10 MB). Responses exceeding this are rejected
+/// to prevent OOM from unbounded upstream responses (e.g., infinite SSE streams).
+const MAX_RESPONSE_BODY_SIZE: usize = 10 * 1024 * 1024;
+
+/// Read a response body with a size limit to prevent OOM.
+///
+/// Uses chunked reading so oversized responses are rejected before fully
+/// buffering into memory. This prevents a malicious or misconfigured upstream
+/// from sending an infinite SSE stream or oversized JSON response.
+async fn read_bounded_response(
+    mut resp: reqwest::Response,
+    max_size: usize,
+) -> Result<Bytes, String> {
+    // Fast path: if Content-Length is known and exceeds limit, reject immediately
+    if let Some(len) = resp.content_length() {
+        if len as usize > max_size {
+            return Err(format!(
+                "Response too large: {} bytes (max {})",
+                len, max_size
+            ));
+        }
+    }
+
+    let capacity = std::cmp::min(
+        resp.content_length().unwrap_or(8192) as usize,
+        max_size,
+    );
+    let mut body = Vec::with_capacity(capacity);
+
+    while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
+        if body.len() + chunk.len() > max_size {
+            return Err(format!("Response exceeded {} byte limit", max_size));
+        }
+        body.extend_from_slice(&chunk);
+    }
+
+    Ok(Bytes::from(body))
+}
+
 // Message classification and action extraction use the shared
 // sentinel_mcp::extractor module to ensure identical behavior
 // between the stdio and HTTP proxies (Challenge 3 fix).
@@ -868,7 +907,8 @@ async fn forward_to_upstream(
             if content_type.starts_with("text/event-stream") {
                 // C-15 Exploit #6 fix: Buffer SSE response and scan each event's
                 // data payload for injection patterns before forwarding.
-                match upstream_resp.bytes().await {
+                // Bounded read prevents OOM from infinite SSE streams.
+                match read_bounded_response(upstream_resp, MAX_RESPONSE_BODY_SIZE).await {
                     Ok(sse_bytes) => {
                         if !state.injection_disabled {
                             scan_sse_events_for_injection(&sse_bytes, session_id, state).await;
@@ -908,7 +948,8 @@ async fn forward_to_upstream(
                 }
             } else {
                 // JSON response — read body, inspect, and forward
-                match upstream_resp.bytes().await {
+                // Bounded read prevents OOM from oversized responses.
+                match read_bounded_response(upstream_resp, MAX_RESPONSE_BODY_SIZE).await {
                     Ok(body_bytes) => {
                         // Try to parse and inspect the response
                         if let Ok(response_json) = serde_json::from_slice::<Value>(&body_bytes) {
