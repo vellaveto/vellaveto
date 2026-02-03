@@ -22,6 +22,7 @@ pub struct RateLimits {
     pub admin: Option<governor::DefaultDirectRateLimiter>,
     pub readonly: Option<governor::DefaultDirectRateLimiter>,
     pub per_ip: Option<PerIpRateLimiter>,
+    pub per_principal: Option<PerKeyRateLimiter>,
 }
 
 /// Per-IP rate limiter using DashMap for lock-free concurrent access.
@@ -146,6 +147,132 @@ impl PerIpRateLimiter {
     }
 }
 
+/// Per-principal (string-keyed) rate limiter using DashMap for lock-free concurrent access.
+///
+/// Each unique principal key gets its own governor bucket. Stale entries
+/// (no requests for 1 hour) are periodically cleaned up.
+///
+/// The principal key is derived from (in order of precedence):
+/// 1. `X-Principal` header
+/// 2. Bearer token from the `Authorization` header
+/// 3. Client IP address as a string fallback
+///
+/// A configurable max capacity prevents memory exhaustion from
+/// attackers using large numbers of unique principal keys.
+pub struct PerKeyRateLimiter {
+    buckets: dashmap::DashMap<String, (governor::DefaultDirectRateLimiter, Instant)>,
+    quota: Quota,
+    max_capacity: usize,
+}
+
+/// Default maximum number of unique keys tracked simultaneously.
+/// Beyond this limit, new keys are rate-limited immediately (fail-closed)
+/// until the periodic cleanup frees slots.
+pub const DEFAULT_MAX_KEY_CAPACITY: usize = 100_000;
+
+impl PerKeyRateLimiter {
+    pub fn new(rps: NonZeroU32) -> Self {
+        Self {
+            buckets: dashmap::DashMap::new(),
+            quota: Quota::per_second(rps),
+            max_capacity: DEFAULT_MAX_KEY_CAPACITY,
+        }
+    }
+
+    /// Create with burst allowance.
+    pub fn new_with_burst(rps: NonZeroU32, burst: Option<NonZeroU32>) -> Self {
+        Self {
+            buckets: dashmap::DashMap::new(),
+            quota: build_quota(rps, burst),
+            max_capacity: DEFAULT_MAX_KEY_CAPACITY,
+        }
+    }
+
+    /// Create with a custom max capacity (useful for testing).
+    pub fn with_max_capacity(rps: NonZeroU32, max_capacity: usize) -> Self {
+        Self {
+            buckets: dashmap::DashMap::new(),
+            quota: Quota::per_second(rps),
+            max_capacity,
+        }
+    }
+
+    /// Create with burst allowance and custom max capacity.
+    pub fn with_max_capacity_and_burst(
+        rps: NonZeroU32,
+        burst: Option<NonZeroU32>,
+        max_capacity: usize,
+    ) -> Self {
+        Self {
+            buckets: dashmap::DashMap::new(),
+            quota: build_quota(rps, burst),
+            max_capacity,
+        }
+    }
+
+    /// Check the rate limit for a given key. Returns `None` if allowed,
+    /// `Some(retry_after_secs)` if rate-limited.
+    ///
+    /// Uses a two-phase lookup to avoid TOCTOU races: first tries `get_mut`
+    /// for existing entries, then checks capacity before inserting new ones.
+    /// If the number of tracked keys exceeds max capacity, unknown keys are
+    /// immediately rate-limited (fail-closed) to prevent memory DoS.
+    pub fn check(&self, key: String) -> Option<u64> {
+        let now = Instant::now();
+
+        // Fast path: existing key — no capacity check needed
+        if let Some(mut entry) = self.buckets.get_mut(&key) {
+            entry.value_mut().1 = now;
+            return match entry.value().0.check() {
+                Ok(()) => None,
+                Err(not_until) => {
+                    let wait =
+                        not_until.wait_time_from(governor::clock::DefaultClock::default().now());
+                    Some(wait.as_secs().max(1))
+                }
+            };
+        }
+
+        // New key — check capacity before inserting (fail-closed)
+        if self.buckets.len() >= self.max_capacity {
+            return Some(60); // Ask client to retry in 60s (cleanup will free slots)
+        }
+
+        // Insert new bucket and consume the first token.
+        let limiter = RateLimiter::direct(self.quota);
+        let result = match limiter.check() {
+            Ok(()) => None,
+            Err(not_until) => {
+                let wait = not_until.wait_time_from(governor::clock::DefaultClock::default().now());
+                Some(wait.as_secs().max(1))
+            }
+        };
+        self.buckets.insert(key, (limiter, now));
+        result
+    }
+
+    /// Remove entries that haven't been seen for the given duration.
+    pub fn cleanup(&self, max_age: std::time::Duration) {
+        let cutoff = Instant::now() - max_age;
+        self.buckets.retain(|_, (_, last_seen)| *last_seen > cutoff);
+    }
+
+    /// Number of tracked keys.
+    pub fn len(&self) -> usize {
+        self.buckets.len()
+    }
+
+    /// Whether any keys are tracked.
+    pub fn is_empty(&self) -> bool {
+        self.buckets.is_empty()
+    }
+
+    /// Maximum capacity for tracked keys.
+    pub fn max_capacity(&self) -> usize {
+        self.max_capacity
+    }
+}
+
 /// Build a governor `Quota` from a sustained rate and optional burst size.
 ///
 /// When `burst` is `Some`, `allow_burst(b)` sets the token bucket capacity
@@ -179,6 +306,7 @@ impl RateLimits {
                 .and_then(NonZeroU32::new)
                 .map(|r| RateLimiter::direct(Quota::per_second(r))),
             per_ip: None,
+            per_principal: None,
         }
     }
 
@@ -206,6 +334,7 @@ impl RateLimits {
                 RateLimiter::direct(build_quota(r, readonly_burst.and_then(NonZeroU32::new)))
             }),
             per_ip: None,
+            per_principal: None,
         }
     }
 
@@ -229,6 +358,26 @@ impl RateLimits {
         self
     }
 
+    /// Set the per-principal rate limiter.
+    pub fn with_per_principal(mut self, rps: NonZeroU32) -> Self {
+        self.per_principal = Some(PerKeyRateLimiter::new(rps));
+        self
+    }
+
+    /// Set the per-principal rate limiter with optional burst and max capacity.
+    pub fn with_per_principal_config(
+        mut self,
+        rps: NonZeroU32,
+        burst: Option<NonZeroU32>,
+        max_capacity: Option<usize>,
+    ) -> Self {
+        let capacity = max_capacity.unwrap_or(DEFAULT_MAX_KEY_CAPACITY);
+        self.per_principal = Some(PerKeyRateLimiter::with_max_capacity_and_burst(
+            rps, burst, capacity,
+        ));
+        self
+    }
+
     /// Create rate limits with all categories disabled (no rate limiting).
     pub fn disabled() -> Self {
         Self {
@@ -236,6 +385,7 @@ impl RateLimits {
             admin: None,
             readonly: None,
             per_ip: None,
+            per_principal: None,
         }
     }
 }
@@ -557,6 +707,7 @@ mod tests {
         assert!(rl.admin.is_none());
         assert!(rl.readonly.is_none());
         assert!(rl.per_ip.is_none());
+        assert!(rl.per_principal.is_none());
     }
 
     #[test]
@@ -691,5 +842,112 @@ mod tests {
             RateLimits::disabled().with_per_ip_config(NonZeroU32::new(10).unwrap(), None, None);
         let per_ip2 = rl2.per_ip.as_ref().unwrap();
         assert_eq!(per_ip2.max_capacity(), DEFAULT_MAX_IP_CAPACITY);
+    }
+
+    // ────────────────────────────────
+    // PerKeyRateLimiter tests
+    // ────────────────────────────────
+
+    #[test]
+    fn per_key_rate_limiter_allows_first_request() {
+        let limiter = PerKeyRateLimiter::new(NonZeroU32::new(10).unwrap());
+        assert!(limiter.is_empty());
+        let result = limiter.check("user-a".to_string());
+        assert!(result.is_none(), "First request should be allowed");
+        assert_eq!(limiter.len(), 1);
+    }
+
+    #[test]
+    fn per_key_rate_limiter_same_key_limited_different_keys_independent() {
+        // 1 req/s with no burst — second request from the same key should be limited
+        let limiter = PerKeyRateLimiter::new(NonZeroU32::new(1).unwrap());
+
+        // First request for key "alpha" — allowed
+        let r1 = limiter.check("alpha".to_string());
+        assert!(r1.is_none(), "First request for alpha should be allowed");
+
+        // Second request for key "alpha" — should be rate-limited
+        let r2 = limiter.check("alpha".to_string());
+        assert!(
+            r2.is_some(),
+            "Second immediate request for alpha should be rate-limited"
+        );
+
+        // First request for key "beta" — should be allowed (independent bucket)
+        let r3 = limiter.check("beta".to_string());
+        assert!(
+            r3.is_none(),
+            "First request for beta should be allowed (independent key)"
+        );
+        assert_eq!(limiter.len(), 2);
+    }
+
+    #[test]
+    fn per_key_rate_limiter_cleanup_removes_stale() {
+        let limiter = PerKeyRateLimiter::new(NonZeroU32::new(10).unwrap());
+        limiter.check("key-1".to_string());
+        limiter.check("key-2".to_string());
+        assert_eq!(limiter.len(), 2);
+        // Cleanup with zero duration removes everything
+        limiter.cleanup(std::time::Duration::ZERO);
+        assert_eq!(limiter.len(), 0);
+    }
+
+    #[test]
+    fn per_key_rate_limiter_default_capacity() {
+        let limiter = PerKeyRateLimiter::new(NonZeroU32::new(10).unwrap());
+        assert_eq!(limiter.max_capacity(), DEFAULT_MAX_KEY_CAPACITY);
+    }
+
+    #[test]
+    fn per_key_rate_limiter_with_max_capacity_sets_limit() {
+        let limiter = PerKeyRateLimiter::with_max_capacity(NonZeroU32::new(10).unwrap(), 3);
+        assert_eq!(limiter.max_capacity(), 3);
+        assert!(limiter.is_empty());
+
+        // Fill to capacity
+        limiter.check("a".to_string());
+        limiter.check("b".to_string());
+        limiter.check("c".to_string());
+        assert_eq!(limiter.len(), 3);
+
+        // New key beyond capacity should be denied (fail-closed)
+        let result = limiter.check("d".to_string());
+        assert!(
+            result.is_some(),
+            "New key beyond max_capacity should be denied"
+        );
+        assert_eq!(limiter.len(), 3, "Should not grow beyond max_capacity");
+    }
+
+    #[test]
+    fn rate_limits_with_per_principal() {
+        let rl = RateLimits::disabled().with_per_principal(NonZeroU32::new(10).unwrap());
+        assert!(rl.per_principal.is_some());
+        assert_eq!(
+            rl.per_principal.as_ref().unwrap().max_capacity(),
+            DEFAULT_MAX_KEY_CAPACITY
+        );
+    }
+
+    #[test]
+    fn rate_limits_with_per_principal_config_sets_capacity_and_burst() {
+        let rl = RateLimits::disabled().with_per_principal_config(
+            NonZeroU32::new(10).unwrap(),
+            Some(NonZeroU32::new(20).unwrap()),
+            Some(500),
+        );
+        assert!(rl.per_principal.is_some());
+        let per_principal = rl.per_principal.as_ref().unwrap();
+        assert_eq!(per_principal.max_capacity(), 500);
+
+        // Default capacity when None
+        let rl2 = RateLimits::disabled().with_per_principal_config(
+            NonZeroU32::new(10).unwrap(),
+            None,
+            None,
+        );
+        let per_principal2 = rl2.per_principal.as_ref().unwrap();
+        assert_eq!(per_principal2.max_capacity(), DEFAULT_MAX_KEY_CAPACITY);
     }
 }

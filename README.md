@@ -22,7 +22,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 | Metric | Value |
 |--------|-------|
 | Language | Rust |
-| Test suite | 2,000+ tests |
+| Test suite | 2,050+ tests |
 | Evaluation latency | <5ms P99 |
 | Memory baseline | <50MB |
 | License | MIT |
@@ -43,14 +43,21 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Policy engine** with glob, regex, and domain matching on tool calls and parameters
 - **Three deployment modes**: HTTP API server, MCP stdio proxy, and HTTP reverse proxy
 - **Parameter constraints** with deep recursive JSON scanning
-- **Human-in-the-loop approvals** for sensitive operations
-- **Tamper-evident audit logging** with SHA-256 hash chains and Ed25519 signed checkpoints
-- **Injection detection** via Aho-Corasick multi-pattern scanning with Unicode normalization
-- **Rug-pull detection** for MCP tool annotation and schema changes
+- **Human-in-the-loop approvals** with deduplication and audit trail
+- **Tamper-evident audit logging** with SHA-256 hash chains, Ed25519 signed checkpoints, and rotation chain continuity
+- **Injection detection** via Aho-Corasick multi-pattern scanning with Unicode normalization and configurable blocking mode
+- **Rug-pull detection** for MCP tool annotation changes, schema mutations, and persistent flagging across restarts
+- **Child process crash detection** with pending request flush and audit logging
 - **OAuth 2.1 / JWT** validation with JWKS and scope enforcement
+- **CSRF protection** via Origin header validation on mutating endpoints
+- **Rate limiting** per-IP, per-principal, and per-endpoint with configurable burst
+- **Security headers** including HSTS, CSP, X-Frame-Options, and X-Permitted-Cross-Domain-Policies
+- **Input validation** with ReDoS protection, action name validation, and RFC 1035 domain pattern checking
+- **Absolute session lifetime** enforcement alongside inactivity timeout
 - **Evaluation traces** for full decision explainability (OPA-style)
 - **Pre-compiled patterns** with zero allocations on the evaluation hot path
 - **Canonical presets** for common security scenarios (dangerous tools, network allowlisting, etc.)
+- **CI security scanning** with `cargo audit` and library code hygiene checks
 
 ## Quick Start
 
@@ -261,7 +268,25 @@ readonly_burst = 20
 per_ip_rps = 100
 per_ip_burst = 10
 per_ip_max_capacity = 100000
+per_principal_rps = 50
+per_principal_burst = 10
 ```
+
+Per-principal rate limiting keys requests by identity: the `X-Principal` header if present, then the Bearer token from the `Authorization` header, falling back to client IP. This allows rate limiting individual API consumers even when they share an IP (e.g., behind a load balancer).
+
+### Injection Scanning
+
+Configure how the injection scanner handles detected prompt injection patterns:
+
+```toml
+[injection]
+enabled = true
+block_on_injection = false   # true = block response, false = log only (default)
+extra_patterns = ["transfer funds", "send bitcoin"]
+disabled_patterns = ["pretend you are"]
+```
+
+When `block_on_injection` is `true`, responses matching injection patterns are replaced with a JSON-RPC error (`-32005`) instead of being forwarded. When `false` (default), matches are logged but the response passes through.
 
 ### Audit Configuration
 
@@ -316,8 +341,10 @@ sentinel-proxy --config policy.toml -- /path/to/mcp-server --arg1 --arg2
 Features:
 - Intercepts `tools/call` and `resources/read` requests
 - Blocks `sampling/createMessage` requests (exfiltration vector)
-- Scans responses for prompt injection patterns
-- Detects tool annotation rug-pull attacks
+- Scans responses for prompt injection patterns (log-only or blocking mode)
+- Detects tool annotation and inputSchema rug-pull attacks
+- Persists flagged tools across restarts (JSONL)
+- Detects child process crashes and flushes pending requests with errors
 - Configurable request timeout (`--timeout 30`)
 
 ### Streamable HTTP Reverse Proxy
@@ -332,10 +359,11 @@ SENTINEL_API_KEY=your-secret sentinel-http-proxy \
 ```
 
 Features:
-- Session management with server-generated IDs and timeout eviction
+- Session management with server-generated IDs, inactivity timeout, and absolute session lifetime
+- CSRF protection via Origin header validation
 - SSE streaming passthrough for long-running operations
 - `?trace=true` query parameter for evaluation trace output
-- Tool annotation tracking and rug-pull detection
+- Tool annotation and schema tracking with rug-pull detection
 - OAuth 2.1 token validation with JWKS support
 - Response body size limits to prevent upstream DoS
 
@@ -413,9 +441,11 @@ Every policy decision is logged to a tamper-evident audit trail.
 
 - **JSONL format** -- one JSON entry per line, streamable and easy to ingest
 - **SHA-256 hash chain** -- each entry includes the hash of the previous entry; any tampering breaks the chain
-- **Ed25519 signed checkpoints** -- periodic cryptographic snapshots of chain state for independent verification
+- **Rotation chain continuity** -- when logs rotate, a rotation manifest links files together with tail hashes; `verify_across_rotations()` detects missing or tampered rotated files
+- **Ed25519 signed checkpoints** -- periodic cryptographic snapshots of chain state for independent verification; checkpoint files are written with `sync_data()` and restrictive permissions (0o600 on Unix)
 - **Sensitive value redaction** -- API keys, tokens, passwords, and secrets are automatically redacted before logging
 - **Duplicate entry detection** -- detects replayed or duplicated audit entries
+- **Approval audit trail** -- approve/deny decisions are logged with resolver identity, original tool, and approval ID
 
 ### Verification
 
@@ -477,6 +507,8 @@ The trace includes:
 | `SENTINEL_RATE_PER_IP` | *(disabled)* | Requests/sec limit per unique client IP |
 | `SENTINEL_RATE_PER_IP_BURST` | *(disabled)* | Burst allowance per IP |
 | `SENTINEL_RATE_PER_IP_MAX_CAPACITY` | `100000` | Maximum unique IPs tracked simultaneously |
+| `SENTINEL_RATE_PER_PRINCIPAL` | *(disabled)* | Requests/sec limit per principal (X-Principal header, Bearer token, or IP) |
+| `SENTINEL_RATE_PER_PRINCIPAL_BURST` | *(disabled)* | Burst allowance per principal |
 | `SENTINEL_CORS_ORIGINS` | *(localhost)* | Comma-separated allowed CORS origins (`*` for any) |
 | `SENTINEL_LOG_MAX_SIZE` | `104857600` | Max audit log size in bytes before rotation (0 to disable) |
 | `RUST_LOG` | `info` | Log level filter (`tracing` / `env_logger` syntax) |
@@ -488,27 +520,37 @@ Environment variables **override** values set in the config file. See below for 
 | Property | Implementation |
 |----------|---------------|
 | **Fail-closed** | Empty policy set, missing parameters, and evaluation errors all produce `Deny` |
+| **Input validation** | Action tool/function names validated (no empty strings, null bytes, max 256 chars); domain patterns validated per RFC 1035 at policy compile time |
+| **ReDoS protection** | Legacy regex path rejects patterns with nested quantifiers (`(a+)+`) and overlength (>1024 chars) |
 | **Path normalization** | Resolves `..`, `.`, percent-encoding (multi-layer), null bytes; prevents traversal |
-| **Domain normalization** | Handles trailing dots, case folding, `@` in authority, scheme/port stripping |
-| **Injection detection** | Aho-Corasick multi-pattern matching with Unicode evasion resistance (NFKC normalization, zero-width/bidi/tag character stripping) |
-| **Rug-pull detection** | Alerts when MCP servers change tool annotations, remove tools, or add new tools after initial handshake |
+| **Domain normalization** | Handles trailing dots, case folding, `@` in authority, scheme/port stripping; labels validated 1-63 chars, alphanumeric + hyphen |
+| **Injection detection** | Aho-Corasick multi-pattern matching with Unicode evasion resistance (NFKC normalization, zero-width/bidi/tag character stripping); configurable blocking mode |
+| **Rug-pull detection** | Alerts when MCP servers change tool annotations, inputSchema hashes, remove tools, or add new tools; flagged tools persist across restarts |
+| **Child crash detection** | Detects MCP child process termination; flushes pending requests with JSON-RPC error (-32003) and audit logs the event |
 | **Sampling interception** | Blocks `sampling/createMessage` (known exfiltration vector in MCP) |
+| **CSRF protection** | Origin header validation on POST/DELETE endpoints; configurable allowlist or same-origin enforcement |
+| **Security headers** | X-Content-Type-Options, X-Frame-Options, CSP, Cache-Control, X-Permitted-Cross-Domain-Policies on all responses; HSTS on HTTPS |
 | **Constant-time auth** | API key comparison uses `subtle::ConstantTimeEq` to prevent timing attacks |
-| **Tamper-evident audit** | SHA-256 hash chain with Ed25519 signed checkpoints; any modification breaks the chain |
+| **Tamper-evident audit** | SHA-256 hash chain with Ed25519 signed checkpoints; rotation manifest links rotated files with tail hashes; checkpoint files synced and permission-restricted (0o600) |
+| **Approval hardening** | Deduplication prevents duplicate pending approvals via SHA-256 keyed index; approve/deny decisions linked to audit trail with resolver identity |
 | **Sensitive redaction** | Configurable three-level redaction (Off/KeysOnly/KeysAndPatterns); 15 key patterns and 10 value prefixes redacted before audit logging |
 | **Response body limits** | Configurable response size limits prevent upstream DoS via unbounded streams |
 | **OAuth 2.1** | JWT validation with JWKS, algorithm confusion prevention (asymmetric-only), scope enforcement |
-| **Per-IP rate limiting** | Configurable per-IP rate limiting with burst support, trusted proxy handling, and capacity bounds |
+| **Rate limiting** | Per-IP, per-principal (X-Principal / Bearer / IP fallback), and per-endpoint rate limiting with burst support, trusted proxy handling, and capacity bounds |
+| **Session management** | Inactivity timeout and absolute session lifetime; configurable max concurrent sessions with eviction |
 | **Approval capacity limits** | Pending approval store has a configurable max capacity (default 10,000) to prevent memory exhaustion; write-lock acquired before persistence to prevent visibility gaps |
 | **Supply chain verification** | Optional SHA-256 hash verification of MCP server binaries before spawn |
+| **CI security scanning** | `cargo audit` for dependency vulnerabilities; `unwrap()` hygiene check in library code |
 
 ### Known Limitations
 
-- **Injection detection is a pre-filter, not a security boundary.** Pattern-based injection detection catches known attack signatures but can be evaded by motivated attackers using encoding, typoglycemia, semantic synonyms, or novel phrasing. It is one layer in a defense-in-depth strategy.
+- **Injection detection is a pre-filter, not a security boundary.** Pattern-based injection detection catches known attack signatures but can be evaded by motivated attackers using encoding, typoglycemia, semantic synonyms, or novel phrasing. Even in blocking mode (`block_on_injection = true`), it is one layer in a defense-in-depth strategy.
 
 - **TOCTOU (Time-of-Check to Time-of-Use).** The proxy evaluates a parsed representation of the JSON-RPC message. JSON round-tripping (duplicate keys, numeric precision) is handled deterministically by `serde_json` (last-key-wins, IEEE 754), but the serialized bytes forwarded upstream are the original request bytes, not a re-serialized copy.
 
 - **Checkpoint trust anchor.** Checkpoint signatures use self-embedded Ed25519 public keys by default (TOFU model). For stronger guarantees, pin a trusted verifying key via the `SENTINEL_TRUSTED_KEY` environment variable.
+
+- **Per-principal rate limiting relies on client-supplied headers.** When using `X-Principal` for rate limit keying, clients can choose their own identity. Combine with API key auth or OAuth for trustworthy principal identification.
 
 ## Architecture
 
@@ -585,6 +627,7 @@ sentinel-http-proxy \
   --config policy.toml \
   [--listen 127.0.0.1:3001] \
   [--session-timeout 1800] \
+  [--session-max-lifetime 86400] \
   [--max-sessions 1000] \
   [--audit-log audit.log] \
   [--strict] \
@@ -603,12 +646,17 @@ cargo clippy --workspace --all-targets
 # Format
 cargo fmt --check
 
+# Security audit (checks dependencies for known vulnerabilities)
+cargo install cargo-audit && cargo audit
+
 # Build release (thin LTO, single codegen unit)
 cargo build --release
 
 # Run criterion benchmarks
 cargo bench -p sentinel-engine
 ```
+
+CI runs all of the above plus a library code hygiene check for `unwrap()` calls on every push and pull request.
 
 ## Project Structure
 

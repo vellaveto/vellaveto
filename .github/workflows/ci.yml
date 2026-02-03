@@ -25,3 +25,12 @@ jobs:
         run: cargo test --workspace --no-fail-fast
       - name: Doc
         run: cargo doc --workspace --no-deps
+      - name: Security Audit
+        run: cargo install cargo-audit && cargo audit
+      - name: Check for unwrap() in library code
+        run: |
+          # Check for unwrap() in library code (excluding tests and binaries)
+          if grep -rn '\.unwrap()' --include='*.rs' sentinel-*/src/ | grep -v '#\[cfg(test)\]' | grep -v 'mod tests' | grep -v 'main.rs' | grep -v '#\[test\]' | head -20; then
+            echo "WARNING: Found unwrap() calls in library code (see above)"
+            echo "Consider using ? operator or .expect() with context"
+          fi

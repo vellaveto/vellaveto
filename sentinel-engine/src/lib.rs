@@ -315,6 +315,75 @@ impl PolicyEngine {
         }
     }
 
+    /// Validate a domain pattern used in network_rules.
+    ///
+    /// Rules per RFC 1035:
+    /// - Labels (parts between dots) must be 1-63 characters each
+    /// - Each label must be alphanumeric + hyphen only (no leading/trailing hyphen)
+    /// - Total domain length max 253 characters
+    /// - Wildcard `*.` prefix is allowed (only at the beginning)
+    /// - Empty string is rejected
+    pub fn validate_domain_pattern(pattern: &str) -> Result<(), String> {
+        if pattern.is_empty() {
+            return Err("Domain pattern cannot be empty".to_string());
+        }
+
+        // Strip wildcard prefix if present
+        let domain = if let Some(rest) = pattern.strip_prefix("*.") {
+            if rest.is_empty() {
+                return Err("Domain pattern '*.' has no domain after wildcard".to_string());
+            }
+            rest
+        } else if pattern.contains("*") {
+            return Err(format!(
+                "Wildcard '*' is only allowed as a prefix '*.domain', found in '{}'",
+                pattern
+            ));
+        } else {
+            pattern
+        };
+
+        // Check total length (max 253 for a fully qualified domain name)
+        if domain.len() > 253 {
+            return Err(format!(
+                "Domain '{}' exceeds maximum length of 253 characters ({} chars)",
+                &domain[..40],
+                domain.len()
+            ));
+        }
+
+        // Validate each label
+        for label in domain.split('.') {
+            if label.is_empty() {
+                return Err(format!(
+                    "Domain '{}' contains an empty label (consecutive dots or trailing dot)",
+                    pattern
+                ));
+            }
+            if label.len() > 63 {
+                return Err(format!(
+                    "Label '{}...' in domain '{}' exceeds maximum length of 63 characters",
+                    &label[..20],
+                    pattern
+                ));
+            }
+            if label.starts_with('-') || label.ends_with('-') {
+                return Err(format!(
+                    "Label '{}' in domain '{}' has leading or trailing hyphen",
+                    label, pattern
+                ));
+            }
+            if !label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                return Err(format!(
+                    "Label '{}' in domain '{}' contains invalid characters (only alphanumeric and hyphen allowed)",
+                    label, pattern
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Create a new policy engine with pre-compiled policies.
     ///
     /// All regex and glob patterns are compiled at construction time.
@@ -454,13 +523,25 @@ impl PolicyEngine {
         });
 
         // Compile network rules (domain patterns are matched directly, no glob needed)
-        let compiled_network_rules = policy
-            .network_rules
-            .as_ref()
-            .map(|nr| CompiledNetworkRules {
-                allowed_domains: nr.allowed_domains.clone(),
-                blocked_domains: nr.blocked_domains.clone(),
-            });
+        // Validate domain patterns at compile time per RFC 1035.
+        let compiled_network_rules = match policy.network_rules.as_ref() {
+            Some(nr) => {
+                for domain in nr.allowed_domains.iter().chain(nr.blocked_domains.iter()) {
+                    if let Err(reason) = Self::validate_domain_pattern(domain) {
+                        return Err(PolicyValidationError {
+                            policy_id: policy.id.clone(),
+                            policy_name: policy.name.clone(),
+                            reason: format!("Invalid domain pattern: {}", reason),
+                        });
+                    }
+                }
+                Some(CompiledNetworkRules {
+                    allowed_domains: nr.allowed_domains.clone(),
+                    blocked_domains: nr.blocked_domains.clone(),
+                })
+            }
+            None => None,
+        };
 
         Ok(CompiledPolicy {
             policy: policy.clone(),
@@ -708,6 +789,15 @@ impl PolicyEngine {
                         reason: "regex constraint missing 'pattern' string".to_string(),
                     })?
                     .to_string();
+
+                // H2: ReDoS safety check at policy load time (early rejection)
+                Self::validate_regex_safety(&pattern_str).map_err(|reason| {
+                    PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason,
+                    }
+                })?;
 
                 let regex = Regex::new(&pattern_str).map_err(|e| PolicyValidationError {
                     policy_id: policy.id.clone(),
@@ -2510,16 +2600,82 @@ impl PolicyEngine {
         std::borrow::Cow::Owned(result)
     }
 
+    /// Maximum regex pattern length to prevent ReDoS via overlength patterns.
+    const MAX_REGEX_LEN: usize = 1024;
+
+    /// Validate a regex pattern for ReDoS safety.
+    ///
+    /// Rejects patterns that are too long (>1024 chars) or contain nested
+    /// quantifiers like `(a+)+`, `(a*)*`, `(a+)*`, `(a*)+` which can cause
+    /// exponential backtracking in regex engines.
+    fn validate_regex_safety(pattern: &str) -> Result<(), String> {
+        if pattern.len() > Self::MAX_REGEX_LEN {
+            return Err(format!(
+                "Regex pattern exceeds maximum length of {} chars ({} chars)",
+                Self::MAX_REGEX_LEN,
+                pattern.len()
+            ));
+        }
+
+        // Detect nested quantifiers: a quantifier applied to a group that
+        // itself contains a quantifier. Simplified check for common patterns.
+        let quantifiers = ['+', '*'];
+        let mut paren_depth = 0i32;
+        let mut has_inner_quantifier = false;
+        let chars: Vec<char> = pattern.chars().collect();
+
+        for i in 0..chars.len() {
+            match chars[i] {
+                '\\' => {
+                    // Skip escaped character
+                    continue;
+                }
+                '(' if i == 0 || chars[i - 1] != '\\' => {
+                    paren_depth += 1;
+                    has_inner_quantifier = false;
+                }
+                ')' if i == 0 || chars[i - 1] != '\\' => {
+                    paren_depth -= 1;
+                    // Check if the next char is a quantifier
+                    if i + 1 < chars.len()
+                        && quantifiers.contains(&chars[i + 1])
+                        && has_inner_quantifier
+                    {
+                        return Err(format!(
+                            "Regex pattern contains nested quantifiers (potential ReDoS): '{}'",
+                            &pattern[..pattern.len().min(100)]
+                        ));
+                    }
+                }
+                c if quantifiers.contains(&c)
+                    && paren_depth > 0
+                    && (i == 0 || chars[i - 1] != '\\') =>
+                {
+                    has_inner_quantifier = true;
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
     /// Compile a regex pattern and test whether it matches the input.
     ///
     /// Legacy path: compiles the pattern on each call (no caching).
     /// For zero-overhead evaluation, use `with_policies()` to pre-compile.
+    ///
+    /// Validates the pattern for ReDoS safety before compilation (H2).
     fn regex_is_match(
         &self,
         pattern: &str,
         input: &str,
         policy_id: &str,
     ) -> Result<bool, EngineError> {
+        Self::validate_regex_safety(pattern).map_err(|reason| EngineError::InvalidCondition {
+            policy_id: policy_id.to_string(),
+            reason,
+        })?;
         let re = Regex::new(pattern).map_err(|e| EngineError::InvalidCondition {
             policy_id: policy_id.to_string(),
             reason: format!("Invalid regex pattern '{}': {}", pattern, e),
@@ -2609,7 +2765,7 @@ impl PolicyEngine {
     const MAX_SCAN_VALUES: usize = 500;
 
     /// Maximum nesting depth for recursive parameter scanning.
-    const MAX_SCAN_DEPTH: usize = 32;
+    const MAX_JSON_DEPTH: usize = 32;
 
     /// Recursively collect all string values from a JSON structure.
     ///
@@ -2617,7 +2773,7 @@ impl PolicyEngine {
     /// description of where the value was found (e.g., `"options.target"`).
     /// Uses an iterative approach to avoid stack overflow on deep JSON.
     ///
-    /// Bounded by [`MAX_SCAN_VALUES`] total values and [`MAX_SCAN_DEPTH`] nesting depth.
+    /// Bounded by [`MAX_SCAN_VALUES`] total values and [`MAX_JSON_DEPTH`] nesting depth.
     fn collect_all_string_values(params: &serde_json::Value) -> Vec<(String, &str)> {
         let mut results = Vec::new();
         // Stack: (value, current_path, depth)
@@ -2634,7 +2790,7 @@ impl PolicyEngine {
                     }
                 }
                 serde_json::Value::Object(obj) => {
-                    if depth >= Self::MAX_SCAN_DEPTH {
+                    if depth >= Self::MAX_JSON_DEPTH {
                         continue;
                     }
                     for (key, child) in obj {
@@ -2651,7 +2807,7 @@ impl PolicyEngine {
                     }
                 }
                 serde_json::Value::Array(arr) => {
-                    if depth >= Self::MAX_SCAN_DEPTH {
+                    if depth >= Self::MAX_JSON_DEPTH {
                         continue;
                     }
                     for (i, child) in arr.iter().enumerate() {
@@ -4955,7 +5111,7 @@ mod tests {
 
     #[test]
     fn test_collect_all_string_values_depth_limit() {
-        // Build a structure deeper than MAX_SCAN_DEPTH
+        // Build a structure deeper than MAX_JSON_DEPTH
         let mut val = json!("deep_secret");
         for _ in 0..40 {
             val = json!({"nested": val});
@@ -4964,7 +5120,7 @@ mod tests {
         // The string is at depth 40, but our limit is 32 — it should NOT be found
         assert!(
             values.is_empty(),
-            "Values beyond MAX_SCAN_DEPTH should not be collected"
+            "Values beyond MAX_JSON_DEPTH should not be collected"
         );
     }
 
@@ -7646,5 +7802,230 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ── ReDoS Protection Tests (H2) ─────────────────────
+
+    #[test]
+    fn test_redos_nested_quantifiers_rejected() {
+        let result = PolicyEngine::validate_regex_safety("(a+)+b");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("nested quantifier"));
+    }
+
+    #[test]
+    fn test_redos_star_star_rejected() {
+        let result = PolicyEngine::validate_regex_safety("(a*)*");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_redos_overlength_rejected() {
+        let long_pattern = "a".repeat(1025);
+        let result = PolicyEngine::validate_regex_safety(&long_pattern);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("maximum length"));
+    }
+
+    #[test]
+    fn test_redos_valid_patterns_accepted() {
+        assert!(PolicyEngine::validate_regex_safety(r"^/[\w/.\-]+$").is_ok());
+        assert!(PolicyEngine::validate_regex_safety(r"[a-z]+").is_ok());
+        assert!(PolicyEngine::validate_regex_safety(r"foo|bar|baz").is_ok());
+        assert!(PolicyEngine::validate_regex_safety(r"(abc)+").is_ok()); // quantifier on group without inner quantifier
+    }
+
+    #[test]
+    fn test_redos_compile_constraint_rejects_unsafe_regex() {
+        let policy = Policy {
+            id: "test:*".to_string(),
+            name: "test".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [
+                        {"param": "input", "op": "regex", "pattern": "(a+)+b"}
+                    ]
+                }),
+            },
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        };
+        let result = PolicyEngine::with_policies(false, &[policy]);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors[0].reason.contains("nested quantifier"));
+    }
+
+    #[test]
+    fn test_redos_legacy_regex_is_match_rejects_unsafe() {
+        let engine = PolicyEngine::new(false);
+        let result = engine.regex_is_match("(a+)+b", "aaaaab", "test-policy");
+        assert!(result.is_err());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // 6B: DOMAIN SYNTAX VALIDATION (L1)
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_validate_domain_pattern_valid() {
+        // Simple domains
+        assert!(PolicyEngine::validate_domain_pattern("example.com").is_ok());
+        assert!(PolicyEngine::validate_domain_pattern("sub.example.com").is_ok());
+        assert!(PolicyEngine::validate_domain_pattern("a-b.example.com").is_ok());
+        // Wildcard prefix
+        assert!(PolicyEngine::validate_domain_pattern("*.example.com").is_ok());
+        // Single-label domain
+        assert!(PolicyEngine::validate_domain_pattern("localhost").is_ok());
+    }
+
+    #[test]
+    fn test_validate_domain_pattern_invalid() {
+        // Empty string
+        assert!(PolicyEngine::validate_domain_pattern("").is_err());
+
+        // Label longer than 63 characters
+        let long_label = "a".repeat(64);
+        let long_domain = format!("{}.example.com", long_label);
+        assert!(
+            PolicyEngine::validate_domain_pattern(&long_domain).is_err(),
+            "Label > 63 chars should be rejected"
+        );
+
+        // Leading hyphen in label
+        assert!(
+            PolicyEngine::validate_domain_pattern("-example.com").is_err(),
+            "Leading hyphen should be rejected"
+        );
+
+        // Trailing hyphen in label
+        assert!(
+            PolicyEngine::validate_domain_pattern("example-.com").is_err(),
+            "Trailing hyphen should be rejected"
+        );
+
+        // Total domain length > 253 characters
+        let labels: Vec<String> = (0..50).map(|i| format!("label{}", i)).collect();
+        let huge_domain = labels.join(".");
+        assert!(huge_domain.len() > 253);
+        assert!(
+            PolicyEngine::validate_domain_pattern(&huge_domain).is_err(),
+            "Domain > 253 chars should be rejected"
+        );
+
+        // Invalid characters (underscore)
+        assert!(
+            PolicyEngine::validate_domain_pattern("under_score.example.com").is_err(),
+            "Underscore in label should be rejected"
+        );
+
+        // Invalid characters (space)
+        assert!(
+            PolicyEngine::validate_domain_pattern("spa ce.example.com").is_err(),
+            "Space in label should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_validate_domain_pattern_wildcard_prefix_only() {
+        // Valid wildcard at prefix
+        assert!(PolicyEngine::validate_domain_pattern("*.example.com").is_ok());
+
+        // Invalid wildcard in middle
+        assert!(
+            PolicyEngine::validate_domain_pattern("sub.*.example.com").is_err(),
+            "Wildcard in middle should be rejected"
+        );
+
+        // Invalid wildcard at end
+        assert!(
+            PolicyEngine::validate_domain_pattern("example.*").is_err(),
+            "Wildcard at end should be rejected"
+        );
+
+        // Bare wildcard with no domain
+        assert!(
+            PolicyEngine::validate_domain_pattern("*.").is_err(),
+            "Bare '*.' with no domain should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_compile_policy_rejects_invalid_domain_in_network_rules() {
+        use sentinel_types::NetworkRules;
+
+        let policy = Policy {
+            id: "test:net".to_string(),
+            name: "Net policy".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+            path_rules: None,
+            network_rules: Some(NetworkRules {
+                allowed_domains: vec!["valid.example.com".to_string()],
+                blocked_domains: vec!["-invalid.com".to_string()],
+            }),
+        };
+
+        let result = PolicyEngine::with_policies(false, &[policy]);
+        assert!(
+            result.is_err(),
+            "Policy with invalid domain pattern should fail compilation"
+        );
+        let errors = result.unwrap_err();
+        assert!(
+            errors[0].reason.contains("Invalid domain pattern"),
+            "Error should mention invalid domain pattern, got: {}",
+            errors[0].reason
+        );
+    }
+
+    // ═══════════════════════════════════════════════════
+    // 6D: CONSISTENT JSON DEPTH ENFORCEMENT (L4)
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_max_json_depth_constant_value() {
+        // Verify the constant is 32 and is used consistently.
+        assert_eq!(
+            PolicyEngine::MAX_JSON_DEPTH,
+            32,
+            "MAX_JSON_DEPTH should be 32"
+        );
+    }
+
+    #[test]
+    fn test_json_depth_and_scan_depth_use_same_constant() {
+        // The depth check in collect_all_string_values uses `depth >= MAX_JSON_DEPTH`
+        // on objects/arrays to stop descending. A string at depth D is collected
+        // because strings don't recurse. So a string wrapped in MAX_JSON_DEPTH
+        // objects is at depth MAX_JSON_DEPTH and IS collected (the object at
+        // depth MAX_JSON_DEPTH - 1 pushes its child string at depth MAX_JSON_DEPTH,
+        // and strings are processed without checking depth).
+        //
+        // A string wrapped in MAX_JSON_DEPTH + 1 objects is NOT collected, because
+        // the object at depth MAX_JSON_DEPTH is skipped entirely (depth >= MAX_JSON_DEPTH).
+
+        // Build a structure one level beyond MAX_JSON_DEPTH (should NOT be found)
+        let mut val = json!("deep_value");
+        for _ in 0..(PolicyEngine::MAX_JSON_DEPTH + 1) {
+            val = json!({"nested": val});
+        }
+        let values = PolicyEngine::collect_all_string_values(&val);
+        assert!(
+            values.is_empty(),
+            "Values beyond MAX_JSON_DEPTH should not be collected"
+        );
+
+        // A string at exactly MAX_JSON_DEPTH - 1 nesting should be found
+        let mut val2 = json!("shallow_value");
+        for _ in 0..(PolicyEngine::MAX_JSON_DEPTH - 1) {
+            val2 = json!({"nested": val2});
+        }
+        let values2 = PolicyEngine::collect_all_string_values(&val2);
+        assert!(
+            !values2.is_empty(),
+            "Values at depth MAX_JSON_DEPTH - 1 should be collected"
+        );
     }
 }

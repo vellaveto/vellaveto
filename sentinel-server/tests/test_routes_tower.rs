@@ -1748,3 +1748,497 @@ async fn checkpoint_create_without_signing_key_fails() {
         "Creating checkpoint without signing key should fail"
     );
 }
+
+// ════════════════════════════════
+// APPROVAL AUDIT TRAIL (Phase 4D - M7)
+// ════════════════════════════════
+
+#[tokio::test]
+async fn test_approve_creates_audit_entry() {
+    let (state, tmp) = make_approval_state();
+    let audit_path = tmp.path().join("audit.log");
+    let approval_id = create_pending_approval(&state).await;
+
+    // Approve the pending approval
+    let app = routes::build_router(state.clone());
+    let body = serde_json::to_string(&json!({"resolved_by": "admin"})).unwrap();
+    let resp = app
+        .oneshot(
+            Request::post(format!("/api/approvals/{}/approve", approval_id))
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Give async audit write a moment to flush
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // Read the audit log and find the approval_approved entry
+    let content = tokio::fs::read_to_string(&audit_path)
+        .await
+        .expect("audit log should exist");
+    let entries: Vec<serde_json::Value> = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).expect("each audit line should be valid JSON"))
+        .collect();
+
+    // There should be at least 2 entries: one from the initial evaluate (RequireApproval)
+    // and one from the approval resolution
+    let approval_entry = entries
+        .iter()
+        .find(|e| {
+            e.get("metadata")
+                .and_then(|m| m.get("event"))
+                .and_then(|v| v.as_str())
+                == Some("approval_approved")
+        })
+        .expect("Should find an audit entry with event=approval_approved");
+
+    // Verify the audit entry contains the right action
+    assert_eq!(
+        approval_entry["action"]["tool"], "sentinel",
+        "Audit entry tool should be 'sentinel'"
+    );
+    assert_eq!(
+        approval_entry["action"]["function"], "approval_resolved",
+        "Audit entry function should be 'approval_resolved'"
+    );
+    // Verify verdict is Allow
+    assert_eq!(
+        approval_entry["verdict"], "Allow",
+        "Approval audit entry should have Allow verdict"
+    );
+}
+
+#[tokio::test]
+async fn test_deny_creates_audit_entry() {
+    let (state, tmp) = make_approval_state();
+    let audit_path = tmp.path().join("audit.log");
+    let approval_id = create_pending_approval(&state).await;
+
+    // Deny the pending approval
+    let app = routes::build_router(state.clone());
+    let body = serde_json::to_string(&json!({"resolved_by": "security-team"})).unwrap();
+    let resp = app
+        .oneshot(
+            Request::post(format!("/api/approvals/{}/deny", approval_id))
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Give async audit write a moment to flush
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // Read the audit log and find the approval_denied entry
+    let content = tokio::fs::read_to_string(&audit_path)
+        .await
+        .expect("audit log should exist");
+    let entries: Vec<serde_json::Value> = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).expect("each audit line should be valid JSON"))
+        .collect();
+
+    let denial_entry = entries
+        .iter()
+        .find(|e| {
+            e.get("metadata")
+                .and_then(|m| m.get("event"))
+                .and_then(|v| v.as_str())
+                == Some("approval_denied")
+        })
+        .expect("Should find an audit entry with event=approval_denied");
+
+    // Verify the audit entry contains the right action
+    assert_eq!(
+        denial_entry["action"]["tool"], "sentinel",
+        "Audit entry tool should be 'sentinel'"
+    );
+    assert_eq!(
+        denial_entry["action"]["function"], "approval_resolved",
+        "Audit entry function should be 'approval_resolved'"
+    );
+    // Verify verdict is Deny
+    let verdict = &denial_entry["verdict"];
+    assert!(
+        verdict.get("Deny").is_some(),
+        "Denial audit entry should have Deny verdict, got: {}",
+        verdict
+    );
+}
+
+#[tokio::test]
+async fn test_audit_entry_contains_resolver_identity() {
+    let (state, tmp) = make_approval_state();
+    let audit_path = tmp.path().join("audit.log");
+    let approval_id = create_pending_approval(&state).await;
+
+    // Approve with a specific resolver identity (use a non-PII value to
+    // avoid redaction by the default KeysAndPatterns level)
+    let app = routes::build_router(state.clone());
+    let body = serde_json::to_string(&json!({"resolved_by": "security-lead-team-alpha"})).unwrap();
+    let resp = app
+        .oneshot(
+            Request::post(format!("/api/approvals/{}/approve", approval_id))
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Give async audit write a moment to flush
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // Read the audit log and find the approval entry
+    let content = tokio::fs::read_to_string(&audit_path)
+        .await
+        .expect("audit log should exist");
+    let entries: Vec<serde_json::Value> = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).expect("each audit line should be valid JSON"))
+        .collect();
+
+    let approval_entry = entries
+        .iter()
+        .find(|e| {
+            e.get("metadata")
+                .and_then(|m| m.get("event"))
+                .and_then(|v| v.as_str())
+                == Some("approval_approved")
+        })
+        .expect("Should find an audit entry with event=approval_approved");
+
+    // Verify the resolver identity is recorded in metadata
+    let resolved_by = approval_entry["metadata"]["resolved_by"]
+        .as_str()
+        .expect("metadata.resolved_by should be a string");
+    assert_eq!(
+        resolved_by, "security-lead-team-alpha",
+        "Audit entry should record the resolver identity"
+    );
+
+    // Verify the approval_id is recorded in the action parameters
+    let recorded_id = approval_entry["action"]["parameters"]["approval_id"]
+        .as_str()
+        .expect("action.parameters.approval_id should be a string");
+    assert_eq!(
+        recorded_id, approval_id,
+        "Audit entry should record the approval_id"
+    );
+
+    // Verify the original tool/function are recorded
+    assert_eq!(
+        approval_entry["action"]["parameters"]["original_tool"], "sensitive",
+        "Audit entry should record the original tool"
+    );
+    assert_eq!(
+        approval_entry["action"]["parameters"]["original_function"], "delete",
+        "Audit entry should record the original function"
+    );
+}
+
+// ════════════════════════════════
+// SECURITY HEADERS: X-PERMITTED-CROSS-DOMAIN-POLICIES & HSTS (Phase 6C)
+// ════════════════════════════════
+
+#[tokio::test]
+async fn test_security_header_xpcdp_always_present() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    let resp = app
+        .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers()
+            .get("x-permitted-cross-domain-policies")
+            .map(|v| v.as_bytes()),
+        Some(b"none".as_slice()),
+        "X-Permitted-Cross-Domain-Policies header should always be 'none'"
+    );
+}
+
+#[tokio::test]
+async fn test_security_header_hsts_on_https() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    // Simulate HTTPS via X-Forwarded-Proto header (as set by reverse proxies)
+    let resp = app
+        .oneshot(
+            Request::get("/health")
+                .header("x-forwarded-proto", "https")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let hsts = resp.headers().get("strict-transport-security");
+    assert!(
+        hsts.is_some(),
+        "Strict-Transport-Security header should be present when X-Forwarded-Proto is https"
+    );
+    assert_eq!(
+        hsts.unwrap().as_bytes(),
+        b"max-age=31536000; includeSubDomains",
+        "HSTS header should have correct value"
+    );
+}
+
+#[tokio::test]
+async fn test_security_header_no_hsts_on_http() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    // No X-Forwarded-Proto header — plain HTTP
+    let resp = app
+        .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let hsts = resp.headers().get("strict-transport-security");
+    assert!(
+        hsts.is_none(),
+        "Strict-Transport-Security header should NOT be present on plain HTTP"
+    );
+}
+
+// ════════════════════════════════
+// PER-PRINCIPAL RATE LIMITING
+// ════════════════════════════════
+
+fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
+    let tmp = TempDir::new().unwrap();
+    let rate_limits =
+        RateLimits::disabled().with_per_principal(std::num::NonZeroU32::new(rps).unwrap());
+    let state = AppState {
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
+        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
+            id: "file:read".to_string(),
+            name: "Allow file reads".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+            path_rules: None,
+            network_rules: None,
+        }])),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("nonexistent.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: None,
+        rate_limits: Arc::new(rate_limits),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
+    };
+    (state, tmp)
+}
+
+#[tokio::test]
+async fn per_principal_rate_limit_uses_x_principal_header() {
+    // 1 req/s per principal — second request from same principal gets 429
+    let (state, _tmp) = make_per_principal_state(1);
+    let app = routes::build_router(state.clone());
+
+    let body = serde_json::to_string(&json!({
+        "tool": "file", "function": "read", "parameters": {}
+    }))
+    .unwrap();
+
+    // First request with X-Principal: agent-a — allowed
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-principal", "agent-a")
+                .body(Body::from(body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Second request with X-Principal: agent-a — rate limited
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-principal", "agent-a")
+                .body(Body::from(body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "Second request from same principal should be rate-limited"
+    );
+
+    // Request with different principal: agent-b — allowed (independent)
+    let app = routes::build_router(state);
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-principal", "agent-b")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "Different principal should not be rate-limited"
+    );
+}
+
+#[tokio::test]
+async fn per_principal_rate_limit_falls_back_to_bearer_token() {
+    let (state, _tmp) = make_per_principal_state(1);
+    let app = routes::build_router(state.clone());
+
+    let body = serde_json::to_string(&json!({
+        "tool": "file", "function": "read", "parameters": {}
+    }))
+    .unwrap();
+
+    // First request with Bearer token (no X-Principal) — allowed
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer my-api-key-123")
+                .body(Body::from(body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Second request with same Bearer token — rate limited
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer my-api-key-123")
+                .body(Body::from(body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "Second request with same Bearer token should be rate-limited"
+    );
+
+    // Request with different Bearer token — allowed
+    let app = routes::build_router(state);
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer different-key-456")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "Different Bearer token should not be rate-limited"
+    );
+}
+
+#[tokio::test]
+async fn per_principal_health_endpoint_exempt() {
+    let (state, _tmp) = make_per_principal_state(1);
+
+    // Health endpoint should always be exempt from rate limiting
+    for _ in 0..5 {
+        let app = routes::build_router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::get("/health")
+                    .header("x-principal", "agent-flood")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "/health should be exempt from per-principal rate limiting"
+        );
+    }
+}
+
+#[tokio::test]
+async fn per_principal_x_principal_takes_precedence_over_bearer() {
+    let (state, _tmp) = make_per_principal_state(1);
+
+    let body = serde_json::to_string(&json!({
+        "tool": "file", "function": "read", "parameters": {}
+    }))
+    .unwrap();
+
+    // First request: X-Principal: agent-x with Bearer token
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-principal", "agent-x")
+                .header("authorization", "Bearer some-token")
+                .body(Body::from(body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Second request: same Bearer but different X-Principal — should be allowed
+    // because X-Principal takes precedence
+    let app = routes::build_router(state);
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-principal", "agent-y")
+                .header("authorization", "Bearer some-token")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "Different X-Principal should be allowed even with same Bearer token"
+    );
+}

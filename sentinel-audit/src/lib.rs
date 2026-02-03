@@ -58,6 +58,17 @@ pub struct ChainVerification {
     pub first_broken_at: Option<usize>,
 }
 
+/// Result of verifying chain integrity across rotated log files.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RotationVerification {
+    /// Whether all rotated files pass verification.
+    pub valid: bool,
+    /// Number of rotated files checked.
+    pub files_checked: usize,
+    /// Description of the first failure, if any.
+    pub first_failure: Option<String>,
+}
+
 /// A signed checkpoint that periodically attests to the audit chain state.
 ///
 /// Checkpoints provide non-repudiation: even if an attacker compromises the
@@ -411,7 +422,18 @@ impl AuditLogger {
             .open(&cp_path)
             .await?;
         file.write_all(line.as_bytes()).await?;
-        file.flush().await?;
+        // M1: Use sync_data() instead of flush() for durable writes
+        file.sync_data().await?;
+
+        // M1: Restrict checkpoint file permissions on Unix (0o600 = owner-only)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o600);
+            if let Err(e) = tokio::fs::set_permissions(&cp_path, perms).await {
+                tracing::warn!("Failed to set checkpoint permissions: {}", e);
+            }
+        }
 
         Ok(checkpoint)
     }
@@ -730,10 +752,28 @@ impl AuditLogger {
         Ok(())
     }
 
+    /// Get the path to the rotation manifest file.
+    ///
+    /// The manifest records each rotation event with the tail hash and
+    /// entry count, enabling cross-rotation chain verification (H1).
+    fn rotation_manifest_path(&self) -> PathBuf {
+        let stem = self
+            .log_path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy();
+        let parent = self.log_path.parent().unwrap_or(Path::new("."));
+        parent.join(format!("{}.rotation-manifest.jsonl", stem))
+    }
+
     /// Rotate the log file if it exceeds `max_file_size`.
     ///
     /// The caller MUST hold `last_hash` lock. On successful rotation the
     /// caller should reset the lock to `None` (new file = new chain).
+    ///
+    /// H1: Before rotation, captures the tail hash of the current log.
+    /// After rotation, appends a manifest entry recording the rotated file,
+    /// its tail hash, and entry count for cross-rotation verification.
     ///
     /// Returns `true` if rotation occurred.
     async fn maybe_rotate(&self) -> Result<bool, AuditError> {
@@ -751,17 +791,186 @@ impl AuditLogger {
             return Ok(false);
         }
 
+        // H1: Read the tail hash and entry count before rotation
+        let entries = self.load_entries().await.unwrap_or_default();
+        let tail_hash = entries
+            .last()
+            .and_then(|e| e.entry_hash.clone())
+            .unwrap_or_default();
+        let entry_count = entries.len();
+
         let rotated_path = self.rotated_path();
         tokio::fs::rename(&self.log_path, &rotated_path).await?;
 
+        // H1: Append rotation manifest entry
+        let manifest_entry = serde_json::json!({
+            "timestamp": Utc::now().to_rfc3339(),
+            "rotated_file": rotated_path.to_string_lossy(),
+            "tail_hash": tail_hash,
+            "entry_count": entry_count,
+        });
+        let manifest_path = self.rotation_manifest_path();
+        let mut manifest_line =
+            serde_json::to_string(&manifest_entry).map_err(|e| AuditError::Serialization(e))?;
+        manifest_line.push('\n');
+
+        let mut manifest_file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&manifest_path)
+            .await?;
+        manifest_file.write_all(manifest_line.as_bytes()).await?;
+        manifest_file.sync_data().await?;
+
         tracing::info!(
-            "Rotated audit log {} -> {} ({} bytes)",
+            "Rotated audit log {} -> {} ({} bytes, {} entries, tail_hash={})",
             self.log_path.display(),
             rotated_path.display(),
             metadata.len(),
+            entry_count,
+            &tail_hash[..tail_hash.len().min(16)],
         );
 
         Ok(true)
+    }
+
+    /// Verify chain integrity across rotated log files (H1).
+    ///
+    /// Loads the rotation manifest, verifies each rotated file's internal
+    /// hash chain, and checks that the recorded tail hashes match.
+    /// Detects missing files, tampered files, and manifest forgery.
+    pub async fn verify_across_rotations(&self) -> Result<RotationVerification, AuditError> {
+        let manifest_path = self.rotation_manifest_path();
+        let manifest_content = match tokio::fs::read_to_string(&manifest_path).await {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(RotationVerification {
+                    valid: true,
+                    files_checked: 0,
+                    first_failure: None,
+                });
+            }
+            Err(e) => return Err(AuditError::Io(e)),
+        };
+
+        let mut files_checked = 0;
+
+        for (i, line) in manifest_content.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let entry: serde_json::Value = serde_json::from_str(line)?;
+
+            let rotated_file = entry
+                .get("rotated_file")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let expected_tail_hash = entry
+                .get("tail_hash")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let expected_count = entry
+                .get("entry_count")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+
+            let rotated_path = PathBuf::from(rotated_file);
+
+            // Check file exists
+            if !rotated_path.exists() {
+                return Ok(RotationVerification {
+                    valid: false,
+                    files_checked: i,
+                    first_failure: Some(format!(
+                        "Rotated file missing: {}",
+                        rotated_path.display()
+                    )),
+                });
+            }
+
+            // Load and verify the rotated file's chain
+            let content = tokio::fs::read_to_string(&rotated_path).await?;
+            let mut entries = Vec::new();
+            for file_line in content.lines() {
+                if file_line.trim().is_empty() {
+                    continue;
+                }
+                if let Ok(ae) = serde_json::from_str::<AuditEntry>(file_line) {
+                    entries.push(ae);
+                }
+            }
+
+            // Verify entry count
+            if entries.len() != expected_count {
+                return Ok(RotationVerification {
+                    valid: false,
+                    files_checked: i,
+                    first_failure: Some(format!(
+                        "Entry count mismatch in {}: expected {}, got {}",
+                        rotated_path.display(),
+                        expected_count,
+                        entries.len()
+                    )),
+                });
+            }
+
+            // Verify tail hash
+            let actual_tail_hash = entries
+                .last()
+                .and_then(|e| e.entry_hash.as_deref())
+                .unwrap_or_default();
+            if actual_tail_hash != expected_tail_hash {
+                return Ok(RotationVerification {
+                    valid: false,
+                    files_checked: i,
+                    first_failure: Some(format!(
+                        "Tail hash mismatch in {}: expected {}, got {}",
+                        rotated_path.display(),
+                        expected_tail_hash,
+                        actual_tail_hash
+                    )),
+                });
+            }
+
+            // Verify internal hash chain
+            let mut prev_hash: Option<String> = None;
+            for (j, ae) in entries.iter().enumerate() {
+                if ae.prev_hash != prev_hash {
+                    return Ok(RotationVerification {
+                        valid: false,
+                        files_checked: i,
+                        first_failure: Some(format!(
+                            "Internal chain broken at entry {} in {}",
+                            j,
+                            rotated_path.display()
+                        )),
+                    });
+                }
+                if let Some(ref eh) = ae.entry_hash {
+                    let computed = Self::compute_entry_hash(ae)?;
+                    if *eh != computed {
+                        return Ok(RotationVerification {
+                            valid: false,
+                            files_checked: i,
+                            first_failure: Some(format!(
+                                "Hash mismatch at entry {} in {} (tampering detected)",
+                                j,
+                                rotated_path.display()
+                            )),
+                        });
+                    }
+                    prev_hash = Some(eh.clone());
+                }
+            }
+
+            files_checked += 1;
+        }
+
+        Ok(RotationVerification {
+            valid: true,
+            files_checked,
+            first_failure: None,
+        })
     }
 
     /// Build the destination path for a rotated log file.
@@ -3250,5 +3459,155 @@ mod tests {
         // Should be the FIRST gap (entries 2→3, 540 seconds)
         assert_eq!(start, "2026-02-03T10:01:00+00:00");
         assert_eq!(secs, 540);
+    }
+
+    // ── H1: Rotation Chain Continuity Tests ──
+
+    #[tokio::test]
+    async fn test_rotation_writes_manifest() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
+
+        // Write enough entries to trigger rotation
+        for i in 0..10 {
+            let action = Action::new("tool", format!("func_{}", i), json!({}));
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({"i": i}))
+                .await
+                .unwrap();
+        }
+
+        // Check that rotation manifest was created
+        let manifest_path = dir.path().join("audit.rotation-manifest.jsonl");
+        assert!(manifest_path.exists(), "Rotation manifest should exist");
+
+        let content = tokio::fs::read_to_string(&manifest_path).await.unwrap();
+        assert!(!content.is_empty(), "Manifest should have content");
+
+        let entry: serde_json::Value =
+            serde_json::from_str(content.lines().next().unwrap()).unwrap();
+        assert!(entry.get("tail_hash").is_some());
+        assert!(entry.get("entry_count").is_some());
+        assert!(entry.get("rotated_file").is_some());
+        assert!(entry.get("timestamp").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_rotation_verification_passes_valid() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
+
+        // Write enough entries to trigger rotation
+        for i in 0..10 {
+            let action = Action::new("tool", format!("func_{}", i), json!({}));
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({"i": i}))
+                .await
+                .unwrap();
+        }
+
+        let result = logger.verify_across_rotations().await.unwrap();
+        assert!(
+            result.valid,
+            "Valid rotation should pass: {:?}",
+            result.first_failure
+        );
+        assert!(result.files_checked > 0);
+    }
+
+    #[tokio::test]
+    async fn test_rotation_verification_detects_missing_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
+
+        for i in 0..10 {
+            let action = Action::new("tool", format!("func_{}", i), json!({}));
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({"i": i}))
+                .await
+                .unwrap();
+        }
+
+        // Delete the rotated file
+        let rotated = logger.list_rotated_files().unwrap();
+        for f in &rotated {
+            std::fs::remove_file(f).unwrap();
+        }
+
+        let result = logger.verify_across_rotations().await.unwrap();
+        assert!(!result.valid, "Missing file should fail verification");
+        assert!(result.first_failure.unwrap().contains("missing"));
+    }
+
+    #[tokio::test]
+    async fn test_rotation_verification_detects_tampered_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
+
+        for i in 0..10 {
+            let action = Action::new("tool", format!("func_{}", i), json!({}));
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({"i": i}))
+                .await
+                .unwrap();
+        }
+
+        // Tamper with the rotated file
+        let rotated = logger.list_rotated_files().unwrap();
+        if let Some(rotated_file) = rotated.first() {
+            let content = std::fs::read_to_string(rotated_file).unwrap();
+            // Replace first line with garbage
+            let tampered = content.replacen("Allow", "Deny", 1);
+            std::fs::write(rotated_file, tampered).unwrap();
+        }
+
+        let result = logger.verify_across_rotations().await.unwrap();
+        assert!(!result.valid, "Tampered file should fail verification");
+    }
+
+    #[tokio::test]
+    async fn test_rotation_no_manifest_passes() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.log");
+        let logger = AuditLogger::new(log_path);
+
+        // No rotation happened, so no manifest
+        let result = logger.verify_across_rotations().await.unwrap();
+        assert!(result.valid);
+        assert_eq!(result.files_checked, 0);
+    }
+
+    // ── M1: Checkpoint Permissions Tests ──
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_checkpoint_permissions_0600() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.log");
+        let key = AuditLogger::generate_signing_key();
+        let logger = AuditLogger::new(log_path.clone()).with_signing_key(key);
+
+        let action = Action::new("tool", "func", json!({}));
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+
+        logger.create_checkpoint().await.unwrap();
+
+        let cp_path = dir.path().join("audit.checkpoints.jsonl");
+        let metadata = std::fs::metadata(&cp_path).unwrap();
+        let mode = metadata.permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "Checkpoint should have 0o600 permissions, got {:o}",
+            mode
+        );
     }
 }

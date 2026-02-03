@@ -25,6 +25,11 @@ pub struct InjectionConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
 
+    /// When true, injection matches block the response instead of just logging.
+    /// Default: `false` (log-only mode, backward compatible).
+    #[serde(default)]
+    pub block_on_injection: bool,
+
     /// Additional patterns appended to the default set.
     /// Matched case-insensitively after Unicode sanitization.
     #[serde(default)]
@@ -44,6 +49,7 @@ impl Default for InjectionConfig {
     fn default() -> Self {
         Self {
             enabled: true,
+            block_on_injection: false,
             extra_patterns: Vec::new(),
             disabled_patterns: Vec::new(),
         }
@@ -94,6 +100,8 @@ impl PolicyRule {
 /// per_ip_rps = 100
 /// per_ip_burst = 10
 /// per_ip_max_capacity = 100000
+/// per_principal_rps = 50
+/// per_principal_burst = 10
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RateLimitConfig {
@@ -115,6 +123,11 @@ pub struct RateLimitConfig {
     pub per_ip_burst: Option<u32>,
     /// Maximum number of unique IPs tracked simultaneously.
     pub per_ip_max_capacity: Option<usize>,
+    /// Max sustained requests/sec per principal (identified by X-Principal
+    /// header, Bearer token, or client IP as fallback).
+    pub per_principal_rps: Option<u32>,
+    /// Burst allowance above `per_principal_rps`.
+    pub per_principal_burst: Option<u32>,
 }
 
 /// Audit log configuration.
@@ -554,8 +567,27 @@ policy_type = "Allow"
 "#;
         let config = PolicyConfig::from_toml(toml).unwrap();
         assert!(config.injection.enabled);
+        assert!(!config.injection.block_on_injection);
         assert!(config.injection.extra_patterns.is_empty());
         assert!(config.injection.disabled_patterns.is_empty());
+    }
+
+    #[test]
+    fn test_injection_config_block_on_injection() {
+        let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+
+[injection]
+enabled = true
+block_on_injection = true
+"#;
+        let config = PolicyConfig::from_toml(toml).unwrap();
+        assert!(config.injection.enabled);
+        assert!(config.injection.block_on_injection);
     }
 
     #[test]
@@ -707,6 +739,8 @@ policy_type = "Allow"
         assert!(config.rate_limit.per_ip_rps.is_none());
         assert!(config.rate_limit.per_ip_burst.is_none());
         assert!(config.rate_limit.per_ip_max_capacity.is_none());
+        assert!(config.rate_limit.per_principal_rps.is_none());
+        assert!(config.rate_limit.per_principal_burst.is_none());
     }
 
     #[test]
@@ -728,6 +762,8 @@ readonly_burst = 20
 per_ip_rps = 100
 per_ip_burst = 10
 per_ip_max_capacity = 50000
+per_principal_rps = 50
+per_principal_burst = 10
 "#;
         let config = PolicyConfig::from_toml(toml).unwrap();
         assert_eq!(config.rate_limit.evaluate_rps, Some(1000));
@@ -739,6 +775,8 @@ per_ip_max_capacity = 50000
         assert_eq!(config.rate_limit.per_ip_rps, Some(100));
         assert_eq!(config.rate_limit.per_ip_burst, Some(10));
         assert_eq!(config.rate_limit.per_ip_max_capacity, Some(50000));
+        assert_eq!(config.rate_limit.per_principal_rps, Some(50));
+        assert_eq!(config.rate_limit.per_principal_burst, Some(10));
     }
 
     #[test]
@@ -761,6 +799,8 @@ per_ip_rps = 50
         assert_eq!(config.rate_limit.per_ip_rps, Some(50));
         assert!(config.rate_limit.per_ip_burst.is_none());
         assert!(config.rate_limit.per_ip_max_capacity.is_none());
+        assert!(config.rate_limit.per_principal_rps.is_none());
+        assert!(config.rate_limit.per_principal_burst.is_none());
     }
 
     // --- Supply chain verification tests ---

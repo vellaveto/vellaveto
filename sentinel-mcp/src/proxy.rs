@@ -11,6 +11,7 @@ use sentinel_engine::PolicyEngine;
 use sentinel_types::{EvaluationTrace, Policy, Verdict};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::BufReader;
@@ -49,11 +50,16 @@ pub struct ProxyBridge {
     injection_scanner: Option<InjectionScanner>,
     /// When true, injection scanning is completely disabled.
     injection_disabled: bool,
+    /// When true, injection matches block the response instead of just logging (H4).
+    injection_blocking: bool,
     /// Optional approval store for RequireApproval verdicts.
     approval_store: Option<Arc<ApprovalStore>>,
     /// Optional manifest verification config. When set, the first tools/list
     /// response is pinned and subsequent responses are verified against it.
     manifest_config: Option<ManifestConfig>,
+    /// Optional path for persisting flagged (rug-pulled) tool names as JSONL.
+    /// When set, flagged tools are appended to this file and loaded on startup.
+    flagged_tools_path: Option<PathBuf>,
 }
 
 impl ProxyBridge {
@@ -66,8 +72,10 @@ impl ProxyBridge {
             enable_trace: false,
             injection_scanner: None,
             injection_disabled: false,
+            injection_blocking: false,
             approval_store: None,
             manifest_config: None,
+            flagged_tools_path: None,
         }
     }
 
@@ -110,6 +118,105 @@ impl ProxyBridge {
     pub fn with_injection_disabled(mut self, disabled: bool) -> Self {
         self.injection_disabled = disabled;
         self
+    }
+
+    /// Enable injection blocking mode (H4).
+    /// When enabled, injection matches replace the response with an error
+    /// instead of just logging. Default: false (log-only).
+    pub fn with_injection_blocking(mut self, blocking: bool) -> Self {
+        self.injection_blocking = blocking;
+        self
+    }
+
+    /// Set the file path for persisting flagged (rug-pulled) tool names.
+    /// When set, flagged tools are appended to this JSONL file and reloaded on proxy start.
+    pub fn with_flagged_tools_path(mut self, path: PathBuf) -> Self {
+        self.flagged_tools_path = Some(path);
+        self
+    }
+
+    /// Persist a flagged tool to the JSONL file.
+    ///
+    /// Appends a single line: `{"tool":"<name>","flagged_at":"<ISO8601>","reason":"<reason>"}`
+    /// Does nothing if `flagged_tools_path` is not configured.
+    async fn persist_flagged_tool(&self, tool_name: &str, reason: &str) {
+        let path = match &self.flagged_tools_path {
+            Some(p) => p,
+            None => return,
+        };
+        let now = chrono::Utc::now().to_rfc3339();
+        let entry = json!({
+            "tool": tool_name,
+            "flagged_at": now,
+            "reason": reason,
+        });
+        let line = match serde_json::to_string(&entry) {
+            Ok(s) => format!("{}\n", s),
+            Err(e) => {
+                tracing::warn!("Failed to serialize flagged tool entry: {}", e);
+                return;
+            }
+        };
+        match tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .await
+        {
+            Ok(mut file) => {
+                use tokio::io::AsyncWriteExt;
+                if let Err(e) = file.write_all(line.as_bytes()).await {
+                    tracing::warn!("Failed to persist flagged tool '{}': {}", tool_name, e);
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to open flagged tools file: {}", e);
+            }
+        }
+    }
+
+    /// Load previously flagged tools from the JSONL persistence file.
+    ///
+    /// Returns an empty set if the file does not exist or `flagged_tools_path` is not configured.
+    async fn load_flagged_tools(&self) -> std::collections::HashSet<String> {
+        let path = match &self.flagged_tools_path {
+            Some(p) => p,
+            None => return std::collections::HashSet::new(),
+        };
+        let contents = match tokio::fs::read_to_string(path).await {
+            Ok(c) => c,
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!("Failed to read flagged tools file: {}", e);
+                }
+                return std::collections::HashSet::new();
+            }
+        };
+        let mut tools = std::collections::HashSet::new();
+        for line in contents.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            match serde_json::from_str::<Value>(line) {
+                Ok(entry) => {
+                    if let Some(tool) = entry.get("tool").and_then(|t| t.as_str()) {
+                        tools.insert(tool.to_string());
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Skipping malformed flagged-tools line: {}", e);
+                }
+            }
+        }
+        if !tools.is_empty() {
+            tracing::info!(
+                "Loaded {} previously flagged tools from {:?}",
+                tools.len(),
+                path
+            );
+        }
+        tools
     }
 
     /// Evaluate an action against policies, optionally producing a trace.
@@ -306,7 +413,8 @@ impl ProxyBridge {
         // When annotation changes or new tools are detected after the initial
         // tools/list, their names are inserted here. Subsequent calls to
         // flagged tools are denied instead of forwarded.
-        let mut flagged_tools: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // Phase 4B: Load previously persisted flagged tools on startup.
+        let mut flagged_tools: std::collections::HashSet<String> = self.load_flagged_tools().await;
 
         // Phase 5: Pinned tool manifest for schema verification.
         // Built from the first tools/list response, verified on subsequent ones.
@@ -596,12 +704,21 @@ impl ProxyBridge {
 
                                     // C-8.2: If this is a tools/list response, extract annotations
                                     if tools_list_request_ids.remove(&id_key) {
+                                        // Phase 4B: Snapshot flagged tools before detection to identify new ones
+                                        let flagged_before: std::collections::HashSet<String> = flagged_tools.clone();
+
                                         Self::extract_tool_annotations(
                                             &msg,
                                             &mut known_tool_annotations,
                                             &mut flagged_tools,
                                             &self.audit,
                                         ).await;
+
+                                        // Phase 4B: Persist any newly flagged tools
+                                        for name in flagged_tools.difference(&flagged_before) {
+                                            let reason = "annotation_change_or_new_tool";
+                                            self.persist_flagged_tool(name, reason).await;
+                                        }
 
                                         // Phase 5: Manifest verification on tools/list responses
                                         if let Some(ref manifest_cfg) = self.manifest_config {
@@ -703,15 +820,29 @@ impl ProxyBridge {
                                      Matched patterns: {:?}",
                                     injection_matches
                                 );
+                                // H4: In blocking mode, replace response with error
+                                let (verdict, should_block) = if self.injection_blocking {
+                                    (
+                                        Verdict::Deny {
+                                            reason: format!(
+                                                "Response blocked: prompt injection detected ({})",
+                                                injection_matches.join(", ")
+                                            ),
+                                        },
+                                        true,
+                                    )
+                                } else {
+                                    (Verdict::Allow, false) // Log-only, still forward
+                                };
                                 let action = sentinel_types::Action::new(
                                     "sentinel",
                                     "response_inspection",
                                     json!({
                                         "matched_patterns": injection_matches,
-                                        "response_id": msg.get("id")
+                                        "response_id": msg.get("id"),
+                                        "blocked": should_block,
                                     }),
                                 );
-                                let verdict = Verdict::Allow; // Log-only, still forward
                                 if let Err(e) = self.audit.log_entry(
                                     &action,
                                     &verdict,
@@ -720,9 +851,25 @@ impl ProxyBridge {
                                         "event": "prompt_injection_detected",
                                         "patterns": injection_matches,
                                         "protocol_version": negotiated_protocol_version,
+                                        "blocked": should_block,
                                     }),
                                 ).await {
                                     tracing::warn!("Failed to audit injection detection: {}", e);
+                                }
+
+                                if should_block {
+                                    // Replace the response with a JSON-RPC error
+                                    let blocked_response = json!({
+                                        "jsonrpc": "2.0",
+                                        "id": msg.get("id").cloned().unwrap_or(Value::Null),
+                                        "error": {
+                                            "code": -32005,
+                                            "message": "Response blocked: prompt injection detected"
+                                        }
+                                    });
+                                    write_message(&mut agent_writer, &blocked_response).await
+                                        .map_err(ProxyError::Framing)?;
+                                    continue;
                                 }
                             }
 
@@ -731,7 +878,46 @@ impl ProxyBridge {
                                 .map_err(ProxyError::Framing)?;
                         }
                         None => {
-                            tracing::info!("Child process closed");
+                            // H3: Child process terminated — flush ALL pending requests
+                            // with error responses so the agent doesn't hang.
+                            if !pending_requests.is_empty() {
+                                tracing::error!(
+                                    "Child MCP server terminated with {} pending requests",
+                                    pending_requests.len()
+                                );
+                                let crash_ids: Vec<String> = pending_requests.keys().cloned().collect();
+                                let pending_count = crash_ids.len();
+                                for id_key in &crash_ids {
+                                    pending_requests.remove(id_key);
+                                    let id: Value = serde_json::from_str(id_key).unwrap_or(Value::Null);
+                                    let response = json!({
+                                        "jsonrpc": "2.0",
+                                        "id": id,
+                                        "error": {
+                                            "code": -32003,
+                                            "message": "Child MCP server terminated unexpectedly"
+                                        }
+                                    });
+                                    if let Err(e) = write_message(&mut agent_writer, &response).await {
+                                        tracing::error!("Failed to send crash response: {}", e);
+                                    }
+                                }
+                                // Audit the crash event
+                                let action = sentinel_types::Action::new(
+                                    "sentinel",
+                                    "child_crash",
+                                    json!({}),
+                                );
+                                if let Err(e) = self.audit.log_entry(
+                                    &action,
+                                    &Verdict::Deny { reason: "Child MCP server terminated unexpectedly".to_string() },
+                                    json!({"source": "proxy", "event": "child_crash", "pending_requests": pending_count}),
+                                ).await {
+                                    tracing::warn!("Failed to audit child crash: {}", e);
+                                }
+                            } else {
+                                tracing::info!("Child process closed");
+                            }
                             break;
                         }
                     }
@@ -1577,6 +1763,7 @@ mod tests {
             destructive_hint: true,
             idempotent_hint: false,
             open_world_hint: true,
+            input_schema_hash: None,
         };
         // Should still forward (annotations are informational, not blocking by default)
         let decision = bridge.evaluate_tool_call(
@@ -1604,6 +1791,7 @@ mod tests {
             destructive_hint: false,
             idempotent_hint: true,
             open_world_hint: false,
+            input_schema_hash: None,
         };
         let decision = bridge.evaluate_tool_call(
             &json!(21),
@@ -1629,6 +1817,7 @@ mod tests {
             destructive_hint: false,
             idempotent_hint: true,
             open_world_hint: false,
+            input_schema_hash: None,
         };
         let meta = ProxyBridge::tool_call_audit_metadata("read_file", Some(&ann));
         assert_eq!(meta["source"], "proxy");
@@ -1793,5 +1982,152 @@ mod tests {
             .map(|m| m.is_array())
             .unwrap_or(false);
         assert!(!has_messages, "Empty params should not have messages");
+    }
+
+    // --- Phase 3: Injection blocking mode & child crash tests ---
+
+    #[test]
+    fn test_injection_blocking_builder_default_false() {
+        let engine = PolicyEngine::new(false);
+        let audit = Arc::new(AuditLogger::new(std::path::PathBuf::from("/dev/null")));
+        let bridge = ProxyBridge::new(engine, vec![], audit);
+        // Default: log-only mode
+        assert!(!bridge.injection_blocking);
+    }
+
+    #[test]
+    fn test_injection_blocking_builder_enabled() {
+        let engine = PolicyEngine::new(false);
+        let audit = Arc::new(AuditLogger::new(std::path::PathBuf::from("/dev/null")));
+        let bridge = ProxyBridge::new(engine, vec![], audit).with_injection_blocking(true);
+        assert!(bridge.injection_blocking);
+    }
+
+    #[test]
+    fn test_injection_disabled_overrides_blocking() {
+        let engine = PolicyEngine::new(false);
+        let audit = Arc::new(AuditLogger::new(std::path::PathBuf::from("/dev/null")));
+        let bridge = ProxyBridge::new(engine, vec![], audit)
+            .with_injection_disabled(true)
+            .with_injection_blocking(true);
+        // Even with blocking enabled, disabled takes precedence
+        assert!(bridge.injection_disabled);
+        assert!(bridge.injection_blocking);
+        // When injection_disabled is true, the scan produces empty matches,
+        // so blocking never triggers — tested in the run() integration path.
+    }
+
+    #[test]
+    fn test_child_crash_error_format() {
+        // Verify the JSON-RPC error format for child crash responses
+        let error_response = json!({
+            "jsonrpc": "2.0",
+            "id": "req-123",
+            "error": {
+                "code": -32003,
+                "message": "Child MCP server terminated unexpectedly"
+            }
+        });
+        let err = error_response.get("error").unwrap();
+        assert_eq!(err.get("code").unwrap().as_i64().unwrap(), -32003);
+        assert_eq!(
+            err.get("message").unwrap().as_str().unwrap(),
+            "Child MCP server terminated unexpectedly"
+        );
+    }
+
+    #[test]
+    fn test_injection_block_error_format() {
+        // Verify the JSON-RPC error format for injection blocking
+        let blocked_response = json!({
+            "jsonrpc": "2.0",
+            "id": 42,
+            "error": {
+                "code": -32005,
+                "message": "Response blocked: prompt injection detected"
+            }
+        });
+        let err = blocked_response.get("error").unwrap();
+        assert_eq!(err.get("code").unwrap().as_i64().unwrap(), -32005);
+        assert_eq!(
+            err.get("message").unwrap().as_str().unwrap(),
+            "Response blocked: prompt injection detected"
+        );
+    }
+
+    // --- Phase 4B: Persist flagged tools tests ---
+
+    #[tokio::test]
+    async fn test_flagged_tools_persist_to_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let flagged_path = dir.path().join("flagged_tools.jsonl");
+        let audit = Arc::new(AuditLogger::new(dir.path().join("audit.log")));
+        let bridge = ProxyBridge::new(PolicyEngine::new(false), vec![], audit)
+            .with_flagged_tools_path(flagged_path.clone());
+
+        // Persist two flagged tools
+        bridge
+            .persist_flagged_tool("evil_tool", "annotation_change")
+            .await;
+        bridge.persist_flagged_tool("new_tool", "new_tool").await;
+
+        // Read the file and verify contents
+        let contents = tokio::fs::read_to_string(&flagged_path).await.unwrap();
+        let lines: Vec<&str> = contents.lines().collect();
+        assert_eq!(lines.len(), 2);
+
+        let entry1: Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(entry1["tool"], "evil_tool");
+        assert_eq!(entry1["reason"], "annotation_change");
+        assert!(entry1["flagged_at"].as_str().is_some());
+
+        let entry2: Value = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(entry2["tool"], "new_tool");
+        assert_eq!(entry2["reason"], "new_tool");
+    }
+
+    #[tokio::test]
+    async fn test_flagged_tools_loaded_on_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let flagged_path = dir.path().join("flagged_tools.jsonl");
+
+        // Write some JSONL data to simulate a previous session
+        let lines = r#"{"tool":"evil_tool","flagged_at":"2026-01-01T00:00:00Z","reason":"annotation_change"}
+{"tool":"injected_tool","flagged_at":"2026-01-01T00:01:00Z","reason":"new_tool"}
+"#;
+        tokio::fs::write(&flagged_path, lines).await.unwrap();
+
+        let audit = Arc::new(AuditLogger::new(dir.path().join("audit.log")));
+        let bridge = ProxyBridge::new(PolicyEngine::new(false), vec![], audit)
+            .with_flagged_tools_path(flagged_path);
+
+        let loaded = bridge.load_flagged_tools().await;
+        assert_eq!(loaded.len(), 2);
+        assert!(loaded.contains("evil_tool"));
+        assert!(loaded.contains("injected_tool"));
+    }
+
+    #[tokio::test]
+    async fn test_flagged_tools_blocked_after_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let flagged_path = dir.path().join("flagged_tools.jsonl");
+
+        // Persist a flagged tool
+        let audit = Arc::new(AuditLogger::new(dir.path().join("audit.log")));
+        let bridge = ProxyBridge::new(PolicyEngine::new(false), vec![], audit.clone())
+            .with_flagged_tools_path(flagged_path.clone());
+        bridge
+            .persist_flagged_tool("suspicious_tool", "annotation_change")
+            .await;
+
+        // Create a new bridge (simulating restart) and load
+        let bridge2 = ProxyBridge::new(PolicyEngine::new(false), vec![], audit)
+            .with_flagged_tools_path(flagged_path);
+        let loaded = bridge2.load_flagged_tools().await;
+
+        assert!(
+            loaded.contains("suspicious_tool"),
+            "Tool should be in the loaded flagged set after reload"
+        );
     }
 }

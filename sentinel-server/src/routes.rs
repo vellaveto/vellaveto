@@ -105,7 +105,19 @@ fn build_cors_layer(origins: &[String]) -> CorsLayer {
 /// - `X-Frame-Options: DENY` — prevents clickjacking via iframes
 /// - `Content-Security-Policy: default-src 'none'` — blocks all content loading (API-only server)
 /// - `Cache-Control: no-store` — prevents caching of sensitive API responses
+/// - `X-Permitted-Cross-Domain-Policies: none` — blocks cross-domain policy files
+/// - `Strict-Transport-Security` — HSTS header, only when serving over HTTPS
 async fn security_headers(request: Request, next: Next) -> Response {
+    // Detect HTTPS before consuming the request:
+    // Check the URI scheme or the X-Forwarded-Proto header (set by reverse proxies).
+    let is_https = request.uri().scheme_str() == Some("https")
+        || request
+            .headers()
+            .get("x-forwarded-proto")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.eq_ignore_ascii_case("https"))
+            .unwrap_or(false);
+
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
     headers.insert(
@@ -121,6 +133,16 @@ async fn security_headers(request: Request, next: Next) -> Response {
         HeaderValue::from_static("default-src 'none'"),
     );
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(
+        header::HeaderName::from_static("x-permitted-cross-domain-policies"),
+        HeaderValue::from_static("none"),
+    );
+    if is_https {
+        headers.insert(
+            header::HeaderName::from_static("strict-transport-security"),
+            HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+        );
+    }
     response
 }
 
@@ -715,6 +737,34 @@ async fn approve_approval(
             )
         })?;
 
+    // M7: Audit trail for approval decisions
+    {
+        let audit_action = Action::new(
+            "sentinel",
+            "approval_resolved",
+            json!({
+                "approval_id": &id,
+                "original_tool": &approval.action.tool,
+                "original_function": &approval.action.function,
+            }),
+        );
+        if let Err(e) = state
+            .audit
+            .log_entry(
+                &audit_action,
+                &Verdict::Allow,
+                json!({
+                    "source": "api",
+                    "event": "approval_approved",
+                    "resolved_by": &resolved_by,
+                }),
+            )
+            .await
+        {
+            tracing::warn!("Failed to audit approval resolution for {}: {}", id, e);
+        }
+    }
+
     let value = serde_json::to_value(approval).map_err(|e| {
         tracing::error!("Approval serialization error: {}", e);
         (
@@ -770,6 +820,36 @@ async fn deny_approval(
         )
     })?;
 
+    // M7: Audit trail for approval decisions
+    {
+        let audit_action = Action::new(
+            "sentinel",
+            "approval_resolved",
+            json!({
+                "approval_id": &id,
+                "original_tool": &approval.action.tool,
+                "original_function": &approval.action.function,
+            }),
+        );
+        if let Err(e) = state
+            .audit
+            .log_entry(
+                &audit_action,
+                &Verdict::Deny {
+                    reason: "approval_denied".to_string(),
+                },
+                json!({
+                    "source": "api",
+                    "event": "approval_denied",
+                    "resolved_by": &resolved_by,
+                }),
+            )
+            .await
+        {
+            tracing::warn!("Failed to audit approval denial for {}: {}", id, e);
+        }
+    }
+
     let value = serde_json::to_value(approval).map_err(|e| {
         tracing::error!("Approval serialization error: {}", e);
         (
@@ -803,6 +883,19 @@ async fn rate_limit(State(state): State<AppState>, request: Request, next: Next)
     if let Some(ref per_ip) = state.rate_limits.per_ip {
         let client_ip = extract_client_ip(&request, &state.trusted_proxies);
         if let Some(retry_after) = per_ip.check(client_ip) {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(header::RETRY_AFTER, retry_after.to_string())],
+                Json(json!({"error": "Rate limit exceeded. Try again later.", "retry_after_seconds": retry_after})),
+            )
+                .into_response();
+        }
+    }
+
+    // Per-principal rate limiting (keyed by X-Principal header, Bearer token, or client IP)
+    if let Some(ref per_principal) = state.rate_limits.per_principal {
+        let principal_key = extract_principal_key(&request, &state.trusted_proxies);
+        if let Some(retry_after) = per_principal.check(principal_key) {
             return (
                 StatusCode::TOO_MANY_REQUESTS,
                 [(header::RETRY_AFTER, retry_after.to_string())],
@@ -888,6 +981,45 @@ fn extract_client_ip(request: &Request, trusted_proxies: &[std::net::IpAddr]) ->
 
     // All XFF entries were trusted proxies — use connection IP
     connection_ip
+}
+
+/// Extract the principal key from the request for per-principal rate limiting.
+///
+/// Resolution order:
+/// 1. `X-Principal` header — allows upstream services/proxies to identify the principal
+/// 2. Bearer token from the `Authorization` header — identifies the API consumer
+/// 3. Client IP address as a string — fallback for unauthenticated requests
+///
+/// The rate_limit middleware runs BEFORE require_api_key, so the Authorization
+/// header is always available at this point.
+fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]) -> String {
+    // 1. X-Principal header (explicit principal identity)
+    if let Some(principal) = request
+        .headers()
+        .get("x-principal")
+        .and_then(|v| v.to_str().ok())
+    {
+        if !principal.is_empty() {
+            return format!("principal:{}", principal);
+        }
+    }
+
+    // 2. Bearer token from Authorization header
+    if let Some(auth) = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    {
+        if let Some(token) = auth.strip_prefix("Bearer ") {
+            if !token.is_empty() {
+                return format!("bearer:{}", token);
+            }
+        }
+    }
+
+    // 3. Fallback to client IP
+    let client_ip = extract_client_ip(request, trusted_proxies);
+    format!("ip:{}", client_ip)
 }
 
 fn categorize_rate_limit<'a>(
