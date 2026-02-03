@@ -22,7 +22,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 | Metric | Value |
 |--------|-------|
 | Language | Rust |
-| Test suite | 1,900+ tests |
+| Test suite | 2,000+ tests |
 | Evaluation latency | <5ms P99 |
 | Memory baseline | <50MB |
 | License | MIT |
@@ -246,6 +246,52 @@ sentinel policies --preset deny-all    # Deny everything by default
 sentinel policies --preset allow-all   # Allow everything (testing only)
 ```
 
+### Rate Limiting
+
+Rate limits can be configured in the TOML config file. Environment variables override config values when set.
+
+```toml
+[rate_limit]
+evaluate_rps = 1000
+evaluate_burst = 50
+admin_rps = 20
+admin_burst = 5
+readonly_rps = 200
+readonly_burst = 20
+per_ip_rps = 100
+per_ip_burst = 10
+per_ip_max_capacity = 100000
+```
+
+### Audit Configuration
+
+Control how aggressively the audit logger redacts sensitive data:
+
+```toml
+[audit]
+redaction_level = "KeysAndPatterns"  # Off | KeysOnly | KeysAndPatterns
+```
+
+| Level | Behavior |
+|-------|----------|
+| `Off` | No redaction -- raw values logged as-is |
+| `KeysOnly` | Redacts sensitive keys (passwords, tokens) and known value prefixes |
+| `KeysAndPatterns` | Redacts keys, prefixes, and PII-like patterns (default) |
+
+### Supply Chain Verification
+
+Verify SHA-256 hashes of MCP server binaries before spawning them:
+
+```toml
+[supply_chain]
+enabled = true
+
+[supply_chain.allowed_servers]
+"/usr/local/bin/my-mcp" = "sha256hexdigest..."
+```
+
+When enabled, any binary not in the allowlist or with a hash mismatch is rejected.
+
 ## Deployment Modes
 
 ### HTTP API Server
@@ -311,24 +357,24 @@ Supports RS256, ES256, and EdDSA algorithms. Algorithm confusion attacks are pre
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/health` | No | Health check |
+| `GET` | `/api/metrics` | No | Server metrics (evaluations, allow/deny counts, uptime) |
 | `POST` | `/api/evaluate` | Yes | Evaluate a tool call against loaded policies |
-| `GET` | `/api/policies` | No | List all loaded policies |
+| `GET` | `/api/policies` | Yes | List all loaded policies |
 | `POST` | `/api/policies` | Yes | Add a new policy at runtime |
 | `DELETE` | `/api/policies/:id` | Yes | Remove a policy by ID |
 | `POST` | `/api/policies/reload` | Yes | Reload policies from config file |
-| `GET` | `/api/audit/entries` | No | List audit log entries |
-| `GET` | `/api/audit/report` | No | Audit summary report |
-| `GET` | `/api/audit/verify` | No | Verify hash chain integrity |
-| `GET` | `/api/audit/checkpoints` | No | List signed checkpoints |
-| `GET` | `/api/audit/checkpoints/verify` | No | Verify checkpoint signatures |
+| `GET` | `/api/audit/entries` | Yes | List audit log entries |
+| `GET` | `/api/audit/report` | Yes | Audit summary report |
+| `GET` | `/api/audit/verify` | Yes | Verify hash chain integrity |
+| `GET` | `/api/audit/checkpoints` | Yes | List signed checkpoints |
+| `GET` | `/api/audit/checkpoints/verify` | Yes | Verify checkpoint signatures |
 | `POST` | `/api/audit/checkpoint` | Yes | Create a signed checkpoint |
-| `GET` | `/api/approvals/pending` | No | List pending approvals |
-| `GET` | `/api/approvals/:id` | No | Get approval details |
+| `GET` | `/api/approvals/pending` | Yes | List pending approvals |
+| `GET` | `/api/approvals/:id` | Yes | Get approval details |
 | `POST` | `/api/approvals/:id/approve` | Yes | Approve a pending request |
 | `POST` | `/api/approvals/:id/deny` | Yes | Deny a pending request |
-| `GET` | `/api/metrics` | No | Server metrics (evaluations, allow/deny counts, uptime) |
 
-Endpoints marked "Yes" require a `Bearer` token matching the `SENTINEL_API_KEY` environment variable. Use `--allow-anonymous` to disable authentication for development.
+All endpoints except `/health` and `/api/metrics` require a `Bearer` token matching `SENTINEL_API_KEY`. Use `--allow-anonymous` to disable authentication for development.
 
 ### Example: Evaluate
 
@@ -418,15 +464,24 @@ The trace includes:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SENTINEL_API_KEY` | *(required)* | Bearer token for mutating endpoints. Use `--allow-anonymous` to opt out. |
+| `SENTINEL_API_KEY` | *(required)* | Bearer token for all authenticated endpoints. Use `--allow-anonymous` to opt out. |
 | `SENTINEL_SIGNING_KEY` | *(auto-generated)* | Hex-encoded 32-byte Ed25519 seed for audit checkpoints |
 | `SENTINEL_CHECKPOINT_INTERVAL` | `300` | Seconds between automatic audit checkpoints (0 to disable) |
 | `SENTINEL_TRUSTED_PROXIES` | *(none)* | Comma-separated trusted proxy IPs for X-Forwarded-For handling |
 | `SENTINEL_RATE_EVALUATE` | *(disabled)* | Requests/sec limit for the evaluate endpoint |
+| `SENTINEL_RATE_EVALUATE_BURST` | *(disabled)* | Burst allowance above evaluate rate |
 | `SENTINEL_RATE_ADMIN` | *(disabled)* | Requests/sec limit for admin (mutation) endpoints |
+| `SENTINEL_RATE_ADMIN_BURST` | *(disabled)* | Burst allowance above admin rate |
 | `SENTINEL_RATE_READONLY` | *(disabled)* | Requests/sec limit for read-only endpoints |
+| `SENTINEL_RATE_READONLY_BURST` | *(disabled)* | Burst allowance above readonly rate |
+| `SENTINEL_RATE_PER_IP` | *(disabled)* | Requests/sec limit per unique client IP |
+| `SENTINEL_RATE_PER_IP_BURST` | *(disabled)* | Burst allowance per IP |
+| `SENTINEL_RATE_PER_IP_MAX_CAPACITY` | `100000` | Maximum unique IPs tracked simultaneously |
 | `SENTINEL_CORS_ORIGINS` | *(localhost)* | Comma-separated allowed CORS origins (`*` for any) |
+| `SENTINEL_LOG_MAX_SIZE` | `104857600` | Max audit log size in bytes before rotation (0 to disable) |
 | `RUST_LOG` | `info` | Log level filter (`tracing` / `env_logger` syntax) |
+
+Environment variables **override** values set in the config file. See below for config-file based rate limiting.
 
 ## Security Properties
 
@@ -440,10 +495,12 @@ The trace includes:
 | **Sampling interception** | Blocks `sampling/createMessage` (known exfiltration vector in MCP) |
 | **Constant-time auth** | API key comparison uses `subtle::ConstantTimeEq` to prevent timing attacks |
 | **Tamper-evident audit** | SHA-256 hash chain with Ed25519 signed checkpoints; any modification breaks the chain |
-| **Sensitive redaction** | 15 key patterns and 10 value prefixes automatically redacted before audit logging |
+| **Sensitive redaction** | Configurable three-level redaction (Off/KeysOnly/KeysAndPatterns); 15 key patterns and 10 value prefixes redacted before audit logging |
 | **Response body limits** | Configurable response size limits prevent upstream DoS via unbounded streams |
 | **OAuth 2.1** | JWT validation with JWKS, algorithm confusion prevention (asymmetric-only), scope enforcement |
-| **Per-IP rate limiting** | Configurable per-IP rate limiting with trusted proxy support and capacity bounds |
+| **Per-IP rate limiting** | Configurable per-IP rate limiting with burst support, trusted proxy handling, and capacity bounds |
+| **Approval capacity limits** | Pending approval store has a configurable max capacity (default 10,000) to prevent memory exhaustion; write-lock acquired before persistence to prevent visibility gaps |
+| **Supply chain verification** | Optional SHA-256 hash verification of MCP server binaries before spawn |
 
 ### Known Limitations
 
