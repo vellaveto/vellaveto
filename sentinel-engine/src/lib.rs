@@ -2248,7 +2248,17 @@ impl PolicyEngine {
         // Fix #8: Extract the authority portion FIRST (before the first '/'),
         // then search for '@' only within the authority. This prevents
         // ?email=user@safe.com in query params from being mistaken for userinfo.
-        let authority = without_scheme.split('/').next().unwrap_or(without_scheme);
+        let authority_raw = without_scheme.split('/').next().unwrap_or(without_scheme);
+
+        // Fix #30: Percent-decode the authority BEFORE searching for '@'.
+        // Without this, "http://evil.com%40blocked.com/path" extracts authority
+        // "evil.com%40blocked.com" — rfind('@') misses the encoded %40, and the
+        // domain becomes "evil.com@blocked.com" instead of "blocked.com".
+        // A standards-compliant parser decoding first would see userinfo="evil.com",
+        // host="blocked.com", so we must decode before splitting on '@'.
+        let decoded_authority =
+            percent_encoding::percent_decode_str(authority_raw).decode_utf8_lossy();
+        let authority = decoded_authority.as_ref();
 
         // Strip userinfo (user:pass@) — only within the authority portion
         let without_userinfo = if let Some(pos) = authority.rfind('@') {
