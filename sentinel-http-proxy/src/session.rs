@@ -9,9 +9,13 @@
 #![allow(dead_code)] // Stub crate — session module is implemented but not yet wired to proxy
 
 use dashmap::DashMap;
+use sentinel_mcp::rug_pull::ToolAnnotations;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+/// Type alias for backward compatibility with existing code.
+pub type ToolAnnotationsCompact = ToolAnnotations;
 
 /// Per-session state tracked by the HTTP proxy.
 #[derive(Debug)]
@@ -20,7 +24,7 @@ pub struct SessionState {
     pub created_at: Instant,
     pub last_activity: Instant,
     pub protocol_version: Option<String>,
-    pub known_tools: HashMap<String, ToolAnnotationsCompact>,
+    pub known_tools: HashMap<String, ToolAnnotations>,
     pub request_count: u64,
     /// Whether the initial tools/list response has been seen for this session.
     /// Used for rug-pull detection: tool additions after the first list are suspicious.
@@ -31,26 +35,6 @@ pub struct SessionState {
     /// Tools flagged by rug-pull detection. Tool calls to these tools are
     /// blocked until the session is cleared or a clean tools/list is received.
     pub flagged_tools: HashSet<String>,
-}
-
-/// Compact tool annotation storage for session state.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ToolAnnotationsCompact {
-    pub read_only_hint: bool,
-    pub destructive_hint: bool,
-    pub idempotent_hint: bool,
-    pub open_world_hint: bool,
-}
-
-impl Default for ToolAnnotationsCompact {
-    fn default() -> Self {
-        Self {
-            read_only_hint: false,
-            destructive_hint: true,
-            idempotent_hint: false,
-            open_world_hint: true,
-        }
-    }
 }
 
 impl SessionState {

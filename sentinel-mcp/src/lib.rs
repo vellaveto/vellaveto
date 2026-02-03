@@ -2,6 +2,7 @@ pub mod extractor;
 pub mod framing;
 pub mod inspection;
 pub mod proxy;
+pub mod rug_pull;
 
 use sentinel_engine::PolicyEngine;
 use sentinel_types::{Action, Policy};

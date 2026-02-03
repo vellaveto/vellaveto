@@ -33,7 +33,7 @@ pub struct McpQueryParams {
     pub trace: bool,
 }
 
-use crate::session::{SessionStore, ToolAnnotationsCompact};
+use crate::session::SessionStore;
 
 /// Shared state for the HTTP proxy handlers.
 #[derive(Clone)]
@@ -102,215 +102,38 @@ async fn read_bounded_response(
 
 /// Extract tool annotations from a tools/list response and update session state.
 ///
-/// Detects three types of rug-pull attacks:
-/// 1. Annotation changes — tool claims to become read-only after being destructive
-/// 2. Tool removal — tools disappear between consecutive tools/list calls
-/// 3. Tool addition — new tools appear after the initial tools/list
+/// Delegates to the shared `sentinel_mcp::rug_pull` module for detection logic,
+/// then updates session state and audits any detected events.
 async fn extract_annotations_from_response(
     response: &Value,
     session_id: &str,
     sessions: &SessionStore,
     audit: &AuditLogger,
 ) {
-    let tools = match response
-        .get("result")
-        .and_then(|r| r.get("tools"))
-        .and_then(|t| t.as_array())
-    {
-        Some(tools) => tools,
+    // Extract current known tools and first-list flag from session
+    let (known, is_first_list) = match sessions.get_mut(session_id) {
+        Some(mut s) => {
+            let first = !s.tools_list_seen;
+            s.tools_list_seen = true;
+            (s.known_tools.clone(), first)
+        }
         None => return,
     };
 
-    let mut session = match sessions.get_mut(session_id) {
-        Some(s) => s,
-        None => return,
-    };
+    // Run shared detection algorithm
+    let result =
+        sentinel_mcp::rug_pull::detect_rug_pull(response, &known, is_first_list);
 
-    let is_first_list = !session.tools_list_seen;
-    session.tools_list_seen = true;
-
-    let mut changed_tools = Vec::new();
-    let mut new_tool_names = Vec::new();
-    let mut current_tool_names = std::collections::HashSet::new();
-
-    for tool in tools {
-        let name = match tool.get("name").and_then(|n| n.as_str()) {
-            Some(n) => n.to_string(),
-            None => continue,
-        };
-
-        current_tool_names.insert(name.clone());
-
-        let annotations = if let Some(ann) = tool.get("annotations") {
-            ToolAnnotationsCompact {
-                read_only_hint: ann
-                    .get("readOnlyHint")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false),
-                destructive_hint: ann
-                    .get("destructiveHint")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(true),
-                idempotent_hint: ann
-                    .get("idempotentHint")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false),
-                open_world_hint: ann
-                    .get("openWorldHint")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(true),
-            }
-        } else {
-            ToolAnnotationsCompact::default()
-        };
-
-        // Annotation change detection (rug-pull)
-        if let Some(prev) = session.known_tools.get(&name) {
-            if *prev != annotations {
-                changed_tools.push(name.clone());
-                tracing::warn!(
-                    "SECURITY: Tool '{}' annotations changed in session {}! Possible rug-pull.",
-                    name,
-                    session_id,
-                );
-            }
-        } else if !is_first_list {
-            // New tool added after initial tools/list — suspicious
-            new_tool_names.push(name.clone());
-            tracing::warn!(
-                "SECURITY: New tool '{}' appeared after initial tools/list in session {}. \
-                 This may indicate a tool injection attack.",
-                name,
-                session_id,
-            );
-        }
-
-        session.known_tools.insert(name, annotations);
-    }
-
-    // Detect removed tools (present in known but absent from current response)
-    let mut removed_tools = Vec::new();
-    if !is_first_list {
-        let known_names: Vec<String> = session.known_tools.keys().cloned().collect();
-        for prev_name in &known_names {
-            if !current_tool_names.contains(prev_name) {
-                removed_tools.push(prev_name.clone());
-                tracing::warn!(
-                    "SECURITY: Tool '{}' was removed from tools/list in session {}. \
-                     This may indicate a rug-pull attack (tool removal).",
-                    prev_name,
-                    session_id,
-                );
-            }
-        }
-        for name in &removed_tools {
-            session.known_tools.remove(name);
+    // Update session state with detection results
+    if let Some(mut s) = sessions.get_mut(session_id) {
+        s.known_tools = result.updated_known.clone();
+        for name in result.flagged_tool_names() {
+            s.flagged_tools.insert(name.to_string());
         }
     }
 
-    // Drop the session lock before async audit calls
-    let tool_count = tools.len();
-    drop(session);
-
-    tracing::info!(
-        "tools/list: {} tools, {} new, {} changed, {} removed (session {})",
-        tool_count,
-        new_tool_names.len(),
-        changed_tools.len(),
-        removed_tools.len(),
-        session_id,
-    );
-
-    // Flag tools for blocking — rug-pull detection is now enforcement, not just logging.
-    // Tools with changed/added annotations are blocked until a clean tools/list arrives.
-    if !changed_tools.is_empty() || !new_tool_names.is_empty() {
-        if let Some(mut s) = sessions.get_mut(session_id) {
-            for name in &changed_tools {
-                s.flagged_tools.insert(name.clone());
-            }
-            for name in &new_tool_names {
-                s.flagged_tools.insert(name.clone());
-            }
-        }
-    }
-
-    // Audit annotation changes
-    if !changed_tools.is_empty() {
-        let action = Action {
-            tool: "sentinel".to_string(),
-            function: "annotation_change_detected".to_string(),
-            parameters: json!({
-                "changed_tools": changed_tools,
-                "session": session_id,
-            }),
-        };
-        let verdict = Verdict::Deny {
-            reason: format!("Tool annotations changed: {}", changed_tools.join(", ")),
-        };
-        if let Err(e) = audit
-            .log_entry(
-                &action,
-                &verdict,
-                json!({"source": "http_proxy", "event": "rug_pull_annotation_change"}),
-            )
-            .await
-        {
-            tracing::warn!("Failed to audit annotation change: {}", e);
-        }
-    }
-
-    // Audit tool removals
-    if !removed_tools.is_empty() {
-        let action = Action {
-            tool: "sentinel".to_string(),
-            function: "tool_removal_detected".to_string(),
-            parameters: json!({
-                "removed_tools": removed_tools,
-                "remaining_tools": tool_count,
-            }),
-        };
-        let verdict = Verdict::Deny {
-            reason: format!("Tool removal detected: {}", removed_tools.join(", ")),
-        };
-        if let Err(e) = audit
-            .log_entry(
-                &action,
-                &verdict,
-                json!({"source": "http_proxy", "event": "rug_pull_tool_removal"}),
-            )
-            .await
-        {
-            tracing::warn!("Failed to audit tool removal: {}", e);
-        }
-    }
-
-    // Audit new tool additions after initial list
-    if !new_tool_names.is_empty() {
-        let action = Action {
-            tool: "sentinel".to_string(),
-            function: "tool_addition_detected".to_string(),
-            parameters: json!({
-                "new_tools": new_tool_names,
-                "total_tools": tool_count,
-            }),
-        };
-        let verdict = Verdict::Deny {
-            reason: format!(
-                "New tool added after initial tools/list: {}",
-                new_tool_names.join(", ")
-            ),
-        };
-        if let Err(e) = audit
-            .log_entry(
-                &action,
-                &verdict,
-                json!({"source": "http_proxy", "event": "rug_pull_tool_addition"}),
-            )
-            .await
-        {
-            tracing::warn!("Failed to audit tool addition: {}", e);
-        }
-    }
+    // Audit any detected events
+    sentinel_mcp::rug_pull::audit_rug_pull_events(&result, audit, "http_proxy").await;
 }
 
 /// Main POST /mcp handler.
