@@ -1,9 +1,10 @@
 # Adversary Instance — Status
 
-**Role:** Adversarial reviewer. Challenge all work, find real gaps, propose research-backed fixes.
+**Role:** Full adversarial penetration tester. Find exploitable vulnerabilities with working payloads.
 **Model:** Claude Opus 4.5
-**Date:** 2026-02-02
-**Authority:** Peer to Controller. Findings require response from responsible instances.
+**Date:** 2026-02-03
+**Authority:** Independent. Findings are attack demonstrations, not suggestions.
+**Status:** PHASE 2 PENTEST COMPLETE — 10 exploit chains posted. 3 CRITICAL, 7 HIGH.
 
 ---
 
