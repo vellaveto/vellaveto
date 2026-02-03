@@ -166,21 +166,20 @@ fn suffix_wildcard_does_not_match_partial() {
 
 #[test]
 fn id_with_multiple_colons_splits_on_first() {
-    // split_once(':') on "a:b:c" gives ("a", "b:c")
-    // So tool pattern is "a", function pattern is "b:c"
-    // This means it matches tool="a" and function="b:c" exactly
+    // "a:b:c" → split_once(':') → ("a", "b:c"), qualifier strip → func="b"
+    // The third segment "c" is a qualifier suffix and is ignored for matching.
     let engine = PolicyEngine::new(false);
-    let action = make_action("a", "b:c");
+    let action = make_action("a", "b");
     let policies = vec![allow_policy("a:b:c", 10)];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(verdict, Verdict::Allow));
 }
 
 #[test]
-fn id_with_multiple_colons_does_not_match_plain_function() {
+fn id_with_multiple_colons_does_not_match_colon_function() {
     let engine = PolicyEngine::new(false);
-    // Action function is just "b", but policy expects "b:c"
-    let action = make_action("a", "b");
+    // Action function is "b:c", but policy func pattern is "b" (qualifier stripped)
+    let action = make_action("a", "b:c");
     let policies = vec![allow_policy("a:b:c", 10)];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(verdict, Verdict::Deny { .. }));

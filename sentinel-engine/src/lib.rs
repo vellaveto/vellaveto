@@ -95,7 +95,11 @@ impl CompiledToolMatcher {
     fn compile(id: &str) -> Self {
         if id == "*" {
             CompiledToolMatcher::Universal
-        } else if let Some((tool_pat, func_pat)) = id.split_once(':') {
+        } else if let Some((tool_pat, func_remainder)) = id.split_once(':') {
+            // Support qualifier suffixes: "tool:func:qualifier" → match on "tool:func" only
+            let func_pat = func_remainder
+                .split_once(':')
+                .map_or(func_remainder, |(f, _)| f);
             CompiledToolMatcher::ToolAndFunction(
                 PatternMatcher::compile(tool_pat),
                 PatternMatcher::compile(func_pat),
@@ -234,6 +238,9 @@ pub struct CompiledPolicy {
     pub forbidden_parameters: Vec<String>,
     pub required_parameters: Vec<String>,
     pub constraints: Vec<CompiledConstraint>,
+    /// When true, return None (skip to next policy) instead of Allow when no
+    /// constraints fire. Set via `on_no_match: "continue"` in conditions JSON.
+    pub on_no_match_continue: bool,
     /// Pre-computed "Denied by policy '<name>'" reason string.
     pub deny_reason: String,
     /// Pre-computed "Approval required by policy '<name>'" reason string.
@@ -374,13 +381,20 @@ impl PolicyEngine {
     ) -> Result<CompiledPolicy, PolicyValidationError> {
         let tool_matcher = CompiledToolMatcher::compile(&policy.id);
 
-        let (require_approval, forbidden_parameters, required_parameters, constraints) =
-            match &policy.policy_type {
-                PolicyType::Allow | PolicyType::Deny => (false, Vec::new(), Vec::new(), Vec::new()),
-                PolicyType::Conditional { conditions } => {
-                    Self::compile_conditions(policy, conditions, strict_mode)?
-                }
-            };
+        let (
+            require_approval,
+            forbidden_parameters,
+            required_parameters,
+            constraints,
+            on_no_match_continue,
+        ) = match &policy.policy_type {
+            PolicyType::Allow | PolicyType::Deny => {
+                (false, Vec::new(), Vec::new(), Vec::new(), false)
+            }
+            PolicyType::Conditional { conditions } => {
+                Self::compile_conditions(policy, conditions, strict_mode)?
+            }
+        };
 
         let deny_reason = format!("Denied by policy '{}'", policy.name);
         let approval_reason = format!("Approval required by policy '{}'", policy.name);
@@ -405,6 +419,7 @@ impl PolicyEngine {
             forbidden_parameters,
             required_parameters,
             constraints,
+            on_no_match_continue,
             deny_reason,
             approval_reason,
             forbidden_reasons,
@@ -414,14 +429,22 @@ impl PolicyEngine {
 
     /// Compile condition JSON into pre-parsed fields and compiled constraints.
     ///
-    /// Returns: (require_approval, forbidden_parameters, required_parameters, constraints)
+    /// Returns: (require_approval, forbidden_parameters, required_parameters, constraints, on_no_match_continue)
     #[allow(clippy::type_complexity)]
     fn compile_conditions(
         policy: &Policy,
         conditions: &serde_json::Value,
         strict_mode: bool,
-    ) -> Result<(bool, Vec<String>, Vec<String>, Vec<CompiledConstraint>), PolicyValidationError>
-    {
+    ) -> Result<
+        (
+            bool,
+            Vec<String>,
+            Vec<String>,
+            Vec<CompiledConstraint>,
+            bool,
+        ),
+        PolicyValidationError,
+    > {
         // Validate JSON depth
         if Self::json_depth(conditions) > 10 {
             return Err(PolicyValidationError {
@@ -444,6 +467,12 @@ impl PolicyEngine {
         let require_approval = conditions
             .get("require_approval")
             .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let on_no_match_continue = conditions
+            .get("on_no_match")
+            .and_then(|v| v.as_str())
+            .map(|s| s == "continue")
             .unwrap_or(false);
 
         let forbidden_parameters = conditions
@@ -488,6 +517,7 @@ impl PolicyEngine {
                 "forbidden_parameters",
                 "required_parameters",
                 "parameter_constraints",
+                "on_no_match",
             ];
             if let Some(obj) = conditions.as_object() {
                 for key in obj.keys() {
@@ -507,6 +537,7 @@ impl PolicyEngine {
             forbidden_parameters,
             required_parameters,
             constraints,
+            on_no_match_continue,
         ))
     }
 
@@ -825,7 +856,10 @@ impl PolicyEngine {
         if is_sorted {
             for policy in policies {
                 if self.matches_action(action, policy) {
-                    return self.apply_policy(action, policy);
+                    if let Some(verdict) = self.apply_policy(action, policy)? {
+                        return Ok(verdict);
+                    }
+                    // None: on_no_match="continue", try next policy
                 }
             }
         } else {
@@ -841,7 +875,10 @@ impl PolicyEngine {
             });
             for policy in &sorted {
                 if self.matches_action(action, policy) {
-                    return self.apply_policy(action, policy);
+                    if let Some(verdict) = self.apply_policy(action, policy)? {
+                        return Ok(verdict);
+                    }
+                    // None: on_no_match="continue", try next policy
                 }
             }
         }
@@ -895,14 +932,20 @@ impl PolicyEngine {
 
                 let cp = &self.compiled_policies[next_idx];
                 if cp.tool_matcher.matches(action) {
-                    return self.apply_compiled_policy(action, cp);
+                    if let Some(verdict) = self.apply_compiled_policy(action, cp)? {
+                        return Ok(verdict);
+                    }
+                    // None: on_no_match="continue", try next policy
                 }
             }
         } else {
             // No index: linear scan (legacy compiled path)
             for cp in &self.compiled_policies {
                 if cp.tool_matcher.matches(action) {
-                    return self.apply_compiled_policy(action, cp);
+                    if let Some(verdict) = self.apply_compiled_policy(action, cp)? {
+                        return Ok(verdict);
+                    }
+                    // None: on_no_match="continue", try next policy
                 }
             }
         }
@@ -913,16 +956,18 @@ impl PolicyEngine {
     }
 
     /// Apply a matched compiled policy to produce a verdict.
+    /// Returns `None` when a Conditional policy with `on_no_match: "continue"` has no
+    /// constraints fire, signaling the evaluation loop to try the next policy.
     fn apply_compiled_policy(
         &self,
         action: &Action,
         cp: &CompiledPolicy,
-    ) -> Result<Verdict, EngineError> {
+    ) -> Result<Option<Verdict>, EngineError> {
         match &cp.policy.policy_type {
-            PolicyType::Allow => Ok(Verdict::Allow),
-            PolicyType::Deny => Ok(Verdict::Deny {
+            PolicyType::Allow => Ok(Some(Verdict::Allow)),
+            PolicyType::Deny => Ok(Some(Verdict::Deny {
                 reason: cp.deny_reason.clone(),
-            }),
+            })),
             PolicyType::Conditional { .. } => self.evaluate_compiled_conditions(action, cp),
         }
     }
@@ -932,7 +977,7 @@ impl PolicyEngine {
         &self,
         action: &Action,
         cp: &CompiledPolicy,
-    ) -> Result<Verdict, EngineError> {
+    ) -> Result<Option<Verdict>, EngineError> {
         self.evaluate_compiled_conditions_core(action, cp, &mut None)
     }
 
@@ -940,12 +985,15 @@ impl PolicyEngine {
     ///
     /// When `trace` is `Some`, collects `ConstraintResult` records for each check.
     /// When `None`, skips trace collection (zero overhead).
+    ///
+    /// Returns `Ok(None)` when `on_no_match: "continue"` is set and no constraints fired,
+    /// signaling the evaluation loop to skip to the next policy.
     fn evaluate_compiled_conditions_core(
         &self,
         action: &Action,
         cp: &CompiledPolicy,
         trace: &mut Option<Vec<ConstraintResult>>,
-    ) -> Result<Verdict, EngineError> {
+    ) -> Result<Option<Verdict>, EngineError> {
         // Check require_approval first
         if cp.require_approval {
             if let Some(results) = trace.as_mut() {
@@ -957,9 +1005,9 @@ impl PolicyEngine {
                     passed: false,
                 });
             }
-            return Ok(Verdict::RequireApproval {
+            return Ok(Some(Verdict::RequireApproval {
                 reason: cp.approval_reason.clone(),
-            });
+            }));
         }
 
         // Check forbidden parameters
@@ -975,9 +1023,9 @@ impl PolicyEngine {
                 });
             }
             if present {
-                return Ok(Verdict::Deny {
+                return Ok(Some(Verdict::Deny {
                     reason: cp.forbidden_reasons[i].clone(),
-                });
+                }));
             }
         }
 
@@ -994,9 +1042,9 @@ impl PolicyEngine {
                 });
             }
             if !present {
-                return Ok(Verdict::Deny {
+                return Ok(Some(Verdict::Deny {
                     reason: cp.required_reasons[i].clone(),
-                });
+                }));
             }
         }
 
@@ -1013,12 +1061,12 @@ impl PolicyEngine {
                     self.evaluate_compiled_constraint_traced(action, &cp.policy, constraint)?;
                 results.extend(constraint_results);
                 if let Some(verdict) = maybe_verdict {
-                    return Ok(verdict);
+                    return Ok(Some(verdict));
                 }
             } else if let Some(verdict) =
                 self.evaluate_compiled_constraint(action, &cp.policy, constraint)?
             {
-                return Ok(verdict);
+                return Ok(Some(verdict));
             }
             // Check if this constraint was actually evaluated (not skipped)
             let param_name = constraint.param();
@@ -1040,7 +1088,11 @@ impl PolicyEngine {
         // deny the action. A Conditional policy where nothing was checked is not
         // a positive allow signal — it means the action didn't provide enough
         // information for evaluation.
+        // Exception: when on_no_match="continue", skip to next policy instead.
         if total_constraints > 0 && !any_evaluated {
+            if cp.on_no_match_continue {
+                return Ok(None);
+            }
             if let Some(results) = trace.as_mut() {
                 results.push(ConstraintResult {
                     constraint_type: "all_skipped_fail_closed".to_string(),
@@ -1053,15 +1105,20 @@ impl PolicyEngine {
                     passed: false,
                 });
             }
-            return Ok(Verdict::Deny {
+            return Ok(Some(Verdict::Deny {
                 reason: format!(
                     "All {} constraints skipped (parameters missing) in policy '{}' — fail-closed",
                     total_constraints, cp.policy.name
                 ),
-            });
+            }));
         }
 
-        Ok(Verdict::Allow)
+        // No constraints fired. If on_no_match is "continue", skip to next policy.
+        if cp.on_no_match_continue {
+            Ok(None)
+        } else {
+            Ok(Some(Verdict::Allow))
+        }
     }
 
     /// Evaluate a single pre-compiled constraint against an action.
@@ -1388,7 +1445,11 @@ impl PolicyEngine {
             return true;
         }
 
-        if let Some((tool_pat, func_pat)) = id.split_once(':') {
+        if let Some((tool_pat, func_remainder)) = id.split_once(':') {
+            // Support qualifier suffixes: "tool:func:qualifier" → match on "tool:func" only
+            let func_pat = func_remainder
+                .split_once(':')
+                .map_or(func_remainder, |(f, _)| f);
             self.match_pattern(tool_pat, &action.tool)
                 && self.match_pattern(func_pat, &action.function)
         } else {
@@ -1412,12 +1473,18 @@ impl PolicyEngine {
     }
 
     /// Apply a matched policy to produce a verdict.
-    fn apply_policy(&self, action: &Action, policy: &Policy) -> Result<Verdict, EngineError> {
+    /// Returns `None` when a Conditional policy with `on_no_match: "continue"` has no
+    /// conditions fire, signaling the evaluation loop to try the next policy.
+    fn apply_policy(
+        &self,
+        action: &Action,
+        policy: &Policy,
+    ) -> Result<Option<Verdict>, EngineError> {
         match &policy.policy_type {
-            PolicyType::Allow => Ok(Verdict::Allow),
-            PolicyType::Deny => Ok(Verdict::Deny {
+            PolicyType::Allow => Ok(Some(Verdict::Allow)),
+            PolicyType::Deny => Ok(Some(Verdict::Deny {
                 reason: format!("Denied by policy '{}'", policy.name),
-            }),
+            })),
             PolicyType::Conditional { conditions } => {
                 self.evaluate_conditions(action, policy, conditions)
             }
@@ -1435,7 +1502,7 @@ impl PolicyEngine {
         action: &Action,
         policy: &Policy,
         conditions: &serde_json::Value,
-    ) -> Result<Verdict, EngineError> {
+    ) -> Result<Option<Verdict>, EngineError> {
         // JSON depth protection
         if Self::json_depth(conditions) > 10 {
             return Err(EngineError::InvalidCondition {
@@ -1456,9 +1523,9 @@ impl PolicyEngine {
         // Check require_approval first
         if let Some(require_approval) = conditions.get("require_approval") {
             if require_approval.as_bool().unwrap_or(false) {
-                return Ok(Verdict::RequireApproval {
+                return Ok(Some(Verdict::RequireApproval {
                     reason: format!("Approval required by policy '{}'", policy.name),
-                });
+                }));
             }
         }
 
@@ -1468,12 +1535,12 @@ impl PolicyEngine {
                 for param in forbidden_arr {
                     if let Some(param_str) = param.as_str() {
                         if action.parameters.get(param_str).is_some() {
-                            return Ok(Verdict::Deny {
+                            return Ok(Some(Verdict::Deny {
                                 reason: format!(
                                     "Parameter '{}' is forbidden by policy '{}'",
                                     param_str, policy.name
                                 ),
-                            });
+                            }));
                         }
                     }
                 }
@@ -1486,23 +1553,31 @@ impl PolicyEngine {
                 for param in required_arr {
                     if let Some(param_str) = param.as_str() {
                         if action.parameters.get(param_str).is_none() {
-                            return Ok(Verdict::Deny {
+                            return Ok(Some(Verdict::Deny {
                                 reason: format!(
                                     "Required parameter '{}' missing (policy '{}')",
                                     param_str, policy.name
                                 ),
-                            });
+                            }));
                         }
                     }
                 }
             }
         }
 
+        let on_no_match_continue = conditions
+            .get("on_no_match")
+            .and_then(|v| v.as_str())
+            .map(|s| s == "continue")
+            .unwrap_or(false);
+
         // Evaluate parameter constraints
         if let Some(constraints) = conditions.get("parameter_constraints") {
             if let Some(arr) = constraints.as_array() {
-                if let Some(verdict) = self.evaluate_parameter_constraints(action, policy, arr)? {
-                    return Ok(verdict);
+                if let Some(verdict) =
+                    self.evaluate_parameter_constraints(action, policy, arr, on_no_match_continue)?
+                {
+                    return Ok(Some(verdict));
                 }
             } else {
                 return Err(EngineError::InvalidCondition {
@@ -1519,6 +1594,7 @@ impl PolicyEngine {
                 "forbidden_parameters",
                 "required_parameters",
                 "parameter_constraints",
+                "on_no_match",
             ];
             if let Some(obj) = conditions.as_object() {
                 for key in obj.keys() {
@@ -1532,8 +1608,12 @@ impl PolicyEngine {
             }
         }
 
-        // If no conditions triggered denial, allow
-        Ok(Verdict::Allow)
+        // No conditions triggered. Check on_no_match setting.
+        if on_no_match_continue {
+            Ok(None)
+        } else {
+            Ok(Some(Verdict::Allow))
+        }
     }
 
     /// Evaluate an array of parameter constraints against the action.
@@ -1546,6 +1626,7 @@ impl PolicyEngine {
         action: &Action,
         policy: &Policy,
         constraints: &[serde_json::Value],
+        on_no_match_continue: bool,
     ) -> Result<Option<Verdict>, EngineError> {
         let mut any_evaluated = false;
         let total_constraints = constraints.len();
@@ -1636,8 +1717,8 @@ impl PolicyEngine {
             }
         }
 
-        // Fail-closed: if ALL constraints were skipped, deny
-        if total_constraints > 0 && !any_evaluated {
+        // Fail-closed: if ALL constraints were skipped, deny (unless on_no_match="continue")
+        if total_constraints > 0 && !any_evaluated && !on_no_match_continue {
             return Ok(Some(Verdict::Deny {
                 reason: format!(
                     "All {} constraints skipped (parameters missing) in policy '{}' — fail-closed",
@@ -2503,15 +2584,18 @@ impl PolicyEngine {
                 priority: cp.policy.priority,
                 tool_matched: true,
                 constraint_results,
-                verdict_contribution: Some(verdict.clone()),
+                verdict_contribution: verdict.clone(),
             };
             policy_matches.push(pm);
 
-            if final_verdict.is_none() {
-                final_verdict = Some(verdict);
+            if let Some(v) = verdict {
+                if final_verdict.is_none() {
+                    final_verdict = Some(v);
+                }
+                // First match wins — stop checking further policies
+                break;
             }
-            // First match wins — stop checking further policies
-            break;
+            // None: on_no_match="continue", try next policy
         }
 
         let verdict = final_verdict.unwrap_or(Verdict::Deny {
@@ -2574,17 +2658,18 @@ impl PolicyEngine {
     }
 
     /// Apply a compiled policy and return both the verdict and constraint trace.
+    /// Returns `None` as the verdict when `on_no_match: "continue"` and no constraints fired.
     fn apply_compiled_policy_traced(
         &self,
         action: &Action,
         cp: &CompiledPolicy,
-    ) -> Result<(Verdict, Vec<ConstraintResult>), EngineError> {
+    ) -> Result<(Option<Verdict>, Vec<ConstraintResult>), EngineError> {
         match &cp.policy.policy_type {
-            PolicyType::Allow => Ok((Verdict::Allow, Vec::new())),
+            PolicyType::Allow => Ok((Some(Verdict::Allow), Vec::new())),
             PolicyType::Deny => Ok((
-                Verdict::Deny {
+                Some(Verdict::Deny {
                     reason: cp.deny_reason.clone(),
-                },
+                }),
                 Vec::new(),
             )),
             PolicyType::Conditional { .. } => self.evaluate_compiled_conditions_traced(action, cp),
@@ -2593,11 +2678,12 @@ impl PolicyEngine {
 
     /// Evaluate compiled conditions with full constraint tracing.
     /// Delegates to `evaluate_compiled_conditions_core` with trace collection enabled.
+    /// Returns `None` as the verdict when `on_no_match: "continue"` and no constraints fired.
     fn evaluate_compiled_conditions_traced(
         &self,
         action: &Action,
         cp: &CompiledPolicy,
-    ) -> Result<(Verdict, Vec<ConstraintResult>), EngineError> {
+    ) -> Result<(Option<Verdict>, Vec<ConstraintResult>), EngineError> {
         let mut results = Some(Vec::new());
         let verdict = self.evaluate_compiled_conditions_core(action, cp, &mut results)?;
         Ok((verdict, results.unwrap_or_default()))
@@ -5319,6 +5405,98 @@ mod tests {
 
         let tool_only = CompiledToolMatcher::compile("file_system");
         assert!(tool_only.matches(&action));
+    }
+
+    #[test]
+    fn test_compiled_tool_matcher_qualifier_suffix() {
+        // Policy IDs with qualifier suffixes: "tool:func:qualifier" should match on tool:func only
+        let action = Action {
+            tool: "file_system".to_string(),
+            function: "read_file".to_string(),
+            parameters: json!({}),
+        };
+
+        // Qualifier suffixes should be ignored for matching
+        let qualified = CompiledToolMatcher::compile("*:*:credential-block");
+        assert!(
+            qualified.matches(&action),
+            "Qualified *:*:qualifier should match any action"
+        );
+
+        let tool_qualified = CompiledToolMatcher::compile("file_system:*:blocker");
+        assert!(
+            tool_qualified.matches(&action),
+            "tool:*:qualifier should match matching tool"
+        );
+
+        let exact_qualified = CompiledToolMatcher::compile("file_system:read_file:my-rule");
+        assert!(
+            exact_qualified.matches(&action),
+            "tool:func:qualifier should match exact tool:func"
+        );
+
+        let no_match_qualified = CompiledToolMatcher::compile("bash:execute:dangerous");
+        assert!(
+            !no_match_qualified.matches(&action),
+            "Non-matching tool:func:qualifier should not match"
+        );
+
+        // Legacy IDs without qualifier should still work
+        let legacy = CompiledToolMatcher::compile("file_system:read_file");
+        assert!(legacy.matches(&action));
+    }
+
+    #[test]
+    fn test_policy_id_qualifier_e2e_credential_block() {
+        // End-to-end: policy with qualified ID blocks credential access
+        let policies = vec![
+            Policy {
+                id: "*:*:credential-block".to_string(),
+                name: "Block credential access".to_string(),
+                policy_type: PolicyType::Conditional {
+                    conditions: json!({
+                        "parameter_constraints": [{
+                            "param": "*",
+                            "op": "glob",
+                            "pattern": "/home/*/.aws/**",
+                            "on_match": "deny"
+                        }]
+                    }),
+                },
+                priority: 300,
+            },
+            Policy {
+                id: "*:*".to_string(),
+                name: "Default allow".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 1,
+            },
+        ];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        let cred_action = action_with(
+            "file_system",
+            "read_file",
+            json!({"path": "/home/user/.aws/credentials"}),
+        );
+        let verdict = engine.evaluate_action(&cred_action, &[]).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "Qualified policy ID *:*:credential-block must deny credential access, got: {:?}",
+            verdict
+        );
+
+        let safe_action = action_with(
+            "file_system",
+            "read_file",
+            json!({"path": "/home/user/project/README.md"}),
+        );
+        let verdict = engine.evaluate_action(&safe_action, &[]).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Allow),
+            "Safe path must be allowed, got: {:?}",
+            verdict
+        );
     }
 
     // ═══════════════════════════════════════════════════

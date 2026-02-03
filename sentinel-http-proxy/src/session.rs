@@ -284,10 +284,7 @@ mod tests {
         }
 
         let session = store.get_mut(&id).unwrap();
-        assert_eq!(
-            session.protocol_version.as_deref(),
-            Some("2025-11-25")
-        );
+        assert_eq!(session.protocol_version.as_deref(), Some("2025-11-25"));
     }
 
     #[test]

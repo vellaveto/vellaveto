@@ -1,5 +1,33 @@
 # Shared Log
 
+## 2026-02-03 — ADVERSARY INSTANCE: Engine Fixes + Demo Scenario
+
+### Three Engine Bugs Fixed
+
+1. **Policy ID qualifier suffix parsing (CRITICAL)**: Policy IDs like `"*:*:credential-block"` broke `split_once(':')` — the second colon was included in the function pattern, causing the policy to never match. Fixed in both `CompiledToolMatcher::compile()` and `matches_action()` to strip qualifier suffixes beyond the first two colon segments.
+
+2. **`on_no_match` conditional policy behavior (CRITICAL)**: Conditional policies returned `Verdict::Allow` when no constraints fired, preempting all lower-priority policies. Added `on_no_match: "continue"` option to conditions JSON — when set, the policy returns `None` (skip to next policy) instead of `Allow`. Default remains `"allow"` for full backward compatibility (62+ existing tests preserved). Applied to both compiled and legacy evaluation paths.
+
+3. **Fail-closed vs `on_no_match` interaction**: The fail-closed check ("all constraints skipped → deny") was firing before `on_no_match` could kick in. Fixed in both compiled and legacy paths to respect `on_no_match: "continue"` when all constraints are skipped.
+
+### Demo Scenario Created
+
+- `examples/credential-exfil-demo.toml` — 5 policies demonstrating layered security
+- `examples/demo-exfil-attack.sh` — Shell script simulating 5 attacks + 2 safe ops + 1 approval
+
+All 8 demo scenarios verified:
+- AWS credentials → DENY, SSH keys → DENY, path traversal → DENY
+- ngrok exfiltration → DENY, untrusted domain → DENY
+- Safe file read → ALLOW, trusted API → ALLOW
+- rm -rf → REQUIRE_APPROVAL
+
+### Test Results
+- 1,782 tests pass, 0 failures, 0 clippy warnings
+- 2 new unit tests + 1 e2e test for qualifier suffix fix
+- 3 integration tests updated for new colon-segment semantics
+
+---
+
 ## 2026-02-03 — ADVERSARY INSTANCE: Final Security Posture Assessment (CLOSEOUT)
 
 ### Executive Summary

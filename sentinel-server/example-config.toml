@@ -91,9 +91,10 @@ priority = 250
 id = "*:*:credential-scan"
 
 [policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
 parameter_constraints = [
-  { param = "*", op = "glob", pattern = "/home/*/.aws/**", on_match = "deny" },
-  { param = "*", op = "glob", pattern = "/home/*/.ssh/**", on_match = "deny" },
+  { param = "*", op = "glob", pattern = "/home/*/.aws/**", on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.ssh/**", on_match = "deny", on_missing = "skip" },
 ]
 
 [[policies]]
@@ -104,7 +105,8 @@ priority = 250
 id = "*:*:domain-scan"
 
 [policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
 parameter_constraints = [
-  { param = "*", op = "domain_match", pattern = "*.ngrok.io", on_match = "deny" },
-  { param = "*", op = "domain_match", pattern = "*.requestbin.com", on_match = "deny" },
+  { param = "*", op = "domain_match", pattern = "*.ngrok.io", on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "domain_match", pattern = "*.requestbin.com", on_match = "deny", on_missing = "skip" },
 ]

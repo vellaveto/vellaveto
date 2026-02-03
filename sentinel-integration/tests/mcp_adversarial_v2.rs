@@ -178,11 +178,14 @@ fn action_with_very_long_tool_name_evaluates() {
 
 #[test]
 fn policy_id_with_multiple_colons_only_splits_on_first() {
-    // "a:b:c" → split_once(':') → tool="a", function="b:c"
+    // "a:b:c" → split_once(':') → ("a", "b:c"), qualifier strip → func="b"
+    // The third segment "c" is treated as a qualifier suffix and ignored.
     let engine = PolicyEngine::new(false);
+
+    // Action with function "b" matches (qualifier stripped)
     let action = Action {
         tool: "a".to_string(),
-        function: "b:c".to_string(),
+        function: "b".to_string(),
         parameters: json!({}),
     };
     let policies = vec![Policy {
@@ -196,7 +199,22 @@ fn policy_id_with_multiple_colons_only_splits_on_first() {
     assert_eq!(
         result,
         Verdict::Allow,
-        "split_once should match tool=a, func=b:c"
+        "qualifier suffix should be stripped: a:b:c matches tool=a, func=b"
+    );
+
+    // Action with function "b:c" should NOT match (colons not in function names)
+    let action2 = Action {
+        tool: "a".to_string(),
+        function: "b:c".to_string(),
+        parameters: json!({}),
+    };
+    let result2 = engine.evaluate_action(&action2, &policies).unwrap();
+    assert_eq!(
+        result2,
+        Verdict::Deny {
+            reason: "No matching policy".to_string()
+        },
+        "function 'b:c' should not match func_pat 'b'"
     );
 }
 

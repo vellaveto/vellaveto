@@ -79,7 +79,8 @@ fn colon_only_id_does_not_match_nonempty_function() {
 // DOUBLE COLON "::"
 // ═══════════════════════════════════
 
-/// "::" → split_once(':') → ("", ":"). Tool pattern is "", function pattern is ":".
+/// "::" → split_once(':') → ("", ":"), then qualifier strip → func="".
+/// Tool pattern is "", function pattern is "" (second colon treated as qualifier separator).
 #[test]
 fn double_colon_id_tool_empty_function_colon() {
     let engine = PolicyEngine::new(false);
@@ -88,8 +89,9 @@ fn double_colon_id_tool_empty_function_colon() {
     let policies = vec![allow_policy("::", 10)];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     // match_pattern("", "") → exact match "" == "" → true
-    // match_pattern(":", ":") → exact match ":" == ":" → true
-    assert!(matches!(result, Verdict::Allow));
+    // match_pattern("", ":") → exact match "" != ":" → false
+    // Policy doesn't match → Deny
+    assert!(matches!(result, Verdict::Deny { .. }));
 }
 
 /// "::" should NOT match action with normal tool/function.
@@ -106,14 +108,16 @@ fn double_colon_id_does_not_match_normal_action() {
 // TRIPLE COLON ":::"
 // ═══════════════════════════════════
 
-/// ":::" → split_once(':') → ("", "::"). Function pattern is "::".
+/// ":::" → split_once(':') → ("", "::"), then qualifier strip → func="".
+/// Tool pattern is "", function pattern is "" (second colon treated as qualifier separator).
 #[test]
 fn triple_colon_id_matches_action_with_double_colon_function() {
     let engine = PolicyEngine::new(false);
     let action = make_action("", "::");
     let policies = vec![allow_policy(":::", 10)];
     let result = engine.evaluate_action(&action, &policies).unwrap();
-    assert!(matches!(result, Verdict::Allow));
+    // func_pat="" doesn't match function="::" → Deny
+    assert!(matches!(result, Verdict::Deny { .. }));
 }
 
 // ═══════════════════════════════════

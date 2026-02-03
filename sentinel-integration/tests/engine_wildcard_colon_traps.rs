@@ -37,29 +37,30 @@ fn deny_policy(id: &str, priority: i32) -> Policy {
 // MULTIPLE COLONS IN POLICY ID
 // ═══════════════════════════════════════
 
-/// split_once(":") on "a:b:c" gives ("a", "b:c").
-/// So the function pattern is "b:c" — does this match function "b:c" exactly?
+/// "tool:func:extra" → split_once(':') → ("tool", "func:extra"),
+/// then qualifier strip → func_pat = "func". The third segment "extra" is a qualifier.
+/// This allows descriptive policy IDs like "*:*:credential-block".
 #[test]
 fn id_with_two_colons_treats_rest_as_function_pattern() {
     let engine = PolicyEngine::new(false);
-    // Policy ID "tool:func:extra" → split_once → tool_pat="tool", func_pat="func:extra"
+    // Policy ID "tool:func:extra" → tool_pat="tool", func_pat="func" (qualifier "extra" ignored)
     let policies = vec![allow_policy("tool:func:extra", 10)];
 
-    // Action with function literally "func:extra" should match
-    let action = make_action("tool", "func:extra");
+    // Action with function "func" should match (qualifier stripped)
+    let action = make_action("tool", "func");
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "function 'func:extra' should match func_pat 'func:extra', got {:?}",
+        "function 'func' should match func_pat 'func' (qualifier stripped), got {:?}",
         result
     );
 
-    // Action with function "func" should NOT match
-    let action2 = make_action("tool", "func");
+    // Action with function "func:extra" should NOT match (colons not in function names)
+    let action2 = make_action("tool", "func:extra");
     let result2 = engine.evaluate_action(&action2, &policies).unwrap();
     assert!(
         matches!(result2, Verdict::Deny { .. }),
-        "function 'func' should NOT match func_pat 'func:extra', got {:?}",
+        "function 'func:extra' should NOT match func_pat 'func', got {:?}",
         result2
     );
 }
