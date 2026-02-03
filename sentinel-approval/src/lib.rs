@@ -431,4 +431,121 @@ mod tests {
         let entry: PendingApproval = serde_json::from_str(content.lines().next().unwrap()).unwrap();
         assert_eq!(entry.reason, "persisted");
     }
+
+    #[tokio::test]
+    async fn test_approve_expired_returns_expired_error() {
+        let dir = TempDir::new().unwrap();
+        // TTL of 0 = immediately expired
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(0),
+        );
+
+        let id = store
+            .create(test_action(), "will expire before approve".to_string())
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        // Attempting to approve should return Expired error (not AlreadyResolved)
+        let result = store.approve(&id, "admin").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, ApprovalError::Expired(_)),
+            "Expected Expired error, got: {:?}",
+            err
+        );
+
+        // The approval should now be marked Expired in the store
+        let approval = store.get(&id).await.unwrap();
+        assert_eq!(approval.status, ApprovalStatus::Expired);
+    }
+
+    #[tokio::test]
+    async fn test_deny_expired_returns_expired_error() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(0),
+        );
+
+        let id = store
+            .create(test_action(), "will expire before deny".to_string())
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        let result = store.deny(&id, "admin").await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ApprovalError::Expired(_)));
+    }
+
+    #[tokio::test]
+    async fn test_persistence_roundtrip() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("approvals.jsonl");
+
+        // Create entries in first store instance
+        let id1;
+        let id2;
+        {
+            let store = ApprovalStore::new(log_path.clone(), std::time::Duration::from_secs(900));
+            id1 = store
+                .create(test_action(), "first".to_string())
+                .await
+                .unwrap();
+            id2 = store
+                .create(test_action(), "second".to_string())
+                .await
+                .unwrap();
+            store.approve(&id1, "admin").await.unwrap();
+            // id2 remains pending
+        }
+        // First store dropped
+
+        // Load into a new store instance from the same file
+        let store2 = ApprovalStore::new(log_path, std::time::Duration::from_secs(900));
+        let loaded = store2.load_from_file().await.unwrap();
+        assert!(
+            loaded >= 2,
+            "Should load at least 2 entries, got {}",
+            loaded
+        );
+
+        // Verify states survived the round-trip
+        let a1 = store2.get(&id1).await.unwrap();
+        assert_eq!(a1.status, ApprovalStatus::Approved);
+        assert_eq!(a1.resolved_by.as_deref(), Some("admin"));
+
+        let a2 = store2.get(&id2).await.unwrap();
+        assert_eq!(a2.status, ApprovalStatus::Pending);
+        assert_eq!(a2.reason, "second");
+    }
+
+    #[tokio::test]
+    async fn test_expire_stale_idempotent() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(0),
+        );
+
+        store
+            .create(test_action(), "expire me".to_string())
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        // First expire should find 1
+        let count1 = store.expire_stale().await;
+        assert_eq!(count1, 1);
+
+        // Second expire should find 0 (already expired)
+        let count2 = store.expire_stale().await;
+        assert_eq!(count2, 0);
+    }
 }
