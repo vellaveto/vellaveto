@@ -193,6 +193,146 @@ impl SupplyChainConfig {
     }
 }
 
+/// A pinned tool manifest that records the expected tools and their schema hashes.
+///
+/// Created from a `tools/list` response, then persisted. On subsequent
+/// `tools/list` responses, the live tools are compared against this manifest
+/// to detect unexpected changes (new tools, removed tools, schema mutations).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ToolManifest {
+    /// Schema version for forward compatibility.
+    pub schema_version: String,
+    /// Pinned tool entries with schema hashes.
+    pub tools: Vec<ManifestToolEntry>,
+    /// Optional Ed25519 signature over the canonical manifest content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+}
+
+/// A single tool entry in a pinned manifest.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ManifestToolEntry {
+    /// Tool name as reported by the MCP server.
+    pub name: String,
+    /// SHA-256 hex digest of the canonical JSON-serialized `inputSchema`.
+    /// If the tool has no inputSchema, this is the hash of the empty string.
+    pub input_schema_hash: String,
+}
+
+/// Result of manifest verification.
+#[derive(Debug, Clone)]
+pub struct ManifestVerification {
+    /// Whether the manifest matched (no discrepancies).
+    pub passed: bool,
+    /// Human-readable discrepancy descriptions, empty if passed.
+    pub discrepancies: Vec<String>,
+}
+
+impl ToolManifest {
+    /// Build a manifest from a live `tools/list` JSON-RPC response.
+    ///
+    /// Expects `response` to contain `result.tools[]` with `name` and
+    /// optional `inputSchema` fields per the MCP specification.
+    pub fn from_tools_list(response: &serde_json::Value) -> Option<Self> {
+        let tools_array = response
+            .get("result")
+            .and_then(|r| r.get("tools"))
+            .and_then(|t| t.as_array())?;
+
+        let mut entries: Vec<ManifestToolEntry> = tools_array
+            .iter()
+            .filter_map(|tool| {
+                let name = tool.get("name")?.as_str()?.to_string();
+                let schema_json = tool
+                    .get("inputSchema")
+                    .map(|s| serde_json::to_string(s).unwrap_or_default())
+                    .unwrap_or_default();
+
+                use sha2::{Digest, Sha256};
+                let mut hasher = Sha256::new();
+                hasher.update(schema_json.as_bytes());
+                let hash = hex::encode(hasher.finalize());
+
+                Some(ManifestToolEntry {
+                    name,
+                    input_schema_hash: hash,
+                })
+            })
+            .collect();
+
+        // Sort by name for deterministic comparison
+        entries.sort_by(|a, b| a.name.cmp(&b.name));
+
+        Some(ToolManifest {
+            schema_version: "1.0".to_string(),
+            tools: entries,
+            signature: None,
+        })
+    }
+
+    /// Verify a live `tools/list` response against this pinned manifest.
+    pub fn verify(&self, live_response: &serde_json::Value) -> ManifestVerification {
+        let live = match Self::from_tools_list(live_response) {
+            Some(m) => m,
+            None => {
+                return ManifestVerification {
+                    passed: false,
+                    discrepancies: vec![
+                        "Failed to parse tools/list response for verification".to_string()
+                    ],
+                };
+            }
+        };
+
+        let mut discrepancies = Vec::new();
+
+        // Build lookup maps
+        let pinned_map: std::collections::HashMap<&str, &str> = self
+            .tools
+            .iter()
+            .map(|t| (t.name.as_str(), t.input_schema_hash.as_str()))
+            .collect();
+
+        let live_map: std::collections::HashMap<&str, &str> = live
+            .tools
+            .iter()
+            .map(|t| (t.name.as_str(), t.input_schema_hash.as_str()))
+            .collect();
+
+        // Check for removed tools
+        for pinned in &self.tools {
+            if !live_map.contains_key(pinned.name.as_str()) {
+                discrepancies.push(format!("Tool '{}' removed from server", pinned.name));
+            }
+        }
+
+        // Check for new or changed tools
+        for live_tool in &live.tools {
+            match pinned_map.get(live_tool.name.as_str()) {
+                None => {
+                    discrepancies.push(format!(
+                        "New tool '{}' not in pinned manifest",
+                        live_tool.name
+                    ));
+                }
+                Some(expected_hash) => {
+                    if *expected_hash != live_tool.input_schema_hash {
+                        discrepancies.push(format!(
+                            "Tool '{}' schema changed: expected {}, got {}",
+                            live_tool.name, expected_hash, live_tool.input_schema_hash
+                        ));
+                    }
+                }
+            }
+        }
+
+        ManifestVerification {
+            passed: discrepancies.is_empty(),
+            discrepancies,
+        }
+    }
+}
+
 /// Tool manifest verification configuration.
 ///
 /// # TOML Example
@@ -210,6 +350,29 @@ pub struct ManifestConfig {
     /// Trusted Ed25519 public keys (hex-encoded 32-byte) for manifest signatures.
     #[serde(default)]
     pub trusted_keys: Vec<String>,
+}
+
+impl ManifestConfig {
+    /// Verify a live tools/list response against a pinned manifest.
+    ///
+    /// Returns `Ok(())` if verification passes or is disabled.
+    /// Returns `Err(discrepancies)` if the manifest doesn't match.
+    pub fn verify_manifest(
+        &self,
+        pinned: &ToolManifest,
+        live_response: &serde_json::Value,
+    ) -> Result<(), Vec<String>> {
+        if !self.enabled {
+            return Ok(());
+        }
+
+        let result = pinned.verify(live_response);
+        if result.passed {
+            Ok(())
+        } else {
+            Err(result.discrepancies)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -278,6 +441,8 @@ impl PolicyConfig {
                     name: rule.name.clone(),
                     policy_type: rule.policy_type.clone(),
                     priority,
+                    path_rules: None,
+                    network_rules: None,
                 }
             })
             .collect()
@@ -596,5 +761,267 @@ per_ip_rps = 50
         assert_eq!(config.rate_limit.per_ip_rps, Some(50));
         assert!(config.rate_limit.per_ip_burst.is_none());
         assert!(config.rate_limit.per_ip_max_capacity.is_none());
+    }
+
+    // --- Supply chain verification tests ---
+
+    #[test]
+    fn test_supply_chain_disabled_always_passes() {
+        let config = SupplyChainConfig {
+            enabled: false,
+            allowed_servers: std::collections::HashMap::new(),
+        };
+        assert!(config.verify_binary("/nonexistent/path").is_ok());
+    }
+
+    #[test]
+    fn test_supply_chain_correct_hash_passes() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin_path = dir.path().join("fake-server");
+        std::fs::write(&bin_path, b"hello server binary").unwrap();
+
+        // Compute expected hash
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(b"hello server binary");
+        let expected_hash = hex::encode(hasher.finalize());
+
+        let mut allowed = std::collections::HashMap::new();
+        allowed.insert(bin_path.to_string_lossy().to_string(), expected_hash);
+
+        let config = SupplyChainConfig {
+            enabled: true,
+            allowed_servers: allowed,
+        };
+        assert!(config.verify_binary(&bin_path.to_string_lossy()).is_ok());
+    }
+
+    #[test]
+    fn test_supply_chain_wrong_hash_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin_path = dir.path().join("fake-server");
+        std::fs::write(&bin_path, b"hello server binary").unwrap();
+
+        let mut allowed = std::collections::HashMap::new();
+        allowed.insert(
+            bin_path.to_string_lossy().to_string(),
+            "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+        );
+
+        let config = SupplyChainConfig {
+            enabled: true,
+            allowed_servers: allowed,
+        };
+        let result = config.verify_binary(&bin_path.to_string_lossy());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Hash mismatch"));
+    }
+
+    #[test]
+    fn test_supply_chain_unlisted_binary_fails() {
+        let config = SupplyChainConfig {
+            enabled: true,
+            allowed_servers: std::collections::HashMap::new(),
+        };
+        let result = config.verify_binary("/usr/bin/something");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not in allowed_servers"));
+    }
+
+    #[test]
+    fn test_supply_chain_missing_binary_fails() {
+        let mut allowed = std::collections::HashMap::new();
+        allowed.insert(
+            "/nonexistent/binary".to_string(),
+            "abcdef1234567890".to_string(),
+        );
+
+        let config = SupplyChainConfig {
+            enabled: true,
+            allowed_servers: allowed,
+        };
+        let result = config.verify_binary("/nonexistent/binary");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to read"));
+    }
+
+    // --- Manifest verification tests ---
+
+    fn make_tools_list_response(tools: &[(&str, serde_json::Value)]) -> serde_json::Value {
+        let tool_entries: Vec<serde_json::Value> = tools
+            .iter()
+            .map(|(name, schema)| {
+                serde_json::json!({
+                    "name": name,
+                    "inputSchema": schema,
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": { "tools": tool_entries }
+        })
+    }
+
+    #[test]
+    fn test_manifest_from_tools_list() {
+        let response = make_tools_list_response(&[
+            (
+                "read_file",
+                serde_json::json!({"type": "object", "properties": {"path": {"type": "string"}}}),
+            ),
+            (
+                "write_file",
+                serde_json::json!({"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}}),
+            ),
+        ]);
+        let manifest = ToolManifest::from_tools_list(&response).unwrap();
+        assert_eq!(manifest.schema_version, "1.0");
+        assert_eq!(manifest.tools.len(), 2);
+        // Tools should be sorted by name
+        assert_eq!(manifest.tools[0].name, "read_file");
+        assert_eq!(manifest.tools[1].name, "write_file");
+        // Hashes should be non-empty hex strings
+        assert_eq!(manifest.tools[0].input_schema_hash.len(), 64);
+    }
+
+    #[test]
+    fn test_manifest_verify_identical_passes() {
+        let response = make_tools_list_response(&[
+            ("tool_a", serde_json::json!({"type": "object"})),
+            (
+                "tool_b",
+                serde_json::json!({"type": "object", "properties": {}}),
+            ),
+        ]);
+        let pinned = ToolManifest::from_tools_list(&response).unwrap();
+        let result = pinned.verify(&response);
+        assert!(result.passed);
+        assert!(result.discrepancies.is_empty());
+    }
+
+    #[test]
+    fn test_manifest_verify_new_tool_detected() {
+        let original =
+            make_tools_list_response(&[("tool_a", serde_json::json!({"type": "object"}))]);
+        let modified = make_tools_list_response(&[
+            ("tool_a", serde_json::json!({"type": "object"})),
+            ("tool_b", serde_json::json!({"type": "object"})),
+        ]);
+        let pinned = ToolManifest::from_tools_list(&original).unwrap();
+        let result = pinned.verify(&modified);
+        assert!(!result.passed);
+        assert!(result
+            .discrepancies
+            .iter()
+            .any(|d| d.contains("New tool 'tool_b'")));
+    }
+
+    #[test]
+    fn test_manifest_verify_removed_tool_detected() {
+        let original = make_tools_list_response(&[
+            ("tool_a", serde_json::json!({"type": "object"})),
+            ("tool_b", serde_json::json!({"type": "object"})),
+        ]);
+        let modified =
+            make_tools_list_response(&[("tool_a", serde_json::json!({"type": "object"}))]);
+        let pinned = ToolManifest::from_tools_list(&original).unwrap();
+        let result = pinned.verify(&modified);
+        assert!(!result.passed);
+        assert!(result.discrepancies.iter().any(|d| d.contains("removed")));
+    }
+
+    #[test]
+    fn test_manifest_verify_schema_change_detected() {
+        let original = make_tools_list_response(&[(
+            "tool_a",
+            serde_json::json!({"type": "object", "properties": {"path": {"type": "string"}}}),
+        )]);
+        let modified = make_tools_list_response(&[(
+            "tool_a",
+            serde_json::json!({"type": "object", "properties": {"path": {"type": "string"}, "force": {"type": "boolean"}}}),
+        )]);
+        let pinned = ToolManifest::from_tools_list(&original).unwrap();
+        let result = pinned.verify(&modified);
+        assert!(!result.passed);
+        assert!(result
+            .discrepancies
+            .iter()
+            .any(|d| d.contains("schema changed")));
+    }
+
+    #[test]
+    fn test_manifest_verify_invalid_response() {
+        let pinned = ToolManifest {
+            schema_version: "1.0".to_string(),
+            tools: vec![],
+            signature: None,
+        };
+        let bad_response = serde_json::json!({"error": "something"});
+        let result = pinned.verify(&bad_response);
+        assert!(!result.passed);
+        assert!(result
+            .discrepancies
+            .iter()
+            .any(|d| d.contains("Failed to parse")));
+    }
+
+    #[test]
+    fn test_manifest_config_disabled_always_passes() {
+        let config = ManifestConfig {
+            enabled: false,
+            trusted_keys: vec![],
+        };
+        let pinned = ToolManifest {
+            schema_version: "1.0".to_string(),
+            tools: vec![ManifestToolEntry {
+                name: "tool_a".to_string(),
+                input_schema_hash: "deadbeef".to_string(),
+            }],
+            signature: None,
+        };
+        // Even with a completely wrong response, disabled config passes
+        let bad_response = serde_json::json!({"error": "something"});
+        assert!(config.verify_manifest(&pinned, &bad_response).is_ok());
+    }
+
+    #[test]
+    fn test_manifest_config_enabled_detects_mismatch() {
+        let config = ManifestConfig {
+            enabled: true,
+            trusted_keys: vec![],
+        };
+        let original =
+            make_tools_list_response(&[("tool_a", serde_json::json!({"type": "object"}))]);
+        let pinned = ToolManifest::from_tools_list(&original).unwrap();
+
+        let modified = make_tools_list_response(&[
+            ("tool_a", serde_json::json!({"type": "object"})),
+            ("injected_tool", serde_json::json!({"type": "object"})),
+        ]);
+        let result = config.verify_manifest(&pinned, &modified);
+        assert!(result.is_err());
+        let discrepancies = result.unwrap_err();
+        assert!(discrepancies.iter().any(|d| d.contains("injected_tool")));
+    }
+
+    #[test]
+    fn test_manifest_tool_without_schema() {
+        // Tools without inputSchema should still get a hash (of empty string)
+        let response = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "tools": [
+                    {"name": "simple_tool"}
+                ]
+            }
+        });
+        let manifest = ToolManifest::from_tools_list(&response).unwrap();
+        assert_eq!(manifest.tools.len(), 1);
+        assert_eq!(manifest.tools[0].name, "simple_tool");
+        // Hash of empty string
+        assert_eq!(manifest.tools[0].input_schema_hash.len(), 64);
     }
 }

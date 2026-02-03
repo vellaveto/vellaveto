@@ -15,17 +15,19 @@ fn conditional_policy(
         name: name.to_string(),
         policy_type: PolicyType::Conditional { conditions },
         priority,
+        path_rules: None,
+        network_rules: None,
     }
 }
 
 #[test]
 fn conditional_policy_requires_approval() {
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: "shell".to_string(),
-        function: "execute".to_string(),
-        parameters: json!({"command": "rm -rf /"}),
-    };
+    let action = Action::new(
+        "shell".to_string(),
+        "execute".to_string(),
+        json!({"command": "rm -rf /"}),
+    );
     let policies = vec![conditional_policy(
         "shell:*",
         "dangerous-commands",
@@ -54,11 +56,11 @@ fn conditional_policy_requires_approval() {
 #[test]
 fn conditional_policy_with_non_matching_action() {
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: "file".to_string(),
-        function: "read".to_string(),
-        parameters: json!({"path": "/tmp/safe.txt"}),
-    };
+    let action = Action::new(
+        "file".to_string(),
+        "read".to_string(),
+        json!({"path": "/tmp/safe.txt"}),
+    );
     let policies = vec![conditional_policy(
         "shell:*",
         "shell-guard",
@@ -83,11 +85,11 @@ fn conditional_policy_with_non_matching_action() {
 #[test]
 fn mixed_policies_conditional_and_deny() {
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: "shell".to_string(),
-        function: "execute".to_string(),
-        parameters: json!({"command": "ls"}),
-    };
+    let action = Action::new(
+        "shell".to_string(),
+        "execute".to_string(),
+        json!({"command": "ls"}),
+    );
 
     let policies = vec![
         conditional_policy(
@@ -101,6 +103,8 @@ fn mixed_policies_conditional_and_deny() {
             name: "deny-all-shell".to_string(),
             policy_type: PolicyType::Deny,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         },
     ];
 
@@ -119,11 +123,11 @@ fn mixed_policies_conditional_and_deny() {
 #[test]
 fn conditional_with_forbidden_parameters() {
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: "shell".to_string(),
-        function: "execute".to_string(),
-        parameters: json!({"force": true, "path": "/etc"}),
-    };
+    let action = Action::new(
+        "shell".to_string(),
+        "execute".to_string(),
+        json!({"force": true, "path": "/etc"}),
+    );
     let policies = vec![conditional_policy(
         "shell:*",
         "no-force",
@@ -148,11 +152,11 @@ fn conditional_with_forbidden_parameters() {
 #[test]
 fn conditional_with_required_parameters() {
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: "file".to_string(),
-        function: "write".to_string(),
-        parameters: json!({"content": "hello"}), // missing "reason" parameter
-    };
+    let action = Action::new(
+        "file".to_string(),
+        "write".to_string(),
+        json!({"content": "hello"}),
+    );
     let policies = vec![conditional_policy(
         "file:write",
         "require-reason",
@@ -180,11 +184,11 @@ fn conditional_with_required_parameters() {
 #[test]
 fn conditional_allows_when_no_conditions_triggered() {
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: "file".to_string(),
-        function: "read".to_string(),
-        parameters: json!({"path": "/tmp/safe.txt"}),
-    };
+    let action = Action::new(
+        "file".to_string(),
+        "read".to_string(),
+        json!({"path": "/tmp/safe.txt"}),
+    );
     let policies = vec![conditional_policy(
         "file:*",
         "file-conditions",

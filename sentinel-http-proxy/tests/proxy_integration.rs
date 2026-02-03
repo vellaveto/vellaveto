@@ -123,18 +123,24 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
             name: "Allow file reads".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "bash:*".to_string(),
             name: "Block bash".to_string(),
             policy_type: PolicyType::Deny,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "resources:read".to_string(),
             name: "Allow resource reads".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         },
     ];
 
@@ -151,6 +157,8 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         injection_scanner: None,
         injection_disabled: false,
         api_key: None,
+        approval_store: None,
+        manifest_config: None,
     }
 }
 
@@ -1557,12 +1565,16 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
             name: "Allow safe_tool".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "evil_tool:*".to_string(),
             name: "Allow evil_tool (policy-wise)".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let engine = PolicyEngine::with_policies(false, &policies).expect("compile");
@@ -1577,6 +1589,8 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         injection_scanner: None,
         injection_disabled: false,
         api_key: None,
+        approval_store: None,
+        manifest_config: None,
     };
     let sessions = state.sessions.clone();
     let app = build_router(state);
@@ -1839,6 +1853,8 @@ async fn trace_resource_read_denied_includes_trace() {
         name: "Block all resources".to_string(),
         policy_type: PolicyType::Deny,
         priority: 100,
+        path_rules: None,
+        network_rules: None,
     }];
     let engine = PolicyEngine::with_policies(false, &policies).expect("compile");
     let state = ProxyState {
@@ -1852,6 +1868,8 @@ async fn trace_resource_read_denied_includes_trace() {
         injection_scanner: None,
         injection_disabled: false,
         api_key: None,
+        approval_store: None,
+        manifest_config: None,
     };
     let app = build_router(state);
 
@@ -1903,6 +1921,8 @@ async fn trace_constraint_details_visible() {
             }),
         },
         priority: 100,
+        path_rules: None,
+        network_rules: None,
     }];
     let engine = PolicyEngine::with_policies(false, &policies).expect("compile");
     let state = ProxyState {
@@ -1916,6 +1936,8 @@ async fn trace_constraint_details_visible() {
         injection_scanner: None,
         injection_disabled: false,
         api_key: None,
+        approval_store: None,
+        manifest_config: None,
     };
     let app = build_router(state);
 
@@ -2064,12 +2086,16 @@ fn build_oauth_test_state(
             name: "Allow file reads".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "bash:*".to_string(),
             name: "Block bash".to_string(),
             policy_type: PolicyType::Deny,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         },
     ];
 
@@ -2096,6 +2122,8 @@ fn build_oauth_test_state(
         injection_scanner: None,
         injection_disabled: false,
         api_key: None,
+        approval_store: None,
+        manifest_config: None,
     }
 }
 
@@ -2586,12 +2614,16 @@ fn build_api_key_test_state(
             name: "Allow read_file".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "bash:*".to_string(),
             name: "Deny bash".to_string(),
             policy_type: PolicyType::Deny,
             priority: 20,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let engine = PolicyEngine::with_policies(false, &policies).expect("compile");
@@ -2607,6 +2639,8 @@ fn build_api_key_test_state(
         injection_scanner: None,
         injection_disabled: false,
         api_key: api_key.map(|k| Arc::new(k.to_string())),
+        approval_store: None,
+        manifest_config: None,
     }
 }
 

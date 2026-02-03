@@ -15,11 +15,11 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 fn make_action() -> Action {
-    Action {
-        tool: "idempotency_test".to_string(),
-        function: "probe".to_string(),
-        parameters: json!({"fixed": "value"}),
-    }
+    Action::new(
+        "idempotency_test".to_string(),
+        "probe".to_string(),
+        json!({"fixed": "value"}),
+    )
 }
 
 fn setup_logger() -> (AuditLogger, TempDir) {
@@ -97,11 +97,7 @@ fn load_order_matches_write_order() {
 
         let tools = ["alpha", "bravo", "charlie", "delta", "echo"];
         for tool in &tools {
-            let action = Action {
-                tool: tool.to_string(),
-                function: "ordered".to_string(),
-                parameters: json!({}),
-            };
+            let action = Action::new(tool.to_string(), "ordered".to_string(), json!({}));
             logger
                 .log_entry(&action, &Verdict::Allow, json!({}))
                 .await

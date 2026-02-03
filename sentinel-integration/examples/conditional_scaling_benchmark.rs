@@ -28,6 +28,8 @@ fn make_conditional_policy(num_forbidden: usize, num_required: usize) -> Policy 
             }),
         },
         priority: 100,
+        path_rules: None,
+        network_rules: None,
     }
 }
 
@@ -39,11 +41,11 @@ fn make_action_with_params(num_params: usize) -> Action {
             serde_json::Value::String(format!("val_{}", i)),
         );
     }
-    Action {
-        tool: "tool".to_string(),
-        function: "func".to_string(),
-        parameters: serde_json::Value::Object(params),
-    }
+    Action::new(
+        "tool".to_string(),
+        "func".to_string(),
+        serde_json::Value::Object(params),
+    )
 }
 
 fn main() {

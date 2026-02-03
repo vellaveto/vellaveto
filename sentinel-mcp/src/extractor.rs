@@ -145,11 +145,70 @@ pub fn classify_message(msg: &Value) -> MessageType {
 /// The `tool` field is set to the MCP tool name.
 /// The `function` field is set to `"*"` (MCP tools don't have sub-functions).
 /// The `parameters` field is the tool's arguments object.
+///
+/// Automatically populates `target_paths` from parameters containing file-like paths
+/// and `target_domains` from parameters containing URLs.
 pub fn extract_action(tool_name: &str, arguments: &Value) -> Action {
-    Action {
-        tool: tool_name.to_string(),
-        function: "*".to_string(),
-        parameters: arguments.clone(),
+    let mut action = Action::new(tool_name, "*", arguments.clone());
+    extract_targets_from_params(
+        arguments,
+        &mut action.target_paths,
+        &mut action.target_domains,
+    );
+    action
+}
+
+/// Scan parameter values for file paths and URLs, populating target_paths and target_domains.
+fn extract_targets_from_params(value: &Value, paths: &mut Vec<String>, domains: &mut Vec<String>) {
+    match value {
+        Value::String(s) => {
+            let lower = s.to_lowercase();
+            if lower.starts_with("file://") {
+                // Extract path from file:// URI
+                if let Some(path) = lower.strip_prefix("file://") {
+                    let file_path = if let Some(rest) = path.strip_prefix("localhost") {
+                        rest.to_string()
+                    } else if path.starts_with('/') {
+                        path.to_string()
+                    } else {
+                        path.find('/')
+                            .map(|i| path[i..].to_string())
+                            .unwrap_or_default()
+                    };
+                    if !file_path.is_empty() {
+                        paths.push(file_path);
+                    }
+                }
+            } else if lower.starts_with("http://") || lower.starts_with("https://") {
+                // Extract domain from HTTP(S) URL
+                if let Some(authority) = s.find("://").map(|i| &s[i + 3..]) {
+                    let host = authority.split('/').next().unwrap_or(authority);
+                    let host = host.split(':').next().unwrap_or(host);
+                    let host = if let Some(pos) = host.rfind('@') {
+                        &host[pos + 1..]
+                    } else {
+                        host
+                    };
+                    if !host.is_empty() {
+                        domains.push(host.to_lowercase());
+                    }
+                }
+            } else if s.starts_with('/') && !s.contains(' ') {
+                // Looks like an absolute file path
+                paths.push(s.clone());
+            }
+        }
+        Value::Object(map) => {
+            for val in map.values() {
+                extract_targets_from_params(val, paths, domains);
+            }
+        }
+        Value::Array(arr) => {
+            for val in arr {
+                extract_targets_from_params(val, paths, domains);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -163,6 +222,9 @@ pub fn extract_action(tool_name: &str, arguments: &Value) -> Action {
 pub fn extract_resource_action(uri: &str) -> Action {
     let mut params = serde_json::Map::new();
     params.insert(PARAM_URI.to_string(), Value::String(uri.to_string()));
+
+    let mut target_paths = Vec::new();
+    let mut target_domains = Vec::new();
 
     // Lowercase the scheme for comparison (RFC 3986 §3.1: schemes are case-insensitive)
     let uri_lower = uri.to_lowercase();
@@ -178,15 +240,28 @@ pub fn extract_resource_action(uri: &str) -> Action {
             path.find('/').map(|i| &path[i..]).unwrap_or(path)
         };
         params.insert(PARAM_PATH.to_string(), Value::String(file_path.to_string()));
+        target_paths.push(file_path.to_string());
     } else if uri_lower.starts_with("http://") || uri_lower.starts_with("https://") {
         params.insert(PARAM_URL.to_string(), Value::String(uri.to_string()));
+        // Extract domain for target_domains
+        if let Some(authority) = uri.find("://").map(|i| &uri[i + 3..]) {
+            let host = authority.split('/').next().unwrap_or(authority);
+            let host = host.split(':').next().unwrap_or(host);
+            let host = if let Some(pos) = host.rfind('@') {
+                &host[pos + 1..]
+            } else {
+                host
+            };
+            if !host.is_empty() {
+                target_domains.push(host.to_lowercase());
+            }
+        }
     }
 
-    Action {
-        tool: "resources".to_string(),
-        function: "read".to_string(),
-        parameters: Value::Object(params),
-    }
+    let mut action = Action::new("resources", "read", Value::Object(params));
+    action.target_paths = target_paths;
+    action.target_domains = target_domains;
+    action
 }
 
 /// Build a JSON-RPC error response for an invalid request.
@@ -733,5 +808,64 @@ mod tests {
     fn test_extract_resource_action_file_localhost_case_insensitive() {
         let action = extract_resource_action("FILE://localhost/etc/shadow");
         assert_eq!(action.parameters["path"], "/etc/shadow");
+    }
+
+    // --- target_paths / target_domains extraction tests ---
+
+    #[test]
+    fn test_extract_action_populates_target_paths() {
+        let args = json!({"path": "/etc/passwd", "encoding": "utf-8"});
+        let action = extract_action("read_file", &args);
+        assert!(
+            action.target_paths.contains(&"/etc/passwd".to_string()),
+            "target_paths should contain /etc/passwd, got: {:?}",
+            action.target_paths
+        );
+    }
+
+    #[test]
+    fn test_extract_action_populates_target_domains_from_url() {
+        let args = json!({"url": "https://evil.com/data", "method": "GET"});
+        let action = extract_action("http_request", &args);
+        assert!(
+            action.target_domains.contains(&"evil.com".to_string()),
+            "target_domains should contain evil.com, got: {:?}",
+            action.target_domains
+        );
+    }
+
+    #[test]
+    fn test_extract_action_file_uri_populates_target_paths() {
+        let args = json!({"resource": "file:///home/user/.aws/credentials"});
+        let action = extract_action("read_resource", &args);
+        assert!(
+            action
+                .target_paths
+                .contains(&"/home/user/.aws/credentials".to_string()),
+            "target_paths should contain the extracted file path, got: {:?}",
+            action.target_paths
+        );
+    }
+
+    #[test]
+    fn test_extract_action_no_targets_for_plain_values() {
+        let args = json!({"command": "ls -la", "timeout": 30});
+        let action = extract_action("bash", &args);
+        assert!(action.target_paths.is_empty());
+        assert!(action.target_domains.is_empty());
+    }
+
+    #[test]
+    fn test_extract_resource_action_file_populates_target_paths() {
+        let action = extract_resource_action("file:///etc/shadow");
+        assert!(action.target_paths.contains(&"/etc/shadow".to_string()));
+        assert!(action.target_domains.is_empty());
+    }
+
+    #[test]
+    fn test_extract_resource_action_http_populates_target_domains() {
+        let action = extract_resource_action("https://evil.com/data");
+        assert!(action.target_domains.contains(&"evil.com".to_string()));
+        assert!(action.target_paths.is_empty());
     }
 }

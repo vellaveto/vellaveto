@@ -112,11 +112,7 @@ fn audit_report_clone_preserves_all_fields() {
         require_approval_count: 1,
         entries: vec![AuditEntry {
             id: "id1".to_string(),
-            action: Action {
-                tool: "t".to_string(),
-                function: "f".to_string(),
-                parameters: json!({}),
-            },
+            action: Action::new("t".to_string(), "f".to_string(), json!({})),
             verdict: Verdict::Allow,
             timestamp: "ts1".to_string(),
             metadata: json!({"k": "v"}),
@@ -145,11 +141,7 @@ fn audit_report_with_mixed_verdicts_roundtrips() {
         entries: vec![
             AuditEntry {
                 id: "a".to_string(),
-                action: Action {
-                    tool: "tool".to_string(),
-                    function: "func".to_string(),
-                    parameters: json!({"p": 1}),
-                },
+                action: Action::new("tool".to_string(), "func".to_string(), json!({"p": 1})),
                 verdict: Verdict::Allow,
                 timestamp: "2025-01-01T00:00:00Z".to_string(),
                 metadata: json!({}),
@@ -158,11 +150,7 @@ fn audit_report_with_mixed_verdicts_roundtrips() {
             },
             AuditEntry {
                 id: "b".to_string(),
-                action: Action {
-                    tool: "tool".to_string(),
-                    function: "func".to_string(),
-                    parameters: json!({}),
-                },
+                action: Action::new("tool".to_string(), "func".to_string(), json!({})),
                 verdict: Verdict::Deny {
                     reason: "blocked".to_string(),
                 },
@@ -173,11 +161,7 @@ fn audit_report_with_mixed_verdicts_roundtrips() {
             },
             AuditEntry {
                 id: "c".to_string(),
-                action: Action {
-                    tool: "tool".to_string(),
-                    function: "func".to_string(),
-                    parameters: json!({}),
-                },
+                action: Action::new("tool".to_string(), "func".to_string(), json!({})),
                 verdict: Verdict::RequireApproval {
                     reason: "needs review".to_string(),
                 },

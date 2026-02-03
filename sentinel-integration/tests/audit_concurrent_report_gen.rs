@@ -17,11 +17,11 @@ fn runtime_mt() -> tokio::runtime::Runtime {
 }
 
 fn make_action() -> Action {
-    Action {
-        tool: "report_gen_test".to_string(),
-        function: "probe".to_string(),
-        parameters: json!({}),
-    }
+    Action::new(
+        "report_gen_test".to_string(),
+        "probe".to_string(),
+        json!({}),
+    )
 }
 
 // ════════════════════════════════

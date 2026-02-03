@@ -70,11 +70,7 @@ fn example_config_evaluates_correctly_through_engine() {
     let engine = PolicyEngine::new(false);
 
     // Based on the example config: bash should be denied (priority 200 deny)
-    let bash_action = Action {
-        tool: "bash".to_string(),
-        function: "execute".to_string(),
-        parameters: json!({}),
-    };
+    let bash_action = Action::new("bash".to_string(), "execute".to_string(), json!({}));
     let verdict = engine.evaluate_action(&bash_action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
@@ -83,11 +79,7 @@ fn example_config_evaluates_correctly_through_engine() {
     );
 
     // file:read should be allowed (priority 10 allow)
-    let read_action = Action {
-        tool: "file".to_string(),
-        function: "read".to_string(),
-        parameters: json!({}),
-    };
+    let read_action = Action::new("file".to_string(), "read".to_string(), json!({}));
     let verdict = engine.evaluate_action(&read_action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),

@@ -330,11 +330,11 @@ mod tests {
     use tempfile::TempDir;
 
     fn test_action() -> Action {
-        Action {
-            tool: "file_system".to_string(),
-            function: "delete_file".to_string(),
-            parameters: json!({"path": "/important/data"}),
-        }
+        Action::new(
+            "file_system".to_string(),
+            "delete_file".to_string(),
+            json!({"path": "/important/data"}),
+        )
     }
 
     #[tokio::test]

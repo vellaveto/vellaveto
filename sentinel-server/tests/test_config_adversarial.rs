@@ -405,16 +405,16 @@ priority = 1
     let policies = PolicyConfig::from_toml(toml).unwrap().to_policies();
     let engine = PolicyEngine::new(false);
 
-    let bash_action = Action {
-        tool: "bash".to_string(),
-        function: "execute".to_string(),
-        parameters: serde_json::json!({}),
-    };
-    let file_action = Action {
-        tool: "file".to_string(),
-        function: "read".to_string(),
-        parameters: serde_json::json!({}),
-    };
+    let bash_action = Action::new(
+        "bash".to_string(),
+        "execute".to_string(),
+        serde_json::json!({}),
+    );
+    let file_action = Action::new(
+        "file".to_string(),
+        "read".to_string(),
+        serde_json::json!({}),
+    );
 
     let bash_verdict = engine.evaluate_action(&bash_action, &policies).unwrap();
     assert!(

@@ -23,11 +23,7 @@ fn arb_action() -> impl Strategy<Value = Action> {
             Just(json!({"key": "value", "nested": {"a": 1}})),
         ],
     )
-        .prop_map(|(tool, function, parameters)| Action {
-            tool,
-            function,
-            parameters,
-        })
+        .prop_map(|(tool, function, parameters)| Action::new(tool, function, parameters))
 }
 
 /// Generate a small set of policies for testing.
@@ -56,6 +52,8 @@ fn arb_policy() -> impl Strategy<Value = Policy> {
             name,
             policy_type,
             priority,
+            path_rules: None,
+            network_rules: None,
         })
 }
 
@@ -370,21 +368,21 @@ proptest! {
                 name: "Allow file read".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 10,
-            },
+                path_rules: None,
+                network_rules: None,
+},
             Policy {
                 id: "bash:*".to_string(),
                 name: "Block bash".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 100,
-            },
+                path_rules: None,
+                network_rules: None,
+},
         ];
 
         let engine = PolicyEngine::new(true); // strict mode
-        let action = Action {
-            tool,
-            function,
-            parameters: json!({}),
-        };
+        let action = Action::new(tool, function, json!({}));
 
         let result = engine.evaluate_action(&action, &policies);
         match result {
@@ -413,22 +411,22 @@ proptest! {
                 name: "Allow all".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: allow_priority,
-            },
+                path_rules: None,
+                network_rules: None,
+},
             Policy {
                 id: "*:*".to_string(),
                 name: "Deny all".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: deny_priority,
-            },
+                path_rules: None,
+                network_rules: None,
+},
         ];
         PolicyEngine::sort_policies(&mut policies);
 
         let engine = PolicyEngine::new(false);
-        let action = Action {
-            tool,
-            function,
-            parameters: json!({}),
-        };
+        let action = Action::new(tool, function, json!({}));
 
         let result = engine.evaluate_action(&action, &policies);
         match result {

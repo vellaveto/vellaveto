@@ -26,11 +26,7 @@ fn setup_logger() -> (AuditLogger, TempDir) {
 }
 
 fn action_with_params(params: serde_json::Value) -> Action {
-    Action {
-        tool: "boundary_test".to_string(),
-        function: "probe".to_string(),
-        parameters: params,
-    }
+    Action::new("boundary_test".to_string(), "probe".to_string(), params)
 }
 
 // ═══════════════════════════════
@@ -85,11 +81,11 @@ fn tool_with_tab_is_accepted() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let action = Action {
-            tool: "tool\twith\ttabs".to_string(),
-            function: "func".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new(
+            "tool\twith\ttabs".to_string(),
+            "func".to_string(),
+            json!({}),
+        );
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
         assert!(result.is_ok(), "Tab in tool name should be accepted");
     });
@@ -101,11 +97,7 @@ fn tool_with_unicode_is_accepted() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let action = Action {
-            tool: "工具_🔧".to_string(),
-            function: "函数".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("工具_🔧".to_string(), "函数".to_string(), json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
         assert!(
             result.is_ok(),
@@ -124,11 +116,7 @@ fn tool_with_newline_rejected() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let action = Action {
-            tool: "bad\ntool".to_string(),
-            function: "func".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("bad\ntool".to_string(), "func".to_string(), json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
         assert!(result.is_err());
     });
@@ -140,11 +128,7 @@ fn function_with_cr_rejected() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let action = Action {
-            tool: "tool".to_string(),
-            function: "bad\rfunc".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("tool".to_string(), "bad\rfunc".to_string(), json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
         assert!(result.is_err());
     });
@@ -156,11 +140,7 @@ fn tool_with_null_byte_rejected() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let action = Action {
-            tool: "bad\0tool".to_string(),
-            function: "func".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("bad\0tool".to_string(), "func".to_string(), json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
         assert!(result.is_err());
     });
@@ -172,11 +152,7 @@ fn function_with_null_byte_rejected() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let action = Action {
-            tool: "tool".to_string(),
-            function: "bad\0func".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("tool".to_string(), "bad\0func".to_string(), json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
         assert!(result.is_err());
     });
@@ -192,11 +168,7 @@ fn empty_tool_and_function_accepted() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let action = Action {
-            tool: String::new(),
-            function: String::new(),
-            parameters: json!({}),
-        };
+        let action = Action::new(String::new(), String::new(), json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
         assert!(result.is_ok(), "Empty strings pass all validation checks");
     });
@@ -213,11 +185,7 @@ fn very_long_tool_name_accepted() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let action = Action {
-            tool: "a".repeat(10_000),
-            function: "b".repeat(10_000),
-            parameters: json!({}),
-        };
+        let action = Action::new("a".repeat(10_000), "b".repeat(10_000), json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
         assert!(
             result.is_ok(),

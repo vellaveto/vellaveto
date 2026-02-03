@@ -15,11 +15,7 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: params,
-    }
+    Action::new(tool.to_string(), function.to_string(), params)
 }
 
 // ════════════════════════════════════════════════
@@ -41,6 +37,8 @@ fn scenario_developer_sandbox() {
                 name: "Allow file reads".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 10,
+                path_rules: None,
+                network_rules: None,
             },
             // Deny file deletes
             Policy {
@@ -48,6 +46,8 @@ fn scenario_developer_sandbox() {
                 name: "Block file deletes".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             },
             // Require approval for bash
             Policy {
@@ -57,6 +57,8 @@ fn scenario_developer_sandbox() {
                     conditions: json!({"require_approval": true}),
                 },
                 priority: 50,
+                path_rules: None,
+                network_rules: None,
             },
         ];
 
@@ -130,6 +132,8 @@ fn scenario_lockdown_with_exception() {
                 name: "Deny All".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 1,
+                path_rules: None,
+                network_rules: None,
             },
             // Allow only git operations at higher priority
             Policy {
@@ -137,6 +141,8 @@ fn scenario_lockdown_with_exception() {
                 name: "Allow git".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             },
         ];
 
@@ -200,6 +206,8 @@ fn scenario_data_exfiltration_prevention() {
                     }),
                 },
                 priority: 500,
+                path_rules: None,
+                network_rules: None,
             },
         ];
 
@@ -289,12 +297,16 @@ fn scenario_first_matching_policy_wins() {
                     conditions: json!({"require_approval": true}),
                 },
                 priority: 200,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "file:read".to_string(),
                 name: "Allow file reads".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             },
         ];
 

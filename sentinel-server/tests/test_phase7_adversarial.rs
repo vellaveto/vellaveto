@@ -34,6 +34,8 @@ fn state_with_api_key(tmp: &TempDir) -> AppState {
             name: "Allow".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         }])),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
@@ -144,11 +146,11 @@ async fn regression_25_pending_approvals_not_readable_without_auth() {
     state
         .approvals
         .create(
-            Action {
-                tool: "admin".to_string(),
-                function: "delete_user".to_string(),
-                parameters: json!({"user": "admin", "secret_token": "tok_live_abc123"}),
-            },
+            Action::new(
+                "admin".to_string(),
+                "delete_user".to_string(),
+                json!({"user": "admin", "secret_token": "tok_live_abc123"}),
+            ),
             "needs review".to_string(),
         )
         .await
@@ -213,14 +215,14 @@ async fn exploit_26_unbounded_approval_creation() {
 
     // Create 1000 approvals with non-trivial parameters
     for i in 0..1000 {
-        let action = Action {
-            tool: "admin".to_string(),
-            function: "delete".to_string(),
-            parameters: json!({
+        let action = Action::new(
+            "admin".to_string(),
+            "delete".to_string(),
+            json!({
                 "target": format!("user_{}", i),
                 "padding": "x".repeat(512), // ~512 bytes per entry
             }),
-        };
+        );
         store.create(action, format!("reason_{}", i)).await.unwrap();
     }
 
@@ -279,11 +281,7 @@ async fn exploit_27_create_persist_before_lock_ordering() {
     // Create an approval
     let id = store
         .create(
-            Action {
-                tool: "file".to_string(),
-                function: "read".to_string(),
-                parameters: json!({}),
-            },
+            Action::new("file".to_string(), "read".to_string(), json!({})),
             "test".to_string(),
         )
         .await
@@ -331,11 +329,7 @@ async fn exploit_28_silent_malformed_jsonl_drop() {
     let store1 = ApprovalStore::new(log_path.clone(), std::time::Duration::from_secs(900));
     let id = store1
         .create(
-            Action {
-                tool: "file".to_string(),
-                function: "read".to_string(),
-                parameters: json!({}),
-            },
+            Action::new("file".to_string(), "read".to_string(), json!({})),
             "important approval".to_string(),
         )
         .await
@@ -380,22 +374,18 @@ async fn exploit_28_truncated_entry_silently_lost() {
     let store1 = ApprovalStore::new(log_path.clone(), std::time::Duration::from_secs(900));
     let id1 = store1
         .create(
-            Action {
-                tool: "admin".to_string(),
-                function: "approve_transfer".to_string(),
-                parameters: json!({"amount": 50000}),
-            },
+            Action::new(
+                "admin".to_string(),
+                "approve_transfer".to_string(),
+                json!({"amount": 50000}),
+            ),
             "high-value transfer".to_string(),
         )
         .await
         .unwrap();
     let id2 = store1
         .create(
-            Action {
-                tool: "file".to_string(),
-                function: "delete".to_string(),
-                parameters: json!({}),
-            },
+            Action::new("file".to_string(), "delete".to_string(), json!({})),
             "file deletion".to_string(),
         )
         .await
@@ -458,11 +448,7 @@ async fn exploit_bonus_resolved_by_unbounded_length() {
 
     let id = store
         .create(
-            Action {
-                tool: "file".to_string(),
-                function: "read".to_string(),
-                parameters: json!({}),
-            },
+            Action::new("file".to_string(), "read".to_string(), json!({})),
             "test".to_string(),
         )
         .await

@@ -85,22 +85,22 @@ fn verify_valid_audit_log_with_entries() {
         let logger = sentinel_audit::AuditLogger::new_unredacted(audit_path.clone());
         logger.initialize_chain().await.unwrap();
 
-        let action = sentinel_types::Action {
-            tool: "file".to_string(),
-            function: "read".to_string(),
-            parameters: serde_json::json!({"path": "/tmp/test.txt"}),
-        };
+        let action = sentinel_types::Action::new(
+            "file".to_string(),
+            "read".to_string(),
+            serde_json::json!({"path": "/tmp/test.txt"}),
+        );
         let verdict = sentinel_types::Verdict::Allow;
         logger
             .log_entry(&action, &verdict, serde_json::json!({}))
             .await
             .unwrap();
 
-        let action2 = sentinel_types::Action {
-            tool: "bash".to_string(),
-            function: "execute".to_string(),
-            parameters: serde_json::json!({"command": "ls"}),
-        };
+        let action2 = sentinel_types::Action::new(
+            "bash".to_string(),
+            "execute".to_string(),
+            serde_json::json!({"command": "ls"}),
+        );
         let verdict2 = sentinel_types::Verdict::Deny {
             reason: "blocked".to_string(),
         };
@@ -150,11 +150,11 @@ fn verify_tampered_audit_log_fails() {
         logger.initialize_chain().await.unwrap();
 
         for i in 0..3 {
-            let action = sentinel_types::Action {
-                tool: "file".to_string(),
-                function: "read".to_string(),
-                parameters: serde_json::json!({"path": format!("/tmp/test{}.txt", i)}),
-            };
+            let action = sentinel_types::Action::new(
+                "file".to_string(),
+                "read".to_string(),
+                serde_json::json!({"path": format!("/tmp/test{}.txt", i)}),
+            );
             let verdict = sentinel_types::Verdict::Allow;
             logger
                 .log_entry(&action, &verdict, serde_json::json!({}))
@@ -207,11 +207,11 @@ fn verify_with_valid_checkpoints() {
             .with_signing_key(signing_key);
         logger.initialize_chain().await.unwrap();
 
-        let action = sentinel_types::Action {
-            tool: "file".to_string(),
-            function: "read".to_string(),
-            parameters: serde_json::json!({}),
-        };
+        let action = sentinel_types::Action::new(
+            "file".to_string(),
+            "read".to_string(),
+            serde_json::json!({}),
+        );
         let verdict = sentinel_types::Verdict::Allow;
         logger
             .log_entry(&action, &verdict, serde_json::json!({}))
@@ -263,11 +263,11 @@ fn verify_with_trusted_key_pinning() {
             .with_signing_key(signing_key);
         logger.initialize_chain().await.unwrap();
 
-        let action = sentinel_types::Action {
-            tool: "file".to_string(),
-            function: "read".to_string(),
-            parameters: serde_json::json!({}),
-        };
+        let action = sentinel_types::Action::new(
+            "file".to_string(),
+            "read".to_string(),
+            serde_json::json!({}),
+        );
         let verdict = sentinel_types::Verdict::Allow;
         logger
             .log_entry(&action, &verdict, serde_json::json!({}))
@@ -321,11 +321,11 @@ fn verify_with_wrong_trusted_key_fails() {
             .with_signing_key(signing_key);
         logger.initialize_chain().await.unwrap();
 
-        let action = sentinel_types::Action {
-            tool: "file".to_string(),
-            function: "read".to_string(),
-            parameters: serde_json::json!({}),
-        };
+        let action = sentinel_types::Action::new(
+            "file".to_string(),
+            "read".to_string(),
+            serde_json::json!({}),
+        );
         let verdict = sentinel_types::Verdict::Allow;
         logger
             .log_entry(&action, &verdict, serde_json::json!({}))
@@ -465,11 +465,11 @@ fn verify_list_rotated_shows_rotated_files() {
         logger.initialize_chain().await.unwrap();
 
         for _ in 0..20 {
-            let action = sentinel_types::Action {
-                tool: "file".to_string(),
-                function: "read".to_string(),
-                parameters: serde_json::json!({"path": "/tmp/test.txt"}),
-            };
+            let action = sentinel_types::Action::new(
+                "file".to_string(),
+                "read".to_string(),
+                serde_json::json!({"path": "/tmp/test.txt"}),
+            );
             logger
                 .log_entry(
                     &action,
@@ -530,11 +530,11 @@ fn verify_detects_duplicate_entry_ids() {
         let logger = sentinel_audit::AuditLogger::new_unredacted(audit_path.clone());
         logger.initialize_chain().await.unwrap();
 
-        let action = sentinel_types::Action {
-            tool: "file".to_string(),
-            function: "read".to_string(),
-            parameters: serde_json::json!({"path": "/tmp/test.txt"}),
-        };
+        let action = sentinel_types::Action::new(
+            "file".to_string(),
+            "read".to_string(),
+            serde_json::json!({"path": "/tmp/test.txt"}),
+        );
         let verdict = sentinel_types::Verdict::Allow;
         logger
             .log_entry(&action, &verdict, serde_json::json!({}))
@@ -593,11 +593,11 @@ fn verify_no_duplicates_in_clean_log() {
         logger.initialize_chain().await.unwrap();
 
         for i in 0..5 {
-            let action = sentinel_types::Action {
-                tool: "file".to_string(),
-                function: "read".to_string(),
-                parameters: serde_json::json!({"path": format!("/tmp/test{}.txt", i)}),
-            };
+            let action = sentinel_types::Action::new(
+                "file".to_string(),
+                "read".to_string(),
+                serde_json::json!({"path": format!("/tmp/test{}.txt", i)}),
+            );
             logger
                 .log_entry(
                     &action,

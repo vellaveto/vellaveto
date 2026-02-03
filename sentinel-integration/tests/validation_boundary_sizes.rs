@@ -24,11 +24,7 @@ fn setup_logger() -> (AuditLogger, TempDir) {
 }
 
 fn make_action_with_params(tool: &str, function: &str, params: serde_json::Value) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: params,
-    }
+    Action::new(tool.to_string(), function.to_string(), params)
 }
 
 // ═══════════════════════════════════════

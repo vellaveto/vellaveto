@@ -23,11 +23,7 @@ fn arb_action() -> impl Strategy<Value = Action> {
             Just(json!({"nested": {"a": 1, "b": "two"}})),
         ],
     )
-        .prop_map(|(tool, function, parameters)| Action {
-            tool,
-            function,
-            parameters,
-        })
+        .prop_map(|(tool, function, parameters)| Action::new(tool, function, parameters))
 }
 
 /// Generate an arbitrary Verdict.
@@ -147,11 +143,7 @@ proptest! {
             let log_path = dir.path().join("audit.jsonl");
             let logger = AuditLogger::new(log_path);
 
-            let action = Action {
-                tool: "test".to_string(),
-                function: "run".to_string(),
-                parameters: json!({}),
-            };
+            let action = Action::new("test".to_string(), "run".to_string(), json!({}));
 
             for _ in 0..entry_count {
                 logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
@@ -200,11 +192,7 @@ proptest! {
             let logger = AuditLogger::new(log_path)
                 .with_signing_key(signing_key);
 
-            let action = Action {
-                tool: "test".to_string(),
-                function: "run".to_string(),
-                parameters: json!({}),
-            };
+            let action = Action::new("test".to_string(), "run".to_string(), json!({}));
 
             for cp_idx in 0..checkpoint_count {
                 for _ in 0..entries_per_checkpoint {

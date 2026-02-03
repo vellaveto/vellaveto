@@ -17,12 +17,16 @@ fn make_policies() -> Vec<Policy> {
             name: "Allow file reads".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "file:delete".to_string(),
             name: "Block file deletes".to_string(),
             policy_type: PolicyType::Deny,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "shell:*".to_string(),
@@ -31,6 +35,8 @@ fn make_policies() -> Vec<Policy> {
                 conditions: json!({"require_approval": true}),
             },
             priority: 50,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "net:*".to_string(),
@@ -42,42 +48,40 @@ fn make_policies() -> Vec<Policy> {
                 }),
             },
             priority: 80,
+            path_rules: None,
+            network_rules: None,
         },
     ]
 }
 
 fn make_actions() -> Vec<Action> {
     vec![
-        Action {
-            tool: "file".to_string(),
-            function: "read".to_string(),
-            parameters: json!({"path": "/etc/config"}),
-        },
-        Action {
-            tool: "file".to_string(),
-            function: "delete".to_string(),
-            parameters: json!({"path": "/tmp/data"}),
-        },
-        Action {
-            tool: "shell".to_string(),
-            function: "exec".to_string(),
-            parameters: json!({"cmd": "ls"}),
-        },
-        Action {
-            tool: "net".to_string(),
-            function: "post".to_string(),
-            parameters: json!({"auth_token": "abc"}),
-        },
-        Action {
-            tool: "net".to_string(),
-            function: "post".to_string(),
-            parameters: json!({"exfiltrate": true}),
-        },
-        Action {
-            tool: "unknown".to_string(),
-            function: "mystery".to_string(),
-            parameters: json!({}),
-        },
+        Action::new(
+            "file".to_string(),
+            "read".to_string(),
+            json!({"path": "/etc/config"}),
+        ),
+        Action::new(
+            "file".to_string(),
+            "delete".to_string(),
+            json!({"path": "/tmp/data"}),
+        ),
+        Action::new(
+            "shell".to_string(),
+            "exec".to_string(),
+            json!({"cmd": "ls"}),
+        ),
+        Action::new(
+            "net".to_string(),
+            "post".to_string(),
+            json!({"auth_token": "abc"}),
+        ),
+        Action::new(
+            "net".to_string(),
+            "post".to_string(),
+            json!({"exfiltrate": true}),
+        ),
+        Action::new("unknown".to_string(), "mystery".to_string(), json!({})),
     ]
 }
 

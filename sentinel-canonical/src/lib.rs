@@ -10,6 +10,8 @@ impl CanonicalPolicies {
             name: "Deny All Actions".to_string(),
             policy_type: PolicyType::Deny,
             priority: 1000,
+            path_rules: None,
+            network_rules: None,
         }
     }
 
@@ -19,6 +21,8 @@ impl CanonicalPolicies {
             name: "Allow All Actions".to_string(),
             policy_type: PolicyType::Allow,
             priority: 1,
+            path_rules: None,
+            network_rules: None,
         }
     }
 
@@ -29,18 +33,24 @@ impl CanonicalPolicies {
                 name: "Block Bash Commands".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 900,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "shell:*".to_string(),
                 name: "Block Shell Commands".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 900,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "exec:*".to_string(),
                 name: "Block Exec Commands".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 900,
+                path_rules: None,
+                network_rules: None,
             },
         ]
     }
@@ -63,6 +73,8 @@ impl CanonicalPolicies {
                     }),
                 },
                 priority: 700,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*:*upload*".to_string(),
@@ -73,6 +85,8 @@ impl CanonicalPolicies {
                     }),
                 },
                 priority: 950,
+                path_rules: None,
+                network_rules: None,
             },
         ]
     }
@@ -96,12 +110,16 @@ impl CanonicalPolicies {
                     }),
                 },
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "test:*".to_string(),
                 name: "Test Environment Access".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 50,
+                path_rules: None,
+                network_rules: None,
             },
         ]
     }

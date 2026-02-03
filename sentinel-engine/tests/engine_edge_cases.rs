@@ -6,11 +6,7 @@ use sentinel_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 
 fn make_action(tool: &str, function: &str) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: json!({}),
-    }
+    Action::new(tool.to_string(), function.to_string(), json!({}))
 }
 
 fn allow_policy(id: &str, name: &str, priority: i32) -> Policy {
@@ -19,6 +15,8 @@ fn allow_policy(id: &str, name: &str, priority: i32) -> Policy {
         name: name.to_string(),
         policy_type: PolicyType::Allow,
         priority,
+        path_rules: None,
+        network_rules: None,
     }
 }
 
@@ -28,6 +26,8 @@ fn deny_policy(id: &str, name: &str, priority: i32) -> Policy {
         name: name.to_string(),
         policy_type: PolicyType::Deny,
         priority,
+        path_rules: None,
+        network_rules: None,
     }
 }
 
@@ -185,16 +185,16 @@ fn test_different_parameters_same_tool_function() {
     let engine = PolicyEngine::new(false);
     let policies = vec![allow_policy("file:read", "Allow reads", 0)];
 
-    let action1 = Action {
-        tool: "file".to_string(),
-        function: "read".to_string(),
-        parameters: json!({"path": "/etc/passwd"}),
-    };
-    let action2 = Action {
-        tool: "file".to_string(),
-        function: "read".to_string(),
-        parameters: json!({"path": "/home/user/.ssh/id_rsa"}),
-    };
+    let action1 = Action::new(
+        "file".to_string(),
+        "read".to_string(),
+        json!({"path": "/etc/passwd"}),
+    );
+    let action2 = Action::new(
+        "file".to_string(),
+        "read".to_string(),
+        json!({"path": "/home/user/.ssh/id_rsa"}),
+    );
 
     let v1 = engine.evaluate_action(&action1, &policies).unwrap();
     let v2 = engine.evaluate_action(&action2, &policies).unwrap();
@@ -212,16 +212,12 @@ fn test_empty_object_vs_populated_parameters() {
     let engine = PolicyEngine::new(false);
     let policies = vec![allow_policy("tool:func", "Allow", 0)];
 
-    let empty_params = Action {
-        tool: "tool".to_string(),
-        function: "func".to_string(),
-        parameters: json!({}),
-    };
-    let populated_params = Action {
-        tool: "tool".to_string(),
-        function: "func".to_string(),
-        parameters: json!({"key": "value", "count": 42}),
-    };
+    let empty_params = Action::new("tool".to_string(), "func".to_string(), json!({}));
+    let populated_params = Action::new(
+        "tool".to_string(),
+        "func".to_string(),
+        json!({"key": "value", "count": 42}),
+    );
 
     let v1 = engine.evaluate_action(&empty_params, &policies).unwrap();
     let v2 = engine

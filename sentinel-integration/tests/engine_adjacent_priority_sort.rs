@@ -7,11 +7,7 @@ use sentinel_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 
 fn make_action(tool: &str, function: &str) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: json!({}),
-    }
+    Action::new(tool.to_string(), function.to_string(), json!({}))
 }
 
 // ════════════════════════════
@@ -30,12 +26,16 @@ fn allow_at_100_beats_deny_at_99() {
             name: "allow-100".to_string(),
             policy_type: PolicyType::Allow,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
             name: "deny-99".to_string(),
             policy_type: PolicyType::Deny,
             priority: 99,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
@@ -57,12 +57,16 @@ fn deny_at_100_beats_allow_at_99() {
             name: "deny-100".to_string(),
             policy_type: PolicyType::Deny,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
             name: "allow-99".to_string(),
             policy_type: PolicyType::Allow,
             priority: 99,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
@@ -84,12 +88,16 @@ fn deny_overrides_allow_at_equal_priority_50() {
             name: "allow-50".to_string(),
             policy_type: PolicyType::Allow,
             priority: 50,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
             name: "deny-50".to_string(),
             policy_type: PolicyType::Deny,
             priority: 50,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
@@ -111,12 +119,16 @@ fn allow_at_1_beats_deny_at_0() {
             name: "deny-0".to_string(),
             policy_type: PolicyType::Deny,
             priority: 0,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
             name: "allow-1".to_string(),
             policy_type: PolicyType::Allow,
             priority: 1,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
@@ -138,12 +150,16 @@ fn allow_at_0_beats_deny_at_negative_1() {
             name: "deny-neg1".to_string(),
             policy_type: PolicyType::Deny,
             priority: -1,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
             name: "allow-0".to_string(),
             policy_type: PolicyType::Allow,
             priority: 0,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
@@ -172,12 +188,16 @@ fn conditional_at_100_beats_deny_at_99() {
                 conditions: json!({"require_approval": true}),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
             name: "deny-99".to_string(),
             policy_type: PolicyType::Deny,
             priority: 99,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
@@ -199,6 +219,8 @@ fn deny_at_100_beats_conditional_at_99() {
             name: "deny-100".to_string(),
             policy_type: PolicyType::Deny,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
@@ -207,6 +229,8 @@ fn deny_at_100_beats_conditional_at_99() {
                 conditions: json!({"require_approval": true}),
             },
             priority: 99,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();

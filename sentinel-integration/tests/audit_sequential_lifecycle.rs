@@ -15,11 +15,7 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 fn make_action(tool: &str, function: &str) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: json!({}),
-    }
+    Action::new(tool.to_string(), function.to_string(), json!({}))
 }
 
 // ════════════════════════════

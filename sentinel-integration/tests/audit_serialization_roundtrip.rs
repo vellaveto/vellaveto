@@ -13,11 +13,11 @@ use serde_json::json;
 fn make_entry(verdict: Verdict, metadata: serde_json::Value) -> AuditEntry {
     AuditEntry {
         id: "test-uuid-1234".to_string(),
-        action: Action {
-            tool: "test_tool".to_string(),
-            function: "test_func".to_string(),
-            parameters: json!({"key": "value"}),
-        },
+        action: Action::new(
+            "test_tool".to_string(),
+            "test_func".to_string(),
+            json!({"key": "value"}),
+        ),
         verdict,
         timestamp: "2025-01-01T00:00:00+00:00".to_string(),
         metadata,

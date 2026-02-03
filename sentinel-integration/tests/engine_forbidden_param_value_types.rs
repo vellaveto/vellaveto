@@ -7,11 +7,7 @@ use sentinel_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 
 fn make_action_with_params(params: serde_json::Value) -> Action {
-    Action {
-        tool: "tool".to_string(),
-        function: "func".to_string(),
-        parameters: params,
-    }
+    Action::new("tool".to_string(), "func".to_string(), params)
 }
 
 fn forbidden_policy(forbidden: Vec<&str>) -> Vec<Policy> {
@@ -22,6 +18,8 @@ fn forbidden_policy(forbidden: Vec<&str>) -> Vec<Policy> {
             conditions: json!({"forbidden_parameters": forbidden}),
         },
         priority: 100,
+        path_rules: None,
+        network_rules: None,
     }]
 }
 

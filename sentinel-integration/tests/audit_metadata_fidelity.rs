@@ -15,11 +15,7 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 fn make_action() -> Action {
-    Action {
-        tool: "meta_test".to_string(),
-        function: "check".to_string(),
-        parameters: json!({}),
-    }
+    Action::new("meta_test".to_string(), "check".to_string(), json!({}))
 }
 
 fn setup_logger() -> (AuditLogger, TempDir) {

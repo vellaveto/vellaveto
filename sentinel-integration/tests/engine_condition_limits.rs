@@ -6,11 +6,7 @@ use sentinel_types::{Action, Policy, PolicyType};
 use serde_json::json;
 
 fn make_action() -> Action {
-    Action {
-        tool: "tool".to_string(),
-        function: "func".to_string(),
-        parameters: json!({}),
-    }
+    Action::new("tool".to_string(), "func".to_string(), json!({}))
 }
 
 fn conditional_policy_with(conditions: serde_json::Value) -> Policy {
@@ -19,6 +15,8 @@ fn conditional_policy_with(conditions: serde_json::Value) -> Policy {
         name: "test-conditional".to_string(),
         policy_type: PolicyType::Conditional { conditions },
         priority: 10,
+        path_rules: None,
+        network_rules: None,
     }
 }
 
@@ -140,11 +138,7 @@ fn condition_size_under_100kb_is_accepted() {
 #[test]
 fn deeply_nested_condition_on_non_matching_policy_not_checked() {
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: "safe_tool".to_string(),
-        function: "safe_func".to_string(),
-        parameters: json!({}),
-    };
+    let action = Action::new("safe_tool".to_string(), "safe_func".to_string(), json!({}));
 
     // This policy has depth > 10 in conditions but shouldn't match our action
     let mut deep = json!("leaf");
@@ -159,6 +153,8 @@ fn deeply_nested_condition_on_non_matching_policy_not_checked() {
             name: "deep-cond".to_string(),
             policy_type: PolicyType::Conditional { conditions: deep },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         },
         // Matching allow policy
         Policy {
@@ -166,6 +162,8 @@ fn deeply_nested_condition_on_non_matching_policy_not_checked() {
             name: "safe-allow".to_string(),
             policy_type: PolicyType::Allow,
             priority: 50,
+            path_rules: None,
+            network_rules: None,
         },
     ];
 

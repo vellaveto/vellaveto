@@ -7,11 +7,7 @@ use sentinel_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 
 fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: params,
-    }
+    Action::new(tool.to_string(), function.to_string(), params)
 }
 
 // ═══════════════════════════════
@@ -52,6 +48,8 @@ fn no_matching_policy_deny_reason_is_exact() {
         name: "Specific only".to_string(),
         policy_type: PolicyType::Allow,
         priority: 10,
+        path_rules: None,
+        network_rules: None,
     }];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
@@ -77,6 +75,8 @@ fn deny_policy_reason_includes_policy_name() {
         name: "Block Everything".to_string(),
         policy_type: PolicyType::Deny,
         priority: 10,
+        path_rules: None,
+        network_rules: None,
     }];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
@@ -104,6 +104,8 @@ fn require_approval_reason_includes_policy_name() {
             conditions: json!({"require_approval": true}),
         },
         priority: 10,
+        path_rules: None,
+        network_rules: None,
     }];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
@@ -131,6 +133,8 @@ fn forbidden_param_reason_includes_param_and_policy_name() {
             conditions: json!({"forbidden_parameters": ["secret"]}),
         },
         priority: 10,
+        path_rules: None,
+        network_rules: None,
     }];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
@@ -161,6 +165,8 @@ fn required_param_missing_reason_format() {
             conditions: json!({"required_parameters": ["token"]}),
         },
         priority: 10,
+        path_rules: None,
+        network_rules: None,
     }];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
@@ -196,6 +202,8 @@ fn condition_depth_11_returns_error() {
         name: "deep".to_string(),
         policy_type: PolicyType::Conditional { conditions: val },
         priority: 10,
+        path_rules: None,
+        network_rules: None,
     }];
     let result = engine.evaluate_action(&action, &policies);
     assert!(result.is_err(), "Depth >10 must produce an error");

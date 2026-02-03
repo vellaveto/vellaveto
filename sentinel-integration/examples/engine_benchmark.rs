@@ -26,6 +26,8 @@ fn make_policies(count: usize) -> Vec<Policy> {
                 },
             },
             priority: (i as i32) * 2,
+            path_rules: None,
+            network_rules: None,
         });
     }
     policies
@@ -33,10 +35,12 @@ fn make_policies(count: usize) -> Vec<Policy> {
 
 fn make_actions(count: usize) -> Vec<Action> {
     (0..count)
-        .map(|i| Action {
-            tool: format!("tool_{}", i % 50),
-            function: format!("func_{}", i % 20),
-            parameters: json!({"key": format!("value_{}", i)}),
+        .map(|i| {
+            Action::new(
+                format!("tool_{}", i % 50),
+                format!("func_{}", i % 20),
+                json!({"key": format!("value_{}", i)}),
+            )
         })
         .collect()
 }
@@ -127,13 +131,17 @@ fn main() {
                 }),
             },
             priority: i,
+            path_rules: None,
+            network_rules: None,
         })
         .collect();
     let actions_with_params: Vec<Action> = (0..5_000)
-        .map(|i| Action {
-            tool: "api".to_string(),
-            function: "call".to_string(),
-            parameters: json!({"auth": "token", "data": format!("payload_{}", i)}),
+        .map(|i| {
+            Action::new(
+                "api".to_string(),
+                "call".to_string(),
+                json!({"auth": "token", "data": format!("payload_{}", i)}),
+            )
         })
         .collect();
     bench_evaluation(

@@ -21,11 +21,7 @@ fn setup_logger() -> (AuditLogger, TempDir) {
 }
 
 fn action() -> Action {
-    Action {
-        tool: "reason_test".to_string(),
-        function: "check".to_string(),
-        parameters: json!({}),
-    }
+    Action::new("reason_test".to_string(), "check".to_string(), json!({}))
 }
 
 // ═══════════════════════════════════

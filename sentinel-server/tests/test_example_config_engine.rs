@@ -48,11 +48,7 @@ fn example_config_has_all_three_policy_types() {
 fn example_config_file_read_is_allowed() {
     let policies = load_example_config().to_policies();
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: "file".to_string(),
-        function: "read".to_string(),
-        parameters: json!({}),
-    };
+    let action = Action::new("file".to_string(), "read".to_string(), json!({}));
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
@@ -65,11 +61,7 @@ fn example_config_file_read_is_allowed() {
 fn example_config_file_delete_is_denied() {
     let policies = load_example_config().to_policies();
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: "file".to_string(),
-        function: "delete".to_string(),
-        parameters: json!({}),
-    };
+    let action = Action::new("file".to_string(), "delete".to_string(), json!({}));
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
@@ -82,11 +74,7 @@ fn example_config_file_delete_is_denied() {
 fn example_config_bash_execute_is_denied() {
     let policies = load_example_config().to_policies();
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: "bash".to_string(),
-        function: "execute".to_string(),
-        parameters: json!({}),
-    };
+    let action = Action::new("bash".to_string(), "execute".to_string(), json!({}));
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
@@ -99,11 +87,7 @@ fn example_config_bash_execute_is_denied() {
 fn example_config_network_requires_approval() {
     let policies = load_example_config().to_policies();
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: "network".to_string(),
-        function: "connect".to_string(),
-        parameters: json!({}),
-    };
+    let action = Action::new("network".to_string(), "connect".to_string(), json!({}));
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::RequireApproval { .. }),
@@ -116,11 +100,11 @@ fn example_config_network_requires_approval() {
 fn example_config_unknown_tool_gets_default_allow() {
     let policies = load_example_config().to_policies();
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: "unknown_tool".to_string(),
-        function: "unknown_func".to_string(),
-        parameters: json!({}),
-    };
+    let action = Action::new(
+        "unknown_tool".to_string(),
+        "unknown_func".to_string(),
+        json!({}),
+    );
     let result = engine.evaluate_action(&action, &policies).unwrap();
     // The default allow at priority 1 should catch this
     assert!(

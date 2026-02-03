@@ -15,11 +15,11 @@ fn setup_logger() -> (AuditLogger, TempDir) {
 }
 
 fn sample_action(tool: &str, function: &str) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: json!({"key": "value"}),
-    }
+    Action::new(
+        tool.to_string(),
+        function.to_string(),
+        json!({"key": "value"}),
+    )
 }
 
 // --- Basic logging ---
@@ -162,11 +162,11 @@ async fn concurrent_writes_all_captured() {
     for i in 0..20 {
         let lg = logger.clone();
         handles.push(tokio::spawn(async move {
-            let action = Action {
-                tool: "tool".to_string(),
-                function: format!("concurrent_{}", i),
-                parameters: json!({"thread": i}),
-            };
+            let action = Action::new(
+                "tool".to_string(),
+                format!("concurrent_{}", i),
+                json!({"thread": i}),
+            );
             lg.log_entry(&action, &Verdict::Allow, json!({}))
                 .await
                 .unwrap();
@@ -209,11 +209,11 @@ async fn large_metadata_does_not_corrupt_log() {
 #[tokio::test]
 async fn unicode_in_action_fields() {
     let (logger, _dir) = setup_logger();
-    let action = Action {
-        tool: "日本語".to_string(),
-        function: "функция".to_string(),
-        parameters: json!({"키": "值"}),
-    };
+    let action = Action::new(
+        "日本語".to_string(),
+        "функция".to_string(),
+        json!({"키": "值"}),
+    );
 
     logger
         .log_entry(&action, &Verdict::Allow, json!({"note": "유니코드"}))

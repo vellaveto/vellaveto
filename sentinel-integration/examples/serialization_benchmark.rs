@@ -49,19 +49,19 @@ fn main() {
     println!();
 
     // --- Action ---
-    let small_action = Action {
-        tool: "file".to_string(),
-        function: "read".to_string(),
-        parameters: json!({"path": "/tmp/x"}),
-    };
-    let large_action = Action {
-        tool: "complex_tool".to_string(),
-        function: "process_batch".to_string(),
-        parameters: json!({
+    let small_action = Action::new(
+        "file".to_string(),
+        "read".to_string(),
+        json!({"path": "/tmp/x"}),
+    );
+    let large_action = Action::new(
+        "complex_tool".to_string(),
+        "process_batch".to_string(),
+        json!({
             "files": (0..100).map(|i| format!("/path/{}", i)).collect::<Vec<_>>(),
             "config": {"depth": 5, "recursive": true, "filters": ["*.rs", "*.toml"]},
         }),
-    };
+    );
 
     println!("Action serialize:");
     bench_serialize("Small action", &small_action, iterations);
@@ -105,6 +105,8 @@ fn main() {
         name: "Block bash".to_string(),
         policy_type: PolicyType::Deny,
         priority: 100,
+        path_rules: None,
+        network_rules: None,
     };
     let conditional_policy = Policy {
         id: "*".to_string(),
@@ -117,6 +119,8 @@ fn main() {
             }),
         },
         priority: 500,
+        path_rules: None,
+        network_rules: None,
     };
 
     println!("Policy serialize:");

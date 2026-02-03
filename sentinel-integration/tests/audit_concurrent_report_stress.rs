@@ -26,11 +26,7 @@ fn runtime_st() -> tokio::runtime::Runtime {
 }
 
 fn make_action() -> Action {
-    Action {
-        tool: "report_stress".to_string(),
-        function: "probe".to_string(),
-        parameters: json!({}),
-    }
+    Action::new("report_stress".to_string(), "probe".to_string(), json!({}))
 }
 
 // ═══════════════════════════════════

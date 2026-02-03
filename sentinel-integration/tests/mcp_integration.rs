@@ -52,11 +52,7 @@ fn mcp_style_policy_lifecycle() {
     // Start with no policies
     let mut policies: Vec<Policy> = Vec::new();
 
-    let action = Action {
-        tool: "file".into(),
-        function: "read".into(),
-        parameters: json!({}),
-    };
+    let action = Action::new("file", "read", json!({}));
 
     // No policies  deny (fail-closed)
     assert!(matches!(

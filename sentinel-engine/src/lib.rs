@@ -225,6 +225,20 @@ impl CompiledConstraint {
     }
 }
 
+/// Pre-compiled path rule glob matchers for a single policy.
+#[derive(Debug, Clone)]
+pub struct CompiledPathRules {
+    pub allowed: Vec<(String, GlobMatcher)>,
+    pub blocked: Vec<(String, GlobMatcher)>,
+}
+
+/// Pre-compiled network rule domain patterns for a single policy.
+#[derive(Debug, Clone)]
+pub struct CompiledNetworkRules {
+    pub allowed_domains: Vec<String>,
+    pub blocked_domains: Vec<String>,
+}
+
 /// A policy with all patterns pre-compiled for zero-lock evaluation.
 ///
 /// Created by [`PolicyEngine::compile_policies`] or [`PolicyEngine::with_policies`].
@@ -249,6 +263,10 @@ pub struct CompiledPolicy {
     pub forbidden_reasons: Vec<String>,
     /// Pre-computed "Required parameter 'P' missing (policy 'NAME')" for each required param.
     pub required_reasons: Vec<String>,
+    /// Pre-compiled path access control rules (from policy.path_rules).
+    pub compiled_path_rules: Option<CompiledPathRules>,
+    /// Pre-compiled network access control rules (from policy.network_rules).
+    pub compiled_network_rules: Option<CompiledNetworkRules>,
 }
 
 /// The core policy evaluation engine.
@@ -412,6 +430,38 @@ impl PolicyEngine {
             })
             .collect();
 
+        // Compile path rules
+        let compiled_path_rules = policy.path_rules.as_ref().map(|pr| {
+            let allowed = pr
+                .allowed
+                .iter()
+                .filter_map(|pattern| {
+                    Glob::new(pattern)
+                        .ok()
+                        .map(|g| (pattern.clone(), g.compile_matcher()))
+                })
+                .collect();
+            let blocked = pr
+                .blocked
+                .iter()
+                .filter_map(|pattern| {
+                    Glob::new(pattern)
+                        .ok()
+                        .map(|g| (pattern.clone(), g.compile_matcher()))
+                })
+                .collect();
+            CompiledPathRules { allowed, blocked }
+        });
+
+        // Compile network rules (domain patterns are matched directly, no glob needed)
+        let compiled_network_rules = policy
+            .network_rules
+            .as_ref()
+            .map(|nr| CompiledNetworkRules {
+                allowed_domains: nr.allowed_domains.clone(),
+                blocked_domains: nr.blocked_domains.clone(),
+            });
+
         Ok(CompiledPolicy {
             policy: policy.clone(),
             tool_matcher,
@@ -424,6 +474,8 @@ impl PolicyEngine {
             approval_reason,
             forbidden_reasons,
             required_reasons,
+            compiled_path_rules,
+            compiled_network_rules,
         })
     }
 
@@ -963,6 +1015,16 @@ impl PolicyEngine {
         action: &Action,
         cp: &CompiledPolicy,
     ) -> Result<Option<Verdict>, EngineError> {
+        // Check path rules before policy type dispatch.
+        // Blocked paths → deny immediately regardless of policy type.
+        if let Some(denial) = self.check_path_rules(action, cp) {
+            return Ok(Some(denial));
+        }
+        // Check network rules before policy type dispatch.
+        if let Some(denial) = self.check_network_rules(action, cp) {
+            return Ok(Some(denial));
+        }
+
         match &cp.policy.policy_type {
             PolicyType::Allow => Ok(Some(Verdict::Allow)),
             PolicyType::Deny => Ok(Some(Verdict::Deny {
@@ -970,6 +1032,95 @@ impl PolicyEngine {
             })),
             PolicyType::Conditional { .. } => self.evaluate_compiled_conditions(action, cp),
         }
+    }
+
+    /// Check action target_paths against compiled path rules.
+    /// Returns Some(Deny) if any path is blocked or not in the allowed set.
+    fn check_path_rules(&self, action: &Action, cp: &CompiledPolicy) -> Option<Verdict> {
+        let rules = match &cp.compiled_path_rules {
+            Some(r) => r,
+            None => return None,
+        };
+
+        if action.target_paths.is_empty() {
+            return None; // No paths to check
+        }
+
+        for raw_path in &action.target_paths {
+            let normalized = Self::normalize_path(raw_path);
+
+            // Check blocked patterns first (blocked takes precedence)
+            for (pattern, matcher) in &rules.blocked {
+                if matcher.is_match(&normalized) {
+                    return Some(Verdict::Deny {
+                        reason: format!(
+                            "Path '{}' blocked by pattern '{}' in policy '{}'",
+                            normalized, pattern, cp.policy.name
+                        ),
+                    });
+                }
+            }
+
+            // If allowed list is non-empty, path must match at least one
+            if !rules.allowed.is_empty()
+                && !rules.allowed.iter().any(|(_, m)| m.is_match(&normalized))
+            {
+                return Some(Verdict::Deny {
+                    reason: format!(
+                        "Path '{}' not in allowed paths for policy '{}'",
+                        normalized, cp.policy.name
+                    ),
+                });
+            }
+        }
+
+        None
+    }
+
+    /// Check action target_domains against compiled network rules.
+    /// Returns Some(Deny) if any domain is blocked or not in the allowed set.
+    fn check_network_rules(&self, action: &Action, cp: &CompiledPolicy) -> Option<Verdict> {
+        let rules = match &cp.compiled_network_rules {
+            Some(r) => r,
+            None => return None,
+        };
+
+        if action.target_domains.is_empty() {
+            return None; // No domains to check
+        }
+
+        for raw_domain in &action.target_domains {
+            let domain = raw_domain.to_lowercase();
+
+            // Check blocked domains first
+            for pattern in &rules.blocked_domains {
+                if Self::match_domain_pattern(&domain, pattern) {
+                    return Some(Verdict::Deny {
+                        reason: format!(
+                            "Domain '{}' blocked by pattern '{}' in policy '{}'",
+                            domain, pattern, cp.policy.name
+                        ),
+                    });
+                }
+            }
+
+            // If allowed list is non-empty, domain must match at least one
+            if !rules.allowed_domains.is_empty()
+                && !rules
+                    .allowed_domains
+                    .iter()
+                    .any(|p| Self::match_domain_pattern(&domain, p))
+            {
+                return Some(Verdict::Deny {
+                    reason: format!(
+                        "Domain '{}' not in allowed domains for policy '{}'",
+                        domain, cp.policy.name
+                    ),
+                });
+            }
+        }
+
+        None
     }
 
     /// Evaluate pre-compiled conditions against an action (no tracing).
@@ -1012,13 +1163,18 @@ impl PolicyEngine {
 
         // Check forbidden parameters
         for (i, param_str) in cp.forbidden_parameters.iter().enumerate() {
-            let present = action.parameters.get(param_str).is_some();
+            let param_val = action.parameters.get(param_str);
+            let present = param_val.is_some();
             if let Some(results) = trace.as_mut() {
+                let actual = match param_val {
+                    Some(v) => format!("present: {}", Self::describe_value(v)),
+                    None => "absent".to_string(),
+                };
                 results.push(ConstraintResult {
                     constraint_type: "forbidden_parameter".to_string(),
                     param: param_str.clone(),
                     expected: "absent".to_string(),
-                    actual: if present { "present" } else { "absent" }.to_string(),
+                    actual,
                     passed: !present,
                 });
             }
@@ -1031,13 +1187,18 @@ impl PolicyEngine {
 
         // Check required parameters
         for (i, param_str) in cp.required_parameters.iter().enumerate() {
-            let present = action.parameters.get(param_str).is_some();
+            let param_val = action.parameters.get(param_str);
+            let present = param_val.is_some();
             if let Some(results) = trace.as_mut() {
+                let actual = match param_val {
+                    Some(v) => format!("present: {}", Self::describe_value(v)),
+                    None => "absent".to_string(),
+                };
                 results.push(ConstraintResult {
                     constraint_type: "required_parameter".to_string(),
                     param: param_str.clone(),
                     expected: "present".to_string(),
-                    actual: if present { "present" } else { "absent" }.to_string(),
+                    actual,
                     passed: present,
                 });
             }
@@ -2185,17 +2346,24 @@ impl PolicyEngine {
         //   normalize_path(normalize_path(x)) == normalize_path(x)
         // Without loop decode, inputs like "%2570" produce "%70" on first call,
         // which decodes to "p" on the next call — breaking idempotency.
-        // Max 5 iterations prevents DoS from deeply-nested encodings.
+        // Safety cap at 20 iterations prevents DoS from deeply-nested encodings.
+        // If the cap is reached, return "/" (fail-closed).
         //
         // Uses Cow to avoid allocation when no percent sequences are present.
         let mut current = std::borrow::Cow::Borrowed(raw);
-        for _ in 0..5 {
+        let mut iterations = 0u32;
+        loop {
             let decoded = percent_encoding::percent_decode_str(&current).decode_utf8_lossy();
             if decoded.contains('\0') {
                 return "/".to_string();
             }
             if decoded.as_ref() == current.as_ref() {
                 break; // Stable — no more percent sequences to decode
+            }
+            iterations += 1;
+            if iterations >= 20 {
+                // Fail-closed: suspiciously deep encoding, deny by returning root
+                return "/".to_string();
             }
             current = std::borrow::Cow::Owned(decoded.into_owned());
         }
@@ -2927,6 +3095,19 @@ impl PolicyEngine {
         }
     }
 
+    /// Describe a JSON value's type and size without exposing raw content.
+    /// Used in trace output to give useful debugging info without leaking secrets.
+    fn describe_value(value: &serde_json::Value) -> String {
+        match value {
+            serde_json::Value::Null => "null".to_string(),
+            serde_json::Value::Bool(b) => format!("bool({})", b),
+            serde_json::Value::Number(n) => format!("number({})", n),
+            serde_json::Value::String(s) => format!("string({} chars)", s.len()),
+            serde_json::Value::Array(arr) => format!("array({} items)", arr.len()),
+            serde_json::Value::Object(obj) => format!("object({} keys)", obj.len()),
+        }
+    }
+
     /// Calculate the nesting depth of a JSON value using an iterative approach.
     /// Avoids stack overflow on adversarially deep JSON (e.g., 10,000+ levels).
     fn json_depth(value: &serde_json::Value) -> usize {
@@ -2969,11 +3150,7 @@ mod tests {
     #[test]
     fn test_empty_policies_deny() {
         let engine = PolicyEngine::new(false);
-        let action = Action {
-            tool: "bash".to_string(),
-            function: "execute".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("bash".to_string(), "execute".to_string(), json!({}));
         let verdict = engine.evaluate_action(&action, &[]).unwrap();
         assert!(matches!(verdict, Verdict::Deny { .. }));
     }
@@ -2981,16 +3158,14 @@ mod tests {
     #[test]
     fn test_deny_policy_match() {
         let engine = PolicyEngine::new(false);
-        let action = Action {
-            tool: "bash".to_string(),
-            function: "execute".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("bash".to_string(), "execute".to_string(), json!({}));
         let policies = vec![Policy {
             id: "bash:*".to_string(),
             name: "Block bash".to_string(),
             policy_type: PolicyType::Deny,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -2999,16 +3174,18 @@ mod tests {
     #[test]
     fn test_allow_policy_match() {
         let engine = PolicyEngine::new(false);
-        let action = Action {
-            tool: "file_system".to_string(),
-            function: "read_file".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new(
+            "file_system".to_string(),
+            "read_file".to_string(),
+            json!({}),
+        );
         let policies = vec![Policy {
             id: "file_system:read_file".to_string(),
             name: "Allow file reads".to_string(),
             policy_type: PolicyType::Allow,
             priority: 50,
+            path_rules: None,
+            network_rules: None,
         }];
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(matches!(verdict, Verdict::Allow));
@@ -3017,23 +3194,23 @@ mod tests {
     #[test]
     fn test_priority_ordering() {
         let engine = PolicyEngine::new(false);
-        let action = Action {
-            tool: "bash".to_string(),
-            function: "execute".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("bash".to_string(), "execute".to_string(), json!({}));
         let policies = vec![
             Policy {
                 id: "*".to_string(),
                 name: "Allow all (low priority)".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 10,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "bash:*".to_string(),
                 name: "Deny bash (high priority)".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             },
         ];
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
@@ -3043,11 +3220,7 @@ mod tests {
     #[test]
     fn test_conditional_require_approval() {
         let engine = PolicyEngine::new(false);
-        let action = Action {
-            tool: "network".to_string(),
-            function: "connect".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("network".to_string(), "connect".to_string(), json!({}));
         let policies = vec![Policy {
             id: "network:*".to_string(),
             name: "Network requires approval".to_string(),
@@ -3057,6 +3230,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(matches!(verdict, Verdict::RequireApproval { .. }));
@@ -3074,15 +3249,13 @@ mod tests {
                 conditions: json!({ "parameter_constraints": constraints }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }]
     }
 
     fn action_with(tool: &str, func: &str, params: serde_json::Value) -> Action {
-        Action {
-            tool: tool.to_string(),
-            function: func.to_string(),
-            parameters: params,
-        }
+        Action::new(tool.to_string(), func.to_string(), params)
     }
 
     // ═══════════════════════════════════════════════════
@@ -4044,6 +4217,8 @@ mod tests {
                 conditions: json!({ "parameter_constraints": "not-an-array" }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let result = engine.evaluate_action(&action, &policies);
         assert!(result.is_err());
@@ -4373,6 +4548,35 @@ mod tests {
     }
 
     #[test]
+    fn test_normalize_path_six_level_encoding_decodes_fully() {
+        // Build a 6-level encoded 'p': p → %70 → %2570 → %252570 → %25252570 → %2525252570 → %252525252570
+        // Previous 5-iteration limit would fail to fully decode this.
+        let result = PolicyEngine::normalize_path("/etc/%252525252570asswd");
+        assert_eq!(
+            result, "/etc/passwd",
+            "6-level encoding should be fully decoded with new higher limit"
+        );
+    }
+
+    #[test]
+    fn test_normalize_path_deep_encoding_returns_root() {
+        // Build a path where "%25" is repeated enough that >20 decode iterations
+        // are needed. Each iteration peels one layer of %25 → %.
+        // 21 layers of %25 followed by 70 (= 'p') will require 21 decode passes.
+        let mut encoded = "%70".to_string(); // level 0: %70 → p
+        for _ in 0..21 {
+            // Encode the leading '%' as %25
+            encoded = format!("%25{}", &encoded[1..]);
+        }
+        let input = format!("/etc/{}asswd", encoded);
+        let result = PolicyEngine::normalize_path(&input);
+        assert_eq!(
+            result, "/",
+            "Encoding requiring >20 decode iterations should fail-closed to root"
+        );
+    }
+
+    #[test]
     fn test_extract_domain_percent_encoded_dot() {
         // %2E = '.', so evil%2Ecom → evil.com
         assert_eq!(
@@ -4412,6 +4616,8 @@ mod tests {
                     "parameter_constraints": [base]
                 }),
             },
+            path_rules: None,
+            network_rules: None,
         }
     }
 
@@ -4421,16 +4627,16 @@ mod tests {
         let engine = PolicyEngine::new(false);
         let policy = make_wildcard_policy("domain_match", json!({"pattern": "*.evil.com"}));
 
-        let action = Action {
-            tool: "test".to_string(),
-            function: "call".to_string(),
-            parameters: json!({
+        let action = Action::new(
+            "test".to_string(),
+            "call".to_string(),
+            json!({
                 "options": {
                     "target": "https://data.evil.com/exfil",
                     "retries": 3
                 }
             }),
-        };
+        );
 
         let result = engine.evaluate_action(&action, &[policy]).unwrap();
         assert!(
@@ -4446,14 +4652,14 @@ mod tests {
         let engine = PolicyEngine::new(false);
         let policy = make_wildcard_policy("domain_match", json!({"pattern": "*.evil.com"}));
 
-        let action = Action {
-            tool: "test".to_string(),
-            function: "call".to_string(),
-            parameters: json!({
+        let action = Action::new(
+            "test".to_string(),
+            "call".to_string(),
+            json!({
                 "url": "https://safe.example.com/api",
                 "data": "hello world"
             }),
-        };
+        );
 
         let result = engine.evaluate_action(&action, &[policy]).unwrap();
         assert!(
@@ -4469,17 +4675,17 @@ mod tests {
         let engine = PolicyEngine::new(false);
         let policy = make_wildcard_policy("glob", json!({"pattern": "/home/*/.ssh/**"}));
 
-        let action = Action {
-            tool: "test".to_string(),
-            function: "batch_read".to_string(),
-            parameters: json!({
+        let action = Action::new(
+            "test".to_string(),
+            "batch_read".to_string(),
+            json!({
                 "files": [
                     "/tmp/safe.txt",
                     "/home/user/.ssh/id_rsa",
                     "/var/log/syslog"
                 ]
             }),
-        };
+        );
 
         let result = engine.evaluate_action(&action, &[policy]).unwrap();
         assert!(
@@ -4495,10 +4701,10 @@ mod tests {
         let engine = PolicyEngine::new(false);
         let policy = make_wildcard_policy("regex", json!({"pattern": "(?i)rm\\s+-rf"}));
 
-        let action = Action {
-            tool: "test".to_string(),
-            function: "execute".to_string(),
-            parameters: json!({
+        let action = Action::new(
+            "test".to_string(),
+            "execute".to_string(),
+            json!({
                 "task": "cleanup",
                 "steps": [
                     { "cmd": "ls -la /tmp" },
@@ -4506,7 +4712,7 @@ mod tests {
                     { "cmd": "echo done" }
                 ]
             }),
-        };
+        );
 
         let result = engine.evaluate_action(&action, &[policy]).unwrap();
         assert!(
@@ -4523,14 +4729,14 @@ mod tests {
         let engine = PolicyEngine::new(false);
         let policy = make_wildcard_policy("regex", json!({"pattern": "anything"}));
 
-        let action = Action {
-            tool: "test".to_string(),
-            function: "call".to_string(),
-            parameters: json!({
+        let action = Action::new(
+            "test".to_string(),
+            "call".to_string(),
+            json!({
                 "count": 42,
                 "enabled": true
             }),
-        };
+        );
 
         let result = engine.evaluate_action(&action, &[policy]).unwrap();
         assert!(
@@ -4563,16 +4769,18 @@ mod tests {
                     "parameter_constraints": [constraint]
                 }),
             },
+            path_rules: None,
+            network_rules: None,
         };
 
-        let action = Action {
-            tool: "test".to_string(),
-            function: "call".to_string(),
-            parameters: json!({
+        let action = Action::new(
+            "test".to_string(),
+            "call".to_string(),
+            json!({
                 "count": 42,
                 "enabled": true
             }),
-        };
+        );
 
         let result = engine.evaluate_action(&action, &[policy]).unwrap();
         assert!(
@@ -4588,10 +4796,10 @@ mod tests {
         let engine = PolicyEngine::new(false);
         let policy = make_wildcard_policy("glob", json!({"pattern": "/etc/shadow"}));
 
-        let action = Action {
-            tool: "test".to_string(),
-            function: "call".to_string(),
-            parameters: json!({
+        let action = Action::new(
+            "test".to_string(),
+            "call".to_string(),
+            json!({
                 "a": {
                     "b": {
                         "c": {
@@ -4602,7 +4810,7 @@ mod tests {
                     }
                 }
             }),
-        };
+        );
 
         let result = engine.evaluate_action(&action, &[policy]).unwrap();
         assert!(
@@ -4631,15 +4839,17 @@ mod tests {
                     "parameter_constraints": [constraint]
                 }),
             },
+            path_rules: None,
+            network_rules: None,
         };
 
-        let action = Action {
-            tool: "test".to_string(),
-            function: "call".to_string(),
-            parameters: json!({
+        let action = Action::new(
+            "test".to_string(),
+            "call".to_string(),
+            json!({
                 "query": "SELECT * FROM users WHERE password = '123'"
             }),
-        };
+        );
 
         let result = engine.evaluate_action(&action, &[policy]).unwrap();
         assert!(
@@ -4675,17 +4885,19 @@ mod tests {
                     ]
                 }),
             },
+            path_rules: None,
+            network_rules: None,
         };
 
         // mode=safe fires first → allow
-        let action1 = Action {
-            tool: "test".to_string(),
-            function: "call".to_string(),
-            parameters: json!({
+        let action1 = Action::new(
+            "test".to_string(),
+            "call".to_string(),
+            json!({
                 "mode": "safe",
                 "path": "/etc/shadow"
             }),
-        };
+        );
         let result1 = engine
             .evaluate_action(&action1, std::slice::from_ref(&policy))
             .unwrap();
@@ -4696,14 +4908,14 @@ mod tests {
         );
 
         // mode=other → doesn't match eq, wildcard scans and finds /etc/shadow → deny
-        let action2 = Action {
-            tool: "test".to_string(),
-            function: "call".to_string(),
-            parameters: json!({
+        let action2 = Action::new(
+            "test".to_string(),
+            "call".to_string(),
+            json!({
                 "mode": "other",
                 "path": "/etc/shadow"
             }),
-        };
+        );
         let result2 = engine.evaluate_action(&action2, &[policy]).unwrap();
         assert!(
             matches!(result2, Verdict::Deny { .. }),
@@ -4768,29 +4980,25 @@ mod tests {
                 name: "Block bash".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*".to_string(),
                 name: "Allow all".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 10,
+                path_rules: None,
+                network_rules: None,
             },
         ];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
 
-        let bash_action = Action {
-            tool: "bash".to_string(),
-            function: "execute".to_string(),
-            parameters: json!({}),
-        };
+        let bash_action = Action::new("bash".to_string(), "execute".to_string(), json!({}));
         let verdict = engine.evaluate_action(&bash_action, &[]).unwrap();
         assert!(matches!(verdict, Verdict::Deny { .. }));
 
-        let safe_action = Action {
-            tool: "file_system".to_string(),
-            function: "read".to_string(),
-            parameters: json!({}),
-        };
+        let safe_action = Action::new("file_system".to_string(), "read".to_string(), json!({}));
         let verdict = engine.evaluate_action(&safe_action, &[]).unwrap();
         assert!(matches!(verdict, Verdict::Allow));
     }
@@ -4811,6 +5019,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
 
@@ -4847,6 +5057,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
 
@@ -4875,6 +5087,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let result = PolicyEngine::with_policies(false, &policies);
         assert!(result.is_err());
@@ -4900,6 +5114,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let result = PolicyEngine::with_policies(false, &policies);
         assert!(result.is_err());
@@ -4925,6 +5141,8 @@ mod tests {
                     }),
                 },
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "tool:*".to_string(),
@@ -4940,6 +5158,8 @@ mod tests {
                     }),
                 },
                 priority: 50,
+                path_rules: None,
+                network_rules: None,
             },
         ];
         let result = PolicyEngine::with_policies(false, &policies);
@@ -4966,6 +5186,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let result = PolicyEngine::with_policies(false, &policies);
         let errors = result.unwrap_err();
@@ -4984,21 +5206,21 @@ mod tests {
                 name: "Low priority allow".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 10,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "bash:*".to_string(),
                 name: "High priority deny".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             },
         ];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
         // High priority deny should win even though allow was listed first
-        let action = Action {
-            tool: "bash".to_string(),
-            function: "execute".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("bash".to_string(), "execute".to_string(), json!({}));
         let verdict = engine.evaluate_action(&action, &[]).unwrap();
         assert!(matches!(verdict, Verdict::Deny { .. }));
     }
@@ -5019,6 +5241,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
 
@@ -5044,14 +5268,12 @@ mod tests {
                 conditions: json!({ "require_approval": true }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
 
-        let action = Action {
-            tool: "network".to_string(),
-            function: "connect".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("network".to_string(), "connect".to_string(), json!({}));
         let verdict = engine.evaluate_action(&action, &[]).unwrap();
         assert!(matches!(verdict, Verdict::RequireApproval { .. }));
     }
@@ -5067,6 +5289,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
 
@@ -5095,6 +5319,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
 
@@ -5124,6 +5350,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
 
@@ -5156,6 +5384,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
 
@@ -5183,6 +5413,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
 
@@ -5198,11 +5430,7 @@ mod tests {
     #[test]
     fn test_compiled_empty_policies_deny() {
         let engine = PolicyEngine::with_policies(false, &[]).unwrap();
-        let action = Action {
-            tool: "any".to_string(),
-            function: "any".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("any".to_string(), "any".to_string(), json!({}));
         // Empty compiled policies → no matching policy → deny
         let verdict = engine.evaluate_action(&action, &[]).unwrap();
         assert!(matches!(verdict, Verdict::Deny { .. }));
@@ -5217,6 +5445,8 @@ mod tests {
                 name: "Block bash".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 200,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*".to_string(),
@@ -5232,12 +5462,16 @@ mod tests {
                     }),
                 },
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*".to_string(),
                 name: "Allow all".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 1,
+                path_rules: None,
+                network_rules: None,
             },
         ];
 
@@ -5282,6 +5516,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let result = PolicyEngine::with_policies(true, &policies);
         assert!(result.is_err());
@@ -5305,6 +5541,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
 
@@ -5332,6 +5570,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let result = PolicyEngine::with_policies(false, &policies);
         assert!(result.is_err());
@@ -5350,6 +5590,8 @@ mod tests {
             name: "Deep JSON".to_string(),
             policy_type: PolicyType::Conditional { conditions: deep },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let result = PolicyEngine::with_policies(false, &policies);
         assert!(result.is_err());
@@ -5365,12 +5607,16 @@ mod tests {
                 name: "Block bash".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*".to_string(),
                 name: "Allow all".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 10,
+                path_rules: None,
+                network_rules: None,
             },
         ];
         let compiled = PolicyEngine::compile_policies(&policies, false).unwrap();
@@ -5393,11 +5639,11 @@ mod tests {
 
     #[test]
     fn test_compiled_tool_matcher_variants() {
-        let action = Action {
-            tool: "file_system".to_string(),
-            function: "read_file".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new(
+            "file_system".to_string(),
+            "read_file".to_string(),
+            json!({}),
+        );
 
         assert!(CompiledToolMatcher::Universal.matches(&action));
 
@@ -5420,11 +5666,11 @@ mod tests {
     #[test]
     fn test_compiled_tool_matcher_qualifier_suffix() {
         // Policy IDs with qualifier suffixes: "tool:func:qualifier" should match on tool:func only
-        let action = Action {
-            tool: "file_system".to_string(),
-            function: "read_file".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new(
+            "file_system".to_string(),
+            "read_file".to_string(),
+            json!({}),
+        );
 
         // Qualifier suffixes should be ignored for matching
         let qualified = CompiledToolMatcher::compile("*:*:credential-block");
@@ -5474,12 +5720,16 @@ mod tests {
                     }),
                 },
                 priority: 300,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*:*".to_string(),
                 name: "Default allow".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 1,
+                path_rules: None,
+                network_rules: None,
             },
         ];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
@@ -5534,12 +5784,16 @@ mod tests {
                     }),
                 },
                 priority: 300,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*:*".to_string(),
                 name: "Default deny".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 1,
+                path_rules: None,
+                network_rules: None,
             },
         ];
 
@@ -5587,12 +5841,16 @@ mod tests {
                     }),
                 },
                 priority: 300,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*:*".to_string(),
                 name: "Default deny".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 1,
+                path_rules: None,
+                network_rules: None,
             },
         ];
 
@@ -5634,6 +5892,8 @@ mod tests {
                     }),
                 },
                 priority: 300,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*:*:domain-block".to_string(),
@@ -5651,12 +5911,16 @@ mod tests {
                     }),
                 },
                 priority: 280,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*:*".to_string(),
                 name: "Default allow".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 1,
+                path_rules: None,
+                network_rules: None,
             },
         ];
 
@@ -5754,12 +6018,16 @@ mod tests {
                     }),
                 },
                 priority: 300,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*:*".to_string(),
                 name: "Default allow".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 1,
+                path_rules: None,
+                network_rules: None,
             },
         ];
 
@@ -5804,12 +6072,16 @@ mod tests {
                     }),
                 },
                 priority: 300,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*:*".to_string(),
                 name: "Default allow".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 1,
+                path_rules: None,
+                network_rules: None,
             },
         ];
 
@@ -5845,12 +6117,16 @@ mod tests {
                     }),
                 },
                 priority: 300,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*:*".to_string(),
                 name: "Default deny".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 1,
+                path_rules: None,
+                network_rules: None,
             },
         ];
 
@@ -5887,12 +6163,16 @@ mod tests {
                     }),
                 },
                 priority: 200,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*:*".to_string(),
                 name: "Default allow".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 1,
+                path_rules: None,
+                network_rules: None,
             },
         ];
 
@@ -5949,12 +6229,16 @@ mod tests {
                     }),
                 },
                 priority: 300,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*:*".to_string(),
                 name: "Default allow".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 1,
+                path_rules: None,
+                network_rules: None,
             },
         ];
 
@@ -5993,6 +6277,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
 
         // Strict mode: should NOT reject on_no_match as unknown key
@@ -6026,18 +6312,24 @@ mod tests {
                 name: "Block bash".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 200,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "file_system:read_file".to_string(),
                 name: "Block file read".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 150,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*".to_string(),
                 name: "Allow all".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 1,
+                path_rules: None,
+                network_rules: None,
             },
         ];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
@@ -6055,12 +6347,16 @@ mod tests {
                 name: "Prefix tool".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "bash:*".to_string(),
                 name: "Exact tool".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             },
         ];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
@@ -6077,6 +6373,8 @@ mod tests {
                 name: format!("Policy {}", i),
                 policy_type: PolicyType::Deny,
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             });
         }
         policies.push(Policy {
@@ -6084,6 +6382,8 @@ mod tests {
             name: "Default allow".to_string(),
             policy_type: PolicyType::Allow,
             priority: 1,
+            path_rules: None,
+            network_rules: None,
         });
 
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
@@ -6118,12 +6418,16 @@ mod tests {
                 name: "Allow bash".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 200,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "bash:*".to_string(),
                 name: "Deny bash".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             },
         ];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
@@ -6141,18 +6445,24 @@ mod tests {
                 name: "Allow safe bash".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 200,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*".to_string(),
                 name: "Universal deny".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 150,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "bash:*".to_string(),
                 name: "Allow all bash".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             },
         ];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
@@ -6194,6 +6504,8 @@ mod tests {
             name: "Allow all".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
         let action = action_with("bash", "execute", json!({"command": "ls"}));
@@ -6222,6 +6534,8 @@ mod tests {
             name: "Block bash".to_string(),
             policy_type: PolicyType::Deny,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
         let action = action_with("bash", "execute", json!({}));
@@ -6252,6 +6566,8 @@ mod tests {
             name: "Allow git".to_string(),
             policy_type: PolicyType::Allow,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
         let action = action_with("bash", "execute", json!({}));
@@ -6274,6 +6590,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
 
@@ -6288,8 +6606,75 @@ mod tests {
             .find(|c| c.param == "force")
             .unwrap();
         assert_eq!(forbidden.constraint_type, "forbidden_parameter");
-        assert_eq!(forbidden.actual, "present");
+        assert!(
+            forbidden.actual.starts_with("present: "),
+            "actual should contain type info, got: {}",
+            forbidden.actual
+        );
         assert!(!forbidden.passed);
+    }
+
+    #[test]
+    fn test_traced_constraint_result_type_info() {
+        let policies = vec![Policy {
+            id: "bash:*".to_string(),
+            name: "Bash forbidden check".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "forbidden_parameters": ["force"],
+                    "required_parameters": ["command"]
+                }),
+            },
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // Test forbidden parameter with string value
+        let action = action_with(
+            "bash",
+            "exec",
+            json!({"command": "ls -la", "force": "please"}),
+        );
+        let (_verdict, trace) = engine.evaluate_action_traced(&action).unwrap();
+        let results = &trace.matches[0].constraint_results;
+        let forbidden = results.iter().find(|c| c.param == "force").unwrap();
+        assert_eq!(forbidden.actual, "present: string(6 chars)");
+
+        // Test forbidden parameter with object value
+        let action2 = action_with(
+            "bash",
+            "exec",
+            json!({"command": "ls", "force": {"level": 1, "recursive": true}}),
+        );
+        let (_verdict2, trace2) = engine.evaluate_action_traced(&action2).unwrap();
+        let results2 = &trace2.matches[0].constraint_results;
+        let forbidden2 = results2.iter().find(|c| c.param == "force").unwrap();
+        assert_eq!(forbidden2.actual, "present: object(2 keys)");
+
+        // Test required parameter present (should have type info too)
+        let action3 = action_with("bash", "exec", json!({"command": "ls"}));
+        let (_verdict3, trace3) = engine.evaluate_action_traced(&action3).unwrap();
+        let results3 = &trace3.matches[0].constraint_results;
+        let required = results3
+            .iter()
+            .find(|c| c.param == "command" && c.constraint_type == "required_parameter")
+            .unwrap();
+        assert_eq!(required.actual, "present: string(2 chars)");
+        assert!(required.passed);
+
+        // Test required parameter absent
+        let action4 = action_with("bash", "exec", json!({"other": "value"}));
+        let (_verdict4, trace4) = engine.evaluate_action_traced(&action4).unwrap();
+        let results4 = &trace4.matches[0].constraint_results;
+        // forbidden_parameter "force" should show absent
+        let absent = results4
+            .iter()
+            .find(|c| c.param == "force" && c.constraint_type == "forbidden_parameter")
+            .unwrap();
+        assert_eq!(absent.actual, "absent");
+        assert!(absent.passed);
     }
 
     #[test]
@@ -6308,6 +6693,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
 
@@ -6333,6 +6720,8 @@ mod tests {
                 conditions: json!({"require_approval": true}),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
 
@@ -6353,12 +6742,16 @@ mod tests {
                 name: "Block bash".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*".to_string(),
                 name: "Allow all".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 10,
+                path_rules: None,
+                network_rules: None,
             },
         ];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
@@ -6378,6 +6771,8 @@ mod tests {
             name: "Allow all".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
         let action = action_with("bash", "execute", json!({}));
@@ -6406,6 +6801,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
 
@@ -6445,6 +6842,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
 
@@ -6469,6 +6868,8 @@ mod tests {
             name: "Allow all".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
         let action = action_with("test", "fn", json!({}));
@@ -6486,11 +6887,372 @@ mod tests {
             name: "Block test".to_string(),
             policy_type: PolicyType::Deny,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let engine_deny = PolicyEngine::with_policies(false, &policies_deny).unwrap();
         let (verdict_d, trace_d) = engine_deny.evaluate_action_traced(&action).unwrap();
         assert!(matches!(verdict_d, Verdict::Deny { .. }));
         assert!(matches!(trace_d.verdict, Verdict::Deny { .. }));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // PATH/NETWORK RULES TESTS (Phase 3E)
+    // ═══════════════════════════════════════════════════
+
+    use sentinel_types::{NetworkRules, PathRules};
+
+    fn policy_with_path_rules(
+        id: &str,
+        name: &str,
+        policy_type: PolicyType,
+        path_rules: PathRules,
+    ) -> Policy {
+        Policy {
+            id: id.to_string(),
+            name: name.to_string(),
+            policy_type,
+            priority: 100,
+            path_rules: Some(path_rules),
+            network_rules: None,
+        }
+    }
+
+    fn policy_with_network_rules(
+        id: &str,
+        name: &str,
+        policy_type: PolicyType,
+        network_rules: NetworkRules,
+    ) -> Policy {
+        Policy {
+            id: id.to_string(),
+            name: name.to_string(),
+            policy_type,
+            priority: 100,
+            path_rules: None,
+            network_rules: Some(network_rules),
+        }
+    }
+
+    fn action_with_paths(tool: &str, function: &str, paths: Vec<&str>) -> Action {
+        let mut action = Action::new(tool, function, json!({}));
+        action.target_paths = paths.into_iter().map(|s| s.to_string()).collect();
+        action
+    }
+
+    fn action_with_domains(tool: &str, function: &str, domains: Vec<&str>) -> Action {
+        let mut action = Action::new(tool, function, json!({}));
+        action.target_domains = domains.into_iter().map(|s| s.to_string()).collect();
+        action
+    }
+
+    #[test]
+    fn test_path_rules_blocked_denies() {
+        let policies = vec![policy_with_path_rules(
+            "file:*",
+            "Block sensitive paths",
+            PolicyType::Allow,
+            PathRules {
+                allowed: vec![],
+                blocked: vec!["/home/*/.aws/**".to_string(), "/etc/shadow".to_string()],
+            },
+        )];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_paths("file", "read", vec!["/home/user/.aws/credentials"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("blocked")),
+            "Blocked path should deny, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_path_rules_blocked_exact_match_denies() {
+        let policies = vec![policy_with_path_rules(
+            "file:*",
+            "Block etc shadow",
+            PolicyType::Allow,
+            PathRules {
+                allowed: vec![],
+                blocked: vec!["/etc/shadow".to_string()],
+            },
+        )];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_paths("file", "read", vec!["/etc/shadow"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_path_rules_allowed_only_safe_paths() {
+        let policies = vec![policy_with_path_rules(
+            "file:*",
+            "Allow only tmp",
+            PolicyType::Allow,
+            PathRules {
+                allowed: vec!["/tmp/**".to_string()],
+                blocked: vec![],
+            },
+        )];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // Allowed path
+        let action_ok = action_with_paths("file", "read", vec!["/tmp/safe.txt"]);
+        let verdict = engine.evaluate_action(&action_ok, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Allow),
+            "Path in allowed list should be allowed, got: {:?}",
+            verdict
+        );
+
+        // Disallowed path
+        let action_bad = action_with_paths("file", "read", vec!["/etc/passwd"]);
+        let verdict = engine.evaluate_action(&action_bad, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("not in allowed")),
+            "Path not in allowed list should deny, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_path_rules_blocked_takes_precedence_over_allowed() {
+        let policies = vec![policy_with_path_rules(
+            "file:*",
+            "Allow tmp but block secrets",
+            PolicyType::Allow,
+            PathRules {
+                allowed: vec!["/tmp/**".to_string()],
+                blocked: vec!["/tmp/secrets/**".to_string()],
+            },
+        )];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_paths("file", "read", vec!["/tmp/secrets/key.pem"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("blocked")),
+            "Blocked pattern should take precedence even if path matches allowed, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_path_rules_normalization_prevents_bypass() {
+        let policies = vec![policy_with_path_rules(
+            "file:*",
+            "Block aws creds",
+            PolicyType::Allow,
+            PathRules {
+                allowed: vec![],
+                blocked: vec!["/home/*/.aws/**".to_string()],
+            },
+        )];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        // Attempt traversal bypass
+        let action = action_with_paths(
+            "file",
+            "read",
+            vec!["/home/user/docs/../../user/.aws/credentials"],
+        );
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "Path traversal should be normalized and still blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_path_rules_no_paths_in_action_allows() {
+        let policies = vec![policy_with_path_rules(
+            "file:*",
+            "Block secrets",
+            PolicyType::Allow,
+            PathRules {
+                allowed: vec![],
+                blocked: vec!["/etc/shadow".to_string()],
+            },
+        )];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        // No target_paths in action → path rules don't apply
+        let action = action_with("file", "read", json!({"path": "/etc/shadow"}));
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Allow),
+            "With no target_paths, path rules should not block, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_network_rules_blocked_domain_denies() {
+        let policies = vec![policy_with_network_rules(
+            "http:*",
+            "Block evil domains",
+            PolicyType::Allow,
+            NetworkRules {
+                allowed_domains: vec![],
+                blocked_domains: vec!["evil.com".to_string(), "*.malware.org".to_string()],
+            },
+        )];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        let action = action_with_domains("http", "get", vec!["evil.com"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("blocked")),
+            "Blocked domain should deny, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_network_rules_blocked_subdomain_denies() {
+        let policies = vec![policy_with_network_rules(
+            "http:*",
+            "Block malware subdomains",
+            PolicyType::Allow,
+            NetworkRules {
+                allowed_domains: vec![],
+                blocked_domains: vec!["*.malware.org".to_string()],
+            },
+        )];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        let action = action_with_domains("http", "get", vec!["data.malware.org"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_network_rules_allowed_only() {
+        let policies = vec![policy_with_network_rules(
+            "http:*",
+            "Only allow trusted domains",
+            PolicyType::Allow,
+            NetworkRules {
+                allowed_domains: vec!["api.example.com".to_string(), "*.trusted.net".to_string()],
+                blocked_domains: vec![],
+            },
+        )];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // Allowed domain
+        let action_ok = action_with_domains("http", "get", vec!["api.example.com"]);
+        let verdict = engine.evaluate_action(&action_ok, &policies).unwrap();
+        assert!(matches!(verdict, Verdict::Allow));
+
+        // Disallowed domain
+        let action_bad = action_with_domains("http", "get", vec!["evil.com"]);
+        let verdict = engine.evaluate_action(&action_bad, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("not in allowed")),
+            "Domain not in allowed list should deny, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_network_rules_no_domains_in_action_allows() {
+        let policies = vec![policy_with_network_rules(
+            "http:*",
+            "Block evil",
+            PolicyType::Allow,
+            NetworkRules {
+                allowed_domains: vec![],
+                blocked_domains: vec!["evil.com".to_string()],
+            },
+        )];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with("http", "get", json!({"url": "https://evil.com/data"}));
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Allow),
+            "With no target_domains, network rules should not block, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_path_rules_with_deny_policy_still_denies() {
+        // Even a Deny policy should deny on path rules (path check is pre-dispatch)
+        let policies = vec![Policy {
+            id: "file:*".to_string(),
+            name: "Deny all files".to_string(),
+            policy_type: PolicyType::Deny,
+            priority: 100,
+            path_rules: Some(PathRules {
+                allowed: vec![],
+                blocked: vec!["/etc/**".to_string()],
+            }),
+            network_rules: None,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_paths("file", "read", vec!["/etc/passwd"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_multiple_paths_one_blocked_denies_all() {
+        let policies = vec![policy_with_path_rules(
+            "file:*",
+            "Block secrets",
+            PolicyType::Allow,
+            PathRules {
+                allowed: vec![],
+                blocked: vec!["/etc/shadow".to_string()],
+            },
+        )];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_paths("file", "read", vec!["/tmp/safe.txt", "/etc/shadow"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "If any path is blocked, entire action should be denied, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_path_and_network_rules_combined() {
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Combined rules".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: Some(PathRules {
+                allowed: vec!["/tmp/**".to_string()],
+                blocked: vec![],
+            }),
+            network_rules: Some(NetworkRules {
+                allowed_domains: vec!["api.safe.com".to_string()],
+                blocked_domains: vec![],
+            }),
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // Bad path, good domain
+        let mut action1 = Action::new("tool", "func", json!({}));
+        action1.target_paths = vec!["/etc/passwd".to_string()];
+        action1.target_domains = vec!["api.safe.com".to_string()];
+        let verdict = engine.evaluate_action(&action1, &policies).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+
+        // Good path, bad domain
+        let mut action2 = Action::new("tool", "func", json!({}));
+        action2.target_paths = vec!["/tmp/file.txt".to_string()];
+        action2.target_domains = vec!["evil.com".to_string()];
+        let verdict = engine.evaluate_action(&action2, &policies).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+
+        // Good path, good domain
+        let mut action3 = Action::new("tool", "func", json!({}));
+        action3.target_paths = vec!["/tmp/file.txt".to_string()];
+        action3.target_domains = vec!["api.safe.com".to_string()];
+        let verdict = engine.evaluate_action(&action3, &policies).unwrap();
+        assert!(matches!(verdict, Verdict::Allow));
     }
 
     // ═══════════════════════════════════════════════════
@@ -6524,13 +7286,8 @@ mod tests {
         }
 
         fn arb_action() -> impl Strategy<Value = Action> {
-            (arb_tool_name(), arb_function_name(), arb_params()).prop_map(
-                |(tool, function, parameters)| Action {
-                    tool,
-                    function,
-                    parameters,
-                },
-            )
+            (arb_tool_name(), arb_function_name(), arb_params())
+                .prop_map(|(tool, function, parameters)| Action::new(tool, function, parameters))
         }
 
         fn arb_path() -> impl Strategy<Value = String> {
@@ -6544,280 +7301,282 @@ mod tests {
         // ── Core Invariants ──────────────────────────────────
 
         proptest! {
-            /// evaluate_action called twice on the same input produces the same verdict.
-            #[test]
-            fn prop_evaluate_deterministic(action in arb_action()) {
-                let engine = PolicyEngine::new(false);
-                let policies = vec![
-                    Policy {
-                        id: "test:*".to_string(),
-                        name: "Allow test".to_string(),
-                        policy_type: PolicyType::Allow,
-                        priority: 100,
-                    },
-                ];
-                let v1 = engine.evaluate_action(&action, &policies).unwrap();
-                let v2 = engine.evaluate_action(&action, &policies).unwrap();
-                prop_assert_eq!(
-                    format!("{:?}", v1),
-                    format!("{:?}", v2),
-                    "evaluate_action must be deterministic"
-                );
-            }
+                    /// evaluate_action called twice on the same input produces the same verdict.
+                    #[test]
+                    fn prop_evaluate_deterministic(action in arb_action()) {
+                        let engine = PolicyEngine::new(false);
+                        let policies = vec![
+                            Policy {
+                                id: "test:*".to_string(),
+                                name: "Allow test".to_string(),
+                                policy_type: PolicyType::Allow,
+                                priority: 100,
+                                path_rules: None,
+                                network_rules: None,
+        },
+                        ];
+                        let v1 = engine.evaluate_action(&action, &policies).unwrap();
+                        let v2 = engine.evaluate_action(&action, &policies).unwrap();
+                        prop_assert_eq!(
+                            format!("{:?}", v1),
+                            format!("{:?}", v2),
+                            "evaluate_action must be deterministic"
+                        );
+                    }
 
-            /// Compiled path: evaluate_with_compiled called twice produces same verdict.
-            #[test]
-            fn prop_compiled_deterministic(action in arb_action()) {
-                let policies = vec![
-                    Policy {
-                        id: "*".to_string(),
-                        name: "Allow all".to_string(),
-                        policy_type: PolicyType::Allow,
-                        priority: 50,
-                    },
-                ];
-                let engine = PolicyEngine::with_policies(false, &policies).unwrap();
-                let v1 = engine.evaluate_action(&action, &[]).unwrap();
-                let v2 = engine.evaluate_action(&action, &[]).unwrap();
-                prop_assert_eq!(
-                    format!("{:?}", v1),
-                    format!("{:?}", v2),
-                    "compiled evaluate must be deterministic"
-                );
-            }
+                    /// Compiled path: evaluate_with_compiled called twice produces same verdict.
+                    #[test]
+                    fn prop_compiled_deterministic(action in arb_action()) {
+                        let policies = vec![
+                            Policy {
+                                id: "*".to_string(),
+                                name: "Allow all".to_string(),
+                                policy_type: PolicyType::Allow,
+                                priority: 50,
+                                path_rules: None,
+                                network_rules: None,
+        },
+                        ];
+                        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+                        let v1 = engine.evaluate_action(&action, &[]).unwrap();
+                        let v2 = engine.evaluate_action(&action, &[]).unwrap();
+                        prop_assert_eq!(
+                            format!("{:?}", v1),
+                            format!("{:?}", v2),
+                            "compiled evaluate must be deterministic"
+                        );
+                    }
 
-            /// Empty policy set always produces Deny (fail-closed).
-            #[test]
-            fn prop_empty_policies_deny(action in arb_action()) {
-                let engine = PolicyEngine::new(false);
-                let verdict = engine.evaluate_action(&action, &[]).unwrap();
-                prop_assert!(
-                    matches!(verdict, Verdict::Deny { .. }),
-                    "empty policies must deny, got {:?}",
-                    verdict
-                );
-            }
+                    /// Empty policy set always produces Deny (fail-closed).
+                    #[test]
+                    fn prop_empty_policies_deny(action in arb_action()) {
+                        let engine = PolicyEngine::new(false);
+                        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+                        prop_assert!(
+                            matches!(verdict, Verdict::Deny { .. }),
+                            "empty policies must deny, got {:?}",
+                            verdict
+                        );
+                    }
 
-            /// Non-matching policies produce Deny (fail-closed).
-            #[test]
-            fn prop_no_match_denies(
-                tool in arb_tool_name(),
-                function in arb_function_name(),
-            ) {
-                let engine = PolicyEngine::new(false);
-                let action = Action {
-                    tool,
-                    function,
-                    parameters: json!({}),
-                };
-                // Policy for a tool name that can never match [a-z_]{1,20}
-                let policies = vec![Policy {
-                    id: "ZZZZZ-NEVER-MATCHES:nope".to_string(),
-                    name: "Unreachable".to_string(),
-                    policy_type: PolicyType::Allow,
-                    priority: 100,
-                }];
-                let verdict = engine.evaluate_action(&action, &policies).unwrap();
-                prop_assert!(
-                    matches!(verdict, Verdict::Deny { .. }),
-                    "non-matching policies must deny, got {:?}",
-                    verdict
-                );
-            }
+                    /// Non-matching policies produce Deny (fail-closed).
+                    #[test]
+                    fn prop_no_match_denies(
+                        tool in arb_tool_name(),
+                        function in arb_function_name(),
+                    ) {
+                        let engine = PolicyEngine::new(false);
+                        let action = Action::new(tool, function, json!({}));
+                        // Policy for a tool name that can never match [a-z_]{1,20}
+                        let policies = vec![Policy {
+                            id: "ZZZZZ-NEVER-MATCHES:nope".to_string(),
+                            name: "Unreachable".to_string(),
+                            policy_type: PolicyType::Allow,
+                            priority: 100,
+                            path_rules: None,
+                            network_rules: None,
+                        }];
+                        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+                        prop_assert!(
+                            matches!(verdict, Verdict::Deny { .. }),
+                            "non-matching policies must deny, got {:?}",
+                            verdict
+                        );
+                    }
 
-            /// Wildcard policy `*` matches any tool/function.
-            #[test]
-            fn prop_wildcard_matches_all(action in arb_action()) {
-                let policies = vec![Policy {
-                    id: "*".to_string(),
-                    name: "Wildcard".to_string(),
-                    policy_type: PolicyType::Allow,
-                    priority: 100,
-                }];
-                let engine = PolicyEngine::with_policies(false, &policies).unwrap();
-                let verdict = engine.evaluate_action(&action, &[]).unwrap();
-                prop_assert!(
-                    matches!(verdict, Verdict::Allow),
-                    "wildcard policy must allow all, got {:?}",
-                    verdict
-                );
-            }
-        }
+                    /// Wildcard policy `*` matches any tool/function.
+                    #[test]
+                    fn prop_wildcard_matches_all(action in arb_action()) {
+                        let policies = vec![Policy {
+                            id: "*".to_string(),
+                            name: "Wildcard".to_string(),
+                            policy_type: PolicyType::Allow,
+                            priority: 100,
+                            path_rules: None,
+                            network_rules: None,
+        }];
+                        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+                        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+                        prop_assert!(
+                            matches!(verdict, Verdict::Allow),
+                            "wildcard policy must allow all, got {:?}",
+                            verdict
+                        );
+                    }
+                }
 
         // ── Priority & Override Rules ────────────────────────
 
         proptest! {
-            /// Higher-priority Deny overrides lower-priority Allow.
-            #[test]
-            fn prop_higher_priority_deny_wins(
-                tool in arb_tool_name(),
-                function in arb_function_name(),
-            ) {
-                let action = Action {
-                    tool: tool.clone(),
-                    function: function.clone(),
-                    parameters: json!({}),
-                };
-                let policies = vec![
-                    Policy {
-                        id: "*".to_string(),
-                        name: "Deny all".to_string(),
-                        policy_type: PolicyType::Deny,
-                        priority: 200,
-                    },
-                    Policy {
-                        id: "*".to_string(),
-                        name: "Allow all".to_string(),
-                        policy_type: PolicyType::Allow,
-                        priority: 100,
-                    },
-                ];
-                let engine = PolicyEngine::with_policies(false, &policies).unwrap();
-                let verdict = engine.evaluate_action(&action, &[]).unwrap();
-                prop_assert!(
-                    matches!(verdict, Verdict::Deny { .. }),
-                    "higher priority deny must win, got {:?}",
-                    verdict
-                );
-            }
+                    /// Higher-priority Deny overrides lower-priority Allow.
+                    #[test]
+                    fn prop_higher_priority_deny_wins(
+                        tool in arb_tool_name(),
+                        function in arb_function_name(),
+                    ) {
+                        let action = Action::new(tool.clone(), function.clone(), json!({}));
+                        let policies = vec![
+                            Policy {
+                                id: "*".to_string(),
+                                name: "Deny all".to_string(),
+                                policy_type: PolicyType::Deny,
+                                priority: 200,
+                                path_rules: None,
+                                network_rules: None,
+        },
+                            Policy {
+                                id: "*".to_string(),
+                                name: "Allow all".to_string(),
+                                policy_type: PolicyType::Allow,
+                                priority: 100,
+                                path_rules: None,
+                                network_rules: None,
+        },
+                        ];
+                        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+                        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+                        prop_assert!(
+                            matches!(verdict, Verdict::Deny { .. }),
+                            "higher priority deny must win, got {:?}",
+                            verdict
+                        );
+                    }
 
-            /// At equal priority, Deny wins over Allow (deny-overrides).
-            #[test]
-            fn prop_deny_wins_at_equal_priority(
-                tool in arb_tool_name(),
-                function in arb_function_name(),
-            ) {
-                let action = Action {
-                    tool: tool.clone(),
-                    function: function.clone(),
-                    parameters: json!({}),
-                };
-                let policies = vec![
-                    Policy {
-                        id: "*".to_string(),
-                        name: "Deny all".to_string(),
-                        policy_type: PolicyType::Deny,
-                        priority: 100,
-                    },
-                    Policy {
-                        id: "*".to_string(),
-                        name: "Allow all".to_string(),
-                        policy_type: PolicyType::Allow,
-                        priority: 100,
-                    },
-                ];
-                let engine = PolicyEngine::with_policies(false, &policies).unwrap();
-                let verdict = engine.evaluate_action(&action, &[]).unwrap();
-                prop_assert!(
-                    matches!(verdict, Verdict::Deny { .. }),
-                    "deny must win at equal priority, got {:?}",
-                    verdict
-                );
-            }
-        }
+                    /// At equal priority, Deny wins over Allow (deny-overrides).
+                    #[test]
+                    fn prop_deny_wins_at_equal_priority(
+                        tool in arb_tool_name(),
+                        function in arb_function_name(),
+                    ) {
+                        let action = Action::new(tool.clone(), function.clone(), json!({}));
+                        let policies = vec![
+                            Policy {
+                                id: "*".to_string(),
+                                name: "Deny all".to_string(),
+                                policy_type: PolicyType::Deny,
+                                priority: 100,
+                                path_rules: None,
+                                network_rules: None,
+        },
+                            Policy {
+                                id: "*".to_string(),
+                                name: "Allow all".to_string(),
+                                policy_type: PolicyType::Allow,
+                                priority: 100,
+                                path_rules: None,
+                                network_rules: None,
+        },
+                        ];
+                        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+                        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+                        prop_assert!(
+                            matches!(verdict, Verdict::Deny { .. }),
+                            "deny must win at equal priority, got {:?}",
+                            verdict
+                        );
+                    }
+                }
 
         // ── Path / Domain Safety ─────────────────────────────
 
         proptest! {
-            /// normalize_path is idempotent: normalizing twice yields same result.
-            #[test]
-            fn prop_normalize_path_idempotent(path in arb_path()) {
-                let once = PolicyEngine::normalize_path(&path);
-                let twice = PolicyEngine::normalize_path(&once);
-                prop_assert_eq!(
-                    &once, &twice,
-                    "normalize_path must be idempotent: '{}' -> '{}' -> '{}'",
-                    path, once, twice
-                );
-            }
+                    /// normalize_path is idempotent: normalizing twice yields same result.
+                    #[test]
+                    fn prop_normalize_path_idempotent(path in arb_path()) {
+                        let once = PolicyEngine::normalize_path(&path);
+                        let twice = PolicyEngine::normalize_path(&once);
+                        prop_assert_eq!(
+                            &once, &twice,
+                            "normalize_path must be idempotent: '{}' -> '{}' -> '{}'",
+                            path, once, twice
+                        );
+                    }
 
-            /// normalize_path is idempotent for percent-encoded input.
-            #[test]
-            fn prop_normalize_path_encoded_idempotent(
-                seg in "[a-z]{1,5}",
-            ) {
-                // Encode each character as %XX
-                let encoded: String = seg.bytes()
-                    .map(|b| format!("%{:02X}", b))
-                    .collect();
-                let input = format!("/{}", encoded);
-                let once = PolicyEngine::normalize_path(&input);
-                let twice = PolicyEngine::normalize_path(&once);
-                prop_assert_eq!(
-                    &once, &twice,
-                    "normalize_path must be idempotent on encoded input: '{}' -> '{}' -> '{}'",
-                    input, once, twice
-                );
-            }
+                    /// normalize_path is idempotent for percent-encoded input.
+                    #[test]
+                    fn prop_normalize_path_encoded_idempotent(
+                        seg in "[a-z]{1,5}",
+                    ) {
+                        // Encode each character as %XX
+                        let encoded: String = seg.bytes()
+                            .map(|b| format!("%{:02X}", b))
+                            .collect();
+                        let input = format!("/{}", encoded);
+                        let once = PolicyEngine::normalize_path(&input);
+                        let twice = PolicyEngine::normalize_path(&once);
+                        prop_assert_eq!(
+                            &once, &twice,
+                            "normalize_path must be idempotent on encoded input: '{}' -> '{}' -> '{}'",
+                            input, once, twice
+                        );
+                    }
 
-            /// normalize_path never returns an empty string.
-            #[test]
-            fn prop_normalize_path_never_empty(path in arb_path()) {
-                let result = PolicyEngine::normalize_path(&path);
-                prop_assert!(
-                    !result.is_empty(),
-                    "normalize_path must never return empty string for input '{}'",
-                    path
-                );
-            }
+                    /// normalize_path never returns an empty string.
+                    #[test]
+                    fn prop_normalize_path_never_empty(path in arb_path()) {
+                        let result = PolicyEngine::normalize_path(&path);
+                        prop_assert!(
+                            !result.is_empty(),
+                            "normalize_path must never return empty string for input '{}'",
+                            path
+                        );
+                    }
 
-            /// extract_domain always returns a lowercase string.
-            #[test]
-            fn prop_extract_domain_lowercase(
-                scheme in prop_oneof![Just("http"), Just("https"), Just("ftp")],
-                host in "[a-zA-Z]{1,10}(\\.[a-zA-Z]{1,5}){1,3}",
-            ) {
-                let url = format!("{}://{}/path", scheme, host);
-                let domain = PolicyEngine::extract_domain(&url);
-                let lowered = domain.to_lowercase();
-                prop_assert_eq!(
-                    &domain, &lowered,
-                    "extract_domain must return lowercase for '{}'",
-                    url
-                );
-            }
+                    /// extract_domain always returns a lowercase string.
+                    #[test]
+                    fn prop_extract_domain_lowercase(
+                        scheme in prop_oneof![Just("http"), Just("https"), Just("ftp")],
+                        host in "[a-zA-Z]{1,10}(\\.[a-zA-Z]{1,5}){1,3}",
+                    ) {
+                        let url = format!("{}://{}/path", scheme, host);
+                        let domain = PolicyEngine::extract_domain(&url);
+                        let lowered = domain.to_lowercase();
+                        prop_assert_eq!(
+                            &domain, &lowered,
+                            "extract_domain must return lowercase for '{}'",
+                            url
+                        );
+                    }
 
-            /// Blocked glob pattern always produces Deny via not_glob constraint.
-            #[test]
-            fn prop_blocked_glob_always_denies(
-                user in "[a-z]{1,8}",
-                suffix in "[a-z_/.]{0,15}",
-            ) {
-                let path = format!("/home/{}/.aws/{}", user, suffix);
-                let action = Action {
-                    tool: "file_system".to_string(),
-                    function: "read_file".to_string(),
-                    parameters: json!({ "path": path }),
-                };
-                // not_glob denies when the path does NOT match the allowlist.
-                // A path under .aws should NOT be in a project allowlist.
-                let policy = Policy {
-                    id: "file_system:read_file".to_string(),
-                    name: "Block outside project".to_string(),
-                    policy_type: PolicyType::Conditional {
-                        conditions: json!({
-                            "parameter_constraints": [
-                                {
-                                    "param": "path",
-                                    "op": "not_glob",
-                                    "patterns": ["/home/*/project/**", "/tmp/**"],
-                                    "on_match": "deny"
-                                }
-                            ]
-                        }),
-                    },
-                    priority: 200,
-                };
-                let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-                let verdict = engine.evaluate_action(&action, &[]).unwrap();
-                prop_assert!(
-                    matches!(verdict, Verdict::Deny { .. }),
-                    "path '{}' under .aws must be denied, got {:?}",
-                    path,
-                    verdict
-                );
-            }
-        }
+                    /// Blocked glob pattern always produces Deny via not_glob constraint.
+                    #[test]
+                    fn prop_blocked_glob_always_denies(
+                        user in "[a-z]{1,8}",
+                        suffix in "[a-z_/.]{0,15}",
+                    ) {
+                        let path = format!("/home/{}/.aws/{}", user, suffix);
+                        let action = Action::new("file_system".to_string(), "read_file".to_string(), json!({ "path": path }));
+                        // not_glob denies when the path does NOT match the allowlist.
+                        // A path under .aws should NOT be in a project allowlist.
+                        let policy = Policy {
+                            id: "file_system:read_file".to_string(),
+                            name: "Block outside project".to_string(),
+                            policy_type: PolicyType::Conditional {
+                                conditions: json!({
+                                    "parameter_constraints": [
+                                        {
+                                            "param": "path",
+                                            "op": "not_glob",
+                                            "patterns": ["/home/*/project/**", "/tmp/**"],
+                                            "on_match": "deny"
+                                        }
+                                    ]
+                                }),
+                            },
+                            priority: 200,
+                            path_rules: None,
+                            network_rules: None,
+        };
+                        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+                        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+                        prop_assert!(
+                            matches!(verdict, Verdict::Deny { .. }),
+                            "path '{}' under .aws must be denied, got {:?}",
+                            path,
+                            verdict
+                        );
+                    }
+                }
 
         // ── Parameter Resolution ─────────────────────────────
 

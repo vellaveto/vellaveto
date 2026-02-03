@@ -23,15 +23,17 @@ fn approval_policy() -> Policy {
             conditions: json!({"require_approval": true}),
         },
         priority: 100,
+        path_rules: None,
+        network_rules: None,
     }
 }
 
 fn bash_action() -> Action {
-    Action {
-        tool: "bash".to_string(),
-        function: "execute".to_string(),
-        parameters: json!({"cmd": "ls -la"}),
-    }
+    Action::new(
+        "bash".to_string(),
+        "execute".to_string(),
+        json!({"cmd": "ls -la"}),
+    )
 }
 
 // ═══════════════════════════════════════

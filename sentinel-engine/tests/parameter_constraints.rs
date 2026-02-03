@@ -11,11 +11,7 @@ fn make_strict_engine() -> PolicyEngine {
 }
 
 fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: params,
-    }
+    Action::new(tool.to_string(), function.to_string(), params)
 }
 
 fn make_conditional_policy(
@@ -29,6 +25,8 @@ fn make_conditional_policy(
         name: name.to_string(),
         policy_type: PolicyType::Conditional { conditions },
         priority,
+        path_rules: None,
+        network_rules: None,
     }
 }
 
@@ -381,6 +379,8 @@ fn test_higher_priority_deny_overrides_constraint_allow() {
         name: "Deny all files".to_string(),
         policy_type: PolicyType::Deny,
         priority: 300,
+        path_rules: None,
+        network_rules: None,
     };
 
     let constraint_policy = make_conditional_policy(
@@ -415,6 +415,8 @@ fn test_lower_priority_constraint_not_reached() {
         name: "Allow all files".to_string(),
         policy_type: PolicyType::Allow,
         priority: 300,
+        path_rules: None,
+        network_rules: None,
     };
 
     let constraint_policy = make_conditional_policy(

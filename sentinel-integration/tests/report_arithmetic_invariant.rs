@@ -15,11 +15,7 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 fn make_action() -> Action {
-    Action {
-        tool: "invariant_test".to_string(),
-        function: "check".to_string(),
-        parameters: json!({}),
-    }
+    Action::new("invariant_test".to_string(), "check".to_string(), json!({}))
 }
 
 fn setup_logger() -> (AuditLogger, TempDir) {

@@ -30,11 +30,11 @@ fn action_tool_and_function_preserved_through_audit() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let action = Action {
-            tool: "my_special_tool".to_string(),
-            function: "do_something_complex".to_string(),
-            parameters: json!({"key1": "val1", "key2": 42, "key3": [1, 2, 3]}),
-        };
+        let action = Action::new(
+            "my_special_tool".to_string(),
+            "do_something_complex".to_string(),
+            json!({"key1": "val1", "key2": 42, "key3": [1, 2, 3]}),
+        );
         logger
             .log_entry(&action, &Verdict::Allow, json!({}))
             .await
@@ -56,11 +56,7 @@ fn deny_reason_preserved_through_audit() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let action = Action {
-            tool: "t".to_string(),
-            function: "f".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("t".to_string(), "f".to_string(), json!({}));
         let verdict = Verdict::Deny {
             reason: "specific denial reason with unicode: 日本語".to_string(),
         };
@@ -85,11 +81,7 @@ fn require_approval_reason_preserved_through_audit() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let action = Action {
-            tool: "t".to_string(),
-            function: "f".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("t".to_string(), "f".to_string(), json!({}));
         let verdict = Verdict::RequireApproval {
             reason: "needs manager sign-off: level >= 3".to_string(),
         };
@@ -118,11 +110,7 @@ fn complex_metadata_preserved_through_audit() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let action = Action {
-            tool: "t".to_string(),
-            function: "f".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("t".to_string(), "f".to_string(), json!({}));
         let metadata = json!({
             "user": "admin",
             "ip": "192.168.1.1",
@@ -146,11 +134,7 @@ fn empty_object_metadata_preserved() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let action = Action {
-            tool: "t".to_string(),
-            function: "f".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("t".to_string(), "f".to_string(), json!({}));
         logger
             .log_entry(&action, &Verdict::Allow, json!({}))
             .await
@@ -166,11 +150,7 @@ fn null_metadata_preserved() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let action = Action {
-            tool: "t".to_string(),
-            function: "f".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("t".to_string(), "f".to_string(), json!({}));
         logger
             .log_entry(&action, &Verdict::Allow, json!(null))
             .await
@@ -193,31 +173,27 @@ fn three_entries_with_different_verdicts_preserve_all_fields() {
 
         let actions_verdicts_meta = vec![
             (
-                Action {
-                    tool: "file".to_string(),
-                    function: "read".to_string(),
-                    parameters: json!({"path": "/etc/hosts"}),
-                },
+                Action::new(
+                    "file".to_string(),
+                    "read".to_string(),
+                    json!({"path": "/etc/hosts"}),
+                ),
                 Verdict::Allow,
                 json!({"user": "alice"}),
             ),
             (
-                Action {
-                    tool: "bash".to_string(),
-                    function: "exec".to_string(),
-                    parameters: json!({"cmd": "ls"}),
-                },
+                Action::new("bash".to_string(), "exec".to_string(), json!({"cmd": "ls"})),
                 Verdict::Deny {
                     reason: "bash blocked".to_string(),
                 },
                 json!({"user": "bob", "attempt": 3}),
             ),
             (
-                Action {
-                    tool: "net".to_string(),
-                    function: "connect".to_string(),
-                    parameters: json!({"host": "example.com"}),
-                },
+                Action::new(
+                    "net".to_string(),
+                    "connect".to_string(),
+                    json!({"host": "example.com"}),
+                ),
                 Verdict::RequireApproval {
                     reason: "external network".to_string(),
                 },

@@ -7,11 +7,7 @@ use sentinel_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 
 fn action(tool: &str, function: &str) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: json!({}),
-    }
+    Action::new(tool.to_string(), function.to_string(), json!({}))
 }
 
 // ════════════════════════════
@@ -43,6 +39,8 @@ fn smoke_wildcard_allow_permits() {
         name: "allow-all".to_string(),
         policy_type: PolicyType::Allow,
         priority: 1,
+        path_rules: None,
+        network_rules: None,
     }];
     let result = engine
         .evaluate_action(&action("x", "y"), &policies)
@@ -58,6 +56,8 @@ fn smoke_wildcard_deny_denies() {
         name: "deny-all".to_string(),
         policy_type: PolicyType::Deny,
         priority: 1,
+        path_rules: None,
+        network_rules: None,
     }];
     let result = engine
         .evaluate_action(&action("x", "y"), &policies)
@@ -82,12 +82,16 @@ fn smoke_higher_priority_wins() {
             name: "low-allow".to_string(),
             policy_type: PolicyType::Allow,
             priority: 1,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
             name: "high-deny".to_string(),
             policy_type: PolicyType::Deny,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let result = engine
@@ -110,12 +114,16 @@ fn smoke_equal_priority_deny_wins() {
             name: "allow".to_string(),
             policy_type: PolicyType::Allow,
             priority: 50,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
             name: "deny".to_string(),
             policy_type: PolicyType::Deny,
             priority: 50,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let result = engine
@@ -137,6 +145,8 @@ fn smoke_exact_colon_match() {
         name: "allow-file-read".to_string(),
         policy_type: PolicyType::Allow,
         priority: 10,
+        path_rules: None,
+        network_rules: None,
     }];
     let result = engine
         .evaluate_action(&action("file", "read"), &policies)
@@ -152,6 +162,8 @@ fn smoke_exact_colon_no_match_denies() {
         name: "allow-file-read".to_string(),
         policy_type: PolicyType::Allow,
         priority: 10,
+        path_rules: None,
+        network_rules: None,
     }];
     let result = engine
         .evaluate_action(&action("file", "write"), &policies)
@@ -174,6 +186,8 @@ fn smoke_conditional_require_approval() {
             conditions: json!({"require_approval": true}),
         },
         priority: 10,
+        path_rules: None,
+        network_rules: None,
     }];
     let result = engine
         .evaluate_action(&action("a", "b"), &policies)
@@ -189,11 +203,7 @@ fn smoke_conditional_require_approval() {
 #[test]
 fn smoke_forbidden_param_present_denies() {
     let engine = PolicyEngine::new(false);
-    let act = Action {
-        tool: "t".to_string(),
-        function: "f".to_string(),
-        parameters: json!({"secret": "value"}),
-    };
+    let act = Action::new("t".to_string(), "f".to_string(), json!({"secret": "value"}));
     let policies = vec![Policy {
         id: "*".to_string(),
         name: "no-secrets".to_string(),
@@ -201,6 +211,8 @@ fn smoke_forbidden_param_present_denies() {
             conditions: json!({"forbidden_parameters": ["secret"]}),
         },
         priority: 10,
+        path_rules: None,
+        network_rules: None,
     }];
     let result = engine.evaluate_action(&act, &policies).unwrap();
     assert!(matches!(result, Verdict::Deny { .. }));
@@ -209,11 +221,7 @@ fn smoke_forbidden_param_present_denies() {
 #[test]
 fn smoke_forbidden_param_absent_allows() {
     let engine = PolicyEngine::new(false);
-    let act = Action {
-        tool: "t".to_string(),
-        function: "f".to_string(),
-        parameters: json!({"safe": "value"}),
-    };
+    let act = Action::new("t".to_string(), "f".to_string(), json!({"safe": "value"}));
     let policies = vec![Policy {
         id: "*".to_string(),
         name: "no-secrets".to_string(),
@@ -221,6 +229,8 @@ fn smoke_forbidden_param_absent_allows() {
             conditions: json!({"forbidden_parameters": ["secret"]}),
         },
         priority: 10,
+        path_rules: None,
+        network_rules: None,
     }];
     let result = engine.evaluate_action(&act, &policies).unwrap();
     assert_eq!(result, Verdict::Allow);

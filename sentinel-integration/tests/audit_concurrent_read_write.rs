@@ -17,11 +17,11 @@ fn runtime_mt() -> tokio::runtime::Runtime {
 }
 
 fn make_action(id: usize) -> Action {
-    Action {
-        tool: format!("rw_tool_{}", id),
-        function: "test".to_string(),
-        parameters: json!({"id": id}),
-    }
+    Action::new(
+        format!("rw_tool_{}", id),
+        "test".to_string(),
+        json!({"id": id}),
+    )
 }
 
 // ══════════════════════════════════════

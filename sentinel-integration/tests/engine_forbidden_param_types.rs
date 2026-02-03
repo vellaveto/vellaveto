@@ -7,11 +7,7 @@ use sentinel_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 
 fn make_action_with_params(params: serde_json::Value) -> Action {
-    Action {
-        tool: "tool".to_string(),
-        function: "func".to_string(),
-        parameters: params,
-    }
+    Action::new("tool".to_string(), "func".to_string(), params)
 }
 
 fn conditional_policy(conditions: serde_json::Value) -> Policy {
@@ -20,6 +16,8 @@ fn conditional_policy(conditions: serde_json::Value) -> Policy {
         name: "cond-test".to_string(),
         policy_type: PolicyType::Conditional { conditions },
         priority: 100,
+        path_rules: None,
+        network_rules: None,
     }
 }
 
