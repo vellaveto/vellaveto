@@ -44,7 +44,11 @@ fn verify_empty_audit_log_passes() {
         stdout,
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(stdout.contains("VERIFIED"), "Expected VERIFIED in: {}", stdout);
+    assert!(
+        stdout.contains("VERIFIED"),
+        "Expected VERIFIED in: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -60,7 +64,10 @@ fn verify_shows_hash_chain_and_checkpoint_results() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Hash chain:"), "Expected chain result");
-    assert!(stdout.contains("Checkpoints:"), "Expected checkpoint result");
+    assert!(
+        stdout.contains("Checkpoints:"),
+        "Expected checkpoint result"
+    );
 }
 
 // ═══════════════════════════
@@ -120,7 +127,11 @@ fn verify_valid_audit_log_with_entries() {
         "Expected 2 entries verified in: {}",
         stdout
     );
-    assert!(stdout.contains("VERIFIED"), "Expected VERIFIED in: {}", stdout);
+    assert!(
+        stdout.contains("VERIFIED"),
+        "Expected VERIFIED in: {}",
+        stdout
+    );
 }
 
 // ═══════════════════════════
@@ -228,7 +239,11 @@ fn verify_with_valid_checkpoints() {
         "Expected 1 checkpoint verified in: {}",
         stdout
     );
-    assert!(stdout.contains("VERIFIED"), "Expected VERIFIED in: {}", stdout);
+    assert!(
+        stdout.contains("VERIFIED"),
+        "Expected VERIFIED in: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -282,8 +297,16 @@ fn verify_with_trusted_key_pinning() {
         stdout,
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(stdout.contains("key pinned"), "Expected 'key pinned' in: {}", stdout);
-    assert!(stdout.contains("VERIFIED"), "Expected VERIFIED in: {}", stdout);
+    assert!(
+        stdout.contains("key pinned"),
+        "Expected 'key pinned' in: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("VERIFIED"),
+        "Expected VERIFIED in: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -360,10 +383,7 @@ fn verify_invalid_trusted_key_hex_fails() {
         .output()
         .expect("failed to run sentinel");
 
-    assert!(
-        !output.status.success(),
-        "Invalid hex key should fail"
-    );
+    assert!(!output.status.success(), "Invalid hex key should fail");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("Invalid --trusted-key hex"),
@@ -389,10 +409,7 @@ fn verify_trusted_key_wrong_length_fails() {
         .output()
         .expect("failed to run sentinel");
 
-    assert!(
-        !output.status.success(),
-        "Wrong length key should fail"
-    );
+    assert!(!output.status.success(), "Wrong length key should fail");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("32 bytes"),

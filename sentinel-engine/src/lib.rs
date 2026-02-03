@@ -5535,7 +5535,11 @@ mod tests {
 
         // Compiled path
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
-        let action = action_with("http_request", "get", json!({"url": "https://safe.example.com"}));
+        let action = action_with(
+            "http_request",
+            "get",
+            json!({"url": "https://safe.example.com"}),
+        );
         let verdict = engine.evaluate_action(&action, &[]).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
@@ -5584,7 +5588,11 @@ mod tests {
 
         // Compiled path: without on_no_match, first policy returns Allow, blocking the Deny.
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
-        let action = action_with("http_request", "get", json!({"url": "https://safe.example.com"}));
+        let action = action_with(
+            "http_request",
+            "get",
+            json!({"url": "https://safe.example.com"}),
+        );
         let verdict = engine.evaluate_action(&action, &[]).unwrap();
         assert!(
             matches!(verdict, Verdict::Allow),
@@ -5651,7 +5659,11 @@ mod tests {
             json!({"path": "/home/user/.aws/credentials"}),
         );
         let v = engine.evaluate_action(&cred_action, &[]).unwrap();
-        assert!(matches!(v, Verdict::Deny { .. }), "Credentials must be denied: {:?}", v);
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "Credentials must be denied: {:?}",
+            v
+        );
 
         // Evil domain → skips policy 1, blocked by policy 2
         let evil_action = action_with(
@@ -5660,7 +5672,11 @@ mod tests {
             json!({"url": "https://exfil.evil.com/steal"}),
         );
         let v = engine.evaluate_action(&evil_action, &[]).unwrap();
-        assert!(matches!(v, Verdict::Deny { .. }), "Evil domain must be denied: {:?}", v);
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "Evil domain must be denied: {:?}",
+            v
+        );
 
         // Safe action → skips policies 1 and 2, allowed by policy 3
         let safe_action = action_with(
@@ -5669,19 +5685,41 @@ mod tests {
             json!({"path": "/home/user/project/README.md"}),
         );
         let v = engine.evaluate_action(&safe_action, &[]).unwrap();
-        assert!(matches!(v, Verdict::Allow), "Safe path must be allowed: {:?}", v);
+        assert!(
+            matches!(v, Verdict::Allow),
+            "Safe path must be allowed: {:?}",
+            v
+        );
 
         // Verify legacy path parity
         let legacy_engine = PolicyEngine::new(false);
 
-        let v = legacy_engine.evaluate_action(&cred_action, &policies).unwrap();
-        assert!(matches!(v, Verdict::Deny { .. }), "Legacy: credentials denied: {:?}", v);
+        let v = legacy_engine
+            .evaluate_action(&cred_action, &policies)
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "Legacy: credentials denied: {:?}",
+            v
+        );
 
-        let v = legacy_engine.evaluate_action(&evil_action, &policies).unwrap();
-        assert!(matches!(v, Verdict::Deny { .. }), "Legacy: evil domain denied: {:?}", v);
+        let v = legacy_engine
+            .evaluate_action(&evil_action, &policies)
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "Legacy: evil domain denied: {:?}",
+            v
+        );
 
-        let v = legacy_engine.evaluate_action(&safe_action, &policies).unwrap();
-        assert!(matches!(v, Verdict::Allow), "Legacy: safe path allowed: {:?}", v);
+        let v = legacy_engine
+            .evaluate_action(&safe_action, &policies)
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "Legacy: safe path allowed: {:?}",
+            v
+        );
     }
 
     #[test]
@@ -5930,24 +5968,22 @@ mod tests {
     #[test]
     fn test_on_no_match_continue_strict_mode_accepts_key() {
         // Strict mode must recognize "on_no_match" as a valid condition key.
-        let policies = vec![
-            Policy {
-                id: "*:*".to_string(),
-                name: "Strict scan".to_string(),
-                policy_type: PolicyType::Conditional {
-                    conditions: json!({
-                        "parameter_constraints": [{
-                            "param": "path",
-                            "op": "glob",
-                            "pattern": "/secret/**",
-                            "on_match": "deny"
-                        }],
-                        "on_no_match": "continue"
-                    }),
-                },
-                priority: 100,
+        let policies = vec![Policy {
+            id: "*:*".to_string(),
+            name: "Strict scan".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [{
+                        "param": "path",
+                        "op": "glob",
+                        "pattern": "/secret/**",
+                        "on_match": "deny"
+                    }],
+                    "on_no_match": "continue"
+                }),
             },
-        ];
+            priority: 100,
+        }];
 
         // Strict mode: should NOT reject on_no_match as unknown key
         let result = PolicyEngine::with_policies(true, &policies);

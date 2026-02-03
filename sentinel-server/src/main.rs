@@ -96,10 +96,7 @@ async fn main() -> Result<()> {
         } => cmd_evaluate(tool, function, params, config).await,
         Commands::Check { config } => cmd_check(config).await,
         Commands::Policies { preset } => cmd_policies(preset),
-        Commands::Verify {
-            audit,
-            trusted_key,
-        } => cmd_verify(audit, trusted_key).await,
+        Commands::Verify { audit, trusted_key } => cmd_verify(audit, trusted_key).await,
     }
 }
 
@@ -504,8 +501,8 @@ async fn cmd_verify(audit: String, trusted_key: Option<String>) -> Result<()> {
     let mut logger = AuditLogger::new(audit_path);
     if let Some(ref key) = trusted_key {
         // Validate key format early
-        let key_bytes = hex::decode(key)
-            .map_err(|e| anyhow::anyhow!("Invalid --trusted-key hex: {}", e))?;
+        let key_bytes =
+            hex::decode(key).map_err(|e| anyhow::anyhow!("Invalid --trusted-key hex: {}", e))?;
         if key_bytes.len() != 32 {
             anyhow::bail!(
                 "--trusted-key must be exactly 32 bytes (64 hex chars), got {}",
@@ -517,7 +514,9 @@ async fn cmd_verify(audit: String, trusted_key: Option<String>) -> Result<()> {
 
     // Phase 1: Verify hash chain
     println!("Verifying hash chain...");
-    let chain_result = logger.verify_chain().await
+    let chain_result = logger
+        .verify_chain()
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to verify chain: {}", e))?;
 
     if chain_result.valid {
@@ -536,7 +535,9 @@ async fn cmd_verify(audit: String, trusted_key: Option<String>) -> Result<()> {
 
     // Phase 2: Verify checkpoints
     println!("Verifying checkpoints...");
-    let cp_result = logger.verify_checkpoints().await
+    let cp_result = logger
+        .verify_checkpoints()
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to verify checkpoints: {}", e))?;
 
     if cp_result.checkpoints_checked == 0 {
