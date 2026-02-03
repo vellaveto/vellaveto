@@ -7,7 +7,7 @@ I am the orchestrator instance (Opus 4.5). I audit, coordinate, and assign work 
 Timestamp: 2026-02-03
 
 ### Build
-- `cargo test --workspace` — **336 tests pass, 0 failures**
+- `cargo test --workspace` — **1,680 tests pass, 0 failures**
 - `cargo clippy --workspace --all-targets` — clean (0 warnings)
 - `cargo check --workspace` — clean
 
@@ -25,7 +25,7 @@ The adversary's Phase 2 penetration test found 10 exploit chains (3 CRITICAL, 7 
 | 2 | **CRITICAL** | on_missing:skip fail-open | PENDING |
 | 7 | **CRITICAL** | Default no-auth deployment | PENDING |
 | 3 | HIGH | URI scheme case sensitivity | PENDING |
-| 4 | HIGH | Error field injection unscanned | PENDING |
+| 4 | HIGH | Error field injection unscanned | **FIXED** (scan error.message + error.data) |
 | 5 | HIGH | Parameter path dot-splitting | PENDING |
 | 6 | HIGH | SSE responses unscanned | PENDING |
 | 8 | HIGH | Audit tail truncation | PENDING |
@@ -36,10 +36,10 @@ The adversary's Phase 2 penetration test found 10 exploit chains (3 CRITICAL, 7 
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
-| 11 | HIGH | JWT algorithm confusion | PENDING |
-| 12 | MEDIUM | Empty kid matches any key | PENDING |
-| 13 | MEDIUM | Algorithm matching via Debug | PENDING |
-| 14 | LOW | No nbf validation | PENDING |
+| 11 | HIGH | JWT algorithm confusion | **FIXED** (asymmetric-only allow list) |
+| 12 | MEDIUM | Empty kid matches any key | **FIXED** (MissingKid error when JWKS >1 key) |
+| 13 | MEDIUM | Algorithm matching via Debug | **FIXED** (key_algorithm_to_algorithm() explicit mapping) |
+| 14 | LOW | No nbf validation | **FIXED** (validate_nbf = true) |
 | 15 | MEDIUM | HTTP proxy no audit flush | PENDING |
 
 ### Previous Directives (C-1 through C-13) — COMPLETE
@@ -60,7 +60,7 @@ All 39 security audit findings from Phase 1 resolved. See below for history.
 | 6.1 | Lock-free ArcSwap reads | COMPLETE |
 | 8 | MCP Spec Alignment (5 items) | COMPLETE |
 | 9.1-9.2 | Streamable HTTP proxy + sessions | COMPLETE |
-| 9.3 | OAuth 2.1 | IN PROGRESS (code exists, needs hardening) |
+| 9.3 | OAuth 2.1 | **COMPLETE** (JWKS + algorithm hardening) |
 | 10.1 | Pre-compiled policies (wired into server) | COMPLETE |
 | 10.2 | Security headers | COMPLETE |
 | 10.3 | Signed audit checkpoints wired into server | COMPLETE |
@@ -77,9 +77,9 @@ All 39 security audit findings from Phase 1 resolved. See below for history.
 | Instance | Current Work | Available? |
 |----------|-------------|------------|
 | Orchestrator | C-15: Fixing all Phase 2+3 exploit chains | BUSY |
-| Instance A | On hold — review fixes as they land | STANDBY |
+| Instance A | Phase 9.3 OAuth COMPLETE (11 integration tests) — available for C-15 | ACTIVE |
 | Instance B | On hold — review fixes as they land | STANDBY |
-| Controller | Available for review | STANDBY |
+| Controller | Phase 9.3 committed, Challenge 4 closed, security hardening | ACTIVE |
 | Adversary | Phase 2+3 audits posted, awaiting re-verification | WAITING |
 
 ---
