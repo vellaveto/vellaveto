@@ -514,3 +514,121 @@ fn verify_list_rotated_shows_rotated_files() {
         stdout
     );
 }
+
+// ═══════════════════════════
+// DUPLICATE ENTRY ID DETECTION
+// ═══════════════════════════
+
+#[test]
+fn verify_detects_duplicate_entry_ids() {
+    let dir = TempDir::new().unwrap();
+    let audit_path = dir.path().join("audit.log");
+
+    // Create a valid log, then manually inject a duplicate entry
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let logger = sentinel_audit::AuditLogger::new_unredacted(audit_path.clone());
+        logger.initialize_chain().await.unwrap();
+
+        let action = sentinel_types::Action {
+            tool: "file".to_string(),
+            function: "read".to_string(),
+            parameters: serde_json::json!({"path": "/tmp/test.txt"}),
+        };
+        let verdict = sentinel_types::Verdict::Allow;
+        logger
+            .log_entry(&action, &verdict, serde_json::json!({}))
+            .await
+            .unwrap();
+    });
+
+    // Read the log, duplicate the single entry (creates same ID twice)
+    let content = std::fs::read_to_string(&audit_path).unwrap();
+    let lines: Vec<&str> = content.lines().collect();
+    assert!(!lines.is_empty(), "Should have at least 1 entry");
+
+    // Append a copy of the first entry (same ID, creates duplicate)
+    let mut tampered = content.clone();
+    tampered.push_str(lines[0]);
+    tampered.push('\n');
+    std::fs::write(&audit_path, tampered).unwrap();
+
+    let output = sentinel_bin()
+        .args(["verify", "--audit", audit_path.to_str().unwrap()])
+        .output()
+        .expect("failed to run sentinel");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Exit code must be 2 (not 0, not 1) for duplicate IDs
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "Duplicate IDs should cause exit code 2. stdout: {}, stderr: {}",
+        stdout,
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Output should mention duplicates
+    assert!(
+        stdout.contains("duplicate"),
+        "Expected 'duplicate' in output: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("FAILED"),
+        "Expected FAILED in output: {}",
+        stdout
+    );
+}
+
+#[test]
+fn verify_no_duplicates_in_clean_log() {
+    let dir = TempDir::new().unwrap();
+    let audit_path = dir.path().join("audit.log");
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let logger = sentinel_audit::AuditLogger::new_unredacted(audit_path.clone());
+        logger.initialize_chain().await.unwrap();
+
+        for i in 0..5 {
+            let action = sentinel_types::Action {
+                tool: "file".to_string(),
+                function: "read".to_string(),
+                parameters: serde_json::json!({"path": format!("/tmp/test{}.txt", i)}),
+            };
+            logger
+                .log_entry(
+                    &action,
+                    &sentinel_types::Verdict::Allow,
+                    serde_json::json!({}),
+                )
+                .await
+                .unwrap();
+        }
+    });
+
+    let output = sentinel_bin()
+        .args(["verify", "--audit", audit_path.to_str().unwrap()])
+        .output()
+        .expect("failed to run sentinel");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "Clean log should pass. stdout: {}, stderr: {}",
+        stdout,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("Duplicates: none"),
+        "Expected 'Duplicates: none' in: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("VERIFIED"),
+        "Expected VERIFIED in: {}",
+        stdout
+    );
+}
