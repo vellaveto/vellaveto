@@ -250,9 +250,14 @@ impl ProxyBridge {
     ///
     /// Parses the response result, extracts annotations per tool, and detects
     /// rug-pull attacks (tool definitions changing between calls).
+    ///
+    /// When rug-pull is detected (annotation changes or new tools added after
+    /// the initial `tools/list`), affected tool names are inserted into
+    /// `flagged_tools` so the proxy can block subsequent calls to them.
     async fn extract_tool_annotations(
         response: &Value,
         known: &mut HashMap<String, ToolAnnotations>,
+        flagged_tools: &mut std::collections::HashSet<String>,
         audit: &AuditLogger,
     ) {
         let tools = match response
@@ -354,6 +359,15 @@ impl ProxyBridge {
             changed_tools.len(),
             removed_tools.len()
         );
+
+        // Flag tools for blocking — rug-pull detection is enforcement, not just logging.
+        // Tools with changed or newly-added annotations are blocked until session restart.
+        for name in &changed_tools {
+            flagged_tools.insert(name.clone());
+        }
+        for name in &new_tool_names {
+            flagged_tools.insert(name.clone());
+        }
 
         // Audit annotation changes as security events
         if !changed_tools.is_empty() {
@@ -470,6 +484,12 @@ impl ProxyBridge {
             std::collections::HashSet::new();
         let mut negotiated_protocol_version: Option<String> = None;
 
+        // C-15 Exploit #9: Track rug-pulled tools for blocking.
+        // When annotation changes or new tools are detected after the initial
+        // tools/list, their names are inserted here. Subsequent calls to
+        // flagged tools are denied instead of forwarded.
+        let mut flagged_tools: std::collections::HashSet<String> = std::collections::HashSet::new();
+
         // Spawn a task to relay child → agent responses
         let (response_tx, mut response_rx) = tokio::sync::mpsc::channel::<Value>(256);
 
@@ -503,6 +523,26 @@ impl ProxyBridge {
                         Ok(Some(msg)) => {
                             match classify_message(&msg) {
                                 MessageType::ToolCall { id, tool_name, arguments } => {
+                                    // C-15 Exploit #9: Block calls to rug-pulled tools
+                                    if flagged_tools.contains(&tool_name) {
+                                        let action = extract_action(&tool_name, &arguments);
+                                        let reason = format!(
+                                            "Tool '{}' blocked: annotations changed since initial tools/list (rug-pull detected)",
+                                            tool_name
+                                        );
+                                        let verdict = Verdict::Deny { reason: reason.clone() };
+                                        if let Err(e) = self.audit.log_entry(
+                                            &action,
+                                            &verdict,
+                                            json!({"source": "proxy", "tool": tool_name, "event": "rug_pull_tool_blocked"}),
+                                        ).await {
+                                            tracing::warn!("Failed to audit rug-pull block: {}", e);
+                                        }
+                                        let response = make_denial_response(&id, &reason);
+                                        write_message(&mut agent_writer, &response).await
+                                            .map_err(ProxyError::Framing)?;
+                                        continue;
+                                    }
                                     let ann = known_tool_annotations.get(&tool_name);
                                     match self.evaluate_tool_call(&id, &tool_name, &arguments, ann) {
                                         ProxyDecision::Forward => {
@@ -688,6 +728,7 @@ impl ProxyBridge {
                                         Self::extract_tool_annotations(
                                             &msg,
                                             &mut known_tool_annotations,
+                                            &mut flagged_tools,
                                             &self.audit,
                                         ).await;
                                     }
@@ -1177,7 +1218,13 @@ mod tests {
             }
         });
 
-        ProxyBridge::extract_tool_annotations(&response, &mut known, &audit).await;
+        ProxyBridge::extract_tool_annotations(
+            &response,
+            &mut known,
+            &mut std::collections::HashSet::new(),
+            &audit,
+        )
+        .await;
 
         assert_eq!(known.len(), 2);
         let read_ann = known.get("read_file").unwrap();
@@ -1210,7 +1257,13 @@ mod tests {
             }
         });
 
-        ProxyBridge::extract_tool_annotations(&response, &mut known, &audit).await;
+        ProxyBridge::extract_tool_annotations(
+            &response,
+            &mut known,
+            &mut std::collections::HashSet::new(),
+            &audit,
+        )
+        .await;
 
         let ann = known.get("unknown_tool").unwrap();
         assert!(!ann.read_only_hint);
@@ -1225,6 +1278,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let audit = AuditLogger::new(dir.join("test-ann.log"));
         let mut known = HashMap::new();
+        let mut flagged = std::collections::HashSet::new();
 
         // First tools/list: read_file is read-only
         let response1 = json!({
@@ -1240,7 +1294,7 @@ mod tests {
                 }]
             }
         });
-        ProxyBridge::extract_tool_annotations(&response1, &mut known, &audit).await;
+        ProxyBridge::extract_tool_annotations(&response1, &mut known, &mut flagged, &audit).await;
         assert!(!known["read_file"].destructive_hint);
 
         // Second tools/list: read_file suddenly destructive (rug-pull!)
@@ -1257,11 +1311,17 @@ mod tests {
                 }]
             }
         });
-        ProxyBridge::extract_tool_annotations(&response2, &mut known, &audit).await;
+        ProxyBridge::extract_tool_annotations(&response2, &mut known, &mut flagged, &audit).await;
 
         // Should have updated to new (suspicious) values
         assert!(known["read_file"].destructive_hint);
         assert!(!known["read_file"].read_only_hint);
+
+        // C-15: rug-pulled tool should be flagged for blocking
+        assert!(
+            flagged.contains("read_file"),
+            "Rug-pulled tool should be flagged for blocking"
+        );
     }
 
     #[tokio::test]
@@ -1270,6 +1330,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let audit = AuditLogger::new(dir.join("test-ann.log"));
         let mut known = HashMap::new();
+        let mut flagged = std::collections::HashSet::new();
 
         // First tools/list: two tools
         let response1 = json!({
@@ -1282,7 +1343,7 @@ mod tests {
                 ]
             }
         });
-        ProxyBridge::extract_tool_annotations(&response1, &mut known, &audit).await;
+        ProxyBridge::extract_tool_annotations(&response1, &mut known, &mut flagged, &audit).await;
         assert_eq!(known.len(), 2);
 
         // Second tools/list: write_file removed (rug-pull via removal)
@@ -1295,7 +1356,7 @@ mod tests {
                 ]
             }
         });
-        ProxyBridge::extract_tool_annotations(&response2, &mut known, &audit).await;
+        ProxyBridge::extract_tool_annotations(&response2, &mut known, &mut flagged, &audit).await;
 
         // write_file should have been removed from known
         assert_eq!(known.len(), 1);
@@ -1309,6 +1370,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let audit = AuditLogger::new(dir.join("test-ann.log"));
         let mut known = HashMap::new();
+        let mut flagged = std::collections::HashSet::new();
 
         // First tools/list: one tool
         let response1 = json!({
@@ -1320,7 +1382,7 @@ mod tests {
                 ]
             }
         });
-        ProxyBridge::extract_tool_annotations(&response1, &mut known, &audit).await;
+        ProxyBridge::extract_tool_annotations(&response1, &mut known, &mut flagged, &audit).await;
         assert_eq!(known.len(), 1);
 
         // Second tools/list: suspicious_tool added (tool injection)
@@ -1334,11 +1396,22 @@ mod tests {
                 ]
             }
         });
-        ProxyBridge::extract_tool_annotations(&response2, &mut known, &audit).await;
+        ProxyBridge::extract_tool_annotations(&response2, &mut known, &mut flagged, &audit).await;
 
         // New tool should be tracked but flagged
         assert_eq!(known.len(), 2);
         assert!(known.contains_key("exfiltrate_data"));
+
+        // C-15: injected tool should be flagged for blocking
+        assert!(
+            flagged.contains("exfiltrate_data"),
+            "Injected tool should be flagged for blocking"
+        );
+        // Original tool should NOT be flagged
+        assert!(
+            !flagged.contains("read_file"),
+            "Unchanged original tool should not be flagged"
+        );
     }
 
     #[tokio::test]
@@ -1360,7 +1433,13 @@ mod tests {
                 ]
             }
         });
-        ProxyBridge::extract_tool_annotations(&response, &mut known, &audit).await;
+        ProxyBridge::extract_tool_annotations(
+            &response,
+            &mut known,
+            &mut std::collections::HashSet::new(),
+            &audit,
+        )
+        .await;
 
         // All 3 should be in known without triggering alerts
         assert_eq!(known.len(), 3);
@@ -1630,7 +1709,13 @@ mod tests {
                 "content": [{"type": "text", "text": "hello"}]
             }
         });
-        ProxyBridge::extract_tool_annotations(&response, &mut known, &audit).await;
+        ProxyBridge::extract_tool_annotations(
+            &response,
+            &mut known,
+            &mut std::collections::HashSet::new(),
+            &audit,
+        )
+        .await;
         assert!(known.is_empty());
     }
 

@@ -2231,30 +2231,57 @@ impl PolicyEngine {
     /// Supports both simple keys (`"path"`) and nested paths (`"config.output.path"`).
     ///
     /// **Resolution order** (Exploit #5 fix): When the path contains dots, the function
-    /// first tries an exact key match (e.g., `params["config.path"]`). If that fails,
-    /// it falls back to dot-split traversal (e.g., `params["config"]["path"]`). This
-    /// prevents ambiguity when JSON keys contain literal dots.
+    /// checks both an exact key match (e.g., `params["config.path"]`) and dot-split
+    /// traversal (e.g., `params["config"]["path"]`).
     ///
-    /// Returns `None` if the key is not found by either method.
+    /// **Ambiguity handling (fail-closed):** If both interpretations resolve to different
+    /// values, the function returns `None`. This prevents an attacker from shadowing a
+    /// nested value with a literal dotted key (or vice versa). The `None` triggers
+    /// deny behavior through the constraint's `on_missing` handling.
+    ///
+    /// When only one interpretation resolves, that value is returned.
+    /// When both resolve to the same value, that value is returned.
     pub fn get_param_by_path<'a>(
         params: &'a serde_json::Value,
         path: &str,
     ) -> Option<&'a serde_json::Value> {
-        // Try exact key match first — handles keys with literal dots like "config.path"
-        if let Some(val) = params.get(path) {
-            return Some(val);
+        let exact_match = params.get(path);
+
+        // For non-dotted paths, exact match is the only interpretation
+        if !path.contains('.') {
+            return exact_match;
         }
 
-        // Fall back to dot-split traversal for nested objects
-        if path.contains('.') {
+        // Try dot-split traversal for nested objects
+        let traversal_match = {
             let mut current = params;
+            let mut found = true;
             for segment in path.split('.') {
-                current = current.get(segment)?;
+                match current.get(segment) {
+                    Some(v) => current = v,
+                    None => {
+                        found = false;
+                        break;
+                    }
+                }
             }
-            return Some(current);
-        }
+            if found {
+                Some(current)
+            } else {
+                None
+            }
+        };
 
-        None
+        match (exact_match, traversal_match) {
+            // Both exist but differ: ambiguous — fail-closed (return None)
+            (Some(exact), Some(traversal)) if exact != traversal => None,
+            // Both exist and are equal: no ambiguity
+            (Some(exact), Some(_)) => Some(exact),
+            // Only one interpretation resolves
+            (Some(exact), None) => Some(exact),
+            (None, Some(traversal)) => Some(traversal),
+            (None, None) => None,
+        }
     }
 
     /// Maximum number of string values to collect during recursive parameter scanning.
@@ -4100,6 +4127,88 @@ mod tests {
         assert_eq!(
             PolicyEngine::get_param_by_path(&params, "nonexistent"),
             None
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Exploit #5 Regression: Parameter path dot-splitting ambiguity
+    // ═══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_get_param_by_path_exact_key_with_literal_dot() {
+        // Literal dotted key with no nested equivalent — should resolve
+        let params = json!({"config.path": "/tmp/safe.txt"});
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "config.path"),
+            Some(&json!("/tmp/safe.txt"))
+        );
+    }
+
+    #[test]
+    fn test_get_param_by_path_nested_only() {
+        // Nested path with no literal dotted key — should resolve via traversal
+        let params = json!({"config": {"path": "/etc/shadow"}});
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "config.path"),
+            Some(&json!("/etc/shadow"))
+        );
+    }
+
+    #[test]
+    fn test_get_param_by_path_ambiguous_different_values_returns_none() {
+        // EXPLOIT #5: Both literal key AND nested path exist with DIFFERENT values.
+        // Attacker adds "config.path": "/tmp/safe.txt" to shadow nested "config"."path": "/etc/shadow".
+        // Engine MUST return None (ambiguous) to trigger fail-closed deny.
+        let params = json!({
+            "config.path": "/tmp/safe.txt",
+            "config": {"path": "/etc/shadow"}
+        });
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "config.path"),
+            None,
+            "Ambiguous parameter (exact key differs from nested path) must return None for fail-closed"
+        );
+    }
+
+    #[test]
+    fn test_get_param_by_path_ambiguous_same_values_resolves() {
+        // Both literal key AND nested path exist with the SAME value — no ambiguity
+        let params = json!({
+            "config.path": "/tmp/safe.txt",
+            "config": {"path": "/tmp/safe.txt"}
+        });
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "config.path"),
+            Some(&json!("/tmp/safe.txt")),
+            "Non-ambiguous (both interpretations agree) should resolve"
+        );
+    }
+
+    #[test]
+    fn test_get_param_by_path_deep_ambiguity_returns_none() {
+        // Deep nesting: "a.b.c" as literal key vs a→b→c traversal
+        let params = json!({
+            "a.b.c": "literal_value",
+            "a": {"b": {"c": "nested_value"}}
+        });
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "a.b.c"),
+            None,
+            "Deep ambiguity must return None for fail-closed"
+        );
+    }
+
+    #[test]
+    fn test_get_param_by_path_partial_traversal_no_ambiguity() {
+        // Literal key exists but nested traversal fails (partial path) — unambiguous
+        let params = json!({
+            "config.path": "/tmp/safe.txt",
+            "config": {"other": "value"}
+        });
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "config.path"),
+            Some(&json!("/tmp/safe.txt")),
+            "Exact key with no nested equivalent should resolve normally"
         );
     }
 

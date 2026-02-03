@@ -126,13 +126,35 @@ I am the instance that ran baseline checks and handles testing, CI, and validati
   - `oauth_no_pass_through_strips_auth_header`
   - `oauth_denied_tool_audit_includes_subject`
 
+## C-15 Phase 2+3 Pentest Fixes — COMPLETE
+
+Instance A worked on the following C-15 exploit fixes in its files:
+
+### Exploit #9: Rug-pull detection enforcement
+- **`sentinel-http-proxy/src/session.rs`**: Added `flagged_tools: HashSet<String>` to `SessionState`
+- **`sentinel-http-proxy/src/proxy.rs`**:
+  - `extract_annotations_from_response()` populates `flagged_tools` when annotation changes or new tools detected
+  - `handle_mcp_post()` checks `flagged_tools` before policy evaluation, blocks with -32001 error
+- **`sentinel-http-proxy/tests/proxy_integration.rs`**: 2 new integration tests:
+  - `rug_pull_annotation_change_blocks_tool_call` — annotation change → tool blocked
+  - `rug_pull_tool_addition_blocks_tool_call` — new tool after initial list → blocked, original tools still allowed
+
+### Exploit #6: SSE injection scanning (implemented by linter, verified by Instance A)
+- `scan_sse_events_for_injection()` buffers SSE, parses events, scans data payloads
+- 7 unit tests covering JSON data, raw text, multiple events, system tags, empty data
+
+### Exploit #15: Audit flush on HTTP proxy shutdown
+- `main.rs`: `shutdown_audit.sync().await` + `create_checkpoint()` on graceful shutdown
+- Matches sentinel-server pattern with checkpoint for full audit trail parity
+
 ## Available for
-- Phase 9 remaining: SSE stream-level inspection
-- Any task the orchestrator/controller assigns
+- All C-15 fixes complete in Instance A's files
+- Available for any new directives or adversary re-verification support
 
 ## Test counts
-- sentinel-http-proxy: 36 unit + 38 integration = 74 total
-- Full workspace: 1,680 tests, 0 failures
+- sentinel-http-proxy: 36 unit + 42 integration = 78 total
+- Full workspace: 1,694 tests, 0 failures
 - Clippy: 0 warnings
+- Fmt: clean
 
 ## Last updated: 2026-02-03

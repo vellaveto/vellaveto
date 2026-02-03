@@ -253,6 +253,15 @@ async fn main() -> Result<()> {
     if let Err(e) = shutdown_audit.sync().await {
         tracing::error!("Failed to flush audit log on shutdown: {}", e);
     }
+    // Create a final checkpoint to capture entries since the last periodic checkpoint
+    match shutdown_audit.create_checkpoint().await {
+        Ok(cp) => tracing::info!(
+            "Shutdown checkpoint created: {} ({} entries)",
+            cp.id,
+            cp.entry_count
+        ),
+        Err(e) => tracing::debug!("Shutdown checkpoint skipped: {}", e),
+    }
 
     tracing::info!("Proxy shut down gracefully");
     Ok(())

@@ -419,6 +419,58 @@ impl AuditLogger {
         }
 
         let entries = self.load_entries().await?;
+
+        // Exploit #8 hardening: verify hash chain continuity for ALL entries.
+        // Without this, entries between checkpoints can be silently deleted —
+        // checkpoint verification only checked the head hash at each checkpoint
+        // boundary, missing middle deletions.
+        {
+            let mut prev_hash: Option<String> = None;
+            let mut seen_hashed_entry = false;
+            for (i, entry) in entries.iter().enumerate() {
+                if entry.entry_hash.is_none() {
+                    if seen_hashed_entry {
+                        return Ok(CheckpointVerification {
+                            valid: false,
+                            checkpoints_checked: 0,
+                            first_invalid_at: Some(0),
+                            failure_reason: Some(format!(
+                                "Hash chain broken: entry {} missing hash after hashed entries",
+                                i
+                            )),
+                        });
+                    }
+                    prev_hash = None;
+                    continue;
+                }
+                seen_hashed_entry = true;
+                if entry.prev_hash != prev_hash {
+                    return Ok(CheckpointVerification {
+                        valid: false,
+                        checkpoints_checked: 0,
+                        first_invalid_at: Some(0),
+                        failure_reason: Some(format!(
+                            "Hash chain broken at entry {}: prev_hash mismatch (middle deletion detected)",
+                            i
+                        )),
+                    });
+                }
+                let computed = Self::compute_entry_hash(entry)?;
+                if entry.entry_hash.as_deref() != Some(&computed) {
+                    return Ok(CheckpointVerification {
+                        valid: false,
+                        checkpoints_checked: 0,
+                        first_invalid_at: Some(0),
+                        failure_reason: Some(format!(
+                            "Hash chain broken at entry {}: entry_hash mismatch (tampering detected)",
+                            i
+                        )),
+                    });
+                }
+                prev_hash = entry.entry_hash.clone();
+            }
+        }
+
         let mut prev_entry_count = 0usize;
         // Track the first checkpoint's key for continuity enforcement
         let mut established_key: Option<String> = pinned_key.map(|k| k.to_string());
@@ -2197,11 +2249,78 @@ mod tests {
 
         let verification = logger.verify_checkpoints().await.unwrap();
         assert!(!verification.valid);
-        assert!(verification
-            .failure_reason
-            .as_ref()
-            .unwrap()
-            .contains("Chain head hash mismatch"));
+        let reason = verification.failure_reason.as_ref().unwrap();
+        // Chain verification now detects tampering at the hash level (entry_hash
+        // mismatch) before reaching the checkpoint head-hash comparison.
+        assert!(
+            reason.contains("entry_hash mismatch") || reason.contains("Chain head hash mismatch"),
+            "Expected tampering detection, got: {}",
+            reason
+        );
+    }
+
+    #[tokio::test]
+    async fn test_exploit8_middle_deletion_detected() {
+        // Exploit #8 hardening: deleting entries between two checkpoints
+        // must be detected. Previously, only tail truncation was caught.
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let key = AuditLogger::generate_signing_key();
+        let logger = AuditLogger::new(log_path.clone()).with_signing_key(key);
+
+        let action = test_action();
+
+        // Write 3 entries + checkpoint A
+        for _ in 0..3 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+        logger.create_checkpoint().await.unwrap();
+
+        // Write 3 more entries + checkpoint B
+        for _ in 0..3 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+        logger.create_checkpoint().await.unwrap();
+
+        // Delete entry #4 (middle of the chain, between checkpoints A and B)
+        let content = tokio::fs::read_to_string(&log_path).await.unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert!(
+            lines.len() >= 6,
+            "Expected at least 6 entries, got {}",
+            lines.len()
+        );
+        // Remove the 4th entry (index 3) — this is between checkpoint A and B
+        let mut tampered_lines: Vec<&str> = Vec::new();
+        for (i, line) in lines.iter().enumerate() {
+            if i != 3 {
+                tampered_lines.push(line);
+            }
+        }
+        let tampered = tampered_lines.join("\n") + "\n";
+        tokio::fs::write(&log_path, tampered).await.unwrap();
+
+        // Verification must detect the deletion
+        let verification = logger.verify_checkpoints().await.unwrap();
+        assert!(
+            !verification.valid,
+            "Middle deletion should be detected by checkpoint verification"
+        );
+        let reason = verification.failure_reason.as_ref().unwrap();
+        assert!(
+            reason.contains("middle deletion")
+                || reason.contains("prev_hash mismatch")
+                || reason.contains("Chain head hash mismatch")
+                || reason.contains("truncated"),
+            "Expected chain break detection, got: {}",
+            reason
+        );
     }
 
     #[tokio::test]
@@ -2502,6 +2621,183 @@ mod tests {
             .as_ref()
             .unwrap()
             .contains("decreased"));
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // Exploit #8 Regression: Audit tail truncation detection
+    // ═══════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_exploit8_tail_truncation_detected_by_checkpoint() {
+        // EXPLOIT #8: An attacker deletes the last N entries from the audit log.
+        // The hash chain of remaining entries is still valid, but the checkpoint
+        // records a higher entry_count. verify_checkpoints() MUST detect this.
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let key = AuditLogger::generate_signing_key();
+        let logger = AuditLogger::new(log_path.clone()).with_signing_key(key);
+
+        // Write 10 entries
+        let action = test_action();
+        for _ in 0..10 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+
+        // Create checkpoint recording 10 entries
+        logger.create_checkpoint().await.unwrap();
+
+        // Simulate tail truncation: keep only first 7 entries
+        let content = tokio::fs::read_to_string(&log_path).await.unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 10);
+        let truncated = lines[..7].join("\n") + "\n";
+        tokio::fs::write(&log_path, truncated).await.unwrap();
+
+        // verify_chain() still passes (the 7 remaining entries have valid chain)
+        let chain_result = logger.verify_chain().await.unwrap();
+        assert!(
+            chain_result.valid,
+            "Truncated chain should still be internally valid"
+        );
+
+        // verify_checkpoints() MUST detect the truncation
+        let cp_result = logger.verify_checkpoints().await.unwrap();
+        assert!(
+            !cp_result.valid,
+            "Checkpoint must detect tail truncation (10 entries in checkpoint, 7 in log)"
+        );
+        assert!(
+            cp_result
+                .failure_reason
+                .as_ref()
+                .unwrap()
+                .contains("truncated"),
+            "Failure reason should mention truncation, got: {:?}",
+            cp_result.failure_reason
+        );
+    }
+
+    #[tokio::test]
+    async fn test_exploit8_no_false_positive_when_entries_match() {
+        // Verify that checkpoint passes when entry count matches
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let key = AuditLogger::generate_signing_key();
+        let logger = AuditLogger::new(log_path.clone()).with_signing_key(key);
+
+        let action = test_action();
+        for _ in 0..5 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+        logger.create_checkpoint().await.unwrap();
+
+        let cp_result = logger.verify_checkpoints().await.unwrap();
+        assert!(
+            cp_result.valid,
+            "Checkpoint should pass when entry count matches"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_exploit8_entries_added_after_checkpoint_still_valid() {
+        // Adding entries AFTER a checkpoint should not cause a false positive
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let key = AuditLogger::generate_signing_key();
+        let logger = AuditLogger::new(log_path.clone()).with_signing_key(key);
+
+        let action = test_action();
+        for _ in 0..5 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+        logger.create_checkpoint().await.unwrap();
+
+        // Add 3 more entries after the checkpoint
+        for _ in 0..3 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+
+        let cp_result = logger.verify_checkpoints().await.unwrap();
+        assert!(
+            cp_result.valid,
+            "Entries added after checkpoint should not cause false positive"
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // Exploit #10 Regression: verify_chain() memory DoS
+    // ═══════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_exploit10_oversized_audit_log_rejected() {
+        // EXPLOIT #10: Attacker grows audit log to several GB, then triggers
+        // verify_chain() which loads entire file into memory → OOM.
+        // Fix: load_entries() checks file size before reading.
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+
+        // Create a sparse file exceeding MAX_AUDIT_LOG_SIZE (100MB)
+        let file = tokio::fs::File::create(&log_path).await.unwrap();
+        file.set_len(101 * 1024 * 1024).await.unwrap(); // 101 MB sparse
+
+        let logger = AuditLogger::new(log_path);
+        let result = logger.load_entries().await;
+        assert!(result.is_err(), "Oversized audit log must be rejected");
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("too large"),
+            "Error should mention file is too large, got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_exploit10_verify_chain_rejects_oversized_log() {
+        // verify_chain() calls load_entries() internally, so it should also
+        // reject oversized files without loading them.
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+
+        let file = tokio::fs::File::create(&log_path).await.unwrap();
+        file.set_len(101 * 1024 * 1024).await.unwrap();
+
+        let logger = AuditLogger::new(log_path);
+        let result = logger.verify_chain().await;
+        assert!(result.is_err(), "verify_chain must reject oversized log");
+    }
+
+    #[tokio::test]
+    async fn test_exploit10_normal_sized_log_loads_fine() {
+        // Normal-sized logs should load without error
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path);
+
+        let action = test_action();
+        for _ in 0..10 {
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({}))
+                .await
+                .unwrap();
+        }
+
+        let entries = logger.load_entries().await.unwrap();
+        assert_eq!(entries.len(), 10);
+
+        let chain = logger.verify_chain().await.unwrap();
+        assert!(chain.valid);
     }
 
     // ═══════════════════════════════════════════════════

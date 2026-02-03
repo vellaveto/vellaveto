@@ -7,30 +7,30 @@ I am the orchestrator instance (Opus 4.5). I audit, coordinate, and assign work 
 Timestamp: 2026-02-03
 
 ### Build
-- `cargo test --workspace` — **1,680 tests pass, 0 failures**
+- `cargo test --workspace` — **1,841 tests pass, 0 failures**
 - `cargo clippy --workspace --all-targets` — clean (0 warnings)
 - `cargo check --workspace` — clean
 
-### ACTIVE: Directive C-15 — Phase 2 Pentest + Phase 3 OAuth Fixes
+### COMPLETE: Directive C-15 — Phase 2 Pentest + Phase 3 OAuth Fixes
 
-**Status: IN PROGRESS — Orchestrator implementing all fixes directly**
+**Status: ALL 15 FINDINGS FIXED — awaiting adversary re-verification**
 
-The adversary's Phase 2 penetration test found 10 exploit chains (3 CRITICAL, 7 HIGH). Phase 3 found 6 additional OAuth findings. I am fixing all of them with adversarial regression tests.
+The adversary's Phase 2 penetration test found 10 exploit chains (3 CRITICAL, 7 HIGH). Phase 3 found 5 additional OAuth findings. All have been fixed with regression tests.
 
 #### Phase 2 Pentest Fixes
 
 | # | Severity | Exploit | Status |
 |---|----------|---------|--------|
-| 1 | **CRITICAL** | classify_message() exact match bypass | PENDING |
-| 2 | **CRITICAL** | on_missing:skip fail-open | PENDING |
-| 7 | **CRITICAL** | Default no-auth deployment | PENDING |
-| 3 | HIGH | URI scheme case sensitivity | PENDING |
+| 1 | **CRITICAL** | classify_message() exact match bypass | **FIXED** (normalize_method: trim, null/zero-width strip, lowercase) |
+| 2 | **CRITICAL** | on_missing:skip fail-open | **FIXED** (any_evaluated tracking, fail-closed deny) |
+| 7 | **CRITICAL** | Default no-auth deployment | **FIXED** (--allow-anonymous required for no-auth) |
+| 3 | HIGH | URI scheme case sensitivity | **FIXED** (URI lowercased per RFC 3986 §3.1) |
 | 4 | HIGH | Error field injection unscanned | **FIXED** (scan error.message + error.data) |
-| 5 | HIGH | Parameter path dot-splitting | PENDING |
-| 6 | HIGH | SSE responses unscanned | PENDING |
-| 8 | HIGH | Audit tail truncation | PENDING |
-| 9 | HIGH | Rug-pull detection decorative | PENDING |
-| 10 | HIGH | verify_chain() memory DoS | PENDING |
+| 5 | HIGH | Parameter path dot-splitting | **FIXED** (ambiguity detection: fail-closed when both interpretations differ) |
+| 6 | HIGH | SSE responses unscanned | **FIXED** (buffered SSE event-by-event injection scanning) |
+| 8 | HIGH | Audit tail truncation | **FIXED** (checkpoint entry_count vs log length check) |
+| 9 | HIGH | Rug-pull detection decorative | **FIXED** (flagged_tools enforcement in both stdio + HTTP proxies) |
+| 10 | HIGH | verify_chain() memory DoS | **FIXED** (MAX_AUDIT_LOG_SIZE 100MB limit) |
 
 #### Phase 3 OAuth Fixes
 
@@ -40,7 +40,7 @@ The adversary's Phase 2 penetration test found 10 exploit chains (3 CRITICAL, 7 
 | 12 | MEDIUM | Empty kid matches any key | **FIXED** (MissingKid error when JWKS >1 key) |
 | 13 | MEDIUM | Algorithm matching via Debug | **FIXED** (key_algorithm_to_algorithm() explicit mapping) |
 | 14 | LOW | No nbf validation | **FIXED** (validate_nbf = true) |
-| 15 | MEDIUM | HTTP proxy no audit flush | PENDING |
+| 15 | MEDIUM | HTTP proxy no audit flush | **FIXED** (graceful shutdown + audit.sync()) |
 
 ### Previous Directives (C-1 through C-13) — COMPLETE
 All 39 security audit findings from Phase 1 resolved. See below for history.
@@ -60,7 +60,7 @@ All 39 security audit findings from Phase 1 resolved. See below for history.
 | 6.1 | Lock-free ArcSwap reads | COMPLETE |
 | 8 | MCP Spec Alignment (5 items) | COMPLETE |
 | 9.1-9.2 | Streamable HTTP proxy + sessions | COMPLETE |
-| 9.3 | OAuth 2.1 | **COMPLETE** (JWKS + algorithm hardening) |
+| 9.3 | OAuth 2.1 | COMPLETE (JWKS + algorithm hardening) |
 | 10.1 | Pre-compiled policies (wired into server) | COMPLETE |
 | 10.2 | Security headers | COMPLETE |
 | 10.3 | Signed audit checkpoints wired into server | COMPLETE |
@@ -68,7 +68,7 @@ All 39 security audit findings from Phase 1 resolved. See below for history.
 | 10.5 | Policy index by tool name | COMPLETE |
 | 10.6 | Heartbeat entries | COMPLETE |
 | 10.7 | Shared injection scanning module | COMPLETE |
-| **C-15** | **Phase 2+3 pentest fix** | **IN PROGRESS** |
+| **C-15** | **Phase 2+3 pentest fix (15 findings)** | **COMPLETE** |
 
 ---
 
@@ -76,11 +76,11 @@ All 39 security audit findings from Phase 1 resolved. See below for history.
 
 | Instance | Current Work | Available? |
 |----------|-------------|------------|
-| Orchestrator | C-15: Fixing all Phase 2+3 exploit chains | BUSY |
-| Instance A | Phase 9.3 OAuth COMPLETE (11 integration tests) — available for C-15 | ACTIVE |
-| Instance B | On hold — review fixes as they land | STANDBY |
-| Controller | Phase 9.3 committed, Challenge 4 closed, security hardening | ACTIVE |
-| Adversary | Phase 2+3 audits posted, awaiting re-verification | WAITING |
+| Orchestrator | C-15 COMPLETE — all 15 findings fixed | AVAILABLE |
+| Instance A | Available for new work | AVAILABLE |
+| Instance B | Available for new work | AVAILABLE |
+| Controller | Awaiting C-15 commit | ACTIVE |
+| Adversary | Re-verification of all 15 fixes | REQUESTED |
 
 ---
 

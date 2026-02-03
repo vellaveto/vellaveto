@@ -63,7 +63,12 @@ pub enum MessageType {
 fn normalize_method(method: &str) -> String {
     method
         .trim()
-        .replace('\0', "")
+        .replace(
+            [
+                '\0', '\u{200B}', '\u{200C}', '\u{200D}', '\u{200E}', '\u{200F}', '\u{FEFF}',
+            ],
+            "",
+        ) // byte order mark / zero-width no-break space
         .trim_end_matches('/')
         .to_lowercase()
 }
@@ -587,6 +592,98 @@ mod tests {
             "jsonrpc": "2.0",
             "id": 105,
             "method": "Sampling/CreateMessage",
+            "params": {"messages": []}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::SamplingRequest { .. }
+        ));
+    }
+
+    // --- Exploit #1 residual: Zero-width Unicode bypass tests ---
+
+    #[test]
+    fn test_classify_zero_width_space_tools_call() {
+        // U+200B zero-width space must be stripped
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 110,
+            "method": "tools/call\u{200B}",
+            "params": {"name": "bash", "arguments": {"command": "id"}}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::ToolCall { .. }
+        ));
+    }
+
+    #[test]
+    fn test_classify_zero_width_joiner_tools_call() {
+        // U+200D zero-width joiner must be stripped
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 111,
+            "method": "tools\u{200D}/call",
+            "params": {"name": "bash", "arguments": {}}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::ToolCall { .. }
+        ));
+    }
+
+    #[test]
+    fn test_classify_rtl_mark_tools_call() {
+        // U+200F right-to-left mark must be stripped
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 112,
+            "method": "tools/call\u{200F}",
+            "params": {"name": "bash", "arguments": {}}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::ToolCall { .. }
+        ));
+    }
+
+    #[test]
+    fn test_classify_bom_tools_call() {
+        // U+FEFF BOM / zero-width no-break space must be stripped
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 113,
+            "method": "\u{FEFF}tools/call",
+            "params": {"name": "bash", "arguments": {}}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::ToolCall { .. }
+        ));
+    }
+
+    #[test]
+    fn test_classify_multiple_zero_width_chars_tools_call() {
+        // Multiple zero-width chars embedded throughout
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 114,
+            "method": "\u{200B}t\u{200C}ools/\u{200E}call\u{200F}",
+            "params": {"name": "bash", "arguments": {}}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::ToolCall { .. }
+        ));
+    }
+
+    #[test]
+    fn test_classify_zero_width_sampling_bypass() {
+        // Zero-width chars in sampling/createMessage must still be caught
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 115,
+            "method": "sampling/create\u{200B}Message",
             "params": {"messages": []}
         });
         assert!(matches!(
