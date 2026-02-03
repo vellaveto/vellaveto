@@ -278,3 +278,56 @@ Responses to challenges 1, 2, 3, 4, 5, 6, 9 posted.
 
 **Remaining (not in Instance B scope or deferred):**
 - Challenge 4: configurable injection patterns (enhancement, not critical)
+
+### Phase 2 Pentest Response — Exploit Fixes (2026-02-03)
+
+Responding to the adversary's 10 exploit chains and the orchestrator's C-15 directive.
+Fixed 4 of 10 exploits — all within Instance B's file ownership.
+
+**Exploit #1 FIXED (CRITICAL): classify_message() trailing slash bypass**
+- Added `normalize_method()` function to `sentinel-mcp/src/extractor.rs`
+- Normalizes method strings: trims whitespace, strips null bytes, strips trailing slashes, lowercases
+- `classify_message()` now matches on the normalized form
+- `sampling/createMessage` also uses normalized match (lowercase `"sampling/createmessage"`)
+- 7 new tests: trailing slash, trailing space, case variation, null byte suffix — all for tools/call, sampling, and resources/read
+- **The one-character bypass is dead.**
+
+**Exploit #2 FIXED (CRITICAL): on_missing:skip fail-open in Conditional policies**
+- Modified 3 functions in `sentinel-engine/src/lib.rs`:
+  - `evaluate_compiled_conditions()` — tracks `any_evaluated` flag, denies when ALL constraints skip
+  - `evaluate_parameter_constraints()` — same fix for legacy evaluation path
+  - `evaluate_compiled_conditions_traced()` — same fix for traced evaluation path
+- When ALL constraints in a Conditional policy skip due to missing parameters, the engine now returns `Verdict::Deny` with a descriptive reason
+- A Conditional policy where nothing was checked is NOT a positive allow signal
+- **The fail-closed principle is now enforced across all evaluation paths.**
+
+**Exploit #3 FIXED (HIGH): URI scheme case sensitivity bypass**
+- Modified `extract_resource_action()` in `sentinel-mcp/src/extractor.rs`
+- Lowercases the URI before scheme prefix matching (RFC 3986 §3.1: schemes are case-insensitive)
+- `FILE:///etc/shadow`, `File://localhost/etc/passwd`, `HTTPS://evil.com` all correctly extracted
+- 4 new tests for uppercase/mixed-case schemes
+- **Path extraction is now scheme-case-agnostic.**
+
+**Exploit #4 FIXED (HIGH): Error field injection scanning**
+- Modified `scan_response_for_injection()` and `InjectionScanner::scan_response()` in `sentinel-mcp/src/inspection.rs`
+- Both now scan `error.message` and `error.data` fields in addition to `result.content` and `result.structuredContent`
+- `error.data` handles both string and arbitrary JSON values (serialized and scanned)
+- 5 new tests: injection in error.message, error.data string, error.data object, clean error (no FP), custom scanner error field scan
+- **Error-based injection payloads are now detected.**
+
+**Also fixed (pre-existing compilation issues from other instances):**
+- Added `injection: Default::default()` to 3 `PolicyConfig` constructors in `sentinel-server/tests/test_config_enhancements.rs`
+- Added `injection_disabled: false` to `ProxyState` constructors in `sentinel-http-proxy/tests/proxy_integration.rs`
+
+**Exploits not in Instance B scope (for other instances):**
+- #5 (param path dot-splitting): documented behavior, needs design decision
+- #6 (SSE unscanned): Instance A's HTTP proxy code
+- #7 (default no-auth): server code, needs startup enforcement
+- #8 (audit tail truncation): checkpoint count verification
+- #9 (rug-pull decorative): Instance A's HTTP proxy detection code
+- #10 (verify_chain memory DoS): streaming verification
+
+### Build Status (Current)
+- **1,680 tests pass, 0 failures, clippy clean**
+- All Phase 2 pentest exploits within Instance B scope: FIXED
+- Test delta: +64 tests from baseline (1,616 → 1,680)

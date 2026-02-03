@@ -4,7 +4,94 @@
 **Model:** Claude Opus 4.5
 **Date:** 2026-02-03
 **Authority:** Independent. Findings are attack demonstrations, not suggestions.
-**Status:** PHASE 2 PENTEST COMPLETE — 10 exploit chains posted. 3 CRITICAL, 7 HIGH.
+**Status:** PHASE 3 COMPLETE — OAuth 2.1 audited + hardened. 6 findings, 5 fixed, 1 documented.
+
+---
+
+## Phase 3: OAuth 2.1 Security Audit (2026-02-03)
+
+### Scope
+
+Audited uncommitted OAuth 2.1 implementation in `sentinel-http-proxy/`:
+- `src/oauth.rs` (435 lines — NEW)
+- `src/proxy.rs` (+191 lines — OAuth wired in)
+- `src/main.rs` (+44 lines — CLI args)
+- `src/session.rs` (+4 lines — oauth_subject)
+- `Cargo.toml` (+1 line — jsonwebtoken dep)
+- `tests/proxy_integration.rs` (+3 lines)
+
+### Findings Summary
+
+| # | Severity | Title | Status |
+|---|----------|-------|--------|
+| 11 | HIGH | JWT Algorithm Confusion — attacker controls validation alg | **FIXED** (Adversary — allowed_algorithms whitelist) |
+| 12 | MEDIUM | Empty `kid` matches any JWKS key | **FIXED** (Adversary — reject when >1 key in JWKS) |
+| 13 | MEDIUM | Algorithm matching via Debug format (fragile) | **FIXED** (Adversary — explicit KeyAlgorithm→Algorithm match) |
+| 14 | LOW | No `nbf` (not-before) validation | **FIXED** (Adversary — validate_nbf = true) |
+| 15 | MEDIUM | HTTP proxy shutdown doesn't flush audit | **FIXED** (Adversary — audit.sync() after serve) |
+| 16 | LOW | JWKS fetch has no TLS certificate pinning | **DOCUMENTED** — infrastructure-level |
+
+**Bonus fix:** Session DELETE handler now validates ownership when OAuth is configured. Prevents cross-user session termination.
+
+### Challenge 11: JWT Algorithm Confusion (HIGH)
+
+**File:** `sentinel-http-proxy/src/oauth.rs:201-208`
+
+The validator trusts the JWT header `alg` to select the verification algorithm:
+
+```rust
+let header = decode_header(token)?;
+let mut validation = Validation::new(header.alg);
+```
+
+The attacker controls which algorithm verifies their token. Classic algorithm confusion attack vector. If JWKS contains mixed key types, or attacker can craft a token claiming HS256 using the RSA public key as the HMAC secret, they forge valid tokens.
+
+**Fix:** Add `allowed_algorithms: Vec<Algorithm>` to `OAuthConfig`. Validate `header.alg` is in the allowed set before calling `Validation::new()`. Default: `[RS256, RS384, RS512, ES256, ES384]` — never symmetric algorithms for asymmetric flows.
+
+### Challenge 12: Empty `kid` Matches Any Key (MEDIUM)
+
+**File:** `sentinel-http-proxy/src/oauth.rs:307-316`
+
+```rust
+let kid = header.kid.unwrap_or_default(); // → ""
+if !kid.is_empty() { /* kid matching */ }
+```
+
+Token without `kid` → matches ANY key in JWKS. Dangerous if JWKS contains test keys, rotated keys, or keys from different services.
+
+**Fix:** Require `kid` when `jwks.keys.len() > 1`. Return `OAuthError::InvalidFormat` otherwise.
+
+### Challenge 13: Algorithm Matching via Debug Format (MEDIUM)
+
+**File:** `sentinel-http-proxy/src/oauth.rs:319-324`
+
+```rust
+let key_alg_str = format!("{:?}", key_alg);
+let req_alg_str = format!("{:?}", alg);
+if key_alg_str != req_alg_str { continue; }
+```
+
+`Debug` output has no stability guarantee. Library updates can silently break matching. Use exhaustive match instead.
+
+### Challenge 14: No `nbf` Validation (LOW)
+
+**File:** `sentinel-http-proxy/src/oauth.rs:208-211`
+
+`validate_exp = true` but no `validate_nbf`. Pre-issued tokens accepted before intended activation.
+
+**Fix:** `validation.validate_nbf = true;` (one line).
+
+### Challenge 15: HTTP Proxy Shutdown Doesn't Flush Audit (MEDIUM)
+
+**File:** `sentinel-http-proxy/src/main.rs:203-208`
+
+Challenge 7 (shutdown audit flush) was fixed in sentinel-server but NOT in the HTTP proxy binary. Audit entries buffered at shutdown are lost.
+
+**Fix:** Clone `Arc<AuditLogger>`, call `audit.sync()` after `axum::serve()` returns.
+
+### Challenge 16: JWKS Fetch — No TLS Pinning (LOW)
+
+Plain `reqwest::Client` with default TLS. MITM on DNS/CA chain → attacker serves malicious JWKS → forges tokens. Infrastructure-level concern, documenting for awareness.
 
 ---
 

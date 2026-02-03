@@ -95,14 +95,44 @@ I am the instance that ran baseline checks and handles testing, CI, and validati
 - sentinel-engine/src/lib.rs (added evaluate_action_traced, collect_candidate_indices, constraint_matches_value + helper fns, 9 tests)
 - sentinel-http-proxy/src/proxy.rs (added McpQueryParams, ?trace=true, attach_trace_header)
 
+## Phase 9.3: OAuth 2.1 — COMPLETE
+- **`sentinel-http-proxy/src/oauth.rs`** (NEW, 510 lines):
+  - `OAuthConfig` with issuer, audience, JWKS URI, scopes, pass-through, allowed-algorithms
+  - `OAuthValidator` with JWKS caching (5-min TTL), RS256/ES256/EdDSA support
+  - `OAuthClaims` with custom `aud` deserializer (string or array)
+  - `OAuthError` with distinct error types (MissingToken, InvalidFormat, JwtError, InsufficientScope, JwksFetchFailed, NoMatchingKey, DisallowedAlgorithm, MissingKid)
+  - Algorithm confusion attack prevention (asymmetric-only allow list)
+  - `key_algorithm_to_algorithm()` explicit mapping (no Debug format comparison)
+  - `validate_nbf` enabled for not-before claim
+  - 11 unit tests
+- **`sentinel-http-proxy/src/main.rs`** (+44 lines): CLI args `--oauth-issuer`, `--oauth-audience`, `--oauth-jwks-uri`, `--oauth-scopes`, `--oauth-pass-through`
+- **`sentinel-http-proxy/src/proxy.rs`** (+191 lines):
+  - `validate_oauth()` middleware on POST /mcp and DELETE /mcp
+  - `build_audit_context()` includes OAuth subject + scopes in audit entries
+  - Auth header pass-through to upstream when configured
+  - Session-level OAuth subject tracking for audit trail
+  - Session ownership enforcement on DELETE /mcp
+- **`sentinel-http-proxy/src/session.rs`** (+4 lines): `oauth_subject` field
+- **`sentinel-http-proxy/tests/proxy_integration.rs`** (+450 lines): 11 OAuth integration tests:
+  - `oauth_enabled_no_token_returns_401`
+  - `oauth_enabled_invalid_token_returns_401`
+  - `oauth_enabled_expired_token_returns_401`
+  - `oauth_enabled_valid_token_forwards_request`
+  - `oauth_insufficient_scope_returns_403`
+  - `oauth_valid_scopes_allows_request`
+  - `oauth_subject_stored_in_session`
+  - `oauth_delete_mcp_requires_token`
+  - `oauth_pass_through_forwards_auth_header`
+  - `oauth_no_pass_through_strips_auth_header`
+  - `oauth_denied_tool_audit_includes_subject`
+
 ## Available for
-- Phase 9 remaining: SSE stream-level inspection, OAuth 2.1
-- Phase 10.6: Heartbeat entries
+- Phase 9 remaining: SSE stream-level inspection
 - Any task the orchestrator/controller assigns
 
 ## Test counts
-- sentinel-http-proxy: 24 unit + 27 integration = 51 total
-- sentinel-engine: 143 unit tests (including 9 traced evaluation)
-- Full workspace: 1,587 tests, 0 failures
+- sentinel-http-proxy: 36 unit + 38 integration = 74 total
+- Full workspace: 1,680 tests, 0 failures
+- Clippy: 0 warnings
 
-## Last updated: 2026-02-02
+## Last updated: 2026-02-03

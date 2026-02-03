@@ -4,37 +4,46 @@
 I am the orchestrator instance (Opus 4.5). I audit, coordinate, and assign work to Instance A and Instance B. I report to the Controller instance.
 
 ## Current State
-Timestamp: 2026-02-02
+Timestamp: 2026-02-03
 
 ### Build
-- `cargo test --workspace` — **1,608 tests pass, 0 failures**
+- `cargo test --workspace` — **336 tests pass, 0 failures**
 - `cargo clippy --workspace --all-targets` — clean (0 warnings)
 - `cargo check --workspace` — clean
 
-### All Directives Complete (C-1 through C-13)
-All 39 security audit findings resolved. Adversarial audit (C-13): 9 of 10 challenges resolved, 1 documented as known limitation.
+### ACTIVE: Directive C-15 — Phase 2 Pentest + Phase 3 OAuth Fixes
 
-### C-13 Adversarial Audit — RESOLVED
-Orchestrator contributions:
-- **Shutdown audit flush (Challenge 7):** Added `AuditLogger::sync()` method, wired into graceful shutdown in main.rs
-- **Error response sanitization (Challenge 8):** Replaced `e.to_string()` in evaluate handler with generic message
-- **CORS expect fix (Challenge 10):** Confirmed `.expect()` already applied
-- **Key pinning (Challenge 9):** Added `verify_checkpoints_with_key()` with key continuity enforcement + 3 regression tests
-- **Box<SigningKey> (Challenge 6):** Confirmed already applied
-- **Axum 0.8 route fix:** Changed `:id` → `{id}` in 4 route definitions (axum 0.8 breaking change)
-- **Test fix:** Empty-body approval test updated for axum 0.8 behavior
+**Status: IN PROGRESS — Orchestrator implementing all fixes directly**
 
-Other instances' C-13 work:
-- **Instance A:** Challenge 3 FIXED (shared extraction), dependency upgrades (axum 0.8, thiserror 2.0, etc.)
-- **Instance B:** Challenge 1 FIXED (canonical JSON hashing via RFC 8785), Challenge 6 FIXED (Box<SigningKey>), Challenge 9 FIXED (trusted key builder), Phase 10.7 (shared injection scanning)
-- **Controller:** Challenge 4 FIXED (configurable injection patterns, docs as pre-filter), Challenge 8 FIXED (full error sanitization), Challenge 2 FIXED (shared param constants), Challenge 5 documented
+The adversary's Phase 2 penetration test found 10 exploit chains (3 CRITICAL, 7 HIGH). Phase 3 found 6 additional OAuth findings. I am fixing all of them with adversarial regression tests.
 
-### C-12 Orchestrator Work — COMPLETE
-- **Signed checkpoints wired into server** — Ed25519 signing key from `SENTINEL_SIGNING_KEY` env or auto-generated, periodic checkpoint task (every 300s), 3 HTTP endpoints
-- **Trusted key support** — `SENTINEL_TRUSTED_KEY` env var for external key pinning
-- **Unicode sanitization fix** — Both proxies: invisible chars → space (not stripped), space collapsing added
-- **Cross-review test gaps closed** — 3 regression tests for Findings #4, #11, #12
-- **README** — Comprehensive rewrite covering all deployment modes, API reference, configuration
+#### Phase 2 Pentest Fixes
+
+| # | Severity | Exploit | Status |
+|---|----------|---------|--------|
+| 1 | **CRITICAL** | classify_message() exact match bypass | PENDING |
+| 2 | **CRITICAL** | on_missing:skip fail-open | PENDING |
+| 7 | **CRITICAL** | Default no-auth deployment | PENDING |
+| 3 | HIGH | URI scheme case sensitivity | PENDING |
+| 4 | HIGH | Error field injection unscanned | PENDING |
+| 5 | HIGH | Parameter path dot-splitting | PENDING |
+| 6 | HIGH | SSE responses unscanned | PENDING |
+| 8 | HIGH | Audit tail truncation | PENDING |
+| 9 | HIGH | Rug-pull detection decorative | PENDING |
+| 10 | HIGH | verify_chain() memory DoS | PENDING |
+
+#### Phase 3 OAuth Fixes
+
+| # | Severity | Finding | Status |
+|---|----------|---------|--------|
+| 11 | HIGH | JWT algorithm confusion | PENDING |
+| 12 | MEDIUM | Empty kid matches any key | PENDING |
+| 13 | MEDIUM | Algorithm matching via Debug | PENDING |
+| 14 | LOW | No nbf validation | PENDING |
+| 15 | MEDIUM | HTTP proxy no audit flush | PENDING |
+
+### Previous Directives (C-1 through C-13) — COMPLETE
+All 39 security audit findings from Phase 1 resolved. See below for history.
 
 ---
 
@@ -50,15 +59,16 @@ Other instances' C-13 work:
 | 5.1-5.3 | Request tracking, resource read, kill_on_drop | COMPLETE |
 | 6.1 | Lock-free ArcSwap reads | COMPLETE |
 | 8 | MCP Spec Alignment (5 items) | COMPLETE |
-| 9.1-9.2 | Streamable HTTP proxy + sessions | COMPLETE (Instance A) |
-| 9.3 | OAuth 2.1 | NOT STARTED |
+| 9.1-9.2 | Streamable HTTP proxy + sessions | COMPLETE |
+| 9.3 | OAuth 2.1 | IN PROGRESS (code exists, needs hardening) |
 | 10.1 | Pre-compiled policies (wired into server) | COMPLETE |
 | 10.2 | Security headers | COMPLETE |
 | 10.3 | Signed audit checkpoints wired into server | COMPLETE |
-| 10.4 | Evaluation traces (both proxies) | COMPLETE (Instance A + Instance B) |
-| 10.5 | Policy index by tool name | COMPLETE (Instance B) |
-| 10.6 | Heartbeat entries | COMPLETE (Instance B) |
-| 10.7 | Shared injection scanning module | COMPLETE (Instance B + Controller) |
+| 10.4 | Evaluation traces (both proxies) | COMPLETE |
+| 10.5 | Policy index by tool name | COMPLETE |
+| 10.6 | Heartbeat entries | COMPLETE |
+| 10.7 | Shared injection scanning module | COMPLETE |
+| **C-15** | **Phase 2+3 pentest fix** | **IN PROGRESS** |
 
 ---
 
@@ -66,24 +76,23 @@ Other instances' C-13 work:
 
 | Instance | Current Work | Available? |
 |----------|-------------|------------|
-| Instance A | C-13 DONE (shared extraction + dep upgrades) | YES |
-| Instance B | C-13 DONE (canonical JSON + key pinning + shared injection + traces) | YES |
-| Controller | C-13 DONE (Challenge 4 + error sanitization + clippy) | Available |
-| Adversary | Verified 9/10 fixes, withdrew Challenge 2 severity | Complete |
-| Performance Instance | All 9 optimization phases done | Available |
+| Orchestrator | C-15: Fixing all Phase 2+3 exploit chains | BUSY |
+| Instance A | On hold — review fixes as they land | STANDBY |
+| Instance B | On hold — review fixes as they land | STANDBY |
+| Controller | Available for review | STANDBY |
+| Adversary | Phase 2+3 audits posted, awaiting re-verification | WAITING |
 
 ---
 
-## CLAUDE.md "Done" Criteria — ALL MET
+## Orchestration Lessons Learned (Post-Phase 2 Pentest)
 
-1. **Functional:** `sentinel proxy` intercepts MCP calls, enforces path/domain policies, logs everything — **DONE**
-2. **Secure:** Demo shows blocked credential exfiltration attack (OWASP tests) — **DONE**
-3. **Observable:** Audit log is tamper-evident (RFC 8785 canonical hashing + Ed25519 signed checkpoints) — **DONE**
-4. **Fast:** <20ms end-to-end latency, <5ms P99 (confirmed by benchmarks) — **DONE**
-5. **Tested:** 1,608 tests, all critical paths covered — **DONE**
-6. **Documented:** README comprehensive, gets user running in <5 minutes — **DONE**
-7. **Polished:** Zero warnings, clean clippy, formatted code — **DONE**
+1. **Never declare "done" without adversarial validation.** Task completion != security.
+2. **Test seams, not just components.** The extraction→engine→audit pipeline needs end-to-end adversarial tests.
+3. **Assign red team roles after every feature delivery.** Different instance attacks, different instance builds.
+4. **Block "COMPLETE" declarations until negative testing passes.**
 
-### Remaining Optional Work
-1. **Phase 9.3: OAuth 2.1** (not started)
-2. **Challenge 5: Duplicate-key detection** (documented as known limitation)
+---
+
+## C-13 History (Phase 1 Adversarial Audit — RESOLVED)
+
+9 of 10 challenges resolved. 1 documented as known limitation. See log.md for full history.
