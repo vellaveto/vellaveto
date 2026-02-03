@@ -70,6 +70,9 @@ enum Commands {
         /// When set, rejects checkpoints signed by any other key.
         #[arg(long)]
         trusted_key: Option<String>,
+        /// Also list rotated audit log files and their sizes.
+        #[arg(long, default_value_t = false)]
+        list_rotated: bool,
     },
 }
 
@@ -100,11 +103,21 @@ async fn main() -> Result<()> {
         } => cmd_evaluate(tool, function, params, config).await,
         Commands::Check { config } => cmd_check(config).await,
         Commands::Policies { preset } => cmd_policies(preset),
-        Commands::Verify { audit, trusted_key } => cmd_verify(audit, trusted_key).await,
+        Commands::Verify {
+            audit,
+            trusted_key,
+            list_rotated,
+        } => cmd_verify(audit, trusted_key, list_rotated).await,
     }
 }
 
-async fn cmd_serve(port: u16, config: String, bind: String, allow_anonymous: bool, watch: bool) -> Result<()> {
+async fn cmd_serve(
+    port: u16,
+    config: String,
+    bind: String,
+    allow_anonymous: bool,
+    watch: bool,
+) -> Result<()> {
     let policy_config = PolicyConfig::load_file(&config)
         .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
     let mut policies = policy_config.to_policies();
@@ -152,6 +165,24 @@ async fn cmd_serve(port: u16, config: String, bind: String, allow_anonymous: boo
     // When set, verify_checkpoints() rejects checkpoints signed by any other key,
     // preventing an attacker with file write access from forging checkpoints.
     let mut audit_logger = AuditLogger::new(audit_path.clone()).with_signing_key(signing_key);
+
+    // Configurable audit log rotation size.
+    // SENTINEL_LOG_MAX_SIZE: max bytes before rotating (default: 100MB). Set to 0 to disable.
+    if let Ok(max_size_str) = std::env::var("SENTINEL_LOG_MAX_SIZE") {
+        if let Ok(max_size) = max_size_str.parse::<u64>() {
+            audit_logger = audit_logger.with_max_file_size(max_size);
+            if max_size == 0 {
+                tracing::info!("Audit log rotation disabled (SENTINEL_LOG_MAX_SIZE=0)");
+            } else {
+                tracing::info!("Audit log rotation threshold: {} bytes", max_size);
+            }
+        } else {
+            tracing::warn!(
+                "Invalid SENTINEL_LOG_MAX_SIZE '{}', using default (100 MB)",
+                max_size_str
+            );
+        }
+    }
 
     if let Ok(trusted_key) = std::env::var("SENTINEL_TRUSTED_KEY") {
         if !trusted_key.is_empty() {
@@ -512,7 +543,7 @@ fn cmd_policies(preset: String) -> Result<()> {
     Ok(())
 }
 
-async fn cmd_verify(audit: String, trusted_key: Option<String>) -> Result<()> {
+async fn cmd_verify(audit: String, trusted_key: Option<String>, list_rotated: bool) -> Result<()> {
     let audit_path = std::path::PathBuf::from(&audit);
     if !audit_path.exists() {
         anyhow::bail!("Audit log not found: {}", audit);
@@ -581,6 +612,26 @@ async fn cmd_verify(audit: String, trusted_key: Option<String>) -> Result<()> {
         );
         if let Some(ref reason) = cp_result.failure_reason {
             println!("  Reason: {}", reason);
+        }
+    }
+
+    // Phase 3: List rotated files if requested
+    if list_rotated {
+        println!("Rotated log files:");
+        match logger.list_rotated_files() {
+            Ok(files) if files.is_empty() => {
+                println!("  (none)");
+            }
+            Ok(files) => {
+                for path in &files {
+                    let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+                    println!("  {} ({} bytes)", path.display(), size);
+                }
+                println!("  Total rotated files: {}", files.len());
+            }
+            Err(e) => {
+                println!("  Failed to list rotated files: {}", e);
+            }
         }
     }
 

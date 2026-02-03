@@ -149,7 +149,12 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
         }
     }
 
-    tracing::info!("Reloaded {} policies from {} (source: {})", count, config_path, source);
+    tracing::info!(
+        "Reloaded {} policies from {} (source: {})",
+        count,
+        config_path,
+        source
+    );
 
     // Audit trail
     let action = sentinel_types::Action {
@@ -212,8 +217,7 @@ pub fn spawn_config_watcher(state: AppState) -> Result<(), String> {
                         EventKind::Modify(_) | EventKind::Create(_) => {
                             // Check if the event is for our config file
                             let is_config = event.paths.iter().any(|p| {
-                                p.file_name()
-                                    == Some(config_filename_for_closure.as_os_str())
+                                p.file_name() == Some(config_filename_for_closure.as_os_str())
                             });
                             if is_config {
                                 let _ = tx.blocking_send(());

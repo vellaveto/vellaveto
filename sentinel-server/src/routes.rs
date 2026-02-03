@@ -371,15 +371,17 @@ async fn reload_policies(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let config_path = state.config_path.as_str().to_string();
 
-    let count = crate::reload_policies_from_file(&state, "api").await.map_err(|e| {
-        tracing::error!("{}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "Failed to reload policy configuration".to_string(),
-            }),
-        )
-    })?;
+    let count = crate::reload_policies_from_file(&state, "api")
+        .await
+        .map_err(|e| {
+            tracing::error!("{}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Failed to reload policy configuration".to_string(),
+                }),
+            )
+        })?;
 
     Ok(Json(json!({"reloaded": count, "config": config_path})))
 }

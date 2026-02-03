@@ -417,3 +417,100 @@ fn verify_trusted_key_wrong_length_fails() {
         stderr
     );
 }
+
+// ═══════════════════════════
+// ROTATION LISTING
+// ═══════════════════════════
+
+#[test]
+fn verify_list_rotated_shows_none_when_no_rotated_files() {
+    let dir = TempDir::new().unwrap();
+    let audit_path = dir.path().join("audit.log");
+    std::fs::write(&audit_path, "").unwrap();
+
+    let output = sentinel_bin()
+        .args([
+            "verify",
+            "--audit",
+            audit_path.to_str().unwrap(),
+            "--list-rotated",
+        ])
+        .output()
+        .expect("failed to run sentinel");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success());
+    assert!(
+        stdout.contains("Rotated log files:"),
+        "Expected rotated section in: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("(none)"),
+        "Expected (none) when no rotated files in: {}",
+        stdout
+    );
+}
+
+#[test]
+fn verify_list_rotated_shows_rotated_files() {
+    let dir = TempDir::new().unwrap();
+    let audit_path = dir.path().join("audit.log");
+
+    // Create a rotated log with a proper rotation using the AuditLogger
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let logger =
+            sentinel_audit::AuditLogger::new_unredacted(audit_path.clone()).with_max_file_size(200); // Tiny threshold to trigger rotation
+        logger.initialize_chain().await.unwrap();
+
+        for _ in 0..20 {
+            let action = sentinel_types::Action {
+                tool: "file".to_string(),
+                function: "read".to_string(),
+                parameters: serde_json::json!({"path": "/tmp/test.txt"}),
+            };
+            logger
+                .log_entry(
+                    &action,
+                    &sentinel_types::Verdict::Allow,
+                    serde_json::json!({}),
+                )
+                .await
+                .unwrap();
+        }
+    });
+
+    let output = sentinel_bin()
+        .args([
+            "verify",
+            "--audit",
+            audit_path.to_str().unwrap(),
+            "--list-rotated",
+        ])
+        .output()
+        .expect("failed to run sentinel");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "Should pass with rotated files. stdout: {}, stderr: {}",
+        stdout,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("Rotated log files:"),
+        "Expected rotated section in: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("Total rotated files:"),
+        "Expected file count in: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("bytes"),
+        "Expected file sizes in: {}",
+        stdout
+    );
+}
