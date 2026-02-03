@@ -81,7 +81,7 @@ fn get_default_automaton() -> &'static AhoCorasick {
 ///
 /// # Configuration
 ///
-/// Build from a [`sentinel_config::InjectionConfig`] to merge defaults with
+/// Build from an `InjectionConfig` (from `sentinel_config`) to merge defaults with
 /// user-supplied extra/disabled patterns:
 ///
 /// ```toml

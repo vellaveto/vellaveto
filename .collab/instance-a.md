@@ -172,7 +172,7 @@ Instance A executed C-16.1 (issued by Controller):
 
 ## Test counts
 - sentinel-http-proxy: 36 unit + 42 integration = 78 total
-- Full workspace: **1,786 tests, 0 failures**
+- Full workspace: **1,823 tests, 0 failures**
 - Clippy: 0 warnings
 - Fmt: clean
 

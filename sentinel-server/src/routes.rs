@@ -692,6 +692,20 @@ async fn rate_limit(State(state): State<AppState>, request: Request, next: Next)
         return next.run(request).await;
     }
 
+    // Per-IP rate limiting (checked before global to catch single-IP floods)
+    if let Some(ref per_ip) = state.rate_limits.per_ip {
+        let client_ip = extract_client_ip(&request);
+        if let Some(retry_after) = per_ip.check(client_ip) {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(header::RETRY_AFTER, retry_after.to_string())],
+                Json(json!({"error": "Per-IP rate limit exceeded. Try again later.", "retry_after_seconds": retry_after})),
+            )
+                .into_response();
+        }
+    }
+
+    // Global per-category rate limiting
     let limiter = categorize_rate_limit(&state.rate_limits, request.method(), request.uri().path());
 
     if let Some(limiter) = limiter {
@@ -708,6 +722,36 @@ async fn rate_limit(State(state): State<AppState>, request: Request, next: Next)
     }
 
     next.run(request).await
+}
+
+/// Extract the client IP from the request.
+///
+/// Checks `X-Forwarded-For` (first IP in chain), then `X-Real-IP`,
+/// then falls back to 127.0.0.1. In production, ensure the reverse proxy
+/// sets these headers and strip any client-supplied values.
+fn extract_client_ip(request: &Request) -> std::net::IpAddr {
+    // X-Forwarded-For: client, proxy1, proxy2 — take the first (client)
+    if let Some(xff) = request.headers().get("x-forwarded-for") {
+        if let Ok(val) = xff.to_str() {
+            if let Some(first) = val.split(',').next() {
+                if let Ok(ip) = first.trim().parse::<std::net::IpAddr>() {
+                    return ip;
+                }
+            }
+        }
+    }
+
+    // X-Real-IP: single IP set by the reverse proxy
+    if let Some(xri) = request.headers().get("x-real-ip") {
+        if let Ok(val) = xri.to_str() {
+            if let Ok(ip) = val.trim().parse::<std::net::IpAddr>() {
+                return ip;
+            }
+        }
+    }
+
+    // Fallback — no proxy headers available
+    std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
 }
 
 fn categorize_rate_limit<'a>(

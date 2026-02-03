@@ -12,7 +12,7 @@
 
 Sentinel is a lightweight, high-performance firewall that sits between AI agents and their tools. It intercepts MCP (Model Context Protocol) and function-calling requests, enforces security policies on paths, domains, and actions, and maintains a tamper-evident audit trail with cryptographic guarantees.
 
-**Key numbers:** ~60,000 lines of Rust | 1,780+ tests | <5ms P99 evaluation latency | <50MB memory baseline
+**Key numbers:** ~60,000 lines of Rust | 2,020+ tests | <5ms P99 evaluation latency | <50MB memory baseline
 
 ## Why Sentinel?
 
@@ -499,7 +499,7 @@ sentinel-http-proxy \
 ## Development
 
 ```bash
-# Run all tests (1,780+)
+# Run all tests (2,020+)
 cargo test --workspace
 
 # Lint

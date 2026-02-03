@@ -2318,6 +2318,7 @@ dependencies = [
  "axum",
  "chrono",
  "clap",
+ "dashmap",
  "ed25519-dalek",
  "governor",
  "hex",

@@ -253,7 +253,7 @@ async fn cmd_serve(
 
     // Configure per-category rate limits from environment variables.
     // Set to 0 or omit to disable rate limiting for a category.
-    let rate_limits = Arc::new(RateLimits::new(
+    let mut rate_limits_val = RateLimits::new(
         std::env::var("SENTINEL_RATE_EVALUATE")
             .ok()
             .and_then(|s| s.parse().ok()),
@@ -263,7 +263,20 @@ async fn cmd_serve(
         std::env::var("SENTINEL_RATE_READONLY")
             .ok()
             .and_then(|s| s.parse().ok()),
-    ));
+    );
+
+    // Per-IP rate limiting: independent bucket per client IP address.
+    // SENTINEL_RATE_PER_IP: requests per second allowed per unique IP.
+    if let Some(rps) = std::env::var("SENTINEL_RATE_PER_IP")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .and_then(std::num::NonZeroU32::new)
+    {
+        rate_limits_val = rate_limits_val.with_per_ip(rps);
+        tracing::info!("Per-IP rate limiting enabled: {} req/s per IP", rps);
+    }
+
+    let rate_limits = Arc::new(rate_limits_val);
 
     if rate_limits.evaluate.is_some()
         || rate_limits.admin.is_some()
@@ -390,6 +403,30 @@ async fn cmd_serve(
             "Audit checkpoint task enabled (every {}s)",
             checkpoint_interval
         );
+    }
+
+    // Spawn periodic per-IP rate limit bucket cleanup (every 10 minutes)
+    if state.rate_limits.per_ip.is_some() {
+        let cleanup_limits = state.rate_limits.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(600));
+            interval.tick().await; // Skip first immediate tick
+            loop {
+                interval.tick().await;
+                if let Some(ref per_ip) = cleanup_limits.per_ip {
+                    let before = per_ip.len();
+                    per_ip.cleanup(std::time::Duration::from_secs(3600));
+                    let removed = before.saturating_sub(per_ip.len());
+                    if removed > 0 {
+                        tracing::debug!(
+                            "Cleaned up {} stale per-IP rate limit buckets ({} remaining)",
+                            removed,
+                            per_ip.len()
+                        );
+                    }
+                }
+            }
+        });
     }
 
     // Optionally watch the config file for changes and auto-reload
@@ -615,7 +652,30 @@ async fn cmd_verify(audit: String, trusted_key: Option<String>, list_rotated: bo
         }
     }
 
-    // Phase 3: List rotated files if requested
+    // Phase 3: Check for duplicate entry IDs
+    println!("Checking for duplicate entry IDs...");
+    let has_duplicates = match logger.detect_duplicate_ids().await {
+        Ok(duplicates) if duplicates.is_empty() => {
+            println!("  Duplicates: none");
+            false
+        }
+        Ok(duplicates) => {
+            println!(
+                "  WARNING: {} duplicate entry ID(s) found:",
+                duplicates.len()
+            );
+            for (id, count) in &duplicates {
+                println!("    {} (appears {} times)", id, count);
+            }
+            true
+        }
+        Err(e) => {
+            println!("  Failed to check for duplicates: {}", e);
+            false
+        }
+    };
+
+    // Phase 4: List rotated files if requested
     if list_rotated {
         println!("Rotated log files:");
         match logger.list_rotated_files() {
@@ -639,7 +699,11 @@ async fn cmd_verify(audit: String, trusted_key: Option<String>, list_rotated: bo
     let all_valid = chain_result.valid && cp_result.valid;
     println!();
     if all_valid {
-        println!("Audit log integrity: VERIFIED");
+        if has_duplicates {
+            println!("Audit log integrity: VERIFIED (with warnings)");
+        } else {
+            println!("Audit log integrity: VERIFIED");
+        }
     } else {
         println!("Audit log integrity: FAILED");
         // Exit with non-zero to support scripting

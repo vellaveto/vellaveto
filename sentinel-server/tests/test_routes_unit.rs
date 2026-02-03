@@ -526,3 +526,182 @@ async fn remove_policy_creates_audit_entry() {
     assert_eq!(remove_entry.action.tool, "sentinel");
     assert_eq!(remove_entry.action.parameters["policy_id"], "file:read");
 }
+
+#[tokio::test]
+async fn per_ip_rate_limit_throttles_single_ip() {
+    let tmp = TempDir::new().unwrap();
+    let state = AppState {
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
+        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
+            id: "file:read".to_string(),
+            name: "Allow".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+        }])),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("test.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: None,
+        rate_limits: Arc::new(
+            RateLimits::new(None, None, None).with_per_ip(std::num::NonZeroU32::new(1).unwrap()),
+        ),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+    };
+
+    let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
+
+    // First request with X-Forwarded-For from IP A — should succeed
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-for", "10.0.0.1")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        resp.status().is_success(),
+        "First request from IP A must succeed"
+    );
+
+    // Second rapid request from same IP A — should be throttled
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-for", "10.0.0.1")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "Second rapid request from same IP must be 429"
+    );
+
+    // Request from different IP B — should still succeed (independent bucket)
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-for", "10.0.0.2")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        resp.status().is_success(),
+        "Request from different IP B must succeed even when IP A is throttled"
+    );
+}
+
+#[tokio::test]
+async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
+    let tmp = TempDir::new().unwrap();
+    let state = AppState {
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
+        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
+            id: "file:read".to_string(),
+            name: "Allow".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+        }])),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("test.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: None,
+        rate_limits: Arc::new(
+            RateLimits::new(None, None, None).with_per_ip(std::num::NonZeroU32::new(1).unwrap()),
+        ),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+    };
+
+    let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
+
+    // Request with X-Real-IP (no X-Forwarded-For)
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-real-ip", "192.168.1.50")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(resp.status().is_success(), "First request must succeed");
+
+    // Second rapid request with same X-Real-IP
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-real-ip", "192.168.1.50")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "Second rapid request from same X-Real-IP must be 429"
+    );
+}
+
+#[tokio::test]
+async fn per_ip_health_exempt_from_rate_limit() {
+    let tmp = TempDir::new().unwrap();
+    let state = AppState {
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
+        policies: Arc::new(ArcSwap::from_pointee(vec![])),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("test.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: None,
+        rate_limits: Arc::new(
+            RateLimits::new(None, None, None).with_per_ip(std::num::NonZeroU32::new(1).unwrap()),
+        ),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+    };
+
+    // Multiple health checks from same IP should all succeed
+    for _ in 0..5 {
+        let app = routes::build_router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::get("/health")
+                    .header("x-forwarded-for", "10.0.0.99")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            resp.status().is_success(),
+            "Health endpoint must be exempt from per-IP rate limiting"
+        );
+    }
+}

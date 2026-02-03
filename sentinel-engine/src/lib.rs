@@ -241,13 +241,13 @@ pub struct CompiledPolicy {
     /// When true, return None (skip to next policy) instead of Allow when no
     /// constraints fire. Set via `on_no_match: "continue"` in conditions JSON.
     pub on_no_match_continue: bool,
-    /// Pre-computed "Denied by policy '<name>'" reason string.
+    /// Pre-computed "Denied by policy 'NAME'" reason string.
     pub deny_reason: String,
-    /// Pre-computed "Approval required by policy '<name>'" reason string.
+    /// Pre-computed "Approval required by policy 'NAME'" reason string.
     pub approval_reason: String,
-    /// Pre-computed "Parameter '<p>' is forbidden by policy '<name>'" for each forbidden param.
+    /// Pre-computed "Parameter 'P' is forbidden by policy 'NAME'" for each forbidden param.
     pub forbidden_reasons: Vec<String>,
-    /// Pre-computed "Required parameter '<p>' missing (policy '<name>')" for each required param.
+    /// Pre-computed "Required parameter 'P' missing (policy 'NAME')" for each required param.
     pub required_reasons: Vec<String>,
 }
 
@@ -798,7 +798,7 @@ impl PolicyEngine {
     /// and a stable tertiary tiebreaker by policy ID for deterministic ordering.
     ///
     /// Call this once when loading or modifying policies, then pass the sorted
-    /// slice to [`evaluate_action`] to avoid re-sorting on every evaluation.
+    /// slice to [`Self::evaluate_action`] to avoid re-sorting on every evaluation.
     pub fn sort_policies(policies: &mut [Policy]) {
         policies.sort_by(|a, b| {
             let pri = b.priority.cmp(&a.priority);
@@ -819,7 +819,7 @@ impl PolicyEngine {
     /// Evaluate an action against a set of policies.
     ///
     /// For best performance, pass policies that have been pre-sorted with
-    /// [`sort_policies`]. If not pre-sorted, this method will sort a temporary
+    /// [`Self::sort_policies`]. If not pre-sorted, this method will sort a temporary
     /// copy (which adds O(n log n) overhead per call).
     ///
     /// The first matching policy determines the verdict.
@@ -2515,7 +2515,7 @@ impl PolicyEngine {
 
     /// Evaluate an action with full decision trace.
     ///
-    /// Opt-in alternative to [`evaluate_action`] that records per-policy match
+    /// Opt-in alternative to [`Self::evaluate_action`] that records per-policy match
     /// details for OPA-style decision explanations. Has ~20% allocation overhead
     /// compared to the non-traced hot path, so use only when `?trace=true`.
     pub fn evaluate_action_traced(

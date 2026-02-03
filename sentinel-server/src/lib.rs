@@ -1,6 +1,7 @@
 pub mod routes;
 
 use arc_swap::ArcSwap;
+use governor::clock::Clock;
 use governor::{Quota, RateLimiter};
 use sentinel_approval::ApprovalStore;
 use sentinel_audit::AuditLogger;
@@ -20,6 +21,60 @@ pub struct RateLimits {
     pub evaluate: Option<governor::DefaultDirectRateLimiter>,
     pub admin: Option<governor::DefaultDirectRateLimiter>,
     pub readonly: Option<governor::DefaultDirectRateLimiter>,
+    pub per_ip: Option<PerIpRateLimiter>,
+}
+
+/// Per-IP rate limiter using DashMap for lock-free concurrent access.
+///
+/// Each unique client IP gets its own governor bucket. Stale entries
+/// (no requests for 1 hour) are periodically cleaned up.
+pub struct PerIpRateLimiter {
+    buckets: dashmap::DashMap<std::net::IpAddr, (governor::DefaultDirectRateLimiter, Instant)>,
+    quota: Quota,
+}
+
+impl PerIpRateLimiter {
+    pub fn new(rps: NonZeroU32) -> Self {
+        Self {
+            buckets: dashmap::DashMap::new(),
+            quota: Quota::per_second(rps),
+        }
+    }
+
+    /// Check the rate limit for a given IP. Returns `None` if allowed,
+    /// `Some(retry_after_secs)` if rate-limited.
+    pub fn check(&self, ip: std::net::IpAddr) -> Option<u64> {
+        let now = Instant::now();
+        let mut entry = self
+            .buckets
+            .entry(ip)
+            .or_insert_with(|| (RateLimiter::direct(self.quota), now));
+        // Update last-seen timestamp
+        entry.value_mut().1 = now;
+        match entry.value().0.check() {
+            Ok(()) => None,
+            Err(not_until) => {
+                let wait = not_until.wait_time_from(governor::clock::DefaultClock::default().now());
+                Some(wait.as_secs().max(1))
+            }
+        }
+    }
+
+    /// Remove entries that haven't been seen for the given duration.
+    pub fn cleanup(&self, max_age: std::time::Duration) {
+        let cutoff = Instant::now() - max_age;
+        self.buckets.retain(|_, (_, last_seen)| *last_seen > cutoff);
+    }
+
+    /// Number of tracked IPs.
+    pub fn len(&self) -> usize {
+        self.buckets.len()
+    }
+
+    /// Whether any IPs are tracked.
+    pub fn is_empty(&self) -> bool {
+        self.buckets.is_empty()
+    }
 }
 
 impl RateLimits {
@@ -40,7 +95,14 @@ impl RateLimits {
             readonly: readonly_rps
                 .and_then(NonZeroU32::new)
                 .map(|r| RateLimiter::direct(Quota::per_second(r))),
+            per_ip: None,
         }
+    }
+
+    /// Set the per-IP rate limiter.
+    pub fn with_per_ip(mut self, rps: NonZeroU32) -> Self {
+        self.per_ip = Some(PerIpRateLimiter::new(rps));
+        self
     }
 
     /// Create rate limits with all categories disabled (no rate limiting).
@@ -49,6 +111,7 @@ impl RateLimits {
             evaluate: None,
             admin: None,
             readonly: None,
+            per_ip: None,
         }
     }
 }
@@ -284,4 +347,129 @@ pub fn spawn_config_watcher(state: AppState) -> Result<(), String> {
     });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn metrics_default_starts_at_zero() {
+        let m = Metrics::default();
+        assert_eq!(m.evaluations_total.load(Ordering::Relaxed), 0);
+        assert_eq!(m.evaluations_allow.load(Ordering::Relaxed), 0);
+        assert_eq!(m.evaluations_deny.load(Ordering::Relaxed), 0);
+        assert_eq!(m.evaluations_require_approval.load(Ordering::Relaxed), 0);
+        assert_eq!(m.evaluations_error.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn metrics_record_allow() {
+        let m = Metrics::default();
+        m.record_evaluation(&Verdict::Allow);
+        assert_eq!(m.evaluations_total.load(Ordering::Relaxed), 1);
+        assert_eq!(m.evaluations_allow.load(Ordering::Relaxed), 1);
+        assert_eq!(m.evaluations_deny.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn metrics_record_deny() {
+        let m = Metrics::default();
+        m.record_evaluation(&Verdict::Deny {
+            reason: "test".to_string(),
+        });
+        assert_eq!(m.evaluations_total.load(Ordering::Relaxed), 1);
+        assert_eq!(m.evaluations_deny.load(Ordering::Relaxed), 1);
+        assert_eq!(m.evaluations_allow.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn metrics_record_require_approval() {
+        let m = Metrics::default();
+        m.record_evaluation(&Verdict::RequireApproval {
+            reason: "review".to_string(),
+        });
+        assert_eq!(m.evaluations_total.load(Ordering::Relaxed), 1);
+        assert_eq!(m.evaluations_require_approval.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn metrics_record_error() {
+        let m = Metrics::default();
+        m.record_error();
+        assert_eq!(m.evaluations_total.load(Ordering::Relaxed), 1);
+        assert_eq!(m.evaluations_error.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn metrics_multiple_evaluations_accumulate() {
+        let m = Metrics::default();
+        for _ in 0..5 {
+            m.record_evaluation(&Verdict::Allow);
+        }
+        for _ in 0..3 {
+            m.record_evaluation(&Verdict::Deny {
+                reason: "x".to_string(),
+            });
+        }
+        m.record_error();
+        m.record_error();
+        assert_eq!(m.evaluations_total.load(Ordering::Relaxed), 10);
+        assert_eq!(m.evaluations_allow.load(Ordering::Relaxed), 5);
+        assert_eq!(m.evaluations_deny.load(Ordering::Relaxed), 3);
+        assert_eq!(m.evaluations_error.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn rate_limits_disabled_has_all_none() {
+        let rl = RateLimits::disabled();
+        assert!(rl.evaluate.is_none());
+        assert!(rl.admin.is_none());
+        assert!(rl.readonly.is_none());
+        assert!(rl.per_ip.is_none());
+    }
+
+    #[test]
+    fn rate_limits_new_with_values() {
+        let rl = RateLimits::new(Some(100), Some(50), Some(200));
+        assert!(rl.evaluate.is_some());
+        assert!(rl.admin.is_some());
+        assert!(rl.readonly.is_some());
+        assert!(rl.per_ip.is_none());
+    }
+
+    #[test]
+    fn rate_limits_new_with_zero_disables() {
+        let rl = RateLimits::new(Some(0), None, Some(10));
+        assert!(rl.evaluate.is_none(), "0 should disable rate limiting");
+        assert!(rl.admin.is_none(), "None should disable rate limiting");
+        assert!(rl.readonly.is_some());
+    }
+
+    #[test]
+    fn rate_limits_with_per_ip() {
+        let rl = RateLimits::disabled().with_per_ip(NonZeroU32::new(10).unwrap());
+        assert!(rl.per_ip.is_some());
+    }
+
+    #[test]
+    fn per_ip_rate_limiter_allows_first_request() {
+        let limiter = PerIpRateLimiter::new(NonZeroU32::new(10).unwrap());
+        let ip: std::net::IpAddr = "127.0.0.1".parse().unwrap();
+        assert!(limiter.is_empty());
+        let result = limiter.check(ip);
+        assert!(result.is_none(), "First request should be allowed");
+        assert_eq!(limiter.len(), 1);
+    }
+
+    #[test]
+    fn per_ip_rate_limiter_cleanup_removes_stale() {
+        let limiter = PerIpRateLimiter::new(NonZeroU32::new(10).unwrap());
+        let ip: std::net::IpAddr = "127.0.0.1".parse().unwrap();
+        limiter.check(ip);
+        assert_eq!(limiter.len(), 1);
+        // Cleanup with zero duration removes everything
+        limiter.cleanup(std::time::Duration::ZERO);
+        assert_eq!(limiter.len(), 0);
+    }
 }

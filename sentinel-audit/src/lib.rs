@@ -1055,6 +1055,29 @@ impl AuditLogger {
         })
     }
 
+    /// Detect entries with duplicate IDs in the audit log.
+    ///
+    /// Returns a list of IDs that appear more than once, along with their
+    /// occurrence counts. Duplicate IDs may indicate a replay attack or
+    /// log corruption.
+    pub async fn detect_duplicate_ids(&self) -> Result<Vec<(String, usize)>, AuditError> {
+        let entries = self.load_entries().await?;
+        let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+
+        for entry in &entries {
+            *counts.entry(entry.id.as_str()).or_insert(0) += 1;
+        }
+
+        let mut duplicates: Vec<(String, usize)> = counts
+            .into_iter()
+            .filter(|(_, count)| *count > 1)
+            .map(|(id, count)| (id.to_string(), count))
+            .collect();
+
+        duplicates.sort_by(|a, b| b.1.cmp(&a.1)); // Most duplicated first
+        Ok(duplicates)
+    }
+
     /// Generate a summary report from the audit log.
     pub async fn generate_report(&self) -> Result<AuditReport, AuditError> {
         let entries = self.load_entries().await?;
