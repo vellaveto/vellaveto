@@ -1,7 +1,16 @@
-//! Adversarial tests for per-IP rate limiting.
+//! Security regression tests for per-IP rate limiting.
 //!
-//! Findings from adversary instance audit of uncommitted per-IP rate limiter.
-//! These tests demonstrate exploitable vulnerabilities in the current implementation.
+//! Originally written as adversary exploit demonstrations (Phase 6).
+//! Now converted to regression tests that verify the fixes remain in place.
+//!
+//! Findings addressed:
+//! - #18 (HIGH): XFF spoofing bypass → Fixed: proxy headers ignored without trusted_proxies
+//! - #19 (MEDIUM): Unbounded DashMap → Fixed: max_capacity with fail-closed
+//! - #20 (LOW): Localhost collapse → Fixed: ConnectInfo used instead of header fallback
+//! - #21 (HIGH): IP impersonation → Fixed: proxy headers ignored without trusted_proxies
+//! - #22 (LOW): Verify exits 0 on duplicates → Fixed: exit code 2 on duplicate IDs
+//! - #23 (LOW): XFF leftmost attacker-controlled → Fixed: rightmost-untrusted with trusted_proxies
+//! - #24 (LOW): Error leaks rate limit type → Fixed: unified error message
 
 use arc_swap::ArcSwap;
 use axum::body::Body;
@@ -37,153 +46,178 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         ),
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
     };
     (state, tmp)
 }
 
 // =============================================================================
-// Finding #18: Per-IP Rate Limit Bypass via X-Forwarded-For Spoofing (HIGH)
+// Finding #18 FIXED: XFF spoofing no longer bypasses rate limiting.
 //
-// The extract_client_ip() function trusts client-provided X-Forwarded-For
-// headers. An attacker can bypass per-IP rate limiting entirely by rotating
-// the header value on each request. Each request appears to come from a
-// unique IP, so each gets a fresh rate limit bucket.
-//
-// Attack: Send N requests that exceed the per-IP limit, each with a unique
-// X-Forwarded-For value. All succeed because each "IP" is a fresh bucket.
+// With trusted_proxies empty (default), proxy headers are ignored entirely.
+// All requests are attributed to the connection IP (127.0.0.1 in tests),
+// so spoofing X-Forwarded-For has no effect on rate limiting.
 // =============================================================================
 
 #[tokio::test]
-async fn exploit_18_xff_spoofing_bypasses_per_ip_rate_limit() {
-    // Set per-IP limit to 1 request/second — extremely restrictive
+async fn regression_18_xff_spoofing_blocked_without_trusted_proxies() {
+    // Per-IP limit of 1 req/s, no trusted proxies
     let (state, _tmp) = per_ip_state(1);
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
 
-    // Send 20 requests rapidly, each with a different spoofed X-Forwarded-For.
-    // Without spoofing, only the 1st would succeed (1 req/s limit).
-    // With spoofing, ALL succeed — the rate limiter is fully bypassed.
-    let mut success_count = 0;
+    // First request succeeds (new bucket for connection IP)
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-for", "10.0.0.1")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(resp.status().is_success(), "First request should succeed");
 
-    for i in 0..20u8 {
-        let app = routes::build_router(state.clone());
-        let spoofed_ip = format!("10.{}.{}.{}", i / 100, (i / 10) % 10, i % 10);
-        let resp = app
-            .oneshot(
-                Request::post("/api/evaluate")
-                    .header("content-type", "application/json")
-                    .header("x-forwarded-for", &spoofed_ip)
-                    .body(Body::from(body_str))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        if resp.status().is_success() {
-            success_count += 1;
-        }
-    }
-
-    // EXPLOIT DEMONSTRATED: All 20 requests succeed despite 1 req/s limit.
-    // A correct implementation would use the actual connection IP, not headers.
+    // Second request with DIFFERENT spoofed XFF — still rate-limited because
+    // without trusted_proxies, the XFF header is ignored. Both requests use
+    // the same connection IP (127.0.0.1).
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-for", "10.0.0.2")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(
-        success_count, 20,
-        "All 20 requests bypassed rate limiting via X-Forwarded-For spoofing. \
-         The per-IP rate limiter trusts client-provided headers, making it trivially bypassable."
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "XFF spoofing must not bypass rate limiting when trusted_proxies is empty"
     );
 }
 
 #[tokio::test]
-async fn exploit_18_xff_spoofing_also_works_with_x_real_ip() {
+async fn regression_18_xri_spoofing_blocked_without_trusted_proxies() {
     let (state, _tmp) = per_ip_state(1);
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
 
-    let mut success_count = 0;
-    for i in 0..10u8 {
-        let app = routes::build_router(state.clone());
-        let spoofed_ip = format!("192.168.1.{}", i);
-        let resp = app
-            .oneshot(
-                Request::post("/api/evaluate")
-                    .header("content-type", "application/json")
-                    .header("x-real-ip", &spoofed_ip)
-                    .body(Body::from(body_str))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        if resp.status().is_success() {
-            success_count += 1;
-        }
-    }
+    // First request succeeds
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-real-ip", "192.168.1.1")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(resp.status().is_success());
 
+    // Second request with different X-Real-IP — still rate-limited
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-real-ip", "192.168.1.2")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(
-        success_count, 10,
-        "X-Real-IP spoofing also bypasses per-IP rate limiting"
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "X-Real-IP spoofing must not bypass rate limiting when trusted_proxies is empty"
     );
 }
 
 // =============================================================================
-// Finding #19: Unbounded DashMap Growth / Memory Exhaustion (MEDIUM)
+// Finding #19 FIXED: DashMap growth is bounded by max_capacity.
 //
-// Each unique spoofed IP creates a new entry in the DashMap. There is no
-// maximum capacity. Cleanup only runs every 10 minutes (and only removes
-// entries >1 hour old). Between cleanups, an attacker can fill memory.
-//
-// At 10,000 unique IPs: ~1.5MB of rate limiter state
-// At 1,000,000 unique IPs: ~150MB of rate limiter state
-// At 10,000,000 unique IPs (10min @ 16k req/s): ~1.5GB
-//
-// The DashMap will never refuse to insert. There is no cap.
+// When the limiter reaches max_capacity, new IPs are denied (fail-closed)
+// instead of creating unbounded entries.
 // =============================================================================
 
 #[test]
-fn exploit_19_unbounded_dashmap_growth() {
-    let limiter = PerIpRateLimiter::new(std::num::NonZeroU32::new(10).unwrap());
+fn regression_19_dashmap_growth_bounded() {
+    // Create limiter with a small max capacity for testing
+    let limiter = PerIpRateLimiter::with_max_capacity(std::num::NonZeroU32::new(10).unwrap(), 100);
 
-    // Simulate an attacker sending requests with 10,000 unique IPs.
-    // Every single one creates a new entry.
-    for i in 0..10_000u32 {
-        let ip: std::net::IpAddr = std::net::Ipv4Addr::from(i.wrapping_add(167772160)).into(); // 10.x.x.x
+    // Fill to capacity
+    for i in 0..100u32 {
+        let ip: std::net::IpAddr = std::net::Ipv4Addr::from(i.wrapping_add(167772160)).into();
         let _ = limiter.check(ip);
     }
+    assert_eq!(limiter.len(), 100, "Should have 100 entries at capacity");
 
-    // All 10,000 entries are stored — no cap, no eviction.
+    // Attempt to add more — should be denied, not inserted
+    let new_ip: std::net::IpAddr = std::net::Ipv4Addr::from(200_000_000u32).into();
+    let result = limiter.check(new_ip);
+    assert!(
+        result.is_some(),
+        "New IPs must be denied when at max capacity (fail-closed)"
+    );
     assert_eq!(
         limiter.len(),
-        10_000,
-        "DashMap grew unbounded to 10,000 entries with no capacity limit. \
-         An attacker can exhaust memory by sending requests with unique spoofed IPs."
+        100,
+        "No new entries should be inserted when at max capacity"
     );
 
-    // Cleanup only removes entries older than the max_age threshold.
-    // Since we just created all entries, cleanup with 1-hour threshold removes nothing.
-    limiter.cleanup(std::time::Duration::from_secs(3600));
-    assert_eq!(
-        limiter.len(),
-        10_000,
-        "Cleanup with 1-hour threshold doesn't help — all entries are fresh"
+    // Existing IPs still work (not locked out)
+    let existing_ip: std::net::IpAddr = std::net::Ipv4Addr::from(167772160u32).into();
+    let result = limiter.check(existing_ip);
+    assert!(
+        result.is_none(),
+        "Existing IPs should still be allowed when at capacity"
+    );
+}
+
+#[test]
+fn regression_19_cleanup_frees_capacity() {
+    let limiter = PerIpRateLimiter::with_max_capacity(std::num::NonZeroU32::new(10).unwrap(), 50);
+
+    // Fill to capacity
+    for i in 0..50u32 {
+        let ip: std::net::IpAddr = std::net::Ipv4Addr::from(i.wrapping_add(167772160)).into();
+        let _ = limiter.check(ip);
+    }
+    assert_eq!(limiter.len(), 50);
+
+    // Cleanup with 0 duration removes all entries
+    limiter.cleanup(std::time::Duration::from_secs(0));
+    assert_eq!(limiter.len(), 0, "Cleanup should free all entries");
+
+    // New IPs can now be admitted
+    let new_ip: std::net::IpAddr = std::net::Ipv4Addr::from(200_000_000u32).into();
+    let result = limiter.check(new_ip);
+    assert!(
+        result.is_none(),
+        "New IPs should be allowed after cleanup frees capacity"
     );
 }
 
 // =============================================================================
-// Finding #20: Localhost Rate Limit Collapse (LOW)
+// Finding #20 FIXED: Without proxy headers, connection IP is used.
 //
-// When no proxy headers are present, extract_client_ip() falls back to
-// 127.0.0.1 for ALL clients. This means:
-//
-// - All clients without proxy headers share ONE rate limit bucket
-// - One client's requests consume quota for ALL other direct clients
-// - Per-IP rate limiting degrades to a GLOBAL rate limiter for direct connections
-//
-// This affects deployments where sentinel-server is exposed directly
-// (not behind a reverse proxy), which is supported via --bind.
+// In test environments without real TCP connections, ConnectInfo isn't set
+// so the fallback is 127.0.0.1. This is correct behavior — all test
+// requests from the same process share one bucket, as they should.
+// In production with real connections, each TCP connection has its own IP.
 // =============================================================================
 
 #[tokio::test]
-async fn exploit_20_all_direct_clients_share_one_bucket() {
+async fn regression_20_direct_clients_use_connection_ip() {
     let (state, _tmp) = per_ip_state(1);
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
 
-    // First request with NO proxy headers — succeeds, attributed to 127.0.0.1
+    // First request succeeds — uses connection IP (127.0.0.1 in test)
     let app = routes::build_router(state.clone());
     let resp = app
         .oneshot(
@@ -196,8 +230,9 @@ async fn exploit_20_all_direct_clients_share_one_bucket() {
         .unwrap();
     assert!(resp.status().is_success(), "First direct request succeeds");
 
-    // Second request with NO proxy headers — throttled because it shares
-    // the same 127.0.0.1 bucket, even though it could be a different client.
+    // Second request is properly rate-limited on the same connection IP.
+    // This is correct behavior — in production, different clients have
+    // different connection IPs via ConnectInfo<SocketAddr>.
     let app = routes::build_router(state.clone());
     let resp = app
         .oneshot(
@@ -211,30 +246,25 @@ async fn exploit_20_all_direct_clients_share_one_bucket() {
     assert_eq!(
         resp.status(),
         StatusCode::TOO_MANY_REQUESTS,
-        "Second direct request is throttled — all headerless clients collapse to 127.0.0.1. \
-         A different real client making a legitimate request would be denied."
+        "Second request from same connection IP is properly rate-limited"
     );
 }
 
 // =============================================================================
-// Finding #21: IP Impersonation / Rate Limit Exhaustion Attack (HIGH)
+// Finding #21 FIXED: IP impersonation blocked.
 //
-// An attacker can consume another user's rate limit quota by setting
-// X-Forwarded-For to the victim's IP. The victim's subsequent requests
-// are then throttled.
-//
-// This is a denial-of-service against specific IPs.
+// Without trusted_proxies, X-Forwarded-For is ignored. An attacker cannot
+// consume another user's rate limit bucket by spoofing their IP.
 // =============================================================================
 
 #[tokio::test]
-async fn exploit_21_attacker_exhausts_victim_rate_limit() {
+async fn regression_21_ip_impersonation_blocked() {
     let (state, _tmp) = per_ip_state(1);
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
 
-    let victim_ip = "203.0.113.42"; // The victim's real IP
+    let victim_ip = "203.0.113.42";
 
-    // ATTACKER: sends request with X-Forwarded-For set to victim's IP.
-    // This consumes the victim's rate limit bucket.
+    // Attacker tries to impersonate victim via X-Forwarded-For
     let app = routes::build_router(state.clone());
     let resp = app
         .oneshot(
@@ -246,13 +276,10 @@ async fn exploit_21_attacker_exhausts_victim_rate_limit() {
         )
         .await
         .unwrap();
-    assert!(
-        resp.status().is_success(),
-        "Attacker's request succeeds using victim's IP"
-    );
+    assert!(resp.status().is_success(), "First request succeeds");
 
-    // VICTIM: makes a legitimate request. Gets 429 because their
-    // bucket was already consumed by the attacker.
+    // Attacker's second request is rate-limited on THEIR connection IP (127.0.0.1),
+    // not on the victim's IP. The spoofed header is ignored.
     let app = routes::build_router(state.clone());
     let resp = app
         .oneshot(
@@ -267,55 +294,23 @@ async fn exploit_21_attacker_exhausts_victim_rate_limit() {
     assert_eq!(
         resp.status(),
         StatusCode::TOO_MANY_REQUESTS,
-        "Victim is rate-limited because the attacker consumed their bucket. \
-         This is a targeted DoS attack against specific users."
+        "Attacker is rate-limited on their own connection IP, not the victim's"
     );
 }
 
 // =============================================================================
-// Finding #22: Verify Command Exits 0 on Duplicate IDs (LOW)
+// Finding #23 FIXED: XFF leftmost entry is ignored without trusted_proxies.
 //
-// The `sentinel verify` command reports duplicate entry IDs as a warning
-// but exits with code 0 ("VERIFIED (with warnings)"). Automated monitoring
-// and CI/CD pipelines checking exit codes will miss replay attacks.
-//
-// Duplicate IDs indicate either:
-// - Replay attack (entries copied from one log to another)
-// - UUID collision (code bug)
-// - Log corruption
-//
-// None of these should pass verification silently.
-//
-// (This finding requires a CLI test — see test_cli_verify or inline below.)
-// =============================================================================
-
-// Note: The duplicate ID finding is verified structurally by reading the
-// cmd_verify code. The `has_duplicates` flag affects the display message
-// but NOT the exit code. The process returns 0 when `all_valid` is true,
-// regardless of duplicates. This cannot be tested without a process spawn
-// or refactoring the verify command into a testable function.
-
-// =============================================================================
-// Finding #23: X-Forwarded-For Injection via Comma (LOW)
-//
-// An attacker can inject additional IPs into the X-Forwarded-For header.
-// The code takes the FIRST comma-separated value, but a real proxy APPENDS
-// the real client IP to the END of the chain. If an attacker sends:
-//
-//   X-Forwarded-For: 1.2.3.4, attacker-real-ip
-//
-// The code uses 1.2.3.4 (attacker-chosen), not attacker-real-ip (real).
-// This is the classic XFF rightmost-proxy problem.
+// With the empty trusted_proxies default, ALL proxy headers are ignored.
+// When trusted_proxies is configured, the rightmost untrusted entry is used.
 // =============================================================================
 
 #[tokio::test]
-async fn exploit_23_xff_leftmost_ip_is_attacker_controlled() {
+async fn regression_23_xff_ignored_without_trusted_proxies() {
     let (state, _tmp) = per_ip_state(1);
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
 
-    // Attacker sends request with crafted XFF chain.
-    // The real proxy will append the attacker's actual IP at the end,
-    // but the code takes the FIRST value — which the attacker controls.
+    // First request with crafted XFF chain — succeeds
     let app = routes::build_router(state.clone());
     let resp = app
         .oneshot(
@@ -329,8 +324,8 @@ async fn exploit_23_xff_leftmost_ip_is_attacker_controlled() {
         .unwrap();
     assert!(resp.status().is_success());
 
-    // The code used 1.2.3.4 (attacker-controlled first entry), not 10.0.0.1
-    // Attacker now sends with a different first entry to bypass rate limiting
+    // Second request with DIFFERENT leftmost XFF entry — still rate-limited
+    // because XFF is completely ignored without trusted_proxies
     let app = routes::build_router(state.clone());
     let resp = app
         .oneshot(
@@ -342,27 +337,23 @@ async fn exploit_23_xff_leftmost_ip_is_attacker_controlled() {
         )
         .await
         .unwrap();
-    assert!(
-        resp.status().is_success(),
-        "Attacker bypasses rate limit by changing the leftmost XFF entry. \
-         The real client IP (10.0.0.1, appended by proxy) is ignored."
+    assert_eq!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "Changing leftmost XFF entry must not bypass rate limiting"
     );
 }
 
 // =============================================================================
-// Finding #24: Error Response Leaks Rate Limit Architecture (LOW)
+// Finding #24 FIXED: Error responses use the same generic message.
 //
-// The 429 error response from per-IP rate limiting says:
-//   "Per-IP rate limit exceeded"
-// while the global rate limiter says:
-//   "Rate limit exceeded"
-//
-// This tells an attacker which layer they hit, helping them calibrate
-// their evasion strategy (spoof IPs for per-IP, vs. throttle for global).
+// Both per-IP and global rate limit responses now say:
+//   "Rate limit exceeded. Try again later."
+// No architectural details are leaked.
 // =============================================================================
 
 #[tokio::test]
-async fn exploit_24_error_response_distinguishes_rate_limit_type() {
+async fn regression_24_error_message_does_not_leak_architecture() {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
         engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
@@ -380,11 +371,12 @@ async fn exploit_24_error_response_distinguishes_rate_limit_type() {
         )),
         api_key: None,
         rate_limits: Arc::new(
-            RateLimits::new(Some(100), None, None) // high global limit
-                .with_per_ip(std::num::NonZeroU32::new(1).unwrap()), // strict per-IP
+            RateLimits::new(Some(100), None, None)
+                .with_per_ip(std::num::NonZeroU32::new(1).unwrap()),
         ),
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -395,20 +387,18 @@ async fn exploit_24_error_response_distinguishes_rate_limit_type() {
         .oneshot(
             Request::post("/api/evaluate")
                 .header("content-type", "application/json")
-                .header("x-forwarded-for", "10.0.0.1")
                 .body(Body::from(body_str))
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    // Second request triggers per-IP rate limit
+    // Second request triggers rate limit
     let app = routes::build_router(state.clone());
     let resp = app
         .oneshot(
             Request::post("/api/evaluate")
                 .header("content-type", "application/json")
-                .header("x-forwarded-for", "10.0.0.1")
                 .body(Body::from(body_str))
                 .unwrap(),
         )
@@ -422,12 +412,30 @@ async fn exploit_24_error_response_distinguishes_rate_limit_type() {
     let body_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let error_msg = body_json["error"].as_str().unwrap();
 
-    // The error message reveals which rate limiter triggered.
-    // An attacker can use this to determine: "I need to spoof XFF to bypass"
+    // Must NOT contain "Per-IP" or any architecture-revealing text
     assert!(
-        error_msg.contains("Per-IP"),
-        "Error message '{}' reveals it was the per-IP rate limiter, \
-         giving the attacker information to calibrate their evasion strategy",
+        !error_msg.contains("Per-IP") && !error_msg.contains("per-ip"),
+        "Error message '{}' must not reveal which rate limiter triggered",
         error_msg
     );
+    assert_eq!(
+        error_msg, "Rate limit exceeded. Try again later.",
+        "Error message should be generic"
+    );
+}
+
+// =============================================================================
+// Additional regression: max_capacity accessor works correctly
+// =============================================================================
+
+#[test]
+fn regression_max_capacity_accessor() {
+    let limiter = PerIpRateLimiter::new(std::num::NonZeroU32::new(10).unwrap());
+    assert_eq!(
+        limiter.max_capacity(),
+        sentinel_server::DEFAULT_MAX_IP_CAPACITY
+    );
+
+    let custom = PerIpRateLimiter::with_max_capacity(std::num::NonZeroU32::new(10).unwrap(), 500);
+    assert_eq!(custom.max_capacity(), 500);
 }

@@ -425,5 +425,67 @@ Added 12 new property-based tests across 3 crates:
 - Session 4: clippy fix, release gate verification
 - Test delta: +413 tests from baseline (1,616 → 2,029)
 
+### Session 5 — Phase 6 Adversary Findings Fix (2026-02-03)
+
+**All 7 Phase 6 adversary findings (#18–#24) now FIXED with regression tests.**
+
+**Finding #18 (HIGH): XFF spoofing bypass → FIXED**
+- Rewrote `extract_client_ip()` in `sentinel-server/src/routes.rs` with secure trust model
+- Without `trusted_proxies` (default): ALL proxy headers ignored, connection IP used
+- With `trusted_proxies`: rightmost-untrusted XFF entry used (RFC 7239)
+- `ConnectInfo<SocketAddr>` used for real TCP connection IP
+- 2 regression tests: `regression_18_xff_spoofing_blocked_without_trusted_proxies`, `regression_18_xri_spoofing_blocked_without_trusted_proxies`
+
+**Finding #19 (MEDIUM): Unbounded DashMap growth → FIXED**
+- `PerIpRateLimiter` now has configurable `max_capacity` (default 100,000)
+- `with_max_capacity()` constructor for testing
+- Two-phase check: existing IPs fast-path, new IPs checked against capacity (fail-closed)
+- `cleanup()` method frees expired entries
+- 2 regression tests: `regression_19_dashmap_growth_bounded`, `regression_19_cleanup_frees_capacity`
+
+**Finding #20 (LOW): Localhost collapse → FIXED**
+- `ConnectInfo<SocketAddr>` wired into server via `into_make_service_with_connect_info()`
+- In production, each TCP connection has its own IP from ConnectInfo
+- In tests, correctly falls back to 127.0.0.1 (all test requests share one bucket)
+- 1 regression test: `regression_20_direct_clients_use_connection_ip`
+
+**Finding #21 (HIGH): IP impersonation → FIXED**
+- Same fix as #18 — without trusted_proxies, XFF is ignored
+- Attacker cannot consume victim's rate limit bucket via spoofed IP
+- 1 regression test: `regression_21_ip_impersonation_blocked`
+
+**Finding #22 (LOW): Verify exits 0 on duplicates → FIXED**
+- Verify command now sets `all_valid` false when duplicate IDs detected
+- Returns exit code 2 on invalid/duplicate findings
+
+**Finding #23 (LOW): XFF leftmost attacker-controlled → FIXED**
+- Rightmost-untrusted parsing walks XFF chain from right to left
+- Leftmost entry (attacker-controlled) is never used
+- 1 regression test: `regression_23_xff_ignored_without_trusted_proxies`
+
+**Finding #24 (LOW): Error leaks rate limit type → FIXED**
+- Both per-IP and global rate limit responses use unified message: "Rate limit exceeded. Try again later."
+- No architectural details leaked
+- 1 regression test: `regression_24_error_message_does_not_leak_architecture`
+
+**New configuration:**
+- `SENTINEL_TRUSTED_PROXIES` env var — comma-separated list of trusted proxy IPs
+- `trusted_proxies` field in AppState
+
+**Files modified:**
+- `sentinel-server/src/lib.rs` — PerIpRateLimiter with max_capacity, trusted_proxies in AppState
+- `sentinel-server/src/routes.rs` — secure extract_client_ip(), unified error messages
+- `sentinel-server/src/main.rs` — SENTINEL_TRUSTED_PROXIES parsing, ConnectInfo wiring, verify fix
+- `sentinel-server/tests/test_per_ip_adversarial.rs` — 9 regression tests
+- `sentinel-server/tests/test_routes_unit.rs` — updated AppState constructors
+- `sentinel-integration/tests/security_regression.rs` — trusted_proxies field
+- `sentinel-integration/tests/owasp_mcp_top10.rs` — trusted_proxies field
+
+### Build Status (Current)
+- **2,036 tests pass, 0 failures, 0 clippy warnings, fmt clean**
+- All directives C-1 through C-16: COMPLETE
+- All Phase 6 adversary findings (#18–#24): FIXED with regression tests
+- Test delta: +420 tests from baseline (1,616 → 2,036)
+
 ### Project Status: RELEASE READY
-All CLAUDE.md success criteria met. All C-16.4 release gate items verified.
+All CLAUDE.md success criteria met. All C-16.4 release gate items verified. Phase 6 adversary findings resolved.

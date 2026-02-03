@@ -327,6 +327,36 @@ async fn cmd_serve(
         tracing::info!("CORS: allowed origins: {:?}", cors_origins);
     }
 
+    // Parse trusted proxy IPs for secure X-Forwarded-For handling.
+    // When configured, per-IP rate limiting uses the rightmost untrusted XFF entry.
+    // When empty (default), proxy headers are ignored and connection IP is used directly.
+    let trusted_proxies: Vec<std::net::IpAddr> = std::env::var("SENTINEL_TRUSTED_PROXIES")
+        .ok()
+        .map(|s| {
+            s.split(',')
+                .filter_map(|ip| {
+                    let trimmed = ip.trim();
+                    match trimmed.parse::<std::net::IpAddr>() {
+                        Ok(ip) => Some(ip),
+                        Err(_) => {
+                            if !trimmed.is_empty() {
+                                tracing::warn!("Invalid trusted proxy IP: {:?}", trimmed);
+                            }
+                            None
+                        }
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if !trusted_proxies.is_empty() {
+        tracing::info!(
+            "Trusted proxies configured: {:?} — X-Forwarded-For headers will be trusted from these IPs",
+            trusted_proxies
+        );
+    }
+
     // Pre-compile policies for zero-Mutex evaluation on the hot path.
     // Falls back to legacy (per-call compilation) if any pattern is invalid.
     let engine = match PolicyEngine::with_policies(false, &policies) {
@@ -356,6 +386,7 @@ async fn cmd_serve(
         rate_limits,
         cors_origins,
         metrics: Arc::new(sentinel_server::Metrics::default()),
+        trusted_proxies: Arc::new(trusted_proxies),
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -447,10 +478,13 @@ async fn cmd_serve(
 
     tracing::info!("Sentinel server listening on {}:{}", bind, port);
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .context("Server error")?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .context("Server error")?;
 
     // Flush audit log with a 30-second timeout to prevent hanging on shutdown.
     let shutdown_deadline = std::time::Duration::from_secs(30);
@@ -696,17 +730,17 @@ async fn cmd_verify(audit: String, trusted_key: Option<String>, list_rotated: bo
     }
 
     // Summary
-    let all_valid = chain_result.valid && cp_result.valid;
+    let all_valid = chain_result.valid && cp_result.valid && !has_duplicates;
     println!();
     if all_valid {
-        if has_duplicates {
-            println!("Audit log integrity: VERIFIED (with warnings)");
-        } else {
-            println!("Audit log integrity: VERIFIED");
-        }
+        println!("Audit log integrity: VERIFIED");
+    } else if chain_result.valid && cp_result.valid && has_duplicates {
+        println!(
+            "Audit log integrity: FAILED (duplicate entry IDs detected — possible replay attack)"
+        );
+        std::process::exit(2);
     } else {
         println!("Audit log integrity: FAILED");
-        // Exit with non-zero to support scripting
         std::process::exit(1);
     }
 

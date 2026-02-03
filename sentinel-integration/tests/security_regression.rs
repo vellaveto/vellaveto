@@ -374,6 +374,7 @@ mod server_auth {
             rate_limits: Arc::new(RateLimits::disabled()),
             cors_origins: vec![],
             metrics: Arc::new(Metrics::default()),
+            trusted_proxies: Arc::new(vec![]),
         };
         (state, tmp)
     }
@@ -487,6 +488,7 @@ mod server_auth {
             rate_limits: Arc::new(RateLimits::disabled()),
             cors_origins: vec![],
             metrics: Arc::new(Metrics::default()),
+            trusted_proxies: Arc::new(vec![]),
         };
         let app = routes::build_router(state);
 
@@ -1077,6 +1079,7 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         rate_limits: Arc::new(RateLimits::disabled()),
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
     };
 
     let app = routes::build_router(state);
@@ -1154,6 +1157,7 @@ async fn finding_12_approval_creation_failure_denies_request() {
         rate_limits: Arc::new(RateLimits::disabled()),
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
     };
 
     let app = routes::build_router(state);

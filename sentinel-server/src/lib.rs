@@ -28,36 +28,78 @@ pub struct RateLimits {
 ///
 /// Each unique client IP gets its own governor bucket. Stale entries
 /// (no requests for 1 hour) are periodically cleaned up.
+///
+/// A configurable max capacity prevents memory exhaustion from
+/// attackers spoofing large numbers of unique source IPs.
 pub struct PerIpRateLimiter {
     buckets: dashmap::DashMap<std::net::IpAddr, (governor::DefaultDirectRateLimiter, Instant)>,
     quota: Quota,
+    max_capacity: usize,
 }
+
+/// Default maximum number of unique IPs tracked simultaneously (~15MB).
+/// Beyond this limit, new IPs are rate-limited immediately (fail-closed)
+/// until the periodic cleanup frees slots.
+pub const DEFAULT_MAX_IP_CAPACITY: usize = 100_000;
 
 impl PerIpRateLimiter {
     pub fn new(rps: NonZeroU32) -> Self {
         Self {
             buckets: dashmap::DashMap::new(),
             quota: Quota::per_second(rps),
+            max_capacity: DEFAULT_MAX_IP_CAPACITY,
+        }
+    }
+
+    /// Create with a custom max capacity (useful for testing).
+    pub fn with_max_capacity(rps: NonZeroU32, max_capacity: usize) -> Self {
+        Self {
+            buckets: dashmap::DashMap::new(),
+            quota: Quota::per_second(rps),
+            max_capacity,
         }
     }
 
     /// Check the rate limit for a given IP. Returns `None` if allowed,
     /// `Some(retry_after_secs)` if rate-limited.
+    ///
+    /// Uses a two-phase lookup to avoid TOCTOU races: first tries `get_mut`
+    /// for existing entries, then checks capacity before inserting new ones.
+    /// If the number of tracked IPs exceeds max capacity, unknown IPs are
+    /// immediately rate-limited (fail-closed) to prevent memory DoS.
     pub fn check(&self, ip: std::net::IpAddr) -> Option<u64> {
         let now = Instant::now();
-        let mut entry = self
-            .buckets
-            .entry(ip)
-            .or_insert_with(|| (RateLimiter::direct(self.quota), now));
-        // Update last-seen timestamp
-        entry.value_mut().1 = now;
-        match entry.value().0.check() {
+
+        // Fast path: existing IP — no capacity check needed
+        if let Some(mut entry) = self.buckets.get_mut(&ip) {
+            entry.value_mut().1 = now;
+            return match entry.value().0.check() {
+                Ok(()) => None,
+                Err(not_until) => {
+                    let wait =
+                        not_until.wait_time_from(governor::clock::DefaultClock::default().now());
+                    Some(wait.as_secs().max(1))
+                }
+            };
+        }
+
+        // New IP — check capacity before inserting (fail-closed)
+        if self.buckets.len() >= self.max_capacity {
+            return Some(60); // Ask client to retry in 60s (cleanup will free slots)
+        }
+
+        // Insert new bucket and consume the first token.
+        // We must call .check() on the new limiter so it counts against the quota.
+        let limiter = RateLimiter::direct(self.quota);
+        let result = match limiter.check() {
             Ok(()) => None,
             Err(not_until) => {
                 let wait = not_until.wait_time_from(governor::clock::DefaultClock::default().now());
                 Some(wait.as_secs().max(1))
             }
-        }
+        };
+        self.buckets.insert(ip, (limiter, now));
+        result
     }
 
     /// Remove entries that haven't been seen for the given duration.
@@ -74,6 +116,11 @@ impl PerIpRateLimiter {
     /// Whether any IPs are tracked.
     pub fn is_empty(&self) -> bool {
         self.buckets.is_empty()
+    }
+
+    /// Maximum capacity for tracked IPs.
+    pub fn max_capacity(&self) -> usize {
+        self.max_capacity
     }
 }
 
@@ -179,6 +226,12 @@ pub struct AppState {
     pub cors_origins: Vec<String>,
     /// Operational metrics counters.
     pub metrics: Arc<Metrics>,
+    /// Trusted reverse proxy IPs. When non-empty, `X-Forwarded-For` is only
+    /// trusted if the connection originates from one of these IPs. The
+    /// **rightmost untrusted** entry in the XFF chain is used as the client IP.
+    /// When empty (default), proxy headers are ignored entirely and the
+    /// connection IP is used directly.
+    pub trusted_proxies: Arc<Vec<std::net::IpAddr>>,
 }
 
 /// Reload policies from the config file and recompile the engine.

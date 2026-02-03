@@ -4,7 +4,7 @@
 **Model:** Claude Opus 4.5
 **Date:** 2026-02-03
 **Authority:** Independent. Findings are attack demonstrations, not suggestions.
-**Status:** ACTIVE — Phase 6: Per-IP Rate Limiter Audit. 7 new findings with exploit tests. 2,029 tests, 0 failures.
+**Status:** Phase 6 COMPLETE — Per-IP Rate Limiter Audit. 7 findings (2 HIGH, 1 MEDIUM, 4 LOW) — ALL FIXED. Exploit tests rewritten as 9 regression tests verifying fixes. 2,036 tests, 0 failures. Prior findings: 20 total (17 audit + 3 engine), all fixed. **Grand total: 27 findings, 26 fixed, 1 documented.**
 
 ---
 
@@ -24,13 +24,13 @@ Audited uncommitted per-IP rate limiting feature across:
 
 | # | Severity | Title | Status |
 |---|----------|-------|--------|
-| 18 | HIGH | Per-IP rate limit bypass via X-Forwarded-For spoofing | **OPEN** |
-| 19 | MEDIUM | Unbounded DashMap growth — memory exhaustion DoS | **OPEN** |
-| 20 | LOW | All direct clients collapse to 127.0.0.1 bucket | **OPEN** |
-| 21 | HIGH | IP impersonation exhausts victim's rate limit | **OPEN** |
-| 22 | LOW | Verify command exits 0 on duplicate IDs (replay attacks pass) | **OPEN** |
-| 23 | LOW | X-Forwarded-For leftmost IP is attacker-controlled | **OPEN** |
-| 24 | LOW | Error response reveals rate limit layer type | **OPEN** |
+| 18 | HIGH | Per-IP rate limit bypass via X-Forwarded-For spoofing | **FIXED** — trusted_proxies model, ConnectInfo |
+| 19 | MEDIUM | Unbounded DashMap growth — memory exhaustion DoS | **FIXED** — max_capacity with fail-closed |
+| 20 | LOW | All direct clients collapse to 127.0.0.1 bucket | **FIXED** — ConnectInfo<SocketAddr> used |
+| 21 | HIGH | IP impersonation exhausts victim's rate limit | **FIXED** — XFF ignored without trusted_proxies |
+| 22 | LOW | Verify command exits 0 on duplicate IDs (replay attacks pass) | **FIXED** — exit code 2 on duplicates |
+| 23 | LOW | X-Forwarded-For leftmost IP is attacker-controlled | **FIXED** — rightmost-untrusted pattern |
+| 24 | LOW | Error response reveals rate limit layer type | **FIXED** — unified generic error message |
 
 ### Challenge 18: Per-IP Rate Limit Bypass via X-Forwarded-For Spoofing (HIGH)
 
@@ -112,9 +112,23 @@ The per-IP 429 response says "Per-IP rate limit exceeded" while the global says 
 
 **Fix:** Use the same generic error message for both rate limit types.
 
-### Exploit Tests Created
+### Regression Tests (Exploit → Fix Verification)
 
-File: `sentinel-server/tests/test_per_ip_adversarial.rs` — 7 tests, all passing.
+File: `sentinel-server/tests/test_per_ip_adversarial.rs` — 9 regression tests, all passing.
+
+Original exploit tests demonstrated each vulnerability with working payloads. After all fixes were applied, tests were rewritten to verify the fixes hold:
+
+| Test | Verifies |
+|------|----------|
+| `regression_18_xff_spoofing_blocked_without_trusted_proxies` | XFF ignored when trusted_proxies empty |
+| `regression_18_xri_spoofing_blocked_without_trusted_proxies` | X-Real-IP also ignored |
+| `regression_19_dashmap_growth_bounded` | max_capacity enforced, fail-closed |
+| `regression_19_cleanup_frees_capacity` | Cleanup frees slots for new IPs |
+| `regression_20_direct_clients_use_connection_ip` | Connection IP used, not headers |
+| `regression_21_ip_impersonation_blocked` | Spoofed XFF doesn't affect victim |
+| `regression_23_xff_ignored_without_trusted_proxies` | Leftmost XFF manipulation has no effect |
+| `regression_24_error_message_does_not_leak_architecture` | Generic error, no "Per-IP" leak |
+| `regression_max_capacity_accessor` | Default and custom capacity values |
 
 ---
 
@@ -249,7 +263,16 @@ External research conducted:
 | 15 | MEDIUM | HTTP proxy shutdown audit loss | **FIXED** (Adversary) | YES |
 | 16 | LOW | No TLS pinning for JWKS | **DOCUMENTED** (infrastructure-level) | N/A |
 
-**Final score: 15/16 fixed, 1 documented. 0 open. All verified.**
+| 17 | HIGH | SSE buffer exhaustion DoS | **FIXED** (Adversary — 10MB limit) | YES |
+| 18 | HIGH | Per-IP rate limit XFF bypass | **FIXED** (trusted_proxies model) | YES |
+| 19 | MEDIUM | Unbounded DashMap growth | **FIXED** (max_capacity fail-closed) | YES |
+| 20 | LOW | Localhost rate limit collapse | **FIXED** (ConnectInfo) | YES |
+| 21 | HIGH | IP impersonation rate limit exhaustion | **FIXED** (XFF ignored without trusted_proxies) | YES |
+| 22 | LOW | Verify exits 0 on duplicate IDs | **FIXED** (exit code 2) | YES |
+| 23 | LOW | XFF leftmost attacker-controlled | **FIXED** (rightmost-untrusted) | YES |
+| 24 | LOW | Error leaks rate limit type | **FIXED** (unified message) | YES |
+
+**Final score: 26/27 fixed, 1 documented. 0 open. All verified.**
 
 ---
 
@@ -307,7 +330,7 @@ Full adversarial re-sweep of all recent changes across the entire workspace. Two
 
 ### Final Status
 
-**17 total findings. 16 fixed (including 1 new SSE DoS), 1 documented. 0 open.**
+**17 findings through Phase 4. 16 fixed (including 1 new SSE DoS), 1 documented. 0 open. Phase 6 added 7 more (all fixed).**
 
 ---
 

@@ -694,12 +694,12 @@ async fn rate_limit(State(state): State<AppState>, request: Request, next: Next)
 
     // Per-IP rate limiting (checked before global to catch single-IP floods)
     if let Some(ref per_ip) = state.rate_limits.per_ip {
-        let client_ip = extract_client_ip(&request);
+        let client_ip = extract_client_ip(&request, &state.trusted_proxies);
         if let Some(retry_after) = per_ip.check(client_ip) {
             return (
                 StatusCode::TOO_MANY_REQUESTS,
                 [(header::RETRY_AFTER, retry_after.to_string())],
-                Json(json!({"error": "Per-IP rate limit exceeded. Try again later.", "retry_after_seconds": retry_after})),
+                Json(json!({"error": "Rate limit exceeded. Try again later.", "retry_after_seconds": retry_after})),
             )
                 .into_response();
         }
@@ -724,24 +724,53 @@ async fn rate_limit(State(state): State<AppState>, request: Request, next: Next)
     next.run(request).await
 }
 
-/// Extract the client IP from the request.
+/// Extract the client IP from the request using a secure trust model.
 ///
-/// Checks `X-Forwarded-For` (first IP in chain), then `X-Real-IP`,
-/// then falls back to 127.0.0.1. In production, ensure the reverse proxy
-/// sets these headers and strip any client-supplied values.
-fn extract_client_ip(request: &Request) -> std::net::IpAddr {
-    // X-Forwarded-For: client, proxy1, proxy2 — take the first (client)
+/// **When `trusted_proxies` is empty (default):** Proxy headers (`X-Forwarded-For`,
+/// `X-Real-IP`) are ignored entirely. The connection IP from `ConnectInfo` is used,
+/// falling back to 127.0.0.1 in test environments without real connections.
+/// This prevents spoofing attacks where clients set arbitrary proxy headers.
+///
+/// **When `trusted_proxies` is configured:** The **rightmost untrusted** IP from the
+/// `X-Forwarded-For` chain is used (RFC 7239). This is the last entry NOT in the
+/// trusted proxy list. The leftmost entry is always attacker-controlled and must
+/// never be used directly.
+fn extract_client_ip(request: &Request, trusted_proxies: &[std::net::IpAddr]) -> std::net::IpAddr {
+    // Get the real TCP connection IP from ConnectInfo (set by axum when using
+    // into_make_service_with_connect_info). Falls back to localhost in tests.
+    let connection_ip = request
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|ci| ci.0.ip())
+        .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
+
+    // If no trusted proxies configured, never trust proxy headers.
+    // This is the safe default that prevents XFF spoofing.
+    if trusted_proxies.is_empty() {
+        return connection_ip;
+    }
+
+    // Only trust proxy headers if the direct connection comes from a trusted proxy.
+    if !trusted_proxies.contains(&connection_ip) {
+        return connection_ip;
+    }
+
+    // Trusted proxy path: parse X-Forwarded-For and find the rightmost
+    // entry that is NOT a trusted proxy. This is the real client IP.
     if let Some(xff) = request.headers().get("x-forwarded-for") {
         if let Ok(val) = xff.to_str() {
-            if let Some(first) = val.split(',').next() {
-                if let Ok(ip) = first.trim().parse::<std::net::IpAddr>() {
-                    return ip;
+            // Walk from right to left, skipping trusted proxy IPs.
+            for entry in val.rsplit(',') {
+                if let Ok(ip) = entry.trim().parse::<std::net::IpAddr>() {
+                    if !trusted_proxies.contains(&ip) {
+                        return ip;
+                    }
                 }
             }
         }
     }
 
-    // X-Real-IP: single IP set by the reverse proxy
+    // Fall back to X-Real-IP if set by a trusted proxy
     if let Some(xri) = request.headers().get("x-real-ip") {
         if let Ok(val) = xri.to_str() {
             if let Ok(ip) = val.trim().parse::<std::net::IpAddr>() {
@@ -750,8 +779,8 @@ fn extract_client_ip(request: &Request) -> std::net::IpAddr {
         }
     }
 
-    // Fallback — no proxy headers available
-    std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+    // All XFF entries were trusted proxies — use connection IP
+    connection_ip
 }
 
 fn categorize_rate_limit<'a>(

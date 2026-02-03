@@ -42,6 +42,7 @@ fn make_state() -> (AppState, TempDir) {
         rate_limits: Arc::new(RateLimits::disabled()),
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
     };
     (state, tmp)
 }
@@ -61,6 +62,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         rate_limits: Arc::new(RateLimits::disabled()),
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
     };
     (state, tmp)
 }
@@ -449,6 +451,7 @@ priority = 1
         rate_limits: Arc::new(RateLimits::disabled()),
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
     };
     let policies = state.policies.clone();
     let app = routes::build_router(state);

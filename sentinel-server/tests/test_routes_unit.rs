@@ -41,6 +41,7 @@ fn test_state() -> (AppState, TempDir) {
         rate_limits: Arc::new(RateLimits::disabled()),
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
     };
     (state, tmp)
 }
@@ -382,6 +383,7 @@ async fn health_not_rate_limited() {
         rate_limits: Arc::new(RateLimits::new(Some(1), Some(1), Some(1))),
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
     };
 
     // Rapid /health requests must all succeed despite strict rate limit
@@ -420,6 +422,7 @@ async fn rate_limit_429_includes_retry_after() {
         rate_limits: Arc::new(RateLimits::new(Some(1), None, None)),
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -530,6 +533,8 @@ async fn remove_policy_creates_audit_entry() {
 #[tokio::test]
 async fn per_ip_rate_limit_throttles_single_ip() {
     let tmp = TempDir::new().unwrap();
+    // Trust 127.0.0.1 as a proxy so XFF headers are honored in tests.
+    // Without this, all requests use the connection IP and XFF is ignored.
     let state = AppState {
         engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
         policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
@@ -550,6 +555,7 @@ async fn per_ip_rate_limit_throttles_single_ip() {
         ),
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)]),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -630,6 +636,7 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
         ),
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -685,6 +692,7 @@ async fn per_ip_health_exempt_from_rate_limit() {
         ),
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
     };
 
     // Multiple health checks from same IP should all succeed
@@ -704,4 +712,356 @@ async fn per_ip_health_exempt_from_rate_limit() {
             "Health endpoint must be exempt from per-IP rate limiting"
         );
     }
+}
+
+#[tokio::test]
+async fn per_ip_rate_limit_ipv6_addresses() {
+    let tmp = TempDir::new().unwrap();
+    // Trust 127.0.0.1 as a proxy so XFF headers are honored in tests.
+    let state = AppState {
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
+        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
+            id: "file:read".to_string(),
+            name: "Allow".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+        }])),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("test.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: None,
+        rate_limits: Arc::new(
+            RateLimits::new(None, None, None).with_per_ip(std::num::NonZeroU32::new(1).unwrap()),
+        ),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)]),
+    };
+
+    let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
+
+    // IPv6 address should be correctly parsed and tracked
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-for", "::1")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        resp.status().is_success(),
+        "First IPv6 request must succeed"
+    );
+
+    // Second rapid request from same IPv6 address — should be throttled
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-for", "::1")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "Second rapid IPv6 request must be 429"
+    );
+
+    // Different IPv6 address should have independent bucket
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-for", "2001:db8::1")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        resp.status().is_success(),
+        "Different IPv6 address must have independent bucket"
+    );
+}
+
+#[tokio::test]
+async fn per_ip_rate_limit_malformed_xff_falls_back() {
+    let tmp = TempDir::new().unwrap();
+    let state = AppState {
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
+        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
+            id: "file:read".to_string(),
+            name: "Allow".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+        }])),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("test.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: None,
+        rate_limits: Arc::new(
+            RateLimits::new(None, None, None).with_per_ip(std::num::NonZeroU32::new(1).unwrap()),
+        ),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
+    };
+
+    let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
+
+    // Malformed X-Forwarded-For should fall back to 127.0.0.1
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-for", "not-an-ip")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        resp.status().is_success(),
+        "Malformed XFF should fall back to 127.0.0.1 and succeed"
+    );
+
+    // Second request with DIFFERENT malformed XFF also falls back to 127.0.0.1
+    // so it shares the same bucket and gets throttled
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-for", "also-not-an-ip")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "Different malformed XFF values must share 127.0.0.1 bucket"
+    );
+}
+
+#[tokio::test]
+async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
+    let tmp = TempDir::new().unwrap();
+    let state = AppState {
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
+        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
+            id: "file:read".to_string(),
+            name: "Allow".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+        }])),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("test.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: None,
+        rate_limits: Arc::new(
+            RateLimits::new(None, None, None).with_per_ip(std::num::NonZeroU32::new(1).unwrap()),
+        ),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
+    };
+
+    let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
+
+    // Multi-proxy chain: "client, proxy1, proxy2" — should extract first IP (client)
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-for", "10.1.1.1, 10.2.2.2, 10.3.3.3")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        resp.status().is_success(),
+        "First request from chain must succeed"
+    );
+
+    // Same client IP in chain — should be throttled
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-for", "10.1.1.1, 10.9.9.9")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "Same first IP in different chains must share bucket"
+    );
+}
+
+#[tokio::test]
+async fn per_ip_rate_limit_no_headers_uses_localhost() {
+    let tmp = TempDir::new().unwrap();
+    let state = AppState {
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
+        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
+            id: "file:read".to_string(),
+            name: "Allow".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+        }])),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("test.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: None,
+        rate_limits: Arc::new(
+            RateLimits::new(None, None, None).with_per_ip(std::num::NonZeroU32::new(1).unwrap()),
+        ),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
+    };
+
+    let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
+
+    // No proxy headers at all — falls back to 127.0.0.1
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        resp.status().is_success(),
+        "First request with no headers must succeed"
+    );
+
+    // Second request — same bucket (127.0.0.1)
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "All no-header requests must share 127.0.0.1 bucket"
+    );
+}
+
+#[tokio::test]
+async fn per_ip_rate_limit_429_response_body_format() {
+    let tmp = TempDir::new().unwrap();
+    let state = AppState {
+        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
+        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
+            id: "file:read".to_string(),
+            name: "Allow".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+        }])),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("test.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: None,
+        rate_limits: Arc::new(
+            RateLimits::new(None, None, None).with_per_ip(std::num::NonZeroU32::new(1).unwrap()),
+        ),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
+    };
+
+    let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
+
+    // Burn the first request
+    let app = routes::build_router(state.clone());
+    let _ = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-for", "10.5.5.5")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Second request triggers 429 — verify response body structure
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-for", "10.5.5.5")
+                .body(Body::from(body_str))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    // Verify Retry-After header is present and numeric
+    let retry_after = resp
+        .headers()
+        .get("retry-after")
+        .expect("429 response must include Retry-After header")
+        .to_str()
+        .unwrap();
+    let retry_secs: u64 = retry_after.parse().expect("Retry-After must be a number");
+    assert!(retry_secs >= 1, "Retry-After must be at least 1 second");
+
+    // Verify JSON body structure
+    let body_bytes = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert!(
+        body["error"].is_string(),
+        "Response must include 'error' string"
+    );
+    assert!(
+        body["retry_after_seconds"].is_number(),
+        "Response must include 'retry_after_seconds' number"
+    );
 }
