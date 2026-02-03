@@ -5799,4 +5799,406 @@ mod tests {
         assert!(matches!(verdict_d, Verdict::Deny { .. }));
         assert!(matches!(trace_d.verdict, Verdict::Deny { .. }));
     }
+
+    // ═══════════════════════════════════════════════════
+    // PROPERTY-BASED TESTS (proptest)
+    // ═══════════════════════════════════════════════════
+
+    mod proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        // ── Strategy definitions ──────────────────────────────
+
+        fn arb_tool_name() -> impl Strategy<Value = String> {
+            "[a-z_]{1,20}"
+        }
+
+        fn arb_function_name() -> impl Strategy<Value = String> {
+            "[a-z_]{1,20}"
+        }
+
+        fn arb_params() -> impl Strategy<Value = serde_json::Value> {
+            proptest::collection::vec(
+                ("[a-z_]{1,10}", "[a-zA-Z0-9_]{0,20}"),
+                0..=5,
+            )
+            .prop_map(|pairs| {
+                let map: serde_json::Map<String, serde_json::Value> = pairs
+                    .into_iter()
+                    .map(|(k, v)| (k, serde_json::Value::String(v)))
+                    .collect();
+                serde_json::Value::Object(map)
+            })
+        }
+
+        fn arb_action() -> impl Strategy<Value = Action> {
+            (arb_tool_name(), arb_function_name(), arb_params()).prop_map(
+                |(tool, function, parameters)| Action {
+                    tool,
+                    function,
+                    parameters,
+                },
+            )
+        }
+
+        fn arb_path() -> impl Strategy<Value = String> {
+            proptest::collection::vec(
+                prop_oneof![
+                    "[a-z]{1,8}",
+                    Just("..".to_string()),
+                    Just(".".to_string()),
+                ],
+                1..=6,
+            )
+            .prop_map(|segments| format!("/{}", segments.join("/")))
+        }
+
+        // ── Core Invariants ──────────────────────────────────
+
+        proptest! {
+            /// evaluate_action called twice on the same input produces the same verdict.
+            #[test]
+            fn prop_evaluate_deterministic(action in arb_action()) {
+                let engine = PolicyEngine::new(false);
+                let policies = vec![
+                    Policy {
+                        id: "test:*".to_string(),
+                        name: "Allow test".to_string(),
+                        policy_type: PolicyType::Allow,
+                        priority: 100,
+                    },
+                ];
+                let v1 = engine.evaluate_action(&action, &policies).unwrap();
+                let v2 = engine.evaluate_action(&action, &policies).unwrap();
+                prop_assert_eq!(
+                    format!("{:?}", v1),
+                    format!("{:?}", v2),
+                    "evaluate_action must be deterministic"
+                );
+            }
+
+            /// Compiled path: evaluate_with_compiled called twice produces same verdict.
+            #[test]
+            fn prop_compiled_deterministic(action in arb_action()) {
+                let policies = vec![
+                    Policy {
+                        id: "*".to_string(),
+                        name: "Allow all".to_string(),
+                        policy_type: PolicyType::Allow,
+                        priority: 50,
+                    },
+                ];
+                let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+                let v1 = engine.evaluate_action(&action, &[]).unwrap();
+                let v2 = engine.evaluate_action(&action, &[]).unwrap();
+                prop_assert_eq!(
+                    format!("{:?}", v1),
+                    format!("{:?}", v2),
+                    "compiled evaluate must be deterministic"
+                );
+            }
+
+            /// Empty policy set always produces Deny (fail-closed).
+            #[test]
+            fn prop_empty_policies_deny(action in arb_action()) {
+                let engine = PolicyEngine::new(false);
+                let verdict = engine.evaluate_action(&action, &[]).unwrap();
+                prop_assert!(
+                    matches!(verdict, Verdict::Deny { .. }),
+                    "empty policies must deny, got {:?}",
+                    verdict
+                );
+            }
+
+            /// Non-matching policies produce Deny (fail-closed).
+            #[test]
+            fn prop_no_match_denies(
+                tool in arb_tool_name(),
+                function in arb_function_name(),
+            ) {
+                let engine = PolicyEngine::new(false);
+                let action = Action {
+                    tool,
+                    function,
+                    parameters: json!({}),
+                };
+                // Policy for a tool name that can never match [a-z_]{1,20}
+                let policies = vec![Policy {
+                    id: "ZZZZZ-NEVER-MATCHES:nope".to_string(),
+                    name: "Unreachable".to_string(),
+                    policy_type: PolicyType::Allow,
+                    priority: 100,
+                }];
+                let verdict = engine.evaluate_action(&action, &policies).unwrap();
+                prop_assert!(
+                    matches!(verdict, Verdict::Deny { .. }),
+                    "non-matching policies must deny, got {:?}",
+                    verdict
+                );
+            }
+
+            /// Wildcard policy `*` matches any tool/function.
+            #[test]
+            fn prop_wildcard_matches_all(action in arb_action()) {
+                let policies = vec![Policy {
+                    id: "*".to_string(),
+                    name: "Wildcard".to_string(),
+                    policy_type: PolicyType::Allow,
+                    priority: 100,
+                }];
+                let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+                let verdict = engine.evaluate_action(&action, &[]).unwrap();
+                prop_assert!(
+                    matches!(verdict, Verdict::Allow),
+                    "wildcard policy must allow all, got {:?}",
+                    verdict
+                );
+            }
+        }
+
+        // ── Priority & Override Rules ────────────────────────
+
+        proptest! {
+            /// Higher-priority Deny overrides lower-priority Allow.
+            #[test]
+            fn prop_higher_priority_deny_wins(
+                tool in arb_tool_name(),
+                function in arb_function_name(),
+            ) {
+                let action = Action {
+                    tool: tool.clone(),
+                    function: function.clone(),
+                    parameters: json!({}),
+                };
+                let policies = vec![
+                    Policy {
+                        id: "*".to_string(),
+                        name: "Deny all".to_string(),
+                        policy_type: PolicyType::Deny,
+                        priority: 200,
+                    },
+                    Policy {
+                        id: "*".to_string(),
+                        name: "Allow all".to_string(),
+                        policy_type: PolicyType::Allow,
+                        priority: 100,
+                    },
+                ];
+                let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+                let verdict = engine.evaluate_action(&action, &[]).unwrap();
+                prop_assert!(
+                    matches!(verdict, Verdict::Deny { .. }),
+                    "higher priority deny must win, got {:?}",
+                    verdict
+                );
+            }
+
+            /// At equal priority, Deny wins over Allow (deny-overrides).
+            #[test]
+            fn prop_deny_wins_at_equal_priority(
+                tool in arb_tool_name(),
+                function in arb_function_name(),
+            ) {
+                let action = Action {
+                    tool: tool.clone(),
+                    function: function.clone(),
+                    parameters: json!({}),
+                };
+                let policies = vec![
+                    Policy {
+                        id: "*".to_string(),
+                        name: "Deny all".to_string(),
+                        policy_type: PolicyType::Deny,
+                        priority: 100,
+                    },
+                    Policy {
+                        id: "*".to_string(),
+                        name: "Allow all".to_string(),
+                        policy_type: PolicyType::Allow,
+                        priority: 100,
+                    },
+                ];
+                let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+                let verdict = engine.evaluate_action(&action, &[]).unwrap();
+                prop_assert!(
+                    matches!(verdict, Verdict::Deny { .. }),
+                    "deny must win at equal priority, got {:?}",
+                    verdict
+                );
+            }
+        }
+
+        // ── Path / Domain Safety ─────────────────────────────
+
+        proptest! {
+            /// normalize_path is idempotent: normalizing twice yields same result.
+            #[test]
+            fn prop_normalize_path_idempotent(path in arb_path()) {
+                let once = PolicyEngine::normalize_path(&path);
+                let twice = PolicyEngine::normalize_path(&once);
+                prop_assert_eq!(
+                    &once, &twice,
+                    "normalize_path must be idempotent: '{}' -> '{}' -> '{}'",
+                    path, once, twice
+                );
+            }
+
+            /// normalize_path is idempotent for percent-encoded input.
+            #[test]
+            fn prop_normalize_path_encoded_idempotent(
+                seg in "[a-z]{1,5}",
+            ) {
+                // Encode each character as %XX
+                let encoded: String = seg.bytes()
+                    .map(|b| format!("%{:02X}", b))
+                    .collect();
+                let input = format!("/{}", encoded);
+                let once = PolicyEngine::normalize_path(&input);
+                let twice = PolicyEngine::normalize_path(&once);
+                prop_assert_eq!(
+                    &once, &twice,
+                    "normalize_path must be idempotent on encoded input: '{}' -> '{}' -> '{}'",
+                    input, once, twice
+                );
+            }
+
+            /// normalize_path never returns an empty string.
+            #[test]
+            fn prop_normalize_path_never_empty(path in arb_path()) {
+                let result = PolicyEngine::normalize_path(&path);
+                prop_assert!(
+                    !result.is_empty(),
+                    "normalize_path must never return empty string for input '{}'",
+                    path
+                );
+            }
+
+            /// extract_domain always returns a lowercase string.
+            #[test]
+            fn prop_extract_domain_lowercase(
+                scheme in prop_oneof![Just("http"), Just("https"), Just("ftp")],
+                host in "[a-zA-Z]{1,10}(\\.[a-zA-Z]{1,5}){1,3}",
+            ) {
+                let url = format!("{}://{}/path", scheme, host);
+                let domain = PolicyEngine::extract_domain(&url);
+                let lowered = domain.to_lowercase();
+                prop_assert_eq!(
+                    &domain, &lowered,
+                    "extract_domain must return lowercase for '{}'",
+                    url
+                );
+            }
+
+            /// Blocked glob pattern always produces Deny via not_glob constraint.
+            #[test]
+            fn prop_blocked_glob_always_denies(
+                user in "[a-z]{1,8}",
+                suffix in "[a-z_/.]{0,15}",
+            ) {
+                let path = format!("/home/{}/.aws/{}", user, suffix);
+                let action = Action {
+                    tool: "file_system".to_string(),
+                    function: "read_file".to_string(),
+                    parameters: json!({ "path": path }),
+                };
+                // not_glob denies when the path does NOT match the allowlist.
+                // A path under .aws should NOT be in a project allowlist.
+                let policy = Policy {
+                    id: "file_system:read_file".to_string(),
+                    name: "Block outside project".to_string(),
+                    policy_type: PolicyType::Conditional {
+                        conditions: json!({
+                            "parameter_constraints": [
+                                {
+                                    "param": "path",
+                                    "op": "not_glob",
+                                    "patterns": ["/home/*/project/**", "/tmp/**"],
+                                    "on_match": "deny"
+                                }
+                            ]
+                        }),
+                    },
+                    priority: 200,
+                };
+                let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+                let verdict = engine.evaluate_action(&action, &[]).unwrap();
+                prop_assert!(
+                    matches!(verdict, Verdict::Deny { .. }),
+                    "path '{}' under .aws must be denied, got {:?}",
+                    path,
+                    verdict
+                );
+            }
+        }
+
+        // ── Parameter Resolution ─────────────────────────────
+
+        proptest! {
+            /// Ambiguous dotted path (literal key vs nested traversal disagree) returns None.
+            #[test]
+            fn prop_ambiguous_dotted_path_none(
+                key_a in "[a-z]{1,5}",
+                key_b in "[a-z]{1,5}",
+                val_literal in "[A-Z]{1,5}",
+                val_nested in "[0-9]{1,5}",
+            ) {
+                // Only test when the two values actually differ
+                prop_assume!(val_literal != val_nested);
+                let dotted = format!("{}.{}", key_a, key_b);
+                // Build params with both a literal "a.b" key and a nested a.b path
+                let params = json!({
+                    dotted.clone(): val_literal,
+                    key_a.clone(): { key_b.clone(): val_nested },
+                });
+                let result = PolicyEngine::get_param_by_path(&params, &dotted);
+                prop_assert!(
+                    result.is_none(),
+                    "ambiguous dotted path '{}' must return None, got {:?}",
+                    dotted,
+                    result
+                );
+            }
+
+            /// When literal key and nested traversal agree, resolution succeeds.
+            #[test]
+            fn prop_same_value_dotted_path_resolves(
+                key_a in "[a-z]{1,5}",
+                key_b in "[a-z]{1,5}",
+                val in "[a-z0-9]{1,10}",
+            ) {
+                let dotted = format!("{}.{}", key_a, key_b);
+                let params = json!({
+                    dotted.clone(): val.clone(),
+                    key_a.clone(): { key_b.clone(): val.clone() },
+                });
+                let result = PolicyEngine::get_param_by_path(&params, &dotted);
+                prop_assert!(
+                    result.is_some(),
+                    "agreeing dotted path '{}' must resolve, got None",
+                    dotted
+                );
+                prop_assert_eq!(
+                    result.unwrap().as_str().unwrap(),
+                    val.as_str(),
+                    "resolved value must match"
+                );
+            }
+        }
+
+        // ── Pattern Matching ─────────────────────────────────
+
+        proptest! {
+            /// PatternMatcher::Exact compiled from a literal always matches itself.
+            #[test]
+            fn prop_pattern_matcher_exact_self(s in "[a-z_]{1,20}") {
+                let matcher = PatternMatcher::compile(&s);
+                prop_assert!(
+                    matcher.matches(&s),
+                    "PatternMatcher::compile('{}').matches('{}') must be true",
+                    s, s
+                );
+            }
+        }
+    }
 }
