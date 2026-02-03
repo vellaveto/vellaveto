@@ -21,6 +21,13 @@ crates/
 scripts/agent_generated/
 policies/
 
+# Internal collaboration / session files
+.collab/
+.failures/
+.session-state.md
+.backups.log
+TASKS.md
+
 # OS
 .DS_Store
 Thumbs.db
