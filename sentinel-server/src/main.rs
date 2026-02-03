@@ -729,16 +729,27 @@ async fn cmd_verify(audit: String, trusted_key: Option<String>, list_rotated: bo
         }
     }
 
-    // Summary
-    let all_valid = chain_result.valid && cp_result.valid && !has_duplicates;
+    // Summary — exit codes:
+    //   0 = all valid
+    //   1 = chain or checkpoint integrity failure
+    //   2 = duplicate entry IDs detected (possible replay attack)
+    // Duplicates are checked first because they indicate a specific attack
+    // vector (replay) that is actionable regardless of chain status.
+    let chain_ok = chain_result.valid && cp_result.valid;
     println!();
-    if all_valid {
-        println!("Audit log integrity: VERIFIED");
-    } else if chain_result.valid && cp_result.valid && has_duplicates {
-        println!(
-            "Audit log integrity: FAILED (duplicate entry IDs detected — possible replay attack)"
-        );
+    if has_duplicates {
+        if chain_ok {
+            println!(
+                "Audit log integrity: FAILED (duplicate entry IDs detected — possible replay attack)"
+            );
+        } else {
+            println!(
+                "Audit log integrity: FAILED (chain/checkpoint invalid + duplicate entry IDs)"
+            );
+        }
         std::process::exit(2);
+    } else if chain_ok {
+        println!("Audit log integrity: VERIFIED");
     } else {
         println!("Audit log integrity: FAILED");
         std::process::exit(1);
