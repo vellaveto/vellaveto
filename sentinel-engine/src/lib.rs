@@ -5819,17 +5819,15 @@ mod tests {
         }
 
         fn arb_params() -> impl Strategy<Value = serde_json::Value> {
-            proptest::collection::vec(
-                ("[a-z_]{1,10}", "[a-zA-Z0-9_]{0,20}"),
-                0..=5,
+            proptest::collection::vec(("[a-z_]{1,10}", "[a-zA-Z0-9_]{0,20}"), 0..=5).prop_map(
+                |pairs| {
+                    let map: serde_json::Map<String, serde_json::Value> = pairs
+                        .into_iter()
+                        .map(|(k, v)| (k, serde_json::Value::String(v)))
+                        .collect();
+                    serde_json::Value::Object(map)
+                },
             )
-            .prop_map(|pairs| {
-                let map: serde_json::Map<String, serde_json::Value> = pairs
-                    .into_iter()
-                    .map(|(k, v)| (k, serde_json::Value::String(v)))
-                    .collect();
-                serde_json::Value::Object(map)
-            })
         }
 
         fn arb_action() -> impl Strategy<Value = Action> {
@@ -5844,11 +5842,7 @@ mod tests {
 
         fn arb_path() -> impl Strategy<Value = String> {
             proptest::collection::vec(
-                prop_oneof![
-                    "[a-z]{1,8}",
-                    Just("..".to_string()),
-                    Just(".".to_string()),
-                ],
+                prop_oneof!["[a-z]{1,8}", Just("..".to_string()), Just(".".to_string()),],
                 1..=6,
             )
             .prop_map(|segments| format!("/{}", segments.join("/")))

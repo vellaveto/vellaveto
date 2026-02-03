@@ -231,8 +231,7 @@ impl ProxyBridge {
         audit: &AuditLogger,
     ) {
         let is_first_list = known.is_empty();
-        let result =
-            crate::rug_pull::detect_rug_pull(response, known, is_first_list);
+        let result = crate::rug_pull::detect_rug_pull(response, known, is_first_list);
 
         // Flag detected tools for blocking
         for name in result.flagged_tool_names() {

@@ -80,10 +80,7 @@ async fn read_bounded_response(
         }
     }
 
-    let capacity = std::cmp::min(
-        resp.content_length().unwrap_or(8192) as usize,
-        max_size,
-    );
+    let capacity = std::cmp::min(resp.content_length().unwrap_or(8192) as usize, max_size);
     let mut body = Vec::with_capacity(capacity);
 
     while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
@@ -121,8 +118,7 @@ async fn extract_annotations_from_response(
     };
 
     // Run shared detection algorithm
-    let result =
-        sentinel_mcp::rug_pull::detect_rug_pull(response, &known, is_first_list);
+    let result = sentinel_mcp::rug_pull::detect_rug_pull(response, &known, is_first_list);
 
     // Update session state with detection results
     if let Some(mut s) = sessions.get_mut(session_id) {

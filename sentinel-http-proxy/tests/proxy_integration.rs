@@ -2575,7 +2575,11 @@ async fn oauth_denied_tool_audit_includes_subject() {
 // API Key Authentication Tests (Exploit #7 — HTTP proxy parity)
 // ═══════════════════════════════════════════════════
 
-fn build_api_key_test_state(upstream_url: &str, tmp: &TempDir, api_key: Option<&str>) -> ProxyState {
+fn build_api_key_test_state(
+    upstream_url: &str,
+    tmp: &TempDir,
+    api_key: Option<&str>,
+) -> ProxyState {
     let policies = vec![
         Policy {
             id: "read_file:*".to_string(),
@@ -2609,7 +2613,8 @@ fn build_api_key_test_state(upstream_url: &str, tmp: &TempDir, api_key: Option<&
 #[tokio::test]
 async fn api_key_no_token_returns_401() {
     let tmp = TempDir::new().unwrap();
-    let state = build_api_key_test_state("http://localhost:9999/mcp", &tmp, Some("test-secret-key"));
+    let state =
+        build_api_key_test_state("http://localhost:9999/mcp", &tmp, Some("test-secret-key"));
     let app = build_router(state);
 
     let body = serde_json::to_string(&json!({
@@ -2638,7 +2643,8 @@ async fn api_key_no_token_returns_401() {
 #[tokio::test]
 async fn api_key_invalid_key_returns_401() {
     let tmp = TempDir::new().unwrap();
-    let state = build_api_key_test_state("http://localhost:9999/mcp", &tmp, Some("test-secret-key"));
+    let state =
+        build_api_key_test_state("http://localhost:9999/mcp", &tmp, Some("test-secret-key"));
     let app = build_router(state);
 
     let body = serde_json::to_string(&json!({
@@ -2732,7 +2738,8 @@ async fn api_key_none_allows_anonymous() {
 #[tokio::test]
 async fn api_key_delete_requires_auth() {
     let tmp = TempDir::new().unwrap();
-    let state = build_api_key_test_state("http://localhost:9999/mcp", &tmp, Some("test-secret-key"));
+    let state =
+        build_api_key_test_state("http://localhost:9999/mcp", &tmp, Some("test-secret-key"));
     let sessions = state.sessions.clone();
     let session_id = sessions.get_or_create(None);
     let app = build_router(state);
@@ -2756,7 +2763,8 @@ async fn api_key_delete_requires_auth() {
 #[tokio::test]
 async fn api_key_delete_with_valid_key_succeeds() {
     let tmp = TempDir::new().unwrap();
-    let state = build_api_key_test_state("http://localhost:9999/mcp", &tmp, Some("test-secret-key"));
+    let state =
+        build_api_key_test_state("http://localhost:9999/mcp", &tmp, Some("test-secret-key"));
     let sessions = state.sessions.clone();
     let session_id = sessions.get_or_create(None);
     let app = build_router(state);
@@ -2779,7 +2787,8 @@ async fn api_key_delete_with_valid_key_succeeds() {
 #[tokio::test]
 async fn api_key_health_endpoint_unauthenticated() {
     let tmp = TempDir::new().unwrap();
-    let state = build_api_key_test_state("http://localhost:9999/mcp", &tmp, Some("test-secret-key"));
+    let state =
+        build_api_key_test_state("http://localhost:9999/mcp", &tmp, Some("test-secret-key"));
     let app = build_router(state);
 
     // GET /health should work without API key
