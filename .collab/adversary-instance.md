@@ -4,7 +4,7 @@
 **Model:** Claude Opus 4.5
 **Date:** 2026-02-03
 **Authority:** Independent. Findings are attack demonstrations, not suggestions.
-**Status:** CLOSEOUT — 20 total findings (17 audit + 3 engine bugs). All fixed. Security posture: STRONG. 1,782 tests, 0 failures. Demo scenario operational.
+**Status:** CLOSEOUT — 20 total findings (17 audit + 3 engine bugs). All fixed. Security posture: STRONG. 1,795 tests, 0 failures. Demo scenario operational. Phase 5 test gap closure complete (9 on_no_match tests).
 
 ---
 
@@ -140,6 +140,27 @@ External research conducted:
 | 16 | LOW | No TLS pinning for JWKS | **DOCUMENTED** (infrastructure-level) | N/A |
 
 **Final score: 15/16 fixed, 1 documented. 0 open. All verified.**
+
+---
+
+## Phase 5: Self-Review — on_no_match Test Gap Closure (2026-02-03)
+
+### Scope
+
+Adversarial self-review of the `on_no_match: "continue"` feature introduced in the previous session's engine fixes. This feature modifies fail-closed behavior for conditional policy evaluation.
+
+### Finding: Zero Test Coverage for Security-Critical Feature
+
+The `on_no_match: "continue"` feature had no dedicated tests despite:
+- Modifying the fail-closed semantics (skip instead of deny when all constraints are skipped)
+- Changing the return type of 6+ evaluation functions from `Verdict` to `Option<Verdict>`
+- Affecting both compiled and legacy evaluation paths
+
+### Fix: 9 Comprehensive Tests
+
+Covers basic continuation, backward compat, policy chaining, fail-closed exception, invalid values, require_approval interaction, traced evaluation, and strict mode acceptance. All tests verify compiled/legacy path parity.
+
+**1,795 tests passing.** 0 failures. 0 clippy warnings.
 
 ---
 

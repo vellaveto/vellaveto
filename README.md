@@ -368,7 +368,7 @@ The trace includes:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SENTINEL_API_KEY` | *(unset)* | Bearer token for mutating endpoints. If unset, no auth required. |
+| `SENTINEL_API_KEY` | *(required)* | Bearer token for mutating endpoints. Required by default; use `--allow-anonymous` to opt out. Applies to both `sentinel serve` and `sentinel-http-proxy`. |
 | `SENTINEL_SIGNING_KEY` | *(auto-generated)* | Hex-encoded 32-byte Ed25519 seed for audit checkpoints |
 | `SENTINEL_CHECKPOINT_INTERVAL` | `300` | Seconds between automatic audit checkpoints (0 to disable) |
 | `SENTINEL_RATE_EVALUATE` | *(disabled)* | Requests/sec limit for the evaluate endpoint |
@@ -438,6 +438,9 @@ Benchmark results (from criterion, single-threaded):
 | **Constant-time auth** | API key comparison uses `subtle::ConstantTimeEq` to prevent timing attacks |
 | **Tamper-evident audit** | SHA-256 hash chain with Ed25519 signed checkpoints; any modification breaks the chain |
 | **Sensitive redaction** | 15 key patterns and 10 value prefixes automatically redacted before audit logging |
+| **SSE body limits** | 10MB response body limit prevents upstream DoS via unbounded SSE streams |
+| **OAuth 2.1** | JWT validation with JWKS, algorithm confusion prevention (asymmetric-only), scope enforcement |
+| **Adversarial hardening** | 17 findings from independent penetration testing — 16 fixed, 1 documented |
 
 ### Known Limitations
 
@@ -466,7 +469,7 @@ sentinel check --config policy.toml
 sentinel policies --preset dangerous
 
 # Verify audit log integrity
-sentinel verify --audit-log audit.log
+sentinel verify --audit audit.log
 
 # Stdio MCP proxy (wraps a local MCP server)
 sentinel-proxy --config policy.toml [--strict] [--timeout 30] [--trace] \
@@ -496,7 +499,7 @@ sentinel-http-proxy \
 ## Development
 
 ```bash
-# Run all tests (~1,500+)
+# Run all tests (1,780+)
 cargo test --workspace
 
 # Lint

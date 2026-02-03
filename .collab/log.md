@@ -1,5 +1,37 @@
 # Shared Log
 
+## 2026-02-03 — ADVERSARY INSTANCE: Phase 5 — on_no_match Test Gap Closure
+
+### Finding: Zero Test Coverage for Security-Critical Feature
+
+Self-review of the `on_no_match: "continue"` feature (introduced by adversary in previous session) revealed that this security-critical policy evaluation change had **zero dedicated test coverage**. The feature modifies fail-closed behavior and affects how policy chains evaluate, making it a high-priority gap.
+
+### Tests Added (9 new unit tests)
+
+All tests verify both compiled and legacy evaluation path parity where applicable:
+
+1. **test_on_no_match_continue_skips_to_next_policy** — Verifies continuation to next policy (not Allow) when no constraints fire
+2. **test_on_no_match_default_returns_allow** — Verifies backward-compat: without flag, first policy returns Allow
+3. **test_on_no_match_continue_policy_chain** — Three-policy layered security chain (credential block → domain block → default allow)
+4. **test_on_no_match_continue_fail_closed_exception** — All constraints skipped + on_no_match=continue → skip (not deny)
+5. **test_on_no_match_continue_fail_closed_without_flag** — Without flag, all constraints skipped → deny (security default)
+6. **test_on_no_match_invalid_value_treated_as_default** — Non-"continue" values treated as default
+7. **test_on_no_match_continue_with_require_approval** — Works with require_approval constraints
+8. **test_on_no_match_continue_traced_evaluation** — Traced path respects on_no_match
+9. **test_on_no_match_continue_strict_mode_accepts_key** — Strict mode accepts "on_no_match" key
+
+### Observations
+
+- The fail-closed exception (test 4) is intentional but represents a footgun for operators who expect fail-closed behavior with `on_no_match: "continue"`. This is documented.
+- Invalid `on_no_match` values (e.g., "deny", "allow") silently treated as default. This is safe (more restrictive) but could be confusing.
+- Legacy and compiled paths are verified to behave identically for all scenarios.
+
+### Build Status
+
+**1,795 tests passing.** 0 failures. 0 clippy warnings. Also includes minor dead-code cleanup in 5 files (from other instances' uncommitted work).
+
+---
+
 ## 2026-02-03 — Controller: Directive C-16 Issued (Final Polish + Release Readiness)
 
 ### Context

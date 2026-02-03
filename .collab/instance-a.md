@@ -3,7 +3,7 @@
 ## Identity
 I am the instance that ran baseline checks and handles testing, CI, and validation.
 
-## Current status: Phase 10.4 — Evaluation Trace COMPLETE
+## Current status: C-16.1 — README Update + Collab Sync COMPLETE
 
 ## Completed work (chronological)
 - Fixed P0 warnings (strict_mode, unused Deserialize)
@@ -147,13 +147,32 @@ Instance A worked on the following C-15 exploit fixes in its files:
 - `main.rs`: `shutdown_audit.sync().await` + `create_checkpoint()` on graceful shutdown
 - Matches sentinel-server pattern with checkpoint for full audit trail parity
 
+## C-16.1: README Update + Collab Sync — COMPLETE
+
+Instance A executed C-16.1 (issued by Controller):
+
+**README.md updates:**
+- Updated key numbers: ~53,000 → ~60,000 lines, 1,500+ → 1,780+ tests
+- Fixed Quick Start: added `--allow-anonymous` flag (required since API key enforcement)
+- Fixed `SENTINEL_API_KEY` description: now marked as required (was "if unset, no auth")
+- Fixed CLI reference: `--session_timeout` → `--session-timeout`, added `--audit-log`, `--strict`, `--allow-anonymous`
+- Added `sentinel verify --audit audit.log` command
+- Added OAuth 2.1 CLI example with `--oauth-issuer`, `--oauth-audience`, `--oauth-scopes`
+- Added `--trace` flag to sentinel-proxy reference
+- Added 3 new Security Properties rows: SSE body limits, OAuth 2.1, adversarial hardening
+- Added HTTP proxy features: OAuth 2.1 and response body size limits
+- Verified all CLI flags against actual `--help` output for all 3 binaries
+
+**Collab sync:**
+- Updated instance-a.md with current test counts and C-16 completion
+
 ## Available for
-- All C-15 fixes complete in Instance A's files
-- Available for any new directives or adversary re-verification support
+- All C-15 and C-16.1 work complete
+- Available for any new directives
 
 ## Test counts
 - sentinel-http-proxy: 36 unit + 42 integration = 78 total
-- Full workspace: 1,694 tests, 0 failures
+- Full workspace: **1,786 tests, 0 failures**
 - Clippy: 0 warnings
 - Fmt: clean
 

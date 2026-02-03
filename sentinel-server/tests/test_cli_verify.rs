@@ -144,10 +144,7 @@ fn verify_tampered_audit_log_fails() {
                 function: "read".to_string(),
                 parameters: serde_json::json!({"path": format!("/tmp/test{}.txt", i)}),
             };
-            let verdict = sentinel_types::Verdict::Allow {
-                reason: "allowed".to_string(),
-                matched_policy: "test".to_string(),
-            };
+            let verdict = sentinel_types::Verdict::Allow;
             logger
                 .log_entry(&action, &verdict, serde_json::json!({}))
                 .await
