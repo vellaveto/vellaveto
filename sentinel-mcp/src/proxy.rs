@@ -19,7 +19,7 @@ use crate::extractor::{
     make_denial_response, make_invalid_response, MessageType,
 };
 use crate::framing::{read_message, write_message};
-use crate::inspection::scan_response_for_injection;
+use crate::inspection::{scan_response_for_injection, InjectionScanner};
 
 /// Decision after evaluating a tool call.
 #[derive(Debug)]
@@ -72,6 +72,11 @@ pub struct ProxyBridge {
     audit: Arc<AuditLogger>,
     request_timeout: Duration,
     enable_trace: bool,
+    /// Optional custom injection scanner. When `None`, uses the default
+    /// patterns via `scan_response_for_injection()`.
+    injection_scanner: Option<InjectionScanner>,
+    /// When true, injection scanning is completely disabled.
+    injection_disabled: bool,
 }
 
 impl ProxyBridge {
@@ -82,6 +87,8 @@ impl ProxyBridge {
             audit,
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
             enable_trace: false,
+            injection_scanner: None,
+            injection_disabled: false,
         }
     }
 
@@ -95,6 +102,19 @@ impl ProxyBridge {
     /// use `evaluate_action_traced()` and include the trace in audit metadata.
     pub fn with_trace(mut self, enable: bool) -> Self {
         self.enable_trace = enable;
+        self
+    }
+
+    /// Set a custom injection scanner built from configuration.
+    /// When set, this scanner is used instead of the default patterns.
+    pub fn with_injection_scanner(mut self, scanner: InjectionScanner) -> Self {
+        self.injection_scanner = Some(scanner);
+        self
+    }
+
+    /// Disable injection scanning entirely.
+    pub fn with_injection_disabled(mut self, disabled: bool) -> Self {
+        self.injection_disabled = disabled;
         self
     }
 
@@ -714,7 +734,13 @@ impl ProxyBridge {
                                 }
                             }
                             // C-8.3: Inspect response for prompt injection (OWASP MCP06)
-                            let injection_matches = scan_response_for_injection(&msg);
+                            let injection_matches: Vec<String> = if self.injection_disabled {
+                                Vec::new()
+                            } else if let Some(ref scanner) = self.injection_scanner {
+                                scanner.scan_response(&msg).into_iter().map(|s| s.to_string()).collect()
+                            } else {
+                                scan_response_for_injection(&msg).into_iter().map(|s| s.to_string()).collect()
+                            };
                             if !injection_matches.is_empty() {
                                 tracing::warn!(
                                     "SECURITY: Potential prompt injection in tool response! \

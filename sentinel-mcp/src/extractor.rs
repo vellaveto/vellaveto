@@ -55,12 +55,29 @@ pub enum MessageType {
     PassThrough,
 }
 
+/// Normalize an MCP method name for matching.
+///
+/// Strips trailing slashes, null bytes, and whitespace to prevent
+/// bypass via `"tools/call/"`, `"tools/call\0"`, or `"tools/call "`.
+/// Returns the normalized lowercase form for case-insensitive comparison.
+fn normalize_method(method: &str) -> String {
+    method
+        .trim()
+        .replace('\0', "")
+        .trim_end_matches('/')
+        .to_lowercase()
+}
+
 /// Classify a JSON-RPC message.
 ///
 /// Returns `ToolCall` for `"method": "tools/call"` requests with valid params.
 /// Returns `ResourceRead` for `"method": "resources/read"` requests with a URI.
 /// Returns `Invalid` for messages with no method AND no result/error fields.
 /// Returns `PassThrough` for responses and other recognized methods.
+///
+/// Method names are normalized before matching: trailing slashes, null bytes,
+/// and whitespace are stripped, and comparison is case-insensitive. This prevents
+/// bypass attacks like `"tools/call/"` or `"Tools/Call"`.
 pub fn classify_message(msg: &Value) -> MessageType {
     let method = match msg.get("method").and_then(|v| v.as_str()) {
         Some(m) => m,
@@ -79,8 +96,9 @@ pub fn classify_message(msg: &Value) -> MessageType {
 
     let id = msg.get("id").cloned().unwrap_or(Value::Null);
     let params = msg.get("params");
+    let normalized = normalize_method(method);
 
-    match method {
+    match normalized.as_str() {
         "tools/call" => {
             let tool_name = params.and_then(|p| p.get("name")).and_then(|n| n.as_str());
 
@@ -112,7 +130,7 @@ pub fn classify_message(msg: &Value) -> MessageType {
 
             MessageType::ResourceRead { id, uri }
         }
-        "sampling/createMessage" => MessageType::SamplingRequest { id },
+        "sampling/createmessage" => MessageType::SamplingRequest { id },
         _ => MessageType::PassThrough,
     }
 }
@@ -141,7 +159,9 @@ pub fn extract_resource_action(uri: &str) -> Action {
     let mut params = serde_json::Map::new();
     params.insert(PARAM_URI.to_string(), Value::String(uri.to_string()));
 
-    if let Some(path) = uri.strip_prefix("file://") {
+    // Lowercase the scheme for comparison (RFC 3986 §3.1: schemes are case-insensitive)
+    let uri_lower = uri.to_lowercase();
+    if let Some(path) = uri_lower.strip_prefix("file://") {
         // file:///etc/passwd → /etc/passwd
         // file://localhost/etc/passwd → /etc/passwd (strip optional host)
         let file_path = if let Some(rest) = path.strip_prefix("localhost") {
@@ -153,7 +173,7 @@ pub fn extract_resource_action(uri: &str) -> Action {
             path.find('/').map(|i| &path[i..]).unwrap_or(path)
         };
         params.insert(PARAM_PATH.to_string(), Value::String(file_path.to_string()));
-    } else if uri.starts_with("http://") || uri.starts_with("https://") {
+    } else if uri_lower.starts_with("http://") || uri_lower.starts_with("https://") {
         params.insert(PARAM_URL.to_string(), Value::String(uri.to_string()));
     }
 
@@ -483,5 +503,138 @@ mod tests {
         assert_eq!(action.parameters["uri"], "custom://something");
         assert!(action.parameters.get("path").is_none());
         assert!(action.parameters.get("url").is_none());
+    }
+
+    // --- Exploit #1: Method name normalization bypass tests ---
+
+    #[test]
+    fn test_classify_trailing_slash_tools_call() {
+        // Adversary bypass: "tools/call/" must still be recognized as ToolCall
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 100,
+            "method": "tools/call/",
+            "params": {"name": "bash", "arguments": {"command": "cat /etc/shadow"}}
+        });
+        match classify_message(&msg) {
+            MessageType::ToolCall { tool_name, .. } => {
+                assert_eq!(tool_name, "bash");
+            }
+            other => panic!("Expected ToolCall, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_classify_trailing_space_tools_call() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 101,
+            "method": "tools/call ",
+            "params": {"name": "bash", "arguments": {}}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::ToolCall { .. }
+        ));
+    }
+
+    #[test]
+    fn test_classify_case_variation_tools_call() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 102,
+            "method": "Tools/Call",
+            "params": {"name": "bash", "arguments": {}}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::ToolCall { .. }
+        ));
+    }
+
+    #[test]
+    fn test_classify_null_byte_suffix_tools_call() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 103,
+            "method": "tools/call\u{0000}",
+            "params": {"name": "bash", "arguments": {}}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::ToolCall { .. }
+        ));
+    }
+
+    #[test]
+    fn test_classify_trailing_slash_sampling() {
+        // sampling/createMessage/ must still be blocked
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 104,
+            "method": "sampling/createMessage/",
+            "params": {"messages": []}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::SamplingRequest { .. }
+        ));
+    }
+
+    #[test]
+    fn test_classify_case_variation_sampling() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 105,
+            "method": "Sampling/CreateMessage",
+            "params": {"messages": []}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::SamplingRequest { .. }
+        ));
+    }
+
+    #[test]
+    fn test_classify_trailing_slash_resources_read() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 106,
+            "method": "resources/read/",
+            "params": {"uri": "file:///etc/shadow"}
+        });
+        match classify_message(&msg) {
+            MessageType::ResourceRead { uri, .. } => {
+                assert_eq!(uri, "file:///etc/shadow");
+            }
+            other => panic!("Expected ResourceRead, got {:?}", other),
+        }
+    }
+
+    // --- Exploit #3: URI scheme case sensitivity tests ---
+
+    #[test]
+    fn test_extract_resource_action_uppercase_file_scheme() {
+        // RFC 3986 §3.1: schemes are case-insensitive
+        let action = extract_resource_action("FILE:///etc/shadow");
+        assert_eq!(action.parameters["path"], "/etc/shadow");
+    }
+
+    #[test]
+    fn test_extract_resource_action_mixed_case_file_scheme() {
+        let action = extract_resource_action("File:///etc/passwd");
+        assert_eq!(action.parameters["path"], "/etc/passwd");
+    }
+
+    #[test]
+    fn test_extract_resource_action_uppercase_http_scheme() {
+        let action = extract_resource_action("HTTPS://evil.com/data");
+        assert_eq!(action.parameters["url"], "HTTPS://evil.com/data");
+    }
+
+    #[test]
+    fn test_extract_resource_action_file_localhost_case_insensitive() {
+        let action = extract_resource_action("FILE://localhost/etc/shadow");
+        assert_eq!(action.parameters["path"], "/etc/shadow");
     }
 }

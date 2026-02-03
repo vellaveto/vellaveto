@@ -958,13 +958,46 @@ impl PolicyEngine {
             }
         }
 
-        // Evaluate compiled constraints
+        // Evaluate compiled constraints.
+        // Track whether any constraint actually evaluated (vs all being skipped).
+        // If ALL constraints skip (every required parameter is missing), this is
+        // a fail-open vulnerability — deny instead of allowing silently.
+        let mut any_evaluated = false;
+        let total_constraints = cp.constraints.len();
+
         for constraint in &cp.constraints {
             if let Some(verdict) =
                 self.evaluate_compiled_constraint(action, &cp.policy, constraint)?
             {
                 return Ok(verdict);
             }
+            // Check if this constraint was actually evaluated (not skipped)
+            let param_name = constraint.param();
+            let on_missing = constraint.on_missing();
+            if param_name == "*" {
+                let all_values = Self::collect_all_string_values(&action.parameters);
+                if !all_values.is_empty() || on_missing != "skip" {
+                    any_evaluated = true;
+                }
+            } else {
+                let has_param = Self::get_param_by_path(&action.parameters, param_name).is_some();
+                if has_param || on_missing != "skip" {
+                    any_evaluated = true;
+                }
+            }
+        }
+
+        // Fail-closed: if ALL constraints were skipped due to missing parameters,
+        // deny the action. A Conditional policy where nothing was checked is not
+        // a positive allow signal — it means the action didn't provide enough
+        // information for evaluation.
+        if total_constraints > 0 && !any_evaluated {
+            return Ok(Verdict::Deny {
+                reason: format!(
+                    "All {} constraints skipped (parameters missing) in policy '{}' — fail-closed",
+                    total_constraints, cp.policy.name
+                ),
+            });
         }
 
         Ok(Verdict::Allow)
@@ -1445,12 +1478,17 @@ impl PolicyEngine {
     /// Evaluate an array of parameter constraints against the action.
     ///
     /// Returns `Ok(Some(verdict))` if a constraint fires, `Ok(None)` if all pass.
+    /// If ALL constraints are skipped due to missing parameters, returns a Deny
+    /// verdict (fail-closed) instead of `None`.
     fn evaluate_parameter_constraints(
         &self,
         action: &Action,
         policy: &Policy,
         constraints: &[serde_json::Value],
     ) -> Result<Option<Verdict>, EngineError> {
+        let mut any_evaluated = false;
+        let total_constraints = constraints.len();
+
         for constraint in constraints {
             let obj = constraint
                 .as_object()
@@ -1498,6 +1536,7 @@ impl PolicyEngine {
                         ),
                     )?));
                 }
+                any_evaluated = true;
                 for (value_path, value_str) in &all_values {
                     let json_val = serde_json::Value::String((*value_str).to_string());
                     if let Some(verdict) = self.evaluate_single_constraint(
@@ -1528,11 +1567,22 @@ impl PolicyEngine {
                 }
             };
 
+            any_evaluated = true;
             if let Some(verdict) =
                 self.evaluate_single_constraint(policy, param_name, op, on_match, param_value, obj)?
             {
                 return Ok(Some(verdict));
             }
+        }
+
+        // Fail-closed: if ALL constraints were skipped, deny
+        if total_constraints > 0 && !any_evaluated {
+            return Ok(Some(Verdict::Deny {
+                reason: format!(
+                    "All {} constraints skipped (parameters missing) in policy '{}' — fail-closed",
+                    total_constraints, policy.name
+                ),
+            }));
         }
 
         Ok(None)
@@ -2502,7 +2552,11 @@ impl PolicyEngine {
             }
         }
 
-        // Evaluate compiled constraints
+        // Evaluate compiled constraints.
+        // Track whether any constraint actually evaluated vs all skipped.
+        let mut any_evaluated = false;
+        let total_constraints = cp.constraints.len();
+
         for constraint in &cp.constraints {
             let (maybe_verdict, constraint_result) =
                 self.evaluate_compiled_constraint_traced(action, &cp.policy, constraint)?;
@@ -2510,6 +2564,43 @@ impl PolicyEngine {
             if let Some(verdict) = maybe_verdict {
                 return Ok((verdict, results));
             }
+            // Check if this constraint was actually evaluated (not skipped)
+            let param_name = constraint.param();
+            let on_missing = constraint.on_missing();
+            if param_name == "*" {
+                let all_values = Self::collect_all_string_values(&action.parameters);
+                if !all_values.is_empty() || on_missing != "skip" {
+                    any_evaluated = true;
+                }
+            } else {
+                let has_param = Self::get_param_by_path(&action.parameters, param_name).is_some();
+                if has_param || on_missing != "skip" {
+                    any_evaluated = true;
+                }
+            }
+        }
+
+        // Fail-closed: if ALL constraints were skipped, deny
+        if total_constraints > 0 && !any_evaluated {
+            results.push(ConstraintResult {
+                constraint_type: "all_skipped_fail_closed".to_string(),
+                param: "".to_string(),
+                expected: "at least one constraint evaluated".to_string(),
+                actual: format!(
+                    "all {} constraints skipped (missing params)",
+                    total_constraints
+                ),
+                passed: false,
+            });
+            return Ok((
+                Verdict::Deny {
+                    reason: format!(
+                        "All {} constraints skipped (parameters missing) in policy '{}' — fail-closed",
+                        total_constraints, cp.policy.name
+                    ),
+                },
+                results,
+            ));
         }
 
         Ok((Verdict::Allow, results))
@@ -3539,6 +3630,8 @@ mod tests {
 
     #[test]
     fn test_missing_param_skips_when_configured() {
+        // Exploit #2 fix: a single constraint with on_missing=skip and missing param
+        // means ALL constraints skipped → fail-closed → Deny
         let engine = PolicyEngine::new(false);
         let action = action_with("file", "read", json!({}));
         let policies = constraint_policy(json!([{
@@ -3549,7 +3642,11 @@ mod tests {
             "on_missing": "skip"
         }]));
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
-        assert!(matches!(verdict, Verdict::Allow));
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "All constraints skipped → fail-closed deny, got: {:?}",
+            verdict
+        );
     }
 
     #[test]
@@ -3917,6 +4014,8 @@ mod tests {
 
     #[test]
     fn test_json_path_missing_intermediate_skip() {
+        // Exploit #2 fix: missing intermediate path + on_missing=skip means all constraints
+        // skipped → fail-closed → Deny
         let engine = PolicyEngine::new(false);
         let action = action_with("tool", "func", json!({"config": {"other": "value"}}));
         let policies = constraint_policy(json!([{
@@ -3927,7 +4026,11 @@ mod tests {
             "on_missing": "skip"
         }]));
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
-        assert!(matches!(verdict, Verdict::Allow));
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "All constraints skipped → fail-closed deny, got: {:?}",
+            verdict
+        );
     }
 
     #[test]
@@ -4264,7 +4367,10 @@ mod tests {
 
     #[test]
     fn test_wildcard_scan_no_string_values_on_missing_skip() {
-        // Parameters with only numbers — but on_missing=skip → should continue
+        // Parameters with only numbers + on_missing=skip → ALL constraints skip → fail-closed DENY
+        // This is Exploit #2 fix: when every constraint in a Conditional policy skips
+        // because required parameters are missing, the policy must deny (fail-closed),
+        // not silently allow.
         let engine = PolicyEngine::new(false);
         let constraint = json!({
             "param": "*",
@@ -4295,8 +4401,8 @@ mod tests {
 
         let result = engine.evaluate_action(&action, &[policy]).unwrap();
         assert!(
-            matches!(result, Verdict::Allow),
-            "Should allow: no string values but on_missing=skip, got: {:?}",
+            matches!(result, Verdict::Deny { .. }),
+            "Should deny: all constraints skipped (fail-closed), got: {:?}",
             result
         );
     }
@@ -4886,6 +4992,7 @@ mod tests {
 
     #[test]
     fn test_compiled_on_missing_skip() {
+        // Exploit #2 fix: compiled path — all constraints skip → fail-closed → Deny
         let policies = vec![Policy {
             id: "*".to_string(),
             name: "Optional path check".to_string(),
@@ -4906,7 +5013,11 @@ mod tests {
 
         let action = action_with("file", "read", json!({}));
         let verdict = engine.evaluate_action(&action, &[]).unwrap();
-        assert!(matches!(verdict, Verdict::Allow));
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "All constraints skipped → fail-closed deny, got: {:?}",
+            verdict
+        );
     }
 
     #[test]

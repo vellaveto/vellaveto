@@ -135,9 +135,36 @@ async fn main() -> Result<()> {
         anyhow::anyhow!("{} policy validation errors", errors.len())
     })?;
     let timeout = std::time::Duration::from_secs(cli.timeout);
-    let bridge = ProxyBridge::new(engine, policies, audit)
+    let mut bridge = ProxyBridge::new(engine, policies, audit)
         .with_timeout(timeout)
         .with_trace(cli.trace);
+
+    // Build injection scanner from config (supports extra/disabled patterns)
+    let injection_config = &policy_config.injection;
+    if injection_config.enabled {
+        if !injection_config.extra_patterns.is_empty()
+            || !injection_config.disabled_patterns.is_empty()
+        {
+            if let Some(scanner) = sentinel_mcp::inspection::InjectionScanner::from_config(
+                &injection_config.extra_patterns,
+                &injection_config.disabled_patterns,
+            ) {
+                tracing::info!(
+                    "Injection scanner: {} active patterns ({} extra, {} disabled)",
+                    scanner.patterns().len(),
+                    injection_config.extra_patterns.len(),
+                    injection_config.disabled_patterns.len(),
+                );
+                bridge = bridge.with_injection_scanner(scanner);
+            }
+        } else {
+            tracing::info!("Injection scanner: default patterns");
+        }
+    } else {
+        tracing::info!("Injection scanner: DISABLED by configuration");
+        bridge = bridge.with_injection_disabled(true);
+    }
+
     tracing::info!("Request timeout: {}s, trace: {}", cli.timeout, cli.trace);
 
     // Run the proxy

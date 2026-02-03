@@ -146,6 +146,7 @@ async fn main() -> Result<()> {
             jwks_uri: args.oauth_jwks_uri.clone(),
             required_scopes: args.oauth_scopes.clone(),
             pass_through: args.oauth_pass_through,
+            allowed_algorithms: sentinel_http_proxy::oauth::default_allowed_algorithms(),
         };
         tracing::info!(
             "OAuth 2.1 enabled: issuer={}, audience={}, scopes={:?}, pass_through={}",
@@ -160,6 +161,45 @@ async fn main() -> Result<()> {
         None
     };
 
+    // Build injection scanner from config (supports extra/disabled patterns)
+    let injection_disabled = !policy_config.injection.enabled;
+    let injection_scanner = {
+        let ic = &policy_config.injection;
+        if ic.enabled {
+            if !ic.extra_patterns.is_empty() || !ic.disabled_patterns.is_empty() {
+                match sentinel_mcp::inspection::InjectionScanner::from_config(
+                    &ic.extra_patterns,
+                    &ic.disabled_patterns,
+                ) {
+                    Some(scanner) => {
+                        tracing::info!(
+                            "Injection scanner: {} active patterns ({} extra, {} disabled)",
+                            scanner.patterns().len(),
+                            ic.extra_patterns.len(),
+                            ic.disabled_patterns.len(),
+                        );
+                        Some(Arc::new(scanner))
+                    }
+                    None => {
+                        tracing::warn!(
+                            "Injection scanner: failed to compile custom patterns, using defaults"
+                        );
+                        None
+                    }
+                }
+            } else {
+                tracing::info!("Injection scanner: default patterns");
+                None
+            }
+        } else {
+            tracing::info!("Injection scanner: DISABLED by configuration");
+            None
+        }
+    };
+
+    // Keep a reference for post-shutdown audit flush (Challenge 15 fix)
+    let shutdown_audit = audit.clone();
+
     // Build shared state
     let state = ProxyState {
         engine: Arc::new(engine),
@@ -169,6 +209,8 @@ async fn main() -> Result<()> {
         upstream_url: args.upstream.clone(),
         http_client,
         oauth,
+        injection_scanner,
+        injection_disabled,
     };
 
     // Build router
@@ -204,6 +246,13 @@ async fn main() -> Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("Server error")?;
+
+    // Challenge 15 fix: Flush audit log before exit.
+    // Matches the pattern from sentinel-server/src/main.rs.
+    tracing::info!("Flushing audit log...");
+    if let Err(e) = shutdown_audit.sync().await {
+        tracing::error!("Failed to flush audit log on shutdown: {}", e);
+    }
 
     tracing::info!("Proxy shut down gracefully");
     Ok(())

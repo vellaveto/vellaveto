@@ -5,6 +5,51 @@ fn default_priority() -> Option<i32> {
     Some(100)
 }
 
+/// Configuration for the prompt injection detection scanner.
+///
+/// Controls which patterns are used for response inspection. The scanner
+/// operates as a heuristic pre-filter — it cannot stop all injection attacks
+/// but raises alerts for known signatures.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [injection]
+/// enabled = true
+/// extra_patterns = ["transfer funds", "send bitcoin", "exfiltrate"]
+/// disabled_patterns = ["pretend you are"]
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InjectionConfig {
+    /// Master toggle for injection scanning. Defaults to `true`.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Additional patterns appended to the default set.
+    /// Matched case-insensitively after Unicode sanitization.
+    #[serde(default)]
+    pub extra_patterns: Vec<String>,
+
+    /// Default patterns to remove. Any default pattern whose text matches
+    /// an entry here (case-insensitive) will be excluded from scanning.
+    #[serde(default)]
+    pub disabled_patterns: Vec<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for InjectionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            extra_patterns: Vec::new(),
+            disabled_patterns: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolicyRule {
     pub name: String,
@@ -34,6 +79,11 @@ impl PolicyRule {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolicyConfig {
     pub policies: Vec<PolicyRule>,
+
+    /// Optional injection scanning configuration.
+    /// When absent, defaults are used (scanning enabled, default patterns only).
+    #[serde(default)]
+    pub injection: InjectionConfig,
 }
 
 impl PolicyConfig {
@@ -173,5 +223,58 @@ priority = 200
         assert_eq!(policies.len(), 2);
         assert_eq!(policies[0].priority, 10);
         assert_eq!(policies[1].priority, 200);
+    }
+
+    #[test]
+    fn test_injection_config_defaults_when_absent() {
+        let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#;
+        let config = PolicyConfig::from_toml(toml).unwrap();
+        assert!(config.injection.enabled);
+        assert!(config.injection.extra_patterns.is_empty());
+        assert!(config.injection.disabled_patterns.is_empty());
+    }
+
+    #[test]
+    fn test_injection_config_custom_patterns() {
+        let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+
+[injection]
+enabled = true
+extra_patterns = ["transfer funds", "send bitcoin"]
+disabled_patterns = ["pretend you are"]
+"#;
+        let config = PolicyConfig::from_toml(toml).unwrap();
+        assert!(config.injection.enabled);
+        assert_eq!(config.injection.extra_patterns.len(), 2);
+        assert_eq!(config.injection.extra_patterns[0], "transfer funds");
+        assert_eq!(config.injection.disabled_patterns.len(), 1);
+        assert_eq!(config.injection.disabled_patterns[0], "pretend you are");
+    }
+
+    #[test]
+    fn test_injection_config_disabled() {
+        let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+
+[injection]
+enabled = false
+"#;
+        let config = PolicyConfig::from_toml(toml).unwrap();
+        assert!(!config.injection.enabled);
     }
 }

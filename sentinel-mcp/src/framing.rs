@@ -3,6 +3,8 @@
 //! MCP uses newline-delimited JSON over stdin/stdout.
 //! Each message is a single line of JSON followed by a newline.
 
+use std::collections::HashSet;
+
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -36,6 +38,14 @@ pub async fn read_message<R: tokio::io::AsyncRead + Unpin>(
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
+        }
+
+        // Defense-in-depth: reject JSON with duplicate keys at any nesting level.
+        // serde_json uses last-key-wins, but other parsers may use first-key-wins.
+        // An attacker could send {"path":"safe","path":"malicious"} to exploit
+        // parser disagreement (CVE-2017-12635, CVE-2020-16250).
+        if let Some(dup_key) = find_duplicate_json_key(trimmed) {
+            return Err(FramingError::DuplicateKeys(dup_key));
         }
 
         let value: Value = serde_json::from_str(trimmed).map_err(FramingError::Json)?;
@@ -107,6 +117,108 @@ pub async fn write_message<W: tokio::io::AsyncWrite + Unpin>(
     Ok(())
 }
 
+/// Scan raw JSON for duplicate keys at any object nesting level.
+///
+/// Returns the first duplicate key name found, or `None` if no duplicates exist.
+/// Uses a minimal state machine to track JSON string boundaries and object scopes.
+///
+/// This prevents parser-disagreement attacks where an attacker sends
+/// `{"path":"safe","path":"malicious"}` and exploits the difference between
+/// first-key-wins and last-key-wins parsers (CVE-2017-12635, CVE-2020-16250).
+pub fn find_duplicate_json_key(raw: &str) -> Option<String> {
+    let bytes = raw.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    // Stack of seen-key sets, one per object nesting level.
+    // `None` entries represent array scopes (no key tracking needed).
+    let mut stack: Vec<Option<HashSet<String>>> = Vec::new();
+    // After `{` or `,` inside an object, the next string token is a key.
+    let mut next_string_is_key = false;
+
+    while i < len {
+        // Skip whitespace
+        while i < len && matches!(bytes[i], b' ' | b'\t' | b'\n' | b'\r') {
+            i += 1;
+        }
+        if i >= len {
+            break;
+        }
+
+        match bytes[i] {
+            b'{' => {
+                stack.push(Some(HashSet::new()));
+                next_string_is_key = true;
+                i += 1;
+            }
+            b'[' => {
+                stack.push(None);
+                next_string_is_key = false;
+                i += 1;
+            }
+            b'}' => {
+                stack.pop();
+                // Restore key expectation state: after closing an object that was
+                // a value, we're no longer expecting a key.
+                next_string_is_key = false;
+                i += 1;
+            }
+            b']' => {
+                stack.pop();
+                next_string_is_key = false;
+                i += 1;
+            }
+            b'"' => {
+                let start = i;
+                i += 1; // skip opening quote
+                        // Walk through string content, handling escape sequences
+                while i < len {
+                    if bytes[i] == b'\\' {
+                        i += 2; // skip escape char + escaped char
+                    } else if bytes[i] == b'"' {
+                        i += 1; // skip closing quote
+                        break;
+                    } else {
+                        i += 1;
+                    }
+                }
+
+                if next_string_is_key {
+                    // Extract the key using serde_json to correctly handle escapes
+                    if let Ok(key_str) = std::str::from_utf8(&bytes[start..i]) {
+                        if let Ok(parsed_key) = serde_json::from_str::<String>(key_str) {
+                            if let Some(Some(seen_keys)) = stack.last_mut() {
+                                if !seen_keys.insert(parsed_key.clone()) {
+                                    return Some(parsed_key);
+                                }
+                            }
+                        }
+                    }
+                    next_string_is_key = false;
+                }
+            }
+            b':' => {
+                // After a colon, the next token is a value (not a key)
+                next_string_is_key = false;
+                i += 1;
+            }
+            b',' => {
+                // After a comma in an object scope, the next string is a key
+                if let Some(Some(_)) = stack.last() {
+                    next_string_is_key = true;
+                }
+                i += 1;
+            }
+            _ => {
+                // Numbers, true, false, null — skip individual bytes
+                i += 1;
+            }
+        }
+    }
+
+    None
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum FramingError {
     #[error("I/O error: {0}")]
@@ -115,6 +227,8 @@ pub enum FramingError {
     Json(serde_json::Error),
     #[error("Line too long: {0} bytes (max {MAX_LINE_LENGTH})")]
     LineTooLong(usize),
+    #[error("Duplicate JSON key detected: \"{0}\"")]
+    DuplicateKeys(String),
 }
 
 #[cfg(test)]
@@ -220,5 +334,97 @@ mod tests {
         let mut reader = BufReader::new(cursor);
         let msg = read_message(&mut reader).await.unwrap();
         assert!(msg.is_none(), "Only empty lines + EOF should return None");
+    }
+
+    // === Duplicate key detection tests (Challenge #5) ===
+
+    #[test]
+    fn test_no_duplicate_keys_in_valid_json() {
+        let json = r#"{"a": 1, "b": 2, "c": {"d": 3}}"#;
+        assert!(find_duplicate_json_key(json).is_none());
+    }
+
+    #[test]
+    fn test_detects_top_level_duplicate_key() {
+        let json = r#"{"path": "safe", "path": "malicious"}"#;
+        let dup = find_duplicate_json_key(json);
+        assert_eq!(dup, Some("path".to_string()));
+    }
+
+    #[test]
+    fn test_detects_nested_duplicate_key() {
+        let json = r#"{"params": {"name": "a", "name": "b"}}"#;
+        let dup = find_duplicate_json_key(json);
+        assert_eq!(dup, Some("name".to_string()));
+    }
+
+    #[test]
+    fn test_same_key_different_scopes_is_ok() {
+        // "id" appears in two different objects — not a duplicate
+        let json = r#"{"id": 1, "params": {"id": "inner"}}"#;
+        assert!(find_duplicate_json_key(json).is_none());
+    }
+
+    #[test]
+    fn test_no_duplicates_in_array() {
+        // Arrays don't have keys, strings inside arrays aren't keys
+        let json = r#"{"items": ["a", "a", "b"]}"#;
+        assert!(find_duplicate_json_key(json).is_none());
+    }
+
+    #[test]
+    fn test_handles_escaped_quotes_in_keys() {
+        // Key with escaped quote — distinct from other keys
+        let json = r#"{"a\"b": 1, "c": 2}"#;
+        assert!(find_duplicate_json_key(json).is_none());
+    }
+
+    #[test]
+    fn test_handles_escaped_quotes_duplicate() {
+        let json = r#"{"a\"b": 1, "a\"b": 2}"#;
+        let dup = find_duplicate_json_key(json);
+        assert_eq!(dup, Some("a\"b".to_string()));
+    }
+
+    #[test]
+    fn test_deeply_nested_duplicate() {
+        let json = r#"{"a": {"b": {"c": 1, "c": 2}}}"#;
+        let dup = find_duplicate_json_key(json);
+        assert_eq!(dup, Some("c".to_string()));
+    }
+
+    #[test]
+    fn test_mcp_tools_call_duplicate_attack() {
+        // The actual attack vector: duplicate params.name in tools/call
+        let json = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"safe_tool","arguments":{"path":"/tmp"},"name":"dangerous_tool"}}"#;
+        let dup = find_duplicate_json_key(json);
+        assert_eq!(dup, Some("name".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_read_message_rejects_duplicate_keys() {
+        let data = b"{\"a\":1,\"a\":2}\n";
+        let cursor = Cursor::new(data.to_vec());
+        let mut reader = BufReader::new(cursor);
+        let result = read_message(&mut reader).await;
+        assert!(result.is_err(), "Should reject JSON with duplicate keys");
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, FramingError::DuplicateKeys(ref k) if k == "a"),
+            "Expected DuplicateKeys(\"a\"), got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_empty_json_object_no_duplicates() {
+        assert!(find_duplicate_json_key("{}").is_none());
+    }
+
+    #[test]
+    fn test_mixed_arrays_and_objects() {
+        let json = r#"{"a": [{"b": 1}, {"b": 2}], "c": 3}"#;
+        // "b" appears in different array element objects — not duplicates
+        assert!(find_duplicate_json_key(json).is_none());
     }
 }

@@ -14,7 +14,9 @@
 //! `Authorization` header is forwarded to the upstream MCP server.
 
 use jsonwebtoken::{
-    decode, decode_header, jwk::JwkSet, Algorithm, DecodingKey, TokenData, Validation,
+    decode, decode_header,
+    jwk::{JwkSet, KeyAlgorithm},
+    Algorithm, DecodingKey, TokenData, Validation,
 };
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
@@ -42,6 +44,34 @@ pub struct OAuthConfig {
     /// Whether to forward the Bearer token to the upstream MCP server.
     /// When false, the proxy strips the Authorization header before forwarding.
     pub pass_through: bool,
+
+    /// Allowed JWT signing algorithms. Tokens using an algorithm not in this
+    /// list are rejected. Prevents algorithm confusion attacks where an attacker
+    /// selects a weak algorithm (e.g., HS256 with an RSA public key as secret).
+    ///
+    /// Defaults to asymmetric algorithms only: RS256, RS384, RS512, ES256, ES384,
+    /// PS256, PS384, PS512, EdDSA. HMAC (HS*) algorithms are excluded because
+    /// OAuth 2.1 flows use asymmetric key pairs.
+    pub allowed_algorithms: Vec<Algorithm>,
+}
+
+/// Default allowed algorithms for OAuth 2.1 — asymmetric only.
+///
+/// HMAC algorithms (HS256/HS384/HS512) are excluded to prevent algorithm
+/// confusion attacks where the attacker uses the server's public key as
+/// an HMAC secret.
+pub fn default_allowed_algorithms() -> Vec<Algorithm> {
+    vec![
+        Algorithm::RS256,
+        Algorithm::RS384,
+        Algorithm::RS512,
+        Algorithm::ES256,
+        Algorithm::ES384,
+        Algorithm::PS256,
+        Algorithm::PS384,
+        Algorithm::PS512,
+        Algorithm::EdDSA,
+    ]
 }
 
 impl OAuthConfig {
@@ -153,6 +183,12 @@ pub enum OAuthError {
 
     #[error("no matching key found in JWKS for kid '{0}'")]
     NoMatchingKey(String),
+
+    #[error("disallowed algorithm: {0:?} is not in the allowed list")]
+    DisallowedAlgorithm(Algorithm),
+
+    #[error("token missing 'kid' header but JWKS contains {0} keys — ambiguous key selection")]
+    MissingKid(usize),
 }
 
 /// Cached JWKS key set with TTL-based refresh.
@@ -199,16 +235,24 @@ impl OAuthValidator {
 
         // Decode header to find the key ID (kid)
         let header = decode_header(token)?;
-        let kid = header.kid.unwrap_or_default();
+
+        // Challenge 11 fix: Reject algorithms not in the allowed list.
+        // Prevents algorithm confusion attacks (e.g., HS256 with RSA public key).
+        if !self.config.allowed_algorithms.contains(&header.alg) {
+            return Err(OAuthError::DisallowedAlgorithm(header.alg));
+        }
+
+        let kid = header.kid.clone().unwrap_or_default();
 
         // Get the decoding key from JWKS
         let decoding_key = self.get_decoding_key(&kid, &header.alg).await?;
 
-        // Build validation parameters
+        // Build validation parameters — use the verified algorithm
         let mut validation = Validation::new(header.alg);
         validation.set_issuer(&[&self.config.issuer]);
         validation.set_audience(&[&self.config.audience]);
         validation.validate_exp = true;
+        validation.validate_nbf = true; // Challenge 14 fix: reject tokens before nbf
 
         // Decode and validate
         let token_data: TokenData<OAuthClaims> = decode(token, &decoding_key, &validation)?;
@@ -250,6 +294,13 @@ impl OAuthValidator {
 
         // Cache miss or stale — fetch fresh JWKS
         let jwks = self.fetch_jwks().await?;
+
+        // Challenge 12 fix: Require kid when JWKS has multiple keys.
+        // Without kid, a token could match any key — dangerous if JWKS
+        // contains test keys, rotated keys, or keys from other services.
+        if kid.is_empty() && jwks.keys.len() > 1 {
+            return Err(OAuthError::MissingKid(jwks.keys.len()));
+        }
 
         let key = find_key_in_jwks(&jwks, kid, alg)
             .ok_or_else(|| OAuthError::NoMatchingKey(kid.to_string()))?;
@@ -303,6 +354,29 @@ impl OAuthValidator {
     }
 }
 
+/// Convert a JWK `KeyAlgorithm` to a JWT `Algorithm` using explicit matching.
+///
+/// Returns `None` for encryption-only algorithms (RSA1_5, RSA_OAEP, RSA_OAEP_256)
+/// that have no corresponding signing algorithm.
+fn key_algorithm_to_algorithm(ka: &KeyAlgorithm) -> Option<Algorithm> {
+    match ka {
+        KeyAlgorithm::HS256 => Some(Algorithm::HS256),
+        KeyAlgorithm::HS384 => Some(Algorithm::HS384),
+        KeyAlgorithm::HS512 => Some(Algorithm::HS512),
+        KeyAlgorithm::ES256 => Some(Algorithm::ES256),
+        KeyAlgorithm::ES384 => Some(Algorithm::ES384),
+        KeyAlgorithm::RS256 => Some(Algorithm::RS256),
+        KeyAlgorithm::RS384 => Some(Algorithm::RS384),
+        KeyAlgorithm::RS512 => Some(Algorithm::RS512),
+        KeyAlgorithm::PS256 => Some(Algorithm::PS256),
+        KeyAlgorithm::PS384 => Some(Algorithm::PS384),
+        KeyAlgorithm::PS512 => Some(Algorithm::PS512),
+        KeyAlgorithm::EdDSA => Some(Algorithm::EdDSA),
+        // Encryption-only algorithms have no signing equivalent
+        _ => None,
+    }
+}
+
 /// Find a matching decoding key in the JWKS by key ID and algorithm.
 fn find_key_in_jwks(jwks: &JwkSet, kid: &str, alg: &Algorithm) -> Option<DecodingKey> {
     for key in &jwks.keys {
@@ -315,12 +389,11 @@ fn find_key_in_jwks(jwks: &JwkSet, kid: &str, alg: &Algorithm) -> Option<Decodin
             }
         }
 
-        // Match algorithm family
+        // Challenge 13 fix: Match algorithm via explicit mapping, not Debug format.
         if let Some(ref key_alg) = key.common.key_algorithm {
-            let key_alg_str = format!("{:?}", key_alg);
-            let req_alg_str = format!("{:?}", alg);
-            if key_alg_str != req_alg_str {
-                continue;
+            match key_algorithm_to_algorithm(key_alg) {
+                Some(mapped) if &mapped == alg => {} // match — continue to key construction
+                _ => continue,                       // no match or encryption-only — skip
             }
         }
 
@@ -344,6 +417,7 @@ mod tests {
             jwks_uri: Some("https://auth.example.com/keys".to_string()),
             required_scopes: vec![],
             pass_through: false,
+            allowed_algorithms: default_allowed_algorithms(),
         };
         assert_eq!(config.effective_jwks_uri(), "https://auth.example.com/keys");
     }
@@ -356,6 +430,7 @@ mod tests {
             jwks_uri: None,
             required_scopes: vec![],
             pass_through: false,
+            allowed_algorithms: default_allowed_algorithms(),
         };
         assert_eq!(
             config.effective_jwks_uri(),
@@ -371,6 +446,7 @@ mod tests {
             jwks_uri: None,
             required_scopes: vec![],
             pass_through: false,
+            allowed_algorithms: default_allowed_algorithms(),
         };
         assert_eq!(
             config.effective_jwks_uri(),
@@ -430,5 +506,72 @@ mod tests {
             found: "tools.call".to_string(),
         };
         assert!(err.to_string().contains("insufficient scope"));
+    }
+
+    // Challenge 11: Algorithm confusion prevention
+    #[test]
+    fn test_default_allowed_algorithms_excludes_hmac() {
+        let allowed = default_allowed_algorithms();
+        assert!(!allowed.contains(&Algorithm::HS256));
+        assert!(!allowed.contains(&Algorithm::HS384));
+        assert!(!allowed.contains(&Algorithm::HS512));
+    }
+
+    #[test]
+    fn test_default_allowed_algorithms_includes_asymmetric() {
+        let allowed = default_allowed_algorithms();
+        assert!(allowed.contains(&Algorithm::RS256));
+        assert!(allowed.contains(&Algorithm::ES256));
+        assert!(allowed.contains(&Algorithm::PS256));
+        assert!(allowed.contains(&Algorithm::EdDSA));
+    }
+
+    #[test]
+    fn test_disallowed_algorithm_error_display() {
+        let err = OAuthError::DisallowedAlgorithm(Algorithm::HS256);
+        assert!(err.to_string().contains("disallowed algorithm"));
+        assert!(err.to_string().contains("HS256"));
+    }
+
+    #[test]
+    fn test_missing_kid_error_display() {
+        let err = OAuthError::MissingKid(3);
+        assert!(err.to_string().contains("missing 'kid'"));
+        assert!(err.to_string().contains("3 keys"));
+    }
+
+    // Challenge 13: Explicit algorithm mapping
+    #[test]
+    fn test_key_algorithm_to_algorithm_all_signing() {
+        assert_eq!(
+            key_algorithm_to_algorithm(&KeyAlgorithm::HS256),
+            Some(Algorithm::HS256)
+        );
+        assert_eq!(
+            key_algorithm_to_algorithm(&KeyAlgorithm::RS256),
+            Some(Algorithm::RS256)
+        );
+        assert_eq!(
+            key_algorithm_to_algorithm(&KeyAlgorithm::ES256),
+            Some(Algorithm::ES256)
+        );
+        assert_eq!(
+            key_algorithm_to_algorithm(&KeyAlgorithm::PS256),
+            Some(Algorithm::PS256)
+        );
+        assert_eq!(
+            key_algorithm_to_algorithm(&KeyAlgorithm::EdDSA),
+            Some(Algorithm::EdDSA)
+        );
+    }
+
+    #[test]
+    fn test_key_algorithm_to_algorithm_encryption_returns_none() {
+        assert_eq!(key_algorithm_to_algorithm(&KeyAlgorithm::RSA1_5), None);
+        assert_eq!(key_algorithm_to_algorithm(&KeyAlgorithm::RSA_OAEP), None);
+        assert_eq!(
+            key_algorithm_to_algorithm(&KeyAlgorithm::RSA_OAEP_256),
+            None
+        );
     }
 }

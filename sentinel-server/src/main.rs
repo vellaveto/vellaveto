@@ -450,7 +450,10 @@ fn cmd_policies(preset: String) -> Result<()> {
         })
         .collect();
 
-    let config = PolicyConfig { policies: rules };
+    let config = PolicyConfig {
+        policies: rules,
+        injection: Default::default(),
+    };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;
 

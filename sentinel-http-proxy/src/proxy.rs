@@ -15,9 +15,9 @@ use bytes::Bytes;
 use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
 use sentinel_mcp::extractor::{self, MessageType};
-use sentinel_mcp::inspection::inspect_for_injection;
 #[cfg(test)]
 use sentinel_mcp::inspection::sanitize_for_injection_scan;
+use sentinel_mcp::inspection::{inspect_for_injection, InjectionScanner};
 use sentinel_types::{Action, EvaluationTrace, Policy, Verdict};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -45,6 +45,10 @@ pub struct ProxyState {
     pub http_client: reqwest::Client,
     /// OAuth 2.1 JWT validator. When `Some`, all MCP requests require a valid Bearer token.
     pub oauth: Option<Arc<OAuthValidator>>,
+    /// Custom injection scanner. When `Some`, uses configured patterns instead of defaults.
+    pub injection_scanner: Option<Arc<InjectionScanner>>,
+    /// When true, injection scanning is completely disabled.
+    pub injection_disabled: bool,
 }
 
 /// MCP Session ID header name.
@@ -273,6 +277,30 @@ pub async fn handle_mcp_post(
         Ok(claims) => claims,
         Err(response) => return response,
     };
+
+    // Defense-in-depth: reject JSON with duplicate keys before parsing.
+    // Prevents parser-disagreement attacks (CVE-2017-12635, CVE-2020-16250)
+    // where the proxy evaluates one key value but upstream sees another.
+    if let Ok(raw_str) = std::str::from_utf8(&body) {
+        if let Some(dup_key) = sentinel_mcp::framing::find_duplicate_json_key(raw_str) {
+            tracing::warn!(
+                "SECURITY: Rejected JSON-RPC message with duplicate key: \"{}\"",
+                dup_key
+            );
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32700,
+                        "message": "Parse error: duplicate JSON key detected"
+                    },
+                    "id": null
+                })),
+            )
+                .into_response();
+        }
+    }
 
     // Parse the JSON-RPC body
     let msg: Value = match serde_json::from_slice(&body) {
@@ -604,22 +632,52 @@ pub async fn handle_mcp_post(
 }
 
 /// DELETE /mcp handler — session termination (MCP spec).
+///
+/// When OAuth is configured, verifies that the authenticated user owns the
+/// session before allowing deletion. Prevents cross-user session termination.
 pub async fn handle_mcp_delete(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
     // OAuth 2.1 token validation (if configured)
-    if let Err(response) = validate_oauth(&state, &headers).await {
-        return response;
-    }
+    let oauth_claims = match validate_oauth(&state, &headers).await {
+        Ok(claims) => claims,
+        Err(response) => return response,
+    };
 
     let session_id = headers.get(MCP_SESSION_ID).and_then(|v| v.to_str().ok());
 
     match session_id {
-        Some(id) if state.sessions.remove(id) => {
-            tracing::info!("Session terminated: {}", id);
-            StatusCode::OK.into_response()
-        }
         Some(id) => {
-            tracing::debug!("DELETE for unknown session: {}", id);
-            StatusCode::NOT_FOUND.into_response()
+            // Session ownership check: when OAuth is active, only the session
+            // owner can delete their session. Prevents User A from terminating
+            // User B's session by guessing the UUID.
+            if let Some(ref claims) = oauth_claims {
+                if let Some(session) = state.sessions.get_mut(id) {
+                    if let Some(ref owner) = session.oauth_subject {
+                        if owner != &claims.sub {
+                            tracing::warn!(
+                                "SECURITY: User '{}' attempted to delete session {} owned by '{}'",
+                                claims.sub,
+                                id,
+                                owner
+                            );
+                            return (
+                                StatusCode::FORBIDDEN,
+                                Json(json!({"error": "Session owned by another user"})),
+                            )
+                                .into_response();
+                        }
+                    }
+                    // Drop the session lock before removing
+                    drop(session);
+                }
+            }
+
+            if state.sessions.remove(id) {
+                tracing::info!("Session terminated: {}", id);
+                StatusCode::OK.into_response()
+            } else {
+                tracing::debug!("DELETE for unknown session: {}", id);
+                StatusCode::NOT_FOUND.into_response()
+            }
         }
         None => (
             StatusCode::BAD_REQUEST,
@@ -774,8 +832,20 @@ async fn forward_to_upstream(
                             // Inspect for injection patterns in tool results
                             if let Some(result) = response_json.get("result") {
                                 let text_to_inspect = extract_text_from_result(result);
-                                if !text_to_inspect.is_empty() {
-                                    let matches = inspect_for_injection(&text_to_inspect);
+                                if !text_to_inspect.is_empty() && !state.injection_disabled {
+                                    let matches: Vec<String> =
+                                        if let Some(ref scanner) = state.injection_scanner {
+                                            scanner
+                                                .inspect(&text_to_inspect)
+                                                .into_iter()
+                                                .map(|s| s.to_string())
+                                                .collect()
+                                        } else {
+                                            inspect_for_injection(&text_to_inspect)
+                                                .into_iter()
+                                                .map(|s| s.to_string())
+                                                .collect()
+                                        };
                                     if !matches.is_empty() {
                                         tracing::warn!(
                                             "SECURITY: Potential prompt injection in upstream response! \

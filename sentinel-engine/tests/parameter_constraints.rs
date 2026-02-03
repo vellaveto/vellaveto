@@ -314,7 +314,9 @@ fn test_missing_parameter_denies_by_default() {
 // === on_missing: "skip" override ===
 
 #[test]
-fn test_on_missing_skip_allows_through() {
+fn test_on_missing_skip_all_constraints_skipped_denies() {
+    // Exploit #2 fix: when ALL constraints skip because required params are missing,
+    // the policy returns Deny (fail-closed), not Allow.
     let engine = make_engine();
     let action = make_action("file_system", "read_file", json!({})); // no "path" param
     let policy = make_conditional_policy(
@@ -329,7 +331,11 @@ fn test_on_missing_skip_allows_through() {
     );
 
     let verdict = engine.evaluate_action(&action, &[policy]).unwrap();
-    assert!(matches!(verdict, Verdict::Allow));
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "All constraints skipped → fail-closed deny, got: {:?}",
+        verdict
+    );
 }
 
 // === Mixed with require_approval (approval takes precedence because it's checked first) ===
