@@ -39,11 +39,11 @@ async fn finding_1_hashless_entry_after_chain_start_rejected() {
 
     // Phase 1: Create a valid hashed chain with 2 entries
     let logger = AuditLogger::new(log_path.clone());
-    let action = Action {
-        tool: "file".to_string(),
-        function: "read".to_string(),
-        parameters: json!({"path": "/tmp/test"}),
-    };
+    let action = Action::new(
+        "file".to_string(),
+        "read".to_string(),
+        json!({"path": "/tmp/test"}),
+    );
     logger
         .log_entry(&action, &Verdict::Allow, json!({}))
         .await
@@ -107,11 +107,7 @@ async fn finding_2_boundary_shifted_fields_produce_different_hashes() {
 
     // Entry A: tool="ab", function="cd"
     let logger_a = AuditLogger::new(tmp.path().join("a.log"));
-    let action_a = Action {
-        tool: "ab".to_string(),
-        function: "cd".to_string(),
-        parameters: json!({}),
-    };
+    let action_a = Action::new("ab".to_string(), "cd".to_string(), json!({}));
     logger_a
         .log_entry(&action_a, &Verdict::Allow, json!({}))
         .await
@@ -119,11 +115,7 @@ async fn finding_2_boundary_shifted_fields_produce_different_hashes() {
 
     // Entry B: tool="abc", function="d"
     let logger_b = AuditLogger::new(tmp.path().join("b.log"));
-    let action_b = Action {
-        tool: "abc".to_string(),
-        function: "d".to_string(),
-        parameters: json!({}),
-    };
+    let action_b = Action::new("abc".to_string(), "d".to_string(), json!({}));
     logger_b
         .log_entry(&action_b, &Verdict::Allow, json!({}))
         .await
@@ -156,11 +148,11 @@ async fn finding_3_initialize_chain_detects_tampered_file() {
 
     // Create a valid chain
     let logger = AuditLogger::new(log_path.clone());
-    let action = Action {
-        tool: "file".to_string(),
-        function: "read".to_string(),
-        parameters: json!({"path": "/tmp/safe"}),
-    };
+    let action = Action::new(
+        "file".to_string(),
+        "read".to_string(),
+        json!({"path": "/tmp/safe"}),
+    );
     logger
         .log_entry(&action, &Verdict::Allow, json!({}))
         .await
@@ -363,6 +355,8 @@ mod server_auth {
                 name: "Allow file reads".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 10,
+                path_rules: None,
+                network_rules: None,
             }])),
             audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
             config_path: Arc::new("test.toml".to_string()),
@@ -615,14 +609,16 @@ fn finding_8_domain_policy_blocks_evil_despite_at_bypass_attempt() {
             }),
         },
         priority: 100,
+        path_rules: None,
+        network_rules: None,
     };
 
     // The attack URL with @ in query trying to evade the policy
-    let action = Action {
-        tool: "http".to_string(),
-        function: "request".to_string(),
-        parameters: json!({"url": "https://evil.com/steal?callback=user@safe.com"}),
-    };
+    let action = Action::new(
+        "http".to_string(),
+        "request".to_string(),
+        json!({"url": "https://evil.com/steal?callback=user@safe.com"}),
+    );
 
     let verdict = engine.evaluate_action(&action, &[policy]).unwrap();
     assert!(
@@ -697,11 +693,7 @@ async fn finding_10_approvals_survive_restart() {
     // Create store and add an approval
     let store =
         sentinel_approval::ApprovalStore::new(path.clone(), std::time::Duration::from_secs(900));
-    let action = Action {
-        tool: "dangerous".to_string(),
-        function: "exec".to_string(),
-        parameters: json!({}),
-    };
+    let action = Action::new("dangerous".to_string(), "exec".to_string(), json!({}));
     let id = store
         .create(action.clone(), "needs review".to_string())
         .await
@@ -743,11 +735,7 @@ async fn finding_13_require_approval_verdict_recorded_correctly() {
     let tmp = TempDir::new().unwrap();
     let logger = AuditLogger::new(tmp.path().join("audit.log"));
 
-    let action = Action {
-        tool: "dangerous".to_string(),
-        function: "exec".to_string(),
-        parameters: json!({}),
-    };
+    let action = Action::new("dangerous".to_string(), "exec".to_string(), json!({}));
     let verdict = Verdict::RequireApproval {
         reason: "needs human review".to_string(),
     };
@@ -852,17 +840,19 @@ fn combined_domain_bypass_with_path_traversal() {
             }),
         },
         priority: 100,
+        path_rules: None,
+        network_rules: None,
     };
 
     // Attack: evil.com with @ bypass attempt
-    let action = Action {
-        tool: "http".to_string(),
-        function: "request".to_string(),
-        parameters: json!({
+    let action = Action::new(
+        "http".to_string(),
+        "request".to_string(),
+        json!({
             "url": "https://evil.com/data?user@safe.com",
             "path": "/a/../../etc/shadow"
         }),
-    };
+    );
 
     let verdict = engine.evaluate_action(&action, &[deny_policy]).unwrap();
     assert!(
@@ -924,11 +914,7 @@ async fn combined_audit_integrity_full_lifecycle() {
     ];
 
     for (tool, func, verdict) in &actions {
-        let action = Action {
-            tool: tool.to_string(),
-            function: func.to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new(tool.to_string(), func.to_string(), json!({}));
         logger.log_entry(&action, verdict, json!({})).await.unwrap();
     }
 
@@ -972,11 +958,7 @@ async fn finding_4_hash_chain_ordering_consistent_after_writes() {
     let logger = AuditLogger::new(log_path.clone());
     logger.initialize_chain().await.unwrap();
 
-    let action = Action {
-        tool: "test".to_string(),
-        function: "op".to_string(),
-        parameters: json!({}),
-    };
+    let action = Action::new("test".to_string(), "op".to_string(), json!({}));
 
     // Write 5 entries in sequence
     for i in 0..5 {
@@ -1043,11 +1025,7 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
     let logger = Arc::new(AuditLogger::new(audit_path.clone()));
 
     // Write one valid entry first
-    let action = Action {
-        tool: "file".to_string(),
-        function: "read".to_string(),
-        parameters: json!({}),
-    };
+    let action = Action::new("file".to_string(), "read".to_string(), json!({}));
     logger
         .log_entry(&action, &Verdict::Allow, json!({}))
         .await
@@ -1068,6 +1046,8 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
             name: "Allow reads".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         }])),
         audit: logger,
         config_path: Arc::new("test.toml".to_string()),
@@ -1149,6 +1129,8 @@ async fn finding_12_approval_creation_failure_denies_request() {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }])),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),

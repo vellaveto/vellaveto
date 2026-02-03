@@ -21,11 +21,7 @@ fn setup_logger() -> (AuditLogger, TempDir) {
 }
 
 fn action() -> Action {
-    Action {
-        tool: "report_test".to_string(),
-        function: "verify".to_string(),
-        parameters: json!({}),
-    }
+    Action::new("report_test".to_string(), "verify".to_string(), json!({}))
 }
 
 /// Verify the invariant: total == allow + deny + require_approval

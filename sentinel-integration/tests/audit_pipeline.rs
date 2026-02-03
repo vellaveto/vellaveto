@@ -8,11 +8,7 @@ use serde_json::json;
 use tempfile::TempDir;
 
 fn make_action(tool: &str, function: &str) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: json!({}),
-    }
+    Action::new(tool.to_string(), function.to_string(), json!({}))
 }
 
 fn allow_policy(id: &str, name: &str, priority: i32) -> Policy {
@@ -21,6 +17,8 @@ fn allow_policy(id: &str, name: &str, priority: i32) -> Policy {
         name: name.to_string(),
         policy_type: PolicyType::Allow,
         priority,
+        path_rules: None,
+        network_rules: None,
     }
 }
 
@@ -30,6 +28,8 @@ fn deny_policy(id: &str, name: &str, priority: i32) -> Policy {
         name: name.to_string(),
         policy_type: PolicyType::Deny,
         priority,
+        path_rules: None,
+        network_rules: None,
     }
 }
 

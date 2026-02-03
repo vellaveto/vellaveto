@@ -24,11 +24,11 @@ fn runtime_st() -> tokio::runtime::Runtime {
 }
 
 fn make_action(id: usize) -> Action {
-    Action {
-        tool: format!("concurrent_tool_{}", id),
-        function: format!("func_{}", id),
-        parameters: json!({"task_id": id}),
-    }
+    Action::new(
+        format!("concurrent_tool_{}", id),
+        format!("func_{}", id),
+        json!({"task_id": id}),
+    )
 }
 
 // ══════════════════════════════════════

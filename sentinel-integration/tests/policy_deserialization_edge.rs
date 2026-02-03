@@ -206,12 +206,16 @@ fn policy_roundtrip_with_all_types() {
             name: "Allow".to_string(),
             policy_type: PolicyType::Allow,
             priority: 1,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "c:d".to_string(),
             name: "Deny".to_string(),
             policy_type: PolicyType::Deny,
             priority: -1,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
@@ -220,6 +224,8 @@ fn policy_roundtrip_with_all_types() {
                 conditions: json!({"require_approval": true, "forbidden_parameters": ["x"]}),
             },
             priority: i32::MAX,
+            path_rules: None,
+            network_rules: None,
         },
     ];
 
@@ -242,12 +248,16 @@ fn policy_array_roundtrip() {
             name: "File policy".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "shell:*".to_string(),
             name: "Shell policy".to_string(),
             policy_type: PolicyType::Deny,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         },
     ];
 

@@ -8,19 +8,11 @@ use sentinel_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 
 fn make_action(tool: &str, function: &str) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: json!({}),
-    }
+    Action::new(tool.to_string(), function.to_string(), json!({}))
 }
 
 fn make_action_with_params(tool: &str, function: &str, params: serde_json::Value) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: params,
-    }
+    Action::new(tool.to_string(), function.to_string(), params)
 }
 
 // ════════════════════════════
@@ -41,18 +33,24 @@ fn deny_highest_priority_wins_over_all() {
                 conditions: json!({"require_approval": true}),
             },
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
             name: "allow-mid".to_string(),
             policy_type: PolicyType::Allow,
             priority: 50,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
             name: "deny-high".to_string(),
             policy_type: PolicyType::Deny,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
@@ -75,12 +73,16 @@ fn allow_highest_priority_wins_over_deny_and_conditional() {
             name: "deny-mid".to_string(),
             policy_type: PolicyType::Deny,
             priority: 50,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
             name: "allow-high".to_string(),
             policy_type: PolicyType::Allow,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
@@ -89,6 +91,8 @@ fn allow_highest_priority_wins_over_deny_and_conditional() {
                 conditions: json!({"require_approval": true}),
             },
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
@@ -111,12 +115,16 @@ fn conditional_highest_priority_wins_over_deny_and_allow() {
             name: "allow-low".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
             name: "deny-mid".to_string(),
             policy_type: PolicyType::Deny,
             priority: 50,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
@@ -125,6 +133,8 @@ fn conditional_highest_priority_wins_over_deny_and_allow() {
                 conditions: json!({"require_approval": true}),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
@@ -153,6 +163,8 @@ fn three_types_same_priority_deny_wins() {
             name: "allow-50".to_string(),
             policy_type: PolicyType::Allow,
             priority: 50,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
@@ -161,12 +173,16 @@ fn three_types_same_priority_deny_wins() {
                 conditions: json!({"require_approval": true}),
             },
             priority: 50,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
             name: "deny-50".to_string(),
             policy_type: PolicyType::Deny,
             priority: 50,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
@@ -195,12 +211,16 @@ fn conditional_forbids_param_before_allow_can_permit() {
                 conditions: json!({"forbidden_parameters": ["secret"]}),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
             name: "allow-all".to_string(),
             policy_type: PolicyType::Allow,
             priority: 50,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
@@ -224,12 +244,16 @@ fn conditional_passes_through_when_forbidden_param_absent() {
                 conditions: json!({"forbidden_parameters": ["secret"]}),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
             name: "allow-all".to_string(),
             policy_type: PolicyType::Allow,
             priority: 50,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();

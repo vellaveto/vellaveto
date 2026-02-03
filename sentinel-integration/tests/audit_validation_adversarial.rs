@@ -14,11 +14,7 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: params,
-    }
+    Action::new(tool.to_string(), function.to_string(), params)
 }
 
 fn setup_logger() -> (AuditLogger, TempDir) {

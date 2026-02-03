@@ -5,6 +5,30 @@ pub struct Action {
     pub tool: String,
     pub function: String,
     pub parameters: serde_json::Value,
+    /// File paths targeted by this action (e.g. from `file://` URIs).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub target_paths: Vec<String>,
+    /// Domains targeted by this action (e.g. from `https://` URIs).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub target_domains: Vec<String>,
+}
+
+impl Action {
+    /// Create an Action with only tool, function, and parameters.
+    /// `target_paths` and `target_domains` default to empty.
+    pub fn new(
+        tool: impl Into<String>,
+        function: impl Into<String>,
+        parameters: serde_json::Value,
+    ) -> Self {
+        Self {
+            tool: tool.into(),
+            function: function.into(),
+            parameters,
+            target_paths: Vec::new(),
+            target_domains: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -21,12 +45,40 @@ pub enum PolicyType {
     Conditional { conditions: serde_json::Value },
 }
 
+/// Path-based access control rules for file system operations.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct PathRules {
+    /// Glob patterns for allowed paths. If non-empty, only matching paths are allowed.
+    #[serde(default)]
+    pub allowed: Vec<String>,
+    /// Glob patterns for blocked paths. Any match results in denial.
+    #[serde(default)]
+    pub blocked: Vec<String>,
+}
+
+/// Network-based access control rules for outbound connections.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct NetworkRules {
+    /// Domain patterns for allowed destinations. If non-empty, only matching domains are allowed.
+    #[serde(default)]
+    pub allowed_domains: Vec<String>,
+    /// Domain patterns for blocked destinations. Any match results in denial.
+    #[serde(default)]
+    pub blocked_domains: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Policy {
     pub id: String,
     pub name: String,
     pub policy_type: PolicyType,
     pub priority: i32,
+    /// Optional path-based access control rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path_rules: Option<PathRules>,
+    /// Optional network-based access control rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_rules: Option<NetworkRules>,
 }
 
 // ═══════════════════════════════════════════════════
@@ -85,11 +137,7 @@ mod tests {
 
     #[test]
     fn test_action_serialization_roundtrip() {
-        let action = Action {
-            tool: "file_system".to_string(),
-            function: "read_file".to_string(),
-            parameters: json!({"path": "/tmp/test.txt"}),
-        };
+        let action = Action::new("file_system", "read_file", json!({"path": "/tmp/test.txt"}));
         let json_str = serde_json::to_string(&action).unwrap();
         let deserialized: Action = serde_json::from_str(&json_str).unwrap();
         assert_eq!(action, deserialized);
@@ -130,6 +178,8 @@ mod tests {
             name: "Block bash".to_string(),
             policy_type: PolicyType::Deny,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         };
         let json_str = serde_json::to_string(&policy).unwrap();
         let deserialized: Policy = serde_json::from_str(&json_str).unwrap();

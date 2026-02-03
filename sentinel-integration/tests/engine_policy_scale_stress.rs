@@ -8,11 +8,7 @@ use sentinel_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 
 fn make_action(tool: &str, function: &str) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: json!({}),
-    }
+    Action::new(tool.to_string(), function.to_string(), json!({}))
 }
 
 // ═══════════════════════════════
@@ -32,6 +28,8 @@ fn thousand_non_matching_then_one_match() {
             name: format!("noise-{}", i),
             policy_type: PolicyType::Allow,
             priority: i,
+            path_rules: None,
+            network_rules: None,
         })
         .collect();
 
@@ -40,6 +38,8 @@ fn thousand_non_matching_then_one_match() {
         name: "the-match".to_string(),
         policy_type: PolicyType::Allow,
         priority: 0,
+        path_rules: None,
+        network_rules: None,
     });
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
@@ -62,6 +62,8 @@ fn thousand_non_matching_defaults_to_deny() {
             name: format!("noise-{}", i),
             policy_type: PolicyType::Allow,
             priority: i,
+            path_rules: None,
+            network_rules: None,
         })
         .collect();
 
@@ -91,6 +93,8 @@ fn thousand_matching_allows_highest_priority_wins() {
             name: format!("allow-{}", i),
             policy_type: PolicyType::Allow,
             priority: i,
+            path_rules: None,
+            network_rules: None,
         })
         .collect();
 
@@ -104,6 +108,8 @@ fn thousand_matching_allows_highest_priority_wins() {
         name: "deny-override".to_string(),
         policy_type: PolicyType::Deny,
         priority: 1000,
+        path_rules: None,
+        network_rules: None,
     });
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
@@ -131,7 +137,9 @@ fn mixed_500_allow_500_deny_highest_deny_wins() {
             id: "*".to_string(),
             name: format!("allow-{}", i),
             policy_type: PolicyType::Allow,
-            priority: i * 2, // even priorities: 0, 2, 4, ..., 998
+            priority: i * 2, // even priorities: 0, 2, 4, ..., 998,
+            path_rules: None,
+            network_rules: None,
         });
     }
     for i in 0..500 {
@@ -139,7 +147,9 @@ fn mixed_500_allow_500_deny_highest_deny_wins() {
             id: "*".to_string(),
             name: format!("deny-{}", i),
             policy_type: PolicyType::Deny,
-            priority: i * 2 + 1, // odd priorities: 1, 3, 5, ..., 999
+            priority: i * 2 + 1, // odd priorities: 1, 3, 5, ..., 999,
+            path_rules: None,
+            network_rules: None,
         });
     }
 
@@ -165,12 +175,16 @@ fn mixed_types_allow_at_top_wins() {
             name: format!("allow-{}", i),
             policy_type: PolicyType::Allow,
             priority: i,
+            path_rules: None,
+            network_rules: None,
         });
         policies.push(Policy {
             id: "*".to_string(),
             name: format!("deny-{}", i),
             policy_type: PolicyType::Deny,
             priority: i,
+            path_rules: None,
+            network_rules: None,
         });
     }
     // At each priority 0..499, Deny beats Allow (deny-overrides tiebreaker).
@@ -180,6 +194,8 @@ fn mixed_types_allow_at_top_wins() {
         name: "allow-top".to_string(),
         policy_type: PolicyType::Allow,
         priority: 1000,
+        path_rules: None,
+        network_rules: None,
     });
 
     let result = engine.evaluate_action(&action, &policies).unwrap();

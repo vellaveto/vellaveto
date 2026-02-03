@@ -24,11 +24,11 @@ fn main() {
         let tmp = tempfile::TempDir::new().unwrap();
         let _logger = AuditLogger::new(tmp.path().join("bench_audit.log"));
 
-        let action = Action {
-            tool: "benchmark".to_string(),
-            function: "measure".to_string(),
-            parameters: json!({"iteration": 0}),
-        };
+        let action = Action::new(
+            "benchmark".to_string(),
+            "measure".to_string(),
+            json!({"iteration": 0}),
+        );
 
         let counts = [100, 500, 1000, 5000];
 

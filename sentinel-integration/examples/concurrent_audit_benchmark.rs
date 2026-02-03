@@ -35,11 +35,7 @@ fn main() {
             let tmp = tempfile::TempDir::new().unwrap();
             let logger = Arc::new(AuditLogger::new(tmp.path().join("bench.log")));
 
-            let action = Action {
-                tool: "bench".to_string(),
-                function: "write".to_string(),
-                parameters: json!({"task": 0}),
-            };
+            let action = Action::new("bench".to_string(), "write".to_string(), json!({"task": 0}));
 
             let start = Instant::now();
             let mut handles = Vec::new();

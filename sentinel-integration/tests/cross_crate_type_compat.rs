@@ -25,11 +25,11 @@ fn runtime() -> tokio::runtime::Runtime {
 fn action_type_shared_across_crates() {
     let rt = runtime();
     rt.block_on(async {
-        let action = Action {
-            tool: "compat_test".to_string(),
-            function: "verify".to_string(),
-            parameters: json!({"cross_crate": true}),
-        };
+        let action = Action::new(
+            "compat_test".to_string(),
+            "verify".to_string(),
+            json!({"cross_crate": true}),
+        );
 
         // Serialize (simulating network/IPC boundary)
         let json_str = serde_json::to_string(&action).unwrap();
@@ -44,6 +44,8 @@ fn action_type_shared_across_crates() {
             name: "Compat test".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         }];
         let verdict = engine.evaluate_action(&engine_action, &policies).unwrap();
         assert_eq!(verdict, Verdict::Allow);
@@ -80,11 +82,7 @@ fn verdict_flows_from_engine_to_audit() {
         let tmp = TempDir::new().unwrap();
         let logger = AuditLogger::new(tmp.path().join("audit.log"));
 
-        let action = Action {
-            tool: "file".to_string(),
-            function: "read".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("file".to_string(), "read".to_string(), json!({}));
 
         // Test all three verdict types
         let policy_sets: Vec<(Vec<Policy>, &str)> = vec![
@@ -94,6 +92,8 @@ fn verdict_flows_from_engine_to_audit() {
                     name: "Allow".to_string(),
                     policy_type: PolicyType::Allow,
                     priority: 10,
+                    path_rules: None,
+                    network_rules: None,
                 }],
                 "Allow",
             ),
@@ -103,6 +103,8 @@ fn verdict_flows_from_engine_to_audit() {
                     name: "Deny".to_string(),
                     policy_type: PolicyType::Deny,
                     priority: 10,
+                    path_rules: None,
+                    network_rules: None,
                 }],
                 "Deny",
             ),
@@ -114,6 +116,8 @@ fn verdict_flows_from_engine_to_audit() {
                         conditions: json!({"require_approval": true}),
                     },
                     priority: 10,
+                    path_rules: None,
+                    network_rules: None,
                 }],
                 "RequireApproval",
             ),
@@ -155,11 +159,11 @@ fn policy_json_consumed_by_engine() {
     });
     let policy: Policy = serde_json::from_value(policy_json).unwrap();
 
-    let action = Action {
-        tool: "net".to_string(),
-        function: "fetch".to_string(),
-        parameters: json!({"url": "https://example.com"}),
-    };
+    let action = Action::new(
+        "net".to_string(),
+        "fetch".to_string(),
+        json!({"url": "https://example.com"}),
+    );
 
     match engine.evaluate_action(&action, &[policy]).unwrap() {
         Verdict::Deny { .. } => {}
@@ -182,6 +186,8 @@ fn conditional_policy_json_roundtrip_preserves_behavior() {
             }),
         },
         priority: 100,
+        path_rules: None,
+        network_rules: None,
     };
 
     let json_str = serde_json::to_string(&original).unwrap();
@@ -191,29 +197,25 @@ fn conditional_policy_json_roundtrip_preserves_behavior() {
     let test_cases: Vec<(Action, bool)> = vec![
         // Has required, no forbidden → Allow
         (
-            Action {
-                tool: "api".to_string(),
-                function: "call".to_string(),
-                parameters: json!({"user_id": "123"}),
-            },
+            Action::new(
+                "api".to_string(),
+                "call".to_string(),
+                json!({"user_id": "123"}),
+            ),
             true,
         ),
         // Missing required → Deny
         (
-            Action {
-                tool: "api".to_string(),
-                function: "call".to_string(),
-                parameters: json!({}),
-            },
+            Action::new("api".to_string(), "call".to_string(), json!({})),
             false,
         ),
         // Has forbidden  Deny
         (
-            Action {
-                tool: "api".to_string(),
-                function: "call".to_string(),
-                parameters: json!({"user_id": "123", "secret": "s"}),
-            },
+            Action::new(
+                "api".to_string(),
+                "call".to_string(),
+                json!({"user_id": "123", "secret": "s"}),
+            ),
             false,
         ),
     ];
@@ -252,11 +254,11 @@ fn audit_entry_verdict_matches_engine_output_exactly() {
         let tmp = TempDir::new().unwrap();
         let logger = AuditLogger::new(tmp.path().join("audit.log"));
 
-        let action = Action {
-            tool: "shell".to_string(),
-            function: "exec".to_string(),
-            parameters: json!({"cmd": "ls"}),
-        };
+        let action = Action::new(
+            "shell".to_string(),
+            "exec".to_string(),
+            json!({"cmd": "ls"}),
+        );
         let policies = vec![Policy {
             id: "shell:*".to_string(),
             name: "Shell conditional".to_string(),
@@ -264,6 +266,8 @@ fn audit_entry_verdict_matches_engine_output_exactly() {
                 conditions: json!({"require_approval": true}),
             },
             priority: 50,
+            path_rules: None,
+            network_rules: None,
         }];
 
         let engine_verdict = engine.evaluate_action(&action, &policies).unwrap();
@@ -294,6 +298,8 @@ fn negative_priority_survives_json_roundtrip() {
         name: "Negative priority".to_string(),
         policy_type: PolicyType::Allow,
         priority: -42,
+        path_rules: None,
+        network_rules: None,
     };
     let json_str = serde_json::to_string(&policy).unwrap();
     let deserialized: Policy = serde_json::from_str(&json_str).unwrap();
@@ -308,6 +314,8 @@ fn extreme_priorities_survive_json_roundtrip() {
             name: format!("pri-{}", priority),
             policy_type: PolicyType::Deny,
             priority,
+            path_rules: None,
+            network_rules: None,
         };
         let json_str = serde_json::to_string(&policy).unwrap();
         let deserialized: Policy = serde_json::from_str(&json_str).unwrap();

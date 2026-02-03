@@ -18,26 +18,22 @@ use serde_json::json;
 #[test]
 fn action_roundtrip_preserves_equality() {
     let actions = vec![
-        Action {
-            tool: String::new(),
-            function: String::new(),
-            parameters: json!(null),
-        },
-        Action {
-            tool: "a".repeat(1000),
-            function: "b".repeat(1000),
-            parameters: json!({"nested": {"deep": {"value": 42}}}),
-        },
-        Action {
-            tool: "special\tchars".to_string(),
-            function: "with spaces".to_string(),
-            parameters: json!([1, 2, 3, "four", null, true]),
-        },
-        Action {
-            tool: "unicode_🔥".to_string(),
-            function: "日本語".to_string(),
-            parameters: json!({"emoji": "🎉", "chinese": "中文"}),
-        },
+        Action::new(String::new(), String::new(), json!(null)),
+        Action::new(
+            "a".repeat(1000),
+            "b".repeat(1000),
+            json!({"nested": {"deep": {"value": 42}}}),
+        ),
+        Action::new(
+            "special\tchars".to_string(),
+            "with spaces".to_string(),
+            json!([1, 2, 3, "four", null, true]),
+        ),
+        Action::new(
+            "unicode_🔥".to_string(),
+            "日本語".to_string(),
+            json!({"emoji": "🎉", "chinese": "中文"}),
+        ),
     ];
 
     for action in &actions {
@@ -133,6 +129,8 @@ fn policy_roundtrip_with_various_priorities() {
             name: format!("priority-{}", pri),
             policy_type: PolicyType::Deny,
             priority: pri,
+            path_rules: None,
+            network_rules: None,
         };
         let serialized = serde_json::to_string(&policy).unwrap();
         let deserialized: Policy = serde_json::from_str(&serialized).unwrap();
@@ -150,21 +148,9 @@ fn policy_roundtrip_with_various_priorities() {
 fn empty_policies_always_deny_for_any_action() {
     let engine = PolicyEngine::new(false);
     let actions = vec![
-        Action {
-            tool: String::new(),
-            function: String::new(),
-            parameters: json!(null),
-        },
-        Action {
-            tool: "*".to_string(),
-            function: "*".to_string(),
-            parameters: json!({}),
-        },
-        Action {
-            tool: "a".repeat(10000),
-            function: "b".to_string(),
-            parameters: json!({"x": 1}),
-        },
+        Action::new(String::new(), String::new(), json!(null)),
+        Action::new("*".to_string(), "*".to_string(), json!({})),
+        Action::new("a".repeat(10000), "b".to_string(), json!({"x": 1})),
     ];
 
     for action in &actions {
@@ -186,24 +172,18 @@ fn wildcard_allow_always_allows() {
         name: "allow-all".to_string(),
         policy_type: PolicyType::Allow,
         priority: 0,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let actions = vec![
-        Action {
-            tool: "".to_string(),
-            function: "".to_string(),
-            parameters: json!(null),
-        },
-        Action {
-            tool: "bash".to_string(),
-            function: "exec".to_string(),
-            parameters: json!({"cmd": "rm -rf /"}),
-        },
-        Action {
-            tool: "🔥".to_string(),
-            function: "💀".to_string(),
-            parameters: json!([]),
-        },
+        Action::new("".to_string(), "".to_string(), json!(null)),
+        Action::new(
+            "bash".to_string(),
+            "exec".to_string(),
+            json!({"cmd": "rm -rf /"}),
+        ),
+        Action::new("🔥".to_string(), "💀".to_string(), json!([])),
     ];
 
     for action in &actions {
@@ -225,19 +205,13 @@ fn wildcard_deny_always_denies() {
         name: "deny-all".to_string(),
         policy_type: PolicyType::Deny,
         priority: 0,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let actions = vec![
-        Action {
-            tool: "safe".to_string(),
-            function: "read".to_string(),
-            parameters: json!({}),
-        },
-        Action {
-            tool: "".to_string(),
-            function: "".to_string(),
-            parameters: json!(null),
-        },
+        Action::new("safe".to_string(), "read".to_string(), json!({})),
+        Action::new("".to_string(), "".to_string(), json!(null)),
     ];
 
     for action in &actions {
@@ -258,11 +232,7 @@ fn wildcard_deny_always_denies() {
 #[test]
 fn higher_priority_always_wins_over_lower() {
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: "tool".to_string(),
-        function: "func".to_string(),
-        parameters: json!({}),
-    };
+    let action = Action::new("tool".to_string(), "func".to_string(), json!({}));
 
     let priority_pairs: Vec<(i32, i32)> = vec![
         (1, 0),
@@ -281,12 +251,16 @@ fn higher_priority_always_wins_over_lower() {
                 name: "high-allow".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: *high,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*".to_string(),
                 name: "low-deny".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: *low,
+                path_rules: None,
+                network_rules: None,
             },
         ];
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
@@ -304,12 +278,16 @@ fn higher_priority_always_wins_over_lower() {
                 name: "high-deny".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: *high,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*".to_string(),
                 name: "low-allow".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: *low,
+                path_rules: None,
+                network_rules: None,
             },
         ];
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
@@ -330,11 +308,7 @@ fn higher_priority_always_wins_over_lower() {
 #[test]
 fn deny_overrides_allow_at_every_priority_level() {
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: "t".to_string(),
-        function: "f".to_string(),
-        parameters: json!({}),
-    };
+    let action = Action::new("t".to_string(), "f".to_string(), json!({}));
 
     let priorities = vec![i32::MIN, -1, 0, 1, 100, i32::MAX];
 
@@ -345,12 +319,16 @@ fn deny_overrides_allow_at_every_priority_level() {
                 name: "allow".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: pri,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "*".to_string(),
                 name: "deny".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: pri,
+                path_rules: None,
+                network_rules: None,
             },
         ];
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
@@ -372,26 +350,10 @@ fn evaluate_never_panics_with_valid_inputs() {
     let engine = PolicyEngine::new(false);
 
     let actions = vec![
-        Action {
-            tool: "".to_string(),
-            function: "".to_string(),
-            parameters: json!(null),
-        },
-        Action {
-            tool: "*".to_string(),
-            function: "*".to_string(),
-            parameters: json!({}),
-        },
-        Action {
-            tool: ":".to_string(),
-            function: ":".to_string(),
-            parameters: json!("str"),
-        },
-        Action {
-            tool: "a:b:c".to_string(),
-            function: "d".to_string(),
-            parameters: json!([]),
-        },
+        Action::new("".to_string(), "".to_string(), json!(null)),
+        Action::new("*".to_string(), "*".to_string(), json!({})),
+        Action::new(":".to_string(), ":".to_string(), json!("str")),
+        Action::new("a:b:c".to_string(), "d".to_string(), json!([])),
     ];
 
     let policy_sets: Vec<Vec<Policy>> = vec![
@@ -401,6 +363,8 @@ fn evaluate_never_panics_with_valid_inputs() {
             name: "a".to_string(),
             policy_type: PolicyType::Allow,
             priority: 0,
+            path_rules: None,
+            network_rules: None,
         }],
         vec![Policy {
             id: "*".to_string(),
@@ -409,6 +373,8 @@ fn evaluate_never_panics_with_valid_inputs() {
                 conditions: json!(null),
             },
             priority: 0,
+            path_rules: None,
+            network_rules: None,
         }],
     ];
 
@@ -428,11 +394,7 @@ fn evaluate_never_panics_with_valid_inputs() {
 #[test]
 fn thousand_non_matching_then_one_match() {
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: "target".to_string(),
-        function: "hit".to_string(),
-        parameters: json!({}),
-    };
+    let action = Action::new("target".to_string(), "hit".to_string(), json!({}));
 
     let mut policies: Vec<Policy> = (0..1000)
         .map(|i| Policy {
@@ -440,6 +402,8 @@ fn thousand_non_matching_then_one_match() {
             name: format!("miss-{}", i),
             policy_type: PolicyType::Allow,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         })
         .collect();
 
@@ -448,6 +412,8 @@ fn thousand_non_matching_then_one_match() {
         name: "the-match".to_string(),
         policy_type: PolicyType::Deny,
         priority: 1,
+        path_rules: None,
+        network_rules: None,
     });
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
@@ -459,11 +425,7 @@ fn thousand_non_matching_then_one_match() {
 #[test]
 fn thousand_matching_policies_highest_wins() {
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: "t".to_string(),
-        function: "f".to_string(),
-        parameters: json!({}),
-    };
+    let action = Action::new("t".to_string(), "f".to_string(), json!({}));
 
     let mut policies: Vec<Policy> = (0..999)
         .map(|i| Policy {
@@ -471,6 +433,8 @@ fn thousand_matching_policies_highest_wins() {
             name: format!("deny-{}", i),
             policy_type: PolicyType::Deny,
             priority: i,
+            path_rules: None,
+            network_rules: None,
         })
         .collect();
 
@@ -480,6 +444,8 @@ fn thousand_matching_policies_highest_wins() {
         name: "top-allow".to_string(),
         policy_type: PolicyType::Allow,
         priority: 999,
+        path_rules: None,
+        network_rules: None,
     });
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();

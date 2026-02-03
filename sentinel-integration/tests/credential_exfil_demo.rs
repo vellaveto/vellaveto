@@ -23,11 +23,7 @@ fn load_demo_policies() -> Vec<sentinel_types::Policy> {
 }
 
 fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: params,
-    }
+    Action::new(tool.to_string(), function.to_string(), params)
 }
 
 fn evaluate(action: &Action) -> Verdict {

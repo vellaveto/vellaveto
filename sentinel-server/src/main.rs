@@ -563,11 +563,7 @@ async fn cmd_evaluate(
     let parameters: serde_json::Value =
         serde_json::from_str(&params).context("Invalid JSON in --params")?;
 
-    let action = Action {
-        tool,
-        function,
-        parameters,
-    };
+    let action = Action::new(tool, function, parameters);
 
     let policy_config = PolicyConfig::load_file(&config)
         .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;

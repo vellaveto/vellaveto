@@ -17,11 +17,7 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 fn make_action() -> Action {
-    Action {
-        tool: "fs".to_string(),
-        function: "stat".to_string(),
-        parameters: json!({}),
-    }
+    Action::new("fs".to_string(), "stat".to_string(), json!({}))
 }
 
 // ════════════════════════════════════════

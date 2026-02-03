@@ -350,15 +350,15 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
     );
 
     // Audit trail
-    let action = sentinel_types::Action {
-        tool: "sentinel".to_string(),
-        function: "reload_policies".to_string(),
-        parameters: serde_json::json!({
+    let action = sentinel_types::Action::new(
+        "sentinel",
+        "reload_policies",
+        serde_json::json!({
             "config_path": config_path,
             "policy_count": count,
             "source": source,
         }),
-    };
+    );
     if let Err(e) = state
         .audit
         .log_entry(

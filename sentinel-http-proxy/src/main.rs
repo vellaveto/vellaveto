@@ -240,6 +240,8 @@ async fn main() -> Result<()> {
         injection_scanner,
         injection_disabled,
         api_key,
+        approval_store: None,
+        manifest_config: None,
     };
 
     // Build router

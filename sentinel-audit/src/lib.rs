@@ -1,9 +1,11 @@
 use chrono::Utc;
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
+use regex::Regex;
 use sentinel_types::{Action, Verdict};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 use thiserror::Error;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
@@ -165,11 +167,23 @@ const SENSITIVE_VALUE_PREFIXES: &[&str] = &[
 
 const REDACTED: &str = "[REDACTED]";
 
-/// Recursively walk a JSON value and redact sensitive keys/values.
+/// Pre-compiled PII detection regexes (email, SSN, US phone numbers).
+static PII_REGEXES: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    vec![
+        // Email addresses
+        Regex::new(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}").unwrap(),
+        // US Social Security Numbers (XXX-XX-XXXX)
+        Regex::new(r"\b\d{3}-\d{2}-\d{4}\b").unwrap(),
+        // US phone numbers (various formats)
+        Regex::new(r"\b(?:\+1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b").unwrap(),
+    ]
+});
+
+/// Recursively redact only sensitive key names.
 ///
-/// - Keys matching `SENSITIVE_PARAM_KEYS` (case-insensitive) have their values replaced.
-/// - String values starting with `SENSITIVE_VALUE_PREFIXES` are replaced.
-fn redact_sensitive_values(value: &serde_json::Value) -> serde_json::Value {
+/// Keys matching `SENSITIVE_PARAM_KEYS` (case-insensitive) have their values replaced.
+/// Value content is NOT inspected — only key names drive redaction.
+fn redact_keys_only(value: &serde_json::Value) -> serde_json::Value {
     match value {
         serde_json::Value::Object(map) => {
             let mut result = serde_json::Map::new();
@@ -178,18 +192,45 @@ fn redact_sensitive_values(value: &serde_json::Value) -> serde_json::Value {
                 if SENSITIVE_PARAM_KEYS.iter().any(|k| key_lower == *k) {
                     result.insert(key.clone(), serde_json::Value::String(REDACTED.to_string()));
                 } else {
-                    result.insert(key.clone(), redact_sensitive_values(val));
+                    result.insert(key.clone(), redact_keys_only(val));
                 }
             }
             serde_json::Value::Object(result)
         }
         serde_json::Value::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(redact_sensitive_values).collect())
+            serde_json::Value::Array(arr.iter().map(redact_keys_only).collect())
+        }
+        _ => value.clone(),
+    }
+}
+
+/// Recursively redact sensitive keys, value prefixes, and PII patterns.
+///
+/// - Keys matching `SENSITIVE_PARAM_KEYS` (case-insensitive) have their values replaced.
+/// - String values starting with `SENSITIVE_VALUE_PREFIXES` are replaced.
+/// - String values matching PII patterns (email, SSN, phone) are replaced.
+fn redact_keys_and_patterns(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut result = serde_json::Map::new();
+            for (key, val) in map {
+                let key_lower = key.to_lowercase();
+                if SENSITIVE_PARAM_KEYS.iter().any(|k| key_lower == *k) {
+                    result.insert(key.clone(), serde_json::Value::String(REDACTED.to_string()));
+                } else {
+                    result.insert(key.clone(), redact_keys_and_patterns(val));
+                }
+            }
+            serde_json::Value::Object(result)
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.iter().map(redact_keys_and_patterns).collect())
         }
         serde_json::Value::String(s) => {
             if SENSITIVE_VALUE_PREFIXES
                 .iter()
                 .any(|prefix| s.starts_with(prefix))
+                || PII_REGEXES.iter().any(|re| re.is_match(s))
             {
                 serde_json::Value::String(REDACTED.to_string())
             } else {
@@ -617,11 +658,7 @@ impl AuditLogger {
     /// The entry uses `tool: "sentinel"`, `function: "heartbeat"` with an `Allow`
     /// verdict and metadata recording the heartbeat interval and sequence number.
     pub async fn log_heartbeat(&self, interval_secs: u64, sequence: u64) -> Result<(), AuditError> {
-        let action = Action {
-            tool: "sentinel".to_string(),
-            function: "heartbeat".to_string(),
-            parameters: serde_json::json!({}),
-        };
+        let action = Action::new("sentinel", "heartbeat", serde_json::json!({}));
         let verdict = Verdict::Allow;
         let metadata = serde_json::json!({
             "event": "heartbeat",
@@ -867,18 +904,22 @@ impl AuditLogger {
         // Redact sensitive values based on configured redaction level
         let logged_action = match self.redaction_level {
             RedactionLevel::Off => action.clone(),
-            RedactionLevel::KeysOnly | RedactionLevel::KeysAndPatterns => Action {
-                tool: action.tool.clone(),
-                function: action.function.clone(),
-                parameters: redact_sensitive_values(&action.parameters),
-            },
+            RedactionLevel::KeysOnly => {
+                let mut a = action.clone();
+                a.parameters = redact_keys_only(&action.parameters);
+                a
+            }
+            RedactionLevel::KeysAndPatterns => {
+                let mut a = action.clone();
+                a.parameters = redact_keys_and_patterns(&action.parameters);
+                a
+            }
         };
 
         let logged_metadata = match self.redaction_level {
             RedactionLevel::Off => metadata,
-            RedactionLevel::KeysOnly | RedactionLevel::KeysAndPatterns => {
-                redact_sensitive_values(&metadata)
-            }
+            RedactionLevel::KeysOnly => redact_keys_only(&metadata),
+            RedactionLevel::KeysAndPatterns => redact_keys_and_patterns(&metadata),
         };
 
         let mut last_hash_guard = self.last_hash.lock().await;
@@ -1203,11 +1244,11 @@ mod tests {
     use tempfile::TempDir;
 
     fn test_action() -> Action {
-        Action {
-            tool: "file_system".to_string(),
-            function: "read_file".to_string(),
-            parameters: json!({"path": "/tmp/test.txt"}),
-        }
+        Action::new(
+            "file_system".to_string(),
+            "read_file".to_string(),
+            json!({"path": "/tmp/test.txt"}),
+        )
     }
 
     #[tokio::test]
@@ -1278,11 +1319,7 @@ mod tests {
         let log_path = dir.path().join("audit.jsonl");
         let logger = AuditLogger::new(log_path);
 
-        let action = Action {
-            tool: "bad\ntool".to_string(),
-            function: "read".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("bad\ntool".to_string(), "read".to_string(), json!({}));
 
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
         assert!(result.is_err());
@@ -1294,11 +1331,7 @@ mod tests {
         let log_path = dir.path().join("audit.jsonl");
         let logger = AuditLogger::new(log_path);
 
-        let action = Action {
-            tool: "bad\0tool".to_string(),
-            function: "read".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("bad\0tool".to_string(), "read".to_string(), json!({}));
 
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
         assert!(result.is_err());
@@ -1579,11 +1612,7 @@ mod tests {
         // Two entries with fields that differ only at boundaries must produce different hashes.
         let entry_a = AuditEntry {
             id: "ab".to_string(),
-            action: Action {
-                tool: "cd".to_string(),
-                function: "ef".to_string(),
-                parameters: json!({}),
-            },
+            action: Action::new("cd".to_string(), "ef".to_string(), json!({})),
             verdict: Verdict::Allow,
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             metadata: json!({}),
@@ -1593,11 +1622,7 @@ mod tests {
 
         let entry_b = AuditEntry {
             id: "abc".to_string(),
-            action: Action {
-                tool: "d".to_string(),
-                function: "ef".to_string(),
-                parameters: json!({}),
-            },
+            action: Action::new("d".to_string(), "ef".to_string(), json!({})),
             verdict: Verdict::Allow,
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             metadata: json!({}),
@@ -1626,11 +1651,11 @@ mod tests {
 
         let entry_a = AuditEntry {
             id: "test-canonical".to_string(),
-            action: Action {
-                tool: "test".to_string(),
-                function: "run".to_string(),
-                parameters: json!({"b": 1, "a": 2}),
-            },
+            action: Action::new(
+                "test".to_string(),
+                "run".to_string(),
+                json!({"b": 1, "a": 2}),
+            ),
             verdict: Verdict::Allow,
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             metadata: metadata_a,
@@ -1640,11 +1665,11 @@ mod tests {
 
         let entry_b = AuditEntry {
             id: "test-canonical".to_string(),
-            action: Action {
-                tool: "test".to_string(),
-                function: "run".to_string(),
-                parameters: json!({"a": 2, "b": 1}),
-            },
+            action: Action::new(
+                "test".to_string(),
+                "run".to_string(),
+                json!({"a": 2, "b": 1}),
+            ),
             verdict: Verdict::Allow,
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             metadata: metadata_b,
@@ -1743,10 +1768,10 @@ mod tests {
         let log_path = dir.path().join("audit.jsonl");
         let logger = AuditLogger::new(log_path.clone()); // redaction enabled
 
-        let action = Action {
-            tool: "http_request".to_string(),
-            function: "post".to_string(),
-            parameters: json!({
+        let action = Action::new(
+            "http_request".to_string(),
+            "post".to_string(),
+            json!({
                 "url": "https://api.example.com",
                 "password": "super_secret_123",
                 "api_key": "sk-1234567890",
@@ -1754,7 +1779,7 @@ mod tests {
                     "authorization": "Bearer token123"
                 }
             }),
-        };
+        );
 
         logger
             .log_entry(&action, &Verdict::Allow, json!({}))
@@ -1778,16 +1803,16 @@ mod tests {
         let log_path = dir.path().join("audit.jsonl");
         let logger = AuditLogger::new(log_path.clone());
 
-        let action = Action {
-            tool: "tool".to_string(),
-            function: "func".to_string(),
-            parameters: json!({
+        let action = Action::new(
+            "tool".to_string(),
+            "func".to_string(),
+            json!({
                 "key1": "sk-abc123def456",
                 "key2": "AKIAIOSFODNN7EXAMPLE",
                 "key3": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
                 "safe_value": "normal text"
             }),
-        };
+        );
 
         logger
             .log_entry(&action, &Verdict::Allow, json!({}))
@@ -1808,10 +1833,10 @@ mod tests {
         let log_path = dir.path().join("audit.jsonl");
         let logger = AuditLogger::new(log_path.clone());
 
-        let action = Action {
-            tool: "tool".to_string(),
-            function: "func".to_string(),
-            parameters: json!({
+        let action = Action::new(
+            "tool".to_string(),
+            "func".to_string(),
+            json!({
                 "config": {
                     "nested": {
                         "token": "should_be_redacted",
@@ -1820,7 +1845,7 @@ mod tests {
                 },
                 "items": ["normal", "sk-secret123", "safe"]
             }),
-        };
+        );
 
         logger
             .log_entry(&action, &Verdict::Allow, json!({}))
@@ -1842,14 +1867,14 @@ mod tests {
         let log_path = dir.path().join("audit.jsonl");
         let logger = AuditLogger::new_unredacted(log_path.clone());
 
-        let action = Action {
-            tool: "tool".to_string(),
-            function: "func".to_string(),
-            parameters: json!({
+        let action = Action::new(
+            "tool".to_string(),
+            "func".to_string(),
+            json!({
                 "password": "visible_password",
                 "key": "sk-visible-key"
             }),
-        };
+        );
 
         logger
             .log_entry(&action, &Verdict::Allow, json!({}))
@@ -1895,11 +1920,11 @@ mod tests {
         let log_path = dir.path().join("audit.jsonl");
         let logger = AuditLogger::new(log_path.clone());
 
-        let action = Action {
-            tool: "tool".to_string(),
-            function: "func".to_string(),
-            parameters: json!({"password": "secret123", "path": "/tmp/safe"}),
-        };
+        let action = Action::new(
+            "tool".to_string(),
+            "func".to_string(),
+            json!({"password": "secret123", "path": "/tmp/safe"}),
+        );
 
         logger
             .log_entry(&action, &Verdict::Allow, json!({}))
@@ -1919,6 +1944,157 @@ mod tests {
         let verification = logger.verify_chain().await.unwrap();
         assert!(verification.valid);
         assert_eq!(verification.entries_checked, 2);
+    }
+
+    // --- Phase 1A: KeysOnly vs KeysAndPatterns differentiation tests ---
+
+    #[tokio::test]
+    async fn test_keys_only_preserves_value_prefixes() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger =
+            AuditLogger::new(log_path.clone()).with_redaction_level(RedactionLevel::KeysOnly);
+
+        let action = Action::new(
+            "tool".to_string(),
+            "func".to_string(),
+            json!({
+                "key1": "sk-abc123def456",
+                "key2": "AKIAIOSFODNN7EXAMPLE",
+                "password": "secret123",
+                "safe_value": "normal text"
+            }),
+        );
+
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        let params = &entries[0].action.parameters;
+        // KeysOnly: sensitive keys are redacted
+        assert_eq!(params["password"], "[REDACTED]");
+        // KeysOnly: value prefixes (sk-, AKIA) are NOT redacted
+        assert_eq!(params["key1"], "sk-abc123def456");
+        assert_eq!(params["key2"], "AKIAIOSFODNN7EXAMPLE");
+        assert_eq!(params["safe_value"], "normal text");
+    }
+
+    #[tokio::test]
+    async fn test_keys_only_preserves_emails() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger =
+            AuditLogger::new(log_path.clone()).with_redaction_level(RedactionLevel::KeysOnly);
+
+        let action = Action::new(
+            "tool".to_string(),
+            "func".to_string(),
+            json!({
+                "contact": "user@example.com",
+                "note": "Call 555-123-4567"
+            }),
+        );
+
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        let params = &entries[0].action.parameters;
+        // KeysOnly does NOT redact PII patterns
+        assert_eq!(params["contact"], "user@example.com");
+        assert_eq!(params["note"], "Call 555-123-4567");
+    }
+
+    #[tokio::test]
+    async fn test_keys_and_patterns_redacts_value_prefixes() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone())
+            .with_redaction_level(RedactionLevel::KeysAndPatterns);
+
+        let action = Action::new(
+            "tool".to_string(),
+            "func".to_string(),
+            json!({
+                "key1": "sk-abc123def456",
+                "key2": "AKIAIOSFODNN7EXAMPLE",
+                "safe_value": "normal text"
+            }),
+        );
+
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        let params = &entries[0].action.parameters;
+        // KeysAndPatterns: value prefixes ARE redacted
+        assert_eq!(params["key1"], "[REDACTED]");
+        assert_eq!(params["key2"], "[REDACTED]");
+        assert_eq!(params["safe_value"], "normal text");
+    }
+
+    #[tokio::test]
+    async fn test_keys_and_patterns_redacts_pii() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone())
+            .with_redaction_level(RedactionLevel::KeysAndPatterns);
+
+        let action = Action::new(
+            "tool".to_string(),
+            "func".to_string(),
+            json!({
+                "contact": "user@example.com",
+                "ssn": "123-45-6789",
+                "phone": "555-123-4567",
+                "safe_value": "normal text"
+            }),
+        );
+
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        let params = &entries[0].action.parameters;
+        // KeysAndPatterns: PII patterns ARE redacted
+        assert_eq!(params["contact"], "[REDACTED]");
+        assert_eq!(params["ssn"], "[REDACTED]");
+        assert_eq!(params["phone"], "[REDACTED]");
+        assert_eq!(params["safe_value"], "normal text");
+    }
+
+    #[tokio::test]
+    async fn test_keys_and_patterns_redacts_metadata_pii() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone())
+            .with_redaction_level(RedactionLevel::KeysAndPatterns);
+
+        let action = test_action();
+        let metadata = json!({
+            "source": "proxy",
+            "user_email": "admin@corp.com",
+            "api_key_value": "sk-secretkey123"
+        });
+
+        logger
+            .log_entry(&action, &Verdict::Allow, metadata)
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        let meta = &entries[0].metadata;
+        assert_eq!(meta["source"], "proxy");
+        assert_eq!(meta["user_email"], "[REDACTED]");
+        assert_eq!(meta["api_key_value"], "[REDACTED]");
     }
 
     // === Log rotation tests (Fix #36) ===
@@ -2924,11 +3100,11 @@ mod tests {
         logger.initialize_chain().await.unwrap();
 
         // Mix regular entries with heartbeats
-        let action = Action {
-            tool: "bash".to_string(),
-            function: "run".to_string(),
-            parameters: serde_json::json!({"command": "ls"}),
-        };
+        let action = Action::new(
+            "bash".to_string(),
+            "run".to_string(),
+            serde_json::json!({"command": "ls"}),
+        );
         logger
             .log_entry(&action, &Verdict::Allow, serde_json::json!({}))
             .await

@@ -229,10 +229,82 @@ struct ErrorResponse {
     error: String,
 }
 
+/// Auto-extract target_paths and target_domains from action parameters.
+///
+/// Scans string values in parameters for file paths (starting with `/`)
+/// and URLs (starting with `http://` or `https://`), populating the
+/// corresponding Action fields for path/domain policy enforcement.
+fn auto_extract_targets(action: &mut Action) {
+    scan_params_for_targets(
+        &action.parameters,
+        &mut action.target_paths,
+        &mut action.target_domains,
+    );
+}
+
+fn scan_params_for_targets(
+    value: &serde_json::Value,
+    paths: &mut Vec<String>,
+    domains: &mut Vec<String>,
+) {
+    match value {
+        serde_json::Value::String(s) => {
+            let lower = s.to_lowercase();
+            if lower.starts_with("file://") {
+                if let Some(path) = lower.strip_prefix("file://") {
+                    let file_path = if let Some(rest) = path.strip_prefix("localhost") {
+                        rest.to_string()
+                    } else if path.starts_with('/') {
+                        path.to_string()
+                    } else {
+                        path.find('/')
+                            .map(|i| path[i..].to_string())
+                            .unwrap_or_default()
+                    };
+                    if !file_path.is_empty() {
+                        paths.push(file_path);
+                    }
+                }
+            } else if lower.starts_with("http://") || lower.starts_with("https://") {
+                if let Some(authority) = s.find("://").map(|i| &s[i + 3..]) {
+                    let host = authority.split('/').next().unwrap_or(authority);
+                    let host = host.split(':').next().unwrap_or(host);
+                    let host = if let Some(pos) = host.rfind('@') {
+                        &host[pos + 1..]
+                    } else {
+                        host
+                    };
+                    if !host.is_empty() {
+                        domains.push(host.to_lowercase());
+                    }
+                }
+            } else if s.starts_with('/') && !s.contains(' ') {
+                paths.push(s.clone());
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for val in map.values() {
+                scan_params_for_targets(val, paths, domains);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for val in arr {
+                scan_params_for_targets(val, paths, domains);
+            }
+        }
+        _ => {}
+    }
+}
+
 async fn evaluate(
     State(state): State<AppState>,
-    Json(action): Json<Action>,
+    Json(mut action): Json<Action>,
 ) -> Result<Json<EvaluateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Auto-extract target_paths and target_domains from parameters if not provided
+    if action.target_paths.is_empty() && action.target_domains.is_empty() {
+        auto_extract_targets(&mut action);
+    }
+
     let policies = state.policies.load();
 
     let verdict = state
@@ -314,11 +386,7 @@ async fn add_policy(
     recompile_engine(&state);
 
     // Audit trail for policy mutation
-    let action = Action {
-        tool: "sentinel".to_string(),
-        function: "add_policy".to_string(),
-        parameters: json!({"policy_id": id}),
-    };
+    let action = Action::new("sentinel", "add_policy", json!({"policy_id": id}));
     if let Err(e) = state
         .audit
         .log_entry(
@@ -352,11 +420,11 @@ async fn remove_policy(
         recompile_engine(&state);
 
         // Audit trail for policy mutation
-        let action = Action {
-            tool: "sentinel".to_string(),
-            function: "remove_policy".to_string(),
-            parameters: json!({"policy_id": id, "removed_count": removed}),
-        };
+        let action = Action::new(
+            "sentinel",
+            "remove_policy",
+            json!({"policy_id": id, "removed_count": removed}),
+        );
         if let Err(e) = state
             .audit
             .log_entry(

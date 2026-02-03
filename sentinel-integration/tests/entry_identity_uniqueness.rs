@@ -15,11 +15,7 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 fn make_action(tool: &str, function: &str) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: json!({}),
-    }
+    Action::new(tool.to_string(), function.to_string(), json!({}))
 }
 
 fn setup_logger() -> (AuditLogger, TempDir) {
@@ -127,11 +123,11 @@ fn logged_entry_preserves_action_fields() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
-        let action = Action {
-            tool: "my_tool".to_string(),
-            function: "my_func".to_string(),
-            parameters: json!({"key": "value", "num": 42}),
-        };
+        let action = Action::new(
+            "my_tool".to_string(),
+            "my_func".to_string(),
+            json!({"key": "value", "num": 42}),
+        );
 
         logger
             .log_entry(&action, &Verdict::Allow, json!({"meta": "data"}))

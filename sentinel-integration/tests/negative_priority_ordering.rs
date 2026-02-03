@@ -6,11 +6,7 @@ use sentinel_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 
 fn make_action(tool: &str, function: &str) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: json!({}),
-    }
+    Action::new(tool.to_string(), function.to_string(), json!({}))
 }
 
 fn allow_policy(id: &str, priority: i32) -> Policy {
@@ -19,6 +15,8 @@ fn allow_policy(id: &str, priority: i32) -> Policy {
         name: format!("allow-{}", id),
         policy_type: PolicyType::Allow,
         priority,
+        path_rules: None,
+        network_rules: None,
     }
 }
 
@@ -28,6 +26,8 @@ fn deny_policy(id: &str, priority: i32) -> Policy {
         name: format!("deny-{}", id),
         policy_type: PolicyType::Deny,
         priority,
+        path_rules: None,
+        network_rules: None,
     }
 }
 
@@ -178,6 +178,8 @@ fn conditional_at_negative_priority_fires_when_highest() {
                 conditions: json!({"require_approval": true}),
             },
             priority: -50,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
@@ -197,6 +199,8 @@ fn conditional_negative_loses_to_deny_zero() {
                 conditions: json!({"require_approval": true}),
             },
             priority: -50,
+            path_rules: None,
+            network_rules: None,
         },
         deny_policy("*", 0),
     ];

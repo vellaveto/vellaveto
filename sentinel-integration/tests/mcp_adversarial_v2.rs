@@ -149,6 +149,8 @@ fn action_with_unicode_tool_name_works() {
         name: "allow-all".to_string(),
         policy_type: PolicyType::Allow,
         priority: 1,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
@@ -158,11 +160,7 @@ fn action_with_unicode_tool_name_works() {
 #[test]
 fn action_with_very_long_tool_name_evaluates() {
     let long_name = "a".repeat(10_000);
-    let action = Action {
-        tool: long_name.clone(),
-        function: "func".to_string(),
-        parameters: json!({}),
-    };
+    let action = Action::new(long_name.clone(), "func".to_string(), json!({}));
 
     let engine = PolicyEngine::new(false);
     let policies = vec![Policy {
@@ -170,6 +168,8 @@ fn action_with_very_long_tool_name_evaluates() {
         name: "wildcard".to_string(),
         policy_type: PolicyType::Deny,
         priority: 1,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
@@ -183,16 +183,14 @@ fn policy_id_with_multiple_colons_only_splits_on_first() {
     let engine = PolicyEngine::new(false);
 
     // Action with function "b" matches (qualifier stripped)
-    let action = Action {
-        tool: "a".to_string(),
-        function: "b".to_string(),
-        parameters: json!({}),
-    };
+    let action = Action::new("a".to_string(), "b".to_string(), json!({}));
     let policies = vec![Policy {
         id: "a:b:c".to_string(),
         name: "multi-colon".to_string(),
         policy_type: PolicyType::Allow,
         priority: 10,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
@@ -203,11 +201,7 @@ fn policy_id_with_multiple_colons_only_splits_on_first() {
     );
 
     // Action with function "b:c" should NOT match (colons not in function names)
-    let action2 = Action {
-        tool: "a".to_string(),
-        function: "b:c".to_string(),
-        parameters: json!({}),
-    };
+    let action2 = Action::new("a".to_string(), "b:c".to_string(), json!({}));
     let result2 = engine.evaluate_action(&action2, &policies).unwrap();
     assert_eq!(
         result2,
@@ -222,16 +216,14 @@ fn policy_id_with_multiple_colons_only_splits_on_first() {
 fn policy_id_with_empty_function_after_colon() {
     // "bash:"  tool="bash", function=""
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: "bash".to_string(),
-        function: String::new(),
-        parameters: json!({}),
-    };
+    let action = Action::new("bash".to_string(), String::new(), json!({}));
     let policies = vec![Policy {
         id: "bash:".to_string(),
         name: "empty-func".to_string(),
         policy_type: PolicyType::Deny,
         priority: 10,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();
@@ -245,16 +237,14 @@ fn policy_id_with_empty_function_after_colon() {
 fn policy_id_with_empty_tool_before_colon() {
     // ":execute" → tool="", function="execute"
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: String::new(),
-        function: "execute".to_string(),
-        parameters: json!({}),
-    };
+    let action = Action::new(String::new(), "execute".to_string(), json!({}));
     let policies = vec![Policy {
         id: ":execute".to_string(),
         name: "empty-tool".to_string(),
         policy_type: PolicyType::Allow,
         priority: 10,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let result = engine.evaluate_action(&action, &policies).unwrap();

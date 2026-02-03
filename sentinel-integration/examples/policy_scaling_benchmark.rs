@@ -20,6 +20,8 @@ fn make_policies(count: usize) -> Vec<Policy> {
                 PolicyType::Deny
             },
             priority: i as i32,
+            path_rules: None,
+            network_rules: None,
         })
         .collect()
 }
@@ -42,18 +44,14 @@ fn main() {
     let iterations = 10_000;
 
     // Action that won't match any specific policy (forces full scan)
-    let miss_action = Action {
-        tool: "nonexistent_tool".to_string(),
-        function: "nonexistent_func".to_string(),
-        parameters: json!({}),
-    };
+    let miss_action = Action::new(
+        "nonexistent_tool".to_string(),
+        "nonexistent_func".to_string(),
+        json!({}),
+    );
 
     // Action that matches the first policy after sort (best case)
-    let hit_action = Action {
-        tool: "tool_0".to_string(),
-        function: "func_0".to_string(),
-        parameters: json!({}),
-    };
+    let hit_action = Action::new("tool_0".to_string(), "func_0".to_string(), json!({}));
 
     println!("Policy Scaling Benchmark");
     println!("========================");
@@ -97,14 +95,16 @@ fn main() {
                 }),
             },
             priority: i,
+            path_rules: None,
+            network_rules: None,
         })
         .collect();
 
-    let cond_action = Action {
-        tool: "tool_999".to_string(),
-        function: "func_999".to_string(),
-        parameters: json!({"auth": "valid", "data": "payload"}),
-    };
+    let cond_action = Action::new(
+        "tool_999".to_string(),
+        "func_999".to_string(),
+        json!({"auth": "valid", "data": "payload"}),
+    );
 
     let dur = bench_evaluation(&engine, &cond_action, &conditional_policies, iterations);
     println!(

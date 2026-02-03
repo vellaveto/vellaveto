@@ -17,6 +17,8 @@ fn deny_all_policy() -> Policy {
         name: "Deny All Actions".to_string(),
         policy_type: PolicyType::Deny,
         priority: 1000,
+        path_rules: None,
+        network_rules: None,
     }
 }
 
@@ -26,6 +28,8 @@ fn allow_all_policy() -> Policy {
         name: "Allow All Actions".to_string(),
         policy_type: PolicyType::Allow,
         priority: 1,
+        path_rules: None,
+        network_rules: None,
     }
 }
 
@@ -41,6 +45,8 @@ fn block_dangerous_tools() -> Vec<Policy> {
                 }),
             },
             priority: 900,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "system_block".to_string(),
@@ -52,6 +58,8 @@ fn block_dangerous_tools() -> Vec<Policy> {
                 }),
             },
             priority: 900,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "file_protection".to_string(),
@@ -64,16 +72,14 @@ fn block_dangerous_tools() -> Vec<Policy> {
                 }),
             },
             priority: 800,
+            path_rules: None,
+            network_rules: None,
         },
     ]
 }
 
 fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: params,
-    }
+    Action::new(tool.to_string(), function.to_string(), params)
 }
 
 // ═══════════════════════════════════════════

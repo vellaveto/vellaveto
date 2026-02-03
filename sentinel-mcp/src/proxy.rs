@@ -4,7 +4,9 @@
 //! Intercepts `tools/call` requests, evaluates them against policies, and either
 //! forwards allowed calls or returns denial responses directly.
 
+use sentinel_approval::ApprovalStore;
 use sentinel_audit::AuditLogger;
+use sentinel_config::{ManifestConfig, ToolManifest};
 use sentinel_engine::PolicyEngine;
 use sentinel_types::{EvaluationTrace, Policy, Verdict};
 use serde_json::{json, Value};
@@ -47,6 +49,11 @@ pub struct ProxyBridge {
     injection_scanner: Option<InjectionScanner>,
     /// When true, injection scanning is completely disabled.
     injection_disabled: bool,
+    /// Optional approval store for RequireApproval verdicts.
+    approval_store: Option<Arc<ApprovalStore>>,
+    /// Optional manifest verification config. When set, the first tools/list
+    /// response is pinned and subsequent responses are verified against it.
+    manifest_config: Option<ManifestConfig>,
 }
 
 impl ProxyBridge {
@@ -59,7 +66,24 @@ impl ProxyBridge {
             enable_trace: false,
             injection_scanner: None,
             injection_disabled: false,
+            approval_store: None,
+            manifest_config: None,
         }
+    }
+
+    /// Set an approval store for handling RequireApproval verdicts.
+    /// When set, RequireApproval verdicts create pending approvals with
+    /// the approval_id included in the JSON-RPC error response data.
+    pub fn with_approval_store(mut self, store: Arc<ApprovalStore>) -> Self {
+        self.approval_store = Some(store);
+        self
+    }
+
+    /// Set manifest verification config. When set, the proxy pins the first
+    /// tools/list response as a manifest and verifies subsequent responses.
+    pub fn with_manifest_config(mut self, config: ManifestConfig) -> Self {
+        self.manifest_config = Some(config);
+        self
     }
 
     /// Set the request timeout for forwarded requests.
@@ -284,6 +308,10 @@ impl ProxyBridge {
         // flagged tools are denied instead of forwarded.
         let mut flagged_tools: std::collections::HashSet<String> = std::collections::HashSet::new();
 
+        // Phase 5: Pinned tool manifest for schema verification.
+        // Built from the first tools/list response, verified on subsequent ones.
+        let mut pinned_manifest: Option<ToolManifest> = None;
+
         // Spawn a task to relay child → agent responses
         let (response_tx, mut response_rx) = tokio::sync::mpsc::channel::<Value>(256);
 
@@ -348,8 +376,38 @@ impl ProxyBridge {
                                             write_message(&mut child_stdin, &msg).await
                                                 .map_err(ProxyError::Framing)?;
                                         }
-                                        ProxyDecision::Block(response, verdict) => {
+                                        ProxyDecision::Block(mut response, verdict) => {
                                             let action = extract_action(&tool_name, &arguments);
+                                            // If RequireApproval and we have an approval store,
+                                            // create a pending approval and inject the ID into
+                                            // the JSON-RPC error data.
+                                            if let Verdict::RequireApproval { ref reason } = verdict {
+                                                if let Some(ref store) = self.approval_store {
+                                                    match store.create(action.clone(), reason.clone()).await {
+                                                        Ok(approval_id) => {
+                                                            // Inject approval_id into error response data
+                                                            if let Some(data) = response.get_mut("error")
+                                                                .and_then(|e| e.get_mut("data"))
+                                                            {
+                                                                data["approval_id"] = Value::String(approval_id.clone());
+                                                            }
+                                                            tracing::info!(
+                                                                "Created pending approval {} for tool '{}'",
+                                                                approval_id, tool_name
+                                                            );
+                                                        }
+                                                        Err(e) => {
+                                                            // Fail-closed: if approval creation fails,
+                                                            // the response already indicates RequireApproval
+                                                            // but without an actionable approval_id.
+                                                            tracing::error!(
+                                                                "Failed to create approval (fail-closed): {}",
+                                                                e
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                            }
                                             let meta = Self::tool_call_audit_metadata(&tool_name, ann);
                                             if let Err(e) = self.audit.log_entry(
                                                 &action,
@@ -373,8 +431,31 @@ impl ProxyBridge {
                                             write_message(&mut child_stdin, &msg).await
                                                 .map_err(ProxyError::Framing)?;
                                         }
-                                        ProxyDecision::Block(response, verdict) => {
+                                        ProxyDecision::Block(mut response, verdict) => {
                                             let action = extract_resource_action(&uri);
+                                            if let Verdict::RequireApproval { ref reason } = verdict {
+                                                if let Some(ref store) = self.approval_store {
+                                                    match store.create(action.clone(), reason.clone()).await {
+                                                        Ok(approval_id) => {
+                                                            if let Some(data) = response.get_mut("error")
+                                                                .and_then(|e| e.get_mut("data"))
+                                                            {
+                                                                data["approval_id"] = Value::String(approval_id.clone());
+                                                            }
+                                                            tracing::info!(
+                                                                "Created pending approval {} for resource '{}'",
+                                                                approval_id, uri
+                                                            );
+                                                        }
+                                                        Err(e) => {
+                                                            tracing::error!(
+                                                                "Failed to create approval for resource: {}",
+                                                                e
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                            }
                                             if let Err(e) = self.audit.log_entry(
                                                 &action,
                                                 &verdict,
@@ -393,11 +474,7 @@ impl ProxyBridge {
                                     // could use it to send arbitrary prompts to the LLM.
                                     let reason = "sampling/createMessage blocked: potential exfiltration vector";
                                     let response = make_denial_response(&id, reason);
-                                    let action = sentinel_types::Action {
-                                        tool: "sentinel".to_string(),
-                                        function: "sampling_blocked".to_string(),
-                                        parameters: json!({}),
-                                    };
+                                    let action = sentinel_types::Action::new("sentinel", "sampling_blocked", json!({}));
                                     if let Err(e) = self.audit.log_entry(
                                         &action,
                                         &Verdict::Deny { reason: reason.to_string() },
@@ -473,10 +550,10 @@ impl ProxyBridge {
                                         "SECURITY: Server sent sampling/createMessage request — \
                                          potential data exfiltration via LLM sampling"
                                     );
-                                    let action = sentinel_types::Action {
-                                        tool: "sentinel".to_string(),
-                                        function: "sampling_interception".to_string(),
-                                        parameters: json!({
+                                    let action = sentinel_types::Action::new(
+                                        "sentinel",
+                                        "sampling_interception",
+                                        json!({
                                             "method": method,
                                             "has_messages": msg.get("params")
                                                 .and_then(|p| p.get("messages"))
@@ -484,7 +561,7 @@ impl ProxyBridge {
                                                 .unwrap_or(false),
                                             "request_id": msg.get("id"),
                                         }),
-                                    };
+                                    );
                                     let verdict = Verdict::Deny {
                                         reason: "Server-initiated sampling/createMessage blocked".to_string(),
                                     };
@@ -525,6 +602,50 @@ impl ProxyBridge {
                                             &mut flagged_tools,
                                             &self.audit,
                                         ).await;
+
+                                        // Phase 5: Manifest verification on tools/list responses
+                                        if let Some(ref manifest_cfg) = self.manifest_config {
+                                            if manifest_cfg.enabled {
+                                                match &pinned_manifest {
+                                                    None => {
+                                                        // First tools/list: pin the manifest
+                                                        if let Some(m) = ToolManifest::from_tools_list(&msg) {
+                                                            tracing::info!(
+                                                                "Pinned tool manifest: {} tools",
+                                                                m.tools.len()
+                                                            );
+                                                            pinned_manifest = Some(m);
+                                                        }
+                                                    }
+                                                    Some(pinned) => {
+                                                        // Subsequent tools/list: verify against pinned
+                                                        if let Err(discrepancies) = manifest_cfg.verify_manifest(pinned, &msg) {
+                                                            tracing::warn!(
+                                                                "SECURITY: Tool manifest verification FAILED: {:?}",
+                                                                discrepancies
+                                                            );
+                                                            let action = sentinel_types::Action::new(
+                                                                "sentinel",
+                                                                "manifest_verification",
+                                                                json!({
+                                                                    "discrepancies": discrepancies,
+                                                                    "pinned_tool_count": pinned.tools.len(),
+                                                                }),
+                                                            );
+                                                            if let Err(e) = self.audit.log_entry(
+                                                                &action,
+                                                                &Verdict::Deny {
+                                                                    reason: format!("Manifest verification failed: {:?}", discrepancies),
+                                                                },
+                                                                json!({"source": "proxy", "event": "manifest_verification_failed"}),
+                                                            ).await {
+                                                                tracing::warn!("Failed to audit manifest failure: {}", e);
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
 
                                     // C-8.4: If this is an initialize response, extract protocol version
@@ -539,10 +660,10 @@ impl ProxyBridge {
                                             );
                                             negotiated_protocol_version = Some(ver.to_string());
                                             // Audit the protocol version negotiation
-                                            let action = sentinel_types::Action {
-                                                tool: "sentinel".to_string(),
-                                                function: "protocol_version".to_string(),
-                                                parameters: json!({
+                                            let action = sentinel_types::Action::new(
+                                                "sentinel",
+                                                "protocol_version",
+                                                json!({
                                                     "server_protocol_version": ver,
                                                     "server_name": msg.get("result")
                                                         .and_then(|r| r.get("serverInfo"))
@@ -555,7 +676,7 @@ impl ProxyBridge {
                                                     "capabilities": msg.get("result")
                                                         .and_then(|r| r.get("capabilities")),
                                                 }),
-                                            };
+                                            );
                                             let verdict = Verdict::Allow;
                                             if let Err(e) = self.audit.log_entry(
                                                 &action,
@@ -582,14 +703,14 @@ impl ProxyBridge {
                                      Matched patterns: {:?}",
                                     injection_matches
                                 );
-                                let action = sentinel_types::Action {
-                                    tool: "sentinel".to_string(),
-                                    function: "response_inspection".to_string(),
-                                    parameters: json!({
+                                let action = sentinel_types::Action::new(
+                                    "sentinel",
+                                    "response_inspection",
+                                    json!({
                                         "matched_patterns": injection_matches,
                                         "response_id": msg.get("id")
                                     }),
-                                };
+                                );
                                 let verdict = Verdict::Allow; // Log-only, still forward
                                 if let Err(e) = self.audit.log_entry(
                                     &action,
@@ -678,6 +799,8 @@ mod tests {
             name: "Allow all".to_string(),
             policy_type: PolicyType::Allow,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let bridge = test_bridge(policies);
         let decision =
@@ -692,6 +815,8 @@ mod tests {
             name: "Block bash".to_string(),
             policy_type: PolicyType::Deny,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let bridge = test_bridge(policies);
         let decision =
@@ -717,6 +842,8 @@ mod tests {
             name: "Allow specific".to_string(),
             policy_type: PolicyType::Allow,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let bridge = test_bridge(policies);
         let decision = bridge.evaluate_tool_call(&json!(3), "unknown_tool", &json!({}), None);
@@ -732,6 +859,8 @@ mod tests {
                 conditions: json!({"require_approval": true}),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let bridge = test_bridge(policies);
         let decision = bridge.evaluate_tool_call(&json!(4), "write_file", &json!({}), None);
@@ -765,6 +894,8 @@ mod tests {
                 }),
             },
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let bridge = test_bridge(policies);
 
@@ -803,6 +934,8 @@ mod tests {
             name: "Allow all".to_string(),
             policy_type: PolicyType::Allow,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let bridge = test_bridge(policies);
         let decision = bridge.evaluate_resource_read(&json!(10), "file:///tmp/safe.txt");
@@ -816,6 +949,8 @@ mod tests {
             name: "Block all resource reads".to_string(),
             policy_type: PolicyType::Deny,
             priority: 200,
+            path_rules: None,
+            network_rules: None,
         }];
         let bridge = test_bridge(policies);
         let decision = bridge.evaluate_resource_read(&json!(11), "file:///etc/passwd");
@@ -848,6 +983,8 @@ mod tests {
                 }),
             },
             priority: 200,
+            path_rules: None,
+            network_rules: None,
         }];
         let bridge = test_bridge(policies);
 
@@ -876,6 +1013,8 @@ mod tests {
                 }),
             },
             priority: 200,
+            path_rules: None,
+            network_rules: None,
         }];
         let bridge = test_bridge(policies);
 
@@ -891,6 +1030,8 @@ mod tests {
             name: "Allow other tool".to_string(),
             policy_type: PolicyType::Allow,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let bridge = test_bridge(policies);
         let decision = bridge.evaluate_resource_read(&json!(15), "file:///etc/passwd");
@@ -928,6 +1069,8 @@ mod tests {
             name: "Allow all".to_string(),
             policy_type: PolicyType::Allow,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let bridge = test_bridge_traced(policies);
         assert!(bridge.enable_trace);
@@ -943,6 +1086,8 @@ mod tests {
             name: "Block bash".to_string(),
             policy_type: PolicyType::Deny,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let bridge = test_bridge_traced(policies);
         let decision =
@@ -968,6 +1113,8 @@ mod tests {
             name: "Block resources".to_string(),
             policy_type: PolicyType::Deny,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let bridge = test_bridge_traced(policies);
         let decision = bridge.evaluate_resource_read(&json!(3), "file:///etc/shadow");
@@ -1421,6 +1568,8 @@ mod tests {
             name: "Allow all".to_string(),
             policy_type: PolicyType::Allow,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let bridge = test_bridge(policies);
         let ann = ToolAnnotations {
@@ -1446,6 +1595,8 @@ mod tests {
             name: "Allow all".to_string(),
             policy_type: PolicyType::Allow,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         }];
         let bridge = test_bridge(policies);
         let ann = ToolAnnotations {

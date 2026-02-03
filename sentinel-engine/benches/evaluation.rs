@@ -14,11 +14,7 @@ use serde_json::json;
 // ---------------------------------------------------------------------------
 
 fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: params,
-    }
+    Action::new(tool.to_string(), function.to_string(), params)
 }
 
 fn make_allow_policy(id: &str, priority: i32) -> Policy {
@@ -27,6 +23,8 @@ fn make_allow_policy(id: &str, priority: i32) -> Policy {
         name: format!("Allow {}", id),
         policy_type: PolicyType::Allow,
         priority,
+        path_rules: None,
+        network_rules: None,
     }
 }
 
@@ -36,6 +34,8 @@ fn make_deny_policy(id: &str, priority: i32) -> Policy {
         name: format!("Deny {}", id),
         policy_type: PolicyType::Deny,
         priority,
+        path_rules: None,
+        network_rules: None,
     }
 }
 
@@ -54,6 +54,8 @@ fn make_conditional_glob_policy(id: &str, param: &str, pattern: &str, priority: 
             }),
         },
         priority,
+        path_rules: None,
+        network_rules: None,
     }
 }
 
@@ -72,6 +74,8 @@ fn make_conditional_regex_policy(id: &str, param: &str, pattern: &str, priority:
             }),
         },
         priority,
+        path_rules: None,
+        network_rules: None,
     }
 }
 
@@ -365,6 +369,8 @@ fn bench_wildcard_scan(c: &mut Criterion) {
             }),
         },
         priority: 100,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let mut group = c.benchmark_group("constraint/wildcard_scan");
@@ -565,6 +571,8 @@ fn bench_compiled_on_no_match_chain(c: &mut Criterion) {
                 }),
             },
             priority: 300,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*:*:domain-block".to_string(),
@@ -582,6 +590,8 @@ fn bench_compiled_on_no_match_chain(c: &mut Criterion) {
                 }),
             },
             priority: 280,
+            path_rules: None,
+            network_rules: None,
         },
         make_allow_policy("*", 1),
     ];

@@ -12,7 +12,9 @@ use axum::{
     Json,
 };
 use bytes::Bytes;
+use sentinel_approval::ApprovalStore;
 use sentinel_audit::AuditLogger;
+use sentinel_config::{ManifestConfig, ToolManifest};
 use sentinel_engine::PolicyEngine;
 use sentinel_mcp::extractor::{self, MessageType};
 #[cfg(test)]
@@ -52,6 +54,12 @@ pub struct ProxyState {
     pub injection_disabled: bool,
     /// API key for authenticating requests. None disables auth (--allow-anonymous).
     pub api_key: Option<Arc<String>>,
+    /// Optional approval store for RequireApproval verdicts.
+    /// When set, creates pending approvals with approval_id in error response data.
+    pub approval_store: Option<Arc<ApprovalStore>>,
+    /// Optional manifest verification config. When set, tools/list responses
+    /// are verified against a pinned manifest per session.
+    pub manifest_config: Option<ManifestConfig>,
 }
 
 /// MCP Session ID header name.
@@ -130,6 +138,82 @@ async fn extract_annotations_from_response(
 
     // Audit any detected events
     sentinel_mcp::rug_pull::audit_rug_pull_events(&result, audit, "http_proxy").await;
+}
+
+/// Verify a tools/list response against the session's pinned manifest.
+///
+/// On the first tools/list response, builds and pins the manifest.
+/// On subsequent responses, verifies against the pinned manifest and
+/// audits any discrepancies.
+async fn verify_manifest_from_response(
+    response: &Value,
+    session_id: &str,
+    sessions: &SessionStore,
+    manifest_config: &ManifestConfig,
+    audit: &AuditLogger,
+) {
+    if !manifest_config.enabled {
+        return;
+    }
+
+    // Check if we already have a pinned manifest
+    let has_pinned = sessions
+        .get_mut(session_id)
+        .map(|s| s.pinned_manifest.is_some())
+        .unwrap_or(false);
+
+    if !has_pinned {
+        // First tools/list: pin the manifest
+        if let Some(manifest) = ToolManifest::from_tools_list(response) {
+            tracing::info!(
+                "Session {}: pinned tool manifest ({} tools)",
+                session_id,
+                manifest.tools.len()
+            );
+            if let Some(mut s) = sessions.get_mut(session_id) {
+                s.pinned_manifest = Some(manifest);
+            }
+        }
+    } else {
+        // Subsequent tools/list: verify against pinned
+        let pinned = sessions
+            .get_mut(session_id)
+            .and_then(|s| s.pinned_manifest.clone());
+
+        if let Some(pinned) = pinned {
+            if let Err(discrepancies) = manifest_config.verify_manifest(&pinned, response) {
+                tracing::warn!(
+                    "SECURITY: Session {}: tool manifest verification FAILED: {:?}",
+                    session_id,
+                    discrepancies
+                );
+                let action = Action::new(
+                    "sentinel",
+                    "manifest_verification",
+                    serde_json::json!({
+                        "session": session_id,
+                        "discrepancies": discrepancies,
+                        "pinned_tool_count": pinned.tools.len(),
+                    }),
+                );
+                if let Err(e) = audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Deny {
+                            reason: format!("Manifest verification failed: {:?}", discrepancies),
+                        },
+                        serde_json::json!({
+                            "source": "http_proxy",
+                            "event": "manifest_verification_failed",
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit manifest failure: {}", e);
+                }
+            }
+        }
+    }
 }
 
 /// Main POST /mcp handler.
@@ -356,6 +440,27 @@ pub async fn handle_mcp_post(
                         _ => unreachable!(),
                     };
 
+                    // Create pending approval if store is configured
+                    let approval_id = if let Some(ref store) = state.approval_store {
+                        match store.create(action.clone(), reason.clone()).await {
+                            Ok(id) => {
+                                tracing::info!(
+                                    "Created pending approval {} for tool '{}'",
+                                    id,
+                                    tool_name
+                                );
+                                Some(id)
+                            }
+                            Err(e) => {
+                                // Fail-closed: log error but still return RequireApproval
+                                tracing::error!("Failed to create approval (fail-closed): {}", e);
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    };
+
                     if let Err(e) = state
                         .audit
                         .log_entry(
@@ -377,9 +482,20 @@ pub async fn handle_mcp_post(
                         "id": id,
                         "error": {
                             "code": -32002,
-                            "message": format!("Approval required: {}", reason)
+                            "message": format!("Approval required: {}", reason),
+                            "data": {
+                                "type": "approval_required",
+                                "reason": reason
+                            }
                         }
                     });
+                    if let Some(aid) = approval_id {
+                        if let Some(data) =
+                            response.get_mut("error").and_then(|e| e.get_mut("data"))
+                        {
+                            data["approval_id"] = Value::String(aid);
+                        }
+                    }
                     if let Some(t) = &trace {
                         response["trace"] = serde_json::to_value(t).unwrap_or(Value::Null);
                     }
@@ -439,6 +555,33 @@ pub async fn handle_mcp_post(
                         _ => unreachable!(),
                     };
 
+                    // Create pending approval for RequireApproval verdicts
+                    let approval_id = if matches!(&verdict, Verdict::RequireApproval { .. }) {
+                        if let Some(ref store) = state.approval_store {
+                            match store.create(action.clone(), reason.clone()).await {
+                                Ok(aid) => {
+                                    tracing::info!(
+                                        "Created pending approval {} for resource '{}'",
+                                        aid,
+                                        uri
+                                    );
+                                    Some(aid)
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        "Failed to create approval for resource: {}",
+                                        e
+                                    );
+                                    None
+                                }
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
                     if let Err(e) = state
                         .audit
                         .log_entry(
@@ -458,8 +601,22 @@ pub async fn handle_mcp_post(
                     let mut response = json!({
                         "jsonrpc": "2.0",
                         "id": id,
-                        "error": { "code": code, "message": reason }
+                        "error": {
+                            "code": code,
+                            "message": reason.clone(),
+                            "data": {
+                                "type": if code == -32002 { "approval_required" } else { "denied" },
+                                "reason": reason
+                            }
+                        }
                     });
+                    if let Some(aid) = approval_id {
+                        if let Some(data) =
+                            response.get_mut("error").and_then(|e| e.get_mut("data"))
+                        {
+                            data["approval_id"] = Value::String(aid);
+                        }
+                    }
                     if let Some(t) = &trace {
                         response["trace"] = serde_json::to_value(t).unwrap_or(Value::Null);
                     }
@@ -491,11 +648,11 @@ pub async fn handle_mcp_post(
                 session_id
             );
 
-            let action = Action {
-                tool: "sentinel".to_string(),
-                function: "sampling_interception".to_string(),
-                parameters: json!({"method": "sampling/createMessage", "session": session_id}),
-            };
+            let action = Action::new(
+                "sentinel",
+                "sampling_interception",
+                json!({"method": "sampling/createMessage", "session": session_id}),
+            );
             let verdict = Verdict::Deny {
                 reason: "Server-initiated sampling/createMessage blocked".to_string(),
             };
@@ -855,14 +1012,14 @@ async fn forward_to_upstream(
                                             session_id,
                                             matches
                                         );
-                                        let action = Action {
-                                            tool: "sentinel".to_string(),
-                                            function: "response_inspection".to_string(),
-                                            parameters: json!({
+                                        let action = Action::new(
+                                            "sentinel",
+                                            "response_inspection",
+                                            json!({
                                                 "matched_patterns": matches,
                                                 "session": session_id,
                                             }),
-                                        };
+                                        );
                                         // Log-only, still forward
                                         if let Err(e) = state
                                             .audit
@@ -892,6 +1049,18 @@ async fn forward_to_upstream(
                                     &state.audit,
                                 )
                                 .await;
+
+                                // Phase 5: Verify tool manifest if configured
+                                if let Some(ref manifest_cfg) = state.manifest_config {
+                                    verify_manifest_from_response(
+                                        &response_json,
+                                        session_id,
+                                        &state.sessions,
+                                        manifest_cfg,
+                                        &state.audit,
+                                    )
+                                    .await;
+                                }
 
                                 // Extract protocol version from initialize responses
                                 if let Some(ver) = response_json
@@ -1096,15 +1265,15 @@ async fn scan_sse_events_for_injection(sse_bytes: &[u8], session_id: &str, state
             session_id,
             all_matches
         );
-        let action = Action {
-            tool: "sentinel".to_string(),
-            function: "sse_response_inspection".to_string(),
-            parameters: json!({
+        let action = Action::new(
+            "sentinel",
+            "sse_response_inspection",
+            json!({
                 "matched_patterns": all_matches,
                 "session": session_id,
                 "event_count": events.len(),
             }),
-        };
+        );
         if let Err(e) = state
             .audit
             .log_entry(

@@ -213,14 +213,14 @@ pub fn detect_rug_pull(
 /// - `source` — identifier for the proxy type (e.g., `"proxy"` or `"http_proxy"`)
 pub async fn audit_rug_pull_events(result: &RugPullResult, audit: &AuditLogger, source: &str) {
     if !result.changed_tools.is_empty() {
-        let action = Action {
-            tool: "sentinel".to_string(),
-            function: "tool_annotation_change".to_string(),
-            parameters: json!({
+        let action = Action::new(
+            "sentinel",
+            "tool_annotation_change",
+            json!({
                 "changed_tools": result.changed_tools,
                 "total_tools": result.tool_count,
             }),
-        };
+        );
         let verdict = Verdict::Deny {
             reason: format!(
                 "Tool annotation change detected for: {}",
@@ -240,14 +240,14 @@ pub async fn audit_rug_pull_events(result: &RugPullResult, audit: &AuditLogger, 
     }
 
     if !result.removed_tools.is_empty() {
-        let action = Action {
-            tool: "sentinel".to_string(),
-            function: "tool_removal_detected".to_string(),
-            parameters: json!({
+        let action = Action::new(
+            "sentinel",
+            "tool_removal_detected",
+            json!({
                 "removed_tools": result.removed_tools,
                 "remaining_tools": result.tool_count,
             }),
-        };
+        );
         let verdict = Verdict::Deny {
             reason: format!("Tool removal detected: {}", result.removed_tools.join(", ")),
         };
@@ -264,14 +264,14 @@ pub async fn audit_rug_pull_events(result: &RugPullResult, audit: &AuditLogger, 
     }
 
     if !result.new_tools.is_empty() {
-        let action = Action {
-            tool: "sentinel".to_string(),
-            function: "tool_addition_detected".to_string(),
-            parameters: json!({
+        let action = Action::new(
+            "sentinel",
+            "tool_addition_detected",
+            json!({
                 "new_tools": result.new_tools,
                 "total_tools": result.tool_count,
             }),
-        };
+        );
         let verdict = Verdict::Deny {
             reason: format!(
                 "New tool added after initial tools/list: {}",

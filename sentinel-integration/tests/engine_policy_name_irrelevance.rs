@@ -7,11 +7,7 @@ use sentinel_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 
 fn make_action(tool: &str, function: &str) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: json!({}),
-    }
+    Action::new(tool.to_string(), function.to_string(), json!({}))
 }
 
 // ═══════════════════════════════
@@ -27,6 +23,8 @@ fn empty_name_policy_still_matches() {
         name: String::new(),
         policy_type: PolicyType::Deny,
         priority: 10,
+        path_rules: None,
+        network_rules: None,
     }];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(result, Verdict::Deny { .. }));
@@ -41,6 +39,8 @@ fn whitespace_name_policy_still_matches() {
         name: "   \t\n  ".to_string(),
         policy_type: PolicyType::Allow,
         priority: 5,
+        path_rules: None,
+        network_rules: None,
     }];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(matches!(result, Verdict::Allow));
@@ -56,6 +56,8 @@ fn very_long_name_policy_still_matches() {
         name: long_name.clone(),
         policy_type: PolicyType::Deny,
         priority: 50,
+        path_rules: None,
+        network_rules: None,
     }];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
@@ -88,12 +90,16 @@ fn name_does_not_affect_tiebreaking() {
             name: "AAAA".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "*".to_string(),
             name: "ZZZZ".to_string(),
             policy_type: PolicyType::Deny,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         },
     ];
     let result = engine.evaluate_action(&action, &policies).unwrap();
@@ -118,6 +124,8 @@ fn conditional_require_approval_reason_includes_name() {
             conditions: json!({"require_approval": true}),
         },
         priority: 100,
+        path_rules: None,
+        network_rules: None,
     }];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
@@ -135,11 +143,11 @@ fn conditional_require_approval_reason_includes_name() {
 #[test]
 fn conditional_forbidden_param_reason_includes_name() {
     let engine = PolicyEngine::new(false);
-    let action = Action {
-        tool: "db".to_string(),
-        function: "query".to_string(),
-        parameters: json!({"drop_table": true}),
-    };
+    let action = Action::new(
+        "db".to_string(),
+        "query".to_string(),
+        json!({"drop_table": true}),
+    );
     let policies = vec![Policy {
         id: "db:*".to_string(),
         name: "DB Safety Rule".to_string(),
@@ -147,6 +155,8 @@ fn conditional_forbidden_param_reason_includes_name() {
             conditions: json!({"forbidden_parameters": ["drop_table"]}),
         },
         priority: 100,
+        path_rules: None,
+        network_rules: None,
     }];
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {

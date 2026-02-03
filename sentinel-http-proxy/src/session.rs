@@ -7,6 +7,7 @@
 //! **Status:** Production — fully wired into the HTTP proxy.
 
 use dashmap::DashMap;
+use sentinel_config::ToolManifest;
 use sentinel_mcp::rug_pull::ToolAnnotations;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -33,6 +34,9 @@ pub struct SessionState {
     /// Tools flagged by rug-pull detection. Tool calls to these tools are
     /// blocked until the session is cleared or a clean tools/list is received.
     pub flagged_tools: HashSet<String>,
+    /// Pinned tool manifest for this session. Built from the first tools/list
+    /// response, used to verify subsequent tools/list responses.
+    pub pinned_manifest: Option<ToolManifest>,
 }
 
 impl SessionState {
@@ -48,6 +52,7 @@ impl SessionState {
             tools_list_seen: false,
             oauth_subject: None,
             flagged_tools: HashSet::new(),
+            pinned_manifest: None,
         }
     }
 

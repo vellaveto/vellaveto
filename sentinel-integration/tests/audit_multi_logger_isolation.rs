@@ -15,11 +15,7 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 fn make_action(tool: &str) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: "test".to_string(),
-        parameters: json!({}),
-    }
+    Action::new(tool.to_string(), "test".to_string(), json!({}))
 }
 
 // ════════════════════════════════
@@ -113,11 +109,11 @@ fn concurrent_loggers_to_different_files_no_interference() {
             let logger = Arc::new(AuditLogger::new(path));
             let handle = tokio::spawn(async move {
                 for j in 0..20usize {
-                    let action = Action {
-                        tool: format!("tool_{}", i),
-                        function: format!("func_{}", j),
-                        parameters: json!({"logger": i, "entry": j}),
-                    };
+                    let action = Action::new(
+                        format!("tool_{}", i),
+                        format!("func_{}", j),
+                        json!({"logger": i, "entry": j}),
+                    );
                     logger
                         .log_entry(&action, &Verdict::Allow, json!({}))
                         .await

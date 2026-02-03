@@ -16,11 +16,7 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: params,
-    }
+    Action::new(tool.to_string(), function.to_string(), params)
 }
 
 fn setup_logger() -> (AuditLogger, TempDir) {
@@ -46,12 +42,16 @@ fn all_three_verdict_types_are_logged_and_counted() {
                 name: "Allow reads".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "file:delete".to_string(),
                 name: "Block deletes".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "shell:*".to_string(),
@@ -60,6 +60,8 @@ fn all_three_verdict_types_are_logged_and_counted() {
                     conditions: json!({ "require_approval": true }),
                 },
                 priority: 100,
+                path_rules: None,
+                network_rules: None,
             },
         ];
 
@@ -106,6 +108,8 @@ fn bulk_allow_verdicts_counted_correctly() {
             name: "Allow all".to_string(),
             policy_type: PolicyType::Allow,
             priority: 1,
+            path_rules: None,
+            network_rules: None,
         }];
 
         for i in 0..50 {
@@ -265,12 +269,16 @@ fn report_invariant_counts_equal_entries_length() {
                 name: "Allow A".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 10,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "b:*".to_string(),
                 name: "Deny B".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 10,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "c:*".to_string(),
@@ -279,6 +287,8 @@ fn report_invariant_counts_equal_entries_length() {
                     conditions: json!({ "require_approval": true }),
                 },
                 priority: 10,
+                path_rules: None,
+                network_rules: None,
             },
         ];
 

@@ -15,11 +15,7 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: params,
-    }
+    Action::new(tool.to_string(), function.to_string(), params)
 }
 
 fn build_policy_set() -> Vec<Policy> {
@@ -29,12 +25,16 @@ fn build_policy_set() -> Vec<Policy> {
             name: "Allow file reads".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "file:delete".to_string(),
             name: "Block file deletes".to_string(),
             policy_type: PolicyType::Deny,
             priority: 100,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "shell:*".to_string(),
@@ -43,6 +43,8 @@ fn build_policy_set() -> Vec<Policy> {
                 conditions: json!({"require_approval": true}),
             },
             priority: 50,
+            path_rules: None,
+            network_rules: None,
         },
         Policy {
             id: "api:*".to_string(),
@@ -51,6 +53,8 @@ fn build_policy_set() -> Vec<Policy> {
                 conditions: json!({"required_parameters": ["auth_token"]}),
             },
             priority: 30,
+            path_rules: None,
+            network_rules: None,
         },
     ]
 }

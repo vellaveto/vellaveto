@@ -181,15 +181,13 @@ fn exploit_32_unicode_homoglyph_in_tool_name() {
         name: "Block bash".to_string(),
         policy_type: PolicyType::Deny,
         priority: 100,
+        path_rules: None,
+        network_rules: None,
     }];
 
     if let Ok(engine) = PolicyEngine::with_policies(false, &policies) {
         // Normal action — should be denied
-        let normal_action = Action {
-            tool: "bash".to_string(),
-            function: "execute".to_string(),
-            parameters: json!({}),
-        };
+        let normal_action = Action::new("bash".to_string(), "execute".to_string(), json!({}));
         let result = engine.evaluate_action(&normal_action, &policies);
         assert!(
             matches!(result, Ok(sentinel_types::Verdict::Deny { .. })),
@@ -197,11 +195,8 @@ fn exploit_32_unicode_homoglyph_in_tool_name() {
         );
 
         // Homoglyph attack: Cyrillic 'а' (U+0430) instead of Latin 'a' (U+0061)
-        let homoglyph_action = Action {
-            tool: "b\u{0430}sh".to_string(), // bаsh with Cyrillic а
-            function: "execute".to_string(),
-            parameters: json!({}),
-        };
+        let homoglyph_action =
+            Action::new("b\u{0430}sh".to_string(), "execute".to_string(), json!({}));
         let result = engine.evaluate_action(&homoglyph_action, &policies);
         // The homoglyph tool doesn't match the policy pattern "bash"
         // The engine's default behavior determines the verdict

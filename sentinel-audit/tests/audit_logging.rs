@@ -13,11 +13,11 @@ fn setup_logger() -> (AuditLogger, TempDir) {
 }
 
 fn sample_action(tool: &str, function: &str) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: json!({"key": "value"}),
-    }
+    Action::new(
+        tool.to_string(),
+        function.to_string(),
+        json!({"key": "value"}),
+    )
 }
 
 #[tokio::test]
@@ -94,11 +94,11 @@ async fn logger_handles_concurrent_writes() {
     for i in 0..10 {
         let lg = logger.clone();
         handles.push(tokio::spawn(async move {
-            let action = Action {
-                tool: "tool".to_string(),
-                function: format!("concurrent_{}", i),
-                parameters: json!({"thread": i}),
-            };
+            let action = Action::new(
+                "tool".to_string(),
+                format!("concurrent_{}", i),
+                json!({"thread": i}),
+            );
             lg.log_entry(&action, &Verdict::Allow, json!({}))
                 .await
                 .unwrap();

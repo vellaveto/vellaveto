@@ -15,11 +15,11 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 fn action() -> Action {
-    Action {
-        tool: "unicode_path_test".to_string(),
-        function: "probe".to_string(),
-        parameters: json!({}),
-    }
+    Action::new(
+        "unicode_path_test".to_string(),
+        "probe".to_string(),
+        json!({}),
+    )
 }
 
 // ════════════════════════════════

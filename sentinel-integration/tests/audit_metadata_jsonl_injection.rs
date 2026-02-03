@@ -22,11 +22,7 @@ fn setup_logger() -> (AuditLogger, TempDir) {
 }
 
 fn action() -> Action {
-    Action {
-        tool: "injection_test".to_string(),
-        function: "probe".to_string(),
-        parameters: json!({}),
-    }
+    Action::new("injection_test".to_string(), "probe".to_string(), json!({}))
 }
 
 // ════════════════════════════════

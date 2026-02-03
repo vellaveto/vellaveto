@@ -58,11 +58,11 @@ fn denies_aws_credential_access() {
     let policies = config.to_policies();
     let engine = PolicyEngine::new(false);
 
-    let action = Action {
-        tool: "file_system".into(),
-        function: "read_file".into(),
-        parameters: json!({ "path": "/home/user/.aws/credentials" }),
-    };
+    let action = Action::new(
+        "file_system",
+        "read_file",
+        json!({ "path": "/home/user/.aws/credentials" }),
+    );
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
@@ -78,11 +78,11 @@ fn denies_ssh_key_access() {
     let policies = config.to_policies();
     let engine = PolicyEngine::new(false);
 
-    let action = Action {
-        tool: "file_system".into(),
-        function: "read_file".into(),
-        parameters: json!({ "path": "/home/user/.ssh/id_rsa" }),
-    };
+    let action = Action::new(
+        "file_system",
+        "read_file",
+        json!({ "path": "/home/user/.ssh/id_rsa" }),
+    );
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
@@ -98,11 +98,7 @@ fn denies_etc_shadow_access() {
     let policies = config.to_policies();
     let engine = PolicyEngine::new(false);
 
-    let action = Action {
-        tool: "file_system".into(),
-        function: "read_file".into(),
-        parameters: json!({ "path": "/etc/shadow" }),
-    };
+    let action = Action::new("file_system", "read_file", json!({ "path": "/etc/shadow" }));
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
@@ -118,11 +114,11 @@ fn allows_safe_file_read() {
     let policies = config.to_policies();
     let engine = PolicyEngine::new(false);
 
-    let action = Action {
-        tool: "file_system".into(),
-        function: "read_file".into(),
-        parameters: json!({ "path": "/home/user/project/src/main.rs" }),
-    };
+    let action = Action::new(
+        "file_system",
+        "read_file",
+        json!({ "path": "/home/user/project/src/main.rs" }),
+    );
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert_eq!(verdict, Verdict::Allow, "Should allow safe path read");
@@ -135,11 +131,11 @@ fn path_traversal_caught_after_config_load() {
     let engine = PolicyEngine::new(false);
 
     // Attempt traversal to reach .aws from a different starting point
-    let action = Action {
-        tool: "file_system".into(),
-        function: "read_file".into(),
-        parameters: json!({ "path": "/home/user/project/../../user/.aws/credentials" }),
-    };
+    let action = Action::new(
+        "file_system",
+        "read_file",
+        json!({ "path": "/home/user/project/../../user/.aws/credentials" }),
+    );
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
@@ -159,11 +155,11 @@ fn write_to_allowed_path_succeeds() {
     let policies = config.to_policies();
     let engine = PolicyEngine::new(false);
 
-    let action = Action {
-        tool: "file_system".into(),
-        function: "write_file".into(),
-        parameters: json!({ "path": "/home/user/project/output.txt" }),
-    };
+    let action = Action::new(
+        "file_system",
+        "write_file",
+        json!({ "path": "/home/user/project/output.txt" }),
+    );
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert_eq!(
@@ -179,11 +175,11 @@ fn write_to_disallowed_path_denied() {
     let policies = config.to_policies();
     let engine = PolicyEngine::new(false);
 
-    let action = Action {
-        tool: "file_system".into(),
-        function: "write_file".into(),
-        parameters: json!({ "path": "/etc/passwd" }),
-    };
+    let action = Action::new(
+        "file_system",
+        "write_file",
+        json!({ "path": "/etc/passwd" }),
+    );
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
@@ -203,11 +199,11 @@ fn denies_unlisted_domain() {
     let policies = config.to_policies();
     let engine = PolicyEngine::new(false);
 
-    let action = Action {
-        tool: "http_request".into(),
-        function: "get".into(),
-        parameters: json!({ "url": "https://evil.com/exfiltrate" }),
-    };
+    let action = Action::new(
+        "http_request",
+        "get",
+        json!({ "url": "https://evil.com/exfiltrate" }),
+    );
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
@@ -223,11 +219,11 @@ fn allows_listed_domain() {
     let policies = config.to_policies();
     let engine = PolicyEngine::new(false);
 
-    let action = Action {
-        tool: "http_request".into(),
-        function: "get".into(),
-        parameters: json!({ "url": "https://api.example.com/data" }),
-    };
+    let action = Action::new(
+        "http_request",
+        "get",
+        json!({ "url": "https://api.example.com/data" }),
+    );
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert_eq!(
@@ -243,11 +239,11 @@ fn allows_wildcard_subdomain() {
     let policies = config.to_policies();
     let engine = PolicyEngine::new(false);
 
-    let action = Action {
-        tool: "http_request".into(),
-        function: "post".into(),
-        parameters: json!({ "url": "https://staging.internal.dev/api" }),
-    };
+    let action = Action::new(
+        "http_request",
+        "post",
+        json!({ "url": "https://staging.internal.dev/api" }),
+    );
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert_eq!(
@@ -307,11 +303,7 @@ fn full_pipeline_with_audit_chain_verification() {
         ];
 
         for (tool, function, params) in &test_cases {
-            let action = Action {
-                tool: tool.to_string(),
-                function: function.to_string(),
-                parameters: params.clone(),
-            };
+            let action = Action::new(tool.to_string(), function.to_string(), params.clone());
             let verdict = engine.evaluate_action(&action, &policies).unwrap();
             logger
                 .log_entry(&action, &verdict, json!({"test": true}))
@@ -355,11 +347,7 @@ fn audit_chain_survives_logger_restart() {
                 "/home/user/project/b.rs",
                 "/tmp/c.txt",
             ] {
-                let action = Action {
-                    tool: "file_system".into(),
-                    function: "read_file".into(),
-                    parameters: json!({"path": path}),
-                };
+                let action = Action::new("file_system", "read_file", json!({"path": path}));
                 let verdict = engine.evaluate_action(&action, &policies).unwrap();
                 logger
                     .log_entry(&action, &verdict, json!({}))
@@ -373,11 +361,11 @@ fn audit_chain_survives_logger_restart() {
             let logger = AuditLogger::new(log_path.clone());
             logger.initialize_chain().await.unwrap();
 
-            let action = Action {
-                tool: "file_system".into(),
-                function: "read_file".into(),
-                parameters: json!({"path": "/home/user/project/d.rs"}),
-            };
+            let action = Action::new(
+                "file_system",
+                "read_file",
+                json!({"path": "/home/user/project/d.rs"}),
+            );
             let verdict = engine.evaluate_action(&action, &policies).unwrap();
             logger
                 .log_entry(&action, &verdict, json!({}))
@@ -403,11 +391,7 @@ fn missing_path_parameter_defaults_to_deny() {
     let engine = PolicyEngine::new(false);
 
     // Action matches file_system:read_file but has no "path" parameter
-    let action = Action {
-        tool: "file_system".into(),
-        function: "read_file".into(),
-        parameters: json!({}),
-    };
+    let action = Action::new("file_system", "read_file", json!({}));
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
@@ -423,11 +407,7 @@ fn missing_url_parameter_defaults_to_deny() {
     let policies = config.to_policies();
     let engine = PolicyEngine::new(false);
 
-    let action = Action {
-        tool: "http_request".into(),
-        function: "get".into(),
-        parameters: json!({"headers": {}}),
-    };
+    let action = Action::new("http_request", "get", json!({"headers": {}}));
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(

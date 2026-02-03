@@ -60,30 +60,9 @@ fn json_config_driven_full_pipeline() {
 
         // Evaluate and audit a series of actions
         let actions_and_expected: Vec<(Action, &str)> = vec![
-            (
-                Action {
-                    tool: "file".into(),
-                    function: "read".into(),
-                    parameters: json!({}),
-                },
-                "allow",
-            ),
-            (
-                Action {
-                    tool: "file".into(),
-                    function: "delete".into(),
-                    parameters: json!({}),
-                },
-                "deny",
-            ),
-            (
-                Action {
-                    tool: "network".into(),
-                    function: "http_get".into(),
-                    parameters: json!({}),
-                },
-                "approval",
-            ),
+            (Action::new("file", "read", json!({})), "allow"),
+            (Action::new("file", "delete", json!({})), "deny"),
+            (Action::new("network", "http_get", json!({})), "approval"),
         ];
 
         for (action, expected_type) in &actions_and_expected {
@@ -119,11 +98,7 @@ fn empty_config_means_fail_closed() {
     let engine = PolicyEngine::new(false);
     let policies: Vec<Policy> = serde_json::from_value(json!([])).unwrap();
 
-    let action = Action {
-        tool: "anything".into(),
-        function: "anything".into(),
-        parameters: json!({}),
-    };
+    let action = Action::new("anything", "anything", json!({}));
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
@@ -143,22 +118,14 @@ fn config_priority_ordering_matches_engine_behavior() {
     ]))
     .unwrap();
 
-    let bash_action = Action {
-        tool: "bash".into(),
-        function: "exec".into(),
-        parameters: json!({}),
-    };
+    let bash_action = Action::new("bash", "exec", json!({}));
     assert!(matches!(
         engine.evaluate_action(&bash_action, &policies).unwrap(),
         Verdict::Deny { .. }
     ));
 
     // Non-bash action should still be allowed
-    let safe_action = Action {
-        tool: "git".into(),
-        function: "status".into(),
-        parameters: json!({}),
-    };
+    let safe_action = Action::new("git", "status", json!({}));
     assert_eq!(
         engine.evaluate_action(&safe_action, &policies).unwrap(),
         Verdict::Allow
@@ -184,19 +151,19 @@ fn separate_audit_logs_for_different_contexts() {
             name: "Deny all in prod".into(),
             policy_type: PolicyType::Deny,
             priority: 1000,
+            path_rules: None,
+            network_rules: None,
         }];
         let dev_policies = vec![Policy {
             id: "*".into(),
             name: "Allow all in dev".into(),
             policy_type: PolicyType::Allow,
             priority: 1,
+            path_rules: None,
+            network_rules: None,
         }];
 
-        let action = Action {
-            tool: "bash".into(),
-            function: "exec".into(),
-            parameters: json!({}),
-        };
+        let action = Action::new("bash", "exec", json!({}));
 
         let prod_verdict = engine.evaluate_action(&action, &prod_policies).unwrap();
         let dev_verdict = engine.evaluate_action(&action, &dev_policies).unwrap();

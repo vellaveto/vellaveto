@@ -6,19 +6,11 @@ use sentinel_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 
 fn make_action(tool: &str, function: &str) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: json!({}),
-    }
+    Action::new(tool.to_string(), function.to_string(), json!({}))
 }
 
 fn make_action_with_params(tool: &str, function: &str, params: serde_json::Value) -> Action {
-    Action {
-        tool: tool.to_string(),
-        function: function.to_string(),
-        parameters: params,
-    }
+    Action::new(tool.to_string(), function.to_string(), params)
 }
 
 // ═══════════════════════════════════
@@ -33,6 +25,8 @@ fn single_wildcard_allow_permits_any_action() {
         name: "allow-all".to_string(),
         policy_type: PolicyType::Allow,
         priority: 0,
+        path_rules: None,
+        network_rules: None,
     }];
 
     // Various action shapes
@@ -62,6 +56,8 @@ fn single_wildcard_deny_blocks_any_action() {
         name: "deny-all".to_string(),
         policy_type: PolicyType::Deny,
         priority: 0,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let v = engine
@@ -78,6 +74,8 @@ fn single_exact_match_allows_only_matching_action() {
         name: "allow-file-read".to_string(),
         policy_type: PolicyType::Allow,
         priority: 0,
+        path_rules: None,
+        network_rules: None,
     }];
 
     // Matching action
@@ -113,6 +111,8 @@ fn single_tool_only_id_matches_by_tool() {
         name: "allow-bash".to_string(),
         policy_type: PolicyType::Allow,
         priority: 0,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let v = engine
@@ -154,6 +154,8 @@ fn single_conditional_with_empty_conditions_allows() {
             conditions: json!({}),
         },
         priority: 0,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let v = engine
@@ -172,6 +174,8 @@ fn single_conditional_with_require_approval_false_allows() {
             conditions: json!({"require_approval": false}),
         },
         priority: 0,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let v = engine
@@ -190,6 +194,8 @@ fn single_conditional_forbidden_param_present_denies() {
             conditions: json!({"forbidden_parameters": ["secret"]}),
         },
         priority: 0,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let action = make_action_with_params("tool", "func", json!({"secret": "value", "other": "ok"}));
@@ -210,6 +216,8 @@ fn single_conditional_forbidden_param_absent_allows() {
             conditions: json!({"forbidden_parameters": ["secret"]}),
         },
         priority: 0,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let action = make_action_with_params("tool", "func", json!({"public": "data"}));
@@ -227,6 +235,8 @@ fn single_conditional_required_param_missing_denies() {
             conditions: json!({"required_parameters": ["auth_token"]}),
         },
         priority: 0,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let action = make_action_with_params("tool", "func", json!({"other": "stuff"}));
@@ -247,6 +257,8 @@ fn single_conditional_required_param_present_allows() {
             conditions: json!({"required_parameters": ["auth_token"]}),
         },
         priority: 0,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let action = make_action_with_params("tool", "func", json!({"auth_token": "abc123"}));
@@ -266,6 +278,8 @@ fn single_policy_at_i32_min_still_matches() {
         name: "min-priority".to_string(),
         policy_type: PolicyType::Allow,
         priority: i32::MIN,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let v = engine
@@ -286,6 +300,8 @@ fn single_policy_at_i32_max_still_matches() {
         name: "max-priority".to_string(),
         policy_type: PolicyType::Deny,
         priority: i32::MAX,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let v = engine
@@ -307,6 +323,8 @@ fn suffix_wildcard_on_tool_part() {
         name: "file-prefix-read".to_string(),
         policy_type: PolicyType::Allow,
         priority: 10,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let v = engine
@@ -350,6 +368,8 @@ fn prefix_wildcard_on_function_part() {
         name: "shell-execute-suffix".to_string(),
         policy_type: PolicyType::Deny,
         priority: 10,
+        path_rules: None,
+        network_rules: None,
     }];
 
     let v = engine

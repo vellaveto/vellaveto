@@ -32,11 +32,11 @@ fn large_string_parameter_survives_roundtrip() {
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
         let big_value = "x".repeat(500_000);
-        let action = Action {
-            tool: "large_test".to_string(),
-            function: "write".to_string(),
-            parameters: json!({"data": big_value}),
-        };
+        let action = Action::new(
+            "large_test".to_string(),
+            "write".to_string(),
+            json!({"data": big_value}),
+        );
 
         logger
             .log_entry(&action, &Verdict::Allow, json!({}))
@@ -66,11 +66,11 @@ fn multiple_large_entries_report_consistent() {
         let big_value = "y".repeat(100_000);
 
         for i in 0..5 {
-            let action = Action {
-                tool: format!("large_{}", i),
-                function: "test".to_string(),
-                parameters: json!({"payload": big_value}),
-            };
+            let action = Action::new(
+                format!("large_{}", i),
+                "test".to_string(),
+                json!({"payload": big_value}),
+            );
             let verdict = if i % 2 == 0 {
                 Verdict::Allow
             } else {
@@ -106,11 +106,7 @@ fn deep_but_valid_nesting_survives_pipeline() {
             val = json!({"nested": val});
         }
 
-        let action = Action {
-            tool: "deep_test".to_string(),
-            function: "nest".to_string(),
-            parameters: val.clone(),
-        };
+        let action = Action::new("deep_test".to_string(), "nest".to_string(), val.clone());
 
         logger
             .log_entry(&action, &Verdict::Allow, json!({}))
@@ -130,11 +126,7 @@ fn large_metadata_survives_roundtrip() {
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
 
-        let action = Action {
-            tool: "meta".to_string(),
-            function: "test".to_string(),
-            parameters: json!({}),
-        };
+        let action = Action::new("meta".to_string(), "test".to_string(), json!({}));
 
         let big_meta = json!({
             "trace_id": "a".repeat(1000),
@@ -165,11 +157,7 @@ fn long_tool_and_function_names_accepted() {
 
         let long_tool = "t".repeat(10_000);
         let long_func = "f".repeat(10_000);
-        let action = Action {
-            tool: long_tool.clone(),
-            function: long_func.clone(),
-            parameters: json!({}),
-        };
+        let action = Action::new(long_tool.clone(), long_func.clone(), json!({}));
 
         logger
             .log_entry(&action, &Verdict::Allow, json!({}))

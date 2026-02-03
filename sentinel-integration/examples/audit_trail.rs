@@ -24,12 +24,16 @@ fn main() {
                 name: "Allow file reads".to_string(),
                 policy_type: PolicyType::Allow,
                 priority: 0,
+                path_rules: None,
+                network_rules: None,
             },
             Policy {
                 id: "file:delete".to_string(),
                 name: "Block file deletes".to_string(),
                 policy_type: PolicyType::Deny,
                 priority: 10,
+                path_rules: None,
+                network_rules: None,
             },
         ];
 
@@ -46,11 +50,7 @@ fn main() {
         println!("Evaluating {} actions...\n", actions.len());
 
         for (tool, function) in &actions {
-            let action = Action {
-                tool: tool.to_string(),
-                function: function.to_string(),
-                parameters: json!({}),
-            };
+            let action = Action::new(tool.to_string(), function.to_string(), json!({}));
 
             let verdict = engine
                 .evaluate_action(&action, &policies)

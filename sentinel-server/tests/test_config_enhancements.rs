@@ -202,11 +202,7 @@ priority = 1
     let policies = config.to_policies();
     let engine = sentinel_engine::PolicyEngine::new(false);
 
-    let action = sentinel_types::Action {
-        tool: "bash".to_string(),
-        function: "execute".to_string(),
-        parameters: json!({}),
-    };
+    let action = sentinel_types::Action::new("bash".to_string(), "execute".to_string(), json!({}));
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, sentinel_types::Verdict::Deny { .. }),
@@ -214,11 +210,8 @@ priority = 1
         verdict
     );
 
-    let safe_action = sentinel_types::Action {
-        tool: "file".to_string(),
-        function: "read".to_string(),
-        parameters: json!({}),
-    };
+    let safe_action =
+        sentinel_types::Action::new("file".to_string(), "read".to_string(), json!({}));
     let verdict = engine.evaluate_action(&safe_action, &policies).unwrap();
     assert!(
         matches!(verdict, sentinel_types::Verdict::Allow),

@@ -7,11 +7,7 @@ use sentinel_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 
 fn make_action() -> Action {
-    Action {
-        tool: "tool".to_string(),
-        function: "func".to_string(),
-        parameters: json!({}),
-    }
+    Action::new("tool".to_string(), "func".to_string(), json!({}))
 }
 
 fn allow(priority: i32) -> Policy {
@@ -20,6 +16,8 @@ fn allow(priority: i32) -> Policy {
         name: format!("allow-{}", priority),
         policy_type: PolicyType::Allow,
         priority,
+        path_rules: None,
+        network_rules: None,
     }
 }
 
@@ -29,6 +27,8 @@ fn deny(priority: i32) -> Policy {
         name: format!("deny-{}", priority),
         policy_type: PolicyType::Deny,
         priority,
+        path_rules: None,
+        network_rules: None,
     }
 }
 

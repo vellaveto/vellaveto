@@ -11,11 +11,7 @@ use serde_json::json;
 
 #[test]
 fn action_with_null_parameters_roundtrips() {
-    let action = Action {
-        tool: "t".to_string(),
-        function: "f".to_string(),
-        parameters: json!(null),
-    };
+    let action = Action::new("t".to_string(), "f".to_string(), json!(null));
     let serialized = serde_json::to_string(&action).unwrap();
     let deserialized: Action = serde_json::from_str(&serialized).unwrap();
     assert_eq!(action, deserialized);
@@ -23,11 +19,11 @@ fn action_with_null_parameters_roundtrips() {
 
 #[test]
 fn action_with_array_parameters_roundtrips() {
-    let action = Action {
-        tool: "t".to_string(),
-        function: "f".to_string(),
-        parameters: json!([1, "two", null, true, 3.15]),
-    };
+    let action = Action::new(
+        "t".to_string(),
+        "f".to_string(),
+        json!([1, "two", null, true, 3.15]),
+    );
     let serialized = serde_json::to_string(&action).unwrap();
     let deserialized: Action = serde_json::from_str(&serialized).unwrap();
     assert_eq!(action, deserialized);
@@ -35,11 +31,7 @@ fn action_with_array_parameters_roundtrips() {
 
 #[test]
 fn action_with_empty_strings_roundtrips() {
-    let action = Action {
-        tool: String::new(),
-        function: String::new(),
-        parameters: json!({}),
-    };
+    let action = Action::new(String::new(), String::new(), json!({}));
     let serialized = serde_json::to_string(&action).unwrap();
     let deserialized: Action = serde_json::from_str(&serialized).unwrap();
     assert_eq!(action, deserialized);
@@ -51,11 +43,7 @@ fn action_with_deeply_nested_params_roundtrips() {
     for _ in 0..15 {
         val = json!({"inner": val});
     }
-    let action = Action {
-        tool: "t".to_string(),
-        function: "f".to_string(),
-        parameters: val.clone(),
-    };
+    let action = Action::new("t".to_string(), "f".to_string(), val.clone());
     let serialized = serde_json::to_string(&action).unwrap();
     let deserialized: Action = serde_json::from_str(&serialized).unwrap();
     assert_eq!(action, deserialized);
@@ -63,11 +51,11 @@ fn action_with_deeply_nested_params_roundtrips() {
 
 #[test]
 fn action_with_unicode_roundtrips() {
-    let action = Action {
-        tool: "工具".to_string(),
-        function: "함수".to_string(),
-        parameters: json!({"путь": "значение", "🔑": "🔒"}),
-    };
+    let action = Action::new(
+        "工具".to_string(),
+        "함수".to_string(),
+        json!({"путь": "значение", "🔑": "🔒"}),
+    );
     let serialized = serde_json::to_string(&action).unwrap();
     let deserialized: Action = serde_json::from_str(&serialized).unwrap();
     assert_eq!(action, deserialized);
@@ -174,6 +162,8 @@ fn policy_with_negative_priority_roundtrips() {
         name: "Negative Priority".to_string(),
         policy_type: PolicyType::Allow,
         priority: -999,
+        path_rules: None,
+        network_rules: None,
     };
     let s = serde_json::to_string(&p).unwrap();
     let d: Policy = serde_json::from_str(&s).unwrap();
@@ -189,6 +179,8 @@ fn policy_with_i32_extremes_roundtrips() {
             name: format!("Priority {}", priority),
             policy_type: PolicyType::Deny,
             priority,
+            path_rules: None,
+            network_rules: None,
         };
         let s = serde_json::to_string(&p).unwrap();
         let d: Policy = serde_json::from_str(&s).unwrap();
@@ -307,11 +299,7 @@ fn engine_evaluates_conditional_from_json() {
     });
     let policy: Policy = serde_json::from_value(policy_json).unwrap();
 
-    let action = Action {
-        tool: "net".to_string(),
-        function: "fetch".to_string(),
-        parameters: json!({}),
-    };
+    let action = Action::new("net".to_string(), "fetch".to_string(), json!({}));
 
     let verdict = engine.evaluate_action(&action, &[policy]).unwrap();
     match verdict {

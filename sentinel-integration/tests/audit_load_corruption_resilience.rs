@@ -16,11 +16,11 @@ fn runtime() -> tokio::runtime::Runtime {
 }
 
 fn make_action() -> Action {
-    Action {
-        tool: "corruption_test".to_string(),
-        function: "probe".to_string(),
-        parameters: json!({}),
-    }
+    Action::new(
+        "corruption_test".to_string(),
+        "probe".to_string(),
+        json!({}),
+    )
 }
 
 // ═══════════════════════════════════════

@@ -80,11 +80,23 @@ async fn main() -> Result<()> {
     }
     tracing::info!("Audit log: {}", audit_path.display());
 
-    // Spawn child MCP server
+    // Verify child binary integrity before spawn (supply chain protection)
     let (child_cmd, child_args) = cli
         .command
         .split_first()
         .context("Command list is empty after validation")?;
+
+    if let Err(reason) = policy_config.supply_chain.verify_binary(child_cmd) {
+        tracing::error!("Supply chain verification FAILED: {}", reason);
+        anyhow::bail!(
+            "Refusing to spawn MCP server: supply chain verification failed — {}",
+            reason
+        );
+    } else if policy_config.supply_chain.enabled {
+        tracing::info!("Supply chain verification passed for '{}'", child_cmd);
+    }
+
+    // Spawn child MCP server
     let mut child = Command::new(child_cmd)
         .args(child_args)
         .stdin(std::process::Stdio::piped())
