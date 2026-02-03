@@ -21,6 +21,7 @@ use sentinel_mcp::inspection::{inspect_for_injection, InjectionScanner};
 use sentinel_types::{Action, EvaluationTrace, Policy, Verdict};
 use serde_json::{json, Value};
 use std::sync::Arc;
+use subtle::ConstantTimeEq;
 
 use crate::oauth::{OAuthClaims, OAuthError, OAuthValidator};
 
@@ -49,6 +50,8 @@ pub struct ProxyState {
     pub injection_scanner: Option<Arc<InjectionScanner>>,
     /// When true, injection scanning is completely disabled.
     pub injection_disabled: bool,
+    /// API key for authenticating requests. None disables auth (--allow-anonymous).
+    pub api_key: Option<Arc<String>>,
 }
 
 /// MCP Session ID header name.
@@ -324,6 +327,11 @@ pub async fn handle_mcp_post(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    // API key validation (if configured) — fast check before OAuth
+    if let Err(response) = validate_api_key(&state, &headers) {
+        return response;
+    }
+
     // OAuth 2.1 token validation (if configured)
     let oauth_claims = match validate_oauth(&state, &headers).await {
         Ok(claims) => claims,
@@ -736,6 +744,11 @@ pub async fn handle_mcp_post(
 /// When OAuth is configured, verifies that the authenticated user owns the
 /// session before allowing deletion. Prevents cross-user session termination.
 pub async fn handle_mcp_delete(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    // API key validation (if configured) — fast check before OAuth
+    if let Err(response) = validate_api_key(&state, &headers) {
+        return response;
+    }
+
     // OAuth 2.1 token validation (if configured)
     let oauth_claims = match validate_oauth(&state, &headers).await {
         Ok(claims) => claims,
@@ -841,6 +854,52 @@ async fn validate_oauth(
             )
                 .into_response())
         }
+    }
+}
+
+/// Validate the API key from the request headers.
+///
+/// Returns `Ok(())` if authentication passes (key matches, no key configured,
+/// or OAuth is enabled — OAuth subsumes API key auth since both use the
+/// Authorization header).
+/// Returns `Err(response)` with HTTP 401 if the key is missing or invalid.
+///
+/// Uses constant-time comparison to prevent timing side-channel attacks.
+#[allow(clippy::result_large_err)]
+fn validate_api_key(state: &ProxyState, headers: &HeaderMap) -> Result<(), Response> {
+    // When OAuth is configured, it handles authentication via JWTs.
+    // Both use the Authorization: Bearer header, so we defer to OAuth.
+    if state.oauth.is_some() {
+        return Ok(());
+    }
+
+    let api_key = match &state.api_key {
+        Some(key) => key,
+        None => return Ok(()), // No key configured (--allow-anonymous)
+    };
+
+    let auth_header = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+
+    match auth_header {
+        Some(h) if h.starts_with("Bearer ") => {
+            let token = &h[7..];
+            if token.as_bytes().ct_eq(api_key.as_bytes()).into() {
+                Ok(())
+            } else {
+                Err((
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({"error": "Invalid API key"})),
+                )
+                    .into_response())
+            }
+        }
+        _ => Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Missing or invalid Authorization header. Expected: Bearer <api_key>"})),
+        )
+            .into_response()),
     }
 }
 

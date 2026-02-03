@@ -150,6 +150,7 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
+        api_key: None,
     }
 }
 
@@ -1575,6 +1576,7 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
+        api_key: None,
     };
     let sessions = state.sessions.clone();
     let app = build_router(state);
@@ -1849,6 +1851,7 @@ async fn trace_resource_read_denied_includes_trace() {
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
+        api_key: None,
     };
     let app = build_router(state);
 
@@ -1912,6 +1915,7 @@ async fn trace_constraint_details_visible() {
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
+        api_key: None,
     };
     let app = build_router(state);
 
@@ -2091,6 +2095,7 @@ fn build_oauth_test_state(
         oauth: Some(Arc::new(OAuthValidator::new(oauth_config, http_client))),
         injection_scanner: None,
         injection_disabled: false,
+        api_key: None,
     }
 }
 
@@ -2564,4 +2569,224 @@ async fn oauth_denied_tool_audit_includes_subject() {
         Some("attacker-99"),
         "Audit entry should include OAuth subject for denied tool calls"
     );
+}
+
+// ═══════════════════════════════════════════════════
+// API Key Authentication Tests (Exploit #7 — HTTP proxy parity)
+// ═══════════════════════════════════════════════════
+
+fn build_api_key_test_state(upstream_url: &str, tmp: &TempDir, api_key: Option<&str>) -> ProxyState {
+    let policies = vec![
+        Policy {
+            id: "read_file:*".to_string(),
+            name: "Allow read_file".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+        },
+        Policy {
+            id: "bash:*".to_string(),
+            name: "Deny bash".to_string(),
+            policy_type: PolicyType::Deny,
+            priority: 20,
+        },
+    ];
+    let engine = PolicyEngine::with_policies(false, &policies).expect("compile");
+
+    ProxyState {
+        engine: Arc::new(engine),
+        policies: Arc::new(policies),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
+        upstream_url: upstream_url.to_string(),
+        http_client: reqwest::Client::new(),
+        oauth: None,
+        injection_scanner: None,
+        injection_disabled: false,
+        api_key: api_key.map(|k| Arc::new(k.to_string())),
+    }
+}
+
+#[tokio::test]
+async fn api_key_no_token_returns_401() {
+    let tmp = TempDir::new().unwrap();
+    let state = build_api_key_test_state("http://localhost:9999/mcp", &tmp, Some("test-secret-key"));
+    let app = build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "read_file", "arguments": {"path": "/tmp/test"}}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let json = json_body(resp).await;
+    assert!(json["error"].as_str().unwrap().contains("Authorization"));
+}
+
+#[tokio::test]
+async fn api_key_invalid_key_returns_401() {
+    let tmp = TempDir::new().unwrap();
+    let state = build_api_key_test_state("http://localhost:9999/mcp", &tmp, Some("test-secret-key"));
+    let app = build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "read_file", "arguments": {"path": "/tmp/test"}}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer wrong-key")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let json = json_body(resp).await;
+    assert!(json["error"].as_str().unwrap().contains("Invalid API key"));
+}
+
+#[tokio::test]
+async fn api_key_valid_key_allows_request() {
+    let upstream_url = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_api_key_test_state(&upstream_url, &tmp, Some("test-secret-key"));
+    let app = build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "read_file", "arguments": {"path": "/tmp/test"}}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer test-secret-key")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert!(resp.headers().get("mcp-session-id").is_some());
+    let json = json_body(resp).await;
+    assert_eq!(json["id"], 1);
+    assert!(json["result"].is_object());
+}
+
+#[tokio::test]
+async fn api_key_none_allows_anonymous() {
+    let upstream_url = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_api_key_test_state(&upstream_url, &tmp, None);
+    let app = build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "read_file", "arguments": {"path": "/tmp/test"}}
+    }))
+    .unwrap();
+
+    // No authorization header — should be allowed when api_key is None
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = json_body(resp).await;
+    assert!(json["result"].is_object());
+}
+
+#[tokio::test]
+async fn api_key_delete_requires_auth() {
+    let tmp = TempDir::new().unwrap();
+    let state = build_api_key_test_state("http://localhost:9999/mcp", &tmp, Some("test-secret-key"));
+    let sessions = state.sessions.clone();
+    let session_id = sessions.get_or_create(None);
+    let app = build_router(state);
+
+    // DELETE without API key should be rejected
+    let resp = app
+        .oneshot(
+            Request::delete("/mcp")
+                .header("mcp-session-id", &session_id)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    // Session should still exist
+    assert_eq!(sessions.len(), 1);
+}
+
+#[tokio::test]
+async fn api_key_delete_with_valid_key_succeeds() {
+    let tmp = TempDir::new().unwrap();
+    let state = build_api_key_test_state("http://localhost:9999/mcp", &tmp, Some("test-secret-key"));
+    let sessions = state.sessions.clone();
+    let session_id = sessions.get_or_create(None);
+    let app = build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::delete("/mcp")
+                .header("mcp-session-id", &session_id)
+                .header("authorization", "Bearer test-secret-key")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(sessions.len(), 0, "Session should be deleted");
+}
+
+#[tokio::test]
+async fn api_key_health_endpoint_unauthenticated() {
+    let tmp = TempDir::new().unwrap();
+    let state = build_api_key_test_state("http://localhost:9999/mcp", &tmp, Some("test-secret-key"));
+    let app = build_router(state);
+
+    // GET /health should work without API key
+    let resp = app
+        .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
 }

@@ -320,14 +320,36 @@ Fixed 4 of 10 exploits — all within Instance B's file ownership.
 - Added `injection_disabled: false` to `ProxyState` constructors in `sentinel-http-proxy/tests/proxy_integration.rs`
 
 **Exploits not in Instance B scope (for other instances):**
-- #5 (param path dot-splitting): documented behavior, needs design decision
 - #6 (SSE unscanned): Instance A's HTTP proxy code
 - #7 (default no-auth): server code, needs startup enforcement
-- #8 (audit tail truncation): checkpoint count verification
 - #9 (rug-pull decorative): Instance A's HTTP proxy detection code
-- #10 (verify_chain memory DoS): streaming verification
+
+### Session 2 — Additional Exploit Fixes (2026-02-03)
+
+**Exploit #5 HARDENED (HIGH): param path dot-splitting ambiguity**
+- Upgraded `get_param_by_path()` in `sentinel-engine/src/lib.rs` from simple "exact first, then dot-split" to full ambiguity detection
+- When BOTH a literal dotted key AND nested traversal resolve to **different** values, returns `None` (fail-closed on ambiguity)
+- Prevents an attacker from shadowing nested values with literal dotted keys (or vice versa)
+- When only one interpretation exists OR both agree, works normally
+- 6 new regression tests covering: exact key only, nested only, ambiguous different values → None, ambiguous same values → resolves, deep nesting ambiguity, partial traversal no ambiguity
+- **Ambiguous parameter paths now fail closed instead of silently choosing one interpretation.**
+
+**Exploit #8 VERIFIED + TESTED (HIGH): audit tail truncation detection**
+- Fix was already in `verify_checkpoints_with_key()` (lines 512-526) — checks if `cp.entry_count > entries.len()`
+- Added 3 regression tests: truncation detected, no false positive when counts match, entries added after checkpoint still valid
+- **Checkpoint verification now detects truncated audit logs.**
+
+**Exploit #10 VERIFIED + TESTED (HIGH): verify_chain() memory DoS**
+- Fix was already in `load_entries()` — `MAX_AUDIT_LOG_SIZE` (100MB) check before file read
+- Added 3 regression tests: oversized log rejected by load_entries(), oversized log rejected by verify_chain(), normal logs load fine
+- Uses sparse files for efficient testing without creating actual 100MB files
+- **Memory DoS via audit log is now prevented.**
+
+**Also fixed:** Pre-existing compilation error in `sentinel-mcp/src/proxy.rs` — missing `flagged_tools` parameter in `extract_tool_annotations()` call at the main proxy loop, plus undeclared `flagged` variable in test functions.
 
 ### Build Status (Current)
-- **1,680 tests pass, 0 failures, clippy clean**
+- **1,707 tests pass, 0 failures, clippy clean**
 - All Phase 2 pentest exploits within Instance B scope: FIXED
-- Test delta: +64 tests from baseline (1,616 → 1,680)
+- Exploits fixed this session: #5 (hardened), #8 (tested), #10 (tested)
+- Exploits fixed last session: #1, #2, #3, #4
+- Test delta: +91 tests from baseline (1,616 → 1,707)

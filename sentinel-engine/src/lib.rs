@@ -927,14 +927,36 @@ impl PolicyEngine {
         }
     }
 
-    /// Evaluate pre-compiled conditions against an action.
+    /// Evaluate pre-compiled conditions against an action (no tracing).
     fn evaluate_compiled_conditions(
         &self,
         action: &Action,
         cp: &CompiledPolicy,
     ) -> Result<Verdict, EngineError> {
+        self.evaluate_compiled_conditions_core(action, cp, &mut None)
+    }
+
+    /// Core implementation shared by traced and non-traced compiled condition evaluation.
+    ///
+    /// When `trace` is `Some`, collects `ConstraintResult` records for each check.
+    /// When `None`, skips trace collection (zero overhead).
+    fn evaluate_compiled_conditions_core(
+        &self,
+        action: &Action,
+        cp: &CompiledPolicy,
+        trace: &mut Option<Vec<ConstraintResult>>,
+    ) -> Result<Verdict, EngineError> {
         // Check require_approval first
         if cp.require_approval {
+            if let Some(results) = trace.as_mut() {
+                results.push(ConstraintResult {
+                    constraint_type: "require_approval".to_string(),
+                    param: "".to_string(),
+                    expected: "true".to_string(),
+                    actual: "true".to_string(),
+                    passed: false,
+                });
+            }
             return Ok(Verdict::RequireApproval {
                 reason: cp.approval_reason.clone(),
             });
@@ -942,7 +964,17 @@ impl PolicyEngine {
 
         // Check forbidden parameters
         for (i, param_str) in cp.forbidden_parameters.iter().enumerate() {
-            if action.parameters.get(param_str).is_some() {
+            let present = action.parameters.get(param_str).is_some();
+            if let Some(results) = trace.as_mut() {
+                results.push(ConstraintResult {
+                    constraint_type: "forbidden_parameter".to_string(),
+                    param: param_str.clone(),
+                    expected: "absent".to_string(),
+                    actual: if present { "present" } else { "absent" }.to_string(),
+                    passed: !present,
+                });
+            }
+            if present {
                 return Ok(Verdict::Deny {
                     reason: cp.forbidden_reasons[i].clone(),
                 });
@@ -951,7 +983,17 @@ impl PolicyEngine {
 
         // Check required parameters
         for (i, param_str) in cp.required_parameters.iter().enumerate() {
-            if action.parameters.get(param_str).is_none() {
+            let present = action.parameters.get(param_str).is_some();
+            if let Some(results) = trace.as_mut() {
+                results.push(ConstraintResult {
+                    constraint_type: "required_parameter".to_string(),
+                    param: param_str.clone(),
+                    expected: "present".to_string(),
+                    actual: if present { "present" } else { "absent" }.to_string(),
+                    passed: present,
+                });
+            }
+            if !present {
                 return Ok(Verdict::Deny {
                     reason: cp.required_reasons[i].clone(),
                 });
@@ -966,7 +1008,14 @@ impl PolicyEngine {
         let total_constraints = cp.constraints.len();
 
         for constraint in &cp.constraints {
-            if let Some(verdict) =
+            if let Some(results) = trace.as_mut() {
+                let (maybe_verdict, constraint_results) =
+                    self.evaluate_compiled_constraint_traced(action, &cp.policy, constraint)?;
+                results.extend(constraint_results);
+                if let Some(verdict) = maybe_verdict {
+                    return Ok(verdict);
+                }
+            } else if let Some(verdict) =
                 self.evaluate_compiled_constraint(action, &cp.policy, constraint)?
             {
                 return Ok(verdict);
@@ -992,6 +1041,18 @@ impl PolicyEngine {
         // a positive allow signal — it means the action didn't provide enough
         // information for evaluation.
         if total_constraints > 0 && !any_evaluated {
+            if let Some(results) = trace.as_mut() {
+                results.push(ConstraintResult {
+                    constraint_type: "all_skipped_fail_closed".to_string(),
+                    param: "".to_string(),
+                    expected: "at least one constraint evaluated".to_string(),
+                    actual: format!(
+                        "all {} constraints skipped (missing params)",
+                        total_constraints
+                    ),
+                    passed: false,
+                });
+            }
             return Ok(Verdict::Deny {
                 reason: format!(
                     "All {} constraints skipped (parameters missing) in policy '{}' — fail-closed",
@@ -2531,122 +2592,15 @@ impl PolicyEngine {
     }
 
     /// Evaluate compiled conditions with full constraint tracing.
+    /// Delegates to `evaluate_compiled_conditions_core` with trace collection enabled.
     fn evaluate_compiled_conditions_traced(
         &self,
         action: &Action,
         cp: &CompiledPolicy,
     ) -> Result<(Verdict, Vec<ConstraintResult>), EngineError> {
-        let mut results: Vec<ConstraintResult> = Vec::new();
-
-        // Check require_approval
-        if cp.require_approval {
-            results.push(ConstraintResult {
-                constraint_type: "require_approval".to_string(),
-                param: "".to_string(),
-                expected: "true".to_string(),
-                actual: "true".to_string(),
-                passed: false,
-            });
-            return Ok((
-                Verdict::RequireApproval {
-                    reason: cp.approval_reason.clone(),
-                },
-                results,
-            ));
-        }
-
-        // Check forbidden parameters
-        for (i, param_str) in cp.forbidden_parameters.iter().enumerate() {
-            let present = action.parameters.get(param_str).is_some();
-            results.push(ConstraintResult {
-                constraint_type: "forbidden_parameter".to_string(),
-                param: param_str.clone(),
-                expected: "absent".to_string(),
-                actual: if present { "present" } else { "absent" }.to_string(),
-                passed: !present,
-            });
-            if present {
-                return Ok((
-                    Verdict::Deny {
-                        reason: cp.forbidden_reasons[i].clone(),
-                    },
-                    results,
-                ));
-            }
-        }
-
-        // Check required parameters
-        for (i, param_str) in cp.required_parameters.iter().enumerate() {
-            let present = action.parameters.get(param_str).is_some();
-            results.push(ConstraintResult {
-                constraint_type: "required_parameter".to_string(),
-                param: param_str.clone(),
-                expected: "present".to_string(),
-                actual: if present { "present" } else { "absent" }.to_string(),
-                passed: present,
-            });
-            if !present {
-                return Ok((
-                    Verdict::Deny {
-                        reason: cp.required_reasons[i].clone(),
-                    },
-                    results,
-                ));
-            }
-        }
-
-        // Evaluate compiled constraints.
-        // Track whether any constraint actually evaluated vs all skipped.
-        let mut any_evaluated = false;
-        let total_constraints = cp.constraints.len();
-
-        for constraint in &cp.constraints {
-            let (maybe_verdict, constraint_result) =
-                self.evaluate_compiled_constraint_traced(action, &cp.policy, constraint)?;
-            results.extend(constraint_result);
-            if let Some(verdict) = maybe_verdict {
-                return Ok((verdict, results));
-            }
-            // Check if this constraint was actually evaluated (not skipped)
-            let param_name = constraint.param();
-            let on_missing = constraint.on_missing();
-            if param_name == "*" {
-                let all_values = Self::collect_all_string_values(&action.parameters);
-                if !all_values.is_empty() || on_missing != "skip" {
-                    any_evaluated = true;
-                }
-            } else {
-                let has_param = Self::get_param_by_path(&action.parameters, param_name).is_some();
-                if has_param || on_missing != "skip" {
-                    any_evaluated = true;
-                }
-            }
-        }
-
-        // Fail-closed: if ALL constraints were skipped, deny
-        if total_constraints > 0 && !any_evaluated {
-            results.push(ConstraintResult {
-                constraint_type: "all_skipped_fail_closed".to_string(),
-                param: "".to_string(),
-                expected: "at least one constraint evaluated".to_string(),
-                actual: format!(
-                    "all {} constraints skipped (missing params)",
-                    total_constraints
-                ),
-                passed: false,
-            });
-            return Ok((
-                Verdict::Deny {
-                    reason: format!(
-                        "All {} constraints skipped (parameters missing) in policy '{}' — fail-closed",
-                        total_constraints, cp.policy.name
-                    ),
-                },
-                results,
-            ));
-        }
-
-        Ok((Verdict::Allow, results))
+        let mut results = Some(Vec::new());
+        let verdict = self.evaluate_compiled_conditions_core(action, cp, &mut results)?;
+        Ok((verdict, results.unwrap_or_default()))
     }
 
     /// Evaluate a single compiled constraint with tracing.
@@ -5738,5 +5692,111 @@ mod tests {
         let (_, trace) = engine.evaluate_action_traced(&action).unwrap();
         // Duration should be recorded (at least 0, could be 0 for very fast evaluation)
         assert!(trace.duration_us < 1_000_000); // Should be well under 1 second
+    }
+
+    #[test]
+    fn test_traced_all_skipped_fail_closed() {
+        // Exploit #2 regression: when all constraints skip due to missing params,
+        // the traced path should emit an "all_skipped_fail_closed" constraint result.
+        let policies = vec![Policy {
+            id: "file:*".to_string(),
+            name: "Block secrets".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [{
+                        "param": "path",
+                        "op": "glob",
+                        "pattern": "/etc/**",
+                        "on_match": "deny",
+                        "on_missing": "skip"
+                    }]
+                }),
+            },
+            priority: 100,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // Call with NO "path" parameter — all constraints skip
+        let action = action_with("file", "read", json!({}));
+        let (verdict, trace) = engine.evaluate_action_traced(&action).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+
+        // Trace should contain the all_skipped_fail_closed constraint
+        let constraint_results = &trace.matches[0].constraint_results;
+        let fail_closed = constraint_results
+            .iter()
+            .find(|c| c.constraint_type == "all_skipped_fail_closed");
+        assert!(
+            fail_closed.is_some(),
+            "Trace must include all_skipped_fail_closed constraint when all params missing"
+        );
+        let fc = fail_closed.unwrap();
+        assert!(!fc.passed);
+        assert!(fc.actual.contains("skipped"));
+    }
+
+    #[test]
+    fn test_traced_domain_match_constraint() {
+        // Verify domain_match constraint details appear in trace
+        let policies = vec![Policy {
+            id: "http:*".to_string(),
+            name: "Block evil".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "parameter_constraints": [{
+                        "param": "url",
+                        "op": "domain_match",
+                        "pattern": "evil.com",
+                        "on_match": "deny"
+                    }]
+                }),
+            },
+            priority: 100,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        let action = action_with("http", "get", json!({"url": "https://evil.com/exfil"}));
+        let (verdict, trace) = engine.evaluate_action_traced(&action).unwrap();
+        assert!(matches!(verdict, Verdict::Deny { .. }));
+
+        let constraint_results = &trace.matches[0].constraint_results;
+        let domain_result = constraint_results
+            .iter()
+            .find(|c| c.constraint_type == "domain_match")
+            .expect("Trace must contain domain_match constraint");
+        assert_eq!(domain_result.param, "url");
+        assert!(!domain_result.passed);
+    }
+
+    #[test]
+    fn test_traced_verdict_consistency() {
+        // The verdict returned from the function must match the verdict in the trace
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Allow all".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with("test", "fn", json!({}));
+
+        let (verdict, trace) = engine.evaluate_action_traced(&action).unwrap();
+        assert_eq!(
+            format!("{:?}", verdict),
+            format!("{:?}", trace.verdict),
+            "Returned verdict must match trace verdict"
+        );
+
+        // Also test with deny
+        let policies_deny = vec![Policy {
+            id: "test:*".to_string(),
+            name: "Block test".to_string(),
+            policy_type: PolicyType::Deny,
+            priority: 100,
+        }];
+        let engine_deny = PolicyEngine::with_policies(false, &policies_deny).unwrap();
+        let (verdict_d, trace_d) = engine_deny.evaluate_action_traced(&action).unwrap();
+        assert!(matches!(verdict_d, Verdict::Deny { .. }));
+        assert!(matches!(trace_d.verdict, Verdict::Deny { .. }));
     }
 }

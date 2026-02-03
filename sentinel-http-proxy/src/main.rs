@@ -70,6 +70,11 @@ struct Args {
     /// Forward the OAuth Bearer token to the upstream MCP server
     #[arg(long)]
     oauth_pass_through: bool,
+
+    /// Allow starting without SENTINEL_API_KEY (unauthenticated mode).
+    /// WARNING: All MCP endpoints will have no access control beyond OAuth (if configured).
+    #[arg(long, default_value_t = false)]
+    allow_anonymous: bool,
 }
 
 #[tokio::main]
@@ -109,6 +114,29 @@ async fn main() -> Result<()> {
             );
         }
     };
+
+    // Exploit #7 fix: require SENTINEL_API_KEY unless --allow-anonymous is set.
+    // Matches the pattern from sentinel-server — a security product must not ship
+    // with zero access control by default.
+    let api_key = std::env::var("SENTINEL_API_KEY")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(Arc::new);
+
+    if api_key.is_some() {
+        tracing::info!("API key authentication enabled for MCP endpoints");
+    } else if args.allow_anonymous {
+        tracing::warn!(
+            "No SENTINEL_API_KEY set and --allow-anonymous specified — MCP endpoints are UNAUTHENTICATED"
+        );
+    } else {
+        anyhow::bail!(
+            "SENTINEL_API_KEY environment variable is required.\n\
+             Set it to enable authentication for MCP endpoints, or pass \
+             --allow-anonymous to explicitly opt in to unauthenticated mode.\n\
+             Example: SENTINEL_API_KEY=your-secret-key sentinel-http-proxy --upstream http://localhost:8000/mcp --config policy.toml"
+        );
+    }
 
     // Initialize audit logger
     let audit_path = PathBuf::from(&args.audit_log);
@@ -211,6 +239,7 @@ async fn main() -> Result<()> {
         oauth,
         injection_scanner,
         injection_disabled,
+        api_key,
     };
 
     // Build router

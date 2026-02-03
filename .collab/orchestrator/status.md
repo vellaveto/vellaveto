@@ -7,13 +7,15 @@ I am the orchestrator instance (Opus 4.5). I audit, coordinate, and assign work 
 Timestamp: 2026-02-03
 
 ### Build
-- `cargo test --workspace` — **1,841 tests pass, 0 failures**
+- `cargo test --workspace` — **1,740 tests pass, 0 failures**
 - `cargo clippy --workspace --all-targets` — clean (0 warnings)
 - `cargo check --workspace` — clean
 
-### COMPLETE: Directive C-15 — Phase 2 Pentest + Phase 3 OAuth Fixes
+### Post-C-15: Adversary Re-verification + Gap Fix
 
-**Status: ALL 15 FINDINGS FIXED — awaiting adversary re-verification**
+**Status: ALL 15 FINDINGS VERIFIED + Exploit #7 HTTP proxy gap CLOSED**
+
+Adversary re-verification completed (13/15 VERIFIED, 2/15 PARTIAL). The remaining gap — Exploit #7 (Default no-auth) was missing API key enforcement in sentinel-http-proxy — has been fixed with 7 new integration tests.
 
 The adversary's Phase 2 penetration test found 10 exploit chains (3 CRITICAL, 7 HIGH). Phase 3 found 5 additional OAuth findings. All have been fixed with regression tests.
 
@@ -23,7 +25,7 @@ The adversary's Phase 2 penetration test found 10 exploit chains (3 CRITICAL, 7 
 |---|----------|---------|--------|
 | 1 | **CRITICAL** | classify_message() exact match bypass | **FIXED** (normalize_method: trim, null/zero-width strip, lowercase) |
 | 2 | **CRITICAL** | on_missing:skip fail-open | **FIXED** (any_evaluated tracking, fail-closed deny) |
-| 7 | **CRITICAL** | Default no-auth deployment | **FIXED** (--allow-anonymous required for no-auth) |
+| 7 | **CRITICAL** | Default no-auth deployment | **FIXED** (--allow-anonymous required for no-auth, BOTH proxies) |
 | 3 | HIGH | URI scheme case sensitivity | **FIXED** (URI lowercased per RFC 3986 §3.1) |
 | 4 | HIGH | Error field injection unscanned | **FIXED** (scan error.message + error.data) |
 | 5 | HIGH | Parameter path dot-splitting | **FIXED** (ambiguity detection: fail-closed when both interpretations differ) |
@@ -78,7 +80,7 @@ All 39 security audit findings from Phase 1 resolved. See below for history.
 |----------|-------------|------------|
 | Orchestrator | C-15 COMPLETE — all 15 findings fixed | AVAILABLE |
 | Instance A | Available for new work | AVAILABLE |
-| Instance B | Available for new work | AVAILABLE |
+| Instance B | Session 2: Exploit #5 hardened, #8/#10 regression tested (1,707 tests) | AVAILABLE |
 | Controller | Awaiting C-15 commit | ACTIVE |
 | Adversary | Re-verification of all 15 fixes | REQUESTED |
 

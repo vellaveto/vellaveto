@@ -261,3 +261,92 @@ proptest! {
              result: {:?}", url, result);
     }
 }
+
+// ═══════════════════════════════════
+// PROPERTY 9: get_param_by_path determinism
+// ═══════════════════════════════════
+
+proptest! {
+    #[test]
+    fn get_param_by_path_is_deterministic(
+        key in "[a-z]{1,5}",
+        value in "[a-z]{1,10}",
+    ) {
+        let params = json!({key.clone(): value.clone()});
+        let r1 = PolicyEngine::get_param_by_path(&params, &key);
+        let r2 = PolicyEngine::get_param_by_path(&params, &key);
+        prop_assert_eq!(r1, r2,
+            "get_param_by_path must be deterministic for key {:?}", key);
+    }
+}
+
+// ═══════════════════════════════════
+// PROPERTY 10: Non-dotted paths behave as simple get()
+// ═══════════════════════════════════
+
+proptest! {
+    #[test]
+    fn get_param_by_path_non_dotted_equals_get(
+        key in "[a-z]{1,10}",
+        value in "[a-z]{1,10}",
+    ) {
+        // For keys without dots, get_param_by_path should be identical to params.get()
+        let params = json!({key.clone(): value.clone()});
+        let path_result = PolicyEngine::get_param_by_path(&params, &key);
+        let get_result = params.get(&key);
+        prop_assert_eq!(path_result, get_result,
+            "Non-dotted path {:?} must behave identically to Value::get()", key);
+    }
+}
+
+// ═══════════════════════════════════
+// PROPERTY 11: Exact key resolves when no nested equivalent exists
+// ═══════════════════════════════════
+
+proptest! {
+    #[test]
+    fn get_param_by_path_exact_key_resolves_alone(
+        key1 in "[a-z]{1,5}",
+        key2 in "[a-z]{1,5}",
+        value in "[a-z]{1,10}",
+    ) {
+        let dotted_key = format!("{}.{}", key1, key2);
+        // Only literal dotted key exists (no nested equivalent)
+        let params = json!({dotted_key.clone(): value.clone()});
+        let result = PolicyEngine::get_param_by_path(&params, &dotted_key);
+        prop_assert_eq!(result, Some(&json!(value)),
+            "Exact dotted key {:?} must resolve when no nested equivalent exists", dotted_key);
+    }
+}
+
+// ═══════════════════════════════════
+// PROPERTY 12: Ambiguous paths with different values return None
+// ═══════════════════════════════════
+
+proptest! {
+    #[test]
+    fn get_param_by_path_ambiguous_returns_none(
+        key1 in "[a-z]{1,5}",
+        key2 in "[a-z]{1,5}",
+        val_exact in "[a-z]{1,5}",
+        val_nested in "[A-Z]{1,5}", // Different case to guarantee different values
+    ) {
+        let dotted_key = format!("{}.{}", key1, key2);
+        // Both a literal dotted key AND nested traversal exist with DIFFERENT values
+        let params = json!({
+            dotted_key.clone(): val_exact.clone(),
+            key1.clone(): {key2.clone(): val_nested.clone()}
+        });
+
+        // Only check when values actually differ (they should since one is lowercase, one uppercase)
+        let exact = params.get(&dotted_key);
+        let nested = params.get(&key1).and_then(|v| v.get(&key2));
+        if exact.is_some() && nested.is_some() && exact != nested {
+            let result = PolicyEngine::get_param_by_path(&params, &dotted_key);
+            prop_assert_eq!(result, None,
+                "Ambiguous path {:?} with different values must return None (fail-closed)\n\
+                 exact:  {:?}\n\
+                 nested: {:?}", dotted_key, exact, nested);
+        }
+    }
+}
