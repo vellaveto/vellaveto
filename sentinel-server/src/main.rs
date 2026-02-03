@@ -32,6 +32,10 @@ enum Commands {
         /// Bind address (default: 127.0.0.1). Use 0.0.0.0 to listen on all interfaces.
         #[arg(short, long, default_value = "127.0.0.1")]
         bind: String,
+        /// Allow starting without SENTINEL_API_KEY (unauthenticated mode).
+        /// WARNING: Mutating endpoints will have no access control.
+        #[arg(long, default_value_t = false)]
+        allow_anonymous: bool,
     },
     /// One-shot action evaluation
     Evaluate {
@@ -68,7 +72,12 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Serve { port, config, bind } => cmd_serve(port, config, bind).await,
+        Commands::Serve {
+            port,
+            config,
+            bind,
+            allow_anonymous,
+        } => cmd_serve(port, config, bind, allow_anonymous).await,
         Commands::Evaluate {
             tool,
             function,
@@ -80,7 +89,7 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn cmd_serve(port: u16, config: String, bind: String) -> Result<()> {
+async fn cmd_serve(port: u16, config: String, bind: String, allow_anonymous: bool) -> Result<()> {
     let policy_config = PolicyConfig::load_file(&config)
         .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
     let mut policies = policy_config.to_policies();
@@ -173,7 +182,9 @@ async fn cmd_serve(port: u16, config: String, bind: String) -> Result<()> {
         ),
     }
 
-    // Read API key from environment variable for auth middleware
+    // Read API key from environment variable for auth middleware.
+    // Exploit #7 fix: require SENTINEL_API_KEY unless --allow-anonymous is set.
+    // A security product must not ship with zero access control by default.
     let api_key = std::env::var("SENTINEL_API_KEY")
         .ok()
         .filter(|s| !s.is_empty())
@@ -181,8 +192,17 @@ async fn cmd_serve(port: u16, config: String, bind: String) -> Result<()> {
 
     if api_key.is_some() {
         tracing::info!("API key authentication enabled for mutating endpoints");
+    } else if allow_anonymous {
+        tracing::warn!(
+            "No SENTINEL_API_KEY set and --allow-anonymous specified — mutating endpoints are UNAUTHENTICATED"
+        );
     } else {
-        tracing::warn!("No SENTINEL_API_KEY set — mutating endpoints are unauthenticated");
+        anyhow::bail!(
+            "SENTINEL_API_KEY environment variable is required.\n\
+             Set it to enable authentication for mutating endpoints, or pass \
+             --allow-anonymous to explicitly opt in to unauthenticated mode.\n\
+             Example: SENTINEL_API_KEY=your-secret-key sentinel serve --config policy.toml"
+        );
     }
 
     // Configure per-category rate limits from environment variables.

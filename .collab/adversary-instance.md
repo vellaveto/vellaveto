@@ -125,15 +125,15 @@ External research conducted:
 | 1 | CRITICAL | CRITICAL | Hash chain JSON non-determinism | **FIXED** (Instance B — RFC 8785) |
 | 2 | CRITICAL | LOW | sentinel-types Action incomplete | **ACCEPTED** design, param key constants recommended |
 | 3 | HIGH | HIGH | Proxy security divergence | **FIXED** (Instance A — shared extractor) |
-| 4 | HIGH | HIGH | Injection detection insufficient | **OPEN** — patterns not configurable, not documented |
-| 5 | HIGH | MEDIUM | TOCTOU check-to-forward gap | **PARTIAL** — TOCTOU zero, duplicate-key detection missing |
+| 4 | HIGH | HIGH | Injection detection insufficient | **FIXED** (Instance B — 11 LLM delimiter patterns + configurable InjectionConfig) |
+| 5 | HIGH | MEDIUM | TOCTOU check-to-forward gap | **FIXED** (Instance B — duplicate-key detection in framing + HTTP proxy) |
 | 6 | MEDIUM | LOW | Ed25519 stack copy leak | **FIXED** (Instance B — Box<SigningKey>) |
 | 7 | MEDIUM | MEDIUM | Shutdown audit data loss | **FIXED** (pre-existing) |
 | 8 | MEDIUM | MEDIUM | Error response information leak | **FIXED** (Controller) |
 | 9 | MEDIUM | MEDIUM | Checkpoint trust anchor missing | **FIXED** (Instance B — key pinning + TOFU) |
 | 10 | LOW | LOW | unwrap() in CORS layer | **FIXED** (pre-existing) |
 
-**Final score: 7 fixed, 1 open (Challenge 4), 2 partially addressed (Challenges 2, 5)**
+**Final score: 9 fixed, 0 open, 1 accepted-by-design (Challenge 2 — LOW)**
 
 ---
 
