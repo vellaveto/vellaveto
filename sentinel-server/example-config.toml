@@ -79,6 +79,22 @@ parameter_constraints = [
   { param = "command", op = "regex", pattern = "(?i)rm\\s+-rf", on_match = "require_approval" },
 ]
 
+# --- Rate Limiting ---
+# Optional: configure rate limits here instead of (or in addition to) env vars.
+# Env vars (SENTINEL_RATE_*) override these values when set.
+# Omit a field or set to 0 to disable that category.
+
+[rate_limit]
+evaluate_rps = 1000
+evaluate_burst = 50
+admin_rps = 20
+# admin_burst = 5     # uncomment to allow admin burst
+readonly_rps = 200
+# readonly_burst = 20  # uncomment to allow readonly burst
+per_ip_rps = 100
+per_ip_burst = 10
+# per_ip_max_capacity = 100000  # default: 100,000 unique IPs
+
 # --- Wildcard Parameter Scanning (param = "*") ---
 # Scans ALL string values recursively in parameters, regardless of key name.
 # Catches dangerous content buried in nested/unexpected parameter locations.

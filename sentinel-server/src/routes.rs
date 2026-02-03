@@ -146,18 +146,30 @@ async fn request_id(request: Request, next: Next) -> Response {
     response
 }
 
-/// Middleware that requires API key authentication for mutating (non-GET) requests.
-/// If no API key is configured in AppState, all requests are allowed.
+/// Middleware that requires API key authentication.
+///
+/// **Public endpoints** (no auth required): `/health`, `/api/metrics`, and all
+/// `OPTIONS`/`HEAD` requests.
+///
+/// **All other endpoints** (including GET on `/api/policies`, `/api/audit/*`,
+/// `/api/approvals/*`) require a valid `Bearer` token when `SENTINEL_API_KEY`
+/// is configured. This prevents unauthenticated access to sensitive policy
+/// configurations, audit logs, and pending approvals (Finding #25).
+///
+/// If no API key is configured, all requests are allowed (development mode).
 async fn require_api_key(State(state): State<AppState>, request: Request, next: Next) -> Response {
-    // Skip auth for read-only methods
-    if request.method() == Method::GET
-        || request.method() == Method::OPTIONS
-        || request.method() == Method::HEAD
-    {
+    // Always skip auth for preflight and HEAD
+    if request.method() == Method::OPTIONS || request.method() == Method::HEAD {
         return next.run(request).await;
     }
 
-    // Skip auth if no API key configured
+    // Public endpoints: always accessible without auth
+    let path = request.uri().path();
+    if path == "/health" || path == "/api/metrics" {
+        return next.run(request).await;
+    }
+
+    // Skip auth if no API key configured (development mode)
     let api_key = match &state.api_key {
         Some(key) => key.clone(),
         None => return next.run(request).await,
@@ -583,6 +595,9 @@ fn default_resolver() -> String {
     "anonymous".to_string()
 }
 
+/// Maximum length for the `resolved_by` field (Finding B1: prevents multi-MB strings).
+const MAX_RESOLVED_BY_LEN: usize = 1024;
+
 async fn approve_approval(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -591,6 +606,18 @@ async fn approve_approval(
     let resolved_by = body
         .map(|b| b.resolved_by.clone())
         .unwrap_or_else(|| "anonymous".to_string());
+
+    if resolved_by.len() > MAX_RESOLVED_BY_LEN {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!(
+                    "resolved_by exceeds maximum length of {} bytes",
+                    MAX_RESOLVED_BY_LEN
+                ),
+            }),
+        ));
+    }
 
     let approval = state
         .approvals
@@ -640,6 +667,18 @@ async fn deny_approval(
     let resolved_by = body
         .map(|b| b.resolved_by.clone())
         .unwrap_or_else(|| "anonymous".to_string());
+
+    if resolved_by.len() > MAX_RESOLVED_BY_LEN {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!(
+                    "resolved_by exceeds maximum length of {} bytes",
+                    MAX_RESOLVED_BY_LEN
+                ),
+            }),
+        ));
+    }
 
     let approval = state.approvals.deny(&id, &resolved_by).await.map_err(|e| {
         let (status, msg) = match &e {

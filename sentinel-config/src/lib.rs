@@ -76,6 +76,142 @@ impl PolicyRule {
     }
 }
 
+/// Rate limiting configuration for the HTTP server.
+///
+/// All fields are optional — omitted values fall back to environment variable
+/// overrides or sensible defaults (rate limiting disabled for that category).
+///
+/// # TOML Example
+///
+/// ```toml
+/// [rate_limit]
+/// evaluate_rps = 1000
+/// evaluate_burst = 50
+/// admin_rps = 20
+/// admin_burst = 5
+/// readonly_rps = 200
+/// readonly_burst = 20
+/// per_ip_rps = 100
+/// per_ip_burst = 10
+/// per_ip_max_capacity = 100000
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RateLimitConfig {
+    /// Max sustained requests/sec for `/evaluate` endpoints.
+    pub evaluate_rps: Option<u32>,
+    /// Burst allowance above `evaluate_rps` (tokens in the bucket beyond 1).
+    pub evaluate_burst: Option<u32>,
+    /// Max sustained requests/sec for admin/mutating endpoints.
+    pub admin_rps: Option<u32>,
+    /// Burst allowance above `admin_rps`.
+    pub admin_burst: Option<u32>,
+    /// Max sustained requests/sec for read-only endpoints.
+    pub readonly_rps: Option<u32>,
+    /// Burst allowance above `readonly_rps`.
+    pub readonly_burst: Option<u32>,
+    /// Max sustained requests/sec per unique client IP.
+    pub per_ip_rps: Option<u32>,
+    /// Burst allowance above `per_ip_rps`.
+    pub per_ip_burst: Option<u32>,
+    /// Maximum number of unique IPs tracked simultaneously.
+    pub per_ip_max_capacity: Option<usize>,
+}
+
+/// Audit log configuration.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [audit]
+/// redaction_level = "KeysAndPatterns"
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AuditConfig {
+    /// Redaction level for audit log entries.
+    /// - `"Off"`: no redaction
+    /// - `"KeysOnly"`: redact sensitive keys and value prefixes
+    /// - `"KeysAndPatterns"` (default): redact keys, prefixes, and PII patterns
+    #[serde(default)]
+    pub redaction_level: Option<String>,
+}
+
+/// Supply chain verification configuration.
+///
+/// When enabled, the proxy verifies SHA-256 hashes of MCP server binaries
+/// before spawning them.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [supply_chain]
+/// enabled = true
+///
+/// [supply_chain.allowed_servers]
+/// "/usr/local/bin/my-mcp" = "sha256hex..."
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SupplyChainConfig {
+    /// Master toggle. When false (default), binary verification is skipped.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Map of binary path → expected SHA-256 hex digest.
+    #[serde(default)]
+    pub allowed_servers: std::collections::HashMap<String, String>,
+}
+
+impl SupplyChainConfig {
+    /// Verify that a binary at `path` matches its expected SHA-256 hash.
+    ///
+    /// Returns `Ok(())` if verification passes or is disabled. Returns
+    /// `Err(reason)` if the binary is unlisted, missing, or has a hash mismatch.
+    pub fn verify_binary(&self, path: &str) -> Result<(), String> {
+        if !self.enabled {
+            return Ok(());
+        }
+
+        let expected_hash = self
+            .allowed_servers
+            .get(path)
+            .ok_or_else(|| format!("Binary '{}' not in allowed_servers list", path))?;
+
+        let data =
+            std::fs::read(path).map_err(|e| format!("Failed to read binary '{}': {}", path, e))?;
+
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(&data);
+        let actual_hash = hex::encode(hasher.finalize());
+
+        if actual_hash != *expected_hash {
+            return Err(format!(
+                "Hash mismatch for '{}': expected {}, got {}",
+                path, expected_hash, actual_hash
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+/// Tool manifest verification configuration.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [manifest]
+/// enabled = true
+/// trusted_keys = ["hex-encoded-ed25519-public-key"]
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ManifestConfig {
+    /// Enable tool manifest schema pinning. Default: true.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Trusted Ed25519 public keys (hex-encoded 32-byte) for manifest signatures.
+    #[serde(default)]
+    pub trusted_keys: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolicyConfig {
     pub policies: Vec<PolicyRule>,
@@ -84,6 +220,23 @@ pub struct PolicyConfig {
     /// When absent, defaults are used (scanning enabled, default patterns only).
     #[serde(default)]
     pub injection: InjectionConfig,
+
+    /// Optional rate limiting configuration.
+    /// When absent, all rate limits are unconfigured (env vars or defaults apply).
+    #[serde(default)]
+    pub rate_limit: RateLimitConfig,
+
+    /// Optional audit log configuration (redaction level).
+    #[serde(default)]
+    pub audit: AuditConfig,
+
+    /// Optional supply chain verification configuration.
+    #[serde(default)]
+    pub supply_chain: SupplyChainConfig,
+
+    /// Optional tool manifest verification configuration.
+    #[serde(default)]
+    pub manifest: ManifestConfig,
 }
 
 impl PolicyConfig {
@@ -368,5 +521,80 @@ policy_type = "Allow"
         // Unknown extension should fall back to TOML parsing
         let config = PolicyConfig::load_file(path.to_str().unwrap()).unwrap();
         assert_eq!(config.policies.len(), 1);
+    }
+
+    #[test]
+    fn test_rate_limit_config_defaults_when_absent() {
+        let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#;
+        let config = PolicyConfig::from_toml(toml).unwrap();
+        assert!(config.rate_limit.evaluate_rps.is_none());
+        assert!(config.rate_limit.evaluate_burst.is_none());
+        assert!(config.rate_limit.admin_rps.is_none());
+        assert!(config.rate_limit.admin_burst.is_none());
+        assert!(config.rate_limit.readonly_rps.is_none());
+        assert!(config.rate_limit.readonly_burst.is_none());
+        assert!(config.rate_limit.per_ip_rps.is_none());
+        assert!(config.rate_limit.per_ip_burst.is_none());
+        assert!(config.rate_limit.per_ip_max_capacity.is_none());
+    }
+
+    #[test]
+    fn test_rate_limit_config_parses_values() {
+        let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+
+[rate_limit]
+evaluate_rps = 1000
+evaluate_burst = 50
+admin_rps = 20
+admin_burst = 5
+readonly_rps = 200
+readonly_burst = 20
+per_ip_rps = 100
+per_ip_burst = 10
+per_ip_max_capacity = 50000
+"#;
+        let config = PolicyConfig::from_toml(toml).unwrap();
+        assert_eq!(config.rate_limit.evaluate_rps, Some(1000));
+        assert_eq!(config.rate_limit.evaluate_burst, Some(50));
+        assert_eq!(config.rate_limit.admin_rps, Some(20));
+        assert_eq!(config.rate_limit.admin_burst, Some(5));
+        assert_eq!(config.rate_limit.readonly_rps, Some(200));
+        assert_eq!(config.rate_limit.readonly_burst, Some(20));
+        assert_eq!(config.rate_limit.per_ip_rps, Some(100));
+        assert_eq!(config.rate_limit.per_ip_burst, Some(10));
+        assert_eq!(config.rate_limit.per_ip_max_capacity, Some(50000));
+    }
+
+    #[test]
+    fn test_rate_limit_config_partial_values() {
+        let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+
+[rate_limit]
+evaluate_rps = 500
+per_ip_rps = 50
+"#;
+        let config = PolicyConfig::from_toml(toml).unwrap();
+        assert_eq!(config.rate_limit.evaluate_rps, Some(500));
+        assert!(config.rate_limit.evaluate_burst.is_none());
+        assert!(config.rate_limit.admin_rps.is_none());
+        assert_eq!(config.rate_limit.per_ip_rps, Some(50));
+        assert!(config.rate_limit.per_ip_burst.is_none());
+        assert!(config.rate_limit.per_ip_max_capacity.is_none());
     }
 }

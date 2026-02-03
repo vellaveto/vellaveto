@@ -839,9 +839,10 @@ fn test_owasp_mcp06_audit_preserves_hash_chain_after_injection() {
 // MCP07 — Authentication & Authorization
 //
 // Risk: Unauthenticated access to management endpoints allows
-//       attackers to modify policies, approve actions, etc.
-// Sentinel coverage: Bearer token auth middleware on all mutating
-//       endpoints, GET endpoints remain open for monitoring.
+//       attackers to read policies, audit logs, approve actions, etc.
+// Sentinel coverage: Bearer token auth middleware on ALL endpoints
+//       except /health and /api/metrics. Sensitive GET endpoints
+//       (policies, audit, approvals) require auth when configured.
 // ═══════════════════════════════════════════════════════════════
 
 mod owasp_mcp07_auth {
@@ -1000,41 +1001,102 @@ mod owasp_mcp07_auth {
     }
 
     #[tokio::test]
-    async fn test_owasp_mcp07_get_endpoints_open_for_monitoring() {
+    async fn test_owasp_mcp07_public_endpoints_open_without_auth() {
         let (state, _tmp) = make_state(Some("secure-key"));
 
-        // Health endpoint
+        // Health endpoint — always public
         let app = routes::build_router(state.clone());
         let req = Request::get("/health").body(Body::empty()).unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert!(resp.status().is_success(), "GET /health must be open");
 
-        // Policies list
+        // Metrics endpoint — always public
+        let app = routes::build_router(state.clone());
+        let req = Request::get("/api/metrics").body(Body::empty()).unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert!(resp.status().is_success(), "GET /api/metrics must be open");
+    }
+
+    #[tokio::test]
+    async fn test_owasp_mcp07_sensitive_get_endpoints_require_auth() {
+        let (state, _tmp) = make_state(Some("secure-key"));
+
+        // GET /api/policies without auth must be rejected
         let app = routes::build_router(state.clone());
         let req = Request::get("/api/policies").body(Body::empty()).unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        assert!(resp.status().is_success(), "GET /api/policies must be open");
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "GET /api/policies without auth must be 401"
+        );
 
-        // Audit entries
+        // GET /api/audit/entries without auth must be rejected
         let app = routes::build_router(state.clone());
         let req = Request::get("/api/audit/entries")
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        assert!(
-            resp.status().is_success(),
-            "GET /api/audit/entries must be open"
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "GET /api/audit/entries without auth must be 401"
         );
 
-        // Audit verification
+        // GET /api/audit/verify without auth must be rejected
         let app = routes::build_router(state.clone());
         let req = Request::get("/api/audit/verify")
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "GET /api/audit/verify without auth must be 401"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_owasp_mcp07_sensitive_get_endpoints_succeed_with_auth() {
+        let (state, _tmp) = make_state(Some("secure-key"));
+
+        // GET /api/policies with auth must succeed
+        let app = routes::build_router(state.clone());
+        let req = Request::get("/api/policies")
+            .header("authorization", "Bearer secure-key")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
         assert!(
             resp.status().is_success(),
-            "GET /api/audit/verify must be open"
+            "GET /api/policies with auth must succeed, got {}",
+            resp.status()
+        );
+
+        // GET /api/audit/entries with auth must succeed
+        let app = routes::build_router(state.clone());
+        let req = Request::get("/api/audit/entries")
+            .header("authorization", "Bearer secure-key")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert!(
+            resp.status().is_success(),
+            "GET /api/audit/entries with auth must succeed, got {}",
+            resp.status()
+        );
+
+        // GET /api/audit/verify with auth must succeed
+        let app = routes::build_router(state.clone());
+        let req = Request::get("/api/audit/verify")
+            .header("authorization", "Bearer secure-key")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert!(
+            resp.status().is_success(),
+            "GET /api/audit/verify with auth must succeed, got {}",
+            resp.status()
         );
     }
 }

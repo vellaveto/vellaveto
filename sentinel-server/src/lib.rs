@@ -51,11 +51,33 @@ impl PerIpRateLimiter {
         }
     }
 
+    /// Create with burst allowance.
+    pub fn new_with_burst(rps: NonZeroU32, burst: Option<NonZeroU32>) -> Self {
+        Self {
+            buckets: dashmap::DashMap::new(),
+            quota: build_quota(rps, burst),
+            max_capacity: DEFAULT_MAX_IP_CAPACITY,
+        }
+    }
+
     /// Create with a custom max capacity (useful for testing).
     pub fn with_max_capacity(rps: NonZeroU32, max_capacity: usize) -> Self {
         Self {
             buckets: dashmap::DashMap::new(),
             quota: Quota::per_second(rps),
+            max_capacity,
+        }
+    }
+
+    /// Create with burst allowance and custom max capacity.
+    pub fn with_max_capacity_and_burst(
+        rps: NonZeroU32,
+        burst: Option<NonZeroU32>,
+        max_capacity: usize,
+    ) -> Self {
+        Self {
+            buckets: dashmap::DashMap::new(),
+            quota: build_quota(rps, burst),
             max_capacity,
         }
     }
@@ -124,6 +146,20 @@ impl PerIpRateLimiter {
     }
 }
 
+/// Build a governor `Quota` from a sustained rate and optional burst size.
+///
+/// When `burst` is `Some`, `allow_burst(b)` sets the token bucket capacity
+/// to `b`, meaning up to `b` requests can be served instantly before the
+/// sustained `rps` rate kicks in.  When `None`, the default bucket size of 1
+/// is used (no burst above the sustained rate).
+fn build_quota(rps: NonZeroU32, burst: Option<NonZeroU32>) -> Quota {
+    let q = Quota::per_second(rps);
+    match burst {
+        Some(b) => q.allow_burst(b),
+        None => q,
+    }
+}
+
 impl RateLimits {
     /// Create rate limiters from optional requests-per-second values.
     /// A value of None or 0 disables rate limiting for that category.
@@ -146,9 +182,50 @@ impl RateLimits {
         }
     }
 
+    /// Create rate limiters with burst configuration.
+    ///
+    /// Each category takes an optional RPS and optional burst. A `None` or 0
+    /// RPS disables rate limiting for that category. A `None` burst means
+    /// no burst above the sustained rate (bucket size = 1).
+    pub fn new_with_burst(
+        evaluate_rps: Option<u32>,
+        evaluate_burst: Option<u32>,
+        admin_rps: Option<u32>,
+        admin_burst: Option<u32>,
+        readonly_rps: Option<u32>,
+        readonly_burst: Option<u32>,
+    ) -> Self {
+        Self {
+            evaluate: evaluate_rps.and_then(NonZeroU32::new).map(|r| {
+                RateLimiter::direct(build_quota(r, evaluate_burst.and_then(NonZeroU32::new)))
+            }),
+            admin: admin_rps.and_then(NonZeroU32::new).map(|r| {
+                RateLimiter::direct(build_quota(r, admin_burst.and_then(NonZeroU32::new)))
+            }),
+            readonly: readonly_rps.and_then(NonZeroU32::new).map(|r| {
+                RateLimiter::direct(build_quota(r, readonly_burst.and_then(NonZeroU32::new)))
+            }),
+            per_ip: None,
+        }
+    }
+
     /// Set the per-IP rate limiter.
     pub fn with_per_ip(mut self, rps: NonZeroU32) -> Self {
         self.per_ip = Some(PerIpRateLimiter::new(rps));
+        self
+    }
+
+    /// Set the per-IP rate limiter with optional burst and max capacity.
+    pub fn with_per_ip_config(
+        mut self,
+        rps: NonZeroU32,
+        burst: Option<NonZeroU32>,
+        max_capacity: Option<usize>,
+    ) -> Self {
+        let capacity = max_capacity.unwrap_or(DEFAULT_MAX_IP_CAPACITY);
+        self.per_ip = Some(PerIpRateLimiter::with_max_capacity_and_burst(
+            rps, burst, capacity,
+        ));
         self
     }
 
@@ -554,5 +631,65 @@ mod tests {
     fn per_ip_rate_limiter_default_capacity() {
         let limiter = PerIpRateLimiter::new(NonZeroU32::new(10).unwrap());
         assert_eq!(limiter.max_capacity(), DEFAULT_MAX_IP_CAPACITY);
+    }
+
+    #[test]
+    fn rate_limits_new_with_burst_creates_limiters() {
+        let rl =
+            RateLimits::new_with_burst(Some(100), Some(50), Some(20), Some(5), Some(200), None);
+        assert!(rl.evaluate.is_some());
+        assert!(rl.admin.is_some());
+        assert!(rl.readonly.is_some());
+        assert!(rl.per_ip.is_none());
+
+        // Zero RPS should still disable
+        let rl2 = RateLimits::new_with_burst(Some(0), Some(10), None, None, None, None);
+        assert!(rl2.evaluate.is_none());
+        assert!(rl2.admin.is_none());
+        assert!(rl2.readonly.is_none());
+    }
+
+    #[test]
+    fn per_ip_rate_limiter_burst_allows_initial_burst() {
+        // With burst=5 and rps=1, we should be able to make several requests quickly
+        let limiter = PerIpRateLimiter::new_with_burst(
+            NonZeroU32::new(1).unwrap(),
+            Some(NonZeroU32::new(5).unwrap()),
+        );
+        let ip: std::net::IpAddr = "10.0.0.1".parse().unwrap();
+
+        // First several requests should all be allowed (burst window)
+        for i in 0..5 {
+            let result = limiter.check(ip);
+            assert!(
+                result.is_none(),
+                "Request {} within burst should be allowed",
+                i
+            );
+        }
+        // After exhausting the burst, the next request should be rate-limited
+        let result = limiter.check(ip);
+        assert!(
+            result.is_some(),
+            "Request after burst exhaustion should be limited"
+        );
+    }
+
+    #[test]
+    fn rate_limits_with_per_ip_config_sets_capacity_and_burst() {
+        let rl = RateLimits::disabled().with_per_ip_config(
+            NonZeroU32::new(10).unwrap(),
+            Some(NonZeroU32::new(20).unwrap()),
+            Some(500),
+        );
+        assert!(rl.per_ip.is_some());
+        let per_ip = rl.per_ip.as_ref().unwrap();
+        assert_eq!(per_ip.max_capacity(), 500);
+
+        // Default capacity when None
+        let rl2 =
+            RateLimits::disabled().with_per_ip_config(NonZeroU32::new(10).unwrap(), None, None);
+        let per_ip2 = rl2.per_ip.as_ref().unwrap();
+        assert_eq!(per_ip2.max_capacity(), DEFAULT_MAX_IP_CAPACITY);
     }
 }

@@ -166,6 +166,31 @@ async fn cmd_serve(
     // preventing an attacker with file write access from forging checkpoints.
     let mut audit_logger = AuditLogger::new(audit_path.clone()).with_signing_key(signing_key);
 
+    // Apply audit redaction level from config
+    if let Some(ref level_str) = policy_config.audit.redaction_level {
+        match level_str.as_str() {
+            "Off" | "off" => {
+                audit_logger =
+                    audit_logger.with_redaction_level(sentinel_audit::RedactionLevel::Off);
+                tracing::info!("Audit redaction: OFF (raw values logged)");
+            }
+            "KeysOnly" | "keys_only" => {
+                audit_logger =
+                    audit_logger.with_redaction_level(sentinel_audit::RedactionLevel::KeysOnly);
+                tracing::info!("Audit redaction: KeysOnly (sensitive keys redacted)");
+            }
+            "KeysAndPatterns" | "keys_and_patterns" => {
+                tracing::info!("Audit redaction: KeysAndPatterns (keys + PII patterns redacted)");
+            }
+            other => {
+                tracing::warn!(
+                    "Unknown audit redaction_level '{}', using default (KeysAndPatterns)",
+                    other
+                );
+            }
+        }
+    }
+
     // Configurable audit log rotation size.
     // SENTINEL_LOG_MAX_SIZE: max bytes before rotating (default: 100MB). Set to 0 to disable.
     if let Ok(max_size_str) = std::env::var("SENTINEL_LOG_MAX_SIZE") {
@@ -251,29 +276,50 @@ async fn cmd_serve(
         );
     }
 
-    // Configure per-category rate limits from environment variables.
+    // Configure per-category rate limits.
+    // Config file values are the base; environment variables override them.
     // Set to 0 or omit to disable rate limiting for a category.
-    let mut rate_limits_val = RateLimits::new(
-        std::env::var("SENTINEL_RATE_EVALUATE")
+    let rl_cfg = &policy_config.rate_limit;
+
+    let env_or = |env_name: &str, config_val: Option<u32>| -> Option<u32> {
+        std::env::var(env_name)
             .ok()
-            .and_then(|s| s.parse().ok()),
-        std::env::var("SENTINEL_RATE_ADMIN")
-            .ok()
-            .and_then(|s| s.parse().ok()),
-        std::env::var("SENTINEL_RATE_READONLY")
-            .ok()
-            .and_then(|s| s.parse().ok()),
+            .and_then(|s| s.parse().ok())
+            .or(config_val)
+    };
+
+    let eff_evaluate_rps = env_or("SENTINEL_RATE_EVALUATE", rl_cfg.evaluate_rps);
+    let eff_evaluate_burst = env_or("SENTINEL_RATE_EVALUATE_BURST", rl_cfg.evaluate_burst);
+    let eff_admin_rps = env_or("SENTINEL_RATE_ADMIN", rl_cfg.admin_rps);
+    let eff_admin_burst = env_or("SENTINEL_RATE_ADMIN_BURST", rl_cfg.admin_burst);
+    let eff_readonly_rps = env_or("SENTINEL_RATE_READONLY", rl_cfg.readonly_rps);
+    let eff_readonly_burst = env_or("SENTINEL_RATE_READONLY_BURST", rl_cfg.readonly_burst);
+    let eff_per_ip_rps = env_or("SENTINEL_RATE_PER_IP", rl_cfg.per_ip_rps);
+    let eff_per_ip_burst = env_or("SENTINEL_RATE_PER_IP_BURST", rl_cfg.per_ip_burst);
+    let eff_per_ip_max_capacity: Option<usize> = std::env::var("SENTINEL_RATE_PER_IP_MAX_CAPACITY")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .or(rl_cfg.per_ip_max_capacity);
+
+    let mut rate_limits_val = RateLimits::new_with_burst(
+        eff_evaluate_rps,
+        eff_evaluate_burst,
+        eff_admin_rps,
+        eff_admin_burst,
+        eff_readonly_rps,
+        eff_readonly_burst,
     );
 
     // Per-IP rate limiting: independent bucket per client IP address.
-    // SENTINEL_RATE_PER_IP: requests per second allowed per unique IP.
-    if let Some(rps) = std::env::var("SENTINEL_RATE_PER_IP")
-        .ok()
-        .and_then(|s| s.parse::<u32>().ok())
-        .and_then(std::num::NonZeroU32::new)
-    {
-        rate_limits_val = rate_limits_val.with_per_ip(rps);
-        tracing::info!("Per-IP rate limiting enabled: {} req/s per IP", rps);
+    if let Some(rps) = eff_per_ip_rps.and_then(std::num::NonZeroU32::new) {
+        let burst = eff_per_ip_burst.and_then(std::num::NonZeroU32::new);
+        rate_limits_val = rate_limits_val.with_per_ip_config(rps, burst, eff_per_ip_max_capacity);
+        tracing::info!(
+            "Per-IP rate limiting enabled: {} req/s per IP{}{}",
+            rps,
+            burst.map_or(String::new(), |b| format!(", burst {}", b)),
+            eff_per_ip_max_capacity.map_or(String::new(), |c| format!(", max {} IPs", c)),
+        );
     }
 
     let rate_limits = Arc::new(rate_limits_val);
@@ -282,27 +328,20 @@ async fn cmd_serve(
         || rate_limits.admin.is_some()
         || rate_limits.readonly.is_some()
     {
+        let fmt_cat = |rps: Option<u32>, burst: Option<u32>| -> String {
+            match rps.filter(|&r| r > 0) {
+                Some(r) => match burst.filter(|&b| b > 0) {
+                    Some(b) => format!("{} rps (burst {})", r, b),
+                    None => format!("{} rps", r),
+                },
+                None => "off".to_string(),
+            }
+        };
         tracing::info!(
             "Rate limiting enabled — evaluate: {}, admin: {}, readonly: {}",
-            rate_limits
-                .evaluate
-                .as_ref()
-                .map_or("off".to_string(), |_| std::env::var(
-                    "SENTINEL_RATE_EVALUATE"
-                )
-                .unwrap_or_default()),
-            rate_limits
-                .admin
-                .as_ref()
-                .map_or("off".to_string(), |_| std::env::var("SENTINEL_RATE_ADMIN")
-                    .unwrap_or_default()),
-            rate_limits
-                .readonly
-                .as_ref()
-                .map_or("off".to_string(), |_| std::env::var(
-                    "SENTINEL_RATE_READONLY"
-                )
-                .unwrap_or_default()),
+            fmt_cat(eff_evaluate_rps, eff_evaluate_burst),
+            fmt_cat(eff_admin_rps, eff_admin_burst),
+            fmt_cat(eff_readonly_rps, eff_readonly_burst),
         );
     }
 
@@ -606,6 +645,10 @@ fn cmd_policies(preset: String) -> Result<()> {
     let config = PolicyConfig {
         policies: rules,
         injection: Default::default(),
+        rate_limit: Default::default(),
+        audit: Default::default(),
+        supply_chain: Default::default(),
+        manifest: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

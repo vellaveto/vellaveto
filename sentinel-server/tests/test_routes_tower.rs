@@ -1252,11 +1252,11 @@ async fn auth_delete_requires_api_key() {
 }
 
 #[tokio::test]
-async fn auth_get_policies_bypasses_api_key() {
+async fn auth_get_requires_api_key() {
     let (state, _tmp) = make_authed_state();
-    let app = routes::build_router(state);
 
-    // GET /api/policies is read-only — should not require auth
+    // GET /api/policies without auth header should return 401
+    let app = routes::build_router(state.clone());
     let resp = app
         .oneshot(Request::get("/api/policies").body(Body::empty()).unwrap())
         .await
@@ -1264,8 +1264,26 @@ async fn auth_get_policies_bypasses_api_key() {
 
     assert_eq!(
         resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "GET /api/policies should require auth when api_key is configured"
+    );
+
+    // GET /api/policies with valid auth header should return 200
+    let app = routes::build_router(state);
+    let resp = app
+        .oneshot(
+            Request::get("/api/policies")
+                .header("authorization", "Bearer test-secret-key-42")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
         StatusCode::OK,
-        "GET /api/policies should not require auth"
+        "GET /api/policies with valid Bearer token should succeed"
     );
 }
 

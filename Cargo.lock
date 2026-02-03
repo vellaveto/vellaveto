@@ -2197,9 +2197,11 @@ dependencies = [
 name = "sentinel-config"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "sentinel-types",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "toml",
 ]

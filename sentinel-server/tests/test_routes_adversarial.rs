@@ -38,7 +38,7 @@ fn make_state() -> (AppState, TempDir) {
             tmp.path().join("approvals.jsonl"),
             std::time::Duration::from_secs(900),
         )),
-        api_key: None,
+        api_key: Some(Arc::new("test-secret-key-123".to_string())),
         rate_limits: Arc::new(RateLimits::disabled()),
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
@@ -58,7 +58,7 @@ fn make_empty_state() -> (AppState, TempDir) {
             tmp.path().join("approvals.jsonl"),
             std::time::Duration::from_secs(900),
         )),
-        api_key: None,
+        api_key: Some(Arc::new("test-secret-key-123".to_string())),
         rate_limits: Arc::new(RateLimits::disabled()),
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
@@ -116,6 +116,7 @@ async fn evaluate_allowed_action_returns_allow() {
     let app = routes::build_router(state);
     let req = Request::post("/api/evaluate")
         .header("content-type", "application/json")
+        .header("Authorization", "Bearer test-secret-key-123")
         .body(Body::from(
             json!({
                 "tool": "file",
@@ -144,6 +145,7 @@ async fn evaluate_denied_action_returns_deny() {
     let app = routes::build_router(state);
     let req = Request::post("/api/evaluate")
         .header("content-type", "application/json")
+        .header("Authorization", "Bearer test-secret-key-123")
         .body(Body::from(
             json!({
                 "tool": "bash",
@@ -174,6 +176,7 @@ async fn evaluate_logs_to_audit() {
 
     let req = Request::post("/api/evaluate")
         .header("content-type", "application/json")
+        .header("Authorization", "Bearer test-secret-key-123")
         .body(Body::from(
             json!({
                 "tool": "file",
@@ -199,6 +202,7 @@ async fn evaluate_with_empty_policies_returns_deny() {
     let app = routes::build_router(state);
     let req = Request::post("/api/evaluate")
         .header("content-type", "application/json")
+        .header("Authorization", "Bearer test-secret-key-123")
         .body(Body::from(
             json!({
                 "tool": "anything",
@@ -226,6 +230,7 @@ async fn evaluate_invalid_json_returns_error() {
     let app = routes::build_router(state);
     let req = Request::post("/api/evaluate")
         .header("content-type", "application/json")
+        .header("Authorization", "Bearer test-secret-key-123")
         .body(Body::from("not json"))
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -243,6 +248,7 @@ async fn evaluate_missing_fields_returns_error() {
     let app = routes::build_router(state);
     let req = Request::post("/api/evaluate")
         .header("content-type", "application/json")
+        .header("Authorization", "Bearer test-secret-key-123")
         .body(Body::from(json!({"tool": "bash"}).to_string()))
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -261,7 +267,10 @@ async fn evaluate_missing_fields_returns_error() {
 async fn list_policies_returns_array() {
     let (state, _tmp) = make_state();
     let app = routes::build_router(state);
-    let req = Request::get("/api/policies").body(Body::empty()).unwrap();
+    let req = Request::get("/api/policies")
+        .header("Authorization", "Bearer test-secret-key-123")
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
@@ -280,6 +289,7 @@ async fn add_policy_increases_count() {
 
     let req = Request::post("/api/policies")
         .header("content-type", "application/json")
+        .header("Authorization", "Bearer test-secret-key-123")
         .body(Body::from(
             json!({
                 "id": "net:*",
@@ -307,6 +317,7 @@ async fn add_policy_with_invalid_json_fails() {
     let app = routes::build_router(state);
     let req = Request::post("/api/policies")
         .header("content-type", "application/json")
+        .header("Authorization", "Bearer test-secret-key-123")
         .body(Body::from("not a policy"))
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -322,6 +333,7 @@ async fn remove_policy_by_simple_id() {
     // Remove "file:read" — but note the colon in the URL path
     // This tests whether path params handle colons correctly
     let req = Request::delete("/api/policies/file:read")
+        .header("Authorization", "Bearer test-secret-key-123")
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -344,6 +356,7 @@ fn remove_policy_nonexistent_id_is_not_error() {
         let (state, _tmp) = make_state();
         let app = routes::build_router(state);
         let req = Request::delete("/api/policies/nonexistent_policy_id")
+            .header("Authorization", "Bearer test-secret-key-123")
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
@@ -365,6 +378,7 @@ async fn audit_entries_empty_returns_empty_array() {
     let (state, _tmp) = make_state();
     let app = routes::build_router(state);
     let req = Request::get("/api/audit/entries")
+        .header("Authorization", "Bearer test-secret-key-123")
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -387,6 +401,7 @@ async fn audit_report_empty_returns_zero_counts() {
     let (state, _tmp) = make_state();
     let app = routes::build_router(state);
     let req = Request::get("/api/audit/report")
+        .header("Authorization", "Bearer test-secret-key-123")
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -490,7 +505,10 @@ async fn unknown_route_returns_404() {
 async fn get_on_evaluate_endpoint_returns_405() {
     let (state, _tmp) = make_state();
     let app = routes::build_router(state);
-    let req = Request::get("/api/evaluate").body(Body::empty()).unwrap();
+    let req = Request::get("/api/evaluate")
+        .header("Authorization", "Bearer test-secret-key-123")
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     // GET on a POST-only route should be 405 Method Not Allowed
     assert!(
