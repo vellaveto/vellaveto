@@ -4,9 +4,7 @@
 //! tracks per-session state including known tool annotations, protocol
 //! version, and request counts.
 //!
-//! **Status:** Implemented, pending integration with HTTP proxy (Phase 9).
-
-#![allow(dead_code)] // Stub crate — session module is implemented but not yet wired to proxy
+//! **Status:** Production — fully wired into the HTTP proxy.
 
 use dashmap::DashMap;
 use sentinel_mcp::rug_pull::ToolAnnotations;

@@ -16,14 +16,6 @@ fn runtime_mt() -> tokio::runtime::Runtime {
         .expect("failed to create multi-thread runtime")
 }
 
-#[allow(dead_code)]
-fn runtime_st() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("failed to create single-thread runtime")
-}
-
 fn make_action() -> Action {
     Action {
         tool: "report_gen_test".to_string(),

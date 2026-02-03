@@ -23,16 +23,6 @@ fn allow_policy(id: &str, priority: i32) -> Policy {
     }
 }
 
-#[allow(dead_code)]
-fn deny_policy(id: &str, priority: i32) -> Policy {
-    Policy {
-        id: id.to_string(),
-        name: format!("deny-{}", id),
-        policy_type: PolicyType::Deny,
-        priority,
-    }
-}
-
 // ═══════════════════════════════════════
 // EMPTY POLICY ID
 // ═══════════════════════════════════════
