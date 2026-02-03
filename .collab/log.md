@@ -1,5 +1,22 @@
 # Shared Log
 
+## 2026-02-03 — ORCHESTRATOR: Exploit #7 HTTP Proxy Gap Closed
+
+### Context
+Adversary re-verification found Exploit #7 (Default no-auth) was only fixed in sentinel-server but NOT in sentinel-http-proxy. The HTTP proxy accepted unauthenticated requests by default.
+
+### Fix Applied
+- **`sentinel-http-proxy/src/main.rs`**: Added `--allow-anonymous` CLI flag + `SENTINEL_API_KEY` env var reading. Startup now fails with helpful error when neither is set.
+- **`sentinel-http-proxy/src/proxy.rs`**: Added `api_key: Option<Arc<String>>` to `ProxyState`, `validate_api_key()` with constant-time comparison (subtle crate), applied to both POST and DELETE /mcp handlers. When OAuth is configured, API key check defers to OAuth.
+- **`sentinel-http-proxy/Cargo.toml`**: Added `subtle = "2"` dependency.
+- **7 new integration tests**: no-token 401, invalid-key 401, valid-key allows, anonymous mode, DELETE auth, DELETE with key, health unauthenticated.
+
+### Test Results
+- 1,740 tests pass, 0 failures
+- Clippy: 0 warnings
+
+---
+
 ## 2026-02-03 — ADVERSARY INSTANCE: Phase 4 Re-Sweep Complete + 3 Security Fixes
 
 ### Summary
