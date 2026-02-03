@@ -17,6 +17,8 @@ pub enum ApprovalError {
     AlreadyResolved(String),
     #[error("Approval expired: {0}")]
     Expired(String),
+    #[error("Approval store at capacity ({0} max pending)")]
+    CapacityExceeded(usize),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
     #[error("Serialization error: {0}")]
@@ -43,11 +45,15 @@ pub struct PendingApproval {
     pub resolved_at: Option<DateTime<Utc>>,
 }
 
+/// Default maximum number of pending approvals before rejecting new ones.
+pub const DEFAULT_MAX_PENDING: usize = 10_000;
+
 /// In-memory approval store with file-based persistence.
 pub struct ApprovalStore {
     pending: RwLock<HashMap<String, PendingApproval>>,
     log_path: PathBuf,
     default_ttl: std::time::Duration,
+    max_pending: usize,
 }
 
 impl ApprovalStore {
@@ -59,6 +65,21 @@ impl ApprovalStore {
             pending: RwLock::new(HashMap::new()),
             log_path,
             default_ttl,
+            max_pending: DEFAULT_MAX_PENDING,
+        }
+    }
+
+    /// Create a new approval store with a custom maximum capacity.
+    pub fn with_max_pending(
+        log_path: PathBuf,
+        default_ttl: std::time::Duration,
+        max_pending: usize,
+    ) -> Self {
+        Self {
+            pending: RwLock::new(HashMap::new()),
+            log_path,
+            default_ttl,
+            max_pending,
         }
     }
 
@@ -77,14 +98,36 @@ impl ApprovalStore {
         let mut pending = self.pending.write().await;
         let mut count = 0;
 
-        for line in content.lines() {
+        let mut skipped = 0usize;
+        for (line_num, line) in content.lines().enumerate() {
             if line.trim().is_empty() {
                 continue;
             }
-            if let Ok(approval) = serde_json::from_str::<PendingApproval>(line) {
-                pending.insert(approval.id.clone(), approval);
-                count += 1;
+            match serde_json::from_str::<PendingApproval>(line) {
+                Ok(approval) => {
+                    pending.insert(approval.id.clone(), approval);
+                    count += 1;
+                }
+                Err(e) => {
+                    // Fix #28: Log malformed lines instead of silently dropping them.
+                    // This makes data corruption visible on restart.
+                    tracing::warn!(
+                        "Skipping malformed approval entry at line {}: {} (content: {})",
+                        line_num + 1,
+                        e,
+                        &line[..line.len().min(200)]
+                    );
+                    skipped += 1;
+                }
             }
+        }
+        if skipped > 0 {
+            tracing::warn!(
+                "Loaded {} approval entries, skipped {} malformed lines from {:?}",
+                count,
+                skipped,
+                self.log_path
+            );
         }
 
         Ok(count)
@@ -92,7 +135,12 @@ impl ApprovalStore {
 
     /// Create a new pending approval for an action.
     ///
-    /// Returns the approval ID.
+    /// Returns the approval ID. Fails with `CapacityExceeded` when the store
+    /// is at `max_pending` capacity (fail-closed: the caller should convert
+    /// this to a Deny verdict).
+    ///
+    /// The write lock is acquired before persistence to prevent a visibility
+    /// gap where the approval exists on disk but not in memory (Finding #27).
     pub async fn create(&self, action: Action, reason: String) -> Result<String, ApprovalError> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
@@ -109,10 +157,22 @@ impl ApprovalStore {
             resolved_at: None,
         };
 
-        self.persist_approval(&approval).await?;
-
+        // Acquire lock FIRST, then persist (Finding #27: prevents visibility gap)
         let mut pending = self.pending.write().await;
-        pending.insert(id.clone(), approval);
+
+        // Check capacity before inserting (Finding #26: prevents unbounded growth)
+        if pending.len() >= self.max_pending {
+            return Err(ApprovalError::CapacityExceeded(self.max_pending));
+        }
+
+        // Insert into memory first so concurrent readers see it immediately
+        pending.insert(id.clone(), approval.clone());
+
+        // Persist to disk; rollback on failure
+        if let Err(e) = self.persist_approval(&approval).await {
+            pending.remove(&id);
+            return Err(e);
+        }
 
         Ok(id)
     }
@@ -254,6 +314,10 @@ impl ApprovalStore {
 
         file.write_all(line.as_bytes()).await?;
         file.flush().await?;
+        // Fix #29: sync_data() forces the kernel to write to stable storage.
+        // Without this, a power loss after flush() can lose approval state
+        // changes (e.g., an approved action reverts to pending on restart).
+        file.sync_data().await?;
 
         Ok(())
     }
