@@ -86,15 +86,9 @@ fn build_cors_layer(origins: &[String]) -> CorsLayer {
     } else if origins.is_empty() {
         // Strict default: localhost only
         base.allow_origin([
-            "http://localhost"
-                .parse::<HeaderValue>()
-                .expect("static localhost origin"),
-            "http://127.0.0.1"
-                .parse::<HeaderValue>()
-                .expect("static 127.0.0.1 origin"),
-            "http://[::1]"
-                .parse::<HeaderValue>()
-                .expect("static [::1] origin"),
+            HeaderValue::from_static("http://localhost"),
+            HeaderValue::from_static("http://127.0.0.1"),
+            HeaderValue::from_static("http://[::1]"),
         ])
     } else {
         let allowed: Vec<HeaderValue> = origins
