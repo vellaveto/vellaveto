@@ -277,4 +277,96 @@ enabled = false
         let config = PolicyConfig::from_toml(toml).unwrap();
         assert!(!config.injection.enabled);
     }
+
+    #[test]
+    fn test_load_file_toml() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("policy.toml");
+        std::fs::write(
+            &path,
+            r#"
+[[policies]]
+name = "deny bash"
+tool_pattern = "bash"
+function_pattern = "*"
+policy_type = "Deny"
+priority = 20
+"#,
+        )
+        .unwrap();
+
+        let config = PolicyConfig::load_file(path.to_str().unwrap()).unwrap();
+        assert_eq!(config.policies.len(), 1);
+        assert_eq!(config.policies[0].name, "deny bash");
+        assert_eq!(config.policies[0].tool_pattern, "bash");
+    }
+
+    #[test]
+    fn test_load_file_json() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("policy.json");
+        std::fs::write(
+            &path,
+            r#"{
+                "policies": [{
+                    "name": "allow read",
+                    "tool_pattern": "read_file",
+                    "function_pattern": "*",
+                    "policy_type": "Allow"
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let config = PolicyConfig::load_file(path.to_str().unwrap()).unwrap();
+        assert_eq!(config.policies.len(), 1);
+        assert_eq!(config.policies[0].name, "allow read");
+    }
+
+    #[test]
+    fn test_load_file_not_found() {
+        let result = PolicyConfig::load_file("/nonexistent/path/policy.toml");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_file_invalid_toml() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("bad.toml");
+        std::fs::write(&path, "this is not valid toml {{{").unwrap();
+
+        let result = PolicyConfig::load_file(path.to_str().unwrap());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_file_invalid_json() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("bad.json");
+        std::fs::write(&path, "{invalid json!}").unwrap();
+
+        let result = PolicyConfig::load_file(path.to_str().unwrap());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_file_unknown_extension_tries_toml() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("policy.conf");
+        std::fs::write(
+            &path,
+            r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#,
+        )
+        .unwrap();
+
+        // Unknown extension should fall back to TOML parsing
+        let config = PolicyConfig::load_file(path.to_str().unwrap()).unwrap();
+        assert_eq!(config.policies.len(), 1);
+    }
 }

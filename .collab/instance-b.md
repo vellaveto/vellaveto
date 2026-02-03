@@ -347,9 +347,36 @@ Fixed 4 of 10 exploits — all within Instance B's file ownership.
 
 **Also fixed:** Pre-existing compilation error in `sentinel-mcp/src/proxy.rs` — missing `flagged_tools` parameter in `extract_tool_annotations()` call at the main proxy loop, plus undeclared `flagged` variable in test functions.
 
+### Session 3 — Code Quality Improvements (2026-02-03)
+
+**Task 13: Deduplicate compiled vs traced evaluation paths** — DONE
+- Extracted `evaluate_compiled_conditions_core()` in `sentinel-engine/src/lib.rs`
+- Takes `&mut Option<Vec<ConstraintResult>>` — when `Some`, collects trace results; when `None`, zero overhead
+- `evaluate_compiled_conditions()` and `evaluate_compiled_conditions_traced()` are now thin wrappers
+- Single source of truth for: require_approval, forbidden/required params, constraint loop, fail-closed deny
+- Net reduction: 46 lines (5,848 → 5,802)
+
+**Task 14: Fix .expect() calls in sentinel-server routes.rs** — DONE
+- Replaced 3 `.expect()` calls on static CORS origin strings with `HeaderValue::from_static()`
+- `from_static()` is infallible for valid ASCII — no runtime panic possible
+- Eliminates the only `expect()` calls in server library code
+
+**Task 15: Extract shared rug-pull detection module** — DONE
+- Created `sentinel-mcp/src/rug_pull.rs` — shared detection algorithm + audit helper
+- `ToolAnnotations` struct moved here (single definition, re-exported from proxy.rs)
+- `detect_rug_pull()` — pure function: takes response + known state, returns `RugPullResult`
+- `audit_rug_pull_events()` — async audit logging with configurable source tag
+- `RugPullResult` with `flagged_tool_names()`, `has_detections()` helpers
+- 7 unit tests covering: first list, annotation change, tool addition, tool removal, combined attacks
+- Refactored `sentinel-mcp/src/proxy.rs` to use shared module (-205 lines)
+- Refactored `sentinel-http-proxy/src/proxy.rs` to use shared module (-177 lines)
+- Replaced `ToolAnnotationsCompact` in session.rs with type alias to shared `ToolAnnotations`
+- **~200 lines of duplicated security logic now lives in exactly one place**
+
 ### Build Status (Current)
-- **1,707 tests pass, 0 failures, clippy clean**
+- **1,763 tests pass, 0 failures, clippy clean**
 - All Phase 2 pentest exploits within Instance B scope: FIXED
-- Exploits fixed this session: #5 (hardened), #8 (tested), #10 (tested)
-- Exploits fixed last session: #1, #2, #3, #4
-- Test delta: +91 tests from baseline (1,616 → 1,707)
+- Exploits fixed session 2: #5 (hardened), #8 (tested), #10 (tested)
+- Exploits fixed session 1: #1, #2, #3, #4
+- Session 3: 3 code quality improvements (dedup, expect fix, rug-pull extraction)
+- Test delta: +147 tests from baseline (1,616 → 1,763)

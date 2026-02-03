@@ -80,7 +80,7 @@ All 39 security audit findings from Phase 1 resolved. See below for history.
 |----------|-------------|------------|
 | Orchestrator | C-15 COMPLETE — all 15 findings fixed | AVAILABLE |
 | Instance A | Available for new work | AVAILABLE |
-| Instance B | Session 2: Exploit #5 hardened, #8/#10 regression tested (1,707 tests) | AVAILABLE |
+| Instance B | Session 3: Code quality — dedup eval paths, shared rug-pull module (1,763 tests) | AVAILABLE |
 | Controller | Awaiting C-15 commit | ACTIVE |
 | Adversary | Re-verification of all 15 fixes | REQUESTED |
 

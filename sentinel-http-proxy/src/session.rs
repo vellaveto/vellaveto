@@ -219,4 +219,133 @@ mod tests {
         let session = store.get_mut(&id).unwrap();
         assert_eq!(session.request_count, 1);
     }
+
+    #[test]
+    fn test_flagged_tools_insert_and_contains() {
+        let store = SessionStore::new(Duration::from_secs(300), 100);
+        let id = store.get_or_create(None);
+
+        // Insert flagged tools
+        {
+            let mut session = store.get_mut(&id).unwrap();
+            session.flagged_tools.insert("evil_tool".to_string());
+            session.flagged_tools.insert("suspicious_tool".to_string());
+        }
+
+        // Verify containment
+        let session = store.get_mut(&id).unwrap();
+        assert!(session.flagged_tools.contains("evil_tool"));
+        assert!(session.flagged_tools.contains("suspicious_tool"));
+        assert!(!session.flagged_tools.contains("safe_tool"));
+        assert_eq!(session.flagged_tools.len(), 2);
+    }
+
+    #[test]
+    fn test_flagged_tools_empty_by_default() {
+        let state = SessionState::new("test-session".to_string());
+        assert!(state.flagged_tools.is_empty());
+    }
+
+    #[test]
+    fn test_oauth_subject_storage() {
+        let store = SessionStore::new(Duration::from_secs(300), 100);
+        let id = store.get_or_create(None);
+
+        // Initially None
+        {
+            let session = store.get_mut(&id).unwrap();
+            assert!(session.oauth_subject.is_none());
+        }
+
+        // Set subject
+        {
+            let mut session = store.get_mut(&id).unwrap();
+            session.oauth_subject = Some("user-42".to_string());
+        }
+
+        // Verify persistence
+        let session = store.get_mut(&id).unwrap();
+        assert_eq!(session.oauth_subject.as_deref(), Some("user-42"));
+    }
+
+    #[test]
+    fn test_protocol_version_tracking() {
+        let store = SessionStore::new(Duration::from_secs(300), 100);
+        let id = store.get_or_create(None);
+
+        {
+            let session = store.get_mut(&id).unwrap();
+            assert!(session.protocol_version.is_none());
+        }
+
+        {
+            let mut session = store.get_mut(&id).unwrap();
+            session.protocol_version = Some("2025-11-25".to_string());
+        }
+
+        let session = store.get_mut(&id).unwrap();
+        assert_eq!(
+            session.protocol_version.as_deref(),
+            Some("2025-11-25")
+        );
+    }
+
+    #[test]
+    fn test_known_tools_mutations() {
+        let store = SessionStore::new(Duration::from_secs(300), 100);
+        let id = store.get_or_create(None);
+
+        {
+            let mut session = store.get_mut(&id).unwrap();
+            session.known_tools.insert(
+                "read_file".to_string(),
+                ToolAnnotations {
+                    read_only_hint: true,
+                    destructive_hint: false,
+                    idempotent_hint: true,
+                    open_world_hint: false,
+                },
+            );
+        }
+
+        let session = store.get_mut(&id).unwrap();
+        assert_eq!(session.known_tools.len(), 1);
+        let ann = session.known_tools.get("read_file").unwrap();
+        assert!(ann.read_only_hint);
+        assert!(!ann.destructive_hint);
+    }
+
+    #[test]
+    fn test_tool_annotations_default() {
+        let ann = ToolAnnotations::default();
+        assert!(!ann.read_only_hint);
+        assert!(ann.destructive_hint);
+        assert!(!ann.idempotent_hint);
+        assert!(ann.open_world_hint);
+    }
+
+    #[test]
+    fn test_tool_annotations_equality() {
+        let a = ToolAnnotations {
+            read_only_hint: true,
+            destructive_hint: false,
+            idempotent_hint: true,
+            open_world_hint: false,
+        };
+        let b = ToolAnnotations {
+            read_only_hint: true,
+            destructive_hint: false,
+            idempotent_hint: true,
+            open_world_hint: false,
+        };
+        let c = ToolAnnotations::default();
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn test_tools_list_seen_flag() {
+        let state = SessionState::new("test".to_string());
+        assert!(!state.tools_list_seen);
+    }
 }
