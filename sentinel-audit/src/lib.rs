@@ -117,6 +117,18 @@ impl Checkpoint {
     }
 }
 
+/// Controls how aggressively the audit logger redacts sensitive data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RedactionLevel {
+    /// No redaction — raw values are logged as-is.
+    Off,
+    /// Redact sensitive keys (passwords, tokens, etc.) and known value prefixes.
+    KeysOnly,
+    /// Redact keys, value prefixes, and PII-like patterns (default).
+    #[default]
+    KeysAndPatterns,
+}
+
 /// Sensitive parameter key names that should always be redacted.
 const SENSITIVE_PARAM_KEYS: &[&str] = &[
     "password",
@@ -205,7 +217,7 @@ const DEFAULT_MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
 pub struct AuditLogger {
     log_path: PathBuf,
     last_hash: Mutex<Option<String>>,
-    redact: bool,
+    redaction_level: RedactionLevel,
     /// Maximum log file size in bytes before rotation. 0 = no rotation.
     max_file_size: u64,
     /// Optional Ed25519 signing key for creating signed checkpoints.
@@ -226,7 +238,7 @@ impl AuditLogger {
         Self {
             log_path,
             last_hash: Mutex::new(None),
-            redact: true,
+            redaction_level: RedactionLevel::KeysAndPatterns,
             max_file_size: DEFAULT_MAX_FILE_SIZE,
             signing_key: None,
             trusted_verifying_key: None,
@@ -239,11 +251,17 @@ impl AuditLogger {
         Self {
             log_path,
             last_hash: Mutex::new(None),
-            redact: false,
+            redaction_level: RedactionLevel::Off,
             max_file_size: DEFAULT_MAX_FILE_SIZE,
             signing_key: None,
             trusted_verifying_key: None,
         }
+    }
+
+    /// Set the redaction level for audit log entries.
+    pub fn with_redaction_level(mut self, level: RedactionLevel) -> Self {
+        self.redaction_level = level;
+        self
     }
 
     /// Set the maximum log file size before rotation.
@@ -846,22 +864,21 @@ impl AuditLogger {
         // Validate input
         self.validate_action(action)?;
 
-        // Redact sensitive values from action parameters before logging
-        let logged_action = if self.redact {
-            Action {
+        // Redact sensitive values based on configured redaction level
+        let logged_action = match self.redaction_level {
+            RedactionLevel::Off => action.clone(),
+            RedactionLevel::KeysOnly | RedactionLevel::KeysAndPatterns => Action {
                 tool: action.tool.clone(),
                 function: action.function.clone(),
                 parameters: redact_sensitive_values(&action.parameters),
-            }
-        } else {
-            action.clone()
+            },
         };
 
-        // Also redact metadata values
-        let logged_metadata = if self.redact {
-            redact_sensitive_values(&metadata)
-        } else {
-            metadata
+        let logged_metadata = match self.redaction_level {
+            RedactionLevel::Off => metadata,
+            RedactionLevel::KeysOnly | RedactionLevel::KeysAndPatterns => {
+                redact_sensitive_values(&metadata)
+            }
         };
 
         let mut last_hash_guard = self.last_hash.lock().await;
@@ -1548,6 +1565,7 @@ mod tests {
             .await
             .unwrap();
         file.write_all(inject_line.as_bytes()).await.unwrap();
+        file.flush().await.unwrap();
 
         // Verification MUST fail — hashless entry after hashed is not allowed
         let verification = logger.verify_chain().await.unwrap();
@@ -2620,6 +2638,7 @@ mod tests {
         tokio::io::AsyncWriteExt::write_all(&mut file, line.as_bytes())
             .await
             .unwrap();
+        tokio::io::AsyncWriteExt::flush(&mut file).await.unwrap();
 
         // Key continuity violation detected
         let verification = logger.verify_checkpoints().await.unwrap();
