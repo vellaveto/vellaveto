@@ -525,4 +525,34 @@ mod tests {
         limiter.cleanup(std::time::Duration::ZERO);
         assert_eq!(limiter.len(), 0);
     }
+
+    #[test]
+    fn per_ip_rate_limiter_with_max_capacity_sets_limit() {
+        let limiter = PerIpRateLimiter::with_max_capacity(NonZeroU32::new(10).unwrap(), 50);
+        assert_eq!(limiter.max_capacity(), 50);
+        assert!(limiter.is_empty());
+
+        // Fill to capacity
+        for i in 0..50u32 {
+            let ip: std::net::IpAddr = std::net::Ipv4Addr::from(i.wrapping_add(167772160)).into(); // 10.0.0.x
+            let result = limiter.check(ip);
+            assert!(result.is_none(), "IP {} should be allowed", ip);
+        }
+        assert_eq!(limiter.len(), 50);
+
+        // New IP beyond capacity should be denied (fail-closed)
+        let overflow_ip: std::net::IpAddr = "192.168.1.1".parse().unwrap();
+        let result = limiter.check(overflow_ip);
+        assert!(
+            result.is_some(),
+            "New IP beyond max_capacity should be denied"
+        );
+        assert_eq!(limiter.len(), 50, "Should not grow beyond max_capacity");
+    }
+
+    #[test]
+    fn per_ip_rate_limiter_default_capacity() {
+        let limiter = PerIpRateLimiter::new(NonZeroU32::new(10).unwrap());
+        assert_eq!(limiter.max_capacity(), DEFAULT_MAX_IP_CAPACITY);
+    }
 }
