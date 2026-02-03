@@ -12,7 +12,7 @@
 
 Sentinel is a lightweight, high-performance firewall that sits between AI agents and their tools. It intercepts MCP (Model Context Protocol) and function-calling requests, enforces security policies on paths, domains, and actions, and maintains a tamper-evident audit trail with cryptographic guarantees.
 
-**Key numbers:** ~53,000 lines of Rust | 1,500+ tests | <5ms P99 evaluation latency | <50MB memory baseline
+**Key numbers:** ~60,000 lines of Rust | 1,780+ tests | <5ms P99 evaluation latency | <50MB memory baseline
 
 ## Why Sentinel?
 
@@ -55,8 +55,8 @@ policy_type = "Allow"
 priority = 1
 EOF
 
-# Start the server
-./target/release/sentinel serve --config policy.toml --port 8080
+# Start the server (--allow-anonymous skips API key requirement for quick testing)
+./target/release/sentinel serve --config policy.toml --port 8080 --allow-anonymous
 
 # Evaluate a tool call (another terminal)
 curl -s http://localhost:8080/api/evaluate \
@@ -224,7 +224,7 @@ sentinel policies --preset allow-all   # Allow everything (testing only)
 The primary mode. Runs a standalone HTTP server that agents call to evaluate tool calls.
 
 ```bash
-sentinel serve --config policy.toml --port 8080 --bind 127.0.0.1
+SENTINEL_API_KEY=your-secret sentinel serve --config policy.toml --port 8080 --bind 127.0.0.1
 ```
 
 ### MCP Stdio Proxy
@@ -247,7 +247,7 @@ Features:
 Sits between clients and a remote MCP server over HTTP. Supports SSE streaming and session management per the MCP 2025-11-25 spec.
 
 ```bash
-sentinel-http-proxy \
+SENTINEL_API_KEY=your-secret sentinel-http-proxy \
   --upstream http://localhost:8000/mcp \
   --config policy.toml \
   --listen 127.0.0.1:3001
@@ -258,6 +258,8 @@ Features:
 - SSE streaming passthrough for long-running operations
 - `?trace=true` query parameter for evaluation trace output
 - Tool annotation tracking and rug-pull detection
+- OAuth 2.1 token validation with JWKS support (`--oauth-issuer`)
+- Response body size limits (10MB) to prevent upstream DoS
 
 ## HTTP API Reference
 
@@ -451,7 +453,7 @@ Benchmark results (from criterion, single-threaded):
 
 ```bash
 # HTTP policy server
-sentinel serve --config policy.toml [--port 8080] [--bind 127.0.0.1]
+sentinel serve --config policy.toml [--port 8080] [--bind 127.0.0.1] [--allow-anonymous]
 
 # One-shot evaluation (no server needed)
 sentinel evaluate --tool file --function read \
@@ -463,8 +465,11 @@ sentinel check --config policy.toml
 # Output canonical presets as TOML
 sentinel policies --preset dangerous
 
+# Verify audit log integrity
+sentinel verify --audit-log audit.log
+
 # Stdio MCP proxy (wraps a local MCP server)
-sentinel-proxy --config policy.toml [--strict] [--timeout 30] \
+sentinel-proxy --config policy.toml [--strict] [--timeout 30] [--trace] \
   -- ./mcp-server --arg1
 
 # HTTP reverse proxy (for remote MCP servers)
@@ -472,8 +477,20 @@ sentinel-http-proxy \
   --upstream http://localhost:8000/mcp \
   --config policy.toml \
   [--listen 127.0.0.1:3001] \
-  [--session_timeout 1800] \
-  [--max_sessions 1000]
+  [--session-timeout 1800] \
+  [--max-sessions 1000] \
+  [--audit-log audit.log] \
+  [--strict] \
+  [--allow-anonymous]
+
+# HTTP reverse proxy with OAuth 2.1
+sentinel-http-proxy \
+  --upstream http://localhost:8000/mcp \
+  --config policy.toml \
+  --oauth-issuer https://auth.example.com \
+  --oauth-audience mcp-server \
+  --oauth-scopes mcp:read,mcp:write \
+  [--oauth-pass-through]
 ```
 
 ## Development

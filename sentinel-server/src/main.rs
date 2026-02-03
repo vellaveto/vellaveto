@@ -58,6 +58,16 @@ enum Commands {
         #[arg(long)]
         preset: String,
     },
+    /// Verify audit log integrity (hash chain + checkpoint signatures)
+    Verify {
+        /// Path to the audit log file (e.g., audit.log)
+        #[arg(short, long)]
+        audit: String,
+        /// Trusted Ed25519 verifying key (hex-encoded 32-byte public key).
+        /// When set, rejects checkpoints signed by any other key.
+        #[arg(long)]
+        trusted_key: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -86,6 +96,10 @@ async fn main() -> Result<()> {
         } => cmd_evaluate(tool, function, params, config).await,
         Commands::Check { config } => cmd_check(config).await,
         Commands::Policies { preset } => cmd_policies(preset),
+        Commands::Verify {
+            audit,
+            trusted_key,
+        } => cmd_verify(audit, trusted_key).await,
     }
 }
 
@@ -478,6 +492,88 @@ fn cmd_policies(preset: String) -> Result<()> {
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;
 
     println!("{}", toml_str);
+    Ok(())
+}
+
+async fn cmd_verify(audit: String, trusted_key: Option<String>) -> Result<()> {
+    let audit_path = std::path::PathBuf::from(&audit);
+    if !audit_path.exists() {
+        anyhow::bail!("Audit log not found: {}", audit);
+    }
+
+    let mut logger = AuditLogger::new(audit_path);
+    if let Some(ref key) = trusted_key {
+        // Validate key format early
+        let key_bytes = hex::decode(key)
+            .map_err(|e| anyhow::anyhow!("Invalid --trusted-key hex: {}", e))?;
+        if key_bytes.len() != 32 {
+            anyhow::bail!(
+                "--trusted-key must be exactly 32 bytes (64 hex chars), got {}",
+                key_bytes.len()
+            );
+        }
+        logger = logger.with_trusted_key(key.clone());
+    }
+
+    // Phase 1: Verify hash chain
+    println!("Verifying hash chain...");
+    let chain_result = logger.verify_chain().await
+        .map_err(|e| anyhow::anyhow!("Failed to verify chain: {}", e))?;
+
+    if chain_result.valid {
+        println!(
+            "  Hash chain: OK ({} entries verified)",
+            chain_result.entries_checked
+        );
+    } else {
+        println!(
+            "  Hash chain: BROKEN at entry {}",
+            chain_result
+                .first_broken_at
+                .map_or("unknown".to_string(), |i| i.to_string())
+        );
+    }
+
+    // Phase 2: Verify checkpoints
+    println!("Verifying checkpoints...");
+    let cp_result = logger.verify_checkpoints().await
+        .map_err(|e| anyhow::anyhow!("Failed to verify checkpoints: {}", e))?;
+
+    if cp_result.checkpoints_checked == 0 {
+        println!("  Checkpoints: none found (skipped)");
+    } else if cp_result.valid {
+        println!(
+            "  Checkpoints: OK ({} verified{})",
+            cp_result.checkpoints_checked,
+            if trusted_key.is_some() {
+                ", key pinned"
+            } else {
+                ""
+            }
+        );
+    } else {
+        println!(
+            "  Checkpoints: INVALID at checkpoint {}",
+            cp_result
+                .first_invalid_at
+                .map_or("unknown".to_string(), |i| i.to_string())
+        );
+        if let Some(ref reason) = cp_result.failure_reason {
+            println!("  Reason: {}", reason);
+        }
+    }
+
+    // Summary
+    let all_valid = chain_result.valid && cp_result.valid;
+    println!();
+    if all_valid {
+        println!("Audit log integrity: VERIFIED");
+    } else {
+        println!("Audit log integrity: FAILED");
+        // Exit with non-zero to support scripting
+        std::process::exit(1);
+    }
+
     Ok(())
 }
 

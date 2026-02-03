@@ -1,5 +1,31 @@
 # Shared Log
 
+## 2026-02-03 — Controller: Directive C-16 Issued (Final Polish + Release Readiness)
+
+### Context
+All security work complete. Adversary CLOSEOUT confirmed (17 findings: 16 fixed, 1 documented). C-15 pentest fixes verified. 1,786 tests, 0 failures, 0 clippy warnings.
+
+### Directive C-16: Final Polish, Collab Sync, and Release Readiness
+
+| Sub-directive | Instance | Focus |
+|---------------|----------|-------|
+| C-16.1 | Instance A | README stat update + Instance A status sync |
+| C-16.2 | Instance B | Property test expansion (6 new proptests) + Instance B status sync |
+| C-16.3 | Orchestrator | Status file sync + final acceptance check + log update |
+| C-16.4 | Controller | Validate deliveries + optional LOW items + release gate checklist |
+
+### Remaining Gaps to "Done" (CLAUDE.md Criteria)
+- README stats stale (says 1,500+, actual 1,786)
+- Property test coverage could be stronger (12 proptests, want more critical-path invariants)
+- All collab status files have stale test counts and missing C-15 completion
+
+### After C-16
+Project meets all CLAUDE.md acceptance criteria. No further directives planned.
+
+Full directive: `.collab/controller/directives.md` (C-16 section)
+
+---
+
 ## 2026-02-03 — ADVERSARY INSTANCE: Engine Fixes + Demo Scenario
 
 ### Three Engine Bugs Fixed

@@ -412,3 +412,126 @@ See `log.md` for full disposition table and fix details.
 - `ProxyBridge::inspect_response_for_injection()` removed — use `scan_response_for_injection()` from `sentinel_mcp::inspection`
 - `ProxyBridge::sanitize_for_injection_scan()` removed — use `sanitize_for_injection_scan()` from `sentinel_mcp::inspection`
 - `extract_resource_action()` now uses `PARAM_PATH`/`PARAM_URL`/`PARAM_URI` constants (same string values, just constants now)
+
+---
+
+### Directive C-16: Final Polish, Collab Sync, and Release Readiness
+**Priority:** MEDIUM
+**Affects:** All instances
+**Date:** 2026-02-03
+**Issued by:** Controller
+
+#### Context
+
+All security work is complete. The adversary declared CLOSEOUT with security posture STRONG. 17 findings: 16 fixed, 1 documented, 0 open. C-15 pentest fixes (15 findings) all verified. The codebase is in excellent shape:
+
+- **1,786 tests**, 0 failures
+- **0 clippy warnings**, clean formatting
+- **60,492 lines of Rust** across 11 crates
+- README exists (517 lines) but test count and stats are stale
+
+The remaining gaps to CLAUDE.md "done" criteria:
+1. ~~Functional~~ ✅
+2. ~~Security demo~~ ✅
+3. ~~Tamper-evident audit~~ ✅
+4. ~~<20ms latency, <50MB memory~~ ✅
+5. **Property tests** — 12 proptests exist, target is >85% critical path coverage
+6. **README accuracy** — exists but stats are stale (says "1,500+ tests", actual is 1,786)
+7. ~~Zero warnings~~ ✅
+
+All collab status files are stale — test counts, completion status, and instance availability do not reflect C-15 completion or current test count.
+
+---
+
+#### C-16.1 — Instance A: Collab File Sync + README Update
+**Priority:** MEDIUM
+
+**Task 1: Update README stats and accuracy**
+- [ ] Update "1,500+ tests" → "1,786 tests" (or "1,750+" for durability)
+- [ ] Verify Quick Start instructions still work
+- [ ] Verify all documented CLI flags match actual `--help` output for both `sentinel-proxy` and `sentinel-http-proxy`
+- [ ] Add C-15 pentest hardening to the security section if not already mentioned
+- [ ] Update line count if mentioned
+
+**Task 2: Sync Instance A status file**
+- [ ] Update `instance-a.md` test counts to 1,786 workspace
+- [ ] Mark all C-15 work as complete with current date
+- [ ] Note OAuth 2.1 completion
+
+---
+
+#### C-16.2 — Instance B: Property Test Expansion
+**Priority:** MEDIUM
+
+Expand property-based test coverage for critical security paths. Currently 12 proptests in `sentinel-engine/tests/proptest_properties.rs`. Target: cover all critical-path invariants.
+
+**New proptests to add:**
+- [ ] **Hash chain integrity**: arbitrary sequence of audit entries → `verify_chain()` always succeeds
+- [ ] **Injection scanner determinism**: same input → same detection result
+- [ ] **Injection scanner Unicode normalization**: NFKC-equivalent strings → same scan result
+- [ ] **Policy evaluation fail-closed**: unknown tool + strict mode → always Deny
+- [ ] **Checkpoint verification**: create N entries + checkpoint → verify always succeeds
+- [ ] **SSE body size limit**: oversized response → always rejected
+
+**Files:** `sentinel-engine/tests/proptest_properties.rs`, `sentinel-audit/tests/` (new proptest file), `sentinel-mcp/tests/` (new proptest file)
+
+**Sync Instance B status file:**
+- [ ] Update `instance-b.md` test counts and completion status
+
+---
+
+#### C-16.3 — Orchestrator: Status Sync + Final Acceptance Check
+**Priority:** MEDIUM
+
+**Task 1: Sync all orchestrator status files**
+- [ ] Update `orchestrator/status.md` test count from 1,740 → 1,786
+- [ ] Update instance activity table (all instances AVAILABLE, Controller issuing C-16)
+- [ ] Add C-16 to phase completion table
+
+**Task 2: Final acceptance check against CLAUDE.md criteria**
+- [ ] Run `cargo test --workspace` — confirm 0 failures
+- [ ] Run `cargo clippy --workspace --all-targets` — confirm 0 warnings
+- [ ] Run `cargo fmt --all -- --check` — confirm clean
+- [ ] Verify README Quick Start works end-to-end
+- [ ] Write final acceptance summary in `log.md`
+
+**Task 3: Update log.md**
+- [ ] Add C-16 directive entry
+- [ ] Document final project state: test count, finding count, crate count, line count
+
+---
+
+#### C-16.4 — Controller: Final Review + Release Gate
+**Priority:** MEDIUM
+
+**Task 1: Validate all deliveries from C-16.1–C-16.3**
+- [ ] Review README changes
+- [ ] Review new proptests
+- [ ] Verify collab files are consistent across all instances
+
+**Task 2: Remaining LOW items (optional — do if time permits)**
+- [ ] Exempt HEAD from auth middleware
+- [ ] Exempt HEAD from admin rate limit bucket
+- [ ] Add 30s shutdown timeout to sentinel-server
+- [ ] Cap client X-Request-Id to 128 chars
+- [ ] Duplicate-key detection in JSON parsing (MEDIUM, defense-in-depth)
+
+**Task 3: Release gate checklist**
+- [ ] All CRITICAL/HIGH/MEDIUM findings: FIXED
+- [ ] All LOW findings: FIXED or DOCUMENTED
+- [ ] Adversary CLOSEOUT confirmed
+- [ ] README accurate and complete
+- [ ] All collab files in sync
+- [ ] `cargo test --workspace` — 0 failures
+- [ ] `cargo clippy --workspace` — 0 warnings
+- [ ] No `unwrap()` in library code
+- [ ] No secrets in committed files
+
+---
+
+#### Coordination Notes
+
+- This is a **polish directive**, not a feature directive. No architectural changes.
+- All instances should complete their tasks independently — no cross-dependencies.
+- After C-16 completion, the project meets all CLAUDE.md "done" criteria.
+- Adversary instance: no re-verification needed (CLOSEOUT already confirmed).

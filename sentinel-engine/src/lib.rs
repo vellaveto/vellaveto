@@ -5500,6 +5500,475 @@ mod tests {
     }
 
     // ═══════════════════════════════════════════════════
+    // ON_NO_MATCH CONTINUATION TESTS (Adversary Phase 5)
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_on_no_match_continue_skips_to_next_policy() {
+        // A conditional policy with on_no_match="continue" and no matching constraints
+        // should skip to the next policy, not return Allow.
+        let policies = vec![
+            Policy {
+                id: "*:*:scan-policy".to_string(),
+                name: "Scan all params".to_string(),
+                policy_type: PolicyType::Conditional {
+                    conditions: json!({
+                        "parameter_constraints": [{
+                            "param": "*",
+                            "op": "glob",
+                            "pattern": "/home/*/.aws/**",
+                            "on_match": "deny",
+                            "on_missing": "skip"
+                        }],
+                        "on_no_match": "continue"
+                    }),
+                },
+                priority: 300,
+            },
+            Policy {
+                id: "*:*".to_string(),
+                name: "Default deny".to_string(),
+                policy_type: PolicyType::Deny,
+                priority: 1,
+            },
+        ];
+
+        // Compiled path
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with("http_request", "get", json!({"url": "https://safe.example.com"}));
+        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "on_no_match=continue must skip to next policy (Deny), got: {:?}",
+            verdict
+        );
+
+        // Legacy path
+        let legacy_engine = PolicyEngine::new(false);
+        let verdict = legacy_engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "Legacy path: on_no_match=continue must skip to next policy (Deny), got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_on_no_match_default_returns_allow() {
+        // Without on_no_match="continue", a conditional policy with no matching constraints
+        // should return Allow (the historical default behavior).
+        let policies = vec![
+            Policy {
+                id: "*:*".to_string(),
+                name: "Scan all params".to_string(),
+                policy_type: PolicyType::Conditional {
+                    conditions: json!({
+                        "parameter_constraints": [{
+                            "param": "*",
+                            "op": "glob",
+                            "pattern": "/home/*/.aws/**",
+                            "on_match": "deny",
+                            "on_missing": "skip"
+                        }]
+                    }),
+                },
+                priority: 300,
+            },
+            Policy {
+                id: "*:*".to_string(),
+                name: "Default deny".to_string(),
+                policy_type: PolicyType::Deny,
+                priority: 1,
+            },
+        ];
+
+        // Compiled path: without on_no_match, first policy returns Allow, blocking the Deny.
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with("http_request", "get", json!({"url": "https://safe.example.com"}));
+        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Allow),
+            "Default (no on_no_match) must return Allow from first policy, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_on_no_match_continue_policy_chain() {
+        // Three-policy chain demonstrating layered security with on_no_match="continue":
+        // 1. High-priority credential blocker (on_no_match=continue)
+        // 2. Mid-priority domain blocker (on_no_match=continue)
+        // 3. Low-priority default allow
+        let policies = vec![
+            Policy {
+                id: "*:*:credential-block".to_string(),
+                name: "Block credential access".to_string(),
+                policy_type: PolicyType::Conditional {
+                    conditions: json!({
+                        "parameter_constraints": [{
+                            "param": "*",
+                            "op": "glob",
+                            "pattern": "/home/*/.aws/**",
+                            "on_match": "deny",
+                            "on_missing": "skip"
+                        }],
+                        "on_no_match": "continue"
+                    }),
+                },
+                priority: 300,
+            },
+            Policy {
+                id: "*:*:domain-block".to_string(),
+                name: "Block evil domains".to_string(),
+                policy_type: PolicyType::Conditional {
+                    conditions: json!({
+                        "parameter_constraints": [{
+                            "param": "*",
+                            "op": "domain_match",
+                            "pattern": "*.evil.com",
+                            "on_match": "deny",
+                            "on_missing": "skip"
+                        }],
+                        "on_no_match": "continue"
+                    }),
+                },
+                priority: 280,
+            },
+            Policy {
+                id: "*:*".to_string(),
+                name: "Default allow".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 1,
+            },
+        ];
+
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // Credential access → blocked by policy 1
+        let cred_action = action_with(
+            "file_system",
+            "read",
+            json!({"path": "/home/user/.aws/credentials"}),
+        );
+        let v = engine.evaluate_action(&cred_action, &[]).unwrap();
+        assert!(matches!(v, Verdict::Deny { .. }), "Credentials must be denied: {:?}", v);
+
+        // Evil domain → skips policy 1, blocked by policy 2
+        let evil_action = action_with(
+            "http_request",
+            "get",
+            json!({"url": "https://exfil.evil.com/steal"}),
+        );
+        let v = engine.evaluate_action(&evil_action, &[]).unwrap();
+        assert!(matches!(v, Verdict::Deny { .. }), "Evil domain must be denied: {:?}", v);
+
+        // Safe action → skips policies 1 and 2, allowed by policy 3
+        let safe_action = action_with(
+            "file_system",
+            "read",
+            json!({"path": "/home/user/project/README.md"}),
+        );
+        let v = engine.evaluate_action(&safe_action, &[]).unwrap();
+        assert!(matches!(v, Verdict::Allow), "Safe path must be allowed: {:?}", v);
+
+        // Verify legacy path parity
+        let legacy_engine = PolicyEngine::new(false);
+
+        let v = legacy_engine.evaluate_action(&cred_action, &policies).unwrap();
+        assert!(matches!(v, Verdict::Deny { .. }), "Legacy: credentials denied: {:?}", v);
+
+        let v = legacy_engine.evaluate_action(&evil_action, &policies).unwrap();
+        assert!(matches!(v, Verdict::Deny { .. }), "Legacy: evil domain denied: {:?}", v);
+
+        let v = legacy_engine.evaluate_action(&safe_action, &policies).unwrap();
+        assert!(matches!(v, Verdict::Allow), "Legacy: safe path allowed: {:?}", v);
+    }
+
+    #[test]
+    fn test_on_no_match_continue_fail_closed_exception() {
+        // When ALL constraints are skipped (missing params, on_missing="skip")
+        // AND on_no_match="continue", the engine should skip to next policy,
+        // NOT deny (fail-closed exception).
+        let policies = vec![
+            Policy {
+                id: "*:*:scan".to_string(),
+                name: "Wildcard scan".to_string(),
+                policy_type: PolicyType::Conditional {
+                    conditions: json!({
+                        "parameter_constraints": [{
+                            "param": "*",
+                            "op": "glob",
+                            "pattern": "/home/*/.aws/**",
+                            "on_match": "deny",
+                            "on_missing": "skip"
+                        }],
+                        "on_no_match": "continue"
+                    }),
+                },
+                priority: 300,
+            },
+            Policy {
+                id: "*:*".to_string(),
+                name: "Default allow".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 1,
+            },
+        ];
+
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // Empty parameters: all constraints skip → on_no_match=continue → skip → Allow
+        let action = action_with("file_system", "list", json!({}));
+        let v = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "Empty params with on_no_match=continue must skip to Allow, got: {:?}",
+            v
+        );
+
+        // Legacy path parity
+        let legacy_engine = PolicyEngine::new(false);
+        let v = legacy_engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "Legacy: empty params with on_no_match=continue must skip to Allow, got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_on_no_match_continue_fail_closed_without_flag() {
+        // Without on_no_match="continue", ALL constraints skipped → fail-closed Deny.
+        // This is the security-critical default behavior.
+        let policies = vec![
+            Policy {
+                id: "*:*".to_string(),
+                name: "Wildcard scan (no continue)".to_string(),
+                policy_type: PolicyType::Conditional {
+                    conditions: json!({
+                        "parameter_constraints": [{
+                            "param": "*",
+                            "op": "glob",
+                            "pattern": "/home/*/.aws/**",
+                            "on_match": "deny",
+                            "on_missing": "skip"
+                        }]
+                    }),
+                },
+                priority: 300,
+            },
+            Policy {
+                id: "*:*".to_string(),
+                name: "Default allow".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 1,
+            },
+        ];
+
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // Empty parameters without on_no_match: fail-closed Deny
+        let action = action_with("file_system", "list", json!({}));
+        let v = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "Empty params WITHOUT on_no_match=continue must fail-closed Deny, got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_on_no_match_invalid_value_treated_as_default() {
+        // on_no_match with a non-"continue" value (e.g. "allow", "deny", garbage)
+        // should behave identically to the default (no on_no_match).
+        let policies = vec![
+            Policy {
+                id: "*:*".to_string(),
+                name: "Bad on_no_match".to_string(),
+                policy_type: PolicyType::Conditional {
+                    conditions: json!({
+                        "parameter_constraints": [{
+                            "param": "path",
+                            "op": "glob",
+                            "pattern": "/secret/**",
+                            "on_match": "deny"
+                        }],
+                        "on_no_match": "deny"  // Not a valid value, treated as default
+                    }),
+                },
+                priority: 300,
+            },
+            Policy {
+                id: "*:*".to_string(),
+                name: "Default deny".to_string(),
+                policy_type: PolicyType::Deny,
+                priority: 1,
+            },
+        ];
+
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // Non-matching path: first policy returns Allow (default), NOT continue
+        let action = action_with("file_system", "read", json!({"path": "/safe/file.txt"}));
+        let v = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "on_no_match='deny' (invalid) must behave as default (Allow from first policy), got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_on_no_match_continue_with_require_approval() {
+        // on_no_match="continue" must work correctly with require_approval constraints.
+        // If a constraint fires require_approval, it takes effect. If no constraints fire,
+        // the policy continues to next.
+        let policies = vec![
+            Policy {
+                id: "*:*:dangerous-cmds".to_string(),
+                name: "Dangerous commands require approval".to_string(),
+                policy_type: PolicyType::Conditional {
+                    conditions: json!({
+                        "parameter_constraints": [{
+                            "param": "command",
+                            "op": "regex",
+                            "pattern": "(?i)rm\\s+-rf",
+                            "on_match": "require_approval"
+                        }],
+                        "on_no_match": "continue"
+                    }),
+                },
+                priority: 200,
+            },
+            Policy {
+                id: "*:*".to_string(),
+                name: "Default allow".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 1,
+            },
+        ];
+
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // Dangerous command: requires approval
+        let dangerous = action_with("bash", "execute", json!({"command": "rm -rf /"}));
+        let v = engine.evaluate_action(&dangerous, &[]).unwrap();
+        assert!(
+            matches!(v, Verdict::RequireApproval { .. }),
+            "Dangerous command must require approval: {:?}",
+            v
+        );
+
+        // Safe command: skips policy 1, allowed by policy 2
+        let safe = action_with("bash", "execute", json!({"command": "ls -la"}));
+        let v = engine.evaluate_action(&safe, &[]).unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "Safe command must be allowed: {:?}",
+            v
+        );
+
+        // No command param: skips policy 1 (on_missing defaults to deny, BUT
+        // the param is missing so constraint evaluates with fail-closed...
+        // Actually let's check: without on_missing="skip", missing param fails closed)
+        let no_params = action_with("bash", "execute", json!({}));
+        let v = engine.evaluate_action(&no_params, &[]).unwrap();
+        // Missing "command" param → fail-closed Deny (since on_missing not set to "skip")
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "Missing param without on_missing=skip must fail-closed: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_on_no_match_continue_traced_evaluation() {
+        // Traced evaluation path must also respect on_no_match="continue".
+        let policies = vec![
+            Policy {
+                id: "*:*:scan".to_string(),
+                name: "Credential scan".to_string(),
+                policy_type: PolicyType::Conditional {
+                    conditions: json!({
+                        "parameter_constraints": [{
+                            "param": "*",
+                            "op": "glob",
+                            "pattern": "/home/*/.ssh/**",
+                            "on_match": "deny",
+                            "on_missing": "skip"
+                        }],
+                        "on_no_match": "continue"
+                    }),
+                },
+                priority: 300,
+            },
+            Policy {
+                id: "*:*".to_string(),
+                name: "Default allow".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 1,
+            },
+        ];
+
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // Safe action with trace enabled
+        let safe_action = action_with("editor", "open", json!({"file": "/tmp/test.txt"}));
+        let (verdict, trace) = engine.evaluate_action_traced(&safe_action).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Allow),
+            "Traced: safe action must be allowed: {:?}",
+            verdict
+        );
+        // Verify trace captured the policy evaluation
+        assert!(
+            !trace.matches.is_empty(),
+            "Trace must contain policy match results"
+        );
+    }
+
+    #[test]
+    fn test_on_no_match_continue_strict_mode_accepts_key() {
+        // Strict mode must recognize "on_no_match" as a valid condition key.
+        let policies = vec![
+            Policy {
+                id: "*:*".to_string(),
+                name: "Strict scan".to_string(),
+                policy_type: PolicyType::Conditional {
+                    conditions: json!({
+                        "parameter_constraints": [{
+                            "param": "path",
+                            "op": "glob",
+                            "pattern": "/secret/**",
+                            "on_match": "deny"
+                        }],
+                        "on_no_match": "continue"
+                    }),
+                },
+                priority: 100,
+            },
+        ];
+
+        // Strict mode: should NOT reject on_no_match as unknown key
+        let result = PolicyEngine::with_policies(true, &policies);
+        assert!(
+            result.is_ok(),
+            "Strict mode must accept 'on_no_match' as a valid condition key: {:?}",
+            result.err()
+        );
+
+        // Also test legacy strict mode
+        let legacy_engine = PolicyEngine::new(true);
+        let action = action_with("file_system", "read", json!({"path": "/safe/file.txt"}));
+        let result = legacy_engine.evaluate_action(&action, &policies);
+        assert!(
+            result.is_ok(),
+            "Legacy strict mode must accept 'on_no_match': {:?}",
+            result.err()
+        );
+    }
+
+    // ═══════════════════════════════════════════════════
     // TOOL INDEX TESTS (Phase 10.5)
     // ═══════════════════════════════════════════════════
 
