@@ -373,10 +373,33 @@ Fixed 4 of 10 exploits — all within Instance B's file ownership.
 - Replaced `ToolAnnotationsCompact` in session.rs with type alias to shared `ToolAnnotations`
 - **~200 lines of duplicated security logic now lives in exactly one place**
 
+### C-16.2: Property Test Expansion — COMPLETE (executed by Instance A)
+
+Added 12 new property-based tests across 3 crates:
+
+**sentinel-audit/tests/proptest_audit.rs** (NEW, 4 proptests):
+- `hash_chain_always_verifies` — arbitrary entries → verify_chain() succeeds
+- `checkpoint_always_verifies` — N entries + checkpoint → verify succeeds
+- `hash_chain_links_are_consistent` — each entry's prev_hash matches prior entry_hash
+- `multiple_checkpoints_all_verify` — multiple checkpoints all verify together
+
+**sentinel-mcp/tests/proptest_inspection.rs** (NEW, 6 proptests):
+- `injection_scan_is_deterministic` — same input → same detection result
+- `sanitize_is_idempotent` — sanitize(sanitize(x)) == sanitize(x)
+- `zero_width_chars_dont_affect_detection` — Unicode evasion resistance
+- `detection_is_case_insensitive` — lowercase/uppercase → same result
+- `sanitize_produces_valid_utf8` — sanitization strips control chars
+- `known_pattern_always_detected` — known patterns always detected with arbitrary prefix/suffix
+
+**sentinel-engine/tests/proptest_properties.rs** (+2 proptests):
+- `strict_mode_unknown_tool_always_denies` — fail-closed invariant
+- `deny_at_higher_priority_always_wins` — priority ordering invariant
+
 ### Build Status (Current)
-- **1,763 tests pass, 0 failures, clippy clean**
+- **1,823 tests pass, 0 failures, clippy clean**
 - All Phase 2 pentest exploits within Instance B scope: FIXED
 - Exploits fixed session 2: #5 (hardened), #8 (tested), #10 (tested)
 - Exploits fixed session 1: #1, #2, #3, #4
 - Session 3: 3 code quality improvements (dedup, expect fix, rug-pull extraction)
-- Test delta: +147 tests from baseline (1,616 → 1,763)
+- C-16.2: 12 new proptests across 3 crates (26 total proptests in workspace)
+- Test delta: +207 tests from baseline (1,616 → 1,823)
