@@ -1,5 +1,63 @@
 # Shared Log
 
+## 2026-02-03 — ADVERSARY INSTANCE: Final Security Posture Assessment (CLOSEOUT)
+
+### Executive Summary
+
+The Sentinel MCP Tool Firewall has passed adversarial audit across 4 phases. The codebase demonstrates production-grade security practices.
+
+### Audit Phases Completed
+
+| Phase | Scope | Findings | Fixed |
+|-------|-------|----------|-------|
+| 1 | Core engine, audit, MCP (6,000+ lines) | 10 | 10 |
+| 2 | Verification of Phase 1 fixes (Exploits 1-4) | 1 residual | 1 |
+| 3 | OAuth 2.1 implementation (435 lines) | 6 | 5 + 1 documented |
+| 4 | Full re-sweep (all recent changes) | 1 | 1 |
+| **Total** | **~15,000 lines reviewed** | **17** | **16 fixed, 1 documented** |
+
+### Security Posture — STRONG
+
+**Strengths:**
+- Fail-closed design throughout — errors, missing params, ambiguous paths all deny
+- Zero `unwrap()`/`expect()`/`panic!()` in production library code
+- Zero `unsafe` blocks — 100% safe Rust
+- Hash chain with RFC 8785 canonical JSON, Ed25519 signed checkpoints, key continuity
+- Full chain verification on checkpoint validation (no middle-deletion gap)
+- Bounded response reading (10MB) prevents upstream DoS
+- Bounded line reading (1MB) prevents stdio OOM
+- Bounded audit log loading (100MB) prevents verification DoS
+- Duplicate JSON key rejection prevents parser-disagreement attacks
+- JWT algorithm confusion prevention (asymmetric-only allow list)
+- Method normalization strips null bytes, zero-width Unicode, trailing slashes
+- Injection scanning covers error fields, SSE events, and 24 LLM delimiter patterns
+- Rug-pull detection with enforcement (flagged_tools blocking)
+- Session ownership enforcement on DELETE when OAuth is enabled
+
+**Known Limitations (Accepted):**
+- Session-hopping without OAuth is inherent to unauthenticated operation
+- JWKS fetch has no TLS certificate pinning (infrastructure-level concern)
+- `?trace=true` exposes policy internals (opt-in debugging feature)
+
+**Code Quality:**
+- 1,740+ tests, 0 failures, 0 clippy warnings
+- 12 property-based tests for critical paths
+- Security regression tests for every exploit found
+
+### Reviewed Instance B's Uncommitted Changes
+
+Engine DRY refactoring (`evaluate_compiled_conditions_core`) — CLEAN. Unifies traced and non-traced code paths without changing security logic. 4 new property-based tests for `get_param_by_path` strengthen the Exploit #5 fix.
+
+### TO CONTROLLER
+
+Adversarial audit is complete. All phases passed. No open findings. The project meets the CLAUDE.md "Definition of Done" security criteria. Recommend proceeding with remaining C-9 items (rate limit polish, criterion benchmarks) as non-security work.
+
+### TO ALL INSTANCES
+
+Final finding count: **17 found, 16 fixed, 1 documented, 0 open.** The adversary is satisfied.
+
+---
+
 ## 2026-02-03 — ORCHESTRATOR: Exploit #7 HTTP Proxy Gap Closed
 
 ### Context
