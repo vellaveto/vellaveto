@@ -10,6 +10,7 @@ use clap::Parser;
 use sentinel_audit::AuditLogger;
 use sentinel_config::PolicyConfig;
 use sentinel_engine::PolicyEngine;
+use sentinel_http_proxy::oauth::{OAuthConfig, OAuthValidator};
 use sentinel_http_proxy::proxy::{self, ProxyState};
 use sentinel_http_proxy::session::SessionStore;
 use std::path::PathBuf;
@@ -49,6 +50,26 @@ struct Args {
     /// Strict policy evaluation mode
     #[arg(long)]
     strict: bool,
+
+    /// OAuth 2.1 issuer URL (enables OAuth token validation)
+    #[arg(long)]
+    oauth_issuer: Option<String>,
+
+    /// OAuth 2.1 expected audience claim
+    #[arg(long, default_value = "mcp-server")]
+    oauth_audience: String,
+
+    /// OAuth 2.1 JWKS endpoint URL (defaults to {issuer}/.well-known/jwks.json)
+    #[arg(long)]
+    oauth_jwks_uri: Option<String>,
+
+    /// Required OAuth scopes (comma-separated)
+    #[arg(long, value_delimiter = ',')]
+    oauth_scopes: Vec<String>,
+
+    /// Forward the OAuth Bearer token to the upstream MCP server
+    #[arg(long)]
+    oauth_pass_through: bool,
 }
 
 #[tokio::main]
@@ -117,6 +138,28 @@ async fn main() -> Result<()> {
         .build()
         .context("Failed to create HTTP client")?;
 
+    // OAuth 2.1 validator (optional)
+    let oauth = if let Some(ref issuer) = args.oauth_issuer {
+        let config = OAuthConfig {
+            issuer: issuer.clone(),
+            audience: args.oauth_audience.clone(),
+            jwks_uri: args.oauth_jwks_uri.clone(),
+            required_scopes: args.oauth_scopes.clone(),
+            pass_through: args.oauth_pass_through,
+        };
+        tracing::info!(
+            "OAuth 2.1 enabled: issuer={}, audience={}, scopes={:?}, pass_through={}",
+            config.issuer,
+            config.audience,
+            config.required_scopes,
+            config.pass_through,
+        );
+        Some(Arc::new(OAuthValidator::new(config, http_client.clone())))
+    } else {
+        tracing::info!("OAuth 2.1 not configured — all requests accepted without token validation");
+        None
+    };
+
     // Build shared state
     let state = ProxyState {
         engine: Arc::new(engine),
@@ -125,6 +168,7 @@ async fn main() -> Result<()> {
         sessions: sessions.clone(),
         upstream_url: args.upstream.clone(),
         http_client,
+        oauth,
     };
 
     // Build router

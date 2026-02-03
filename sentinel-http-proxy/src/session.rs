@@ -25,6 +25,9 @@ pub struct SessionState {
     /// Whether the initial tools/list response has been seen for this session.
     /// Used for rug-pull detection: tool additions after the first list are suspicious.
     pub tools_list_seen: bool,
+    /// OAuth subject identifier from the authenticated token (if OAuth is enabled).
+    /// Stored for inclusion in audit trail entries.
+    pub oauth_subject: Option<String>,
 }
 
 /// Compact tool annotation storage for session state.
@@ -58,6 +61,7 @@ impl SessionState {
             known_tools: HashMap::new(),
             request_count: 0,
             tools_list_seen: false,
+            oauth_subject: None,
         }
     }
 

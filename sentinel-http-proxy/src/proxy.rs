@@ -22,6 +22,8 @@ use sentinel_types::{Action, EvaluationTrace, Policy, Verdict};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
+use crate::oauth::{OAuthClaims, OAuthError, OAuthValidator};
+
 /// Query parameters for POST /mcp.
 #[derive(Debug, serde::Deserialize, Default)]
 pub struct McpQueryParams {
@@ -41,6 +43,8 @@ pub struct ProxyState {
     pub sessions: Arc<SessionStore>,
     pub upstream_url: String,
     pub http_client: reqwest::Client,
+    /// OAuth 2.1 JWT validator. When `Some`, all MCP requests require a valid Bearer token.
+    pub oauth: Option<Arc<OAuthValidator>>,
 }
 
 /// MCP Session ID header name.
@@ -253,16 +257,23 @@ async fn extract_annotations_from_response(
 /// Main POST /mcp handler.
 ///
 /// Implements the Streamable HTTP transport:
-/// 1. Parse JSON-RPC body
-/// 2. Manage session via Mcp-Session-Id header
-/// 3. Classify and evaluate the message
-/// 4. Forward allowed requests to upstream, return denials directly
+/// 1. Validate OAuth token (if configured)
+/// 2. Parse JSON-RPC body
+/// 3. Manage session via Mcp-Session-Id header
+/// 4. Classify and evaluate the message
+/// 5. Forward allowed requests to upstream, return denials directly
 pub async fn handle_mcp_post(
     State(state): State<ProxyState>,
     Query(params): Query<McpQueryParams>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    // OAuth 2.1 token validation (if configured)
+    let oauth_claims = match validate_oauth(&state, &headers).await {
+        Ok(claims) => claims,
+        Err(response) => return response,
+    };
+
     // Parse the JSON-RPC body
     let msg: Value = match serde_json::from_slice(&body) {
         Ok(v) => v,
@@ -286,6 +297,29 @@ pub async fn handle_mcp_post(
     // Session management
     let client_session_id = headers.get(MCP_SESSION_ID).and_then(|v| v.to_str().ok());
     let session_id = state.sessions.get_or_create(client_session_id);
+
+    // Attach OAuth subject to session for audit trail
+    if let Some(ref claims) = oauth_claims {
+        if let Some(mut session) = state.sessions.get_mut(&session_id) {
+            if session.oauth_subject.is_none() {
+                session.oauth_subject = Some(claims.sub.clone());
+            }
+        }
+    }
+
+    // Determine if we should pass through the Authorization header to upstream
+    let auth_header_for_upstream = if state
+        .oauth
+        .as_ref()
+        .is_some_and(|v| v.config().pass_through)
+    {
+        headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string())
+    } else {
+        None
+    };
 
     // Classify the message using shared extractor
     match extractor::classify_message(&msg) {
@@ -312,7 +346,13 @@ pub async fn handle_mcp_post(
             match eval_result {
                 Ok((Verdict::Allow, trace)) => {
                     // Forward to upstream
-                    let response = forward_to_upstream(&state, &session_id, body).await;
+                    let response = forward_to_upstream(
+                        &state,
+                        &session_id,
+                        body,
+                        auth_header_for_upstream.as_deref(),
+                    )
+                    .await;
                     let response = attach_session_header(response, &session_id);
                     attach_trace_header(response, trace)
                 }
@@ -328,7 +368,11 @@ pub async fn handle_mcp_post(
                         .log_entry(
                             &action,
                             &verdict,
-                            json!({"source": "http_proxy", "session": session_id, "tool": tool_name}),
+                            build_audit_context(
+                                &session_id,
+                                json!({"tool": tool_name}),
+                                &oauth_claims,
+                            ),
                         )
                         .await
                     {
@@ -362,7 +406,11 @@ pub async fn handle_mcp_post(
                         .log_entry(
                             &action,
                             &verdict,
-                            json!({"source": "http_proxy", "session": session_id, "tool": tool_name}),
+                            build_audit_context(
+                                &session_id,
+                                json!({"tool": tool_name}),
+                                &oauth_claims,
+                            ),
                         )
                         .await
                     {
@@ -419,7 +467,13 @@ pub async fn handle_mcp_post(
 
             match eval_result {
                 Ok((Verdict::Allow, trace)) => {
-                    let response = forward_to_upstream(&state, &session_id, body).await;
+                    let response = forward_to_upstream(
+                        &state,
+                        &session_id,
+                        body,
+                        auth_header_for_upstream.as_deref(),
+                    )
+                    .await;
                     let response = attach_session_header(response, &session_id);
                     attach_trace_header(response, trace)
                 }
@@ -435,7 +489,11 @@ pub async fn handle_mcp_post(
                         .log_entry(
                             &action,
                             &verdict,
-                            json!({"source": "http_proxy", "session": session_id, "resource_uri": uri}),
+                            build_audit_context(
+                                &session_id,
+                                json!({"resource_uri": uri}),
+                                &oauth_claims,
+                            ),
                         )
                         .await
                     {
@@ -513,7 +571,13 @@ pub async fn handle_mcp_post(
         }
         MessageType::PassThrough => {
             // Forward unmodified — includes initialize, tools/list, notifications, etc.
-            let response = forward_to_upstream(&state, &session_id, body).await;
+            let response = forward_to_upstream(
+                &state,
+                &session_id,
+                body,
+                auth_header_for_upstream.as_deref(),
+            )
+            .await;
 
             // Post-processing: extract annotations from tools/list responses
             // and protocol version from initialize responses.
@@ -541,6 +605,11 @@ pub async fn handle_mcp_post(
 
 /// DELETE /mcp handler — session termination (MCP spec).
 pub async fn handle_mcp_delete(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    // OAuth 2.1 token validation (if configured)
+    if let Err(response) = validate_oauth(&state, &headers).await {
+        return response;
+    }
+
     let session_id = headers.get(MCP_SESSION_ID).and_then(|v| v.to_str().ok());
 
     match session_id {
@@ -560,18 +629,112 @@ pub async fn handle_mcp_delete(State(state): State<ProxyState>, headers: HeaderM
     }
 }
 
+/// Validate the OAuth token from the request headers.
+///
+/// Returns `Ok(Some(claims))` if OAuth is configured and the token is valid.
+/// Returns `Ok(None)` if OAuth is not configured (backward compatible).
+/// Returns `Err(response)` if OAuth is configured but the token is invalid.
+async fn validate_oauth(
+    state: &ProxyState,
+    headers: &HeaderMap,
+) -> Result<Option<OAuthClaims>, Response> {
+    let validator = match &state.oauth {
+        Some(v) => v,
+        None => return Ok(None),
+    };
+
+    let auth_header = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+
+    let auth_value = match auth_header {
+        Some(h) => h,
+        None => {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Missing Authorization header. Expected: Bearer <token>"})),
+            )
+                .into_response());
+        }
+    };
+
+    match validator.validate_token(auth_value).await {
+        Ok(claims) => {
+            tracing::debug!("OAuth token validated for subject: {}", claims.sub);
+            Ok(Some(claims))
+        }
+        Err(OAuthError::InsufficientScope { required, found }) => {
+            tracing::warn!(
+                "OAuth scope check failed: required={}, found={}",
+                required,
+                found
+            );
+            Err((
+                StatusCode::FORBIDDEN,
+                Json(json!({"error": "Insufficient scope"})),
+            )
+                .into_response())
+        }
+        Err(e) => {
+            tracing::debug!("OAuth token validation failed: {}", e);
+            Err((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Invalid or expired token"})),
+            )
+                .into_response())
+        }
+    }
+}
+
+/// Build audit context JSON, optionally including OAuth subject.
+fn build_audit_context(
+    session_id: &str,
+    extra: Value,
+    oauth_claims: &Option<OAuthClaims>,
+) -> Value {
+    let mut ctx = json!({"source": "http_proxy", "session": session_id});
+    if let Value::Object(map) = extra {
+        if let Value::Object(ref mut ctx_map) = ctx {
+            for (k, v) in map {
+                ctx_map.insert(k, v);
+            }
+        }
+    }
+    if let Some(claims) = oauth_claims {
+        if let Value::Object(ref mut ctx_map) = ctx {
+            ctx_map.insert("oauth_subject".to_string(), json!(claims.sub));
+            if !claims.scope.is_empty() {
+                ctx_map.insert("oauth_scopes".to_string(), json!(claims.scope));
+            }
+        }
+    }
+    ctx
+}
+
 /// Forward a request to the upstream MCP server.
-async fn forward_to_upstream(state: &ProxyState, session_id: &str, body: Bytes) -> Response {
+///
+/// If OAuth pass-through is enabled, the original Authorization header is
+/// forwarded to upstream.
+async fn forward_to_upstream(
+    state: &ProxyState,
+    session_id: &str,
+    body: Bytes,
+    auth_header: Option<&str>,
+) -> Response {
     let upstream_url = &state.upstream_url;
 
-    let result = state
+    let mut request_builder = state
         .http_client
         .post(upstream_url)
         .header("content-type", "application/json")
-        .header(MCP_SESSION_ID, session_id)
-        .body(body)
-        .send()
-        .await;
+        .header(MCP_SESSION_ID, session_id);
+
+    // Forward Authorization header in OAuth pass-through mode
+    if let Some(auth) = auth_header {
+        request_builder = request_builder.header("authorization", auth);
+    }
+
+    let result = request_builder.body(body).send().await;
 
     match result {
         Ok(upstream_resp) => {

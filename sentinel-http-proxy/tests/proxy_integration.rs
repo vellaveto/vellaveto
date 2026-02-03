@@ -146,6 +146,7 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream_url.to_string(),
         http_client: reqwest::Client::new(),
+        oauth: None,
     }
 }
 
@@ -1358,6 +1359,7 @@ async fn trace_resource_read_denied_includes_trace() {
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url,
         http_client: reqwest::Client::new(),
+        oauth: None,
     };
     let app = build_router(state);
 
@@ -1418,6 +1420,7 @@ async fn trace_constraint_details_visible() {
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url,
         http_client: reqwest::Client::new(),
+        oauth: None,
     };
     let app = build_router(state);
 
