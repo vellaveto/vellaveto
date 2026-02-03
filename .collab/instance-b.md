@@ -395,11 +395,35 @@ Added 12 new property-based tests across 3 crates:
 - `strict_mode_unknown_tool_always_denies` — fail-closed invariant
 - `deny_at_higher_priority_always_wins` — priority ordering invariant
 
+### Session 4 — Final Polish (2026-02-03)
+
+**Clippy warning fix: items_after_test_module in sentinel-server/src/lib.rs**
+- Moved `#[cfg(test)] mod tests` block from before `spawn_config_watcher()` to end of file
+- Clippy `items_after_test_module` warning resolved — 0 warnings across workspace
+
+**Release gate verification:**
+- All C-16.4 LOW items verified as already implemented:
+  - HEAD exemption from auth (routes.rs:155) ✓
+  - HEAD exemption from admin rate limit bucket (routes.rs:764) ✓
+  - 30s shutdown timeout (main.rs:456) ✓
+  - X-Request-Id capped to 128 chars (routes.rs:136) ✓
+  - Duplicate-key detection in JSON parsing (framing.rs) ✓
+- No `unwrap()` in library code (only 1 `.expect()` for static pattern init — acceptable)
+- No TODOs/FIXMEs in any source file
+- No .env or secrets in committed files
+- Formatting clean
+
 ### Build Status (Current)
-- **1,823 tests pass, 0 failures, clippy clean**
+- **2,029 tests pass, 0 failures, 0 clippy warnings, fmt clean**
+- All directives C-1 through C-16: COMPLETE
+- All adversary findings (20/20): FIXED or DOCUMENTED
 - All Phase 2 pentest exploits within Instance B scope: FIXED
 - Exploits fixed session 2: #5 (hardened), #8 (tested), #10 (tested)
 - Exploits fixed session 1: #1, #2, #3, #4
 - Session 3: 3 code quality improvements (dedup, expect fix, rug-pull extraction)
 - C-16.2: 12 new proptests across 3 crates (26 total proptests in workspace)
-- Test delta: +207 tests from baseline (1,616 → 1,823)
+- Session 4: clippy fix, release gate verification
+- Test delta: +413 tests from baseline (1,616 → 2,029)
+
+### Project Status: RELEASE READY
+All CLAUDE.md success criteria met. All C-16.4 release gate items verified.

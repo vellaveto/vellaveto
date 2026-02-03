@@ -4,7 +4,117 @@
 **Model:** Claude Opus 4.5
 **Date:** 2026-02-03
 **Authority:** Independent. Findings are attack demonstrations, not suggestions.
-**Status:** CLOSEOUT — 20 total findings (17 audit + 3 engine bugs). All fixed. Security posture: STRONG. 1,795 tests, 0 failures. Demo scenario operational. Phase 5 test gap closure complete (9 on_no_match tests).
+**Status:** ACTIVE — Phase 6: Per-IP Rate Limiter Audit. 7 new findings with exploit tests. 2,029 tests, 0 failures.
+
+---
+
+## Phase 6: Per-IP Rate Limiter Security Audit (2026-02-03)
+
+### Scope
+
+Audited uncommitted per-IP rate limiting feature across:
+- `sentinel-server/src/lib.rs` (+189 lines — PerIpRateLimiter struct, DashMap-backed)
+- `sentinel-server/src/routes.rs` (+44 lines — extract_client_ip, per-IP middleware)
+- `sentinel-server/src/main.rs` (+73 lines — env config, cleanup task, duplicate ID verify)
+- `sentinel-audit/src/lib.rs` (+26 lines — detect_duplicate_ids)
+- `sentinel-server/Cargo.toml` (+1 line — dashmap dep)
+- `sentinel-server/tests/test_routes_unit.rs` (+179 lines — 3 per-IP tests)
+
+### Findings Summary
+
+| # | Severity | Title | Status |
+|---|----------|-------|--------|
+| 18 | HIGH | Per-IP rate limit bypass via X-Forwarded-For spoofing | **OPEN** |
+| 19 | MEDIUM | Unbounded DashMap growth — memory exhaustion DoS | **OPEN** |
+| 20 | LOW | All direct clients collapse to 127.0.0.1 bucket | **OPEN** |
+| 21 | HIGH | IP impersonation exhausts victim's rate limit | **OPEN** |
+| 22 | LOW | Verify command exits 0 on duplicate IDs (replay attacks pass) | **OPEN** |
+| 23 | LOW | X-Forwarded-For leftmost IP is attacker-controlled | **OPEN** |
+| 24 | LOW | Error response reveals rate limit layer type | **OPEN** |
+
+### Challenge 18: Per-IP Rate Limit Bypass via X-Forwarded-For Spoofing (HIGH)
+
+**File:** `sentinel-server/src/routes.rs:732-755`
+
+`extract_client_ip()` trusts client-provided `X-Forwarded-For` and `X-Real-IP` headers with zero verification. An attacker bypasses per-IP rate limiting entirely by rotating the header on each request:
+
+```
+curl -H "X-Forwarded-For: 1.1.1.1" /api/evaluate  # fresh bucket
+curl -H "X-Forwarded-For: 2.2.2.2" /api/evaluate  # fresh bucket
+curl -H "X-Forwarded-For: 3.3.3.3" /api/evaluate  # fresh bucket
+# ... unlimited requests despite 1 req/s limit
+```
+
+**Exploit test:** `exploit_18_xff_spoofing_bypasses_per_ip_rate_limit` — sends 20 requests at 1 req/s limit, all succeed.
+
+**Fix options:**
+1. Use `axum::extract::ConnectInfo<SocketAddr>` for the actual TCP connection IP (primary)
+2. Only trust `X-Forwarded-For` when behind a trusted proxy (configurable trusted proxy IPs)
+3. Use rightmost-untrusted XFF entry (RFC 7239 approach) instead of leftmost
+
+### Challenge 19: Unbounded DashMap Growth (MEDIUM)
+
+**File:** `sentinel-server/src/lib.rs:31-79`
+
+`PerIpRateLimiter` has no maximum capacity. Each unique IP creates a new DashMap entry. Cleanup runs every 10 minutes but only removes entries >1 hour old. Between cleanups, an attacker creates millions of entries via spoofed IPs.
+
+Math: 10,000 req/s * 600s = 6,000,000 entries * ~150 bytes = ~900MB before first cleanup.
+
+**Exploit test:** `exploit_19_unbounded_dashmap_growth` — creates 10,000 entries, none evicted.
+
+**Fix:** Add `max_capacity` to `PerIpRateLimiter`. When full, either reject (fail-closed) or evict LRU.
+
+### Challenge 20: Localhost Rate Limit Collapse (LOW)
+
+**File:** `sentinel-server/src/routes.rs:753-754`
+
+When no proxy headers are present, all clients are attributed to `127.0.0.1`. The per-IP rate limiter becomes a global limiter for direct connections — one client's requests exhaust the bucket for ALL other clients.
+
+**Exploit test:** `exploit_20_all_direct_clients_share_one_bucket`
+
+### Challenge 21: IP Impersonation / Rate Limit Exhaustion (HIGH)
+
+**File:** `sentinel-server/src/routes.rs:732-755`
+
+An attacker consumes a specific victim's rate limit by spoofing `X-Forwarded-For: <victim-ip>`. The victim's subsequent legitimate requests are then throttled. This is a targeted DoS.
+
+**Exploit test:** `exploit_21_attacker_exhausts_victim_rate_limit`
+
+### Challenge 22: Verify Command Exits 0 on Duplicate IDs (LOW)
+
+**File:** `sentinel-server/src/main.rs:699-711`
+
+The verify command reports duplicate entry IDs as a warning but exits with code 0 ("VERIFIED (with warnings)"). Automated scripts checking exit codes will miss replay attacks. The `has_duplicates` flag affects the message text but NOT the process exit code:
+
+```rust
+let all_valid = chain_result.valid && cp_result.valid;
+// has_duplicates is NOT checked in all_valid
+if all_valid { /* exits 0 */ }
+```
+
+**Fix:** Include `!has_duplicates` in the `all_valid` condition, or add a separate non-zero exit code for warnings.
+
+### Challenge 23: XFF Leftmost IP is Attacker-Controlled (LOW)
+
+**File:** `sentinel-server/src/routes.rs:734`
+
+The code takes `val.split(',').next()` — the leftmost XFF entry. A real proxy APPENDS the client's real IP to the END of the chain. The leftmost value is always attacker-controlled. The correct approach is to use the rightmost untrusted IP.
+
+**Exploit test:** `exploit_23_xff_leftmost_ip_is_attacker_controlled`
+
+### Challenge 24: Error Response Leaks Rate Limit Architecture (LOW)
+
+**File:** `sentinel-server/src/routes.rs:702`
+
+The per-IP 429 response says "Per-IP rate limit exceeded" while the global says "Rate limit exceeded". This lets an attacker identify which layer they hit and calibrate evasion (spoof IPs for per-IP, throttle for global).
+
+**Exploit test:** `exploit_24_error_response_distinguishes_rate_limit_type`
+
+**Fix:** Use the same generic error message for both rate limit types.
+
+### Exploit Tests Created
+
+File: `sentinel-server/tests/test_per_ip_adversarial.rs` — 7 tests, all passing.
 
 ---
 
