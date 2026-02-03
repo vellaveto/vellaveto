@@ -6,7 +6,6 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use sentinel_config::PolicyConfig;
 use sentinel_engine::PolicyEngine;
 use sentinel_types::{Action, Policy, Verdict};
 use serde::{Deserialize, Serialize};
@@ -134,6 +133,7 @@ async fn request_id(request: Request, next: Next) -> Response {
         .headers()
         .get("x-request-id")
         .and_then(|v| v.to_str().ok())
+        .filter(|s| s.len() <= 128)
         .map(|s| s.to_string());
 
     let mut response = next.run(request).await;
@@ -150,7 +150,10 @@ async fn request_id(request: Request, next: Next) -> Response {
 /// If no API key is configured in AppState, all requests are allowed.
 async fn require_api_key(State(state): State<AppState>, request: Request, next: Next) -> Response {
     // Skip auth for read-only methods
-    if request.method() == Method::GET || request.method() == Method::OPTIONS {
+    if request.method() == Method::GET
+        || request.method() == Method::OPTIONS
+        || request.method() == Method::HEAD
+    {
         return next.run(request).await;
     }
 
@@ -366,10 +369,10 @@ async fn remove_policy(
 async fn reload_policies(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let config_path = state.config_path.as_str();
+    let config_path = state.config_path.as_str().to_string();
 
-    let policy_config = PolicyConfig::load_file(config_path).map_err(|e| {
-        tracing::error!("Failed to reload config from {}: {}", config_path, e);
+    let count = crate::reload_policies_from_file(&state, "api").await.map_err(|e| {
+        tracing::error!("{}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -377,31 +380,6 @@ async fn reload_policies(
             }),
         )
     })?;
-
-    let mut new_policies = policy_config.to_policies();
-    PolicyEngine::sort_policies(&mut new_policies);
-    let count = new_policies.len();
-    state.policies.store(std::sync::Arc::new(new_policies));
-    recompile_engine(&state);
-    tracing::info!("Reloaded {} policies from {}", count, config_path);
-
-    // Audit trail for policy reload
-    let action = Action {
-        tool: "sentinel".to_string(),
-        function: "reload_policies".to_string(),
-        parameters: json!({"config_path": config_path, "policy_count": count}),
-    };
-    if let Err(e) = state
-        .audit
-        .log_entry(
-            &action,
-            &Verdict::Allow,
-            json!({"source": "api", "event": "policies_reloaded"}),
-        )
-        .await
-    {
-        tracing::warn!("Failed to audit reload_policies: {}", e);
-    }
 
     Ok(Json(json!({"reloaded": count, "config": config_path})))
 }
@@ -737,7 +715,7 @@ fn categorize_rate_limit<'a>(
 ) -> Option<&'a governor::DefaultDirectRateLimiter> {
     if path == "/api/evaluate" && method == Method::POST {
         limits.evaluate.as_ref()
-    } else if method != Method::GET && method != Method::OPTIONS {
+    } else if method != Method::GET && method != Method::OPTIONS && method != Method::HEAD {
         limits.admin.as_ref()
     } else {
         limits.readonly.as_ref()

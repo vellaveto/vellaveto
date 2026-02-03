@@ -7,7 +7,7 @@
 
 use proptest::prelude::*;
 use sentinel_engine::PolicyEngine;
-use sentinel_types::{Action, Policy, PolicyType};
+use sentinel_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 
 /// Generate arbitrary Action values for testing.
@@ -347,6 +347,95 @@ proptest! {
                 "Ambiguous path {:?} with different values must return None (fail-closed)\n\
                  exact:  {:?}\n\
                  nested: {:?}", dotted_key, exact, nested);
+        }
+    }
+}
+
+// ═══════════════════════════════════
+// PROPERTY 13: Strict mode with unknown tool always denies
+// (C-16.2: fail-closed invariant)
+// ═══════════════════════════════════
+
+proptest! {
+    #[test]
+    fn strict_mode_unknown_tool_always_denies(
+        tool in "[a-z]{5,15}_unknown",
+        function in "[a-z]{1,10}",
+    ) {
+        // Policies that never match the tool (tool names are always *_unknown,
+        // policies only cover "file" and "bash")
+        let policies = vec![
+            Policy {
+                id: "file:read".to_string(),
+                name: "Allow file read".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+            },
+            Policy {
+                id: "bash:*".to_string(),
+                name: "Block bash".to_string(),
+                policy_type: PolicyType::Deny,
+                priority: 100,
+            },
+        ];
+
+        let engine = PolicyEngine::new(true); // strict mode
+        let action = Action {
+            tool,
+            function,
+            parameters: json!({}),
+        };
+
+        let result = engine.evaluate_action(&action, &policies);
+        match result {
+            Ok(Verdict::Deny { .. }) => {} // Expected: strict mode denies unknown tools
+            other => prop_assert!(false,
+                "Strict mode must deny unknown tools. Got: {:?}", other),
+        }
+    }
+}
+
+// ═══════════════════════════════════
+// PROPERTY 14: Deny policy always beats Allow at same or higher priority
+// ═══════════════════════════════════
+
+proptest! {
+    #[test]
+    fn deny_at_higher_priority_always_wins(
+        tool in "[a-z]{1,10}",
+        function in "[a-z]{1,10}",
+        deny_priority in 50..=100i32,
+        allow_priority in 1..=49i32,
+    ) {
+        let mut policies = vec![
+            Policy {
+                id: "*:*".to_string(),
+                name: "Allow all".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: allow_priority,
+            },
+            Policy {
+                id: "*:*".to_string(),
+                name: "Deny all".to_string(),
+                policy_type: PolicyType::Deny,
+                priority: deny_priority,
+            },
+        ];
+        PolicyEngine::sort_policies(&mut policies);
+
+        let engine = PolicyEngine::new(false);
+        let action = Action {
+            tool,
+            function,
+            parameters: json!({}),
+        };
+
+        let result = engine.evaluate_action(&action, &policies);
+        match result {
+            Ok(Verdict::Deny { .. }) => {} // Expected: higher priority deny wins
+            other => prop_assert!(false,
+                "Deny at priority {} must beat Allow at priority {}. Got: {:?}",
+                deny_priority, allow_priority, other),
         }
     }
 }

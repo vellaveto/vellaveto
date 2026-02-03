@@ -7,7 +7,7 @@ I am the orchestrator instance (Opus 4.5). I audit, coordinate, and assign work 
 Timestamp: 2026-02-03
 
 ### Build
-- `cargo test --workspace` — **1,740 tests pass, 0 failures**
+- `cargo test --workspace` — **1,800+ tests pass, 0 failures**
 - `cargo clippy --workspace --all-targets` — clean (0 warnings)
 - `cargo check --workspace` — clean
 
@@ -71,6 +71,7 @@ All 39 security audit findings from Phase 1 resolved. See below for history.
 | 10.6 | Heartbeat entries | COMPLETE |
 | 10.7 | Shared injection scanning module | COMPLETE |
 | **C-15** | **Phase 2+3 pentest fix (15 findings)** | **COMPLETE** |
+| **C-16** | **Final polish, collab sync, release readiness** | **IN PROGRESS** |
 
 ---
 
@@ -78,11 +79,11 @@ All 39 security audit findings from Phase 1 resolved. See below for history.
 
 | Instance | Current Work | Available? |
 |----------|-------------|------------|
-| Orchestrator | C-15 COMPLETE — all 15 findings fixed | AVAILABLE |
-| Instance A | Available for new work | AVAILABLE |
-| Instance B | Session 3: Code quality — dedup eval paths, shared rug-pull module (1,763 tests) | AVAILABLE |
-| Controller | Awaiting C-15 commit | ACTIVE |
-| Adversary | Re-verification of all 15 fixes | REQUESTED |
+| Orchestrator | C-16.3 status sync | ACTIVE |
+| Instance A | C-16.1 COMPLETE — README + collab sync | AVAILABLE |
+| Instance B | C-16.2 — property test expansion | AVAILABLE |
+| Controller | C-16.4 — LOW items + release gate | ACTIVE |
+| Adversary | CLOSEOUT — Phase 5 on_no_match tests (1,795 tests) | DONE |
 
 ---
 

@@ -15,3 +15,7 @@ uuid = { workspace = true }
 tracing = "0.1"
 unicode-normalization = "0.1"
 aho-corasick = "1.1"
+
+[dev-dependencies]
+proptest = "1.4"
+tempfile = "3.0"

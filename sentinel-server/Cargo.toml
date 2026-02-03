@@ -37,6 +37,7 @@ subtle = "2"
 uuid = { workspace = true }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 hex = "0.4"
+notify = "7"
 
 [dev-dependencies]
 tempfile = "3.0"

@@ -1401,6 +1401,69 @@ async fn request_id_preserved_when_client_sends_it() {
     );
 }
 
+#[tokio::test]
+async fn request_id_oversized_is_replaced_with_uuid() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+    let oversized_id = "x".repeat(200); // 200 chars, exceeds 128-char cap
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/health")
+                .header("x-request-id", &oversized_id)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let request_id = resp
+        .headers()
+        .get("x-request-id")
+        .expect("Response must include X-Request-Id")
+        .to_str()
+        .unwrap();
+    // Oversized client ID rejected, replaced with auto-generated UUID
+    assert_ne!(
+        request_id, oversized_id,
+        "Oversized X-Request-Id must NOT be echoed back"
+    );
+    assert_eq!(
+        request_id.len(),
+        36,
+        "Oversized X-Request-Id should be replaced with UUID (36 chars), got {} chars",
+        request_id.len()
+    );
+}
+
+#[tokio::test]
+async fn request_id_at_128_chars_is_preserved() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+    let max_id = "a".repeat(128); // Exactly at the cap
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/health")
+                .header("x-request-id", &max_id)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let request_id = resp
+        .headers()
+        .get("x-request-id")
+        .expect("Response must include X-Request-Id")
+        .to_str()
+        .unwrap();
+    assert_eq!(
+        request_id, max_id,
+        "X-Request-Id at exactly 128 chars should be preserved"
+    );
+}
+
 // ════════════════════════════════
 // CHECKPOINT ENDPOINTS
 // ════════════════════════════════
@@ -1573,6 +1636,59 @@ async fn checkpoint_verify_after_create() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     // Verification should report valid chain
     assert!(json.is_object());
+}
+
+// ════════════════════════════════
+// HEAD METHOD EXEMPTIONS
+// ════════════════════════════════
+
+#[tokio::test]
+async fn head_request_bypasses_api_key_check() {
+    let (state, _tmp) = make_authed_state();
+    let app = routes::build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("HEAD")
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // HEAD should bypass auth just like GET
+    assert_ne!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "HEAD requests should bypass API key auth"
+    );
+}
+
+#[tokio::test]
+async fn head_request_uses_readonly_rate_limit_bucket() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    // HEAD to a non-health endpoint should still work (treated as readonly, not admin)
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("HEAD")
+                .uri("/api/policies")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Should not be rate-limited as admin
+    assert_ne!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "HEAD requests should use readonly rate limit bucket, not admin"
+    );
 }
 
 #[tokio::test]

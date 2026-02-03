@@ -36,6 +36,9 @@ enum Commands {
         /// WARNING: Mutating endpoints will have no access control.
         #[arg(long, default_value_t = false)]
         allow_anonymous: bool,
+        /// Watch the policy config file for changes and auto-reload.
+        #[arg(long, default_value_t = false)]
+        watch: bool,
     },
     /// One-shot action evaluation
     Evaluate {
@@ -87,7 +90,8 @@ async fn main() -> Result<()> {
             config,
             bind,
             allow_anonymous,
-        } => cmd_serve(port, config, bind, allow_anonymous).await,
+            watch,
+        } => cmd_serve(port, config, bind, allow_anonymous, watch).await,
         Commands::Evaluate {
             tool,
             function,
@@ -100,7 +104,7 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn cmd_serve(port: u16, config: String, bind: String, allow_anonymous: bool) -> Result<()> {
+async fn cmd_serve(port: u16, config: String, bind: String, allow_anonymous: bool, watch: bool) -> Result<()> {
     let policy_config = PolicyConfig::load_file(&config)
         .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
     let mut policies = policy_config.to_policies();
@@ -357,6 +361,13 @@ async fn cmd_serve(port: u16, config: String, bind: String, allow_anonymous: boo
         );
     }
 
+    // Optionally watch the config file for changes and auto-reload
+    if watch {
+        if let Err(e) = sentinel_server::spawn_config_watcher(state.clone()) {
+            tracing::warn!("Failed to start config file watcher: {}", e);
+        }
+    }
+
     // Keep a reference to audit for shutdown flush
     let shutdown_audit = state.audit.clone();
 
@@ -373,20 +384,29 @@ async fn cmd_serve(port: u16, config: String, bind: String, allow_anonymous: boo
         .await
         .context("Server error")?;
 
-    // Flush audit log to durable storage before exit.
-    // This ensures Allow/RequireApproval entries (which skip per-write fsync)
-    // are not lost on graceful shutdown.
-    if let Err(e) = shutdown_audit.sync().await {
-        tracing::warn!("Failed to sync audit log during shutdown: {}", e);
-    }
-    // Create a final checkpoint to capture any entries since the last periodic checkpoint
-    match shutdown_audit.create_checkpoint().await {
-        Ok(cp) => tracing::info!(
-            "Shutdown checkpoint created: {} ({} entries)",
-            cp.id,
-            cp.entry_count
-        ),
-        Err(e) => tracing::debug!("Shutdown checkpoint skipped: {}", e),
+    // Flush audit log with a 30-second timeout to prevent hanging on shutdown.
+    let shutdown_deadline = std::time::Duration::from_secs(30);
+    let cleanup = async {
+        // This ensures Allow/RequireApproval entries (which skip per-write fsync)
+        // are not lost on graceful shutdown.
+        if let Err(e) = shutdown_audit.sync().await {
+            tracing::warn!("Failed to sync audit log during shutdown: {}", e);
+        }
+        // Create a final checkpoint to capture any entries since the last periodic checkpoint
+        match shutdown_audit.create_checkpoint().await {
+            Ok(cp) => tracing::info!(
+                "Shutdown checkpoint created: {} ({} entries)",
+                cp.id,
+                cp.entry_count
+            ),
+            Err(e) => tracing::debug!("Shutdown checkpoint skipped: {}", e),
+        }
+    };
+    if tokio::time::timeout(shutdown_deadline, cleanup)
+        .await
+        .is_err()
+    {
+        tracing::warn!("Shutdown cleanup timed out after 30s — exiting without full flush");
     }
 
     tracing::info!("Server shut down gracefully");
