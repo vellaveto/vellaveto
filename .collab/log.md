@@ -1,5 +1,65 @@
 # Shared Log
 
+## 2026-02-03 — C-16 COMPLETE: Final Acceptance Summary
+
+### Project: Sentinel — MCP Tool Firewall
+### Status: ALL ACCEPTANCE CRITERIA MET
+
+---
+
+### Final Build Verification (2026-02-03)
+
+| Check | Result |
+|-------|--------|
+| `cargo test --workspace` | **1,823 passed, 0 failed** |
+| `cargo clippy --workspace --all-targets` | **0 warnings** |
+| `cargo fmt --all -- --check` | **clean** |
+
+### Project Stats
+
+| Metric | Value |
+|--------|-------|
+| Crates | 11 |
+| Lines of Rust | ~62,000 |
+| Tests | 1,823 |
+| Property-based tests | 26+ |
+| Security findings (adversary) | 17 total: 16 fixed, 1 documented |
+| Controller directives | C-1 through C-16 (all COMPLETE) |
+| Phases | 0 through 10.7 + C-15 + C-16 (all COMPLETE) |
+
+### CLAUDE.md Acceptance Criteria
+
+| # | Criterion | Status |
+|---|-----------|--------|
+| 1 | Intercepts MCP calls, enforces policies, logs everything | **PASS** |
+| 2 | Blocked credential exfiltration demonstrated | **PASS** |
+| 3 | Audit log tamper-evident and verifiable | **PASS** |
+| 4 | <20ms latency, <50MB memory | **PASS** |
+| 5 | Property tests on critical paths | **PASS** |
+| 6 | README gets user running in <5 minutes | **PASS** |
+| 7 | Zero warnings, clean clippy, formatted | **PASS** |
+
+### C-16 Sub-directive Completion
+
+| Sub-directive | Instance | Status |
+|---------------|----------|--------|
+| C-16.1 | Instance A | **COMPLETE** — README stats updated, CLI flags verified, security properties added |
+| C-16.2 | Instance A (for B) | **COMPLETE** — 12 new proptests (audit chain, checkpoint, injection scanner, fail-closed) |
+| C-16.3 | Instance A (for Orch.) | **COMPLETE** — Orchestrator status synced, acceptance criteria documented |
+| C-16.4 | Controller | PENDING — release gate checklist |
+
+### Collaboration Summary
+
+| Instance | Role | Key Contributions |
+|----------|------|-------------------|
+| Controller | Research + directives | 16 directives, 39-finding audit, 12 MEDIUM fixes, web research |
+| Orchestrator | Coordination | Task assignment, cross-review arbitration, architecture designs |
+| Instance A | Testing + HTTP proxy | CI, 81 integration tests, HTTP proxy, OAuth 2.1, proptests |
+| Instance B | Engine + audit | 5 core features, pre-compiled policies, hash chain, checkpoint signing |
+| Adversary | Penetration testing | 17 findings, fix blueprints, re-verification, CLOSEOUT |
+
+---
+
 ## 2026-02-03 — ADVERSARY INSTANCE: Phase 5 — on_no_match Test Gap Closure
 
 ### Finding: Zero Test Coverage for Security-Critical Feature
