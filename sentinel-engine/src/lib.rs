@@ -2229,16 +2229,32 @@ impl PolicyEngine {
     /// Retrieve a parameter value by dot-separated path.
     ///
     /// Supports both simple keys (`"path"`) and nested paths (`"config.output.path"`).
-    /// Returns `None` if any segment along the path is missing or not an object.
+    ///
+    /// **Resolution order** (Exploit #5 fix): When the path contains dots, the function
+    /// first tries an exact key match (e.g., `params["config.path"]`). If that fails,
+    /// it falls back to dot-split traversal (e.g., `params["config"]["path"]`). This
+    /// prevents ambiguity when JSON keys contain literal dots.
+    ///
+    /// Returns `None` if the key is not found by either method.
     pub fn get_param_by_path<'a>(
         params: &'a serde_json::Value,
         path: &str,
     ) -> Option<&'a serde_json::Value> {
-        let mut current = params;
-        for segment in path.split('.') {
-            current = current.get(segment)?;
+        // Try exact key match first — handles keys with literal dots like "config.path"
+        if let Some(val) = params.get(path) {
+            return Some(val);
         }
-        Some(current)
+
+        // Fall back to dot-split traversal for nested objects
+        if path.contains('.') {
+            let mut current = params;
+            for segment in path.split('.') {
+                current = current.get(segment)?;
+            }
+            return Some(current);
+        }
+
+        None
     }
 
     /// Maximum number of string values to collect during recursive parameter scanning.

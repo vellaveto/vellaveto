@@ -179,6 +179,19 @@ async fn extract_annotations_from_response(
         session_id,
     );
 
+    // Flag tools for blocking — rug-pull detection is now enforcement, not just logging.
+    // Tools with changed/added annotations are blocked until a clean tools/list arrives.
+    if !changed_tools.is_empty() || !new_tool_names.is_empty() {
+        if let Some(mut s) = sessions.get_mut(session_id) {
+            for name in &changed_tools {
+                s.flagged_tools.insert(name.clone());
+            }
+            for name in &new_tool_names {
+                s.flagged_tools.insert(name.clone());
+            }
+        }
+    }
+
     // Audit annotation changes
     if !changed_tools.is_empty() {
         let action = Action {
@@ -356,6 +369,54 @@ pub async fn handle_mcp_post(
             tool_name,
             arguments,
         } => {
+            // Check rug-pull flags — block calls to tools with changed annotations
+            let is_flagged = state
+                .sessions
+                .get_mut(&session_id)
+                .map(|s| s.flagged_tools.contains(&tool_name))
+                .unwrap_or(false);
+
+            if is_flagged {
+                let action = extractor::extract_action(&tool_name, &arguments);
+                let verdict = Verdict::Deny {
+                    reason: format!(
+                        "Tool '{}' blocked: annotations changed since initial tools/list (rug-pull detected)",
+                        tool_name
+                    ),
+                };
+                if let Err(e) = state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        build_audit_context(
+                            &session_id,
+                            json!({"tool": tool_name, "event": "rug_pull_tool_blocked"}),
+                            &oauth_claims,
+                        ),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit rug-pull block: {}", e);
+                }
+
+                let error_response = json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32001,
+                        "message": format!(
+                            "Denied by Sentinel: Tool '{}' blocked due to annotation change (rug-pull protection)",
+                            tool_name
+                        ),
+                    }
+                });
+                return attach_session_header(
+                    (StatusCode::OK, Json(error_response)).into_response(),
+                    &session_id,
+                );
+            }
+
             let action = extractor::extract_action(&tool_name, &arguments);
 
             // Choose traced or non-traced evaluation path
@@ -805,7 +866,40 @@ async fn forward_to_upstream(
 
             // Check if upstream is returning SSE
             if content_type.starts_with("text/event-stream") {
-                // For SSE responses, stream the body through
+                // Exploit #6 mitigation: SSE responses cannot be fully scanned for
+                // injection without buffering the entire stream (defeating the purpose
+                // of streaming). Log an audit warning when SSE is forwarded.
+                if !state.injection_disabled {
+                    tracing::warn!(
+                        "SECURITY: SSE response forwarded without injection scanning (session {}). \
+                         Stream-level inspection is not yet supported.",
+                        session_id,
+                    );
+                    let action = Action {
+                        tool: "sentinel".to_string(),
+                        function: "sse_unscanned_warning".to_string(),
+                        parameters: json!({
+                            "session": session_id,
+                            "content_type": content_type,
+                        }),
+                    };
+                    if let Err(e) = state
+                        .audit
+                        .log_entry(
+                            &action,
+                            &Verdict::Allow,
+                            json!({
+                                "source": "http_proxy",
+                                "event": "sse_response_unscanned",
+                                "warning": "SSE responses bypass injection scanning",
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit SSE warning: {}", e);
+                    }
+                }
+
                 let stream = upstream_resp.bytes_stream();
                 let body = Body::from_stream(stream);
                 let mut response = Response::builder()

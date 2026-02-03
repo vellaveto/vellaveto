@@ -509,9 +509,21 @@ impl AuditLogger {
                         "Chain head hash should be None for empty log".to_string(),
                     ),
                 });
+            } else if cp.entry_count > entries.len() {
+                // Exploit #8 fix: detect audit log tail truncation.
+                // If a checkpoint recorded N entries but the log has fewer,
+                // entries were deleted. This MUST fail verification.
+                return Ok(CheckpointVerification {
+                    valid: false,
+                    checkpoints_checked: i + 1,
+                    first_invalid_at: Some(i),
+                    failure_reason: Some(format!(
+                        "Audit log truncated: checkpoint references {} entries but log has only {}",
+                        cp.entry_count,
+                        entries.len()
+                    )),
+                });
             }
-            // If cp.entry_count > entries.len(), the audit log was truncated.
-            // This is suspicious but we can only verify what we have.
         }
 
         Ok(CheckpointVerification {
@@ -862,12 +874,35 @@ impl AuditLogger {
         Ok(())
     }
 
+    /// Maximum audit log file size for load operations (100 MB).
+    ///
+    /// Prevents memory DoS (Exploit #10) where an attacker grows the audit log
+    /// and then triggers `verify_chain()` to OOM the server.
+    const MAX_AUDIT_LOG_SIZE: u64 = 100 * 1024 * 1024;
+
     /// Load all entries from the audit log.
     ///
     /// Corrupt or malformed lines are skipped with a warning rather than
     /// failing the entire load. This ensures the audit log remains readable
     /// even if a single line is corrupted (e.g., partial write, disk error).
+    ///
+    /// **Security:** File size is checked before reading to prevent memory DoS.
+    /// Files larger than 100 MB are rejected with an error.
     pub async fn load_entries(&self) -> Result<Vec<AuditEntry>, AuditError> {
+        // Exploit #10 fix: check file size before loading to prevent memory DoS
+        match tokio::fs::metadata(&self.log_path).await {
+            Ok(meta) if meta.len() > Self::MAX_AUDIT_LOG_SIZE => {
+                return Err(AuditError::Validation(format!(
+                    "Audit log too large ({} bytes, max {} bytes). Use log rotation.",
+                    meta.len(),
+                    Self::MAX_AUDIT_LOG_SIZE
+                )));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(AuditError::Io(e)),
+            Ok(_) => {} // Size OK, proceed
+        }
+
         let content = match tokio::fs::read_to_string(&self.log_path).await {
             Ok(c) => c,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),

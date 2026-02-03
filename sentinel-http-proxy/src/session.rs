@@ -9,7 +9,7 @@
 #![allow(dead_code)] // Stub crate — session module is implemented but not yet wired to proxy
 
 use dashmap::DashMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -28,6 +28,9 @@ pub struct SessionState {
     /// OAuth subject identifier from the authenticated token (if OAuth is enabled).
     /// Stored for inclusion in audit trail entries.
     pub oauth_subject: Option<String>,
+    /// Tools flagged by rug-pull detection. Tool calls to these tools are
+    /// blocked until the session is cleared or a clean tools/list is received.
+    pub flagged_tools: HashSet<String>,
 }
 
 /// Compact tool annotation storage for session state.
@@ -62,6 +65,7 @@ impl SessionState {
             request_count: 0,
             tools_list_seen: false,
             oauth_subject: None,
+            flagged_tools: HashSet::new(),
         }
     }
 
