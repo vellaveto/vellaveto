@@ -27,6 +27,7 @@ policies/
 .session-state.md
 .backups.log
 TASKS.md
+CLAUDE.md
 
 # OS
 .DS_Store
