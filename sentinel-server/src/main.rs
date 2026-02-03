@@ -322,6 +322,23 @@ async fn cmd_serve(
         );
     }
 
+    // Per-principal rate limiting: independent bucket per principal key.
+    // Principal is identified by X-Principal header, Bearer token, or client IP fallback.
+    let eff_per_principal_rps = env_or("SENTINEL_RATE_PER_PRINCIPAL", rl_cfg.per_principal_rps);
+    let eff_per_principal_burst = env_or(
+        "SENTINEL_RATE_PER_PRINCIPAL_BURST",
+        rl_cfg.per_principal_burst,
+    );
+    if let Some(rps) = eff_per_principal_rps.and_then(std::num::NonZeroU32::new) {
+        let burst = eff_per_principal_burst.and_then(std::num::NonZeroU32::new);
+        rate_limits_val = rate_limits_val.with_per_principal_config(rps, burst, None);
+        tracing::info!(
+            "Per-principal rate limiting enabled: {} req/s per principal{}",
+            rps,
+            burst.map_or(String::new(), |b| format!(", burst {}", b)),
+        );
+    }
+
     let rate_limits = Arc::new(rate_limits_val);
 
     if rate_limits.evaluate.is_some()
@@ -492,6 +509,30 @@ async fn cmd_serve(
                             "Cleaned up {} stale per-IP rate limit buckets ({} remaining)",
                             removed,
                             per_ip.len()
+                        );
+                    }
+                }
+            }
+        });
+    }
+
+    // Spawn periodic per-principal rate limit bucket cleanup (every 10 minutes)
+    if state.rate_limits.per_principal.is_some() {
+        let cleanup_limits = state.rate_limits.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(600));
+            interval.tick().await; // Skip first immediate tick
+            loop {
+                interval.tick().await;
+                if let Some(ref per_principal) = cleanup_limits.per_principal {
+                    let before = per_principal.len();
+                    per_principal.cleanup(std::time::Duration::from_secs(3600));
+                    let removed = before.saturating_sub(per_principal.len());
+                    if removed > 0 {
+                        tracing::debug!(
+                            "Cleaned up {} stale per-principal rate limit buckets ({} remaining)",
+                            removed,
+                            per_principal.len()
                         );
                     }
                 }

@@ -12,6 +12,7 @@
 use sentinel_audit::AuditLogger;
 use sentinel_types::{Action, Verdict};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 
 /// Tool annotations extracted from `tools/list` responses.
@@ -28,6 +29,10 @@ pub struct ToolAnnotations {
     pub idempotent_hint: bool,
     #[serde(default = "default_true")]
     pub open_world_hint: bool,
+    /// SHA-256 hash of the tool's `inputSchema` JSON for rug-pull schema change detection.
+    /// `None` when no `inputSchema` was present in the tool definition.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_schema_hash: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -41,6 +46,7 @@ impl Default for ToolAnnotations {
             destructive_hint: true,
             idempotent_hint: false,
             open_world_hint: true,
+            input_schema_hash: None,
         }
     }
 }
@@ -99,7 +105,27 @@ pub fn parse_annotations(ann: &serde_json::Value) -> ToolAnnotations {
             .get("openWorldHint")
             .and_then(|v| v.as_bool())
             .unwrap_or(true),
+        // Schema hash is computed separately in detect_rug_pull from the
+        // tool's inputSchema field, not from annotations.
+        input_schema_hash: None,
     }
+}
+
+/// Compute a SHA-256 hash of a JSON value's canonical string representation.
+///
+/// Used to fingerprint `inputSchema` for rug-pull schema change detection.
+/// Returns `None` if the value is `Null`.
+pub fn compute_schema_hash(schema: &serde_json::Value) -> Option<String> {
+    if schema.is_null() {
+        return None;
+    }
+    // serde_json::to_string produces deterministic output for the same Value
+    // because serde_json::Value normalises the JSON structure.
+    let canonical = serde_json::to_string(schema).ok()?;
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.as_bytes());
+    let digest = hasher.finalize();
+    Some(format!("{:x}", digest))
 }
 
 /// Analyze a `tools/list` response for rug-pull indicators.
@@ -140,15 +166,31 @@ pub fn detect_rug_pull(
 
         current_tool_names.insert(name.clone());
 
-        let annotations = if let Some(ann) = tool.get("annotations") {
+        let mut annotations = if let Some(ann) = tool.get("annotations") {
             parse_annotations(ann)
         } else {
             ToolAnnotations::default()
         };
 
-        // Annotation change detection
+        // Compute inputSchema hash for schema change detection (Phase 4C)
+        if let Some(schema) = tool.get("inputSchema") {
+            annotations.input_schema_hash = compute_schema_hash(schema);
+        }
+
+        // Annotation change detection (includes inputSchema hash via PartialEq)
         if let Some(prev) = known.get(&name) {
             if *prev != annotations {
+                // Log specific schema change if applicable
+                if prev.input_schema_hash != annotations.input_schema_hash {
+                    tracing::warn!(
+                        "SECURITY: Tool '{}' inputSchema changed! \
+                         Previous hash: {:?}, Current hash: {:?}. \
+                         This may indicate a rug-pull schema attack.",
+                        name,
+                        prev.input_schema_hash,
+                        annotations.input_schema_hash,
+                    );
+                }
                 result.changed_tools.push(name.clone());
                 tracing::warn!(
                     "SECURITY: Tool '{}' annotations changed! Previous: {:?}, Current: {:?}. \
@@ -349,6 +391,7 @@ mod tests {
                 destructive_hint: true,
                 idempotent_hint: false,
                 open_world_hint: true,
+                input_schema_hash: None,
             },
         );
 
@@ -454,5 +497,122 @@ mod tests {
         assert!(flagged.contains(&"safe_tool"));
         assert!(flagged.contains(&"new_evil_tool"));
         assert!(!flagged.contains(&"vanishing_tool"));
+    }
+
+    // --- Phase 4C: Schema change detection tests ---
+
+    #[test]
+    fn test_schema_change_detected() {
+        // First tools/list: tool has an inputSchema
+        let response1 = json!({
+            "result": {
+                "tools": [{
+                    "name": "run_query",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string"}
+                        }
+                    },
+                    "annotations": {"readOnlyHint": true}
+                }]
+            }
+        });
+        let known = HashMap::new();
+        let result1 = detect_rug_pull(&response1, &known, true);
+        assert!(!result1.has_detections());
+
+        // Verify the schema hash was stored
+        let ann = result1
+            .updated_known
+            .get("run_query")
+            .expect("tool should be in known");
+        assert!(ann.input_schema_hash.is_some(), "Schema hash should be set");
+
+        // Second tools/list: same tool but different inputSchema (rug-pull!)
+        let response2 = json!({
+            "result": {
+                "tools": [{
+                    "name": "run_query",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string"},
+                            "target_url": {"type": "string"}
+                        }
+                    },
+                    "annotations": {"readOnlyHint": true}
+                }]
+            }
+        });
+        let result2 = detect_rug_pull(&response2, &result1.updated_known, false);
+
+        assert!(result2.has_detections(), "Schema change should be detected");
+        assert_eq!(result2.changed_tools, vec!["run_query"]);
+    }
+
+    #[test]
+    fn test_same_schema_not_flagged() {
+        // First tools/list
+        let response = json!({
+            "result": {
+                "tools": [{
+                    "name": "run_query",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string"}
+                        }
+                    },
+                    "annotations": {"readOnlyHint": true}
+                }]
+            }
+        });
+        let known = HashMap::new();
+        let result1 = detect_rug_pull(&response, &known, true);
+        assert!(!result1.has_detections());
+
+        // Second tools/list: identical schema and annotations
+        let result2 = detect_rug_pull(&response, &result1.updated_known, false);
+        assert!(
+            !result2.has_detections(),
+            "Identical schema should not be flagged"
+        );
+        assert!(result2.changed_tools.is_empty());
+    }
+
+    #[test]
+    fn test_schema_hash_computation_correct() {
+        let schema1 = json!({"type": "object", "properties": {"query": {"type": "string"}}});
+        let schema2 = json!({"type": "object", "properties": {"query": {"type": "string"}}});
+        let schema3 = json!({"type": "object", "properties": {"url": {"type": "string"}}});
+
+        let hash1 = compute_schema_hash(&schema1);
+        let hash2 = compute_schema_hash(&schema2);
+        let hash3 = compute_schema_hash(&schema3);
+
+        // Same schema should produce same hash (deterministic)
+        assert_eq!(
+            hash1, hash2,
+            "Identical schemas should produce the same hash"
+        );
+
+        // Different schema should produce different hash
+        assert_ne!(
+            hash1, hash3,
+            "Different schemas should produce different hashes"
+        );
+
+        // Null schema should return None
+        let null_hash = compute_schema_hash(&serde_json::Value::Null);
+        assert!(null_hash.is_none(), "Null schema should return None");
+
+        // Hash should be a hex string
+        let h = hash1.expect("hash should be Some");
+        assert_eq!(h.len(), 64, "SHA-256 hex string should be 64 chars");
+        assert!(
+            h.chars().all(|c| c.is_ascii_hexdigit()),
+            "Hash should be hex"
+        );
     }
 }

@@ -52,6 +52,8 @@ pub struct ProxyState {
     pub injection_scanner: Option<Arc<InjectionScanner>>,
     /// When true, injection scanning is completely disabled.
     pub injection_disabled: bool,
+    /// When true, injection matches block the response instead of just logging (H4).
+    pub injection_blocking: bool,
     /// API key for authenticating requests. None disables auth (--allow-anonymous).
     pub api_key: Option<Arc<String>>,
     /// Optional approval store for RequireApproval verdicts.
@@ -60,6 +62,10 @@ pub struct ProxyState {
     /// Optional manifest verification config. When set, tools/list responses
     /// are verified against a pinned manifest per session.
     pub manifest_config: Option<ManifestConfig>,
+    /// Allowed origins for CSRF protection. If empty, uses same-origin check
+    /// (Origin host must match Host header). If non-empty, Origin must be in
+    /// the allowlist. Requests without an Origin header are allowed (non-browser).
+    pub allowed_origins: Vec<String>,
 }
 
 /// MCP Session ID header name.
@@ -230,6 +236,11 @@ pub async fn handle_mcp_post(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    // CSRF origin validation
+    if let Err(response) = validate_origin(&headers, &state.allowed_origins) {
+        return response;
+    }
+
     // API key validation (if configured) — fast check before OAuth
     if let Err(response) = validate_api_key(&state, &headers) {
         return response;
@@ -720,6 +731,11 @@ pub async fn handle_mcp_post(
 /// When OAuth is configured, verifies that the authenticated user owns the
 /// session before allowing deletion. Prevents cross-user session termination.
 pub async fn handle_mcp_delete(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    // CSRF origin validation
+    if let Err(response) = validate_origin(&headers, &state.allowed_origins) {
+        return response;
+    }
+
     // API key validation (if configured) — fast check before OAuth
     if let Err(response) = validate_api_key(&state, &headers) {
         return response;
@@ -876,6 +892,81 @@ fn validate_api_key(state: &ProxyState, headers: &HeaderMap) -> Result<(), Respo
             Json(json!({"error": "Missing or invalid Authorization header. Expected: Bearer <api_key>"})),
         )
             .into_response()),
+    }
+}
+
+/// Validate the Origin header for CSRF protection.
+///
+/// Returns `Ok(())` if:
+/// - No `Origin` header is present (non-browser client)
+/// - `allowed_origins` is non-empty and contains the Origin value (or `"*"`)
+/// - `allowed_origins` is empty and Origin host matches the `Host` header (same-origin)
+///
+/// Returns `Err(response)` with HTTP 403 if the origin is not allowed.
+#[allow(clippy::result_large_err)]
+fn validate_origin(headers: &HeaderMap, allowed_origins: &[String]) -> Result<(), Response> {
+    // If no Origin header present, allow (non-browser client)
+    let origin = match headers.get("origin").and_then(|o| o.to_str().ok()) {
+        Some(o) => o,
+        None => return Ok(()),
+    };
+
+    if allowed_origins.is_empty() {
+        // Same-origin check: Origin must match Host header
+        let host = headers
+            .get("host")
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or("");
+
+        // Extract host:port from origin URL (e.g., "http://localhost:3001" -> "localhost:3001")
+        if let Some(origin_authority) = extract_authority_from_origin(origin) {
+            if origin_authority == host {
+                return Ok(());
+            }
+            // Also match if host lacks a port (e.g., origin "http://localhost:3001" vs host "localhost")
+            if let Some(colon_pos) = origin_authority.rfind(':') {
+                if &origin_authority[..colon_pos] == host {
+                    return Ok(());
+                }
+            }
+        }
+
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Origin not allowed"})),
+        )
+            .into_response());
+    }
+
+    // Check against allowlist
+    if allowed_origins.iter().any(|a| a == origin || a == "*") {
+        return Ok(());
+    }
+
+    Err((
+        StatusCode::FORBIDDEN,
+        Json(json!({"error": "Origin not allowed"})),
+    )
+        .into_response())
+}
+
+/// Extract the authority (host:port) from an origin URL string.
+///
+/// E.g., `"http://localhost:3001"` -> `Some("localhost:3001")`
+/// E.g., `"https://example.com"` -> `Some("example.com")`
+///
+/// Returns `None` if the URL cannot be parsed.
+fn extract_authority_from_origin(origin: &str) -> Option<String> {
+    // Origin format: "scheme://host[:port]"
+    // Find the start of the authority (after "://")
+    let authority_start = origin.find("://").map(|i| i + 3)?;
+    let authority = &origin[authority_start..];
+    // Strip any trailing path (shouldn't be present in Origin, but be safe)
+    let authority = authority.split('/').next().unwrap_or(authority);
+    if authority.is_empty() {
+        None
+    } else {
+        Some(authority.to_string())
     }
 }
 
@@ -1605,5 +1696,98 @@ mod tests {
         let sse = b"event: ping\ndata:\n\n";
         let matches = scan_sse_for_injection_sync(sse);
         assert!(matches.is_empty(), "Empty data should not trigger");
+    }
+
+    // --- Phase 5A: CSRF origin validation tests ---
+
+    fn make_headers(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for (k, v) in pairs {
+            headers.insert(
+                axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(),
+                v.parse().unwrap(),
+            );
+        }
+        headers
+    }
+
+    #[test]
+    fn test_csrf_no_origin_header_allowed() {
+        // Non-browser clients (e.g., CLI tools) don't send Origin — should be allowed
+        let headers = make_headers(&[("host", "localhost:3001")]);
+        assert!(validate_origin(&headers, &[]).is_ok());
+    }
+
+    #[test]
+    fn test_csrf_wrong_origin_rejected() {
+        // Cross-origin request with empty allowlist (same-origin mode)
+        let headers = make_headers(&[("host", "localhost:3001"), ("origin", "http://evil.com")]);
+        let result = validate_origin(&headers, &[]);
+        assert!(result.is_err(), "Cross-origin request should be rejected");
+    }
+
+    #[test]
+    fn test_csrf_allowed_origin_passes() {
+        // Origin in explicit allowlist
+        let headers = make_headers(&[
+            ("host", "localhost:3001"),
+            ("origin", "http://trusted.example.com"),
+        ]);
+        let allowed = vec!["http://trusted.example.com".to_string()];
+        assert!(validate_origin(&headers, &allowed).is_ok());
+    }
+
+    #[test]
+    fn test_csrf_same_origin_passes() {
+        // Same-origin check: origin host:port matches Host header
+        let headers = make_headers(&[
+            ("host", "localhost:3001"),
+            ("origin", "http://localhost:3001"),
+        ]);
+        assert!(validate_origin(&headers, &[]).is_ok());
+    }
+
+    #[test]
+    fn test_csrf_wildcard_origin_passes() {
+        // Wildcard allowlist allows any origin
+        let headers = make_headers(&[
+            ("host", "localhost:3001"),
+            ("origin", "http://anywhere.example.com"),
+        ]);
+        let allowed = vec!["*".to_string()];
+        assert!(validate_origin(&headers, &allowed).is_ok());
+    }
+
+    #[test]
+    fn test_csrf_origin_not_in_allowlist_rejected() {
+        // Origin not in explicit allowlist
+        let headers = make_headers(&[("host", "localhost:3001"), ("origin", "http://evil.com")]);
+        let allowed = vec!["http://trusted.com".to_string()];
+        let result = validate_origin(&headers, &allowed);
+        assert!(
+            result.is_err(),
+            "Origin not in allowlist should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_extract_authority_from_origin_with_port() {
+        assert_eq!(
+            extract_authority_from_origin("http://localhost:3001"),
+            Some("localhost:3001".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_authority_from_origin_without_port() {
+        assert_eq!(
+            extract_authority_from_origin("https://example.com"),
+            Some("example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_authority_from_origin_invalid() {
+        assert_eq!(extract_authority_from_origin("not-a-url"), None);
     }
 }

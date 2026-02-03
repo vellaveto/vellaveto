@@ -75,6 +75,11 @@ struct Args {
     /// WARNING: All MCP endpoints will have no access control beyond OAuth (if configured).
     #[arg(long, default_value_t = false)]
     allow_anonymous: bool,
+
+    /// Absolute session lifetime in seconds. Sessions older than this are
+    /// expired regardless of activity. 0 = no absolute limit (default: 86400 = 24h).
+    #[arg(long, default_value_t = 86400)]
+    session_max_lifetime: u64,
 }
 
 #[tokio::main]
@@ -149,15 +154,20 @@ async fn main() -> Result<()> {
     tracing::info!("Audit log: {}", audit_path.display());
 
     // Session store
-    let sessions = Arc::new(SessionStore::new(
-        Duration::from_secs(args.session_timeout),
-        args.max_sessions,
-    ));
+    let session_store =
+        SessionStore::new(Duration::from_secs(args.session_timeout), args.max_sessions);
+    let session_store = if args.session_max_lifetime > 0 {
+        session_store.with_max_lifetime(Duration::from_secs(args.session_max_lifetime))
+    } else {
+        session_store
+    };
+    let sessions = Arc::new(session_store);
 
     tracing::info!(
-        "Session store: timeout={}s, max={}",
+        "Session store: timeout={}s, max={}, max_lifetime={}s",
         args.session_timeout,
-        args.max_sessions
+        args.max_sessions,
+        args.session_max_lifetime
     );
 
     // HTTP client for upstream
@@ -239,9 +249,11 @@ async fn main() -> Result<()> {
         oauth,
         injection_scanner,
         injection_disabled,
+        injection_blocking: false,
         api_key,
         approval_store: None,
         manifest_config: None,
+        allowed_origins: vec![],
     };
 
     // Build router

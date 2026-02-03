@@ -156,9 +156,11 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
+        injection_blocking: false,
         api_key: None,
         approval_store: None,
         manifest_config: None,
+        allowed_origins: vec![],
     }
 }
 
@@ -1588,9 +1590,11 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
+        injection_blocking: false,
         api_key: None,
         approval_store: None,
         manifest_config: None,
+        allowed_origins: vec![],
     };
     let sessions = state.sessions.clone();
     let app = build_router(state);
@@ -1867,9 +1871,11 @@ async fn trace_resource_read_denied_includes_trace() {
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
+        injection_blocking: false,
         api_key: None,
         approval_store: None,
         manifest_config: None,
+        allowed_origins: vec![],
     };
     let app = build_router(state);
 
@@ -1935,9 +1941,11 @@ async fn trace_constraint_details_visible() {
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
+        injection_blocking: false,
         api_key: None,
         approval_store: None,
         manifest_config: None,
+        allowed_origins: vec![],
     };
     let app = build_router(state);
 
@@ -2121,9 +2129,11 @@ fn build_oauth_test_state(
         oauth: Some(Arc::new(OAuthValidator::new(oauth_config, http_client))),
         injection_scanner: None,
         injection_disabled: false,
+        injection_blocking: false,
         api_key: None,
         approval_store: None,
         manifest_config: None,
+        allowed_origins: vec![],
     }
 }
 
@@ -2638,9 +2648,11 @@ fn build_api_key_test_state(
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
+        injection_blocking: false,
         api_key: api_key.map(|k| Arc::new(k.to_string())),
         approval_store: None,
         manifest_config: None,
+        allowed_origins: vec![],
     }
 }
 

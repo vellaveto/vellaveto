@@ -1,4 +1,41 @@
 use serde::{Deserialize, Serialize};
+use std::fmt;
+
+/// Maximum length for tool and function names (bytes).
+const MAX_NAME_LEN: usize = 256;
+
+/// Validation errors for Action fields.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ValidationError {
+    /// Tool or function name is empty.
+    EmptyField { field: &'static str },
+    /// Tool or function name contains a null byte.
+    NullByte { field: &'static str },
+    /// Tool or function name exceeds the maximum length.
+    TooLong {
+        field: &'static str,
+        len: usize,
+        max: usize,
+    },
+}
+
+impl fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ValidationError::EmptyField { field } => {
+                write!(f, "Action {} must not be empty", field)
+            }
+            ValidationError::NullByte { field } => {
+                write!(f, "Action {} contains null byte", field)
+            }
+            ValidationError::TooLong { field, len, max } => {
+                write!(f, "Action {} too long: {} bytes (max {})", field, len, max)
+            }
+        }
+    }
+}
+
+impl std::error::Error for ValidationError {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Action {
@@ -13,9 +50,30 @@ pub struct Action {
     pub target_domains: Vec<String>,
 }
 
+/// Validate a single name field (tool or function).
+fn validate_name(value: &str, field: &'static str) -> Result<(), ValidationError> {
+    if value.is_empty() {
+        return Err(ValidationError::EmptyField { field });
+    }
+    if value.contains('\0') {
+        return Err(ValidationError::NullByte { field });
+    }
+    if value.len() > MAX_NAME_LEN {
+        return Err(ValidationError::TooLong {
+            field,
+            len: value.len(),
+            max: MAX_NAME_LEN,
+        });
+    }
+    Ok(())
+}
+
 impl Action {
     /// Create an Action with only tool, function, and parameters.
     /// `target_paths` and `target_domains` default to empty.
+    ///
+    /// Does NOT validate inputs — use [`Action::validated`] or [`Action::validate`]
+    /// at trust boundaries (MCP extractor, HTTP proxy).
     pub fn new(
         tool: impl Into<String>,
         function: impl Into<String>,
@@ -28,6 +86,37 @@ impl Action {
             target_paths: Vec::new(),
             target_domains: Vec::new(),
         }
+    }
+
+    /// Create an Action with validation on tool and function names.
+    ///
+    /// Rejects empty names, null bytes, and names exceeding 256 bytes.
+    /// Use this at trust boundaries where inputs come from external sources.
+    pub fn validated(
+        tool: impl Into<String>,
+        function: impl Into<String>,
+        parameters: serde_json::Value,
+    ) -> Result<Self, ValidationError> {
+        let tool = tool.into();
+        let function = function.into();
+        validate_name(&tool, "tool")?;
+        validate_name(&function, "function")?;
+        Ok(Self {
+            tool,
+            function,
+            parameters,
+            target_paths: Vec::new(),
+            target_domains: Vec::new(),
+        })
+    }
+
+    /// Validate an existing Action's tool and function names.
+    ///
+    /// Returns `Ok(())` if valid, or a `ValidationError` describing the issue.
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        validate_name(&self.tool, "tool")?;
+        validate_name(&self.function, "function")?;
+        Ok(())
     }
 }
 
@@ -185,5 +274,93 @@ mod tests {
         let deserialized: Policy = serde_json::from_str(&json_str).unwrap();
         assert_eq!(deserialized.id, "bash:*");
         assert_eq!(deserialized.priority, 100);
+    }
+
+    // --- Action validation tests (M2) ---
+
+    #[test]
+    fn test_validated_accepts_valid_input() {
+        let action = Action::validated("read_file", "execute", json!({}));
+        assert!(action.is_ok());
+        let action = action.unwrap();
+        assert_eq!(action.tool, "read_file");
+        assert_eq!(action.function, "execute");
+    }
+
+    #[test]
+    fn test_validated_rejects_empty_tool() {
+        let result = Action::validated("", "execute", json!({}));
+        assert!(matches!(
+            result,
+            Err(ValidationError::EmptyField { field: "tool" })
+        ));
+    }
+
+    #[test]
+    fn test_validated_rejects_empty_function() {
+        let result = Action::validated("read_file", "", json!({}));
+        assert!(matches!(
+            result,
+            Err(ValidationError::EmptyField { field: "function" })
+        ));
+    }
+
+    #[test]
+    fn test_validated_rejects_null_bytes_in_tool() {
+        let result = Action::validated("read\0file", "execute", json!({}));
+        assert!(matches!(
+            result,
+            Err(ValidationError::NullByte { field: "tool" })
+        ));
+    }
+
+    #[test]
+    fn test_validated_rejects_null_bytes_in_function() {
+        let result = Action::validated("read_file", "exec\0ute", json!({}));
+        assert!(matches!(
+            result,
+            Err(ValidationError::NullByte { field: "function" })
+        ));
+    }
+
+    #[test]
+    fn test_validated_rejects_too_long_tool() {
+        let long_name = "a".repeat(257);
+        let result = Action::validated(long_name, "execute", json!({}));
+        assert!(matches!(
+            result,
+            Err(ValidationError::TooLong { field: "tool", .. })
+        ));
+    }
+
+    #[test]
+    fn test_validated_accepts_max_length_tool() {
+        let name = "a".repeat(256);
+        let result = Action::validated(name, "execute", json!({}));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_existing_action() {
+        let action = Action::new("read_file", "execute", json!({}));
+        assert!(action.validate().is_ok());
+
+        let bad = Action::new("", "execute", json!({}));
+        assert!(bad.validate().is_err());
+    }
+
+    #[test]
+    fn test_new_still_works_without_validation() {
+        // Backward compatibility: new() doesn't validate
+        let action = Action::new("", "", json!({}));
+        assert_eq!(action.tool, "");
+        assert_eq!(action.function, "");
+    }
+
+    #[test]
+    fn test_validation_error_display() {
+        let e = ValidationError::EmptyField { field: "tool" };
+        assert!(e.to_string().contains("tool"));
+        assert!(e.to_string().contains("empty"));
     }
 }

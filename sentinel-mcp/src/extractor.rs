@@ -148,14 +148,31 @@ pub fn classify_message(msg: &Value) -> MessageType {
 ///
 /// Automatically populates `target_paths` from parameters containing file-like paths
 /// and `target_domains` from parameters containing URLs.
+///
+/// Validates tool name at the trust boundary. Returns a fail-closed action
+/// (tool `"<invalid>"`) if the name is invalid, ensuring downstream policy
+/// evaluation denies the call rather than processing garbage input.
 pub fn extract_action(tool_name: &str, arguments: &Value) -> Action {
-    let mut action = Action::new(tool_name, "*", arguments.clone());
-    extract_targets_from_params(
-        arguments,
-        &mut action.target_paths,
-        &mut action.target_domains,
-    );
-    action
+    // Validate at the trust boundary (M2: reject empty, null bytes, overlength)
+    match Action::validated(tool_name, "*", arguments.clone()) {
+        Ok(mut action) => {
+            extract_targets_from_params(
+                arguments,
+                &mut action.target_paths,
+                &mut action.target_domains,
+            );
+            action
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Invalid tool name rejected at extraction: {} (tool={:?})",
+                e,
+                &tool_name[..tool_name.len().min(64)]
+            );
+            // Fail-closed: return an action that no Allow policy will match
+            Action::new("<invalid>", "<invalid>", arguments.clone())
+        }
+    }
 }
 
 /// Scan parameter values for file paths and URLs, populating target_paths and target_domains.

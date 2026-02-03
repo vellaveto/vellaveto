@@ -1,6 +1,7 @@
 use chrono::{DateTime, Duration, Utc};
 use sentinel_types::Action;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -48,9 +49,33 @@ pub struct PendingApproval {
 /// Default maximum number of pending approvals before rejecting new ones.
 pub const DEFAULT_MAX_PENDING: usize = 10_000;
 
+/// Compute a deduplication key from an action and reason.
+///
+/// The key is a SHA-256 hash of the canonical JSON representation of the
+/// action's tool, function, and parameters fields combined with the reason
+/// string. This ensures that identical requests map to the same key
+/// regardless of field ordering in the parameters object (because
+/// `serde_json::json!` produces deterministic output for the same input).
+fn compute_dedup_key(action: &Action, reason: &str) -> String {
+    let canonical = serde_json::json!({
+        "tool": action.tool,
+        "function": action.function,
+        "parameters": action.parameters,
+    });
+    let input = format!(
+        "{}||{}",
+        serde_json::to_string(&canonical).unwrap_or_default(),
+        reason
+    );
+    let hash = Sha256::digest(input.as_bytes());
+    format!("{:x}", hash)
+}
+
 /// In-memory approval store with file-based persistence.
 pub struct ApprovalStore {
     pending: RwLock<HashMap<String, PendingApproval>>,
+    /// Maps dedup_key (SHA-256 of action+reason) to approval_id for pending entries.
+    dedup_index: RwLock<HashMap<String, String>>,
     log_path: PathBuf,
     default_ttl: std::time::Duration,
     max_pending: usize,
@@ -63,6 +88,7 @@ impl ApprovalStore {
     pub fn new(log_path: PathBuf, default_ttl: std::time::Duration) -> Self {
         Self {
             pending: RwLock::new(HashMap::new()),
+            dedup_index: RwLock::new(HashMap::new()),
             log_path,
             default_ttl,
             max_pending: DEFAULT_MAX_PENDING,
@@ -77,6 +103,7 @@ impl ApprovalStore {
     ) -> Self {
         Self {
             pending: RwLock::new(HashMap::new()),
+            dedup_index: RwLock::new(HashMap::new()),
             log_path,
             default_ttl,
             max_pending,
@@ -130,6 +157,16 @@ impl ApprovalStore {
             );
         }
 
+        // Rebuild the dedup index for entries that are still pending
+        let mut dedup = self.dedup_index.write().await;
+        dedup.clear();
+        for approval in pending.values() {
+            if approval.status == ApprovalStatus::Pending {
+                let key = compute_dedup_key(&approval.action, &approval.reason);
+                dedup.insert(key, approval.id.clone());
+            }
+        }
+
         Ok(count)
     }
 
@@ -142,6 +179,23 @@ impl ApprovalStore {
     /// The write lock is acquired before persistence to prevent a visibility
     /// gap where the approval exists on disk but not in memory (Finding #27).
     pub async fn create(&self, action: Action, reason: String) -> Result<String, ApprovalError> {
+        let dedup_key = compute_dedup_key(&action, &reason);
+
+        // Check dedup index: if an identical pending approval exists, return its ID
+        {
+            let dedup = self.dedup_index.read().await;
+            if let Some(existing_id) = dedup.get(&dedup_key) {
+                let pending = self.pending.read().await;
+                if let Some(existing) = pending.get(existing_id) {
+                    if existing.status == ApprovalStatus::Pending {
+                        return Ok(existing_id.clone());
+                    }
+                }
+                // If the existing approval is no longer pending (or was removed),
+                // fall through to create a new one and update the dedup index.
+            }
+        }
+
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
         let ttl = Duration::from_std(self.default_ttl).unwrap_or_else(|_| Duration::seconds(900));
@@ -160,6 +214,18 @@ impl ApprovalStore {
         // Acquire lock FIRST, then persist (Finding #27: prevents visibility gap)
         let mut pending = self.pending.write().await;
 
+        // Double-check dedup under write lock to handle races
+        {
+            let dedup = self.dedup_index.read().await;
+            if let Some(existing_id) = dedup.get(&dedup_key) {
+                if let Some(existing) = pending.get(existing_id) {
+                    if existing.status == ApprovalStatus::Pending {
+                        return Ok(existing_id.clone());
+                    }
+                }
+            }
+        }
+
         // Check capacity before inserting (Finding #26: prevents unbounded growth)
         if pending.len() >= self.max_pending {
             return Err(ApprovalError::CapacityExceeded(self.max_pending));
@@ -168,9 +234,17 @@ impl ApprovalStore {
         // Insert into memory first so concurrent readers see it immediately
         pending.insert(id.clone(), approval.clone());
 
+        // Update dedup index
+        {
+            let mut dedup = self.dedup_index.write().await;
+            dedup.insert(dedup_key.clone(), id.clone());
+        }
+
         // Persist to disk; rollback on failure
         if let Err(e) = self.persist_approval(&approval).await {
             pending.remove(&id);
+            let mut dedup = self.dedup_index.write().await;
+            dedup.remove(&dedup_key);
             return Err(e);
         }
 
@@ -188,9 +262,16 @@ impl ApprovalStore {
             return Err(ApprovalError::AlreadyResolved(id.to_string()));
         }
 
+        // Compute dedup key before mutating the approval
+        let dedup_key = compute_dedup_key(&approval.action, &approval.reason);
+
         if Utc::now() > approval.expires_at {
             approval.status = ApprovalStatus::Expired;
             let result = approval.clone();
+            // Remove from dedup index since it's no longer pending
+            let mut dedup = self.dedup_index.write().await;
+            dedup.remove(&dedup_key);
+            drop(dedup);
             self.persist_approval(&result).await?;
             return Err(ApprovalError::Expired(id.to_string()));
         }
@@ -200,6 +281,10 @@ impl ApprovalStore {
         approval.resolved_at = Some(Utc::now());
 
         let result = approval.clone();
+        // Remove from dedup index since it's no longer pending
+        let mut dedup = self.dedup_index.write().await;
+        dedup.remove(&dedup_key);
+        drop(dedup);
         self.persist_approval(&result).await?;
         Ok(result)
     }
@@ -215,9 +300,16 @@ impl ApprovalStore {
             return Err(ApprovalError::AlreadyResolved(id.to_string()));
         }
 
+        // Compute dedup key before mutating the approval
+        let dedup_key = compute_dedup_key(&approval.action, &approval.reason);
+
         if Utc::now() > approval.expires_at {
             approval.status = ApprovalStatus::Expired;
             let result = approval.clone();
+            // Remove from dedup index since it's no longer pending
+            let mut dedup = self.dedup_index.write().await;
+            dedup.remove(&dedup_key);
+            drop(dedup);
             self.persist_approval(&result).await?;
             return Err(ApprovalError::Expired(id.to_string()));
         }
@@ -227,6 +319,10 @@ impl ApprovalStore {
         approval.resolved_at = Some(Utc::now());
 
         let result = approval.clone();
+        // Remove from dedup index since it's no longer pending
+        let mut dedup = self.dedup_index.write().await;
+        dedup.remove(&dedup_key);
+        drop(dedup);
         self.persist_approval(&result).await?;
         Ok(result)
     }
@@ -261,9 +357,12 @@ impl ApprovalStore {
         let mut pending = self.pending.write().await;
         let mut expired_count = 0;
         let mut to_persist = Vec::new();
+        let mut expired_dedup_keys = Vec::new();
 
         for approval in pending.values_mut() {
             if approval.status == ApprovalStatus::Pending && now > approval.expires_at {
+                // Compute dedup key before mutating status
+                expired_dedup_keys.push(compute_dedup_key(&approval.action, &approval.reason));
                 approval.status = ApprovalStatus::Expired;
                 expired_count += 1;
                 to_persist.push(approval.clone());
@@ -278,6 +377,14 @@ impl ApprovalStore {
         // Persist expired status outside the lock scope isn't possible since
         // persist_approval needs &self, so we collect and persist after dropping the guard
         drop(pending);
+
+        // Remove expired entries from the dedup index
+        if !expired_dedup_keys.is_empty() {
+            let mut dedup = self.dedup_index.write().await;
+            for key in &expired_dedup_keys {
+                dedup.remove(key);
+            }
+        }
 
         for approval in &to_persist {
             if let Err(e) = self.persist_approval(approval).await {
@@ -611,5 +718,130 @@ mod tests {
         // Second expire should find 0 (already expired)
         let count2 = store.expire_stale().await;
         assert_eq!(count2, 0);
+    }
+
+    // --- Deduplication tests (Phase 4A / M4) ---
+
+    #[tokio::test]
+    async fn test_dedup_same_action_returns_existing_id() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let action1 = test_action();
+        let action2 = test_action();
+        let reason = "needs review".to_string();
+
+        let id1 = store.create(action1, reason.clone()).await.unwrap();
+        let id2 = store.create(action2, reason).await.unwrap();
+
+        // Same action + same reason should return the same pending approval ID
+        assert_eq!(
+            id1, id2,
+            "Duplicate create should return existing pending ID"
+        );
+
+        // Only one pending approval should exist
+        let pending = store.list_pending().await;
+        assert_eq!(pending.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_dedup_different_actions_get_separate_ids() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let action1 = Action::new(
+            "file_system".to_string(),
+            "delete_file".to_string(),
+            json!({"path": "/important/data"}),
+        );
+        let action2 = Action::new(
+            "network".to_string(),
+            "http_request".to_string(),
+            json!({"url": "https://example.com"}),
+        );
+
+        let id1 = store
+            .create(action1, "needs review".to_string())
+            .await
+            .unwrap();
+        let id2 = store
+            .create(action2, "needs review".to_string())
+            .await
+            .unwrap();
+
+        // Different actions should get different IDs
+        assert_ne!(id1, id2, "Different actions must get separate approval IDs");
+
+        let pending = store.list_pending().await;
+        assert_eq!(pending.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_dedup_resolved_action_creates_fresh() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let reason = "needs review".to_string();
+
+        // Create and approve the first one
+        let id1 = store.create(test_action(), reason.clone()).await.unwrap();
+        store.approve(&id1, "admin").await.unwrap();
+
+        // Creating the same action+reason after approval should produce a NEW id
+        let id2 = store.create(test_action(), reason).await.unwrap();
+        assert_ne!(
+            id1, id2,
+            "After resolving, a new create should produce a fresh ID"
+        );
+
+        // The new one should be pending
+        let approval = store.get(&id2).await.unwrap();
+        assert_eq!(approval.status, ApprovalStatus::Pending);
+    }
+
+    #[tokio::test]
+    async fn test_dedup_concurrent_safety() {
+        let dir = TempDir::new().unwrap();
+        let store = std::sync::Arc::new(ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        ));
+
+        let action = test_action();
+        let reason = "concurrent review".to_string();
+
+        // Spawn two concurrent creates with identical action+reason
+        let store1 = store.clone();
+        let action1 = action.clone();
+        let reason1 = reason.clone();
+        let handle1 = tokio::spawn(async move { store1.create(action1, reason1).await.unwrap() });
+
+        let store2 = store.clone();
+        let action2 = action.clone();
+        let reason2 = reason.clone();
+        let handle2 = tokio::spawn(async move { store2.create(action2, reason2).await.unwrap() });
+
+        let id1 = handle1.await.unwrap();
+        let id2 = handle2.await.unwrap();
+
+        // Both should resolve to the same approval ID
+        assert_eq!(
+            id1, id2,
+            "Concurrent creates of the same action must return the same ID"
+        );
+
+        // Only one pending approval should exist
+        let pending = store.list_pending().await;
+        assert_eq!(pending.len(), 1);
     }
 }

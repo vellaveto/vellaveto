@@ -63,8 +63,20 @@ impl SessionState {
     }
 
     /// Check if this session has expired.
-    pub fn is_expired(&self, timeout: Duration) -> bool {
-        self.last_activity.elapsed() > timeout
+    ///
+    /// A session is expired if either:
+    /// - Inactivity timeout: no activity for longer than `timeout`
+    /// - Absolute lifetime: the session has existed longer than `max_lifetime` (if set)
+    pub fn is_expired(&self, timeout: Duration, max_lifetime: Option<Duration>) -> bool {
+        if self.last_activity.elapsed() > timeout {
+            return true;
+        }
+        if let Some(max) = max_lifetime {
+            if self.created_at.elapsed() > max {
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -73,6 +85,10 @@ pub struct SessionStore {
     sessions: Arc<DashMap<String, SessionState>>,
     session_timeout: Duration,
     max_sessions: usize,
+    /// Optional absolute session lifetime. When set, sessions are expired
+    /// after this duration regardless of activity. Prevents indefinite
+    /// session reuse (e.g., stolen session IDs).
+    max_lifetime: Option<Duration>,
 }
 
 impl SessionStore {
@@ -81,7 +97,15 @@ impl SessionStore {
             sessions: Arc::new(DashMap::new()),
             session_timeout,
             max_sessions,
+            max_lifetime: None,
         }
+    }
+
+    /// Set an absolute session lifetime. Sessions older than this duration
+    /// are expired regardless of activity. Returns `self` for chaining.
+    pub fn with_max_lifetime(mut self, lifetime: Duration) -> Self {
+        self.max_lifetime = Some(lifetime);
+        self
     }
 
     /// Get or create a session. Returns the session ID.
@@ -93,7 +117,7 @@ impl SessionStore {
         // Try to reuse existing session if client provided an ID
         if let Some(id) = client_session_id {
             if let Some(mut session) = self.sessions.get_mut(id) {
-                if !session.is_expired(self.session_timeout) {
+                if !session.is_expired(self.session_timeout, self.max_lifetime) {
                     session.touch();
                     return id.to_string();
                 }
@@ -130,7 +154,7 @@ impl SessionStore {
     /// Remove expired sessions.
     pub fn evict_expired(&self) {
         self.sessions
-            .retain(|_, session| !session.is_expired(self.session_timeout));
+            .retain(|_, session| !session.is_expired(self.session_timeout, self.max_lifetime));
     }
 
     /// Remove the oldest session (by last activity).
@@ -304,6 +328,7 @@ mod tests {
                     destructive_hint: false,
                     idempotent_hint: true,
                     open_world_hint: false,
+                    input_schema_hash: None,
                 },
             );
         }
@@ -331,12 +356,14 @@ mod tests {
             destructive_hint: false,
             idempotent_hint: true,
             open_world_hint: false,
+            input_schema_hash: None,
         };
         let b = ToolAnnotations {
             read_only_hint: true,
             destructive_hint: false,
             idempotent_hint: true,
             open_world_hint: false,
+            input_schema_hash: None,
         };
         let c = ToolAnnotations::default();
         assert_eq!(a, b);
@@ -347,5 +374,58 @@ mod tests {
     fn test_tools_list_seen_flag() {
         let state = SessionState::new("test".to_string());
         assert!(!state.tools_list_seen);
+    }
+
+    // --- Phase 5B: Absolute session lifetime tests ---
+
+    #[test]
+    fn test_inactivity_expiry_preserved() {
+        let state = SessionState::new("test-inactivity".to_string());
+        // Not expired with generous timeout, no max_lifetime
+        assert!(!state.is_expired(Duration::from_secs(300), None));
+        // Expired with zero timeout (any elapsed time exceeds 0)
+        assert!(state.is_expired(Duration::from_nanos(0), None));
+    }
+
+    #[test]
+    fn test_absolute_lifetime_enforced() {
+        let state = SessionState::new("test-lifetime".to_string());
+        // With a zero max_lifetime, should be expired immediately (created_at has elapsed > 0)
+        assert!(state.is_expired(Duration::from_secs(300), Some(Duration::from_nanos(0))));
+        // With generous max_lifetime, should not be expired
+        assert!(!state.is_expired(Duration::from_secs(300), Some(Duration::from_secs(86400))));
+    }
+
+    #[test]
+    fn test_none_max_lifetime_no_absolute_limit() {
+        let state = SessionState::new("test-no-limit".to_string());
+        // Without max_lifetime, only inactivity timeout matters
+        assert!(!state.is_expired(Duration::from_secs(300), None));
+    }
+
+    #[test]
+    fn test_eviction_checks_both_timeouts() {
+        // Create a store with a very short max_lifetime
+        let store = SessionStore::new(Duration::from_secs(300), 100)
+            .with_max_lifetime(Duration::from_nanos(0));
+
+        let _id = store.get_or_create(None);
+        assert_eq!(store.len(), 1);
+
+        // Evict expired should remove the session (max_lifetime exceeded)
+        store.evict_expired();
+        assert_eq!(store.len(), 0);
+    }
+
+    #[test]
+    fn test_with_max_lifetime_builder() {
+        let store = SessionStore::new(Duration::from_secs(300), 100)
+            .with_max_lifetime(Duration::from_secs(86400));
+        // Session should be created and accessible
+        let id = store.get_or_create(None);
+        assert_eq!(store.len(), 1);
+        // Can reuse the session (not expired)
+        let id2 = store.get_or_create(Some(&id));
+        assert_eq!(id, id2);
     }
 }
