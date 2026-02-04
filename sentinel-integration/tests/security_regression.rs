@@ -369,6 +369,7 @@ mod server_auth {
             cors_origins: vec![],
             metrics: Arc::new(Metrics::default()),
             trusted_proxies: Arc::new(vec![]),
+            policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         };
         (state, tmp)
     }
@@ -483,6 +484,7 @@ mod server_auth {
             cors_origins: vec![],
             metrics: Arc::new(Metrics::default()),
             trusted_proxies: Arc::new(vec![]),
+            policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         };
         let app = routes::build_router(state);
 
@@ -1060,6 +1062,7 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
 
     let app = routes::build_router(state);
@@ -1140,6 +1143,7 @@ async fn finding_12_approval_creation_failure_denies_request() {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
 
     let app = routes::build_router(state);

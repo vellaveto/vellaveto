@@ -442,7 +442,11 @@ async fn cmd_serve(
     // network_rules, and context_conditions — silently degrading to it would
     // drop all advanced security constraints. Matches sentinel-http-proxy behavior.
     let engine = match PolicyEngine::with_policies(false, &policies) {
-        Ok(compiled) => {
+        Ok(mut compiled) => {
+            if let Some(max_iter) = policy_config.max_path_decode_iterations {
+                compiled.set_max_path_decode_iterations(max_iter);
+                tracing::info!(max_path_decode_iterations = max_iter, "custom path decode iteration limit");
+            }
             tracing::info!(
                 "Pre-compiled {} policies — zero-Mutex evaluation enabled",
                 policies.len()
@@ -473,6 +477,7 @@ async fn cmd_serve(
         cors_origins,
         metrics: Arc::new(sentinel_server::Metrics::default()),
         trusted_proxies: Arc::new(trusted_proxies),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -641,10 +646,13 @@ async fn cmd_evaluate(
     let mut policies = policy_config.to_policies();
     PolicyEngine::sort_policies(&mut policies);
 
-    let engine = PolicyEngine::with_policies(false, &policies).map_err(|errors| {
+    let mut engine = PolicyEngine::with_policies(false, &policies).map_err(|errors| {
         let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
         anyhow::anyhow!("Policy compilation errors: {}", msgs.join("; "))
     })?;
+    if let Some(max_iter) = policy_config.max_path_decode_iterations {
+        engine.set_max_path_decode_iterations(max_iter);
+    }
     let verdict = engine
         .evaluate_action(&action, &policies)
         .map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -718,6 +726,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         audit: Default::default(),
         supply_chain: Default::default(),
         manifest: Default::default(),
+        max_path_decode_iterations: None,
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

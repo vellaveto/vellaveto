@@ -49,6 +49,7 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
     (state, tmp)
 }
@@ -381,6 +382,7 @@ async fn regression_24_error_message_does_not_leak_architecture() {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

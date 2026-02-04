@@ -145,6 +145,7 @@ fn to_policies_produces_correct_policy_structs() {
         audit: Default::default(),
         supply_chain: Default::default(),
         manifest: Default::default(),
+        max_path_decode_iterations: None,
     };
     let policies = config.to_policies();
     assert_eq!(policies.len(), 1);
@@ -172,6 +173,7 @@ fn to_policies_uses_default_priority_when_none() {
         audit: Default::default(),
         supply_chain: Default::default(),
         manifest: Default::default(),
+        max_path_decode_iterations: None,
     };
     let policies = config.to_policies();
     assert_eq!(
@@ -306,6 +308,7 @@ fn policy_config_toml_roundtrip() {
         audit: Default::default(),
         supply_chain: Default::default(),
         manifest: Default::default(),
+        max_path_decode_iterations: None,
     };
     let toml_str = toml::to_string(&original).unwrap();
     let parsed = PolicyConfig::from_toml(&toml_str).unwrap();

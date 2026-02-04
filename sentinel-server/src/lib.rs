@@ -459,6 +459,11 @@ pub struct AppState {
     /// When empty (default), proxy headers are ignored entirely and the
     /// connection IP is used directly.
     pub trusted_proxies: Arc<Vec<std::net::IpAddr>>,
+    /// SECURITY (R15-RACE-*): Mutex serializing all policy mutation operations
+    /// (add_policy, remove_policy, reload_policies). This prevents TOCTOU races
+    /// where concurrent mutations can silently drop policies or resurrect deleted
+    /// ones. The read path (evaluate) remains lock-free via ArcSwap::load().
+    pub policy_write_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 /// Reload policies from the config file and recompile the engine.
@@ -466,10 +471,54 @@ pub struct AppState {
 /// This is the shared reload logic used by both the HTTP `/reload` endpoint
 /// and the file watcher. Returns the number of policies loaded on success.
 pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result<usize, String> {
+    // SECURITY (R15-RACE-*): Serialize with add_policy / remove_policy to
+    // prevent reload from overwriting a concurrent mutation (or vice versa).
+    let _guard = state.policy_write_lock.lock().await;
+
     let config_path = state.config_path.as_str();
 
     let policy_config = PolicyConfig::load_file(config_path)
         .map_err(|e| format!("Failed to load config from {}: {}", config_path, e))?;
+
+    // SECURITY (R12-RELOAD-1): Warn if non-policy config sections have
+    // non-default values, since only policies are hot-reloaded. Operators
+    // must restart the server to apply changes to rate_limit, injection,
+    // audit, supply_chain, or manifest configuration.
+    {
+        let default_cfg = sentinel_config::PolicyConfig {
+            policies: vec![],
+            injection: Default::default(),
+            rate_limit: Default::default(),
+            audit: Default::default(),
+            supply_chain: Default::default(),
+            manifest: Default::default(),
+            max_path_decode_iterations: None,
+        };
+        let mut changed_sections = Vec::new();
+        if policy_config.injection != default_cfg.injection {
+            changed_sections.push("injection");
+        }
+        if policy_config.rate_limit != default_cfg.rate_limit {
+            changed_sections.push("rate_limit");
+        }
+        if policy_config.audit != default_cfg.audit {
+            changed_sections.push("audit");
+        }
+        if policy_config.supply_chain != default_cfg.supply_chain {
+            changed_sections.push("supply_chain");
+        }
+        if policy_config.manifest != default_cfg.manifest {
+            changed_sections.push("manifest");
+        }
+        if !changed_sections.is_empty() {
+            tracing::warn!(
+                "Config reload only applies policies. The following sections \
+                 have non-default values but require a server restart to take \
+                 effect: [{}]",
+                changed_sections.join(", ")
+            );
+        }
+    }
 
     let mut new_policies = policy_config.to_policies();
     PolicyEngine::sort_policies(&mut new_policies);
@@ -489,9 +538,21 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
         )
     })?;
 
-    // Both compiled successfully — swap atomically (both or neither).
-    state.policies.store(Arc::new(new_policies));
+    // Apply config-level path decode iteration limit if set.
+    let mut new_engine = new_engine;
+    if let Some(max_iter) = policy_config.max_path_decode_iterations {
+        new_engine.set_max_path_decode_iterations(max_iter);
+    }
+
+    // Both compiled successfully — swap in engine-first order.
+    // SECURITY (R12-INT-2): Store the engine before the policy list.
+    // Between the two stores a concurrent request might see the new
+    // (potentially stricter) engine with the old policy list, which is
+    // safe. The reverse order (policies first, engine second) would
+    // briefly expose new policies evaluated by the old engine, which
+    // could miss newly-compiled constraints.
     state.engine.store(Arc::new(new_engine));
+    state.policies.store(Arc::new(new_policies));
 
     tracing::info!(
         "Reloaded {} policies from {} (source: {})",

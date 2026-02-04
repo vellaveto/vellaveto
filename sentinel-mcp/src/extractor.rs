@@ -261,8 +261,7 @@ fn extract_targets_from_params_inner(
                 // SECURITY (R12-EXT-1): Percent-decode file:// paths.
                 // Without this, file:///etc/%70asswd bypasses blocked-path
                 // rules for /etc/passwd because the engine sees encoded chars.
-                let decoded = percent_encoding::percent_decode_str(file_path)
-                    .decode_utf8_lossy();
+                let decoded = percent_encoding::percent_decode_str(file_path).decode_utf8_lossy();
                 if !decoded.is_empty() {
                     paths.push(decoded.into_owned());
                 }
@@ -273,8 +272,8 @@ fn extract_targets_from_params_inner(
                     // SECURITY (R12-EXT-2): Percent-decode authority before splitting on '@'.
                     // Without this, http://evil.com%40blocked.com bypasses domain matching
                     // because the encoded '@' hides the userinfo/host boundary.
-                    let decoded = percent_encoding::percent_decode_str(host_raw)
-                        .decode_utf8_lossy();
+                    let decoded =
+                        percent_encoding::percent_decode_str(host_raw).decode_utf8_lossy();
                     let host = decoded.as_ref();
                     let host = host.split(':').next().unwrap_or(host);
                     let host = host.split('?').next().unwrap_or(host);
@@ -369,8 +368,7 @@ pub fn extract_resource_action(uri: &str) -> Action {
         // Strip query strings and fragments
         let file_path = strip_query_and_fragment(file_path);
         // SECURITY (R12-EXT-1): Percent-decode file:// paths before use.
-        let decoded = percent_encoding::percent_decode_str(file_path)
-            .decode_utf8_lossy();
+        let decoded = percent_encoding::percent_decode_str(file_path).decode_utf8_lossy();
         params.insert(PARAM_PATH.to_string(), Value::String(decoded.to_string()));
         target_paths.push(decoded.into_owned());
     } else if uri_lower.starts_with("http://") || uri_lower.starts_with("https://") {
@@ -379,8 +377,7 @@ pub fn extract_resource_action(uri: &str) -> Action {
         if let Some(authority) = uri.find("://").map(|i| &uri[i + 3..]) {
             let host_raw = authority.split('/').next().unwrap_or(authority);
             // SECURITY (R12-EXT-2): Percent-decode authority before splitting.
-            let decoded = percent_encoding::percent_decode_str(host_raw)
-                .decode_utf8_lossy();
+            let decoded = percent_encoding::percent_decode_str(host_raw).decode_utf8_lossy();
             let host = decoded.as_ref();
             let host = host.split(':').next().unwrap_or(host);
             let host = host.split('?').next().unwrap_or(host);

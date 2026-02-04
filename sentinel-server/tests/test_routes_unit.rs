@@ -46,6 +46,7 @@ fn test_state() -> (AppState, TempDir) {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
     (state, tmp)
 }
@@ -388,6 +389,7 @@ async fn health_not_rate_limited() {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
 
     // Rapid /health requests must all succeed despite strict rate limit
@@ -429,6 +431,7 @@ async fn rate_limit_429_includes_retry_after() {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -564,6 +567,7 @@ async fn per_ip_rate_limit_throttles_single_ip() {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -647,6 +651,7 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -703,6 +708,7 @@ async fn per_ip_health_exempt_from_rate_limit() {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
 
     // Multiple health checks from same IP should all succeed
@@ -751,6 +757,7 @@ async fn per_ip_rate_limit_ipv6_addresses() {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -834,6 +841,7 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -901,6 +909,7 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -967,6 +976,7 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1031,6 +1041,7 @@ async fn per_ip_rate_limit_429_response_body_format() {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

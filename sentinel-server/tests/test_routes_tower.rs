@@ -48,6 +48,7 @@ fn make_state() -> (AppState, TempDir) {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
     (state, tmp)
 }
@@ -68,6 +69,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
     (state, tmp)
 }
@@ -638,6 +640,7 @@ priority = 1
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
     let app = routes::build_router(state.clone());
 
@@ -722,6 +725,7 @@ fn make_approval_state() -> (AppState, TempDir) {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
     (state, tmp)
 }
@@ -1168,6 +1172,7 @@ fn make_authed_state() -> (AppState, TempDir) {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
     (state, tmp)
 }
@@ -1639,6 +1644,7 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
     (state, tmp)
 }
@@ -2061,6 +2067,129 @@ async fn test_audit_entry_contains_resolver_identity() {
 }
 
 // ════════════════════════════════
+// R11-APPR-4: RESOLVER IDENTITY FROM BEARER TOKEN
+// ════════════════════════════════
+
+#[tokio::test]
+async fn test_approve_with_bearer_derives_resolver_from_token() {
+    let (state, tmp) = make_approval_state();
+    let audit_path = tmp.path().join("audit.log");
+    let approval_id = create_pending_approval(&state).await;
+
+    // Approve with a Bearer token — the resolver identity should be derived
+    // from the token hash, not the client-supplied resolved_by.
+    let app = routes::build_router(state.clone());
+    let body = serde_json::to_string(&json!({"resolved_by": "client-name"})).unwrap();
+    let resp = app
+        .oneshot(
+            Request::post(format!("/api/approvals/{}/approve", approval_id))
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer test-token-12345")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Give async audit write a moment to flush
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let content = tokio::fs::read_to_string(&audit_path)
+        .await
+        .expect("audit log should exist");
+    let entries: Vec<serde_json::Value> = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).expect("each audit line should be valid JSON"))
+        .collect();
+
+    let approval_entry = entries
+        .iter()
+        .find(|e| {
+            e.get("metadata")
+                .and_then(|m| m.get("event"))
+                .and_then(|v| v.as_str())
+                == Some("approval_approved")
+        })
+        .expect("Should find approval_approved audit entry");
+
+    let resolved_by = approval_entry["metadata"]["resolved_by"]
+        .as_str()
+        .expect("metadata.resolved_by should be a string");
+
+    // R11-APPR-4: With Bearer token, resolved_by should contain the bearer hash
+    // and the client note, NOT just the raw client-supplied value
+    assert!(
+        resolved_by.starts_with("bearer:"),
+        "With Bearer token, resolved_by should start with 'bearer:' but got: {}",
+        resolved_by
+    );
+    assert!(
+        resolved_by.contains("(note: client-name)"),
+        "With Bearer token, should include client note: {}",
+        resolved_by
+    );
+}
+
+#[tokio::test]
+async fn test_deny_with_bearer_derives_resolver_from_token() {
+    let (state, tmp) = make_approval_state();
+    let audit_path = tmp.path().join("audit.log");
+    let approval_id = create_pending_approval(&state).await;
+
+    let app = routes::build_router(state.clone());
+    let body = serde_json::to_string(&json!({"resolved_by": "auditor"})).unwrap();
+    let resp = app
+        .oneshot(
+            Request::post(format!("/api/approvals/{}/deny", approval_id))
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer deny-token-67890")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let content = tokio::fs::read_to_string(&audit_path)
+        .await
+        .expect("audit log should exist");
+    let entries: Vec<serde_json::Value> = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).expect("each audit line should be valid JSON"))
+        .collect();
+
+    let denial_entry = entries
+        .iter()
+        .find(|e| {
+            e.get("metadata")
+                .and_then(|m| m.get("event"))
+                .and_then(|v| v.as_str())
+                == Some("approval_denied")
+        })
+        .expect("Should find approval_denied audit entry");
+
+    let resolved_by = denial_entry["metadata"]["resolved_by"]
+        .as_str()
+        .expect("metadata.resolved_by should be a string");
+
+    assert!(
+        resolved_by.starts_with("bearer:"),
+        "Deny with Bearer token should derive identity from token: {}",
+        resolved_by
+    );
+    assert!(
+        resolved_by.contains("(note: auditor)"),
+        "Deny should include client note: {}",
+        resolved_by
+    );
+}
+
+// ════════════════════════════════
 // SECURITY HEADERS: X-PERMITTED-CROSS-DOMAIN-POLICIES & HSTS (Phase 6C)
 // ════════════════════════════════
 
@@ -2161,6 +2290,7 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
     (state, tmp)
 }

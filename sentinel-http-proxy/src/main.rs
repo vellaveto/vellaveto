@@ -115,7 +115,11 @@ async fn main() -> Result<()> {
     tracing::info!("Loaded {} policies from {}", policies.len(), args.config);
 
     let engine = match PolicyEngine::with_policies(args.strict, &policies) {
-        Ok(engine) => {
+        Ok(mut engine) => {
+            if let Some(max_iter) = policy_config.max_path_decode_iterations {
+                engine.set_max_path_decode_iterations(max_iter);
+                tracing::info!(max_path_decode_iterations = max_iter, "custom path decode iteration limit");
+            }
             tracing::info!(
                 "Compiled {} policies (pre-compiled evaluation path active)",
                 policies.len()

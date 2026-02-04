@@ -140,12 +140,16 @@ async fn main() -> Result<()> {
     let child_stdout = child.stdout.take().context("Failed to get child stdout")?;
 
     // Create proxy bridge with pre-compiled policies and configurable timeout
-    let engine = PolicyEngine::with_policies(cli.strict, &policies).map_err(|errors| {
+    let mut engine = PolicyEngine::with_policies(cli.strict, &policies).map_err(|errors| {
         for e in &errors {
             tracing::error!("Policy validation error: {}", e);
         }
         anyhow::anyhow!("{} policy validation errors", errors.len())
     })?;
+    if let Some(max_iter) = policy_config.max_path_decode_iterations {
+        engine.set_max_path_decode_iterations(max_iter);
+        tracing::info!(max_path_decode_iterations = max_iter, "custom path decode iteration limit");
+    }
     let timeout = std::time::Duration::from_secs(cli.timeout);
     let mut bridge = ProxyBridge::new(engine, policies, audit)
         .with_timeout(timeout)

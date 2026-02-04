@@ -339,9 +339,7 @@ impl EvaluationContext {
     /// Used by the engine to decide whether falling back to the legacy path
     /// (which cannot evaluate context conditions) is safe.
     pub fn has_any_meaningful_fields(&self) -> bool {
-        self.agent_id.is_some()
-            || !self.call_counts.is_empty()
-            || !self.previous_actions.is_empty()
+        self.agent_id.is_some() || !self.call_counts.is_empty() || !self.previous_actions.is_empty()
     }
 }
 

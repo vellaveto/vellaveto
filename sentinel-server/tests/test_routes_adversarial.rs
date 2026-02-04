@@ -47,6 +47,7 @@ fn make_state() -> (AppState, TempDir) {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
     (state, tmp)
 }
@@ -67,6 +68,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
     (state, tmp)
 }
@@ -471,6 +473,7 @@ priority = 1
         cors_origins: vec![],
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
     };
     let policies = state.policies.clone();
     let app = routes::build_router(state);

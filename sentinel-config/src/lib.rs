@@ -19,7 +19,7 @@ fn default_priority() -> Option<i32> {
 /// extra_patterns = ["transfer funds", "send bitcoin", "exfiltrate"]
 /// disabled_patterns = ["pretend you are"]
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InjectionConfig {
     /// Master toggle for injection scanning. Defaults to `true`.
     #[serde(default = "default_true")]
@@ -112,7 +112,7 @@ impl PolicyRule {
 /// per_principal_rps = 50
 /// per_principal_burst = 10
 /// ```
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct RateLimitConfig {
     /// Max sustained requests/sec for `/evaluate` endpoints.
     pub evaluate_rps: Option<u32>,
@@ -151,7 +151,7 @@ pub struct RateLimitConfig {
 /// name = "internal_employee_id"
 /// pattern = "EMP-\\d{6}"
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CustomPiiPattern {
     /// Human-readable name for this pattern (used in diagnostics).
     pub name: String,
@@ -171,7 +171,7 @@ pub struct CustomPiiPattern {
 /// name = "internal_employee_id"
 /// pattern = "EMP-\\d{6}"
 /// ```
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct AuditConfig {
     /// Redaction level for audit log entries.
     /// - `"Off"`: no redaction
@@ -198,7 +198,7 @@ pub struct AuditConfig {
 /// [supply_chain.allowed_servers]
 /// "/usr/local/bin/my-mcp" = "sha256hex..."
 /// ```
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct SupplyChainConfig {
     /// Master toggle. When false (default), binary verification is skipped.
     #[serde(default)]
@@ -631,7 +631,7 @@ pub enum ManifestEnforcement {
 /// manifest_path = "/etc/sentinel/manifest.json"
 /// trusted_keys = ["hex-encoded-ed25519-public-key"]
 /// ```
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ManifestConfig {
     /// Enable tool manifest schema pinning. Default: true.
     #[serde(default = "default_true")]
@@ -648,6 +648,18 @@ pub struct ManifestConfig {
     /// Require a valid signature on manifests. Default: false.
     #[serde(default)]
     pub require_signature: bool,
+}
+
+impl Default for ManifestConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true, // Matches serde default_true
+            trusted_keys: Vec::new(),
+            enforcement: ManifestEnforcement::default(),
+            manifest_path: None,
+            require_signature: false,
+        }
+    }
 }
 
 impl ManifestConfig {
@@ -730,6 +742,13 @@ pub struct PolicyConfig {
     /// Optional tool manifest verification configuration.
     #[serde(default)]
     pub manifest: ManifestConfig,
+
+    /// Maximum percent-decoding iterations for path normalization.
+    /// Paths requiring more iterations fail-closed to `"/"` (attack indicator).
+    /// Default: 20 (from `sentinel_engine::DEFAULT_MAX_PATH_DECODE_ITERATIONS`).
+    /// Set to 0 to disable iterative decoding (single pass only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_path_decode_iterations: Option<u32>,
 }
 
 /// Maximum number of custom PII patterns allowed in config.
@@ -1857,6 +1876,7 @@ policy_type = "Allow"
             audit: AuditConfig::default(),
             supply_chain: SupplyChainConfig::default(),
             manifest: ManifestConfig::default(),
+            max_path_decode_iterations: None,
         };
         config.policies = (0..=MAX_POLICIES)
             .map(|i| PolicyRule {
@@ -2014,5 +2034,39 @@ policy_type = "Allow"
         let pinned = ToolManifest::from_tools_list(&response).unwrap();
         let result = pinned.verify(&response);
         assert!(result.passed, "Identical tools/list should pass");
+    }
+
+    #[test]
+    fn test_max_path_decode_iterations_toml_roundtrip() {
+        // With custom value
+        let toml = r#"
+max_path_decode_iterations = 5
+
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#;
+        let config = PolicyConfig::from_toml(toml).unwrap();
+        assert_eq!(config.max_path_decode_iterations, Some(5));
+
+        // Without value (default is None)
+        let toml_no_limit = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#;
+        let config2 = PolicyConfig::from_toml(toml_no_limit).unwrap();
+        assert_eq!(config2.max_path_decode_iterations, None);
+    }
+
+    #[test]
+    fn test_max_path_decode_iterations_json_roundtrip() {
+        let json = r#"{"policies":[{"name":"test","tool_pattern":"*","function_pattern":"*","policy_type":"Allow"}],"max_path_decode_iterations":10}"#;
+        let config = PolicyConfig::from_json(json).unwrap();
+        assert_eq!(config.max_path_decode_iterations, Some(10));
     }
 }

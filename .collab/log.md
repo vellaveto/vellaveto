@@ -1,5 +1,33 @@
 # Shared Log
 
+## 2026-02-04 — Controller Session 19: Compilation Fix + Test Coverage + Cleanup
+
+**Instance:** Controller (Opus 4.5)
+**Test count:** 2,308 (all passing, 0 clippy warnings)
+
+### Fixes Applied
+- Fixed linter R11-APPR-4 incomplete change (added `HeaderMap` import + `derive_resolver_identity()` function)
+- Fixed clippy BOM warning: `strip_prefix('\u{FEFF}')` in framing.rs
+- Added `tracing` dep to sentinel-engine (missing for security warning log)
+- Fixed 4 clippy warnings in sentinel-http-proxy (`mut` and `let` binding)
+
+### Tests Added (7 new)
+- `test_looks_like_relative_path_traversal` — R11-PATH-3 coverage
+- `test_looks_like_relative_path_rejects_non_paths` — R11-PATH-3 negative cases
+- `test_derive_resolver_identity_with_bearer` — R11-APPR-4 bearer hash
+- `test_derive_resolver_identity_with_bearer_and_client_note` — R11-APPR-4 note append
+- `test_derive_resolver_identity_case_insensitive_bearer` — RFC 7235 compliance
+- `test_derive_resolver_identity_no_auth_falls_back` — fallback behavior
+- `test_derive_resolver_identity_non_bearer_auth_falls_back` — Basic auth passthrough
+
+### Verification
+- All linter changes (R10-1, R10-2, R11-PATH-3, R11-APPR-4) reviewed and correct
+- R2-3 ReDoS fix already in place with 11 tests
+- Zero production `unwrap()` violations confirmed
+- Full audit of all `.rs` library files for unwrap/expect
+
+---
+
 ## 2026-02-04 — Phase 11: Known Limitations Roadmap
 
 **Author:** Controller (Opus 4.5)

@@ -367,7 +367,10 @@ impl std::fmt::Debug for PolicyEngine {
             .field("compiled_policies_count", &self.compiled_policies.len())
             .field("indexed_tools", &self.tool_index.len())
             .field("always_check_count", &self.always_check.len())
-            .field("max_path_decode_iterations", &self.max_path_decode_iterations)
+            .field(
+                "max_path_decode_iterations",
+                &self.max_path_decode_iterations,
+            )
             .finish()
     }
 }
@@ -1796,7 +1799,8 @@ impl PolicyEngine {
         }
 
         for raw_path in &action.target_paths {
-            let normalized = Self::normalize_path_bounded(raw_path, self.max_path_decode_iterations);
+            let normalized =
+                Self::normalize_path_bounded(raw_path, self.max_path_decode_iterations);
 
             // Check blocked patterns first (blocked takes precedence)
             for (pattern, matcher) in &rules.blocked {
@@ -3981,7 +3985,8 @@ impl PolicyEngine {
         match constraint {
             CompiledConstraint::Glob { matcher, .. } => {
                 if let Some(s) = value.as_str() {
-                    let normalized = Self::normalize_path_bounded(s, self.max_path_decode_iterations);
+                    let normalized =
+                        Self::normalize_path_bounded(s, self.max_path_decode_iterations);
                     matcher.is_match(&normalized)
                 } else {
                     true // non-string → treated as match (fail-closed)
@@ -3989,7 +3994,8 @@ impl PolicyEngine {
             }
             CompiledConstraint::NotGlob { matchers, .. } => {
                 if let Some(s) = value.as_str() {
-                    let normalized = Self::normalize_path_bounded(s, self.max_path_decode_iterations);
+                    let normalized =
+                        Self::normalize_path_bounded(s, self.max_path_decode_iterations);
                     !matchers.iter().any(|(_, m)| m.is_match(&normalized))
                 } else {
                     true
@@ -5575,10 +5581,7 @@ mod tests {
         );
 
         // With limit=3, 5 iterations exceeds the cap → fail-closed to "/".
-        assert_eq!(
-            PolicyEngine::normalize_path_bounded(&input, 3),
-            "/"
-        );
+        assert_eq!(PolicyEngine::normalize_path_bounded(&input, 3), "/");
     }
 
     #[test]
@@ -5599,19 +5602,13 @@ mod tests {
     fn test_set_max_path_decode_iterations() {
         let mut engine = PolicyEngine::new(false);
         // Default is the constant.
-        assert_eq!(
-            PolicyEngine::normalize_path("/etc/%70asswd"),
-            "/etc/passwd"
-        );
+        assert_eq!(PolicyEngine::normalize_path("/etc/%70asswd"), "/etc/passwd");
 
         // After setting to 0, the engine's internal calls would use the
         // configured limit. Verify the setter doesn't panic.
         engine.set_max_path_decode_iterations(5);
         // The public associated function still uses the default (backward compat).
-        assert_eq!(
-            PolicyEngine::normalize_path("/etc/%70asswd"),
-            "/etc/passwd"
-        );
+        assert_eq!(PolicyEngine::normalize_path("/etc/%70asswd"), "/etc/passwd");
     }
 
     #[test]

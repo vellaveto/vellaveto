@@ -307,13 +307,23 @@ fn scan_params_for_targets_inner(
                 if !file_path.is_empty() {
                     paths.push(file_path.to_string());
                 }
-            } else if lower.starts_with("http://") || lower.starts_with("https://") {
+            } else if let Some(scheme_end) = s.find("://") {
+                // SECURITY (R15-EVAL-15): Extract domains from all schemes
+                // with authority (http, https, ftp, ssh, wss, ldap, etc.),
+                // not just http/https. Otherwise ftp://evil.com/file bypasses
+                // network rules that block evil.com.
+                let scheme = &lower[..scheme_end];
+                // Only process if scheme looks valid (alphabetic, 1-10 chars)
+                if !scheme.is_empty()
+                    && scheme.len() <= 10
+                    && scheme.chars().all(|c| c.is_ascii_alphabetic())
+                {
                 if let Some(authority) = s.find("://").map(|i| &s[i + 3..]) {
                     let host_raw = authority.split('/').next().unwrap_or(authority);
                     // SECURITY (R12-EXT-2): Percent-decode authority before splitting on '@'.
                     // Without this, http://evil.com%40blocked.com bypasses domain matching.
-                    let decoded = percent_encoding::percent_decode_str(host_raw)
-                        .decode_utf8_lossy();
+                    let decoded =
+                        percent_encoding::percent_decode_str(host_raw).decode_utf8_lossy();
                     let host = decoded.as_ref();
                     let host = host.split(':').next().unwrap_or(host);
                     let host = host.split('?').next().unwrap_or(host);
@@ -326,6 +336,7 @@ fn scan_params_for_targets_inner(
                     if !host.is_empty() {
                         domains.push(host.to_lowercase());
                     }
+                }
                 }
             } else if s.starts_with('/') && !s.contains(' ') {
                 // Strip query/fragments from raw paths
@@ -576,6 +587,12 @@ async fn add_policy(
         );
     }
 
+    // SECURITY (R15-RACE-*): Hold write lock for the entire read-modify-write
+    // sequence. This prevents TOCTOU races (duplicate-ID check, lost updates,
+    // stale max-count check) between concurrent add/remove/reload operations.
+    // The read path (evaluate) remains lock-free via ArcSwap::load().
+    let _guard = state.policy_write_lock.lock().await;
+
     // 4. Reject duplicate policy IDs
     let existing = state.policies.load();
     if existing.iter().any(|p| p.id == policy.id) {
@@ -602,7 +619,7 @@ async fn add_policy(
     // Compile-first: verify the new policy set compiles before storing
     match PolicyEngine::with_policies(false, &candidate) {
         Ok(compiled_engine) => {
-            // Atomically store both the compiled engine and the policy list
+            // Store engine first (stricter), then policies (R12-INT-2)
             state.engine.store(Arc::new(compiled_engine));
             state.policies.store(Arc::new(candidate));
             tracing::info!("Added policy: {}", id);
@@ -641,6 +658,9 @@ async fn remove_policy(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> (StatusCode, Json<serde_json::Value>) {
+    // SECURITY (R15-RACE-*): Serialize with other policy mutations.
+    let _guard = state.policy_write_lock.lock().await;
+
     let existing = state.policies.load();
     let candidate: Vec<Policy> = existing.iter().filter(|p| p.id != id).cloned().collect();
     let removed = existing.len().saturating_sub(candidate.len());

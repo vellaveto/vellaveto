@@ -542,72 +542,135 @@ fn scan_value_for_secrets(
     }
 }
 
+/// Maximum time budget for multi-layer DLP decoding per string value.
+/// If decoding takes longer than this, remaining layers are skipped.
+const DLP_DECODE_BUDGET: std::time::Duration = std::time::Duration::from_millis(2);
+
+/// Attempt base64 decoding across standard and URL-safe variants (with and without padding).
+/// Returns `Some(decoded_string)` on success, `None` if no variant produces valid UTF-8.
+fn try_base64_decode(s: &str) -> Option<String> {
+    if s.len() <= 16 || s.contains(' ') {
+        return None;
+    }
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(s)
+        .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(s))
+        .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(s))
+        .or_else(|_| base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(s))
+        .ok()?;
+    std::str::from_utf8(&bytes).ok().map(|s| s.to_string())
+}
+
+/// Attempt percent-decoding. Returns `Some(decoded_string)` if decoding changed the input,
+/// `None` if unchanged or invalid UTF-8.
+fn try_percent_decode(s: &str) -> Option<String> {
+    if !s.contains('%') {
+        return None;
+    }
+    let decoded = percent_encoding::percent_decode_str(s)
+        .decode_utf8()
+        .ok()?;
+    if decoded == s {
+        return None;
+    }
+    Some(decoded.into_owned())
+}
+
+/// Scan a decoded string against DLP regexes, adding findings with the given location suffix.
+/// Only adds findings for patterns not already in `matched_patterns`.
+fn scan_decoded_layer<'a>(
+    decoded: &str,
+    path: &str,
+    layer_suffix: &str,
+    regexes: &[(&'a str, regex::Regex)],
+    matched_patterns: &mut std::collections::HashSet<&'a str>,
+    findings: &mut Vec<DlpFinding>,
+) {
+    for (name, re) in regexes {
+        if !matched_patterns.contains(name) && re.is_match(decoded) {
+            matched_patterns.insert(*name);
+            findings.push(DlpFinding {
+                pattern_name: name.to_string(),
+                location: format!("{}{}", path, layer_suffix),
+            });
+        }
+    }
+}
+
 /// Scan a single string value for DLP patterns, including multi-layer decoded forms.
 ///
 /// R4-14 FIX: Secrets can be base64-encoded or URL-encoded to evade DLP detection.
-/// This function first checks the raw string, then attempts base64 decoding and
-/// percent-decoding to detect encoded secrets.
+/// This function checks up to 5 decode layers:
+///   1. Raw string
+///   2. base64(raw)
+///   3. percent(raw)
+///   4. percent(base64(raw))  — catches base64-then-URL-encoded secrets
+///   5. base64(percent(raw))  — catches URL-then-base64-encoded secrets
+///
+/// Combinatorial depth is capped at 2 layers to prevent explosion.
+/// A 2ms time budget prevents DoS from large or adversarial inputs.
 fn scan_string_for_secrets(
     s: &str,
     path: &str,
     regexes: &[(&str, regex::Regex)],
     findings: &mut Vec<DlpFinding>,
 ) {
-    // Track which patterns already matched to avoid duplicates
+    let start = std::time::Instant::now();
     let mut matched_patterns = std::collections::HashSet::new();
 
-    // 1. Scan the raw string directly
-    for (name, re) in regexes {
-        if re.is_match(s) {
-            matched_patterns.insert(*name);
-            findings.push(DlpFinding {
-                pattern_name: name.to_string(),
-                location: path.to_string(),
-            });
+    // Layer 1: Scan the raw string directly
+    scan_decoded_layer(s, path, "", regexes, &mut matched_patterns, findings);
+
+    // Layer 2: base64(raw)
+    let base64_decoded = try_base64_decode(s);
+    if let Some(ref decoded) = base64_decoded {
+        if start.elapsed() >= DLP_DECODE_BUDGET {
+            return;
+        }
+        scan_decoded_layer(decoded, path, "(base64)", regexes, &mut matched_patterns, findings);
+    }
+
+    // Layer 3: percent(raw)
+    let percent_decoded = try_percent_decode(s);
+    if let Some(ref decoded) = percent_decoded {
+        if start.elapsed() >= DLP_DECODE_BUDGET {
+            return;
+        }
+        scan_decoded_layer(decoded, path, "(url_encoded)", regexes, &mut matched_patterns, findings);
+    }
+
+    // Layer 4: percent(base64(raw)) — base64 decode first, then percent decode the result
+    if let Some(ref b64) = base64_decoded {
+        if start.elapsed() >= DLP_DECODE_BUDGET {
+            return;
+        }
+        if let Some(ref decoded) = try_percent_decode(b64) {
+            scan_decoded_layer(
+                decoded,
+                path,
+                "(base64+url_encoded)",
+                regexes,
+                &mut matched_patterns,
+                findings,
+            );
         }
     }
 
-    // 2. Try base64 decoding (standard and URL-safe variants)
-    // Only attempt if string looks like it could be base64 (length > 16, no spaces)
-    if s.len() > 16 && !s.contains(' ') {
-        use base64::Engine;
-        let decoded = base64::engine::general_purpose::STANDARD
-            .decode(s)
-            .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(s))
-            .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(s))
-            .or_else(|_| base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(s));
-
-        if let Ok(bytes) = decoded {
-            if let Ok(decoded_str) = std::str::from_utf8(&bytes) {
-                for (name, re) in regexes {
-                    if !matched_patterns.contains(name) && re.is_match(decoded_str) {
-                        matched_patterns.insert(*name);
-                        findings.push(DlpFinding {
-                            pattern_name: name.to_string(),
-                            location: format!("{}(base64)", path),
-                        });
-                    }
-                }
-            }
+    // Layer 5: base64(percent(raw)) — percent decode first, then base64 decode the result
+    if let Some(ref pct) = percent_decoded {
+        if start.elapsed() >= DLP_DECODE_BUDGET {
+            return;
         }
-    }
-
-    // 3. Try percent-decoding (URL encoding)
-    // Only attempt if string contains '%' (likely percent-encoded)
-    if s.contains('%') {
-        let decoded = percent_encoding::percent_decode_str(s);
-        if let Ok(decoded_str) = decoded.decode_utf8() {
-            // Only scan if decoding changed something
-            if decoded_str != s {
-                for (name, re) in regexes {
-                    if !matched_patterns.contains(name) && re.is_match(&decoded_str) {
-                        findings.push(DlpFinding {
-                            pattern_name: name.to_string(),
-                            location: format!("{}(url_encoded)", path),
-                        });
-                    }
-                }
-            }
+        if let Some(ref decoded) = try_base64_decode(pct) {
+            scan_decoded_layer(
+                decoded,
+                path,
+                "(url_encoded+base64)",
+                regexes,
+                &mut matched_patterns,
+                findings,
+            );
         }
     }
 }
@@ -1536,6 +1599,103 @@ mod tests {
         assert!(
             !aws_findings[0].location.contains("base64"),
             "Direct match should not be tagged as base64"
+        );
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // 11.4: Two-layer combinatorial DLP decode chains
+    // ══════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_dlp_base64_then_percent_encoded_detected() {
+        // 11.4: base64(raw) then percent-encode the result → should be detected
+        // Attacker base64-encodes the secret, then percent-encodes the base64 string
+        use base64::Engine;
+        let raw_key = "AKIAIOSFODNN7EXAMPLE";
+        let b64 = base64::engine::general_purpose::STANDARD.encode(raw_key);
+        // Percent-encode the base64 string
+        let double_encoded: String = b64.bytes().map(|b| format!("%{:02X}", b)).collect();
+        let params = json!({"data": double_encoded});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "aws_access_key"),
+            "percent(base64(secret)) should be detected, encoded as: {}, findings: {:?}",
+            &double_encoded[..40.min(double_encoded.len())],
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_percent_then_base64_encoded_detected() {
+        // 11.4: percent(raw) then base64 the result → should be detected
+        // Attacker percent-encodes the secret, then base64-encodes the result
+        use base64::Engine;
+        let raw_key = "AKIAIOSFODNN7EXAMPLE";
+        let pct: String = raw_key.bytes().map(|b| format!("%{:02X}", b)).collect();
+        let double_encoded = base64::engine::general_purpose::STANDARD.encode(&pct);
+        let params = json!({"data": double_encoded});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "aws_access_key"),
+            "base64(percent(secret)) should be detected, encoded as: {}, findings: {:?}",
+            &double_encoded[..40.min(double_encoded.len())],
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_double_encoded_github_token_detected() {
+        // 11.4: GitHub token double-encoded (base64 then percent)
+        use base64::Engine;
+        let raw = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk";
+        let b64 = base64::engine::general_purpose::STANDARD.encode(raw);
+        let double: String = b64.bytes().map(|b| format!("%{:02X}", b)).collect();
+        let params = json!({"token": double});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "github_token"),
+            "Double-encoded GitHub token should be detected, findings: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_double_encoding_location_labels() {
+        // 11.4: Verify location labels for two-layer chains
+        use base64::Engine;
+        let raw_key = "AKIAIOSFODNN7EXAMPLE";
+
+        // base64 then percent → should show "base64+url_encoded" or "url_encoded+base64"
+        let b64 = base64::engine::general_purpose::STANDARD.encode(raw_key);
+        let pct_of_b64: String = b64.bytes().map(|b| format!("%{:02X}", b)).collect();
+        let params = json!({"k": pct_of_b64});
+        let findings = scan_parameters_for_secrets(&params);
+        // The percent-decode happens first (layer 3), producing the base64 string.
+        // Then layer 5 (base64 of percent) would try base64-decoding the percent-decoded result.
+        // But actually: the input is percent-encoded base64, so:
+        //   Layer 3: percent(input) = base64 string → scan (no match, it's just base64)
+        //   Layer 5: base64(percent(input)) = raw key → MATCH with "url_encoded+base64" label
+        assert!(
+            findings.iter().any(|f| f.location.contains("url_encoded+base64")
+                || f.location.contains("base64+url_encoded")),
+            "Two-layer finding should have combinatorial location label, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_no_false_positive_on_clean_double_encoding() {
+        // 11.4: Clean string that happens to be double-encoded should not trigger
+        use base64::Engine;
+        let clean = "Hello, this is a perfectly normal message with no secrets";
+        let b64 = base64::engine::general_purpose::STANDARD.encode(clean);
+        let double: String = b64.bytes().map(|b| format!("%{:02X}", b)).collect();
+        let params = json!({"msg": double});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.is_empty(),
+            "Clean double-encoded string should not trigger DLP, findings: {:?}",
+            findings
         );
     }
 }

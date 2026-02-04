@@ -1696,9 +1696,13 @@ async fn forward_to_upstream(
                                                 "Response blocked: prompt injection detected ({})",
                                                 matches.join(", ")
                                             );
-                                            blocked_by_injection =
-                                                Some("Response blocked: security policy violation".to_string());
-                                            Verdict::Deny { reason: audit_reason }
+                                            blocked_by_injection = Some(
+                                                "Response blocked: security policy violation"
+                                                    .to_string(),
+                                            );
+                                            Verdict::Deny {
+                                                reason: audit_reason,
+                                            }
                                         } else {
                                             Verdict::Allow
                                         };
@@ -1923,7 +1927,9 @@ async fn forward_to_upstream(
                                                     blocked_by_injection =
                                                         Some("Response blocked: security policy violation".to_string());
                                                 }
-                                                Verdict::Deny { reason: audit_reason }
+                                                Verdict::Deny {
+                                                    reason: audit_reason,
+                                                }
                                             } else {
                                                 Verdict::Allow
                                             };
@@ -2321,16 +2327,22 @@ async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &Pro
                         "finding_count": dlp_findings.len(),
                     }),
                 );
+                // SECURITY (R14-SSE-5): Log Verdict::Allow (not Deny)
+                // because SSE DLP is log-only — the stream IS forwarded.
+                // Matches the regular response DLP fix (R13-DLP-9).
                 if let Err(e) = state
                     .audit
                     .log_entry(
                         &action,
-                        &Verdict::Deny {
-                            reason: format!("Secrets detected in SSE response: {:?}", patterns),
-                        },
+                        &Verdict::Allow,
                         json!({
                             "source": "http_proxy",
                             "event": "sse_response_dlp_alert",
+                            "blocked": false,
+                            "dlp_detail": format!(
+                                "Secrets detected in SSE response: {:?}",
+                                patterns
+                            ),
                         }),
                     )
                     .await

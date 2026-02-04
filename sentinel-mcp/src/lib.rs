@@ -54,6 +54,8 @@ pub struct McpServer {
     policies: RwLock<Vec<Policy>>,
     max_request_size: usize,
     strict_mode: bool,
+    /// Custom path decode iteration limit (None = default 20).
+    max_path_decode_iterations: Option<u32>,
 }
 
 impl McpServer {
@@ -63,14 +65,23 @@ impl McpServer {
             policies: RwLock::new(Vec::new()),
             max_request_size: 1_000_000, // 1MB limit
             strict_mode,
+            max_path_decode_iterations: None,
         }
+    }
+
+    /// Set the maximum percent-decoding iterations for path normalization.
+    pub fn set_max_path_decode_iterations(&mut self, max: u32) {
+        self.max_path_decode_iterations = Some(max);
     }
 
     /// Recompile the engine from current policies.
     /// On failure, keeps the previous engine and logs errors.
     async fn recompile_engine(&self, policies: &[Policy]) {
         match PolicyEngine::with_policies(self.strict_mode, policies) {
-            Ok(compiled) => {
+            Ok(mut compiled) => {
+                if let Some(max_iter) = self.max_path_decode_iterations {
+                    compiled.set_max_path_decode_iterations(max_iter);
+                }
                 *self.engine.write().await = compiled;
             }
             Err(errors) => {
