@@ -101,6 +101,15 @@ fn validate_name(value: &str, field: &'static str) -> Result<(), ValidationError
             max: MAX_NAME_LEN,
         });
     }
+    // SECURITY (R12-TYPES-1): Reject names with control characters or
+    // that are whitespace-only. Prevents homoglyph/invisible-char bypass
+    // and log confusion.
+    if value.trim().is_empty() {
+        return Err(ValidationError::EmptyField { field });
+    }
+    if value.chars().any(|c| c.is_control() && c != '\0') {
+        return Err(ValidationError::NullByte { field }); // Reuse NullByte variant for control chars
+    }
     Ok(())
 }
 

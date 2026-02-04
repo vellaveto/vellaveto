@@ -326,7 +326,12 @@ fn scan_params_for_targets_inner(
                 }
             } else if lower.starts_with("http://") || lower.starts_with("https://") {
                 if let Some(authority) = s.find("://").map(|i| &s[i + 3..]) {
-                    let host = authority.split('/').next().unwrap_or(authority);
+                    let host_raw = authority.split('/').next().unwrap_or(authority);
+                    // SECURITY (R12-EXT-2): Percent-decode authority before splitting on '@'.
+                    // Without this, http://evil.com%40blocked.com bypasses domain matching.
+                    let decoded = percent_encoding::percent_decode_str(host_raw)
+                        .decode_utf8_lossy();
+                    let host = decoded.as_ref();
                     let host = host.split(':').next().unwrap_or(host);
                     let host = host.split('?').next().unwrap_or(host);
                     let host = host.split('#').next().unwrap_or(host);

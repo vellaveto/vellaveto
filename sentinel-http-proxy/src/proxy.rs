@@ -2061,6 +2061,23 @@ fn extract_text_from_result(result: &Value) -> String {
             if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
                 text_parts.push(text.to_string());
             }
+            // SECURITY (R12-RESP-13): Also scan resource.text in content items.
+            // Matches the coverage of scan_response_for_injection in inspection.rs.
+            if let Some(text) = item
+                .get("resource")
+                .and_then(|r| r.get("text"))
+                .and_then(|t| t.as_str())
+            {
+                text_parts.push(text.to_string());
+            }
+            // Scan annotations text
+            if let Some(text) = item
+                .get("annotations")
+                .and_then(|a| a.get("audience"))
+                .and_then(|t| t.as_str())
+            {
+                text_parts.push(text.to_string());
+            }
         }
     }
 
