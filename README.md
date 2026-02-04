@@ -22,7 +22,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 | Metric | Value |
 |--------|-------|
 | Language | Rust |
-| Test suite | 2,050+ tests |
+| Test suite | 2,400+ tests |
 | Evaluation latency | <5ms P99 |
 | Memory baseline | <50MB |
 | License | MIT |
@@ -57,6 +57,13 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Evaluation traces** for full decision explainability (OPA-style)
 - **Pre-compiled patterns** with zero allocations on the evaluation hot path
 - **Canonical presets** for common security scenarios (dangerous tools, network allowlisting, etc.)
+- **DLP response scanning** — detects secrets (AWS keys, GitHub tokens, JWTs, etc.) in tool responses, not just request parameters
+- **Structured output validation** — OutputSchemaRegistry validates `structuredContent` against declared `outputSchema`, preventing response injection (puppet attacks)
+- **MCP 2025-06-18 compliance** — MCP-Protocol-Version header, RFC 8707 resource indicators, `_meta` field preservation, tool title tracking
+- **Context-aware policy infrastructure** — session-level call counting, call history, and agent ID tracking (policy enforcement wiring in progress)
+- **Custom PII patterns** — user-defined regex patterns for audit log redaction
+- **TOCTOU canonicalization** — optional re-serialization of JSON-RPC messages before forwarding (`--canonicalize`)
+- **Task request enforcement** — `tasks/get` and `tasks/cancel` evaluated through full policy engine
 - **CI security scanning** with `cargo audit` and library code hygiene checks
 
 ## Quick Start
@@ -288,6 +295,22 @@ disabled_patterns = ["pretend you are"]
 
 When `block_on_injection` is `true`, responses matching injection patterns are replaced with a JSON-RPC error (`-32005`) instead of being forwarded. When `false` (default), matches are logged but the response passes through.
 
+### DLP Response Scanning
+
+Sentinel scans tool **responses** for leaked secrets using 7 built-in patterns:
+
+| Pattern | Example Match |
+|---------|--------------|
+| AWS Access Key | `AKIA...` (20-char uppercase) |
+| AWS Secret Key | 40-char base64 after known key names |
+| GitHub Token | `ghp_`, `gho_`, `ghs_`, `ghu_`, `github_pat_` prefixes |
+| Generic API Key | `sk-`, `api_key`, `token` followed by 20+ chars |
+| Private Key Header | `-----BEGIN (RSA\|EC\|OPENSSH) PRIVATE KEY-----` |
+| Slack Token | `xoxb-`, `xoxp-`, `xoxs-` prefixes |
+| JWT | `eyJ...` base64-encoded JSON header with payload |
+
+DLP scanning is enabled by default in both the HTTP proxy and stdio proxy. Detected secrets are logged as warnings. To block responses containing secrets, enable blocking mode in the injection config (`block_on_injection = true`). Both JSON responses and SSE event streams are scanned.
+
 ### Audit Configuration
 
 Control how aggressively the audit logger redacts sensitive data:
@@ -302,6 +325,14 @@ redaction_level = "KeysAndPatterns"  # Off | KeysOnly | KeysAndPatterns
 | `Off` | No redaction -- raw values logged as-is |
 | `KeysOnly` | Redacts sensitive keys (passwords, tokens) and known value prefixes |
 | `KeysAndPatterns` | Redacts keys, prefixes, and PII-like patterns (default) |
+
+Custom PII patterns can be added for domain-specific redaction:
+
+```toml
+[[audit.custom_pii_patterns]]
+name = "credit_card"
+pattern = "\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}"
+```
 
 ### Supply Chain Verification
 
@@ -358,7 +389,10 @@ SENTINEL_API_KEY=your-secret sentinel-http-proxy \
   --listen 127.0.0.1:3001
 ```
 
+Session timeout options: `--session-timeout` controls inactivity timeout (seconds since last request), while `--session-max-lifetime` sets an absolute cap regardless of activity. Both can be used together.
+
 Features:
+- MCP Streamable HTTP transport (2025-06-18) with protocol version negotiation
 - Session management with server-generated IDs, inactivity timeout, and absolute session lifetime
 - CSRF protection via Origin header validation
 - SSE streaming passthrough for long-running operations
@@ -366,6 +400,7 @@ Features:
 - Tool annotation and schema tracking with rug-pull detection
 - OAuth 2.1 token validation with JWKS support
 - Response body size limits to prevent upstream DoS
+- DLP scanning of responses and SSE streams for leaked secrets
 
 #### OAuth 2.1
 
@@ -375,10 +410,11 @@ sentinel-http-proxy \
   --config policy.toml \
   --oauth-issuer https://auth.example.com \
   --oauth-audience mcp-server \
-  --oauth-scopes mcp:read,mcp:write
+  --oauth-scopes mcp:read,mcp:write \
+  --oauth-expected-resource https://mcp.example.com
 ```
 
-Supports RS256, ES256, and EdDSA algorithms. Algorithm confusion attacks are prevented by restricting to asymmetric algorithms only.
+Supports RS256, ES256, and EdDSA algorithms. Algorithm confusion attacks are prevented by restricting to asymmetric algorithms only. The `--oauth-expected-resource` flag enables RFC 8707 resource indicator validation, which prevents token replay attacks by verifying that the JWT's `aud` or resource claim matches the expected MCP server URL.
 
 ## HTTP API Reference
 
@@ -511,6 +547,7 @@ The trace includes:
 | `SENTINEL_RATE_PER_PRINCIPAL_BURST` | *(disabled)* | Burst allowance per principal |
 | `SENTINEL_CORS_ORIGINS` | *(localhost)* | Comma-separated allowed CORS origins (`*` for any) |
 | `SENTINEL_LOG_MAX_SIZE` | `104857600` | Max audit log size in bytes before rotation (0 to disable) |
+| `SENTINEL_CANONICALIZE` | `false` | Re-serialize parsed JSON-RPC before forwarding (closes TOCTOU gaps) |
 | `RUST_LOG` | `info` | Log level filter (`tracing` / `env_logger` syntax) |
 
 Environment variables **override** values set in the config file. See below for config-file based rate limiting.
@@ -546,11 +583,21 @@ Environment variables **override** values set in the config file. See below for 
 
 - **Injection detection is a pre-filter, not a security boundary.** Pattern-based injection detection catches known attack signatures but can be evaded by motivated attackers using encoding, typoglycemia, semantic synonyms, or novel phrasing. Even in blocking mode (`block_on_injection = true`), it is one layer in a defense-in-depth strategy.
 
-- **TOCTOU (Time-of-Check to Time-of-Use).** The proxy evaluates a parsed representation of the JSON-RPC message. JSON round-tripping (duplicate keys, numeric precision) is handled deterministically by `serde_json` (last-key-wins, IEEE 754), but the serialized bytes forwarded upstream are the original request bytes, not a re-serialized copy.
+- **TOCTOU partially mitigated.** The proxy evaluates a parsed representation of the JSON-RPC message. By default, the original request bytes are forwarded upstream (duplicate keys are still rejected by `serde_json` last-key-wins). Use the `--canonicalize` flag to re-serialize parsed JSON-RPC before forwarding, closing this gap entirely.
+
+- **DLP encoding bypasses.** Base64-encoded, URL-encoded, or split secrets may evade pattern-based DLP scanning. Multi-layer decoding (e.g., scanning decoded base64 payloads) is not yet implemented.
+
+- **Session fixation.** The HTTP proxy does not fully validate session ownership on `POST /mcp`. An attacker who obtains a session ID could attach to another user's session. This is mitigated by OAuth subject binding when OAuth is enabled.
+
+- **Context-aware policies not enforced.** Per-session call counting, call history, and agent ID tracking infrastructure exists, but the policy engine does not yet evaluate context conditions (time windows, max calls, agent restrictions).
 
 - **Checkpoint trust anchor.** Checkpoint signatures use self-embedded Ed25519 public keys by default (TOFU model). For stronger guarantees, pin a trusted verifying key via the `SENTINEL_TRUSTED_KEY` environment variable.
 
 - **Per-principal rate limiting relies on client-supplied headers.** When using `X-Principal` for rate limit keying, clients can choose their own identity. Combine with API key auth or OAuth for trustworthy principal identification.
+
+- **No TLS termination.** Sentinel does not terminate TLS. Use a reverse proxy (nginx, Caddy) in front of Sentinel for HTTPS.
+
+- **No clustering / HA.** Single-process deployment only. Session state and audit logs are local to the process.
 
 ## Architecture
 
@@ -631,8 +678,11 @@ sentinel-http-proxy \
   [--max-sessions 1000] \
   [--audit-log audit.log] \
   [--strict] \
-  [--allow-anonymous]
+  [--allow-anonymous] \
+  [--canonicalize]
 ```
+
+The `--canonicalize` flag re-serializes parsed JSON-RPC messages before forwarding them upstream, closing TOCTOU gaps from duplicate keys or non-standard formatting in the original request bytes.
 
 ## Development
 
