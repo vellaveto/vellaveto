@@ -148,6 +148,7 @@ fn to_policies_produces_correct_policy_structs() {
         memory_tracking: Default::default(),
         elicitation: Default::default(),
         sampling: Default::default(),
+        audit_export: Default::default(),
         max_path_decode_iterations: None,
         known_tool_names: vec![],
     };
@@ -180,6 +181,7 @@ fn to_policies_uses_default_priority_when_none() {
         memory_tracking: Default::default(),
         elicitation: Default::default(),
         sampling: Default::default(),
+        audit_export: Default::default(),
         max_path_decode_iterations: None,
         known_tool_names: vec![],
     };
@@ -319,6 +321,7 @@ fn policy_config_toml_roundtrip() {
         memory_tracking: Default::default(),
         elicitation: Default::default(),
         sampling: Default::default(),
+        audit_export: Default::default(),
         max_path_decode_iterations: None,
         known_tool_names: vec![],
     };

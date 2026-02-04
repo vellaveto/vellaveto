@@ -736,6 +736,50 @@ pub struct MemoryTrackingConfig {
     pub block_on_match: bool,
 }
 
+/// Audit log export configuration for SIEM integration (P3.3).
+///
+/// Controls the format and delivery of audit entries to external SIEM platforms.
+/// Supports CEF (Common Event Format) and JSON Lines (ndjson) output.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [audit_export]
+/// format = "jsonl"
+/// webhook_url = "https://siem.example.com/ingest"
+/// batch_size = 10
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuditExportConfig {
+    /// Export format: "cef" or "jsonl". Default: "jsonl".
+    #[serde(default = "default_export_format")]
+    pub format: String,
+    /// Optional webhook URL for streaming entries.
+    #[serde(default)]
+    pub webhook_url: Option<String>,
+    /// Number of entries per webhook batch. Default: 10.
+    #[serde(default = "default_batch_size")]
+    pub batch_size: usize,
+}
+
+fn default_export_format() -> String {
+    "jsonl".to_string()
+}
+
+fn default_batch_size() -> usize {
+    10
+}
+
+impl Default for AuditExportConfig {
+    fn default() -> Self {
+        Self {
+            format: default_export_format(),
+            webhook_url: None,
+            batch_size: default_batch_size(),
+        }
+    }
+}
+
 /// Elicitation interception configuration (MCP 2025-06-18, P2.2).
 ///
 /// Controls whether server-initiated user prompts (`elicitation/create`)
@@ -863,6 +907,10 @@ pub struct PolicyConfig {
     /// Sampling request policy configuration.
     #[serde(default)]
     pub sampling: SamplingConfig,
+
+    /// Audit log export configuration for SIEM integration.
+    #[serde(default)]
+    pub audit_export: AuditExportConfig,
 
     /// Maximum percent-decoding iterations for path normalization.
     /// Paths requiring more iterations fail-closed to `"/"` (attack indicator).
@@ -2030,6 +2078,7 @@ policy_type = "Allow"
             memory_tracking: MemoryTrackingConfig::default(),
             elicitation: ElicitationConfig::default(),
             sampling: SamplingConfig::default(),
+            audit_export: AuditExportConfig::default(),
             max_path_decode_iterations: None,
             known_tool_names: vec![],
         };

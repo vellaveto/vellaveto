@@ -35,6 +35,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/policies/reload", post(reload_policies))
         .route("/api/policies/{id}", delete(remove_policy))
         .route("/api/audit/entries", get(audit_entries))
+        .route("/api/audit/export", get(audit_export))
         .route("/api/audit/report", get(audit_report))
         .route("/api/audit/verify", get(audit_verify))
         .route("/api/audit/checkpoints", get(list_checkpoints))
@@ -860,6 +861,68 @@ async fn audit_entries(
     ))
 }
 
+/// Query parameters for the audit export endpoint.
+#[derive(Deserialize)]
+struct AuditExportQuery {
+    /// Export format: "cef" or "jsonl". Default: "jsonl".
+    format: Option<String>,
+    /// Only include entries with timestamp >= this value (ISO 8601 string comparison).
+    since: Option<String>,
+    /// Maximum number of entries to export. Default: 100, max: 1000.
+    limit: Option<usize>,
+}
+
+/// Export audit entries in SIEM-compatible formats (CEF or JSON Lines).
+///
+/// Query parameters:
+/// - `format`: "cef" or "jsonl" (default: "jsonl")
+/// - `since`: ISO 8601 timestamp filter (entries >= this value)
+/// - `limit`: Maximum entries (default: 100, max: 1000)
+///
+/// Returns `text/plain` for CEF, `application/x-ndjson` for JSON Lines.
+async fn audit_export(
+    State(state): State<AppState>,
+    Query(query): Query<AuditExportQuery>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let format = query
+        .format
+        .as_deref()
+        .and_then(sentinel_audit::export::ExportFormat::parse_format)
+        .unwrap_or(sentinel_audit::export::ExportFormat::JsonLines);
+
+    let limit = query.limit.unwrap_or(100).min(1000); // Cap at 1000
+
+    let entries = state.audit.load_entries().await.map_err(|e| {
+        tracing::error!("Failed to load audit entries for export: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Failed to load audit entries".to_string(),
+            }),
+        )
+    })?;
+
+    // Filter by `since` timestamp if provided (lexicographic comparison on ISO 8601)
+    let filtered: Vec<_> = if let Some(ref since) = query.since {
+        entries
+            .into_iter()
+            .filter(|e| e.timestamp.as_str() >= since.as_str())
+            .take(limit)
+            .collect()
+    } else {
+        entries.into_iter().take(limit).collect()
+    };
+
+    let body = sentinel_audit::export::format_entries(&filtered, format);
+
+    let content_type = match format {
+        sentinel_audit::export::ExportFormat::Cef => "text/plain",
+        sentinel_audit::export::ExportFormat::JsonLines => "application/x-ndjson",
+    };
+
+    Ok(([(header::CONTENT_TYPE, content_type)], body))
+}
+
 async fn audit_report(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
@@ -1591,11 +1654,13 @@ mod tests {
 
     #[test]
     fn test_sanitize_context_none_stays_none() {
-        assert!(sanitize_context(None).is_none());
+        let headers = HeaderMap::new();
+        assert!(sanitize_context(None, &headers).is_none());
     }
 
     #[test]
     fn test_sanitize_context_strips_call_counts_and_history() {
+        let headers = HeaderMap::new();
         let mut call_counts = std::collections::HashMap::new();
         call_counts.insert("read_file".to_string(), 99);
         let spoofed = EvaluationContext {
@@ -1604,8 +1669,8 @@ mod tests {
             call_counts,
             previous_actions: vec!["login".to_string(), "auth".to_string()],
         };
-        let sanitized = sanitize_context(Some(spoofed)).unwrap();
-        // agent_id preserved
+        let sanitized = sanitize_context(Some(spoofed), &headers).unwrap();
+        // agent_id preserved (no auth header)
         assert_eq!(sanitized.agent_id, Some("agent-a".to_string()));
         // Session-state fields stripped
         assert!(sanitized.call_counts.is_empty());
@@ -1615,19 +1680,74 @@ mod tests {
     }
 
     #[test]
-    fn test_sanitize_context_preserves_agent_id() {
+    fn test_sanitize_context_preserves_agent_id_without_auth() {
+        let headers = HeaderMap::new();
         let ctx = EvaluationContext {
             timestamp: None,
             agent_id: Some("my-agent".to_string()),
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
         };
-        let sanitized = sanitize_context(Some(ctx)).unwrap();
+        let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
         assert_eq!(sanitized.agent_id, Some("my-agent".to_string()));
+    }
+
+    /// SECURITY (R20-AGENT-ID): When a Bearer token is present, agent_id
+    /// must be derived from the token hash, not accepted from the client.
+    #[test]
+    fn test_sanitize_context_derives_agent_id_from_auth() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            "Bearer my-secret-key".parse().unwrap(),
+        );
+        let ctx = EvaluationContext {
+            timestamp: None,
+            agent_id: Some("spoofed-agent".to_string()),
+            call_counts: std::collections::HashMap::new(),
+            previous_actions: Vec::new(),
+        };
+        let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
+        let agent_id = sanitized.agent_id.unwrap();
+        assert!(
+            agent_id.starts_with("bearer:"),
+            "agent_id should be derived from token hash, got: {}",
+            agent_id
+        );
+        assert!(
+            agent_id.contains("(note: spoofed-agent)"),
+            "Client agent_id should appear as note, got: {}",
+            agent_id
+        );
+    }
+
+    /// SECURITY (R20-AGENT-ID): Without client agent_id, auth-derived only.
+    #[test]
+    fn test_sanitize_context_derives_agent_id_from_auth_no_client() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            "Bearer my-secret-key".parse().unwrap(),
+        );
+        let ctx = EvaluationContext {
+            timestamp: None,
+            agent_id: None,
+            call_counts: std::collections::HashMap::new(),
+            previous_actions: Vec::new(),
+        };
+        let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
+        let agent_id = sanitized.agent_id.unwrap();
+        assert!(
+            agent_id.starts_with("bearer:"),
+            "agent_id should be derived from token hash, got: {}",
+            agent_id
+        );
+        assert!(!agent_id.contains("note:"), "No note when no client agent_id");
     }
 
     #[test]
     fn test_sanitize_context_rejects_oversized_agent_id() {
+        let headers = HeaderMap::new();
         let oversized_id = "a".repeat(257);
         let ctx = EvaluationContext {
             timestamp: None,
@@ -1635,7 +1755,7 @@ mod tests {
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
         };
-        let sanitized = sanitize_context(Some(ctx)).unwrap();
+        let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
         assert!(
             sanitized.agent_id.is_none(),
             "Agent ID > 256 bytes should be rejected"
@@ -1644,6 +1764,7 @@ mod tests {
 
     #[test]
     fn test_sanitize_context_allows_max_length_agent_id() {
+        let headers = HeaderMap::new();
         let max_id = "b".repeat(256);
         let ctx = EvaluationContext {
             timestamp: None,
@@ -1651,19 +1772,20 @@ mod tests {
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
         };
-        let sanitized = sanitize_context(Some(ctx)).unwrap();
+        let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
         assert_eq!(sanitized.agent_id, Some(max_id));
     }
 
     #[test]
     fn test_sanitize_context_rejects_empty_agent_id() {
+        let headers = HeaderMap::new();
         let ctx = EvaluationContext {
             timestamp: None,
             agent_id: Some("".to_string()),
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
         };
-        let sanitized = sanitize_context(Some(ctx)).unwrap();
+        let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
         assert!(
             sanitized.agent_id.is_none(),
             "Empty agent_id should be rejected"

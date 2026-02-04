@@ -772,6 +772,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         memory_tracking: Default::default(),
         elicitation: Default::default(),
         sampling: Default::default(),
+        audit_export: Default::default(),
         max_path_decode_iterations: None,
         known_tool_names: Default::default(),
     };
