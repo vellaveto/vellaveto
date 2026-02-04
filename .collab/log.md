@@ -1,5 +1,34 @@
 # Shared Log
 
+## 2026-02-04 — Instance B: R4-16 + Rug-Pull Homoglyph Fix + Multi-Layer Hardening
+
+**Instance:** Instance B (Opus 4.5)
+**Timestamp:** 2026-02-04
+**Test count:** 2,292 (all passing, 0 clippy warnings)
+
+### Fixes Applied
+
+| Finding | Severity | Fix |
+|---------|----------|-----|
+| R4-16: MaxCalls pattern recompiled every eval | LOW | Pre-compiled `PatternMatcher` stored in `CompiledContextCondition` — zero allocation on eval hot path |
+| Unicode homoglyphs in rug-pull detection | MEDIUM | `detect_rug_pull()` now normalizes tool names via `normalize_method()` before storage/comparison — prevents homoglyph bypass |
+| R11-RESP-9: SSRF via redirect following | HIGH | Disabled automatic redirect following in HTTP client (`Policy::none()`) |
+| R11-RESP-4: SSE split-payload injection evasion | HIGH | Concatenate all `data:` lines per SSE event before scanning — prevents split-line bypass |
+| R11-RESP-5: Non-UTF-8 SSE scanning bypass | MEDIUM | Use `from_utf8_lossy` instead of skipping non-UTF-8 SSE bodies |
+| R11-APPR-4: Approval resolver identity spoofing | MEDIUM | Derive resolver identity from Bearer token hash, not client-supplied string |
+| R9-9: Injection detection without blocking | LOW | Warning logged when injection scanning enabled but blocking disabled |
+| R8-MCP-6: Resource/annotation injection scanning | MEDIUM | Scan embedded resource text and annotations in `scan_response_for_injection()` |
+| Bearer scheme case sensitivity | LOW | RFC 7235 case-insensitive Bearer scheme comparison |
+| Trace header size cap | LOW | X-Sentinel-Trace header capped at 4KB to prevent oversized responses |
+| Server routes duplicate function | BUG | Removed duplicate `derive_resolver_identity` function definition |
+| Relative path extraction | MEDIUM | `looks_like_relative_path()` catches `../`, `./`, `~/` in server eval endpoint |
+
+**Files:** sentinel-engine/src/lib.rs, sentinel-mcp/src/rug_pull.rs, sentinel-mcp/src/extractor.rs, sentinel-mcp/src/inspection.rs, sentinel-http-proxy/src/proxy.rs, sentinel-http-proxy/src/main.rs, sentinel-server/src/routes.rs, sentinel-mcp/src/framing.rs
+
+**New tests:** 4 rug-pull normalization tests (zero-width, case, annotation change through normalization, flagged name normalization)
+
+---
+
 ## 2026-02-04 — Controller: Fresh Security Audit + 8 Hardening Fixes
 
 **Instance:** Controller (Opus 4.5)

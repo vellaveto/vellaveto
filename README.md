@@ -60,9 +60,9 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **DLP response scanning** — detects secrets (AWS keys, GitHub tokens, JWTs, etc.) in tool responses, not just request parameters
 - **Structured output validation** — OutputSchemaRegistry validates `structuredContent` against declared `outputSchema`, preventing response injection (puppet attacks)
 - **MCP 2025-06-18 compliance** — MCP-Protocol-Version header, RFC 8707 resource indicators, `_meta` field preservation, tool title tracking
-- **Context-aware policy infrastructure** — session-level call counting, call history, and agent ID tracking (policy enforcement wiring in progress)
+- **Context-aware policies** — time windows, per-session call limits, agent ID restrictions, and action sequence enforcement
 - **Custom PII patterns** — user-defined regex patterns for audit log redaction
-- **TOCTOU canonicalization** — optional re-serialization of JSON-RPC messages before forwarding (`--canonicalize`)
+- **TOCTOU canonicalization** — re-serialization of JSON-RPC messages before forwarding (on by default; opt out with `--no-canonicalize`)
 - **Task request enforcement** — `tasks/get` and `tasks/cancel` evaluated through full policy engine
 - **CI security scanning** with `cargo audit` and library code hygiene checks
 
@@ -547,7 +547,7 @@ The trace includes:
 | `SENTINEL_RATE_PER_PRINCIPAL_BURST` | *(disabled)* | Burst allowance per principal |
 | `SENTINEL_CORS_ORIGINS` | *(localhost)* | Comma-separated allowed CORS origins (`*` for any) |
 | `SENTINEL_LOG_MAX_SIZE` | `104857600` | Max audit log size in bytes before rotation (0 to disable) |
-| `SENTINEL_CANONICALIZE` | `false` | Re-serialize parsed JSON-RPC before forwarding (closes TOCTOU gaps) |
+| `SENTINEL_NO_CANONICALIZE` | `false` | Set to `true` to disable JSON-RPC re-serialization before forwarding (not recommended) |
 | `RUST_LOG` | `info` | Log level filter (`tracing` / `env_logger` syntax) |
 
 Environment variables **override** values set in the config file. See below for config-file based rate limiting.
@@ -583,17 +583,19 @@ Environment variables **override** values set in the config file. See below for 
 
 - **Injection detection is a pre-filter, not a security boundary.** Pattern-based injection detection catches known attack signatures but can be evaded by motivated attackers using encoding, typoglycemia, semantic synonyms, or novel phrasing. Even in blocking mode (`block_on_injection = true`), it is one layer in a defense-in-depth strategy.
 
-- **TOCTOU partially mitigated.** The proxy evaluates a parsed representation of the JSON-RPC message. By default, the original request bytes are forwarded upstream (duplicate keys are still rejected by `serde_json` last-key-wins). Use the `--canonicalize` flag to re-serialize parsed JSON-RPC before forwarding, closing this gap entirely.
+- **No DNS rebinding protection.** Domain rules match DNS name patterns but do not pin resolved IP addresses. An upstream server's DNS record could change between policy evaluation and the proxied network connection.
 
-- **DLP encoding bypasses.** Base64-encoded, URL-encoded, or split secrets may evade pattern-based DLP scanning. Multi-layer decoding (e.g., scanning decoded base64 payloads) is not yet implemented.
+- **TOCTOU mitigated by default.** Both proxies re-serialize parsed JSON before forwarding, ensuring the upstream server sees exactly what was evaluated. The HTTP proxy can opt out via `--no-canonicalize`; in that mode, duplicate keys are still rejected but other parse ambiguities (key ordering, Unicode escapes) could differ between evaluation and upstream interpretation.
 
-- **Session fixation.** The HTTP proxy does not fully validate session ownership on `POST /mcp`. An attacker who obtains a session ID could attach to another user's session. This is mitigated by OAuth subject binding when OAuth is enabled.
+- **Path normalization decode limit.** `normalize_path()` iteratively decodes percent-encoding up to 20 layers, then fails-closed to `"/"`. Paths with 21+ layers of encoding will match root rather than their intended target. This is intentional to prevent CPU exhaustion from adversarial inputs.
 
-- **Context-aware policies not enforced.** Per-session call counting, call history, and agent ID tracking infrastructure exists, but the policy engine does not yet evaluate context conditions (time windows, max calls, agent restrictions).
+- **DLP scanning is single-pass per encoding layer.** DLP detects secrets in raw, base64-decoded, and percent-decoded forms, but does not handle split secrets across multiple fields or multi-step encoding chains (e.g., base64-of-URL-encoded). Treat DLP as a best-effort safety net, not a guarantee.
 
 - **Checkpoint trust anchor.** Checkpoint signatures use self-embedded Ed25519 public keys by default (TOFU model). For stronger guarantees, pin a trusted verifying key via the `SENTINEL_TRUSTED_KEY` environment variable.
 
 - **Per-principal rate limiting relies on client-supplied headers.** When using `X-Principal` for rate limit keying, clients can choose their own identity. Combine with API key auth or OAuth for trustworthy principal identification.
+
+- **Stdio proxy always re-serializes JSON.** The stdio proxy canonicalizes every message via `serde_json`. Upstream servers that depend on exact byte-for-byte forwarding (preserving key order or whitespace) are not supported in stdio mode.
 
 - **No TLS termination.** Sentinel does not terminate TLS. Use a reverse proxy (nginx, Caddy) in front of Sentinel for HTTPS.
 

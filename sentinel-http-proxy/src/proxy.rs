@@ -1546,18 +1546,16 @@ async fn forward_to_upstream(
             // SECURITY (R11-RESP-3): Validate upstream status code before forwarding.
             // A malicious upstream could return 3xx redirects (SSRF), 401/407 (credential
             // harvesting), or 1xx (protocol confusion). Only allow 200-299 and 4xx-5xx.
-            let status = if status.is_redirection()
-                || status.as_u16() < 200
-                || status.as_u16() == 407
-            {
-                tracing::warn!(
-                    "SECURITY: Upstream returned suspicious status {} — mapping to 502",
+            let status =
+                if status.is_redirection() || status.as_u16() < 200 || status.as_u16() == 407 {
+                    tracing::warn!(
+                        "SECURITY: Upstream returned suspicious status {} — mapping to 502",
+                        status
+                    );
+                    StatusCode::BAD_GATEWAY
+                } else {
                     status
-                );
-                StatusCode::BAD_GATEWAY
-            } else {
-                status
-            };
+                };
 
             let headers = upstream_resp.headers().clone();
             let content_type = headers
@@ -1608,12 +1606,11 @@ async fn forward_to_upstream(
                             .body(Body::from(sse_bytes))
                             .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
 
-                        // Copy relevant headers from upstream
-                        if let Some(session_header) = headers.get(MCP_SESSION_ID) {
-                            response
-                                .headers_mut()
-                                .insert(MCP_SESSION_ID, session_header.clone());
-                        }
+                        // SECURITY (R12-RESP-10): Do NOT copy Mcp-Session-Id from upstream.
+                        // The proxy is the session authority. Forwarding the upstream's
+                        // session ID would override proxy-managed session tracking,
+                        // breaking rug-pull detection, rate limiting, and manifest verification.
+                        // The caller's attach_session_header() sets the correct proxy session ID.
 
                         response
                     }
@@ -1669,12 +1666,16 @@ async fn forward_to_upstream(
                                         // SECURITY: When injection_blocking is true, block the
                                         // response instead of just logging.
                                         let verdict = if state.injection_blocking {
-                                            let reason = format!(
+                                            // SECURITY (R12-RESP-9): Log detailed patterns to audit
+                                            // but return generic message to client to prevent
+                                            // pattern oracle attacks.
+                                            let audit_reason = format!(
                                                 "Response blocked: prompt injection detected ({})",
                                                 matches.join(", ")
                                             );
-                                            blocked_by_injection = Some(reason.clone());
-                                            Verdict::Deny { reason }
+                                            blocked_by_injection =
+                                                Some("Response blocked: security policy violation".to_string());
+                                            Verdict::Deny { reason: audit_reason }
                                         } else {
                                             Verdict::Allow
                                         };
@@ -1890,14 +1891,16 @@ async fn forward_to_upstream(
                                             );
                                             // SECURITY: Block when injection_blocking is enabled.
                                             let verdict = if state.injection_blocking {
-                                                let reason = format!(
+                                                // SECURITY (R12-RESP-9): Generic message to client.
+                                                let audit_reason = format!(
                                                     "Error response blocked: prompt injection detected ({})",
                                                     matches.join(", ")
                                                 );
                                                 if blocked_by_injection.is_none() {
-                                                    blocked_by_injection = Some(reason.clone());
+                                                    blocked_by_injection =
+                                                        Some("Response blocked: security policy violation".to_string());
                                                 }
-                                                Verdict::Deny { reason }
+                                                Verdict::Deny { reason: audit_reason }
                                             } else {
                                                 Verdict::Allow
                                             };
@@ -2007,11 +2010,8 @@ async fn forward_to_upstream(
                             .body(Body::from(body_bytes))
                             .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
 
-                        if let Some(session_header) = headers.get(MCP_SESSION_ID) {
-                            response
-                                .headers_mut()
-                                .insert(MCP_SESSION_ID, session_header.clone());
-                        }
+                        // SECURITY (R12-RESP-10): Do NOT copy Mcp-Session-Id from upstream.
+                        // The proxy is the session authority — see SSE path comment above.
 
                         response
                     }
@@ -2122,19 +2122,18 @@ async fn scan_sse_events_for_injection(
             if let Some(result) = json_val.get("result") {
                 let text = extract_text_from_result(result);
                 if !text.is_empty() {
-                    let matches: Vec<String> =
-                        if let Some(ref scanner) = state.injection_scanner {
-                            scanner
-                                .inspect(&text)
-                                .into_iter()
-                                .map(|s| s.to_string())
-                                .collect()
-                        } else {
-                            inspect_for_injection(&text)
-                                .into_iter()
-                                .map(|s| s.to_string())
-                                .collect()
-                        };
+                    let matches: Vec<String> = if let Some(ref scanner) = state.injection_scanner {
+                        scanner
+                            .inspect(&text)
+                            .into_iter()
+                            .map(|s| s.to_string())
+                            .collect()
+                    } else {
+                        inspect_for_injection(&text)
+                            .into_iter()
+                            .map(|s| s.to_string())
+                            .collect()
+                    };
                     all_matches.extend(matches);
                 }
             }
@@ -2154,19 +2153,18 @@ async fn scan_sse_events_for_injection(
                     }
                 }
                 if !error_text.is_empty() {
-                    let matches: Vec<String> =
-                        if let Some(ref scanner) = state.injection_scanner {
-                            scanner
-                                .inspect(&error_text)
-                                .into_iter()
-                                .map(|s| s.to_string())
-                                .collect()
-                        } else {
-                            inspect_for_injection(&error_text)
-                                .into_iter()
-                                .map(|s| s.to_string())
-                                .collect()
-                        };
+                    let matches: Vec<String> = if let Some(ref scanner) = state.injection_scanner {
+                        scanner
+                            .inspect(&error_text)
+                            .into_iter()
+                            .map(|s| s.to_string())
+                            .collect()
+                    } else {
+                        inspect_for_injection(&error_text)
+                            .into_iter()
+                            .map(|s| s.to_string())
+                            .collect()
+                    };
                     all_matches.extend(matches);
                 }
             }
