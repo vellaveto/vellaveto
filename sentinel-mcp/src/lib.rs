@@ -46,17 +46,39 @@ pub struct McpErrorResponse {
 }
 
 pub struct McpServer {
-    engine: PolicyEngine,
+    // SECURITY (R13-LEG-5): Engine is behind RwLock so it can be recompiled
+    // when policies change. Without recompilation, the engine has empty
+    // compiled_policies and silently falls back to the legacy path, which
+    // bypasses path_rules, network_rules, and context_conditions.
+    engine: RwLock<PolicyEngine>,
     policies: RwLock<Vec<Policy>>,
     max_request_size: usize,
+    strict_mode: bool,
 }
 
 impl McpServer {
     pub fn new(strict_mode: bool) -> Self {
         Self {
-            engine: PolicyEngine::new(strict_mode),
+            engine: RwLock::new(PolicyEngine::new(strict_mode)),
             policies: RwLock::new(Vec::new()),
             max_request_size: 1_000_000, // 1MB limit
+            strict_mode,
+        }
+    }
+
+    /// Recompile the engine from current policies.
+    /// On failure, keeps the previous engine and logs errors.
+    async fn recompile_engine(&self, policies: &[Policy]) {
+        match PolicyEngine::with_policies(self.strict_mode, policies) {
+            Ok(compiled) => {
+                *self.engine.write().await = compiled;
+            }
+            Err(errors) => {
+                for e in &errors {
+                    tracing::warn!("McpServer policy compilation error: {}", e);
+                }
+                tracing::warn!("McpServer: keeping previous engine due to compilation errors");
+            }
         }
     }
 
@@ -103,7 +125,8 @@ impl McpServer {
     ) -> Result<serde_json::Value, McpError> {
         let action: Action = serde_json::from_value(params)?;
         let policies = self.policies.read().await;
-        let verdict = self.engine.evaluate_action(&action, &policies)?;
+        let engine = self.engine.read().await;
+        let verdict = engine.evaluate_action(&action, &policies)?;
         Ok(serde_json::to_value(verdict)?)
     }
 
@@ -114,6 +137,9 @@ impl McpServer {
         let policy: Policy = serde_json::from_value(params)?;
         let mut policies = self.policies.write().await;
         policies.push(policy);
+        PolicyEngine::sort_policies(&mut policies);
+        // Recompile engine to use compiled path (R13-LEG-5)
+        self.recompile_engine(&policies).await;
         Ok(serde_json::Value::Bool(true))
     }
 
@@ -130,7 +156,12 @@ impl McpServer {
         let mut policies = self.policies.write().await;
         let initial_len = policies.len();
         policies.retain(|p| p.id != policy_id);
-        Ok(serde_json::Value::Bool(policies.len() < initial_len))
+        let changed = policies.len() < initial_len;
+        if changed {
+            // Recompile engine after policy removal (R13-LEG-5)
+            self.recompile_engine(&policies).await;
+        }
+        Ok(serde_json::Value::Bool(changed))
     }
 
     fn error_code(&self, error: &McpError) -> i32 {

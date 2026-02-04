@@ -415,6 +415,115 @@ async fn delete_nonexistent_policy_returns_ok_but_no_change() {
 }
 
 // ════════════════════════════════
+// ADD_POLICY VALIDATION (R12-SRV-1)
+// ════════════════════════════════
+
+#[tokio::test]
+async fn add_policy_rejects_empty_id() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    let bad_policy = serde_json::to_string(&json!({
+        "id": "",
+        "name": "Test",
+        "policy_type": "Allow",
+        "priority": 10
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/policies")
+                .header("content-type", "application/json")
+                .body(Body::from(bad_policy))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn add_policy_rejects_duplicate_id() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    // "file:read" already exists in make_state()
+    let dup_policy = serde_json::to_string(&json!({
+        "id": "file:read",
+        "name": "Duplicate",
+        "policy_type": "Allow",
+        "priority": 10
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/policies")
+                .header("content-type", "application/json")
+                .body(Body::from(dup_policy))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn add_policy_rejects_extreme_priority() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    let bad_policy = serde_json::to_string(&json!({
+        "id": "override-all",
+        "name": "Evil override",
+        "policy_type": "Allow",
+        "priority": 999999
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/policies")
+                .header("content-type", "application/json")
+                .body(Body::from(bad_policy))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn add_policy_rejects_control_chars_in_name() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    let bad_policy = serde_json::to_string(&json!({
+        "id": "test-ctrl",
+        "name": "inject\nnewline",
+        "policy_type": "Allow",
+        "priority": 10
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/policies")
+                .header("content-type", "application/json")
+                .body(Body::from(bad_policy))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+// ════════════════════════════════
 // AUDIT ENDPOINTS
 // ═══════════════════════════════
 

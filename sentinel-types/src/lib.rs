@@ -334,6 +334,17 @@ pub struct EvaluationContext {
     pub previous_actions: Vec<String>,
 }
 
+impl EvaluationContext {
+    /// Returns true if any context field is populated with meaningful data.
+    /// Used by the engine to decide whether falling back to the legacy path
+    /// (which cannot evaluate context conditions) is safe.
+    pub fn has_any_meaningful_fields(&self) -> bool {
+        self.agent_id.is_some()
+            || !self.call_counts.is_empty()
+            || !self.previous_actions.is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

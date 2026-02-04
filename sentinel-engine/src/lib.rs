@@ -336,6 +336,10 @@ pub struct CompiledPolicy {
 /// - **Fail-closed**: An empty policy set produces `Verdict::Deny`.
 /// - **Priority ordering**: Higher-priority policies are evaluated first.
 /// - **Pattern matching**: Policy IDs use `"tool:function"` convention with wildcard support.
+/// Default maximum percent-decoding iterations in [`PolicyEngine::normalize_path`].
+/// Paths requiring more iterations fail-closed to `"/"`.
+pub const DEFAULT_MAX_PATH_DECODE_ITERATIONS: u32 = 20;
+
 pub struct PolicyEngine {
     strict_mode: bool,
     compiled_policies: Vec<CompiledPolicy>,
@@ -351,6 +355,9 @@ pub struct PolicyEngine {
     /// caller. **Only enable for deterministic testing** — in production, a client
     /// could supply a fake timestamp to bypass time-window policies.
     trust_context_timestamps: bool,
+    /// Maximum percent-decoding iterations in `normalize_path` before
+    /// fail-closing to `"/"`. Defaults to [`DEFAULT_MAX_PATH_DECODE_ITERATIONS`] (20).
+    max_path_decode_iterations: u32,
 }
 
 impl std::fmt::Debug for PolicyEngine {
@@ -360,6 +367,7 @@ impl std::fmt::Debug for PolicyEngine {
             .field("compiled_policies_count", &self.compiled_policies.len())
             .field("indexed_tools", &self.tool_index.len())
             .field("always_check_count", &self.always_check.len())
+            .field("max_path_decode_iterations", &self.max_path_decode_iterations)
             .finish()
     }
 }
@@ -376,6 +384,7 @@ impl PolicyEngine {
             tool_index: HashMap::new(),
             always_check: Vec::new(),
             trust_context_timestamps: false,
+            max_path_decode_iterations: DEFAULT_MAX_PATH_DECODE_ITERATIONS,
         }
     }
 
@@ -465,6 +474,7 @@ impl PolicyEngine {
             tool_index,
             always_check,
             trust_context_timestamps: false,
+            max_path_decode_iterations: DEFAULT_MAX_PATH_DECODE_ITERATIONS,
         })
     }
 
@@ -475,6 +485,15 @@ impl PolicyEngine {
     #[cfg(test)]
     pub fn set_trust_context_timestamps(&mut self, trust: bool) {
         self.trust_context_timestamps = trust;
+    }
+
+    /// Set the maximum percent-decoding iterations for path normalization.
+    ///
+    /// Paths requiring more iterations fail-closed to `"/"`. The default is
+    /// [`DEFAULT_MAX_PATH_DECODE_ITERATIONS`] (20). A value of 0 disables
+    /// iterative decoding entirely (single pass only).
+    pub fn set_max_path_decode_iterations(&mut self, max: u32) {
+        self.max_path_decode_iterations = max;
     }
 
     /// Build a tool-name index for O(matching) evaluation.
@@ -1388,8 +1407,21 @@ impl PolicyEngine {
         if !self.compiled_policies.is_empty() {
             return self.evaluate_with_compiled_ctx(action, context);
         }
-        // Fallback: context conditions only work with compiled policies.
-        // Evaluate without context on the legacy path.
+        // SECURITY (R13-LEG-7): Fail-closed when context is provided but
+        // compiled policies are unavailable. The legacy path cannot evaluate
+        // context conditions (time windows, call limits, agent identity,
+        // forbidden sequences). Silently dropping context would bypass all
+        // context-based restrictions.
+        if let Some(ctx) = context {
+            if ctx.has_any_meaningful_fields() {
+                return Ok(Verdict::Deny {
+                    reason: "Policy engine has no compiled policies; \
+                             context conditions cannot be evaluated (fail-closed)"
+                        .to_string(),
+                });
+            }
+        }
+        // Context was provided but empty — safe to fall through to legacy
         self.evaluate_action(action, policies)
     }
 
@@ -1764,7 +1796,7 @@ impl PolicyEngine {
         }
 
         for raw_path in &action.target_paths {
-            let normalized = Self::normalize_path(raw_path);
+            let normalized = Self::normalize_path_bounded(raw_path, self.max_path_decode_iterations);
 
             // Check blocked patterns first (blocked takes precedence)
             for (pattern, matcher) in &rules.blocked {
@@ -2098,7 +2130,7 @@ impl PolicyEngine {
                         )?));
                     }
                 };
-                let normalized = Self::normalize_path(raw);
+                let normalized = Self::normalize_path_bounded(raw, self.max_path_decode_iterations);
                 if matcher.is_match(&normalized) {
                     Ok(Some(Self::make_constraint_verdict(
                         on_match,
@@ -2133,7 +2165,7 @@ impl PolicyEngine {
                         )?));
                     }
                 };
-                let normalized = Self::normalize_path(raw);
+                let normalized = Self::normalize_path_bounded(raw, self.max_path_decode_iterations);
                 for (_, m) in matchers {
                     if m.is_match(&normalized) {
                         return Ok(None); // Matched allowlist
@@ -2685,7 +2717,7 @@ impl PolicyEngine {
                 reason: "glob constraint missing 'pattern' string".to_string(),
             })?;
 
-        let normalized = Self::normalize_path(raw);
+        let normalized = Self::normalize_path_bounded(raw, self.max_path_decode_iterations);
 
         if self.glob_is_match(pattern_str, &normalized, &policy.id)? {
             Ok(Some(Self::make_constraint_verdict(
@@ -2739,7 +2771,7 @@ impl PolicyEngine {
                 reason: "not_glob constraint missing 'patterns' array".to_string(),
             })?;
 
-        let normalized = Self::normalize_path(raw);
+        let normalized = Self::normalize_path_bounded(raw, self.max_path_decode_iterations);
 
         for pat_val in patterns {
             let pat_str = pat_val
@@ -3052,7 +3084,19 @@ impl PolicyEngine {
     }
 
     /// Normalize a file path: resolve `..`, `.`, reject null bytes, ensure deterministic form.
+    ///
+    /// Uses the default decode iteration limit ([`DEFAULT_MAX_PATH_DECODE_ITERATIONS`]).
+    /// For a configurable limit, use [`normalize_path_bounded`](Self::normalize_path_bounded).
     pub fn normalize_path(raw: &str) -> String {
+        Self::normalize_path_bounded(raw, DEFAULT_MAX_PATH_DECODE_ITERATIONS)
+    }
+
+    /// Normalize a file path with a configurable percent-decoding iteration limit.
+    ///
+    /// Iteratively decodes percent-encoding until stable. If `max_iterations` is
+    /// reached before stabilization, returns `"/"` (fail-closed) and emits a
+    /// warning via `tracing`.
+    pub fn normalize_path_bounded(raw: &str, max_iterations: u32) -> String {
         // Reject null bytes — return root instead of empty/raw to prevent bypass
         if raw.contains('\0') {
             return "/".to_string();
@@ -3063,7 +3107,7 @@ impl PolicyEngine {
         //   normalize_path(normalize_path(x)) == normalize_path(x)
         // Without loop decode, inputs like "%2570" produce "%70" on first call,
         // which decodes to "p" on the next call — breaking idempotency.
-        // Safety cap at 20 iterations prevents DoS from deeply-nested encodings.
+        // Safety cap prevents DoS from deeply-nested encodings.
         // If the cap is reached, return "/" (fail-closed).
         //
         // Uses Cow to avoid allocation when no percent sequences are present.
@@ -3078,8 +3122,13 @@ impl PolicyEngine {
                 break; // Stable — no more percent sequences to decode
             }
             iterations += 1;
-            if iterations >= 20 {
-                // Fail-closed: suspiciously deep encoding, deny by returning root
+            if iterations >= max_iterations {
+                tracing::warn!(
+                    path = raw,
+                    iterations,
+                    max_iterations,
+                    "path normalization hit decode iteration limit — returning \"/\" (possible adversarial input)"
+                );
                 return "/".to_string();
             }
             current = std::borrow::Cow::Owned(decoded.into_owned());
@@ -3932,7 +3981,7 @@ impl PolicyEngine {
         match constraint {
             CompiledConstraint::Glob { matcher, .. } => {
                 if let Some(s) = value.as_str() {
-                    let normalized = Self::normalize_path(s);
+                    let normalized = Self::normalize_path_bounded(s, self.max_path_decode_iterations);
                     matcher.is_match(&normalized)
                 } else {
                     true // non-string → treated as match (fail-closed)
@@ -3940,7 +3989,7 @@ impl PolicyEngine {
             }
             CompiledConstraint::NotGlob { matchers, .. } => {
                 if let Some(s) = value.as_str() {
-                    let normalized = Self::normalize_path(s);
+                    let normalized = Self::normalize_path_bounded(s, self.max_path_decode_iterations);
                     !matchers.iter().any(|(_, m)| m.is_match(&normalized))
                 } else {
                     true

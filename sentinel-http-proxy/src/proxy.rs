@@ -1599,20 +1599,17 @@ async fn forward_to_upstream(
                         // Register output schemas from SSE tools/list responses.
                         register_schemas_from_sse(&sse_bytes, state);
 
-                        let mut response = Response::builder()
-                            .status(status)
-                            .header("content-type", "text/event-stream")
-                            .header("cache-control", "no-cache")
-                            .body(Body::from(sse_bytes))
-                            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
-
                         // SECURITY (R12-RESP-10): Do NOT copy Mcp-Session-Id from upstream.
                         // The proxy is the session authority. Forwarding the upstream's
                         // session ID would override proxy-managed session tracking,
                         // breaking rug-pull detection, rate limiting, and manifest verification.
                         // The caller's attach_session_header() sets the correct proxy session ID.
-
-                        response
+                        Response::builder()
+                            .status(status)
+                            .header("content-type", "text/event-stream")
+                            .header("cache-control", "no-cache")
+                            .body(Body::from(sse_bytes))
+                            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
                     }
                     Err(e) => {
                         tracing::error!("Failed to read SSE response body: {}", e);
@@ -1961,19 +1958,23 @@ async fn forward_to_upstream(
                                             "finding_count": dlp_findings.len(),
                                         }),
                                     );
+                                    // SECURITY (R13-DLP-9): Log Verdict::Allow (not Deny)
+                                    // because DLP is currently log-only — the response IS
+                                    // forwarded. Logging Deny when the response goes through
+                                    // creates a misleading audit trail.
                                     if let Err(e) = state
                                         .audit
                                         .log_entry(
                                             &action,
-                                            &Verdict::Deny {
-                                                reason: format!(
-                                                    "Secrets detected in response: {:?}",
-                                                    patterns
-                                                ),
-                                            },
+                                            &Verdict::Allow,
                                             json!({
                                                 "source": "http_proxy",
                                                 "event": "response_dlp_alert",
+                                                "blocked": false,
+                                                "dlp_detail": format!(
+                                                    "Secrets detected in response: {:?}",
+                                                    patterns
+                                                ),
                                             }),
                                         )
                                         .await
@@ -2004,16 +2005,13 @@ async fn forward_to_upstream(
                         }
 
                         // Forward the raw bytes (no injection detected or blocking disabled)
-                        let mut response = Response::builder()
+                        // SECURITY (R12-RESP-10): Do NOT copy Mcp-Session-Id from upstream.
+                        // The proxy is the session authority — see SSE path comment above.
+                        Response::builder()
                             .status(status)
                             .header("content-type", "application/json")
                             .body(Body::from(body_bytes))
-                            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
-
-                        // SECURITY (R12-RESP-10): Do NOT copy Mcp-Session-Id from upstream.
-                        // The proxy is the session authority — see SSE path comment above.
-
-                        response
+                            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
                     }
                     Err(e) => {
                         tracing::error!("Failed to read upstream response body: {}", e);

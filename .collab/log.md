@@ -1,5 +1,106 @@
 # Shared Log
 
+## 2026-02-04 — Phase 11: Known Limitations Roadmap
+
+**Author:** Controller (Opus 4.5)
+**Timestamp:** 2026-02-04
+**Test count:** 2,440 (all passing, 0 clippy warnings)
+**Context:** README Known Limitations section was updated this session — removed 3 fixed items (DLP encoding bypasses, session fixation, context-aware policies), added 4 new ones (DNS rebinding, path decode limit, DLP single-pass, stdio re-serialization), fixed `SENTINEL_CANONICALIZE` → `SENTINEL_NO_CANONICALIZE` env var bug.
+
+### Current Known Limitations (10 items)
+
+| # | Limitation | Actionable? | Effort |
+|---|-----------|-------------|--------|
+| 1 | Injection detection is a pre-filter | Research only | Very High (ML) |
+| 2 | No DNS rebinding protection | **Yes** | Medium-High |
+| 3 | TOCTOU mitigated by default | By design | N/A |
+| 4 | Path normalization 20-iteration decode limit | **Yes** | Low |
+| 5 | DLP single-pass per encoding layer | **Yes** | Medium |
+| 6 | Checkpoint trust anchor (TOFU) | By design | N/A |
+| 7 | Per-principal rate limit trusts headers | Documented | Low |
+| 8 | Stdio proxy always re-serializes | By design | N/A |
+| 9 | No TLS termination | By design | N/A |
+| 10 | No clustering / HA | Architecture | Very High |
+
+### Plan: Phase 11 — Limitation Remediation
+
+#### P0 — Quick Wins (Low effort, high signal)
+
+**11.1 — Path normalization: configurable decode limit + telemetry**
+- File: `sentinel-engine/src/lib.rs` (~3066-3084)
+- Make the 20-iteration limit configurable via `PolicyEngine` config (default stays 20)
+- Add `tracing::warn!` when limit is hit — this is an attack indicator
+- Add unit test for the configurable limit
+- Assigned to: **Instance B** (engine owner)
+
+**11.2 — Per-principal rate limiting: documentation + guidance**
+- File: `README.md` (Known Limitations section + a new "Deployment Patterns" section or examples/)
+- Add example config showing OAuth + rate limiting for trustworthy principal identification
+- Already mitigated via OAuth (`--oauth-issuer`), just needs explicit documentation
+- Assigned to: **Instance A** (docs/CI owner)
+
+#### P1 — Medium Effort (Security depth)
+
+**11.3 — DNS rebinding protection**
+- File: `sentinel-engine/src/lib.rs` (domain matching ~3135-3218)
+- Design: Optional DNS resolution at evaluation time with IP pinning
+  - New `DnsPolicy` config: `{ pin_ips: bool, resolve_timeout_ms: u64, cache_ttl_secs: u64 }`
+  - At evaluation time, if `pin_ips` is enabled, resolve the domain and compare against a cached IP set
+  - Use `tokio::net::lookup_host()` (no new dependency) or `hickory-dns` for async resolution
+  - Cache resolved IPs with TTL (use `moka` or simple `HashMap<String, (Vec<IpAddr>, Instant)>`)
+- Trade-off: Adds latency (~1-5ms for DNS resolution) and requires async in evaluation path
+- Recommendation: **Opt-in feature**, off by default. Most deployments are behind a reverse proxy where DNS rebinding is less relevant.
+- Assigned to: **Instance B** (engine owner)
+- Dependency: Architecture design review by **Orchestrator** first (sync vs async evaluation is a major decision)
+
+**11.4 — DLP multi-layer decode chains**
+- File: `sentinel-mcp/src/inspection.rs` (~545-613)
+- Current: scans raw → base64-decoded → percent-decoded (each independently)
+- Gap: doesn't scan base64(percent-encoded) or percent(base64-encoded)
+- Design: Add combinatorial decode pipeline:
+  ```
+  raw → scan
+  base64(raw) → scan
+  percent(raw) → scan
+  base64(percent(raw)) → scan    ← NEW
+  percent(base64(raw)) → scan    ← NEW
+  ```
+- Max 2 layers deep (combinatorial explosion beyond that)
+- Add recursion limit and latency budget check (bail if >2ms spent decoding)
+- Assigned to: **Instance B** (MCP owner)
+
+#### P2 — Deferred / By Design (documented, not planned)
+
+| Limitation | Rationale |
+|-----------|-----------|
+| Injection detection ML | Out of scope — would require ML model integration, inference latency, training data. The pattern-based approach is the right trade-off for a firewall. Document as "future research direction" only. |
+| TOCTOU opt-out risk | By design — `--no-canonicalize` is an explicit opt-out with documented risks. Users who disable it accept the trade-off. |
+| Checkpoint TOFU | By design — `SENTINEL_TRUSTED_KEY` env var provides the alternative for environments that need stronger guarantees. TOFU is the correct default for ease of deployment. |
+| Stdio re-serialization | Security feature — re-serialization closes TOCTOU. Byte-for-byte forwarding would reopen it. Not recommended and not planned. |
+| No TLS termination | By design — Sentinel is an application-layer firewall, not a TLS terminator. Use nginx/Caddy/HAProxy in front. Standard deployment pattern for security middleware. |
+| No clustering / HA | Architectural constraint — would require distributed state (policy sync, audit log replication, session sharing). This is a v2.0 concern, not a limitation to fix in current architecture. |
+
+### Priority Order
+
+```
+Sprint 1 (next session):  11.1 (path decode config) + 11.2 (rate limit docs)
+Sprint 2:                  11.4 (DLP multi-layer)
+Sprint 3:                  11.3 (DNS rebinding) — needs design review first
+```
+
+### Open Questions for Orchestrator/Instances
+
+1. **DNS rebinding (11.3):** Should evaluation become async? Currently `evaluate_action()` is synchronous. Adding DNS resolution forces either:
+   - (a) Make evaluation async (breaking change to all consumers)
+   - (b) Pre-resolve in the proxy layer before calling evaluate (keeps engine sync)
+   - Recommendation: **(b)** — resolve in proxy, pass resolved IPs as metadata on the Action struct. Engine compares IPs against pinned set.
+
+2. **DLP decode depth (11.4):** Is 2-layer combinatorial sufficient, or should we support arbitrary depth with a time budget? Recommendation: 2 layers with time budget bailout.
+
+3. **Clustering (P2):** Should we document a recommended HA pattern (e.g., stateless mode with external audit log sink) even without implementing it?
+
+---
+
 ## 2026-02-04 — Instance B: R4-16 + Rug-Pull Homoglyph Fix + Multi-Layer Hardening
 
 **Instance:** Instance B (Opus 4.5)

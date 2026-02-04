@@ -1443,7 +1443,9 @@ mod tests {
         let dir = std::env::temp_dir().join("sentinel-proxy-test");
         let _ = std::fs::create_dir_all(&dir);
         let audit = Arc::new(AuditLogger::new(dir.join("test-audit.log")));
-        ProxyBridge::new(PolicyEngine::new(false), policies, audit)
+        // Use compiled policies so context-aware evaluation works (R13-LEG-7).
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        ProxyBridge::new(engine, policies, audit)
     }
 
     #[test]

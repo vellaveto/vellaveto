@@ -553,6 +553,63 @@ async fn add_policy(
     State(state): State<AppState>,
     Json(policy): Json<Policy>,
 ) -> (StatusCode, Json<serde_json::Value>) {
+    // SECURITY (R12-SRV-1): Validate policy fields before insertion.
+    // Without validation, an attacker could POST a policy with id="*",
+    // policy_type=Allow, priority=999999 to override all deny policies.
+
+    // 1. Validate id: non-empty, no control chars, max 256 chars
+    if policy.id.is_empty() || policy.id.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Policy id must be non-empty"})),
+        );
+    }
+    if policy.id.len() > 256 || policy.id.chars().any(|c| c.is_control()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Policy id contains invalid characters or exceeds 256 chars"})),
+        );
+    }
+
+    // 2. Validate name: non-empty, no control chars, max 256 chars
+    if policy.name.is_empty() || policy.name.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Policy name must be non-empty"})),
+        );
+    }
+    if policy.name.len() > 256 || policy.name.chars().any(|c| c.is_control()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Policy name contains invalid characters or exceeds 256 chars"})),
+        );
+    }
+
+    // 3. Validate priority is within a reasonable range
+    if policy.priority < -10_000 || policy.priority > 10_000 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Policy priority must be between -10000 and 10000"})),
+        );
+    }
+
+    // 4. Reject duplicate policy IDs
+    let existing = state.policies.load();
+    if existing.iter().any(|p| p.id == policy.id) {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({"error": format!("Policy with id '{}' already exists", policy.id)})),
+        );
+    }
+
+    // 5. Enforce max policy count (prevent resource exhaustion)
+    if existing.len() >= 10_000 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Maximum policy count (10000) reached"})),
+        );
+    }
+
     let id = policy.id.clone();
     state.policies.rcu(|old| {
         let mut new = old.as_ref().clone();
@@ -1420,5 +1477,92 @@ mod tests {
         let request = build_request(&[("x-principal", &max_principal)]);
         let key = extract_principal_key(&request, &trusted);
         assert_eq!(key, format!("principal:{}", max_principal));
+    }
+
+    // --- R11-PATH-3: Relative path detection ---
+
+    #[test]
+    fn test_looks_like_relative_path_traversal() {
+        assert!(looks_like_relative_path("../etc/passwd"));
+        assert!(looks_like_relative_path("./config.json"));
+        assert!(looks_like_relative_path("~/secret.txt"));
+        assert!(looks_like_relative_path("foo/../bar"));
+        assert!(looks_like_relative_path(".."));
+        assert!(looks_like_relative_path("~"));
+    }
+
+    #[test]
+    fn test_looks_like_relative_path_rejects_non_paths() {
+        assert!(!looks_like_relative_path("some normal text"));
+        assert!(!looks_like_relative_path("/absolute/path"));
+        assert!(!looks_like_relative_path("filename.txt"));
+        assert!(!looks_like_relative_path(""));
+        assert!(!looks_like_relative_path("hello world ../foo"));
+    }
+
+    // --- R11-APPR-4: Resolver identity from auth headers ---
+
+    #[test]
+    fn test_derive_resolver_identity_with_bearer() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            "Bearer my-secret-token".parse().unwrap(),
+        );
+        let result = derive_resolver_identity(&headers, "anonymous");
+        assert!(
+            result.starts_with("bearer:"),
+            "Expected bearer: prefix, got: {}",
+            result
+        );
+        // Should be deterministic
+        let result2 = derive_resolver_identity(&headers, "anonymous");
+        assert_eq!(result, result2);
+    }
+
+    #[test]
+    fn test_derive_resolver_identity_with_bearer_and_client_note() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            "Bearer my-secret-token".parse().unwrap(),
+        );
+        let result = derive_resolver_identity(&headers, "admin-alice");
+        assert!(result.contains("bearer:"), "Should contain bearer hash");
+        assert!(
+            result.contains("(note: admin-alice)"),
+            "Should include client note: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_derive_resolver_identity_case_insensitive_bearer() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            "BEARER my-secret-token".parse().unwrap(),
+        );
+        let result = derive_resolver_identity(&headers, "anonymous");
+        assert!(
+            result.starts_with("bearer:"),
+            "Should handle uppercase BEARER: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_derive_resolver_identity_no_auth_falls_back() {
+        let headers = HeaderMap::new();
+        let result = derive_resolver_identity(&headers, "some-user");
+        assert_eq!(result, "some-user");
+    }
+
+    #[test]
+    fn test_derive_resolver_identity_non_bearer_auth_falls_back() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::AUTHORIZATION, "Basic dXNlcjpwYXNz".parse().unwrap());
+        let result = derive_resolver_identity(&headers, "some-user");
+        assert_eq!(result, "some-user");
     }
 }

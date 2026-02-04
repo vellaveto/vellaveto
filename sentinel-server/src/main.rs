@@ -437,8 +437,10 @@ async fn cmd_serve(
         );
     }
 
-    // Pre-compile policies for zero-Mutex evaluation on the hot path.
-    // Falls back to legacy (per-call compilation) if any pattern is invalid.
+    // SECURITY (R13-LEG-4): Pre-compile policies and REFUSE to start on
+    // compilation failure. The legacy evaluation path bypasses path_rules,
+    // network_rules, and context_conditions — silently degrading to it would
+    // drop all advanced security constraints. Matches sentinel-http-proxy behavior.
     let engine = match PolicyEngine::with_policies(false, &policies) {
         Ok(compiled) => {
             tracing::info!(
@@ -449,10 +451,14 @@ async fn cmd_serve(
         }
         Err(errors) => {
             for e in &errors {
-                tracing::warn!("Policy compilation error: {}", e);
+                tracing::error!("Policy compilation error: {}", e);
             }
-            tracing::warn!("Falling back to legacy evaluation (per-call pattern compilation)");
-            PolicyEngine::new(false)
+            anyhow::bail!(
+                "Failed to compile {} policies — fix config and retry. \
+                 The server refuses to start with invalid policies to prevent \
+                 silent degradation to the legacy evaluation path.",
+                errors.len()
+            );
         }
     };
 
