@@ -48,6 +48,9 @@ pub struct SessionState {
     /// Records fingerprints of notable strings from tool responses and flags
     /// when those strings appear verbatim in subsequent tool call parameters.
     pub memory_tracker: MemoryTracker,
+    /// Number of elicitation requests processed in this session.
+    /// Used for per-session rate limiting of `elicitation/create` requests.
+    pub elicitation_count: u32,
 }
 
 impl SessionState {
@@ -67,6 +70,7 @@ impl SessionState {
             call_counts: HashMap::new(),
             action_history: Vec::new(),
             memory_tracker: MemoryTracker::new(),
+            elicitation_count: 0,
         }
     }
 

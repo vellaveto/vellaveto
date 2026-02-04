@@ -612,14 +612,224 @@ async fn audit_entries_returns_empty_initially() {
         .await
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    // Route returns {"count": N, "entries": [...]}
+    // R14-AUDIT-1: Route returns paginated response with metadata
     assert!(
         json.is_object(),
         "audit entries should be an object: {:?}",
         json
     );
     assert_eq!(json["count"], 0);
+    assert_eq!(json["total"], 0);
+    assert_eq!(json["offset"], 0);
+    assert_eq!(json["limit"], 100); // DEFAULT_AUDIT_PAGE_SIZE
     assert!(json["entries"].as_array().unwrap().is_empty());
+}
+
+/// R14-AUDIT-1: Audit entries endpoint respects `limit` query parameter.
+#[tokio::test]
+async fn audit_entries_respects_limit_parameter() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state.clone());
+
+    // Create a few audit entries via the evaluate endpoint
+    for i in 0..5 {
+        let evaluate_body = serde_json::json!({
+            "tool": "file",
+            "function": "read",
+            "parameters": {"path": format!("/tmp/test-{}", i)}
+        });
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::post("/api/evaluate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&evaluate_body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    // Request with limit=2
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get("/api/audit/entries?limit=2")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["limit"], 2);
+    assert_eq!(json["offset"], 0);
+    assert_eq!(json["count"], 2, "Should return exactly 2 entries");
+    assert!(
+        json["total"].as_u64().unwrap() >= 5,
+        "Total should reflect all entries"
+    );
+    assert_eq!(json["entries"].as_array().unwrap().len(), 2);
+}
+
+/// R14-AUDIT-1: Audit entries endpoint respects `offset` query parameter.
+#[tokio::test]
+async fn audit_entries_respects_offset_parameter() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state.clone());
+
+    // Create audit entries
+    for i in 0..5 {
+        let evaluate_body = serde_json::json!({
+            "tool": "file",
+            "function": "read",
+            "parameters": {"path": format!("/tmp/offset-test-{}", i)}
+        });
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::post("/api/evaluate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&evaluate_body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    // Request with offset=3 (skip 3 most recent)
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get("/api/audit/entries?offset=3")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["offset"], 3);
+    let total = json["total"].as_u64().unwrap();
+    let count = json["count"].as_u64().unwrap();
+    // With offset=3, we should get (total - 3) entries (up to the limit)
+    assert!(
+        count <= total.saturating_sub(3),
+        "count={count} should be <= total-3={}",
+        total.saturating_sub(3)
+    );
+}
+
+/// R14-AUDIT-1: Limit is capped at MAX_AUDIT_PAGE_SIZE (1000) to prevent DoS.
+#[tokio::test]
+async fn audit_entries_caps_limit_at_max() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    // Request with limit=99999 (should be capped to 1000)
+    let resp = app
+        .oneshot(
+            Request::get("/api/audit/entries?limit=99999")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        json["limit"], 1000,
+        "Limit should be capped at MAX_AUDIT_PAGE_SIZE (1000)"
+    );
+}
+
+/// R14-AUDIT-1: Default pagination values when no query parameters provided.
+#[tokio::test]
+async fn audit_entries_default_pagination() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::get("/api/audit/entries")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["limit"], 100, "Default limit should be 100");
+    assert_eq!(json["offset"], 0, "Default offset should be 0");
+    assert!(json["total"].is_number(), "total must be present");
+    assert!(json["count"].is_number(), "count must be present");
+    assert!(json["entries"].is_array(), "entries must be present");
+}
+
+/// R14-AUDIT-1: Combined limit and offset for proper page navigation.
+#[tokio::test]
+async fn audit_entries_combined_limit_and_offset() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state.clone());
+
+    // Create 5 audit entries
+    for i in 0..5 {
+        let evaluate_body = serde_json::json!({
+            "tool": "file",
+            "function": "read",
+            "parameters": {"path": format!("/tmp/page-test-{}", i)}
+        });
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::post("/api/evaluate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&evaluate_body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    // Request page 2: offset=2, limit=2
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get("/api/audit/entries?limit=2&offset=2")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["limit"], 2);
+    assert_eq!(json["offset"], 2);
+    assert_eq!(json["count"], 2, "Should return 2 entries for this page");
+    assert!(json["total"].as_u64().unwrap() >= 5);
 }
 
 #[tokio::test]

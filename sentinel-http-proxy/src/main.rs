@@ -350,6 +350,8 @@ async fn main() -> Result<()> {
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false),
         known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
+        elicitation_config: policy_config.elicitation.clone(),
+        sampling_config: policy_config.sampling.clone(),
     };
 
     if state.canonicalize {

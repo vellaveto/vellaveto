@@ -80,6 +80,12 @@ pub struct ProxyBridge {
     /// Known legitimate tool names for squatting detection.
     /// Built from DEFAULT_KNOWN_TOOLS + any config overrides.
     known_tools: HashSet<String>,
+    /// Elicitation interception configuration (MCP 2025-06-18).
+    /// Controls whether `elicitation/create` requests are allowed or blocked.
+    elicitation_config: sentinel_config::ElicitationConfig,
+    /// Sampling request policy configuration.
+    /// Controls whether `sampling/createMessage` requests are allowed or blocked.
+    sampling_config: sentinel_config::SamplingConfig,
 }
 
 impl ProxyBridge {
@@ -101,6 +107,8 @@ impl ProxyBridge {
             response_dlp_enabled: true,
             response_dlp_blocking: false,
             known_tools: crate::rug_pull::build_known_tools(&[]),
+            elicitation_config: sentinel_config::ElicitationConfig::default(),
+            sampling_config: sentinel_config::SamplingConfig::default(),
         }
     }
 
@@ -177,6 +185,20 @@ impl ProxyBridge {
     /// When enabled, responses containing secrets are blocked instead of just logged.
     pub fn with_response_dlp_blocking(mut self, blocking: bool) -> Self {
         self.response_dlp_blocking = blocking;
+        self
+    }
+
+    /// Set the elicitation interception configuration.
+    /// When `enabled: false` (default), all elicitation requests are blocked.
+    pub fn with_elicitation_config(mut self, config: sentinel_config::ElicitationConfig) -> Self {
+        self.elicitation_config = config;
+        self
+    }
+
+    /// Set the sampling request policy configuration.
+    /// When `enabled: false` (default), all sampling requests are blocked.
+    pub fn with_sampling_config(mut self, config: sentinel_config::SamplingConfig) -> Self {
+        self.sampling_config = config;
         self
     }
 
@@ -496,6 +518,9 @@ impl ProxyBridge {
         let mut action_history: Vec<String> = Vec::new();
         const MAX_ACTION_HISTORY: usize = 100;
 
+        // Elicitation rate limiting counter (per session/proxy lifetime).
+        let mut elicitation_count: u32 = 0;
+
         // Spawn a task to relay child → agent responses
         let (response_tx, mut response_rx) = tokio::sync::mpsc::channel::<Value>(256);
 
@@ -790,39 +815,67 @@ impl ProxyBridge {
                                     }
                                 }
                                 MessageType::SamplingRequest { id } => {
-                                    // Block sampling/createMessage unconditionally (C-8.5).
-                                    // This is an exfiltration vector — the MCP server
-                                    // could use it to send arbitrary prompts to the LLM.
-                                    let reason = "sampling/createMessage blocked: potential exfiltration vector";
-                                    let response = make_denial_response(&id, reason);
-                                    let action = sentinel_types::Action::new("sentinel", "sampling_blocked", json!({}));
-                                    if let Err(e) = self.audit.log_entry(
-                                        &action,
-                                        &Verdict::Deny { reason: reason.to_string() },
-                                        json!({"source": "proxy", "event": "sampling_blocked"}),
-                                    ).await {
-                                        tracing::warn!("Audit log failed: {}", e);
+                                    let params = msg.get("params").cloned().unwrap_or(json!({}));
+                                    let verdict = crate::elicitation::inspect_sampling(&params, &self.sampling_config);
+                                    match verdict {
+                                        crate::elicitation::SamplingVerdict::Allow => {
+                                            // Forward the sampling request to the agent
+                                            write_message(&mut agent_writer, &msg).await
+                                                .map_err(ProxyError::Framing)?;
+                                        }
+                                        crate::elicitation::SamplingVerdict::Deny { reason } => {
+                                            let response = make_denial_response(&id, &reason);
+                                            let action = sentinel_types::Action::new(
+                                                "sentinel",
+                                                "sampling_blocked",
+                                                json!({"reason": &reason}),
+                                            );
+                                            if let Err(e) = self.audit.log_entry(
+                                                &action,
+                                                &Verdict::Deny { reason: reason.clone() },
+                                                json!({"source": "proxy", "event": "sampling_blocked"}),
+                                            ).await {
+                                                tracing::warn!("Audit log failed: {}", e);
+                                            }
+                                            tracing::warn!("Blocked sampling/createMessage: {}", reason);
+                                            write_message(&mut agent_writer, &response).await
+                                                .map_err(ProxyError::Framing)?;
+                                        }
                                     }
-                                    tracing::warn!("Blocked sampling/createMessage request");
-                                    write_message(&mut agent_writer, &response).await
-                                        .map_err(ProxyError::Framing)?;
                                 }
                                 MessageType::ElicitationRequest { id } => {
-                                    // Log elicitation attempts — these are server→client
-                                    // prompts that could be used for social engineering.
-                                    let reason = "elicitation/create intercepted: server-initiated user prompt";
-                                    let action = sentinel_types::Action::new("sentinel", "elicitation_intercepted", json!({}));
-                                    if let Err(e) = self.audit.log_entry(
-                                        &action,
-                                        &Verdict::Deny { reason: reason.to_string() },
-                                        json!({"source": "proxy", "event": "elicitation_intercepted"}),
-                                    ).await {
-                                        tracing::warn!("Audit log failed: {}", e);
+                                    let params = msg.get("params").cloned().unwrap_or(json!({}));
+                                    let verdict = crate::elicitation::inspect_elicitation(
+                                        &params,
+                                        &self.elicitation_config,
+                                        elicitation_count,
+                                    );
+                                    match verdict {
+                                        crate::elicitation::ElicitationVerdict::Allow => {
+                                            elicitation_count += 1;
+                                            // Forward the elicitation request to the agent
+                                            write_message(&mut agent_writer, &msg).await
+                                                .map_err(ProxyError::Framing)?;
+                                        }
+                                        crate::elicitation::ElicitationVerdict::Deny { reason } => {
+                                            let action = sentinel_types::Action::new(
+                                                "sentinel",
+                                                "elicitation_intercepted",
+                                                json!({"reason": &reason}),
+                                            );
+                                            if let Err(e) = self.audit.log_entry(
+                                                &action,
+                                                &Verdict::Deny { reason: reason.clone() },
+                                                json!({"source": "proxy", "event": "elicitation_intercepted"}),
+                                            ).await {
+                                                tracing::warn!("Audit log failed: {}", e);
+                                            }
+                                            tracing::warn!("Blocked elicitation/create: {}", reason);
+                                            let response = make_denial_response(&id, &reason);
+                                            write_message(&mut agent_writer, &response).await
+                                                .map_err(ProxyError::Framing)?;
+                                        }
                                     }
-                                    tracing::warn!("Blocked elicitation/create request");
-                                    let response = make_denial_response(&id, reason);
-                                    write_message(&mut agent_writer, &response).await
-                                        .map_err(ProxyError::Framing)?;
                                 }
                                 MessageType::TaskRequest { id, task_method, task_id } => {
                                     // R4-1 FIX: Evaluate task requests against policies.

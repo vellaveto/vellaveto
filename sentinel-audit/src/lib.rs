@@ -910,9 +910,21 @@ impl AuditLogger {
         // SECURITY (R9-1): Sign the manifest entry with Ed25519 when a signing
         // key is configured. Without signatures, an attacker with file write
         // access can forge manifest entries to hide deleted rotated files.
+        // SECURITY (R14-AUDIT-2): Store only the filename component in the
+        // manifest to prevent path traversal. The rotated file is always in
+        // the same directory as the audit log, so a bare filename suffices.
+        let rotated_filename = rotated_path
+            .file_name()
+            .ok_or_else(|| {
+                AuditError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "rotated path has no filename component",
+                ))
+            })?
+            .to_string_lossy();
         let mut manifest_entry = serde_json::json!({
             "timestamp": Utc::now().to_rfc3339(),
-            "rotated_file": rotated_path.to_string_lossy(),
+            "rotated_file": rotated_filename,
             "tail_hash": tail_hash,
             "entry_count": entry_count,
         });
@@ -1062,29 +1074,35 @@ impl AuditLogger {
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0) as usize;
 
-            let rotated_path = PathBuf::from(rotated_file);
+            // SECURITY (R14-AUDIT-2): Validate rotated_file before constructing
+            // any path from it. Reject path traversal attempts:
+            // 1. Must not contain ".." components
+            // 2. Must not be an absolute path
+            // 3. Must be a bare filename (no directory separators)
+            let rotated_file_path = Path::new(rotated_file);
+            let has_traversal = rotated_file_path
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir));
+            let is_absolute = rotated_file_path.is_absolute();
+            let is_bare_filename = rotated_file_path
+                .file_name()
+                .map(|f| f == rotated_file)
+                .unwrap_or(false);
 
-            // SECURITY (R16-AUDIT-1): Validate rotated_file is under the same
-            // directory as the audit log. Prevents path traversal via a crafted
-            // rotation manifest that could read arbitrary files on the filesystem.
-            if let Some(expected_dir) = self.log_path.parent() {
-                let canonical_dir = expected_dir
-                    .canonicalize()
-                    .unwrap_or_else(|_| expected_dir.to_path_buf());
-                let canonical_rotated = rotated_path
-                    .canonicalize()
-                    .unwrap_or_else(|_| rotated_path.clone());
-                if !canonical_rotated.starts_with(&canonical_dir) {
-                    return Ok(RotationVerification {
-                        valid: false,
-                        files_checked: i,
-                        first_failure: Some(format!(
-                            "Rotated file path traversal detected: {}",
-                            rotated_path.display()
-                        )),
-                    });
-                }
+            if has_traversal || is_absolute || !is_bare_filename || rotated_file.is_empty() {
+                return Ok(RotationVerification {
+                    valid: false,
+                    files_checked: i,
+                    first_failure: Some(format!(
+                        "Rotated file path traversal detected: {}",
+                        rotated_file
+                    )),
+                });
             }
+
+            // Resolve the filename relative to the audit log's directory
+            let log_dir = self.log_path.parent().unwrap_or(Path::new("."));
+            let rotated_path = log_dir.join(rotated_file);
 
             // Check file exists
             if !rotated_path.exists() {
@@ -3928,6 +3946,116 @@ mod tests {
             mode, 0o600,
             "Audit log should have 0o600 permissions, got {:o}",
             mode
+        );
+    }
+
+    // SECURITY (R14-AUDIT-2): Path traversal in rotation manifest rotated_file
+    #[tokio::test]
+    async fn test_rotation_manifest_path_traversal_rejected() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
+
+        // Write enough entries to trigger at least one legitimate rotation
+        for i in 0..10 {
+            let action = Action::new("tool", format!("func_{}", i), json!({}));
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({"i": i}))
+                .await
+                .unwrap();
+        }
+
+        // Verify the manifest was created and is valid before tampering
+        let result = logger.verify_across_rotations().await.unwrap();
+        assert!(result.valid, "Pre-tamper rotation should be valid");
+
+        // Now tamper with the manifest: inject path traversal in rotated_file
+        let manifest_path = dir.path().join("audit.rotation-manifest.jsonl");
+        let traversal_payloads = vec![
+            "../../etc/passwd",
+            "../secret.log",
+            "/etc/shadow",
+            "/tmp/evil.log",
+            "subdir/sneaky.log",
+            "",
+        ];
+
+        for payload in &traversal_payloads {
+            // Write a crafted manifest entry with path traversal
+            let crafted = serde_json::json!({
+                "timestamp": "2026-02-05T00:00:00Z",
+                "rotated_file": payload,
+                "tail_hash": "fakehash",
+                "entry_count": 1,
+            });
+            let mut manifest_content = serde_json::to_string(&crafted).unwrap();
+            manifest_content.push('\n');
+            std::fs::write(&manifest_path, &manifest_content).unwrap();
+
+            let result = logger.verify_across_rotations().await.unwrap();
+            assert!(
+                !result.valid,
+                "Path traversal payload '{}' should be rejected",
+                payload
+            );
+            assert!(
+                result
+                    .first_failure
+                    .as_ref()
+                    .unwrap()
+                    .contains("path traversal"),
+                "Failure message for '{}' should mention path traversal, got: {}",
+                payload,
+                result.first_failure.as_ref().unwrap()
+            );
+        }
+    }
+
+    // SECURITY (R14-AUDIT-2): Valid rotated filenames are accepted
+    #[tokio::test]
+    async fn test_rotation_manifest_valid_filename_accepted() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
+
+        // Write enough entries to trigger rotation
+        for i in 0..10 {
+            let action = Action::new("tool", format!("func_{}", i), json!({}));
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({"i": i}))
+                .await
+                .unwrap();
+        }
+
+        // Verify the rotated_file in the manifest is a bare filename
+        let manifest_path = dir.path().join("audit.rotation-manifest.jsonl");
+        let content = std::fs::read_to_string(&manifest_path).unwrap();
+        for line in content.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let entry: serde_json::Value = serde_json::from_str(line).unwrap();
+            let rotated_file = entry.get("rotated_file").unwrap().as_str().unwrap();
+            // Should be a bare filename with no directory separators
+            assert!(
+                !rotated_file.contains('/') && !rotated_file.contains('\\'),
+                "rotated_file should be a bare filename, got: {}",
+                rotated_file
+            );
+            assert!(
+                !rotated_file.contains(".."),
+                "rotated_file should not contain '..', got: {}",
+                rotated_file
+            );
+            assert!(!rotated_file.is_empty(), "rotated_file should not be empty");
+        }
+
+        // Verification should still pass with the sanitized filenames
+        let result = logger.verify_across_rotations().await.unwrap();
+        assert!(
+            result.valid,
+            "Sanitized rotation should pass verification: {:?}",
+            result.first_failure
         );
     }
 }

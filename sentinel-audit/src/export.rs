@@ -78,6 +78,9 @@ fn cef_escape(s: &str) -> String {
         .replace('|', "\\|")
         .replace('\n', "\\n")
         .replace('\r', "\\r")
+        // SECURITY (R15-SIEM-2): Unicode line separators can inject fake CEF entries
+        .replace('\u{2028}', "\\n")
+        .replace('\u{2029}', "\\n")
 }
 
 /// Escape special characters for CEF extension values (key=value pairs).
@@ -89,6 +92,9 @@ fn cef_escape_ext(s: &str) -> String {
         .replace('=', "\\=")
         .replace('\n', "\\n")
         .replace('\r', "\\r")
+        // SECURITY (R15-SIEM-2): Unicode line separators can inject fake CEF entries
+        .replace('\u{2028}', "\\n")
+        .replace('\u{2029}', "\\n")
 }
 
 /// Convert an AuditEntry to JSON Lines format (one JSON object per line).
@@ -359,6 +365,16 @@ mod tests {
     fn test_cef_ext_does_not_escape_pipe() {
         // Pipe is only escaped in headers, NOT in extension values
         assert_eq!(cef_escape_ext("a|b"), "a|b");
+    }
+
+    #[test]
+    fn test_cef_escape_unicode_line_separators() {
+        // U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR
+        // These could inject fake CEF lines if not escaped
+        assert_eq!(cef_escape("before\u{2028}after"), "before\\nafter");
+        assert_eq!(cef_escape("before\u{2029}after"), "before\\nafter");
+        assert_eq!(cef_escape_ext("val\u{2028}ue"), "val\\nue");
+        assert_eq!(cef_escape_ext("val\u{2029}ue"), "val\\nue");
     }
 
     #[test]
