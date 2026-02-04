@@ -700,6 +700,22 @@ pub struct PolicyConfig {
     pub manifest: ManifestConfig,
 }
 
+/// Maximum number of custom PII patterns allowed in config.
+/// Prevents memory exhaustion from excessively large pattern arrays.
+pub const MAX_CUSTOM_PII_PATTERNS: usize = 100;
+
+/// Maximum number of extra injection patterns allowed in config.
+pub const MAX_EXTRA_INJECTION_PATTERNS: usize = 100;
+
+/// Maximum number of disabled injection patterns allowed in config.
+pub const MAX_DISABLED_INJECTION_PATTERNS: usize = 100;
+
+/// Maximum number of policies allowed in a single config file.
+pub const MAX_POLICIES: usize = 10_000;
+
+/// Maximum number of trusted keys for manifest verification.
+pub const MAX_TRUSTED_KEYS: usize = 50;
+
 impl PolicyConfig {
     /// Parse config from a JSON string.
     pub fn from_json(json_str: &str) -> Result<Self, serde_json::Error> {
@@ -711,17 +727,67 @@ impl PolicyConfig {
         toml::from_str(toml_str)
     }
 
+    /// Validate config bounds. Returns an error describing the first violation found.
+    ///
+    /// Checks that unbounded collection fields do not exceed safe limits,
+    /// preventing memory exhaustion from maliciously crafted config files.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.policies.len() > MAX_POLICIES {
+            return Err(format!(
+                "policies array has {} entries, max is {}",
+                self.policies.len(),
+                MAX_POLICIES
+            ));
+        }
+        if self.injection.extra_patterns.len() > MAX_EXTRA_INJECTION_PATTERNS {
+            return Err(format!(
+                "injection.extra_patterns has {} entries, max is {}",
+                self.injection.extra_patterns.len(),
+                MAX_EXTRA_INJECTION_PATTERNS
+            ));
+        }
+        if self.injection.disabled_patterns.len() > MAX_DISABLED_INJECTION_PATTERNS {
+            return Err(format!(
+                "injection.disabled_patterns has {} entries, max is {}",
+                self.injection.disabled_patterns.len(),
+                MAX_DISABLED_INJECTION_PATTERNS
+            ));
+        }
+        if self.audit.custom_pii_patterns.len() > MAX_CUSTOM_PII_PATTERNS {
+            return Err(format!(
+                "audit.custom_pii_patterns has {} entries, max is {}",
+                self.audit.custom_pii_patterns.len(),
+                MAX_CUSTOM_PII_PATTERNS
+            ));
+        }
+        if self.manifest.trusted_keys.len() > MAX_TRUSTED_KEYS {
+            return Err(format!(
+                "manifest.trusted_keys has {} entries, max is {}",
+                self.manifest.trusted_keys.len(),
+                MAX_TRUSTED_KEYS
+            ));
+        }
+        Ok(())
+    }
+
     /// Load config from a file path. Selects parser based on extension.
+    ///
+    /// Validates config bounds after parsing to prevent memory exhaustion
+    /// from excessively large arrays.
     pub fn load_file(path: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let content = std::fs::read_to_string(path)?;
-        if path.ends_with(".toml") {
-            Ok(Self::from_toml(&content)?)
+        let config = if path.ends_with(".toml") {
+            Self::from_toml(&content)?
         } else if path.ends_with(".json") {
-            Ok(Self::from_json(&content)?)
+            Self::from_json(&content)?
         } else {
             Self::from_toml(&content)
-                .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })
-        }
+                .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?
+        };
+        config
+            .validate()
+            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+        Ok(config)
     }
 
     /// Convert PolicyRules into sentinel_types::Policy structs.
@@ -1672,5 +1738,134 @@ pattern = "EMP-\\d{6}"
         // Warn mode: schema mismatches are non-blocking
         let result = config.verify_manifest(&pinned, &modified);
         assert!(result.is_ok());
+    }
+
+    // --- Config validation bounds tests ---
+
+    #[test]
+    fn test_validate_passes_for_normal_config() {
+        let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#;
+        let config = PolicyConfig::from_toml(toml).unwrap();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_too_many_custom_pii_patterns() {
+        let mut config = PolicyConfig::from_toml(
+            r#"
+[[policies]]
+name = "t"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#,
+        )
+        .unwrap();
+        config.audit.custom_pii_patterns = (0..=MAX_CUSTOM_PII_PATTERNS)
+            .map(|i| CustomPiiPattern {
+                name: format!("pat_{}", i),
+                pattern: format!("pattern{}", i),
+            })
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("custom_pii_patterns"));
+        assert!(err.contains(&MAX_CUSTOM_PII_PATTERNS.to_string()));
+    }
+
+    #[test]
+    fn test_validate_rejects_too_many_extra_injection_patterns() {
+        let mut config = PolicyConfig::from_toml(
+            r#"
+[[policies]]
+name = "t"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#,
+        )
+        .unwrap();
+        config.injection.extra_patterns = (0..=MAX_EXTRA_INJECTION_PATTERNS)
+            .map(|i| format!("pattern {}", i))
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("extra_patterns"));
+    }
+
+    #[test]
+    fn test_validate_rejects_too_many_policies() {
+        let mut config = PolicyConfig {
+            policies: Vec::new(),
+            injection: InjectionConfig::default(),
+            rate_limit: RateLimitConfig::default(),
+            audit: AuditConfig::default(),
+            supply_chain: SupplyChainConfig::default(),
+            manifest: ManifestConfig::default(),
+        };
+        config.policies = (0..=MAX_POLICIES)
+            .map(|i| PolicyRule {
+                name: format!("p{}", i),
+                tool_pattern: "*".to_string(),
+                function_pattern: "*".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: Some(100),
+                id: None,
+            })
+            .collect();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("policies"));
+        assert!(err.contains(&MAX_POLICIES.to_string()));
+    }
+
+    #[test]
+    fn test_load_file_validates_bounds() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("bad.json");
+        // Create a config with way too many PII patterns
+        let patterns: Vec<serde_json::Value> = (0..=MAX_CUSTOM_PII_PATTERNS)
+            .map(|i| {
+                serde_json::json!({
+                    "name": format!("p{}", i),
+                    "pattern": format!("x{}", i)
+                })
+            })
+            .collect();
+        let json = serde_json::json!({
+            "policies": [{"name": "t", "tool_pattern": "*", "function_pattern": "*", "policy_type": "Allow"}],
+            "audit": {"custom_pii_patterns": patterns}
+        });
+        std::fs::write(&path, serde_json::to_string(&json).unwrap()).unwrap();
+
+        let result = PolicyConfig::load_file(path.to_str().unwrap());
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("custom_pii_patterns"));
+    }
+
+    #[test]
+    fn test_validate_at_limit_passes() {
+        let mut config = PolicyConfig::from_toml(
+            r#"
+[[policies]]
+name = "t"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#,
+        )
+        .unwrap();
+        // Exactly at the limit should pass
+        config.audit.custom_pii_patterns = (0..MAX_CUSTOM_PII_PATTERNS)
+            .map(|i| CustomPiiPattern {
+                name: format!("pat_{}", i),
+                pattern: format!("pattern{}", i),
+            })
+            .collect();
+        assert!(config.validate().is_ok());
     }
 }

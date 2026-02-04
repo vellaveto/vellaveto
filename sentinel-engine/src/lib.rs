@@ -272,6 +272,27 @@ pub enum CompiledContextCondition {
         required_tool: String,
         deny_reason: String,
     },
+    /// Deny if a specific tool was called earlier in the session.
+    ///
+    /// Inverse of `RequirePreviousAction` — detects forbidden sequences like
+    /// read-then-exfiltrate (if `read_file` was called, deny `http_request`).
+    ForbiddenPreviousAction {
+        /// Tool name that, if present in session history, triggers denial.
+        forbidden_tool: String,
+        deny_reason: String,
+    },
+    /// Deny if a tool pattern appears more than `max` times in the last `window`
+    /// entries of the session history.
+    ///
+    /// Provides sliding-window rate limiting without requiring wall-clock
+    /// timestamps. A `window` of 0 means the entire session history.
+    MaxCallsInWindow {
+        tool_pattern: String,
+        max: u64,
+        /// Number of most-recent history entries to consider. 0 = all.
+        window: usize,
+        deny_reason: String,
+    },
 }
 
 /// A policy with all patterns pre-compiled for zero-lock evaluation.
@@ -325,6 +346,11 @@ pub struct PolicyEngine {
     /// (Universal, prefix, suffix, or Any tool patterns).
     /// Already sorted by position in `compiled_policies` (= priority order).
     always_check: Vec<usize>,
+    /// When false (default), time-window context conditions always use wall-clock
+    /// time. When true, the engine honors `EvaluationContext.timestamp` from the
+    /// caller. **Only enable for deterministic testing** — in production, a client
+    /// could supply a fake timestamp to bypass time-window policies.
+    trust_context_timestamps: bool,
 }
 
 impl std::fmt::Debug for PolicyEngine {
@@ -349,6 +375,7 @@ impl PolicyEngine {
             compiled_policies: Vec::new(),
             tool_index: HashMap::new(),
             always_check: Vec::new(),
+            trust_context_timestamps: false,
         }
     }
 
@@ -437,7 +464,17 @@ impl PolicyEngine {
             compiled_policies: compiled,
             tool_index,
             always_check,
+            trust_context_timestamps: false,
         })
+    }
+
+    /// Enable trusting `EvaluationContext.timestamp` for time-window checks.
+    ///
+    /// **WARNING:** Only use for deterministic testing. In production, a client
+    /// can supply a fake timestamp to bypass time-window policies.
+    #[cfg(test)]
+    pub fn set_trust_context_timestamps(&mut self, trust: bool) {
+        self.trust_context_timestamps = trust;
     }
 
     /// Build a tool-name index for O(matching) evaluation.
@@ -1049,6 +1086,19 @@ impl PolicyEngine {
                             .collect::<Vec<u8>>()
                     })
                     .unwrap_or_default();
+                // Validate day values: 1=Mon, 2=Tue, ..., 7=Sun (ISO 8601)
+                for &day in &days {
+                    if !(1..=7).contains(&day) {
+                        return Err(PolicyValidationError {
+                            policy_id: policy.id.clone(),
+                            policy_name: policy.name.clone(),
+                            reason: format!(
+                                "time_window day value must be 1-7 (Mon-Sun), got {}",
+                                day
+                            ),
+                        });
+                    }
+                }
                 let deny_reason = format!(
                     "Outside allowed time window ({:02}:00-{:02}:00) for policy '{}'",
                     start_hour, end_hour, policy.name
@@ -1084,12 +1134,14 @@ impl PolicyEngine {
                 })
             }
             "agent_id" => {
+                // SECURITY: Normalize agent IDs to lowercase at compile time
+                // to prevent case-variation bypasses (e.g., "Agent-A" vs "agent-a").
                 let allowed = obj
                     .get("allowed")
                     .and_then(|v| v.as_array())
                     .map(|arr| {
                         arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
                             .collect::<Vec<String>>()
                     })
                     .unwrap_or_default();
@@ -1098,7 +1150,7 @@ impl PolicyEngine {
                     .and_then(|v| v.as_array())
                     .map(|arr| {
                         arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
                             .collect::<Vec<String>>()
                     })
                     .unwrap_or_default();
@@ -1127,6 +1179,61 @@ impl PolicyEngine {
                 );
                 Ok(CompiledContextCondition::RequirePreviousAction {
                     required_tool,
+                    deny_reason,
+                })
+            }
+            "forbidden_previous_action" => {
+                let forbidden_tool = obj
+                    .get("forbidden_tool")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "forbidden_previous_action missing 'forbidden_tool' string"
+                            .to_string(),
+                    })?
+                    .to_string();
+                let deny_reason = format!(
+                    "Forbidden previous action '{}' detected in session history (policy '{}')",
+                    forbidden_tool, policy.name
+                );
+                Ok(CompiledContextCondition::ForbiddenPreviousAction {
+                    forbidden_tool,
+                    deny_reason,
+                })
+            }
+            "max_calls_in_window" => {
+                let tool_pattern = obj
+                    .get("tool_pattern")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("*")
+                    .to_string();
+                let max = obj.get("max").and_then(|v| v.as_u64()).ok_or_else(|| {
+                    PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "max_calls_in_window missing 'max' integer".to_string(),
+                    }
+                })?;
+                let window =
+                    obj.get("window")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as usize;
+                let deny_reason = format!(
+                    "Tool '{}' called more than {} times in last {} actions (policy '{}')",
+                    tool_pattern,
+                    max,
+                    if window == 0 {
+                        "all".to_string()
+                    } else {
+                        window.to_string()
+                    },
+                    policy.name
+                );
+                Ok(CompiledContextCondition::MaxCallsInWindow {
+                    tool_pattern,
+                    max,
+                    window,
                     deny_reason,
                 })
             }
@@ -1421,10 +1528,25 @@ impl PolicyEngine {
             return Ok(Some(denial));
         }
         // Check context conditions (session-level) before policy type dispatch.
-        // When context is None, all context conditions are skipped (backward compat).
-        if let Some(ctx) = context {
-            if let Some(denial) = self.check_context_conditions(ctx, cp) {
-                return Ok(Some(denial));
+        // SECURITY: If a policy declares context conditions but no context is
+        // provided, deny the action (fail-closed). Skipping would let callers
+        // bypass time-window / max-calls / agent-id restrictions by omitting context.
+        if !cp.context_conditions.is_empty() {
+            match context {
+                Some(ctx) => {
+                    if let Some(denial) = self.check_context_conditions(ctx, cp) {
+                        return Ok(Some(denial));
+                    }
+                }
+                None => {
+                    return Ok(Some(Verdict::Deny {
+                        reason: format!(
+                            "Policy '{}' requires evaluation context (has {} context condition(s)) but none was provided",
+                            cp.policy.name,
+                            cp.context_conditions.len()
+                        ),
+                    }));
+                }
             }
         }
 
@@ -1453,12 +1575,20 @@ impl PolicyEngine {
                     days,
                     deny_reason,
                 } => {
-                    let now = context
-                        .timestamp
-                        .as_ref()
-                        .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
-                        .map(|dt| dt.with_timezone(&chrono::Utc))
-                        .unwrap_or_else(chrono::Utc::now);
+                    // SECURITY: Use wall-clock time unless trust_context_timestamps
+                    // is explicitly enabled (test-only). context.timestamp is untrusted
+                    // in production — an attacker could supply a fake timestamp to bypass
+                    // time-window restrictions.
+                    let now = if self.trust_context_timestamps {
+                        context
+                            .timestamp
+                            .as_ref()
+                            .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
+                            .map(|dt| dt.with_timezone(&chrono::Utc))
+                            .unwrap_or_else(chrono::Utc::now)
+                    } else {
+                        chrono::Utc::now()
+                    };
 
                     let hour = now.hour() as u8;
 
@@ -1517,14 +1647,19 @@ impl PolicyEngine {
                 } => {
                     match &context.agent_id {
                         Some(id) => {
+                            // SECURITY: Compare case-insensitively to prevent
+                            // bypasses via "Agent-A" when policy specifies "agent-a".
+                            let id_lower = id.to_lowercase();
                             // Check blocked list first
-                            if blocked.iter().any(|b| b == id) {
+                            if blocked.contains(&id_lower) {
                                 return Some(Verdict::Deny {
                                     reason: deny_reason.clone(),
                                 });
                             }
                             // If allowed list is non-empty, agent must be in it
-                            if !allowed.is_empty() && !allowed.iter().any(|a| a == id) {
+                            if !allowed.is_empty()
+                                && !allowed.contains(&id_lower)
+                            {
                                 return Some(Verdict::Deny {
                                     reason: deny_reason.clone(),
                                 });
@@ -1545,6 +1680,39 @@ impl PolicyEngine {
                     deny_reason,
                 } => {
                     if !context.previous_actions.iter().any(|a| a == required_tool) {
+                        return Some(Verdict::Deny {
+                            reason: deny_reason.clone(),
+                        });
+                    }
+                }
+                CompiledContextCondition::ForbiddenPreviousAction {
+                    forbidden_tool,
+                    deny_reason,
+                } => {
+                    if context.previous_actions.iter().any(|a| a == forbidden_tool) {
+                        return Some(Verdict::Deny {
+                            reason: deny_reason.clone(),
+                        });
+                    }
+                }
+                CompiledContextCondition::MaxCallsInWindow {
+                    tool_pattern,
+                    max,
+                    window,
+                    deny_reason,
+                } => {
+                    let history = if *window > 0 {
+                        let start = context
+                            .previous_actions
+                            .len()
+                            .saturating_sub(*window);
+                        &context.previous_actions[start..]
+                    } else {
+                        &context.previous_actions[..]
+                    };
+                    let matcher = PatternMatcher::compile(tool_pattern);
+                    let count = history.iter().filter(|a| matcher.matches(a)).count() as u64;
+                    if count >= *max {
                         return Some(Verdict::Deny {
                             reason: deny_reason.clone(),
                         });
@@ -3545,9 +3713,23 @@ impl PolicyEngine {
             return Ok((Some(denial), Vec::new()));
         }
         // Check context conditions.
-        if let Some(ctx) = context {
-            if let Some(denial) = self.check_context_conditions(ctx, cp) {
-                return Ok((Some(denial), Vec::new()));
+        // SECURITY: Fail-closed when context conditions exist but no context provided.
+        if !cp.context_conditions.is_empty() {
+            match context {
+                Some(ctx) => {
+                    if let Some(denial) = self.check_context_conditions(ctx, cp) {
+                        return Ok((Some(denial), Vec::new()));
+                    }
+                }
+                None => {
+                    return Ok((Some(Verdict::Deny {
+                        reason: format!(
+                            "Policy '{}' requires evaluation context (has {} context condition(s)) but none was provided",
+                            cp.policy.name,
+                            cp.context_conditions.len()
+                        ),
+                    }), Vec::new()));
+                }
             }
         }
 
@@ -8602,7 +8784,11 @@ mod tests {
     }
 
     fn make_context_engine(policy: Policy) -> PolicyEngine {
-        PolicyEngine::with_policies(false, &[policy]).unwrap()
+        let mut engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        // Enable trusted timestamps for deterministic testing only.
+        // In production, trust_context_timestamps is always false.
+        engine.set_trust_context_timestamps(true);
+        engine
     }
 
     #[test]
@@ -8816,6 +9002,51 @@ mod tests {
     }
 
     #[test]
+    fn test_context_agent_id_case_insensitive() {
+        // SECURITY: Agent IDs must be compared case-insensitively.
+        // "Agent-A" should match policy allowing "agent-a".
+        let policy = make_context_policy(json!([
+            {"type": "agent_id", "allowed": ["Agent-A", "AGENT-B"]}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+
+        // Lowercase variant should be allowed
+        let ctx = EvaluationContext {
+            agent_id: Some("agent-a".to_string()),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Allow), "lowercase should match: {:?}", v);
+
+        // Mixed case variant should be allowed
+        let ctx = EvaluationContext {
+            agent_id: Some("AGENT-A".to_string()),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Allow), "uppercase should match: {:?}", v);
+
+        // Case variation of blocked agent should be blocked
+        let policy2 = make_context_policy(json!([
+            {"type": "agent_id", "blocked": ["Evil-Agent"]}
+        ]));
+        let engine2 = make_context_engine(policy2);
+        let ctx = EvaluationContext {
+            agent_id: Some("EVIL-AGENT".to_string()),
+            ..Default::default()
+        };
+        let v = engine2
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Deny { .. }), "case variant of blocked should deny: {:?}", v);
+    }
+
+    #[test]
     fn test_context_require_previous_action_present() {
         let policy = make_context_policy(json!([
             {"type": "require_previous_action", "required_tool": "authenticate"}
@@ -8850,16 +9081,36 @@ mod tests {
     }
 
     #[test]
-    fn test_context_none_skips_all_conditions() {
-        // When context is None, all context conditions should be skipped
+    fn test_context_none_denies_when_conditions_exist() {
+        // SECURITY: When context is None but policy has context conditions,
+        // the action must be denied (fail-closed). Allowing it would let
+        // callers bypass time-window/max-calls/agent-id by omitting context.
         let policy = make_context_policy(json!([
             {"type": "agent_id", "allowed": ["agent-a"]}
         ]));
         let engine = make_context_engine(policy);
         let action = Action::new("read_file", "execute", json!({}));
-        // evaluate_action (no context) should not check context conditions
-        // With compiled policies but no context, the conditional policy evaluates
-        // as "allow" since there are no parameter constraints.
+        let v = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "Expected Deny when context conditions exist but no context provided, got {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_context_none_allows_when_no_conditions() {
+        // Policies WITHOUT context conditions should still work fine with no context.
+        let policy = Policy {
+            id: "read_file:*".to_string(),
+            name: "allow-read".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 50,
+            path_rules: None,
+            network_rules: None,
+        };
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("read_file", "execute", json!({}));
         let v = engine.evaluate_action(&action, &[]).unwrap();
         assert!(matches!(v, Verdict::Allow));
     }
@@ -8899,5 +9150,247 @@ mod tests {
             .evaluate_action_traced_with_context(&action, Some(&ctx))
             .unwrap();
         assert!(matches!(v, Verdict::Deny { .. }));
+    }
+
+    // ── Forbidden Previous Action (cross-tool orchestration) ──────────
+
+    #[test]
+    fn test_context_forbidden_previous_action_present_denies() {
+        let policy = Policy {
+            id: "http_request:*".to_string(),
+            name: "block-exfil-after-read".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "context_conditions": [
+                        {"type": "forbidden_previous_action", "forbidden_tool": "read_file"}
+                    ],
+                }),
+            },
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        };
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("http_request", "execute", json!({"url": "https://evil.com"}));
+        let ctx = EvaluationContext {
+            previous_actions: vec!["read_file".to_string(), "list_files".to_string()],
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "Should deny http_request when read_file is in history"
+        );
+    }
+
+    #[test]
+    fn test_context_forbidden_previous_action_absent_allows() {
+        let policy = Policy {
+            id: "http_request:*".to_string(),
+            name: "block-exfil-after-read".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "context_conditions": [
+                        {"type": "forbidden_previous_action", "forbidden_tool": "read_file"}
+                    ],
+                }),
+            },
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        };
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action =
+            Action::new("http_request", "execute", json!({"url": "https://api.github.com"}));
+        let ctx = EvaluationContext {
+            previous_actions: vec!["list_files".to_string()],
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "Should allow http_request when read_file is NOT in history"
+        );
+    }
+
+    #[test]
+    fn test_context_forbidden_previous_action_empty_history() {
+        let policy = Policy {
+            id: "http_request:*".to_string(),
+            name: "block-exfil-after-read".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "context_conditions": [
+                        {"type": "forbidden_previous_action", "forbidden_tool": "read_file"}
+                    ],
+                }),
+            },
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        };
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("http_request", "execute", json!({}));
+        let ctx = EvaluationContext::default();
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "Should allow when history is empty"
+        );
+    }
+
+    // ── Max Calls In Window (sliding-window rate limit) ──────────
+
+    #[test]
+    fn test_context_max_calls_in_window_under_limit() {
+        let policy = make_context_policy(json!([
+            {"type": "max_calls_in_window", "tool_pattern": "read_file", "max": 5, "window": 10}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            previous_actions: vec![
+                "read_file".to_string(),
+                "read_file".to_string(),
+                "list_files".to_string(),
+                "read_file".to_string(),
+            ],
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "3 calls in window of 10 should be under limit of 5"
+        );
+    }
+
+    #[test]
+    fn test_context_max_calls_in_window_at_limit_denies() {
+        let policy = make_context_policy(json!([
+            {"type": "max_calls_in_window", "tool_pattern": "read_file", "max": 3, "window": 10}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            previous_actions: vec![
+                "read_file".to_string(),
+                "read_file".to_string(),
+                "list_files".to_string(),
+                "read_file".to_string(),
+            ],
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "3 calls at limit of 3 should deny"
+        );
+    }
+
+    #[test]
+    fn test_context_max_calls_in_window_older_calls_outside() {
+        let policy = make_context_policy(json!([
+            {"type": "max_calls_in_window", "tool_pattern": "read_file", "max": 3, "window": 3}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            previous_actions: vec![
+                "read_file".to_string(),  // outside window
+                "read_file".to_string(),  // outside window
+                "read_file".to_string(),  // inside window
+                "list_files".to_string(), // inside window
+                "list_files".to_string(), // inside window
+            ],
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "Only 1 read_file in last 3 actions, under limit of 3"
+        );
+    }
+
+    #[test]
+    fn test_context_max_calls_in_window_zero_means_all() {
+        let policy = make_context_policy(json!([
+            {"type": "max_calls_in_window", "tool_pattern": "read_file", "max": 3, "window": 0}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            previous_actions: vec![
+                "read_file".to_string(),
+                "read_file".to_string(),
+                "read_file".to_string(),
+            ],
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "window=0 checks entire history, 3 >= max of 3"
+        );
+    }
+
+    #[test]
+    fn test_context_max_calls_in_window_wildcard() {
+        let policy = make_context_policy(json!([
+            {"type": "max_calls_in_window", "tool_pattern": "*", "max": 5, "window": 5}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            previous_actions: vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                "d".to_string(),
+                "e".to_string(),
+            ],
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "5 any-tool calls in window of 5, at limit of 5"
+        );
+    }
+
+    #[test]
+    fn test_context_forbidden_previous_compile_error() {
+        let policy = make_context_policy(json!([
+            {"type": "forbidden_previous_action"}
+        ]));
+        let result = PolicyEngine::with_policies(false, &[policy]);
+        assert!(
+            result.is_err(),
+            "Missing forbidden_tool should fail compilation"
+        );
+    }
+
+    #[test]
+    fn test_context_max_calls_in_window_compile_error() {
+        let policy = make_context_policy(json!([
+            {"type": "max_calls_in_window", "tool_pattern": "*", "window": 10}
+        ]));
+        let result = PolicyEngine::with_policies(false, &[policy]);
+        assert!(result.is_err(), "Missing max should fail compilation");
     }
 }

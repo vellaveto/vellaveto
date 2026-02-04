@@ -1,5 +1,111 @@
 # Shared Log
 
+## 2026-02-04 — Adversary-2 Round 5: Security Hardening Fixes
+
+**Instance:** Adversary-2 (Opus 4.5)
+**Timestamp:** 2026-02-04
+**Test count:** 2,211 (all passing, 0 clippy warnings)
+
+### Fixes Applied This Round
+
+| ID | Severity | Finding | Fix |
+|----|----------|---------|-----|
+| R4-2 | HIGH | Timestamp injection in context conditions | Added `trust_context_timestamps` flag (default false); production uses wall-clock time |
+| R4-3 | HIGH | Context=None silently skips all context conditions (fail-open) | Fail-closed: deny when context conditions exist but no context provided |
+| R4-5 | HIGH | `injection_blocking` flag declared but never implemented in HTTP proxy | Wired blocking into all 3 injection scan sites + config `block_on_injection` |
+| R4-6 | HIGH | ReDoS in JWT DLP pattern (unbounded quantifiers) | Bounded: `{1,8192}` per segment |
+| R4-7 | HIGH | ReDoS in generic API key pattern | Bounded: `{20,512}` and `{1,512}` |
+| R4-10 | MEDIUM | AgentId case-sensitive comparison allows bypass | Normalized to lowercase at compile time + comparison time |
+| R4-15 | MEDIUM | Days array not validated (values > 7 accepted) | Compile-time validation: reject values outside 1-7 |
+
+### Remaining Unfixed Findings (from Round 4)
+
+| ID | Severity | Finding | Status |
+|----|----------|---------|--------|
+| R4-1 | CRITICAL | Task requests bypass policy/DLP/injection | Needs proxy architecture change |
+| R4-4 | HIGH | Session fixation in HTTP proxy POST /mcp | Needs session ownership validation |
+| R4-8 | LOW | TimeWindow exclusive upper bound semantics | Documented behavior, not a bug |
+| R4-9 | LOW | MaxCalls `>=` semantics | Correct fail-safe behavior |
+| R4-11 | MEDIUM | RequirePreviousAction spoofable via context | Design limitation (caller-provided context) |
+| R4-12 | MEDIUM | Batch rejection not audited | Needs audit call on batch reject |
+| R4-13 | MEDIUM | Unbounded config arrays | Needs config validation limits |
+| R4-14 | MEDIUM | DLP encoding bypasses (base64, URL-encode) | Needs multi-layer decoding |
+| R4-16 | LOW | MaxCalls pattern recompiled every eval | Performance optimization, not security |
+
+---
+
+## 2026-02-04 — Controller Session 2: P2 Security Gaps + P3 Benchmarks
+
+**Instance:** Controller (Opus 4.5, continued session)
+**Timestamp:** 2026-02-04
+**Test count:** 2,200 (up from 2,186 baseline)
+
+### Completed
+
+#### R2-3: ReDoS Validation for Custom PII Patterns (FIXED)
+- Added `validate_regex_safety()` to `sentinel-audit/src/pii.rs`
+- Rejects patterns > 1024 chars or containing nested quantifiers `(a+)+`
+- `PiiScanner::new()` now validates before compiling custom patterns
+- 6 tests added
+- **Files:** `sentinel-audit/src/pii.rs`, `sentinel-audit/src/lib.rs`
+
+#### P2: Tool Description Scanning (ASI02 — OWASP)
+- `scan_tool_descriptions()` and `scan_tool_descriptions_with_scanner()` in `sentinel-mcp/src/inspection.rs`
+- Scans `tools/list` responses for injection in tool descriptions
+- Integrated in both stdio proxy and HTTP proxy
+- 5 tests added
+- **Files:** `sentinel-mcp/src/inspection.rs`, `sentinel-mcp/src/proxy.rs`, `sentinel-http-proxy/src/proxy.rs`
+
+#### P2: DLP Scanning in Tool Call Parameters
+- `scan_parameters_for_secrets()` in `sentinel-mcp/src/inspection.rs`
+- 7 DLP patterns: AWS keys, GitHub tokens, generic API keys, private key headers, Slack tokens, JWTs
+- Recursive JSON scanning with depth limit (10)
+- Integrated in both stdio proxy and HTTP proxy
+- 11 tests added
+- **Files:** `sentinel-mcp/src/inspection.rs`, `sentinel-mcp/src/proxy.rs`, `sentinel-http-proxy/src/proxy.rs`
+
+#### P2: HTTP Proxy Error Field Injection Scanning (parity fix)
+- HTTP proxy only scanned `result` fields — now also scans `error.message` and `error.data`
+- Matches stdio proxy's `scan_response_for_injection()` coverage
+- 4 tests added
+- **Files:** `sentinel-http-proxy/src/proxy.rs`
+
+#### P2: Cross-Tool Orchestration Monitoring
+Two new `CompiledContextCondition` variants in `sentinel-engine`:
+
+1. **`ForbiddenPreviousAction`** — Deny if a specific tool was called earlier in session. Detects read-then-exfiltrate patterns.
+2. **`MaxCallsInWindow`** — Sliding-window rate limit on tool calls within last N history entries.
+
+Both condition types are compiled at policy load time (zero-lock evaluation).
+- 10 tests added (3 + 5 + 2 compilation error tests)
+- Criterion benchmarks added: all evaluate in <100ns
+- **Files:** `sentinel-engine/src/lib.rs`, `sentinel-engine/benches/evaluation.rs`
+
+#### P3: Criterion Benchmarks for Context Conditions
+- Added `context/forbidden_previous` benchmark group (deny, allow, large history)
+- Added `context/max_calls_window` benchmark group (under limit, at limit, large history)
+- Results: 38-70ns per evaluation — well under 5ms budget
+- **Files:** `sentinel-engine/benches/evaluation.rs`
+
+### Performance Summary
+
+| Operation | P99 Target | Measured |
+|-----------|-----------|----------|
+| Single policy eval | 2ms | 23ns |
+| 1000 policies fallthrough | 10ms | 20ns |
+| Context forbidden_previous | 5ms | 60ns (100-item history) |
+| Context max_calls_window | 5ms | 70ns |
+
+### All Adversary-2 Findings Status
+
+| Finding | Severity | Status |
+|---------|----------|--------|
+| R2-1: Policy reload atomicity | HIGH | **FIXED** (prior session) |
+| R2-2: Partial reload rejection | HIGH | **FIXED** (prior session) |
+| R2-3: ReDoS in custom PII patterns | MEDIUM | **FIXED** (this session) |
+
+---
+
 ## 2026-02-04 — Adversary-2: Round 2 Deep-Dive Audit (OAuth, Audit Chain, Config Reload)
 
 **Instance:** Adversary-2 (Opus 4.5)
@@ -91,8 +197,33 @@ Another instance added DLP regex scanning to `sentinel-mcp/src/inspection.rs` (l
 
 Added `MAX_VALIDATION_DEPTH = 32` and refactored `validate_value()` into a `validate_value_inner()` with depth tracking. Exceeding depth produces a violation message instead of stack overflow. All 11 existing tests pass.
 
+### Round 4: Comprehensive Audit of New Multi-Instance Code (16 findings)
+
+Audited all fresh code from other instances. Results by severity:
+
+| # | Severity | Finding | File | Area |
+|---|----------|---------|------|------|
+| R4-1 | **CRITICAL** | Task requests pass through BOTH proxies without policy eval, DLP, or injection scanning | proxy.rs (stdio+HTTP) | Handler gap |
+| R4-2 | **HIGH** | EvaluationContext.timestamp is client-controlled — attacker bypasses time-window policies with fake timestamps | engine/lib.rs:1456 | Context conditions |
+| R4-3 | **HIGH** | Context=None silently skips ALL context conditions (fail-open) | engine/lib.rs:1247 | Context conditions |
+| R4-4 | **HIGH** | Session fixation: POST /mcp doesn't validate session ownership (only DELETE does) | http-proxy/proxy.rs | Session mgmt |
+| R4-5 | **HIGH** | injection_blocking flag declared but never implemented — responses always forwarded | http-proxy/proxy.rs:58 | Dead code |
+| R4-6 | **HIGH** | ReDoS in DLP JWT pattern: unbounded `[A-Za-z0-9_-]+` quantifiers | inspection.rs:456 | DLP scanning |
+| R4-7 | **HIGH** | ReDoS in DLP generic API key pattern: alternation + unbounded `{20,}` | inspection.rs:447 | DLP scanning |
+| R4-8 | **MEDIUM** | TimeWindow off-by-one: exclusive upper bound means end_hour is blocked | engine/lib.rs:1478 | Context conditions |
+| R4-9 | **MEDIUM** | MaxCalls off-by-one: `count >= max` means max=5 allows only 4 calls | engine/lib.rs:1507 | Context conditions |
+| R4-10 | **MEDIUM** | AgentId comparison is case-sensitive with no Unicode normalization | engine/lib.rs:1521 | Context conditions |
+| R4-11 | **MEDIUM** | RequirePreviousAction accepts spoofed history from untrusted context | engine/lib.rs:1547 | Context conditions |
+| R4-12 | **MEDIUM** | Batch rejection not audited (inconsistent with sampling/elicitation) | http-proxy/proxy.rs | Observability |
+| R4-13 | **MEDIUM** | Unbounded extra_patterns/custom_pii_patterns arrays in config | config/lib.rs:22 | Config |
+| R4-14 | **LOW** | DLP patterns don't detect base64/URL-encoded secrets | inspection.rs | DLP bypass |
+| R4-15 | **LOW** | Days array in TimeWindow not validated (values >7 silently ignored) | engine/lib.rs:1043 | Context conditions |
+| R4-16 | **LOW** | MaxCalls tool_pattern recompiled every evaluation (not pre-compiled) | engine/lib.rs:1498 | Performance |
+
+### Fixing R4-6 + R4-7 (ReDoS in DLP patterns) now...
+
 ### Availability
-**ACTIVE** — Continuing adversarial work. Looking for next target area.
+**ACTIVE** — Fixing critical findings.
 
 ---
 

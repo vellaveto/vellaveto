@@ -28,7 +28,13 @@ const MAX_REGEX_LEN: usize = 1024;
 ///
 /// Rejects patterns that are too long (>1024 chars) or contain nested
 /// quantifiers like `(a+)+`, `(a*)*`, `(a+)*`, `(a*)+` which can cause
-/// exponential backtracking in regex engines.
+/// exponential backtracking in regex engines. Also rejects unbounded
+/// repetition `{n,}` inside groups that have outer quantifiers.
+///
+/// Note: The `regex` crate uses a finite automaton engine that is immune
+/// to catastrophic backtracking for most patterns. This validation is
+/// defense-in-depth for patterns that may be used with other engines or
+/// future regex implementations.
 pub fn validate_regex_safety(pattern: &str) -> Result<(), String> {
     if pattern.len() > MAX_REGEX_LEN {
         return Err(format!(
@@ -44,22 +50,24 @@ pub fn validate_regex_safety(pattern: &str) -> Result<(), String> {
     let mut paren_depth = 0i32;
     let mut has_inner_quantifier = false;
     let chars: Vec<char> = pattern.chars().collect();
+    let mut i = 0;
 
-    for i in 0..chars.len() {
+    while i < chars.len() {
+        if chars[i] == '\\' {
+            // Skip escaped character (both the backslash AND the next char)
+            i += 2;
+            continue;
+        }
         match chars[i] {
-            '\\' => {
-                // Skip escaped character
-                continue;
-            }
-            '(' if i == 0 || chars[i - 1] != '\\' => {
+            '(' => {
                 paren_depth += 1;
                 has_inner_quantifier = false;
             }
-            ')' if i == 0 || chars[i - 1] != '\\' => {
-                paren_depth -= 1;
+            ')' => {
+                paren_depth = (paren_depth - 1).max(0);
                 // Check if the next char is a quantifier
                 if i + 1 < chars.len()
-                    && quantifiers.contains(&chars[i + 1])
+                    && (quantifiers.contains(&chars[i + 1]) || chars[i + 1] == '{')
                     && has_inner_quantifier
                 {
                     return Err(format!(
@@ -68,14 +76,26 @@ pub fn validate_regex_safety(pattern: &str) -> Result<(), String> {
                     ));
                 }
             }
-            c if quantifiers.contains(&c)
-                && paren_depth > 0
-                && (i == 0 || chars[i - 1] != '\\') =>
-            {
+            c if quantifiers.contains(&c) && paren_depth > 0 => {
                 has_inner_quantifier = true;
+            }
+            '{' if paren_depth > 0 => {
+                // Check for unbounded repetition like {5,} inside a group
+                // (bounded {5,10} is fine)
+                let rest: String = chars[i..].iter().collect();
+                if let Some(end) = rest.find('}') {
+                    let spec = &rest[1..end];
+                    if spec.ends_with(',') || (spec.contains(',') && {
+                        let parts: Vec<&str> = spec.split(',').collect();
+                        parts.len() == 2 && parts[1].is_empty()
+                    }) {
+                        has_inner_quantifier = true;
+                    }
+                }
             }
             _ => {}
         }
+        i += 1;
     }
 
     Ok(())
@@ -476,5 +496,50 @@ mod tests {
             0,
             "Overlength pattern should be rejected"
         );
+    }
+
+    #[test]
+    fn test_redos_unbounded_repetition_in_group_rejected() {
+        // (x{5,})+ has unbounded inner repetition with outer quantifier
+        assert!(validate_regex_safety("(x{5,})+").is_err());
+    }
+
+    #[test]
+    fn test_redos_bounded_repetition_in_group_accepted() {
+        // (x{5,10})+ has bounded inner repetition — acceptable
+        assert!(validate_regex_safety("(x{5,10})+").is_ok());
+    }
+
+    #[test]
+    fn test_redos_group_with_curly_outer_quantifier_rejected() {
+        // (a+){2,} — nested: inner + and outer {2,}
+        assert!(validate_regex_safety("(a+){2,}").is_err());
+    }
+
+    #[test]
+    fn test_redos_escaped_quantifier_not_flagged() {
+        // (\+)+ — the inner + is escaped, so this is safe
+        assert!(validate_regex_safety(r"(\+)+").is_ok());
+    }
+
+    #[test]
+    fn test_redos_escaped_paren_not_counted() {
+        // \(a+\)+ — the parens are escaped, not a real group
+        assert!(validate_regex_safety(r"\(a+\)+").is_ok());
+    }
+
+    #[test]
+    fn test_redos_deeply_nested_groups_rejected() {
+        // ((a+))+ — nested groups with inner quantifier
+        assert!(validate_regex_safety("((a+))+").is_err());
+    }
+
+    #[test]
+    fn test_has_pii_uses_luhn_for_credit_cards() {
+        let s = scanner();
+        // Valid Luhn number
+        assert!(s.has_pii("4111111111111111"));
+        // Invalid Luhn number — should NOT be flagged as PII
+        assert!(!s.has_pii("1234567890123456"));
     }
 }

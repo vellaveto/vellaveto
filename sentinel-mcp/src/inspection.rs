@@ -445,16 +445,20 @@ pub const DLP_PATTERNS: &[(&str, &str)] = &[
     ("github_token", r"gh[pousr]_[A-Za-z0-9_]{36,255}"),
     (
         "generic_api_key",
-        r"(?i)(?:api[_-]?key|apikey|secret[_-]?key)\s*[=:]\s*[A-Za-z0-9_\-]{20,}",
+        // Bounded quantifier {20,512} prevents ReDoS from unbounded backtracking.
+        r"(?i)(?:api[_-]?key|apikey|secret[_-]?key)\s*[=:]\s*[A-Za-z0-9_\-]{20,512}",
     ),
     (
         "private_key_header",
         r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----",
     ),
-    ("slack_token", r"xox[bporas]-[0-9]{10,13}-[A-Za-z0-9-]+"),
+    // Bounded quantifier {1,512} prevents ReDoS on crafted Slack-like tokens.
+    ("slack_token", r"xox[bporas]-[0-9]{10,13}-[A-Za-z0-9-]{1,512}"),
     (
         "jwt_token",
-        r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
+        // Bounded quantifiers {1,8192} prevent ReDoS while covering realistic JWT sizes.
+        // JWTs can be large (especially with many claims) but >8KB per segment is abnormal.
+        r"eyJ[A-Za-z0-9_-]{1,8192}\.eyJ[A-Za-z0-9_-]{1,8192}\.[A-Za-z0-9_-]{1,8192}",
     ),
 ];
 

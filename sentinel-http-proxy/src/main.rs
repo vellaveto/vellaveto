@@ -276,7 +276,7 @@ async fn main() -> Result<()> {
         oauth,
         injection_scanner,
         injection_disabled,
-        injection_blocking: false,
+        injection_blocking: policy_config.injection.block_on_injection,
         api_key,
         approval_store: None,
         manifest_config: None,

@@ -942,11 +942,170 @@ criterion_group!(
 
 criterion_group!(compile_benches, bench_compile_policies,);
 
+// ---------------------------------------------------------------------------
+// Benchmarks: Context-aware evaluation (session state)
+// ---------------------------------------------------------------------------
+
+fn bench_context_forbidden_previous_action(c: &mut Criterion) {
+    use sentinel_types::EvaluationContext;
+    use std::collections::HashMap;
+
+    let policies = vec![
+        Policy {
+            id: "http_request:*".to_string(),
+            name: "Block exfil after read".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "context_conditions": [
+                        {"type": "forbidden_previous_action", "forbidden_tool": "read_file"}
+                    ],
+                }),
+            },
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        },
+        make_allow_policy("*", 1),
+    ];
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+    let mut group = c.benchmark_group("context/forbidden_previous");
+
+    group.bench_function("deny_with_match", |b| {
+        let action = make_action("http_request", "execute", json!({"url": "https://evil.com"}));
+        let ctx = EvaluationContext {
+            previous_actions: vec!["read_file".to_string(), "list_files".to_string()],
+            ..Default::default()
+        };
+        b.iter(|| {
+            engine.evaluate_action_with_context(
+                black_box(&action),
+                black_box(&[]),
+                Some(black_box(&ctx)),
+            )
+        })
+    });
+
+    group.bench_function("allow_no_match", |b| {
+        let action = make_action("http_request", "execute", json!({"url": "https://safe.com"}));
+        let ctx = EvaluationContext {
+            previous_actions: vec!["list_files".to_string()],
+            ..Default::default()
+        };
+        b.iter(|| {
+            engine.evaluate_action_with_context(
+                black_box(&action),
+                black_box(&[]),
+                Some(black_box(&ctx)),
+            )
+        })
+    });
+
+    group.bench_function("large_history_100", |b| {
+        let action = make_action("http_request", "execute", json!({}));
+        let ctx = EvaluationContext {
+            previous_actions: (0..100).map(|i| format!("tool_{}", i)).collect(),
+            ..Default::default()
+        };
+        b.iter(|| {
+            engine.evaluate_action_with_context(
+                black_box(&action),
+                black_box(&[]),
+                Some(black_box(&ctx)),
+            )
+        })
+    });
+
+    group.finish();
+}
+
+fn bench_context_max_calls_in_window(c: &mut Criterion) {
+    use sentinel_types::EvaluationContext;
+    use std::collections::HashMap;
+
+    let policies = vec![
+        Policy {
+            id: "read_file:*".to_string(),
+            name: "Rate limit reads".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "context_conditions": [
+                        {"type": "max_calls_in_window", "tool_pattern": "read_file", "max": 10, "window": 20}
+                    ],
+                }),
+            },
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        },
+        make_allow_policy("*", 1),
+    ];
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+    let mut group = c.benchmark_group("context/max_calls_window");
+
+    group.bench_function("under_limit", |b| {
+        let action = make_action("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            previous_actions: vec!["read_file".to_string(); 5],
+            ..Default::default()
+        };
+        b.iter(|| {
+            engine.evaluate_action_with_context(
+                black_box(&action),
+                black_box(&[]),
+                Some(black_box(&ctx)),
+            )
+        })
+    });
+
+    group.bench_function("at_limit_deny", |b| {
+        let action = make_action("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            previous_actions: vec!["read_file".to_string(); 15],
+            ..Default::default()
+        };
+        b.iter(|| {
+            engine.evaluate_action_with_context(
+                black_box(&action),
+                black_box(&[]),
+                Some(black_box(&ctx)),
+            )
+        })
+    });
+
+    group.bench_function("large_history_window", |b| {
+        let action = make_action("read_file", "execute", json!({}));
+        let mut history: Vec<String> = (0..100).map(|i| format!("tool_{}", i)).collect();
+        history.extend(vec!["read_file".to_string(); 5]);
+        let ctx = EvaluationContext {
+            previous_actions: history,
+            ..Default::default()
+        };
+        b.iter(|| {
+            engine.evaluate_action_with_context(
+                black_box(&action),
+                black_box(&[]),
+                Some(black_box(&ctx)),
+            )
+        })
+    });
+
+    group.finish();
+}
+
+criterion_group!(
+    context_benches,
+    bench_context_forbidden_previous_action,
+    bench_context_max_calls_in_window,
+);
+
 criterion_main!(
     eval_benches,
     path_benches,
     constraint_benches,
     compiled_benches,
     rules_benches,
-    compile_benches
+    compile_benches,
+    context_benches
 );

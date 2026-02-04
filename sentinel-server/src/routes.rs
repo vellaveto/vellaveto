@@ -360,12 +360,38 @@ fn strip_query_and_fragment(path: &str) -> &str {
     path.split('#').next().unwrap_or(path)
 }
 
+/// Sanitize client-supplied evaluation context.
+///
+/// The server evaluate endpoint is a stateless API — it has no session tracking.
+/// Clients cannot be trusted to provide their own `call_counts` or
+/// `previous_actions` because they could lie to bypass MaxCalls or
+/// RequirePreviousAction policies. These fields are stripped.
+///
+/// Only `agent_id` is preserved from client input (it should match the
+/// authenticated identity, but auth is handled separately). `timestamp` is
+/// always overridden with the server's wall-clock time.
+fn sanitize_context(context: Option<EvaluationContext>) -> Option<EvaluationContext> {
+    context.map(|ctx| EvaluationContext {
+        // Override timestamp with server time — never trust client clocks
+        timestamp: None,
+        // Preserve agent_id — should match auth principal but useful for
+        // agent_id-scoped policies
+        agent_id: ctx.agent_id,
+        // Strip session-state fields: the stateless server API has no session
+        // tracking, so these must not be client-controlled
+        call_counts: std::collections::HashMap::new(),
+        previous_actions: Vec::new(),
+    })
+}
+
 async fn evaluate(
     State(state): State<AppState>,
     Json(req): Json<EvaluateRequest>,
 ) -> Result<Json<EvaluateResponse>, (StatusCode, Json<ErrorResponse>)> {
     let mut action = req.action;
-    let context = req.context;
+    // SECURITY: Sanitize client-supplied context to prevent spoofing of
+    // session-state fields (call_counts, previous_actions, timestamp).
+    let context = sanitize_context(req.context);
 
     // Auto-extract target_paths and target_domains from parameters if not provided
     if action.target_paths.is_empty() && action.target_domains.is_empty() {
@@ -1192,5 +1218,44 @@ mod tests {
             "Should fall back to IP, got: {}",
             key
         );
+    }
+
+    // --- Context sanitization tests ---
+
+    #[test]
+    fn test_sanitize_context_none_stays_none() {
+        assert!(sanitize_context(None).is_none());
+    }
+
+    #[test]
+    fn test_sanitize_context_strips_call_counts_and_history() {
+        let mut call_counts = std::collections::HashMap::new();
+        call_counts.insert("read_file".to_string(), 99);
+        let spoofed = EvaluationContext {
+            timestamp: Some("2026-01-01T00:00:00Z".to_string()),
+            agent_id: Some("agent-a".to_string()),
+            call_counts,
+            previous_actions: vec!["login".to_string(), "auth".to_string()],
+        };
+        let sanitized = sanitize_context(Some(spoofed)).unwrap();
+        // agent_id preserved
+        assert_eq!(sanitized.agent_id, Some("agent-a".to_string()));
+        // Session-state fields stripped
+        assert!(sanitized.call_counts.is_empty());
+        assert!(sanitized.previous_actions.is_empty());
+        // Timestamp overridden (set to None = server will use wall clock)
+        assert!(sanitized.timestamp.is_none());
+    }
+
+    #[test]
+    fn test_sanitize_context_preserves_agent_id() {
+        let ctx = EvaluationContext {
+            timestamp: None,
+            agent_id: Some("my-agent".to_string()),
+            call_counts: std::collections::HashMap::new(),
+            previous_actions: Vec::new(),
+        };
+        let sanitized = sanitize_context(Some(ctx)).unwrap();
+        assert_eq!(sanitized.agent_id, Some("my-agent".to_string()));
     }
 }
