@@ -85,10 +85,12 @@ pub fn validate_regex_safety(pattern: &str) -> Result<(), String> {
                 let rest: String = chars[i..].iter().collect();
                 if let Some(end) = rest.find('}') {
                     let spec = &rest[1..end];
-                    if spec.ends_with(',') || (spec.contains(',') && {
-                        let parts: Vec<&str> = spec.split(',').collect();
-                        parts.len() == 2 && parts[1].is_empty()
-                    }) {
+                    if spec.ends_with(',')
+                        || (spec.contains(',') && {
+                            let parts: Vec<&str> = spec.split(',').collect();
+                            parts.len() == 2 && parts[1].is_empty()
+                        })
+                    {
                         has_inner_quantifier = true;
                     }
                 }
