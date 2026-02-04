@@ -248,9 +248,12 @@ fn redact_keys_and_patterns(value: &serde_json::Value) -> serde_json::Value {
             serde_json::Value::Array(arr.iter().map(redact_keys_and_patterns).collect())
         }
         serde_json::Value::String(s) => {
+            // SECURITY (R9-8): Case-insensitive prefix check — "SK-..." or
+            // "bearer ..." should match as well as "sk-..." and "Bearer ...".
+            let s_lower = s.to_lowercase();
             if SENSITIVE_VALUE_PREFIXES
                 .iter()
-                .any(|prefix| s.starts_with(prefix))
+                .any(|prefix| s_lower.starts_with(&prefix.to_lowercase()))
                 || PII_REGEXES.iter().any(|re| re.is_match(s))
             {
                 serde_json::Value::String(REDACTED.to_string())
@@ -293,9 +296,11 @@ fn redact_keys_and_patterns_with_scanner(
         ),
         serde_json::Value::String(s) => {
             // Check value prefixes first (whole-value replacement for secrets)
+            // SECURITY (R9-8): Case-insensitive prefix matching.
+            let s_lower = s.to_lowercase();
             if SENSITIVE_VALUE_PREFIXES
                 .iter()
-                .any(|prefix| s.starts_with(prefix))
+                .any(|prefix| s_lower.starts_with(&prefix.to_lowercase()))
             {
                 serde_json::Value::String(REDACTED.to_string())
             } else {
@@ -1180,6 +1185,19 @@ impl AuditLogger {
     ) -> Result<(), AuditError> {
         // Validate input
         self.validate_action(action)?;
+
+        // SECURITY (R9-4): Validate metadata size to prevent oversized entries
+        // from exhausting disk space or pushing the log past the load limit.
+        const MAX_METADATA_SIZE: usize = 65536; // 64 KB
+        let metadata_size = serde_json::to_string(&metadata)
+            .map(|s| s.len())
+            .unwrap_or(0);
+        if metadata_size > MAX_METADATA_SIZE {
+            return Err(AuditError::Validation(format!(
+                "Metadata too large: {} bytes (max {} bytes)",
+                metadata_size, MAX_METADATA_SIZE
+            )));
+        }
 
         // Redact sensitive values based on configured redaction level
         let logged_action = match self.redaction_level {

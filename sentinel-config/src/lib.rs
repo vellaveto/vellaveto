@@ -801,6 +801,20 @@ impl PolicyConfig {
     /// Validates config bounds after parsing to prevent memory exhaustion
     /// from excessively large arrays.
     pub fn load_file(path: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // SECURITY (R9-5): Check file size before reading to prevent OOM
+        // from maliciously large config files. 10 MB is generous for any
+        // realistic policy configuration.
+        const MAX_CONFIG_FILE_SIZE: u64 = 10 * 1024 * 1024;
+        let metadata = std::fs::metadata(path)?;
+        if metadata.len() > MAX_CONFIG_FILE_SIZE {
+            return Err(format!(
+                "Config file '{}' is too large ({} bytes, max {} bytes)",
+                path,
+                metadata.len(),
+                MAX_CONFIG_FILE_SIZE
+            )
+            .into());
+        }
         let content = std::fs::read_to_string(path)?;
         let config = if path.ends_with(".toml") {
             Self::from_toml(&content)?
