@@ -66,6 +66,12 @@ pub struct ProxyState {
     /// (Origin host must match Host header). If non-empty, Origin must be in
     /// the allowlist. Requests without an Origin header are allowed (non-browser).
     pub allowed_origins: Vec<String>,
+    /// When true, re-serialize parsed JSON-RPC messages before forwarding to
+    /// upstream. This closes the TOCTOU gap where the proxy evaluates a parsed
+    /// representation but forwards original bytes that could differ (e.g., due to
+    /// duplicate keys or parser-specific handling). Duplicate keys are always
+    /// rejected regardless of this setting.
+    pub canonicalize: bool,
 }
 
 /// MCP Session ID header name.
@@ -395,11 +401,12 @@ pub async fn handle_mcp_post(
 
             match eval_result {
                 Ok((Verdict::Allow, trace)) => {
-                    // Forward to upstream
+                    // Forward to upstream — canonicalize if configured (KL2 TOCTOU fix)
+                    let forward_body = canonicalize_body(&state, &msg, body);
                     let response = forward_to_upstream(
                         &state,
                         &session_id,
-                        body,
+                        forward_body,
                         auth_header_for_upstream.as_deref(),
                     )
                     .await;
@@ -549,10 +556,12 @@ pub async fn handle_mcp_post(
 
             match eval_result {
                 Ok((Verdict::Allow, trace)) => {
+                    // Canonicalize if configured (KL2 TOCTOU fix)
+                    let forward_body = canonicalize_body(&state, &msg, body);
                     let response = forward_to_upstream(
                         &state,
                         &session_id,
-                        body,
+                        forward_body,
                         auth_header_for_upstream.as_deref(),
                     )
                     .await;
@@ -693,11 +702,13 @@ pub async fn handle_mcp_post(
             )
         }
         MessageType::PassThrough => {
-            // Forward unmodified — includes initialize, tools/list, notifications, etc.
+            // Forward — includes initialize, tools/list, notifications, etc.
+            // Canonicalize if configured (KL2 TOCTOU fix)
+            let forward_body = canonicalize_body(&state, &msg, body);
             let response = forward_to_upstream(
                 &state,
                 &session_id,
-                body,
+                forward_body,
                 auth_header_for_upstream.as_deref(),
             )
             .await;
@@ -993,6 +1004,23 @@ fn build_audit_context(
         }
     }
     ctx
+}
+
+/// If canonicalize mode is enabled, re-serialize the parsed JSON to canonical
+/// form before forwarding. This ensures upstream sees exactly what was evaluated,
+/// closing the TOCTOU gap. Falls back to original bytes on serialization failure.
+fn canonicalize_body(state: &ProxyState, parsed: &Value, original: Bytes) -> Bytes {
+    if state.canonicalize {
+        match serde_json::to_vec(parsed) {
+            Ok(canonical) => Bytes::from(canonical),
+            Err(e) => {
+                tracing::warn!("Canonicalization failed, forwarding original bytes: {}", e);
+                original
+            }
+        }
+    } else {
+        original
+    }
 }
 
 /// Forward a request to the upstream MCP server.
@@ -1789,5 +1817,85 @@ mod tests {
     #[test]
     fn test_extract_authority_from_origin_invalid() {
         assert_eq!(extract_authority_from_origin("not-a-url"), None);
+    }
+
+    // --- KL2: TOCTOU Canonicalization tests ---
+
+    fn make_test_proxy_state(canonicalize: bool) -> ProxyState {
+        use sentinel_audit::AuditLogger;
+        use std::path::PathBuf;
+        ProxyState {
+            engine: Arc::new(PolicyEngine::new(false)),
+            policies: Arc::new(vec![]),
+            audit: Arc::new(AuditLogger::new(PathBuf::from("/tmp/test-audit.log"))),
+            sessions: Arc::new(SessionStore::new(
+                std::time::Duration::from_secs(300),
+                100,
+            )),
+            upstream_url: "http://localhost:9999".to_string(),
+            http_client: reqwest::Client::new(),
+            oauth: None,
+            injection_scanner: None,
+            injection_disabled: true,
+            injection_blocking: false,
+            api_key: None,
+            approval_store: None,
+            manifest_config: None,
+            allowed_origins: vec![],
+            canonicalize,
+        }
+    }
+
+    #[test]
+    fn test_canonicalize_off_returns_original_bytes() {
+        let state = make_test_proxy_state(false);
+        let original = Bytes::from(r#"{"jsonrpc":"2.0",  "id":1,  "method":"tools/call"}"#);
+        let parsed: Value = serde_json::from_slice(&original).unwrap();
+        let result = canonicalize_body(&state, &parsed, original.clone());
+        // With canonicalize off, should return original bytes exactly
+        assert_eq!(result, original);
+    }
+
+    #[test]
+    fn test_canonicalize_on_reserializes() {
+        let state = make_test_proxy_state(true);
+        // Original has extra whitespace
+        let original = Bytes::from(r#"{"jsonrpc":"2.0",  "id":1,  "method":"tools/call"}"#);
+        let parsed: Value = serde_json::from_slice(&original).unwrap();
+        let result = canonicalize_body(&state, &parsed, original.clone());
+        // With canonicalize on, should be re-serialized (compact, no extra whitespace)
+        assert_ne!(result, original, "Canonicalized should differ from original with extra whitespace");
+        // Re-serialized JSON should parse to the same value
+        let reparsed: Value = serde_json::from_slice(&result).unwrap();
+        assert_eq!(parsed, reparsed);
+    }
+
+    #[test]
+    fn test_canonicalize_roundtrip_preserves_content() {
+        let state = make_test_proxy_state(true);
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 42,
+            "method": "tools/call",
+            "params": {
+                "name": "read_file",
+                "arguments": {"path": "/etc/passwd"}
+            }
+        });
+        let original = Bytes::from(serde_json::to_vec(&msg).unwrap());
+        let result = canonicalize_body(&state, &msg, original);
+        let reparsed: Value = serde_json::from_slice(&result).unwrap();
+        assert_eq!(msg, reparsed, "Canonical form must be semantically identical");
+    }
+
+    #[test]
+    fn test_canonicalize_on_compact_json_unchanged_semantics() {
+        let state = make_test_proxy_state(true);
+        let original = Bytes::from(r#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#);
+        let parsed: Value = serde_json::from_slice(&original).unwrap();
+        let result = canonicalize_body(&state, &parsed, original);
+        // Even if bytes differ due to key ordering, semantics must match
+        let reparsed: Value = serde_json::from_slice(&result).unwrap();
+        assert_eq!(parsed, reparsed);
     }
 }

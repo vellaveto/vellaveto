@@ -161,6 +161,7 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        canonicalize: false,
     }
 }
 
@@ -1595,6 +1596,7 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        canonicalize: false,
     };
     let sessions = state.sessions.clone();
     let app = build_router(state);
@@ -1876,6 +1878,7 @@ async fn trace_resource_read_denied_includes_trace() {
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        canonicalize: false,
     };
     let app = build_router(state);
 
@@ -1946,6 +1949,7 @@ async fn trace_constraint_details_visible() {
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        canonicalize: false,
     };
     let app = build_router(state);
 
@@ -2134,6 +2138,7 @@ fn build_oauth_test_state(
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        canonicalize: false,
     }
 }
 
@@ -2653,6 +2658,7 @@ fn build_api_key_test_state(
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        canonicalize: false,
     }
 }
 
