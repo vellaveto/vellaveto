@@ -507,14 +507,7 @@ fn scan_value_for_secrets(
 
     match value {
         serde_json::Value::String(s) => {
-            for (name, re) in regexes {
-                if re.is_match(s) {
-                    findings.push(DlpFinding {
-                        pattern_name: name.to_string(),
-                        location: path.to_string(),
-                    });
-                }
-            }
+            scan_string_for_secrets(s, path, regexes, findings);
         }
         serde_json::Value::Object(map) => {
             for (key, val) in map {
@@ -530,6 +523,153 @@ fn scan_value_for_secrets(
         }
         _ => {}
     }
+}
+
+/// Scan a single string value for DLP patterns, including multi-layer decoded forms.
+///
+/// R4-14 FIX: Secrets can be base64-encoded or URL-encoded to evade DLP detection.
+/// This function first checks the raw string, then attempts base64 decoding and
+/// percent-decoding to detect encoded secrets.
+fn scan_string_for_secrets(
+    s: &str,
+    path: &str,
+    regexes: &[(&str, regex::Regex)],
+    findings: &mut Vec<DlpFinding>,
+) {
+    // Track which patterns already matched to avoid duplicates
+    let mut matched_patterns = std::collections::HashSet::new();
+
+    // 1. Scan the raw string directly
+    for (name, re) in regexes {
+        if re.is_match(s) {
+            matched_patterns.insert(*name);
+            findings.push(DlpFinding {
+                pattern_name: name.to_string(),
+                location: path.to_string(),
+            });
+        }
+    }
+
+    // 2. Try base64 decoding (standard and URL-safe variants)
+    // Only attempt if string looks like it could be base64 (length > 16, no spaces)
+    if s.len() > 16 && !s.contains(' ') {
+        use base64::Engine;
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(s)
+            .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(s))
+            .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(s))
+            .or_else(|_| base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(s));
+
+        if let Ok(bytes) = decoded {
+            if let Ok(decoded_str) = std::str::from_utf8(&bytes) {
+                for (name, re) in regexes {
+                    if !matched_patterns.contains(name) && re.is_match(decoded_str) {
+                        matched_patterns.insert(*name);
+                        findings.push(DlpFinding {
+                            pattern_name: name.to_string(),
+                            location: format!("{}(base64)", path),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Try percent-decoding (URL encoding)
+    // Only attempt if string contains '%' (likely percent-encoded)
+    if s.contains('%') {
+        let decoded = percent_encoding::percent_decode_str(s);
+        if let Ok(decoded_str) = decoded.decode_utf8() {
+            // Only scan if decoding changed something
+            if decoded_str != s {
+                for (name, re) in regexes {
+                    if !matched_patterns.contains(name) && re.is_match(&decoded_str) {
+                        findings.push(DlpFinding {
+                            pattern_name: name.to_string(),
+                            location: format!("{}(url_encoded)", path),
+                        });
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Scan a JSON-RPC tool response for secrets in the result content.
+///
+/// Extracts text from `result.content[].text` and `result.structuredContent`,
+/// scanning each for DLP patterns. Detects when a compromised tool returns
+/// secrets (e.g., AWS keys, tokens) in its output — which a subsequent tool
+/// call could then exfiltrate.
+///
+/// Returns findings indicating which secrets were detected and where in the response.
+pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding> {
+    // Lazily compile DLP patterns (same set as scan_parameters_for_secrets)
+    static DLP_REGEXES: std::sync::OnceLock<Vec<(&'static str, regex::Regex)>> =
+        std::sync::OnceLock::new();
+    let regexes = DLP_REGEXES.get_or_init(|| {
+        DLP_PATTERNS
+            .iter()
+            .filter_map(|(name, pat)| regex::Regex::new(pat).ok().map(|re| (*name, re)))
+            .collect()
+    });
+
+    let mut findings = Vec::new();
+
+    // Scan result.content[].text
+    if let Some(content) = response
+        .get("result")
+        .and_then(|r| r.get("content"))
+        .and_then(|c| c.as_array())
+    {
+        for (i, item) in content.iter().enumerate() {
+            if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                for (name, re) in regexes {
+                    if re.is_match(text) {
+                        findings.push(DlpFinding {
+                            pattern_name: name.to_string(),
+                            location: format!("result.content[{}].text", i),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Scan result.structuredContent recursively
+    if let Some(structured) = response
+        .get("result")
+        .and_then(|r| r.get("structuredContent"))
+    {
+        scan_value_for_secrets(
+            structured,
+            "result.structuredContent",
+            regexes,
+            &mut findings,
+            0,
+        );
+    }
+
+    // SECURITY (R8-MCP-9): Also scan error.message and error.data for secrets.
+    // A malicious server could embed secrets in error responses, and a subsequent
+    // agent action could exfiltrate them.
+    if let Some(error) = response.get("error") {
+        if let Some(msg) = error.get("message").and_then(|m| m.as_str()) {
+            for (name, re) in regexes {
+                if re.is_match(msg) {
+                    findings.push(DlpFinding {
+                        pattern_name: name.to_string(),
+                        location: "error.message".to_string(),
+                    });
+                }
+            }
+        }
+        if let Some(data) = error.get("data") {
+            scan_value_for_secrets(data, "error.data", regexes, &mut findings, 0);
+        }
+    }
+
+    findings
 }
 
 #[cfg(test)]
@@ -1147,5 +1287,234 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect Slack token");
         assert!(findings.iter().any(|f| f.pattern_name == "slack_token"));
+    }
+
+    // DLP response scanning tests
+    #[test]
+    fn test_response_dlp_detects_aws_key_in_content() {
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Found credential: AKIAIOSFODNN7EXAMPLE"
+                    }
+                ]
+            }
+        });
+        let findings = scan_response_for_secrets(&response);
+        assert!(!findings.is_empty(), "Should detect AWS key in response content");
+        assert!(findings.iter().any(|f| f.pattern_name == "aws_access_key"));
+        assert!(findings
+            .iter()
+            .any(|f| f.location.contains("result.content")));
+    }
+
+    #[test]
+    fn test_response_dlp_detects_secret_in_structured_content() {
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "structuredContent": {
+                    "data": "Here is the key: AKIAIOSFODNN7EXAMPLE"
+                }
+            }
+        });
+        let findings = scan_response_for_secrets(&response);
+        assert!(
+            !findings.is_empty(),
+            "Should detect AWS key in structuredContent"
+        );
+        assert!(findings
+            .iter()
+            .any(|f| f.location.contains("structuredContent")));
+    }
+
+    #[test]
+    fn test_response_dlp_clean_response_passes() {
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "The weather is sunny and 72 degrees."
+                    }
+                ]
+            }
+        });
+        let findings = scan_response_for_secrets(&response);
+        assert!(findings.is_empty(), "Clean response should have no findings");
+    }
+
+    #[test]
+    fn test_response_dlp_detects_github_token() {
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Token: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl"
+                    }
+                ]
+            }
+        });
+        let findings = scan_response_for_secrets(&response);
+        assert!(!findings.is_empty(), "Should detect GitHub token in response");
+        assert!(findings.iter().any(|f| f.pattern_name == "github_token"));
+    }
+
+    // ── R4-14: DLP Encoding Bypass Tests ─────────────────────
+
+    #[test]
+    fn test_dlp_base64_encoded_aws_key_detected() {
+        // R4-14: Base64-encoded AWS key should be detected.
+        use base64::Engine;
+        let raw_key = "AKIAIOSFODNN7EXAMPLE";
+        let encoded = base64::engine::general_purpose::STANDARD.encode(raw_key);
+        let params = json!({"data": encoded});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            !findings.is_empty(),
+            "Base64-encoded AWS key should be detected, encoded as: {}",
+            encoded
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern_name == "aws_access_key" && f.location.contains("base64")),
+            "Finding should indicate base64 decoding, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_base64_encoded_github_token_detected() {
+        // R4-14: Base64-encoded GitHub token should be detected.
+        use base64::Engine;
+        let raw_token = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk";
+        let encoded = base64::engine::general_purpose::STANDARD.encode(raw_token);
+        let params = json!({"token": encoded});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            !findings.is_empty(),
+            "Base64-encoded GitHub token should be detected"
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern_name == "github_token" && f.location.contains("base64")),
+            "Finding should indicate base64 decoding"
+        );
+    }
+
+    #[test]
+    fn test_dlp_url_encoded_aws_key_detected() {
+        // R4-14: URL-encoded AWS key should be detected.
+        // URL-encode each character as %XX
+        let raw_key = "AKIAIOSFODNN7EXAMPLE";
+        let encoded: String = raw_key
+            .bytes()
+            .map(|b| format!("%{:02X}", b))
+            .collect();
+        let params = json!({"data": encoded});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            !findings.is_empty(),
+            "URL-encoded AWS key should be detected, encoded as: {}",
+            encoded
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern_name == "aws_access_key"
+                    && f.location.contains("url_encoded")),
+            "Finding should indicate URL decoding, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_url_encoded_private_key_header_detected() {
+        // R4-14: URL-encoded private key header should be detected.
+        let raw = "-----BEGIN RSA PRIVATE KEY-----";
+        let encoded: String = raw
+            .bytes()
+            .map(|b| {
+                if b.is_ascii_alphanumeric() {
+                    (b as char).to_string()
+                } else {
+                    format!("%{:02X}", b)
+                }
+            })
+            .collect();
+        let params = json!({"content": encoded});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            !findings.is_empty(),
+            "URL-encoded private key header should be detected, encoded as: {}",
+            encoded
+        );
+        assert!(findings
+            .iter()
+            .any(|f| f.pattern_name == "private_key_header"));
+    }
+
+    #[test]
+    fn test_dlp_base64_url_safe_encoded_detected() {
+        // R4-14: URL-safe base64 (no padding) should also be decoded.
+        use base64::Engine;
+        let raw_key = "AKIAIOSFODNN7EXAMPLE";
+        let encoded =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw_key);
+        let params = json!({"data": encoded});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            !findings.is_empty(),
+            "URL-safe base64-encoded AWS key should be detected"
+        );
+    }
+
+    #[test]
+    fn test_dlp_clean_base64_no_false_positive() {
+        // R4-14: Base64 that decodes to non-secret data should not trigger.
+        use base64::Engine;
+        let clean_data = "This is perfectly normal text with no secrets at all.";
+        let encoded = base64::engine::general_purpose::STANDARD.encode(clean_data);
+        let params = json!({"data": encoded});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.is_empty(),
+            "Clean base64 data should not trigger DLP, got: {:?}",
+            findings.iter().map(|f| &f.pattern_name).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_dlp_raw_match_not_duplicated_with_encoding() {
+        // R4-14: When a secret matches directly, don't duplicate with encoding match.
+        let params = json!({"key": "AKIAIOSFODNN7EXAMPLE"});
+        let findings = scan_parameters_for_secrets(&params);
+        // Should have exactly one finding (raw match), not duplicated
+        let aws_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.pattern_name == "aws_access_key")
+            .collect();
+        assert_eq!(
+            aws_findings.len(),
+            1,
+            "Direct match should produce exactly one finding, got: {:?}",
+            aws_findings
+        );
+        assert!(
+            !aws_findings[0].location.contains("base64"),
+            "Direct match should not be tagged as base64"
+        );
     }
 }

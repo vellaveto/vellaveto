@@ -451,6 +451,9 @@ impl ProxyBridge {
         // Track pending request IDs for timeout detection.
         // Key: serialized JSON-RPC id, Value: when the request was forwarded.
         let mut pending_requests: HashMap<String, Instant> = HashMap::new();
+        // SECURITY (R8-MCP-8): Maximum number of pending (in-flight) requests.
+        // Prevents OOM if an agent sends requests faster than the server responds.
+        const MAX_PENDING_REQUESTS: usize = 1000;
 
         // C-8.2: Track tools/list request IDs so we can intercept responses.
         let mut tools_list_request_ids: std::collections::HashSet<String> =
@@ -597,7 +600,11 @@ impl ProxyBridge {
                                             // Track this request for timeout
                                             if !id.is_null() {
                                                 let id_key = id.to_string();
-                                                pending_requests.insert(id_key, Instant::now());
+                                                if pending_requests.len() < MAX_PENDING_REQUESTS {
+                                                    pending_requests.insert(id_key, Instant::now());
+                                                } else {
+                                                    tracing::warn!("Pending request limit reached ({}), not tracking request", MAX_PENDING_REQUESTS);
+                                                }
                                             }
                                             write_message(&mut child_stdin, &msg).await
                                                 .map_err(ProxyError::Framing)?;
@@ -699,7 +706,11 @@ impl ProxyBridge {
                                         ProxyDecision::Forward => {
                                             if !id.is_null() {
                                                 let id_key = id.to_string();
-                                                pending_requests.insert(id_key, Instant::now());
+                                                if pending_requests.len() < MAX_PENDING_REQUESTS {
+                                                    pending_requests.insert(id_key, Instant::now());
+                                                } else {
+                                                    tracing::warn!("Pending request limit reached ({}), not tracking request", MAX_PENDING_REQUESTS);
+                                                }
                                             }
                                             write_message(&mut child_stdin, &msg).await
                                                 .map_err(ProxyError::Framing)?;
@@ -855,7 +866,11 @@ impl ProxyBridge {
                                             }
                                             if !id.is_null() {
                                                 let id_key = id.to_string();
-                                                pending_requests.insert(id_key, Instant::now());
+                                                if pending_requests.len() < MAX_PENDING_REQUESTS {
+                                                    pending_requests.insert(id_key, Instant::now());
+                                                } else {
+                                                    tracing::warn!("Pending request limit reached ({}), not tracking request", MAX_PENDING_REQUESTS);
+                                                }
                                             }
                                             write_message(&mut child_stdin, &msg).await
                                                 .map_err(ProxyError::Framing)?;

@@ -162,6 +162,8 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         manifest_config: None,
         allowed_origins: vec![],
         canonicalize: false,
+        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        response_dlp_enabled: false,
     }
 }
 
@@ -1597,6 +1599,8 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         manifest_config: None,
         allowed_origins: vec![],
         canonicalize: false,
+        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        response_dlp_enabled: false,
     };
     let sessions = state.sessions.clone();
     let app = build_router(state);
@@ -1879,6 +1883,8 @@ async fn trace_resource_read_denied_includes_trace() {
         manifest_config: None,
         allowed_origins: vec![],
         canonicalize: false,
+        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        response_dlp_enabled: false,
     };
     let app = build_router(state);
 
@@ -1950,6 +1956,8 @@ async fn trace_constraint_details_visible() {
         manifest_config: None,
         allowed_origins: vec![],
         canonicalize: false,
+        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        response_dlp_enabled: false,
     };
     let app = build_router(state);
 
@@ -2121,6 +2129,7 @@ fn build_oauth_test_state(
         required_scopes,
         pass_through,
         allowed_algorithms: default_allowed_algorithms(),
+        expected_resource: None,
     };
 
     ProxyState {
@@ -2139,6 +2148,8 @@ fn build_oauth_test_state(
         manifest_config: None,
         allowed_origins: vec![],
         canonicalize: false,
+        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        response_dlp_enabled: false,
     }
 }
 
@@ -2659,6 +2670,8 @@ fn build_api_key_test_state(
         manifest_config: None,
         allowed_origins: vec![],
         canonicalize: false,
+        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        response_dlp_enabled: false,
     }
 }
 
@@ -3027,4 +3040,622 @@ async fn sse_headers_preserved() {
     assert_eq!(cc, "no-cache");
 
     assert!(resp.headers().get("mcp-session-id").is_some());
+}
+
+// ════════════════════════════════
+// R4-1: TASK REQUEST POLICY ENFORCEMENT
+// ════════════════════════════════
+
+/// Build state where tasks are explicitly denied by policy.
+fn build_test_state_deny_tasks(upstream_url: &str, tmp: &TempDir) -> ProxyState {
+    let policies = vec![
+        Policy {
+            id: "*".to_string(),
+            name: "Allow all".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 1,
+            path_rules: None,
+            network_rules: None,
+        },
+        Policy {
+            id: "tasks:*".to_string(),
+            name: "Block all task operations".to_string(),
+            policy_type: PolicyType::Deny,
+            priority: 200,
+            path_rules: None,
+            network_rules: None,
+        },
+    ];
+
+    let engine = PolicyEngine::with_policies(false, &policies).expect("policies should compile");
+
+    ProxyState {
+        engine: Arc::new(engine),
+        policies: Arc::new(policies),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
+        upstream_url: upstream_url.to_string(),
+        http_client: reqwest::Client::new(),
+        oauth: None,
+        injection_scanner: None,
+        injection_disabled: false,
+        injection_blocking: false,
+        api_key: None,
+        approval_store: None,
+        manifest_config: None,
+        allowed_origins: vec![],
+        canonicalize: false,
+        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        response_dlp_enabled: false,
+    }
+}
+
+#[tokio::test]
+async fn task_get_denied_by_policy() {
+    // R4-1: tasks/get must be denied when a deny policy exists for tasks:*
+    let upstream = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_test_state_deny_tasks(&upstream, &tmp);
+    let app = build_router(state);
+
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tasks/get",
+        "params": {"id": "task-abc-123"}
+    });
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let result = json_body(resp).await;
+    assert_eq!(result["error"]["code"], -32001);
+    assert!(
+        result["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("Denied by policy"),
+        "Task should be denied by policy, got: {}",
+        result
+    );
+}
+
+#[tokio::test]
+async fn task_cancel_denied_by_policy() {
+    // R4-1: tasks/cancel must also be denied
+    let upstream = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_test_state_deny_tasks(&upstream, &tmp);
+    let app = build_router(state);
+
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tasks/cancel",
+        "params": {"id": "task-def-456"}
+    });
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let result = json_body(resp).await;
+    assert_eq!(result["error"]["code"], -32001);
+    assert!(result["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Denied by policy"),);
+}
+
+#[tokio::test]
+async fn task_get_allowed_when_no_deny_policy() {
+    // With default allow-all policies, tasks should be forwarded
+    let upstream = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    // Use a state that has a wildcard allow policy (all tools allowed)
+    let policies = vec![Policy {
+        id: "*".to_string(),
+        name: "Allow all".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }];
+    let engine = PolicyEngine::with_policies(false, &policies).expect("policies should compile");
+    let state = ProxyState {
+        engine: Arc::new(engine),
+        policies: Arc::new(policies),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
+        upstream_url: upstream.clone(),
+        http_client: reqwest::Client::new(),
+        oauth: None,
+        injection_scanner: None,
+        injection_disabled: false,
+        injection_blocking: false,
+        api_key: None,
+        approval_store: None,
+        manifest_config: None,
+        allowed_origins: vec![],
+        canonicalize: false,
+        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        response_dlp_enabled: false,
+    };
+    let app = build_router(state);
+
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tasks/get",
+        "params": {"id": "task-allowed"}
+    });
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let result = json_body(resp).await;
+    // Should be forwarded to upstream, not denied
+    assert!(
+        result.get("error").is_none() || result["error"]["code"] != -32001,
+        "Task should be forwarded when allowed, got: {}",
+        result
+    );
+}
+
+#[tokio::test]
+async fn task_request_fail_closed_no_matching_policy() {
+    // R4-1: When no policy matches tasks, fail-closed (deny).
+    let upstream = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    // Only allow a specific tool, not tasks
+    let policies = vec![Policy {
+        id: "read_file:*".to_string(),
+        name: "Allow only read_file".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }];
+    let engine = PolicyEngine::with_policies(false, &policies).expect("policies should compile");
+    let state = ProxyState {
+        engine: Arc::new(engine),
+        policies: Arc::new(policies),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
+        upstream_url: upstream.clone(),
+        http_client: reqwest::Client::new(),
+        oauth: None,
+        injection_scanner: None,
+        injection_disabled: false,
+        injection_blocking: false,
+        api_key: None,
+        approval_store: None,
+        manifest_config: None,
+        allowed_origins: vec![],
+        canonicalize: false,
+        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        response_dlp_enabled: false,
+    };
+    let app = build_router(state);
+
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tasks/get",
+        "params": {"id": "task-should-be-denied"}
+    });
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let result = json_body(resp).await;
+    assert_eq!(
+        result["error"]["code"], -32001,
+        "Task with no matching policy should be denied (fail-closed), got: {}",
+        result
+    );
+}
+
+#[tokio::test]
+async fn task_request_dlp_blocks_secret_in_task_id() {
+    // R4-1: DLP scanning should detect secrets embedded in task request params.
+    let upstream = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    // Allow all tasks — DLP should still block before policy evaluation
+    let policies = vec![Policy {
+        id: "*".to_string(),
+        name: "Allow all".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }];
+    let engine = PolicyEngine::with_policies(false, &policies).expect("policies should compile");
+    let state = ProxyState {
+        engine: Arc::new(engine),
+        policies: Arc::new(policies),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
+        upstream_url: upstream.clone(),
+        http_client: reqwest::Client::new(),
+        oauth: None,
+        injection_scanner: None,
+        injection_disabled: false,
+        injection_blocking: false,
+        api_key: None,
+        approval_store: None,
+        manifest_config: None,
+        allowed_origins: vec![],
+        canonicalize: false,
+        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        response_dlp_enabled: false,
+    };
+    let app = build_router(state);
+
+    // Embed an AWS access key in the task ID field
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "tasks/get",
+        "params": {"id": "AKIAIOSFODNN7EXAMPLE"}
+    });
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let result = json_body(resp).await;
+    assert_eq!(
+        result["error"]["code"], -32001,
+        "Task request with secret in params should be DLP-blocked, got: {}",
+        result
+    );
+    let msg = result["error"]["message"].as_str().unwrap_or("");
+    assert!(
+        msg.contains("DLP"),
+        "Error message should mention DLP, got: {}",
+        msg
+    );
+}
+
+#[tokio::test]
+async fn task_request_clean_params_not_dlp_blocked() {
+    // R4-1: Clean task parameters should not trigger DLP.
+    let upstream = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let policies = vec![Policy {
+        id: "*".to_string(),
+        name: "Allow all".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }];
+    let engine = PolicyEngine::with_policies(false, &policies).expect("policies should compile");
+    let state = ProxyState {
+        engine: Arc::new(engine),
+        policies: Arc::new(policies),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
+        upstream_url: upstream.clone(),
+        http_client: reqwest::Client::new(),
+        oauth: None,
+        injection_scanner: None,
+        injection_disabled: false,
+        injection_blocking: false,
+        api_key: None,
+        approval_store: None,
+        manifest_config: None,
+        allowed_origins: vec![],
+        canonicalize: false,
+        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        response_dlp_enabled: false,
+    };
+    let app = build_router(state);
+
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "tasks/get",
+        "params": {"id": "task-normal-uuid-1234"}
+    });
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let result = json_body(resp).await;
+    // With allow-all policy and clean params, should NOT be an error
+    // (may fail if upstream isn't responding properly, so just verify no DLP error)
+    if result.get("error").is_some() {
+        let msg = result["error"]["message"].as_str().unwrap_or("");
+        assert!(
+            !msg.contains("DLP"),
+            "Clean task request should not be DLP-blocked, got: {}",
+            msg
+        );
+    }
+}
+
+#[tokio::test]
+async fn task_request_dlp_blocks_github_token_in_params() {
+    // R4-1: DLP should detect GitHub tokens in task request params.
+    let upstream = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let policies = vec![Policy {
+        id: "*".to_string(),
+        name: "Allow all".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }];
+    let engine = PolicyEngine::with_policies(false, &policies).expect("policies should compile");
+    let state = ProxyState {
+        engine: Arc::new(engine),
+        policies: Arc::new(policies),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
+        upstream_url: upstream.clone(),
+        http_client: reqwest::Client::new(),
+        oauth: None,
+        injection_scanner: None,
+        injection_disabled: false,
+        injection_blocking: false,
+        api_key: None,
+        approval_store: None,
+        manifest_config: None,
+        allowed_origins: vec![],
+        canonicalize: false,
+        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        response_dlp_enabled: false,
+    };
+    let app = build_router(state);
+
+    // Embed a GitHub token in a nested param field
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "tasks/cancel",
+        "params": {
+            "id": "task-123",
+            "reason": "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk"
+        }
+    });
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let result = json_body(resp).await;
+    assert_eq!(
+        result["error"]["code"], -32001,
+        "Task with GitHub token should be DLP-blocked, got: {}",
+        result
+    );
+    let msg = result["error"]["message"].as_str().unwrap_or("");
+    assert!(
+        msg.contains("DLP"),
+        "Error message should mention DLP, got: {}",
+        msg
+    );
+}
+
+#[tokio::test]
+async fn session_fixation_blocked_different_oauth_subject() {
+    // R4-4: When a session is bound to Alice's OAuth subject, Bob cannot reuse it.
+    let upstream = start_mock_upstream().await;
+    let jwks_url = start_mock_jwks_server().await;
+    let tmp = TempDir::new().unwrap();
+
+    let state = build_oauth_test_state(&upstream, &jwks_url, &tmp, vec![], false);
+    let sessions = state.sessions.clone();
+
+    // Pre-create a session and bind it to alice
+    let session_id = sessions.get_or_create(None);
+    if let Some(mut session) = sessions.get_mut(&session_id) {
+        session.oauth_subject = Some("alice@example.com".to_string());
+    }
+
+    let app = build_router(state);
+
+    // Bob tries to use Alice's session with his own valid JWT
+    let bob_token = sign_test_jwt("bob@example.com", "tools.call", 300);
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"path": "/tmp/test.txt"}
+        }
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", bob_token))
+                .header("mcp-session-id", &session_id)
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "Bob reusing Alice's session should be forbidden"
+    );
+    let result = json_body(resp).await;
+    assert!(
+        result["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Session owned by another user"),
+        "Error should indicate session ownership mismatch, got: {}",
+        result
+    );
+}
+
+#[tokio::test]
+async fn session_fixation_same_subject_allowed() {
+    // R4-4: Alice reusing her own session should work fine.
+    let upstream = start_mock_upstream().await;
+    let jwks_url = start_mock_jwks_server().await;
+    let tmp = TempDir::new().unwrap();
+
+    let state = build_oauth_test_state(&upstream, &jwks_url, &tmp, vec![], false);
+    let sessions = state.sessions.clone();
+
+    // Pre-create a session and bind it to alice
+    let session_id = sessions.get_or_create(None);
+    if let Some(mut session) = sessions.get_mut(&session_id) {
+        session.oauth_subject = Some("alice@example.com".to_string());
+    }
+
+    let app = build_router(state);
+
+    // Alice reuses her own session — should work
+    let alice_token = sign_test_jwt("alice@example.com", "tools.call", 300);
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"path": "/tmp/test.txt"}
+        }
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", alice_token))
+                .header("mcp-session-id", &session_id)
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Should NOT be 403 — Alice is the owner
+    assert_ne!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "Alice reusing her own session should not be forbidden"
+    );
+}
+
+#[tokio::test]
+async fn session_fixation_unbound_session_allows_first_binding() {
+    // R4-4: An unbound session should allow the first OAuth user to bind to it.
+    let upstream = start_mock_upstream().await;
+    let jwks_url = start_mock_jwks_server().await;
+    let tmp = TempDir::new().unwrap();
+
+    let state = build_oauth_test_state(&upstream, &jwks_url, &tmp, vec![], false);
+    let sessions = state.sessions.clone();
+
+    // Pre-create a session WITHOUT binding an OAuth subject
+    let session_id = sessions.get_or_create(None);
+
+    let app = build_router(state);
+
+    // Alice uses the unbound session — should work and bind her subject
+    let alice_token = sign_test_jwt("alice@example.com", "tools.call", 300);
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"path": "/tmp/test.txt"}
+        }
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", alice_token))
+                .header("mcp-session-id", &session_id)
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Should NOT be 403 — first binding is allowed
+    assert_ne!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "First OAuth binding to unbound session should be allowed"
+    );
+
+    // Verify Alice's subject was bound
+    if let Some(session) = sessions.get_mut(&session_id) {
+        assert_eq!(
+            session.oauth_subject.as_deref(),
+            Some("alice@example.com"),
+            "Alice's subject should now be bound to the session"
+        );
+    };
 }

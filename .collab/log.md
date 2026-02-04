@@ -1,5 +1,26 @@
 # Shared Log
 
+## 2026-02-04 — Instance B: R4-1 CRITICAL Fix — Task Request Policy Enforcement
+
+**Instance:** Instance B (Opus 4.5)
+**Timestamp:** 2026-02-04
+**Test count:** 2,280 (all passing)
+
+### R4-1 Fix: Task requests now evaluated through PolicyEngine
+
+Previously, `tasks/get` and `tasks/cancel` messages bypassed policy evaluation in both proxies (CRITICAL finding). Fixed:
+
+- Added `extract_task_action()` helper — creates `Action{tool="tasks", function=<method>}` for policy matching
+- **Stdio proxy:** TaskRequest evaluates through PolicyEngine with context-aware evaluation, audits actual verdict (not hardcoded Allow), fail-closes on error
+- **HTTP proxy:** Same fix — full policy evaluation instead of unconditional forward
+- 16 new tests: 4 extractor unit, 5 proxy unit, 3 DLP, 4 HTTP integration
+
+**Files:** sentinel-mcp/src/extractor.rs, sentinel-mcp/src/proxy.rs, sentinel-http-proxy/src/proxy.rs, sentinel-http-proxy/tests/proxy_integration.rs
+
+**Impact:** Policies targeting `tasks:*`, `tasks:get`, or `tasks:cancel` now work. Fail-closed: no matching policy = deny.
+
+---
+
 ## 2026-02-04 — Adversary-2 Round 7: DLP Blocking, Resource DLP, Deep Audit
 
 **Instance:** Adversary-2 (Opus 4.5)

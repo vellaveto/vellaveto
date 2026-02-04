@@ -53,6 +53,11 @@ pub struct OAuthConfig {
     /// PS256, PS384, PS512, EdDSA. HMAC (HS*) algorithms are excluded because
     /// OAuth 2.1 flows use asymmetric key pairs.
     pub allowed_algorithms: Vec<Algorithm>,
+
+    /// Expected resource indicator (RFC 8707). When set, the JWT must contain a
+    /// `resource` claim matching this value. This prevents a token scoped for one
+    /// MCP server from being replayed against a different server.
+    pub expected_resource: Option<String>,
 }
 
 /// Default allowed algorithms for OAuth 2.1 — asymmetric only.
@@ -110,6 +115,11 @@ pub struct OAuthClaims {
     /// Space-delimited scope string (OAuth 2.1 convention).
     #[serde(default)]
     pub scope: String,
+
+    /// Resource indicator (RFC 8707). Identifies which resource server this
+    /// token is scoped to. May be a single string or absent.
+    #[serde(default)]
+    pub resource: Option<String>,
 }
 
 impl OAuthClaims {
@@ -189,6 +199,9 @@ pub enum OAuthError {
 
     #[error("token missing 'kid' header but JWKS contains {0} keys — ambiguous key selection")]
     MissingKid(usize),
+
+    #[error("resource mismatch: token resource '{token}' does not match expected '{expected}' (RFC 8707)")]
+    ResourceMismatch { expected: String, token: String },
 }
 
 /// Cached JWKS key set with TTL-based refresh.
@@ -266,6 +279,29 @@ impl OAuthValidator {
                     return Err(OAuthError::InsufficientScope {
                         required: self.config.required_scopes.join(" "),
                         found: claims.scope.clone(),
+                    });
+                }
+            }
+        }
+
+        // RFC 8707: Check resource indicator if configured.
+        // Prevents token replay attacks where a token scoped to one MCP server
+        // is used against a different server.
+        if let Some(ref expected_resource) = self.config.expected_resource {
+            match &claims.resource {
+                Some(token_resource) if token_resource == expected_resource => {
+                    // Match — continue
+                }
+                Some(token_resource) => {
+                    return Err(OAuthError::ResourceMismatch {
+                        expected: expected_resource.clone(),
+                        token: token_resource.clone(),
+                    });
+                }
+                None => {
+                    return Err(OAuthError::ResourceMismatch {
+                        expected: expected_resource.clone(),
+                        token: String::new(),
                     });
                 }
             }
@@ -418,6 +454,7 @@ mod tests {
             required_scopes: vec![],
             pass_through: false,
             allowed_algorithms: default_allowed_algorithms(),
+            expected_resource: None,
         };
         assert_eq!(config.effective_jwks_uri(), "https://auth.example.com/keys");
     }
@@ -431,6 +468,7 @@ mod tests {
             required_scopes: vec![],
             pass_through: false,
             allowed_algorithms: default_allowed_algorithms(),
+            expected_resource: None,
         };
         assert_eq!(
             config.effective_jwks_uri(),
@@ -447,6 +485,7 @@ mod tests {
             required_scopes: vec![],
             pass_through: false,
             allowed_algorithms: default_allowed_algorithms(),
+            expected_resource: None,
         };
         assert_eq!(
             config.effective_jwks_uri(),
@@ -463,6 +502,7 @@ mod tests {
             exp: 0,
             iat: 0,
             scope: "tools.call resources.read admin".to_string(),
+            resource: None,
         };
         let scopes = claims.scopes();
         assert_eq!(scopes, vec!["tools.call", "resources.read", "admin"]);
@@ -477,6 +517,7 @@ mod tests {
             exp: 0,
             iat: 0,
             scope: String::new(),
+            resource: None,
         };
         let scopes = claims.scopes();
         assert!(scopes.is_empty());
@@ -573,5 +614,47 @@ mod tests {
             key_algorithm_to_algorithm(&KeyAlgorithm::RSA_OAEP_256),
             None
         );
+    }
+
+    // RFC 8707: Resource indicator validation
+    #[test]
+    fn test_resource_mismatch_error_display() {
+        let err = OAuthError::ResourceMismatch {
+            expected: "https://mcp.example.com".to_string(),
+            token: "https://other.example.com".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("resource mismatch"));
+        assert!(msg.contains("https://mcp.example.com"));
+        assert!(msg.contains("https://other.example.com"));
+        assert!(msg.contains("RFC 8707"));
+    }
+
+    #[test]
+    fn test_resource_mismatch_missing_claim_error_display() {
+        let err = OAuthError::ResourceMismatch {
+            expected: "https://mcp.example.com".to_string(),
+            token: String::new(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("resource mismatch"));
+        assert!(msg.contains("https://mcp.example.com"));
+    }
+
+    #[test]
+    fn test_deserialize_claims_with_resource() {
+        let json = r#"{"sub":"user","aud":"mcp-server","scope":"","resource":"https://mcp.example.com"}"#;
+        let claims: OAuthClaims = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            claims.resource,
+            Some("https://mcp.example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_deserialize_claims_without_resource() {
+        let json = r#"{"sub":"user","aud":"mcp-server","scope":""}"#;
+        let claims: OAuthClaims = serde_json::from_str(json).unwrap();
+        assert_eq!(claims.resource, None);
     }
 }

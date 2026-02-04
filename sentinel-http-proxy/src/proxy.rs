@@ -461,33 +461,35 @@ pub async fn handle_mcp_post(
             }
 
             // P2: DLP scan parameters for secret exfiltration
+            // SECURITY (R8-HTTP-3): Block tool calls with detected secrets,
+            // matching the behavior of task request DLP scanning. Previously
+            // findings were only logged and the request was forwarded.
             let dlp_findings = scan_parameters_for_secrets(&arguments);
             if !dlp_findings.is_empty() {
-                tracing::warn!(
-                    "SECURITY: DLP alert for tool '{}' in session {}: {:?}",
-                    tool_name,
-                    session_id,
-                    dlp_findings
-                        .iter()
-                        .map(|f| &f.pattern_name)
-                        .collect::<Vec<_>>()
-                );
-                let dlp_action = extractor::extract_action(&tool_name, &arguments);
                 let patterns: Vec<String> = dlp_findings
                     .iter()
                     .map(|f| format!("{} at {}", f.pattern_name, f.location))
                     .collect();
+                let deny_reason =
+                    format!("DLP: secrets detected in tool parameters: {:?}", patterns);
+                tracing::warn!(
+                    "SECURITY: DLP blocking tool '{}' in session {}: {}",
+                    tool_name,
+                    session_id,
+                    deny_reason
+                );
+                let dlp_action = extractor::extract_action(&tool_name, &arguments);
                 if let Err(e) = state
                     .audit
                     .log_entry(
                         &dlp_action,
                         &Verdict::Deny {
-                            reason: format!("DLP: secrets detected in parameters: {:?}", patterns),
+                            reason: deny_reason.clone(),
                         },
                         build_audit_context(
                             &session_id,
                             json!({
-                                "event": "dlp_secret_detected",
+                                "event": "dlp_secret_blocked",
                                 "tool": tool_name,
                                 "findings": patterns,
                             }),
@@ -498,6 +500,18 @@ pub async fn handle_mcp_post(
                 {
                     tracing::warn!("Failed to audit DLP finding: {}", e);
                 }
+                let error_response = json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32001,
+                        "message": deny_reason,
+                    }
+                });
+                return attach_session_header(
+                    (StatusCode::OK, Json(error_response)).into_response(),
+                    &session_id,
+                );
             }
 
             let action = extractor::extract_action(&tool_name, &arguments);
