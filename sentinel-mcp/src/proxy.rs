@@ -18,8 +18,9 @@ use tokio::io::BufReader;
 use tokio::process::{ChildStdin, ChildStdout};
 
 use crate::extractor::{
-    classify_message, extract_action, extract_resource_action, make_approval_response,
-    make_batch_error_response, make_denial_response, make_invalid_response, MessageType,
+    classify_message, extract_action, extract_resource_action, extract_task_action,
+    make_approval_response, make_batch_error_response, make_denial_response,
+    make_invalid_response, MessageType,
 };
 use crate::framing::{read_message, write_message};
 use crate::inspection::{
@@ -495,7 +496,10 @@ impl ProxyBridge {
                                             .map_err(ProxyError::Framing)?;
                                         continue;
                                     }
-                                    // P2: DLP scan parameters for secret exfiltration
+                                    // P2: DLP scan parameters for secret exfiltration.
+                                    // SECURITY: Block the tool call when secrets are detected.
+                                    // Secrets in outbound parameters indicate the agent is
+                                    // attempting to exfiltrate credentials to a tool server.
                                     let dlp_findings = scan_parameters_for_secrets(&arguments);
                                     if !dlp_findings.is_empty() {
                                         tracing::warn!(
@@ -507,23 +511,36 @@ impl ProxyBridge {
                                         let patterns: Vec<String> = dlp_findings.iter()
                                             .map(|f| format!("{} at {}", f.pattern_name, f.location))
                                             .collect();
+                                        let deny_reason = format!(
+                                            "DLP: secrets detected in parameters: {:?}",
+                                            patterns
+                                        );
                                         if let Err(e) = self.audit.log_entry(
                                             &action,
                                             &Verdict::Deny {
-                                                reason: format!(
-                                                    "DLP: secrets detected in parameters: {:?}",
-                                                    patterns
-                                                ),
+                                                reason: deny_reason.clone(),
                                             },
                                             json!({
                                                 "source": "proxy",
-                                                "event": "dlp_secret_detected",
+                                                "event": "dlp_secret_blocked",
                                                 "tool": tool_name,
                                                 "findings": patterns,
                                             }),
                                         ).await {
                                             tracing::warn!("Failed to audit DLP finding: {}", e);
                                         }
+                                        // Block the tool call — send error back to agent.
+                                        let response = json!({
+                                            "jsonrpc": "2.0",
+                                            "id": id,
+                                            "error": {
+                                                "code": -32001,
+                                                "message": deny_reason,
+                                            }
+                                        });
+                                        write_message(&mut agent_writer, &response).await
+                                            .map_err(ProxyError::Framing)?;
+                                        continue;
                                     }
                                     let ann = known_tool_annotations.get(&tool_name);
                                     // Build evaluation context from session tracking
@@ -595,6 +612,47 @@ impl ProxyBridge {
                                     }
                                 }
                                 MessageType::ResourceRead { id, uri } => {
+                                    // SECURITY: DLP scan the resource URI for embedded secrets.
+                                    let uri_as_json = json!({"uri": uri});
+                                    let dlp_findings = scan_parameters_for_secrets(&uri_as_json);
+                                    if !dlp_findings.is_empty() {
+                                        tracing::warn!(
+                                            "SECURITY: DLP alert in resource URI '{}': {:?}",
+                                            uri,
+                                            dlp_findings.iter().map(|f| &f.pattern_name).collect::<Vec<_>>()
+                                        );
+                                        let action = extract_resource_action(&uri);
+                                        let patterns: Vec<String> = dlp_findings.iter()
+                                            .map(|f| format!("{} at {}", f.pattern_name, f.location))
+                                            .collect();
+                                        let deny_reason = format!(
+                                            "DLP: secrets detected in resource URI: {:?}",
+                                            patterns
+                                        );
+                                        if let Err(e) = self.audit.log_entry(
+                                            &action,
+                                            &Verdict::Deny { reason: deny_reason.clone() },
+                                            json!({
+                                                "source": "proxy",
+                                                "event": "dlp_resource_blocked",
+                                                "uri": uri,
+                                                "findings": patterns,
+                                            }),
+                                        ).await {
+                                            tracing::warn!("Failed to audit resource DLP: {}", e);
+                                        }
+                                        let response = json!({
+                                            "jsonrpc": "2.0",
+                                            "id": id,
+                                            "error": {
+                                                "code": -32001,
+                                                "message": deny_reason,
+                                            }
+                                        });
+                                        write_message(&mut agent_writer, &response).await
+                                            .map_err(ProxyError::Framing)?;
+                                        continue;
+                                    }
                                     let eval_ctx = EvaluationContext {
                                         timestamp: None,
                                         agent_id: None,
@@ -682,16 +740,137 @@ impl ProxyBridge {
                                     write_message(&mut agent_writer, &response).await
                                         .map_err(ProxyError::Framing)?;
                                 }
-                                MessageType::TaskRequest { task_method, task_id, .. } => {
-                                    // MCP 2025-11-25 tasks: pass through to server.
-                                    // These are async operation management messages.
+                                MessageType::TaskRequest { id, task_method, task_id } => {
+                                    // R4-1 FIX: Evaluate task requests against policies.
+                                    // Task responses (especially tasks/get) can contain
+                                    // tool results with sensitive data. tasks/cancel can
+                                    // disrupt workflows. Both must be policy-checked.
                                     tracing::debug!(
                                         "Task request: {} (task_id: {:?})",
                                         task_method,
                                         task_id
                                     );
-                                    write_message(&mut child_stdin, &msg).await
-                                        .map_err(ProxyError::Framing)?;
+                                    // R4-1: DLP scan task request parameters for secret exfiltration.
+                                    let task_params = msg.get("params").cloned().unwrap_or(json!({}));
+                                    let dlp_findings = scan_parameters_for_secrets(&task_params);
+                                    if !dlp_findings.is_empty() {
+                                        tracing::warn!(
+                                            "SECURITY: DLP alert for task '{}': {:?}",
+                                            task_method,
+                                            dlp_findings.iter().map(|f| &f.pattern_name).collect::<Vec<_>>()
+                                        );
+                                        let dlp_action = extract_task_action(&task_method, task_id.as_deref());
+                                        let patterns: Vec<String> = dlp_findings.iter()
+                                            .map(|f| format!("{} at {}", f.pattern_name, f.location))
+                                            .collect();
+                                        let deny_reason = format!(
+                                            "DLP: secrets detected in task request: {:?}",
+                                            patterns
+                                        );
+                                        if let Err(e) = self.audit.log_entry(
+                                            &dlp_action,
+                                            &Verdict::Deny { reason: deny_reason.clone() },
+                                            json!({
+                                                "source": "proxy",
+                                                "event": "dlp_secret_blocked_task",
+                                                "task_method": task_method,
+                                                "findings": patterns,
+                                            }),
+                                        ).await {
+                                            tracing::warn!("Failed to audit DLP finding: {}", e);
+                                        }
+                                        let response = json!({
+                                            "jsonrpc": "2.0",
+                                            "id": id,
+                                            "error": {
+                                                "code": -32001,
+                                                "message": deny_reason,
+                                            }
+                                        });
+                                        write_message(&mut agent_writer, &response).await
+                                            .map_err(ProxyError::Framing)?;
+                                        continue;
+                                    }
+                                    let action = extract_task_action(
+                                        &task_method,
+                                        task_id.as_deref(),
+                                    );
+                                    // Build evaluation context from session tracking
+                                    let eval_ctx = EvaluationContext {
+                                        timestamp: None,
+                                        agent_id: None,
+                                        call_counts: call_counts.clone(),
+                                        previous_actions: action_history.clone(),
+                                    };
+                                    match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
+                                        Ok((Verdict::Allow, _trace)) => {
+                                            // Allowed: forward to child
+                                            if let Err(e) = self.audit.log_entry(
+                                                &action,
+                                                &Verdict::Allow,
+                                                json!({
+                                                    "source": "proxy",
+                                                    "event": "task_request_forwarded",
+                                                    "task_method": task_method,
+                                                    "task_id": task_id,
+                                                }),
+                                            ).await {
+                                                tracing::warn!("Audit log failed: {}", e);
+                                            }
+                                            if !id.is_null() {
+                                                let id_key = id.to_string();
+                                                pending_requests.insert(id_key, Instant::now());
+                                            }
+                                            write_message(&mut child_stdin, &msg).await
+                                                .map_err(ProxyError::Framing)?;
+                                        }
+                                        Ok((verdict @ Verdict::Deny { .. }, _))
+                                        | Ok((verdict @ Verdict::RequireApproval { .. }, _)) => {
+                                            let reason = match &verdict {
+                                                Verdict::Deny { reason } => reason.clone(),
+                                                Verdict::RequireApproval { reason } => reason.clone(),
+                                                _ => unreachable!(),
+                                            };
+                                            let response = make_denial_response(&id, &reason);
+                                            if let Err(e) = self.audit.log_entry(
+                                                &action,
+                                                &verdict,
+                                                json!({
+                                                    "source": "proxy",
+                                                    "event": "task_request_denied",
+                                                    "task_method": task_method,
+                                                    "task_id": task_id,
+                                                }),
+                                            ).await {
+                                                tracing::warn!("Audit log failed: {}", e);
+                                            }
+                                            write_message(&mut agent_writer, &response).await
+                                                .map_err(ProxyError::Framing)?;
+                                        }
+                                        Err(e) => {
+                                            // Fail-closed: evaluation error → deny
+                                            tracing::error!(
+                                                "Policy evaluation error for task '{}': {}",
+                                                task_method, e
+                                            );
+                                            let reason = "Policy evaluation failed".to_string();
+                                            let verdict = Verdict::Deny { reason: reason.clone() };
+                                            if let Err(e) = self.audit.log_entry(
+                                                &action,
+                                                &verdict,
+                                                json!({
+                                                    "source": "proxy",
+                                                    "event": "task_request_eval_error",
+                                                    "task_method": task_method,
+                                                }),
+                                            ).await {
+                                                tracing::warn!("Audit log failed: {}", e);
+                                            }
+                                            let response = make_denial_response(&id, &reason);
+                                            write_message(&mut agent_writer, &response).await
+                                                .map_err(ProxyError::Framing)?;
+                                        }
+                                    }
                                 }
                                 MessageType::Batch => {
                                     // MCP 2025-06-18: batching removed from spec.
@@ -2292,6 +2471,167 @@ mod tests {
         assert!(
             loaded.contains("suspicious_tool"),
             "Tool should be in the loaded flagged set after reload"
+        );
+    }
+
+    // --- R4-1: Task request policy evaluation tests ---
+
+    #[test]
+    fn test_task_request_denied_by_policy() {
+        // R4-1: tasks/get must be policy-checked, not passed through blindly.
+        let policies = vec![Policy {
+            id: "tasks:*".to_string(),
+            name: "Block all task operations".to_string(),
+            policy_type: PolicyType::Deny,
+            priority: 200,
+            path_rules: None,
+            network_rules: None,
+        }];
+        let bridge = test_bridge(policies);
+        let action = crate::extractor::extract_task_action("tasks/get", Some("task-123"));
+        let result = bridge.evaluate_action_inner(&action, None);
+        match result {
+            Ok((Verdict::Deny { reason }, _)) => {
+                assert!(
+                    !reason.is_empty(),
+                    "Deny reason should not be empty"
+                );
+            }
+            other => panic!("Expected Deny verdict for blocked task, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_task_request_allowed_by_policy() {
+        // When a policy explicitly allows tasks, they should pass through.
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Allow all".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }];
+        let bridge = test_bridge(policies);
+        let action = crate::extractor::extract_task_action("tasks/get", Some("task-123"));
+        let result = bridge.evaluate_action_inner(&action, None);
+        match result {
+            Ok((Verdict::Allow, _)) => {} // Expected
+            other => panic!("Expected Allow verdict, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_task_cancel_denied_by_policy() {
+        // tasks/cancel is also policy-checked.
+        let policies = vec![Policy {
+            id: "tasks:*".to_string(),
+            name: "Block task operations".to_string(),
+            policy_type: PolicyType::Deny,
+            priority: 200,
+            path_rules: None,
+            network_rules: None,
+        }];
+        let bridge = test_bridge(policies);
+        let action = crate::extractor::extract_task_action("tasks/cancel", Some("task-456"));
+        let result = bridge.evaluate_action_inner(&action, None);
+        assert!(
+            matches!(result, Ok((Verdict::Deny { .. }, _))),
+            "tasks/cancel should be denied by policy"
+        );
+    }
+
+    #[test]
+    fn test_task_request_fail_closed_no_matching_policy() {
+        // Fail-closed: no policy matching tasks → deny
+        let policies = vec![Policy {
+            id: "other_tool:*".to_string(),
+            name: "Allow some other tool".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }];
+        let bridge = test_bridge(policies);
+        let action = crate::extractor::extract_task_action("tasks/get", None);
+        let result = bridge.evaluate_action_inner(&action, None);
+        assert!(
+            matches!(result, Ok((Verdict::Deny { .. }, _))),
+            "Task request with no matching policy should be denied (fail-closed)"
+        );
+    }
+
+    #[test]
+    fn test_task_request_with_context() {
+        // Context-aware evaluation works for task requests too.
+        let policies = vec![Policy {
+            id: "*".to_string(),
+            name: "Allow all".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }];
+        let bridge = test_bridge(policies);
+        let action = crate::extractor::extract_task_action("tasks/get", Some("t-1"));
+        let ctx = EvaluationContext {
+            timestamp: None,
+            agent_id: Some("agent-007".to_string()),
+            call_counts: HashMap::new(),
+            previous_actions: vec!["read_file".to_string()],
+        };
+        let result = bridge.evaluate_action_inner(&action, Some(&ctx));
+        assert!(
+            matches!(result, Ok((Verdict::Allow, _))),
+            "Task request with context should be allowed by wildcard policy"
+        );
+    }
+
+    #[test]
+    fn test_task_request_dlp_detects_aws_key_in_params() {
+        // R4-1: DLP should detect AWS keys embedded in task request params.
+        use crate::inspection::scan_parameters_for_secrets;
+        let task_params = json!({"id": "AKIAIOSFODNN7EXAMPLE"});
+        let findings = scan_parameters_for_secrets(&task_params);
+        assert!(
+            !findings.is_empty(),
+            "DLP should detect AWS key in task_id"
+        );
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "aws_access_key"),
+            "Should identify as AWS access key"
+        );
+    }
+
+    #[test]
+    fn test_task_request_dlp_detects_github_token_in_params() {
+        // R4-1: DLP should detect GitHub tokens in task request params.
+        use crate::inspection::scan_parameters_for_secrets;
+        let task_params = json!({
+            "id": "task-123",
+            "reason": "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk"
+        });
+        let findings = scan_parameters_for_secrets(&task_params);
+        assert!(
+            !findings.is_empty(),
+            "DLP should detect GitHub token in task params"
+        );
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "github_token"),
+            "Should identify as GitHub token"
+        );
+    }
+
+    #[test]
+    fn test_task_request_dlp_clean_params_no_findings() {
+        // R4-1: Clean task params should not trigger DLP.
+        use crate::inspection::scan_parameters_for_secrets;
+        let task_params = json!({"id": "task-abc-123-def-456"});
+        let findings = scan_parameters_for_secrets(&task_params);
+        assert!(
+            findings.is_empty(),
+            "Clean task ID should not trigger DLP, found: {:?}",
+            findings.iter().map(|f| &f.pattern_name).collect::<Vec<_>>()
         );
     }
 }

@@ -823,40 +823,247 @@ pub async fn handle_mcp_post(
             )
         }
         MessageType::TaskRequest {
+            id,
             task_method,
             task_id,
-            ..
         } => {
-            // MCP 2025-11-25 tasks: pass through to upstream server.
-            // SECURITY: Audit task requests for visibility.
+            // R4-1 FIX: Evaluate task requests against policies.
+            // Task responses (especially tasks/get) can contain tool results
+            // with sensitive data. tasks/cancel can disrupt workflows.
             tracing::debug!(
                 "Task request in session {}: {} (task_id: {:?})",
                 session_id,
                 task_method,
                 task_id
             );
-            let action = Action::new("sentinel", "task_request", json!({
-                "task_method": task_method,
-                "task_id": task_id,
-                "session": &session_id,
-            }));
-            if let Err(e) = state.audit.log_entry(
-                &action,
-                &Verdict::Allow,
-                json!({"source": "http_proxy", "event": "task_request_forwarded"}),
-            ).await {
-                tracing::warn!("Failed to audit task request: {}", e);
+
+            // R4-1: DLP scan task request parameters for secret exfiltration.
+            // An agent could embed secrets in the task_id field to exfiltrate
+            // them via task management operations.
+            let task_params = msg.get("params").cloned().unwrap_or(json!({}));
+            let dlp_findings = scan_parameters_for_secrets(&task_params);
+            if !dlp_findings.is_empty() {
+                tracing::warn!(
+                    "SECURITY: DLP alert for task '{}' in session {}: {:?}",
+                    task_method,
+                    session_id,
+                    dlp_findings
+                        .iter()
+                        .map(|f| &f.pattern_name)
+                        .collect::<Vec<_>>()
+                );
+                let dlp_action = extractor::extract_task_action(
+                    &task_method,
+                    task_id.as_deref(),
+                );
+                let patterns: Vec<String> = dlp_findings
+                    .iter()
+                    .map(|f| format!("{} at {}", f.pattern_name, f.location))
+                    .collect();
+                let deny_reason = format!(
+                    "DLP: secrets detected in task request: {:?}",
+                    patterns
+                );
+                if let Err(e) = state
+                    .audit
+                    .log_entry(
+                        &dlp_action,
+                        &Verdict::Deny {
+                            reason: deny_reason.clone(),
+                        },
+                        build_audit_context(
+                            &session_id,
+                            json!({
+                                "event": "dlp_secret_detected_task",
+                                "task_method": task_method,
+                                "findings": patterns,
+                            }),
+                            &oauth_claims,
+                        ),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit DLP finding: {}", e);
+                }
+                let response = json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32001,
+                        "message": deny_reason
+                    }
+                });
+                return attach_session_header(
+                    (StatusCode::OK, Json(response)).into_response(),
+                    &session_id,
+                );
             }
 
-            let forward_body = canonicalize_body(&state, &msg, body);
-            let response = forward_to_upstream(
-                &state,
-                &session_id,
-                forward_body,
-                auth_header_for_upstream.as_deref(),
-            )
-            .await;
-            attach_session_header(response, &session_id)
+            let action = extractor::extract_task_action(
+                &task_method,
+                task_id.as_deref(),
+            );
+
+            let eval_ctx = build_evaluation_context(&state.sessions, &session_id);
+
+            let eval_result = if params.trace {
+                state
+                    .engine
+                    .evaluate_action_traced_with_context(&action, eval_ctx.as_ref())
+                    .map(|(v, t)| (v, Some(t)))
+            } else {
+                state
+                    .engine
+                    .evaluate_action_with_context(&action, &state.policies, eval_ctx.as_ref())
+                    .map(|v| (v, None))
+            };
+
+            match eval_result {
+                Ok((Verdict::Allow, trace)) => {
+                    if let Err(e) = state
+                        .audit
+                        .log_entry(
+                            &action,
+                            &Verdict::Allow,
+                            build_audit_context(
+                                &session_id,
+                                json!({
+                                    "event": "task_request_forwarded",
+                                    "task_method": task_method,
+                                    "task_id": task_id,
+                                }),
+                                &oauth_claims,
+                            ),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Audit log failed: {}", e);
+                    }
+
+                    let forward_body = canonicalize_body(&state, &msg, body);
+                    let mut response = forward_to_upstream(
+                        &state,
+                        &session_id,
+                        forward_body,
+                        auth_header_for_upstream.as_deref(),
+                    )
+                    .await;
+                    if let Some(t) = trace {
+                        // Include trace in response header if requested
+                        if let Ok(trace_json) = serde_json::to_string(&t) {
+                            if let Ok(hv) = axum::http::HeaderValue::from_str(&trace_json) {
+                                response.headers_mut().insert("x-sentinel-trace", hv);
+                            }
+                        }
+                    }
+                    attach_session_header(response, &session_id)
+                }
+                Ok((Verdict::Deny { reason }, trace)) => {
+                    let verdict = Verdict::Deny {
+                        reason: reason.clone(),
+                    };
+                    if let Err(e) = state
+                        .audit
+                        .log_entry(
+                            &action,
+                            &verdict,
+                            build_audit_context(
+                                &session_id,
+                                json!({
+                                    "event": "task_request_denied",
+                                    "task_method": task_method,
+                                    "task_id": task_id,
+                                }),
+                                &oauth_claims,
+                            ),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Audit log failed: {}", e);
+                    }
+                    let mut response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32001,
+                            "message": format!("Denied by policy: {}", reason),
+                            "data": {
+                                "type": "policy_denial",
+                                "reason": reason
+                            }
+                        }
+                    });
+                    if let Some(t) = trace {
+                        response["trace"] = serde_json::to_value(t).unwrap_or(Value::Null);
+                    }
+                    attach_session_header(
+                        (StatusCode::OK, Json(response)).into_response(),
+                        &session_id,
+                    )
+                }
+                Ok((Verdict::RequireApproval { reason }, trace)) => {
+                    let verdict = Verdict::RequireApproval {
+                        reason: reason.clone(),
+                    };
+                    if let Err(e) = state
+                        .audit
+                        .log_entry(
+                            &action,
+                            &verdict,
+                            build_audit_context(
+                                &session_id,
+                                json!({
+                                    "event": "task_request_requires_approval",
+                                    "task_method": task_method,
+                                    "task_id": task_id,
+                                }),
+                                &oauth_claims,
+                            ),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Audit log failed: {}", e);
+                    }
+                    let mut response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32002,
+                            "message": format!("Approval required: {}", reason),
+                            "data": {
+                                "type": "approval_required",
+                                "reason": reason
+                            }
+                        }
+                    });
+                    if let Some(t) = trace {
+                        response["trace"] = serde_json::to_value(t).unwrap_or(Value::Null);
+                    }
+                    attach_session_header(
+                        (StatusCode::OK, Json(response)).into_response(),
+                        &session_id,
+                    )
+                }
+                Err(e) => {
+                    // Fail-closed: evaluation error → deny
+                    tracing::error!(
+                        "Policy evaluation error for task '{}': {}",
+                        task_method, e
+                    );
+                    let response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32001,
+                            "message": "Policy evaluation failed"
+                        }
+                    });
+                    attach_session_header(
+                        (StatusCode::OK, Json(response)).into_response(),
+                        &session_id,
+                    )
+                }
+            }
         }
         MessageType::Batch => {
             tracing::warn!("Rejected JSON-RPC batch request in session {}", session_id);
