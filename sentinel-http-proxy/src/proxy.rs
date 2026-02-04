@@ -753,6 +753,24 @@ pub async fn handle_mcp_post(
         }
         MessageType::PassThrough => {
             // Forward — includes initialize, tools/list, notifications, etc.
+            // SECURITY: Audit pass-through requests for visibility. These bypass
+            // policy evaluation but must have an audit trail.
+            let method_name = msg
+                .get("method")
+                .and_then(|m| m.as_str())
+                .unwrap_or("unknown");
+            let action = Action::new("sentinel", "pass_through", json!({
+                "method": method_name,
+                "session": &session_id,
+            }));
+            if let Err(e) = state.audit.log_entry(
+                &action,
+                &Verdict::Allow,
+                json!({"source": "http_proxy", "event": "pass_through_forwarded"}),
+            ).await {
+                tracing::warn!("Failed to audit pass-through request: {}", e);
+            }
+
             // Canonicalize if configured (KL2 TOCTOU fix)
             let forward_body = canonicalize_body(&state, &msg, body);
             let response = forward_to_upstream(
@@ -762,11 +780,6 @@ pub async fn handle_mcp_post(
                 auth_header_for_upstream.as_deref(),
             )
             .await;
-
-            // Post-processing: extract annotations from tools/list responses
-            // and protocol version from initialize responses.
-            // NOTE: For SSE responses this would need stream-level inspection.
-            // For now we handle the simple JSON response case.
 
             attach_session_header(response, &session_id)
         }
@@ -815,12 +828,26 @@ pub async fn handle_mcp_post(
             ..
         } => {
             // MCP 2025-11-25 tasks: pass through to upstream server.
+            // SECURITY: Audit task requests for visibility.
             tracing::debug!(
                 "Task request in session {}: {} (task_id: {:?})",
                 session_id,
                 task_method,
                 task_id
             );
+            let action = Action::new("sentinel", "task_request", json!({
+                "task_method": task_method,
+                "task_id": task_id,
+                "session": &session_id,
+            }));
+            if let Err(e) = state.audit.log_entry(
+                &action,
+                &Verdict::Allow,
+                json!({"source": "http_proxy", "event": "task_request_forwarded"}),
+            ).await {
+                tracing::warn!("Failed to audit task request: {}", e);
+            }
+
             let forward_body = canonicalize_body(&state, &msg, body);
             let response = forward_to_upstream(
                 &state,
@@ -833,6 +860,17 @@ pub async fn handle_mcp_post(
         }
         MessageType::Batch => {
             tracing::warn!("Rejected JSON-RPC batch request in session {}", session_id);
+            // SECURITY: Audit batch rejection (R4-12).
+            let batch_action = Action::new("sentinel", "batch_rejected", json!({
+                "session": &session_id,
+            }));
+            if let Err(e) = state.audit.log_entry(
+                &batch_action,
+                &Verdict::Deny { reason: "JSON-RPC batching not supported".to_string() },
+                json!({"source": "http_proxy", "event": "batch_rejected"}),
+            ).await {
+                tracing::warn!("Failed to audit batch rejection: {}", e);
+            }
             let response = json!({
                 "jsonrpc": "2.0",
                 "id": null,
@@ -1222,8 +1260,26 @@ async fn forward_to_upstream(
                 // Bounded read prevents OOM from infinite SSE streams.
                 match read_bounded_response(upstream_resp, MAX_RESPONSE_BODY_SIZE).await {
                     Ok(sse_bytes) => {
-                        if !state.injection_disabled {
-                            scan_sse_events_for_injection(&sse_bytes, session_id, state).await;
+                        // SECURITY: Check for injection in SSE events. When
+                        // injection_blocking is enabled, block the entire stream.
+                        let injection_found = if !state.injection_disabled {
+                            scan_sse_events_for_injection(&sse_bytes, session_id, state).await
+                        } else {
+                            false
+                        };
+
+                        if injection_found && state.injection_blocking {
+                            return (
+                                StatusCode::OK,
+                                Json(json!({
+                                    "jsonrpc": "2.0",
+                                    "error": {
+                                        "code": -32001,
+                                        "message": "SSE response blocked: prompt injection detected",
+                                    },
+                                })),
+                            )
+                                .into_response();
                         }
 
                         let mut response = Response::builder()
