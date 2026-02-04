@@ -61,11 +61,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/approvals/{id}/approve", post(approve_approval))
         .route("/api/approvals/{id}/deny", post(deny_approval))
         .route("/api/metrics", get(metrics))
+        .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_api_key,
         ))
-        .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit))
         .layer(middleware::from_fn(request_id))
         .layer(middleware::from_fn(security_headers))
         .layer(DefaultBodyLimit::max(1_048_576)) // 1 MB max request body
@@ -986,25 +986,33 @@ fn extract_client_ip(request: &Request, trusted_proxies: &[std::net::IpAddr]) ->
 /// Extract the principal key from the request for per-principal rate limiting.
 ///
 /// Resolution order:
-/// 1. `X-Principal` header — allows upstream services/proxies to identify the principal
-/// 2. Bearer token from the `Authorization` header — identifies the API consumer
-/// 3. Client IP address as a string — fallback for unauthenticated requests
+/// 1. `X-Principal` header — only trusted from connections originating from a
+///    configured trusted proxy IP. When `trusted_proxies` is empty, X-Principal
+///    is ignored entirely to prevent spoofing (KL1 hardening).
+/// 2. Bearer token from the `Authorization` header — hashed with SHA-256 to
+///    prevent raw token leakage in rate limit logs/maps (KL1 hardening).
+/// 3. Client IP address as a string — fallback for unauthenticated requests.
 ///
-/// The rate_limit middleware runs BEFORE require_api_key, so the Authorization
-/// header is always available at this point.
+/// Rate limiting now runs AFTER `require_api_key`, so by the time this
+/// function is called, the Bearer token has already been validated.
 fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]) -> String {
-    // 1. X-Principal header (explicit principal identity)
-    if let Some(principal) = request
-        .headers()
-        .get("x-principal")
-        .and_then(|v| v.to_str().ok())
-    {
-        if !principal.is_empty() {
-            return format!("principal:{}", principal);
+    // 1. X-Principal header — only trust from known proxies (KL1)
+    if !trusted_proxies.is_empty() {
+        let client_ip = extract_client_ip(request, trusted_proxies);
+        if trusted_proxies.contains(&client_ip) {
+            if let Some(principal) = request
+                .headers()
+                .get("x-principal")
+                .and_then(|v| v.to_str().ok())
+            {
+                if !principal.is_empty() {
+                    return format!("principal:{}", principal);
+                }
+            }
         }
     }
 
-    // 2. Bearer token from Authorization header
+    // 2. Bearer token from Authorization header — hashed for privacy (KL1)
     if let Some(auth) = request
         .headers()
         .get(header::AUTHORIZATION)
@@ -1012,7 +1020,10 @@ fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]
     {
         if let Some(token) = auth.strip_prefix("Bearer ") {
             if !token.is_empty() {
-                return format!("bearer:{}", token);
+                use sha2::{Digest, Sha256};
+                let hash = Sha256::digest(token.as_bytes());
+                // 128-bit truncation is sufficient for rate limit bucketing
+                return format!("bearer:{}", hex::encode(&hash[..16]));
             }
         }
     }
@@ -1033,5 +1044,108 @@ fn categorize_rate_limit<'a>(
         limits.admin.as_ref()
     } else {
         limits.readonly.as_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::Request as HttpRequest;
+
+    /// Helper to build a request with specific headers for testing extract_principal_key.
+    fn build_request(headers: &[(&str, &str)]) -> Request {
+        let mut builder = HttpRequest::builder().uri("/api/evaluate").method("POST");
+        for (k, v) in headers {
+            builder = builder.header(*k, *v);
+        }
+        builder.body(axum::body::Body::empty()).unwrap()
+    }
+
+    // --- KL1: X-Principal only trusted from trusted proxies ---
+
+    #[test]
+    fn test_principal_key_x_principal_ignored_without_trusted_proxies() {
+        // With empty trusted_proxies, X-Principal header should be ignored
+        let request = build_request(&[("x-principal", "alice")]);
+        let key = extract_principal_key(&request, &[]);
+        // Should fall through to IP fallback, not use X-Principal
+        assert!(key.starts_with("ip:"), "Expected ip: prefix, got: {}", key);
+    }
+
+    #[test]
+    fn test_principal_key_x_principal_trusted_from_known_proxy() {
+        // With trusted_proxies and connection from a trusted IP, X-Principal is accepted
+        let trusted = vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)];
+        let request = build_request(&[("x-principal", "alice")]);
+        // In test environment, connection IP defaults to 127.0.0.1 (LOCALHOST)
+        let key = extract_principal_key(&request, &trusted);
+        assert_eq!(key, "principal:alice");
+    }
+
+    #[test]
+    fn test_principal_key_x_principal_ignored_from_untrusted_ip() {
+        // Trusted proxies configured but connection IP is not in the list
+        let trusted = vec!["10.0.0.1".parse().unwrap()];
+        let request = build_request(&[("x-principal", "alice")]);
+        // Connection IP is 127.0.0.1 (test default), not in trusted list
+        let key = extract_principal_key(&request, &trusted);
+        assert!(
+            !key.starts_with("principal:"),
+            "X-Principal should be ignored from untrusted IP, got: {}",
+            key
+        );
+    }
+
+    // --- KL1: Bearer token hashed ---
+
+    #[test]
+    fn test_principal_key_bearer_token_hashed() {
+        let request = build_request(&[("authorization", "Bearer my-secret-token")]);
+        let key = extract_principal_key(&request, &[]);
+        assert!(
+            key.starts_with("bearer:"),
+            "Expected bearer: prefix, got: {}",
+            key
+        );
+        // Must NOT contain the raw token
+        assert!(
+            !key.contains("my-secret-token"),
+            "Raw token should not appear in key: {}",
+            key
+        );
+        // Hash should be 32 hex chars (128 bits = 16 bytes)
+        let hash_part = key.strip_prefix("bearer:").unwrap();
+        assert_eq!(hash_part.len(), 32, "Hash should be 32 hex chars");
+    }
+
+    #[test]
+    fn test_principal_key_bearer_hash_deterministic() {
+        let r1 = build_request(&[("authorization", "Bearer token-abc")]);
+        let r2 = build_request(&[("authorization", "Bearer token-abc")]);
+        let k1 = extract_principal_key(&r1, &[]);
+        let k2 = extract_principal_key(&r2, &[]);
+        assert_eq!(k1, k2, "Same token should produce same key");
+    }
+
+    #[test]
+    fn test_principal_key_different_tokens_different_hashes() {
+        let r1 = build_request(&[("authorization", "Bearer token-a")]);
+        let r2 = build_request(&[("authorization", "Bearer token-b")]);
+        let k1 = extract_principal_key(&r1, &[]);
+        let k2 = extract_principal_key(&r2, &[]);
+        assert_ne!(k1, k2, "Different tokens should produce different keys");
+    }
+
+    // --- KL1: IP fallback ---
+
+    #[test]
+    fn test_principal_key_fallback_to_ip() {
+        let request = build_request(&[]);
+        let key = extract_principal_key(&request, &[]);
+        assert!(
+            key.starts_with("ip:"),
+            "Should fall back to IP, got: {}",
+            key
+        );
     }
 }

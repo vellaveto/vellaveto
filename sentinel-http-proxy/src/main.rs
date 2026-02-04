@@ -80,6 +80,13 @@ struct Args {
     /// expired regardless of activity. 0 = no absolute limit (default: 86400 = 24h).
     #[arg(long, default_value_t = 86400)]
     session_max_lifetime: u64,
+
+    /// Re-serialize JSON-RPC messages before forwarding to upstream (TOCTOU mitigation).
+    /// When enabled, upstream receives the canonical form of the parsed message,
+    /// ensuring it sees exactly what Sentinel evaluated. Without this, original
+    /// bytes are forwarded (duplicate keys are rejected regardless).
+    #[arg(long)]
+    canonicalize: bool,
 }
 
 #[tokio::main]
@@ -254,7 +261,16 @@ async fn main() -> Result<()> {
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        canonicalize: args.canonicalize
+            || std::env::var("SENTINEL_CANONICALIZE")
+                .ok()
+                .map(|v| v == "true" || v == "1")
+                .unwrap_or(false),
     };
+
+    if state.canonicalize {
+        tracing::info!("TOCTOU canonicalization enabled — forwarding re-serialized JSON");
+    }
 
     // Build router
     let app = axum::Router::new()

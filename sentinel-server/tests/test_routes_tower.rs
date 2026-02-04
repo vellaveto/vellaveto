@@ -2056,7 +2056,10 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
 #[tokio::test]
 async fn per_principal_rate_limit_uses_x_principal_header() {
     // 1 req/s per principal — second request from same principal gets 429
-    let (state, _tmp) = make_per_principal_state(1);
+    // KL1: X-Principal is only trusted from configured trusted proxies.
+    // In tests without ConnectInfo, the connection IP defaults to 127.0.0.1.
+    let (mut state, _tmp) = make_per_principal_state(1);
+    state.trusted_proxies = Arc::new(vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)]);
     let app = routes::build_router(state.clone());
 
     let body = serde_json::to_string(&json!({
@@ -2200,7 +2203,9 @@ async fn per_principal_health_endpoint_exempt() {
 
 #[tokio::test]
 async fn per_principal_x_principal_takes_precedence_over_bearer() {
-    let (state, _tmp) = make_per_principal_state(1);
+    // KL1: X-Principal is only trusted from configured trusted proxies.
+    let (mut state, _tmp) = make_per_principal_state(1);
+    state.trusted_proxies = Arc::new(vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)]);
 
     let body = serde_json::to_string(&json!({
         "tool": "file", "function": "read", "parameters": {}
