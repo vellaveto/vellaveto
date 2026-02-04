@@ -599,15 +599,14 @@ async fn cmd_serve(
     {
         let sighup_state = state.clone();
         tokio::spawn(async move {
-            let mut sighup = match tokio::signal::unix::signal(
-                tokio::signal::unix::SignalKind::hangup(),
-            ) {
-                Ok(s) => s,
-                Err(e) => {
-                    tracing::warn!("Failed to install SIGHUP handler: {}", e);
-                    return;
-                }
-            };
+            let mut sighup =
+                match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::warn!("Failed to install SIGHUP handler: {}", e);
+                        return;
+                    }
+                };
             tracing::info!("SIGHUP handler installed — send HUP to reload policies");
             loop {
                 sighup.recv().await;

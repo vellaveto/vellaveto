@@ -167,6 +167,7 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         ),
         response_dlp_enabled: false,
         response_dlp_blocking: false,
+        known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
     }
 }
 
@@ -1607,6 +1608,7 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         ),
         response_dlp_enabled: false,
         response_dlp_blocking: false,
+        known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
     };
     let sessions = state.sessions.clone();
     let app = build_router(state);
@@ -1894,6 +1896,7 @@ async fn trace_resource_read_denied_includes_trace() {
         ),
         response_dlp_enabled: false,
         response_dlp_blocking: false,
+        known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
     };
     let app = build_router(state);
 
@@ -1970,6 +1973,7 @@ async fn trace_constraint_details_visible() {
         ),
         response_dlp_enabled: false,
         response_dlp_blocking: false,
+        known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
     };
     let app = build_router(state);
 
@@ -2165,6 +2169,7 @@ fn build_oauth_test_state(
         ),
         response_dlp_enabled: false,
         response_dlp_blocking: false,
+        known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
     }
 }
 
@@ -2690,6 +2695,7 @@ fn build_api_key_test_state(
         ),
         response_dlp_enabled: false,
         response_dlp_blocking: false,
+        known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
     }
 }
 
@@ -3111,6 +3117,7 @@ fn build_test_state_deny_tasks(upstream_url: &str, tmp: &TempDir) -> ProxyState 
         ),
         response_dlp_enabled: false,
         response_dlp_blocking: false,
+        known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
     }
 }
 
@@ -3222,6 +3229,7 @@ async fn task_get_allowed_when_no_deny_policy() {
         ),
         response_dlp_enabled: false,
         response_dlp_blocking: false,
+        known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
     };
     let app = build_router(state);
 
@@ -3288,6 +3296,7 @@ async fn task_request_fail_closed_no_matching_policy() {
         ),
         response_dlp_enabled: false,
         response_dlp_blocking: false,
+        known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
     };
     let app = build_router(state);
 
@@ -3353,6 +3362,7 @@ async fn task_request_dlp_blocks_secret_in_task_id() {
         ),
         response_dlp_enabled: false,
         response_dlp_blocking: false,
+        known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
     };
     let app = build_router(state);
 
@@ -3424,6 +3434,7 @@ async fn task_request_clean_params_not_dlp_blocked() {
         ),
         response_dlp_enabled: false,
         response_dlp_blocking: false,
+        known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
     };
     let app = build_router(state);
 
@@ -3493,6 +3504,7 @@ async fn task_request_dlp_blocks_github_token_in_params() {
         ),
         response_dlp_enabled: false,
         response_dlp_blocking: false,
+        known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
     };
     let app = build_router(state);
 

@@ -64,18 +64,29 @@ pub fn to_cef(entry: &AuditEntry) -> String {
         cef_escape(verdict_str),
         tool_function,
         severity,
-        cef_escape(&entry.timestamp),
-        cef_escape(&entry.id),
+        cef_escape_ext(&entry.timestamp),
+        cef_escape_ext(&entry.id),
     )
 }
 
-/// Escape special characters for CEF format.
+/// Escape special characters for CEF header fields.
 ///
 /// Per the CEF specification, the following characters must be escaped in
-/// header and extension values: backslash, pipe, newline, carriage return.
+/// header values (pipe-delimited fields): backslash, pipe, newline, carriage return.
 fn cef_escape(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('|', "\\|")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+}
+
+/// Escape special characters for CEF extension values (key=value pairs).
+///
+/// Per the CEF specification, extension values must escape: backslash,
+/// equals sign, newline, carriage return. Pipe is NOT escaped in extensions.
+fn cef_escape_ext(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('=', "\\=")
         .replace('\n', "\\n")
         .replace('\r', "\\r")
 }
@@ -325,6 +336,48 @@ mod tests {
             unescaped_pipes >= 7,
             "CEF should have at least 7 unescaped pipes, got {}",
             unescaped_pipes
+        );
+    }
+
+    // ── Adversarial Tests: CEF Extension Escaping ──
+
+    #[test]
+    fn test_cef_ext_escape_equals_sign() {
+        // CEF extension values must escape '=' to prevent injection
+        assert_eq!(cef_escape_ext("key=value"), "key\\=value");
+        assert_eq!(cef_escape_ext("a=b=c"), "a\\=b\\=c");
+    }
+
+    #[test]
+    fn test_cef_ext_escape_backslash_and_newline() {
+        assert_eq!(cef_escape_ext("a\\b"), "a\\\\b");
+        assert_eq!(cef_escape_ext("a\nb"), "a\\nb");
+        assert_eq!(cef_escape_ext("a\rb"), "a\\rb");
+    }
+
+    #[test]
+    fn test_cef_ext_does_not_escape_pipe() {
+        // Pipe is only escaped in headers, NOT in extension values
+        assert_eq!(cef_escape_ext("a|b"), "a|b");
+    }
+
+    #[test]
+    fn test_cef_header_does_not_escape_equals() {
+        // Header escaping should NOT escape '=' (only needed in extensions)
+        assert_eq!(cef_escape("a=b"), "a=b");
+    }
+
+    #[test]
+    fn test_cef_entry_with_equals_in_id() {
+        // Entry ID with '=' should be escaped in extensions
+        let entry = make_entry("tool", "func", Verdict::Allow);
+        let mut entry_with_eq = entry;
+        entry_with_eq.id = "entry=id=test".to_string();
+        let cef = to_cef(&entry_with_eq);
+        assert!(
+            cef.contains("cs1=entry\\=id\\=test"),
+            "Equals signs in extension values must be escaped: {}",
+            cef
         );
     }
 }

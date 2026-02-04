@@ -84,6 +84,9 @@ pub struct ProxyState {
     /// When true, block responses that contain detected secrets instead of just logging.
     /// SECURITY (R18-DLP-BLOCK): Without this, DLP is log-only and secrets still reach the client.
     pub response_dlp_blocking: bool,
+    /// Known legitimate tool names for squatting detection.
+    /// Built from DEFAULT_KNOWN_TOOLS + any config overrides.
+    pub known_tools: std::collections::HashSet<String>,
 }
 
 /// MCP Session ID header name.
@@ -183,6 +186,7 @@ async fn extract_annotations_from_response(
     session_id: &str,
     sessions: &SessionStore,
     audit: &AuditLogger,
+    known_tools: &std::collections::HashSet<String>,
 ) {
     // Extract current known tools and first-list flag from session
     let (known, is_first_list) = match sessions.get_mut(session_id) {
@@ -194,8 +198,13 @@ async fn extract_annotations_from_response(
         None => return,
     };
 
-    // Run shared detection algorithm
-    let result = sentinel_mcp::rug_pull::detect_rug_pull(response, &known, is_first_list);
+    // Run shared detection algorithm with squatting detection
+    let result = sentinel_mcp::rug_pull::detect_rug_pull_and_squatting(
+        response,
+        &known,
+        is_first_list,
+        known_tools,
+    );
 
     // Update session state with detection results
     if let Some(mut s) = sessions.get_mut(session_id) {
@@ -557,6 +566,43 @@ pub async fn handle_mcp_post(
                 );
             }
 
+            // OWASP ASI06: Check for memory poisoning (replayed response data in params)
+            if let Some(session) = state.sessions.get_mut(&session_id) {
+                let poisoning_matches = session.memory_tracker.check_parameters(&arguments);
+                if !poisoning_matches.is_empty() {
+                    for m in &poisoning_matches {
+                        tracing::warn!(
+                            "SECURITY: Memory poisoning detected in tool '{}' (session {}): \
+                             param '{}' contains replayed data (fingerprint: {})",
+                            tool_name,
+                            session_id,
+                            m.param_location,
+                            m.fingerprint
+                        );
+                    }
+                    let action = extractor::extract_action(&tool_name, &arguments);
+                    if let Err(e) = state
+                        .audit
+                        .log_entry(
+                            &action,
+                            &Verdict::Allow,
+                            build_audit_context(
+                                &session_id,
+                                json!({
+                                    "event": "memory_poisoning_detected",
+                                    "matches": poisoning_matches.len(),
+                                    "tool": tool_name,
+                                }),
+                                &oauth_claims,
+                            ),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit memory poisoning: {}", e);
+                    }
+                }
+            }
+
             let mut action = extractor::extract_action(&tool_name, &arguments);
 
             // DNS rebinding protection: resolve target domains to IPs when any
@@ -572,9 +618,7 @@ pub async fn handle_mcp_post(
             //
             // This is safe because engine evaluation is synchronous (no await) and
             // fast (<5ms). The shard lock is released when `session` drops.
-            let eval_result = if let Some(mut session) =
-                state.sessions.get_mut(&session_id)
-            {
+            let eval_result = if let Some(mut session) = state.sessions.get_mut(&session_id) {
                 let eval_ctx = EvaluationContext {
                     timestamp: None,
                     agent_id: session.oauth_subject.clone(),
@@ -590,11 +634,7 @@ pub async fn handle_mcp_post(
                 } else {
                     state
                         .engine
-                        .evaluate_action_with_context(
-                            &action,
-                            &state.policies,
-                            Some(&eval_ctx),
-                        )
+                        .evaluate_action_with_context(&action, &state.policies, Some(&eval_ctx))
                         .map(|v| (v, None))
                 };
 
@@ -1666,8 +1706,6 @@ fn build_evaluation_context(
         })
 }
 
-
-
 /// Build audit context JSON, optionally including OAuth subject.
 fn build_audit_context(
     session_id: &str,
@@ -1980,6 +2018,7 @@ async fn forward_to_upstream(
                                     session_id,
                                     &state.sessions,
                                     &state.audit,
+                                    &state.known_tools,
                                 )
                                 .await;
 
@@ -2202,6 +2241,13 @@ async fn forward_to_upstream(
                                     }
                                 }
                             }
+
+                            // OWASP ASI06: Record response fingerprints for memory poisoning detection.
+                            // This feeds the per-session MemoryTracker so that subsequent tool call
+                            // parameters can be checked for replayed data from prior responses.
+                            if let Some(mut session) = state.sessions.get_mut(session_id) {
+                                session.memory_tracker.record_response(&response_json);
+                            }
                         }
 
                         // DLP response scanning: detect secrets in tool responses.
@@ -2235,10 +2281,7 @@ async fn forward_to_upstream(
 
                                     let verdict = if state.response_dlp_blocking {
                                         Verdict::Deny {
-                                            reason: format!(
-                                                "Response DLP blocked: {:?}",
-                                                patterns
-                                            ),
+                                            reason: format!("Response DLP blocked: {:?}", patterns),
                                         }
                                     } else {
                                         Verdict::Allow
@@ -2727,6 +2770,7 @@ async fn check_sse_for_rug_pull_and_manifest(
                 session_id,
                 &state.sessions,
                 &state.audit,
+                &state.known_tools,
             )
             .await;
 
@@ -2740,6 +2784,11 @@ async fn check_sse_for_rug_pull_and_manifest(
                     &state.audit,
                 )
                 .await;
+            }
+
+            // OWASP ASI06: Record SSE response fingerprints for memory poisoning detection.
+            if let Some(mut session) = state.sessions.get_mut(session_id) {
+                session.memory_tracker.record_response(&json_val);
             }
         }
     }
@@ -3269,6 +3318,7 @@ mod tests {
             output_schema_registry: Arc::new(OutputSchemaRegistry::new()),
             response_dlp_enabled: false,
             response_dlp_blocking: false,
+            known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
         }
     }
 

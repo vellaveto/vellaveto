@@ -57,14 +57,14 @@ pub fn inspect_elicitation(
     // Check for blocked field types in the schema.
     // MCP elicitation uses `requestedSchema` per the spec, but we also
     // check `schema` as a defensive measure against variant spellings.
-    if let Some(schema) = params.get("requestedSchema").or_else(|| params.get("schema")) {
+    if let Some(schema) = params
+        .get("requestedSchema")
+        .or_else(|| params.get("schema"))
+    {
         for blocked_type in &config.blocked_field_types {
             if schema_contains_field_type(schema, blocked_type) {
                 return ElicitationVerdict::Deny {
-                    reason: format!(
-                        "elicitation requests blocked field type: {}",
-                        blocked_type
-                    ),
+                    reason: format!("elicitation requests blocked field type: {}", blocked_type),
                 };
             }
         }
@@ -127,6 +127,26 @@ fn schema_contains_field_type_inner(schema: &Value, field_type: &str, depth: usi
     // Recurse into "items" (array schemas)
     if let Some(items) = schema.get("items") {
         if schema_contains_field_type_inner(items, field_type, depth + 1) {
+            return true;
+        }
+    }
+
+    // Recurse into "oneOf", "anyOf", "allOf" (schema composition keywords)
+    for keyword in &["oneOf", "anyOf", "allOf"] {
+        if let Some(variants) = schema.get(*keyword).and_then(|v| v.as_array()) {
+            for variant in variants {
+                if schema_contains_field_type_inner(variant, field_type, depth + 1) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Recurse into "additionalProperties" (if it's a schema object, not a boolean)
+    if let Some(additional) = schema.get("additionalProperties") {
+        if additional.is_object()
+            && schema_contains_field_type_inner(additional, field_type, depth + 1)
+        {
             return true;
         }
     }
@@ -623,10 +643,7 @@ mod tests {
     fn test_sampling_allowed_model_filter() {
         let config = SamplingConfig {
             enabled: true,
-            allowed_models: vec![
-                "claude-3-opus".to_string(),
-                "claude-3-sonnet".to_string(),
-            ],
+            allowed_models: vec!["claude-3-opus".to_string(), "claude-3-sonnet".to_string()],
             block_if_contains_tool_output: false,
         };
 
@@ -797,6 +814,105 @@ mod tests {
         assert!(
             !schema_contains_field_type(&schema, "password"),
             "Should not find field type beyond max recursion depth"
+        );
+    }
+
+    // ── Adversarial Tests: Schema Composition Keyword Scanning ──
+
+    #[test]
+    fn test_schema_oneof_hidden_password() {
+        // Attacker hides "password" type inside oneOf
+        let schema = json!({
+            "type": "object",
+            "oneOf": [
+                {"type": "string"},
+                {"type": "object", "properties": {"secret": {"format": "password"}}}
+            ]
+        });
+        assert!(
+            schema_contains_field_type(&schema, "password"),
+            "Should detect password hidden in oneOf"
+        );
+    }
+
+    #[test]
+    fn test_schema_anyof_hidden_credential() {
+        let schema = json!({
+            "anyOf": [
+                {"type": "string"},
+                {"type": "object", "properties": {"credential": {"type": "string"}}}
+            ]
+        });
+        assert!(
+            schema_contains_field_type(&schema, "credential"),
+            "Should detect credential hidden in anyOf"
+        );
+    }
+
+    #[test]
+    fn test_schema_allof_hidden_api_key() {
+        let schema = json!({
+            "allOf": [
+                {"type": "object", "properties": {"name": {"type": "string"}}},
+                {"type": "object", "properties": {"api_key": {"type": "string"}}}
+            ]
+        });
+        assert!(
+            schema_contains_field_type(&schema, "api_key"),
+            "Should detect api_key hidden in allOf"
+        );
+    }
+
+    #[test]
+    fn test_schema_additional_properties_hidden_token() {
+        let schema = json!({
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "additionalProperties": {
+                "type": "object",
+                "properties": {
+                    "token": {"format": "password"}
+                }
+            }
+        });
+        assert!(
+            schema_contains_field_type(&schema, "password"),
+            "Should detect password in additionalProperties schema"
+        );
+        assert!(
+            schema_contains_field_type(&schema, "token"),
+            "Should detect token property name in additionalProperties"
+        );
+    }
+
+    #[test]
+    fn test_schema_additional_properties_boolean_ignored() {
+        // additionalProperties: false (boolean) should not recurse
+        let schema = json!({
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "additionalProperties": false
+        });
+        assert!(
+            !schema_contains_field_type(&schema, "password"),
+            "Boolean additionalProperties should not cause false positives"
+        );
+    }
+
+    #[test]
+    fn test_schema_nested_oneof_in_anyof() {
+        // Multi-level composition nesting
+        let schema = json!({
+            "anyOf": [
+                {"oneOf": [
+                    {"type": "string"},
+                    {"format": "password"}
+                ]}
+            ]
+        });
+        assert!(
+            schema_contains_field_type(&schema, "password"),
+            "Should detect password in nested oneOf inside anyOf"
         );
     }
 }

@@ -10,7 +10,7 @@ use sentinel_config::{ManifestConfig, ToolManifest};
 use sentinel_engine::PolicyEngine;
 use sentinel_types::{EvaluationContext, EvaluationTrace, Policy, Verdict};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -77,6 +77,9 @@ pub struct ProxyBridge {
     response_dlp_enabled: bool,
     /// When true, block responses containing secrets. Default: false (log-only).
     response_dlp_blocking: bool,
+    /// Known legitimate tool names for squatting detection.
+    /// Built from DEFAULT_KNOWN_TOOLS + any config overrides.
+    known_tools: HashSet<String>,
 }
 
 impl ProxyBridge {
@@ -97,6 +100,7 @@ impl ProxyBridge {
             output_schema_blocking: false,
             response_dlp_enabled: true,
             response_dlp_blocking: false,
+            known_tools: crate::rug_pull::build_known_tools(&[]),
         }
     }
 
@@ -415,9 +419,15 @@ impl ProxyBridge {
         known: &mut HashMap<String, ToolAnnotations>,
         flagged_tools: &mut std::collections::HashSet<String>,
         audit: &AuditLogger,
+        known_tools: &HashSet<String>,
     ) {
         let is_first_list = known.is_empty();
-        let result = crate::rug_pull::detect_rug_pull(response, known, is_first_list);
+        let result = crate::rug_pull::detect_rug_pull_and_squatting(
+            response,
+            known,
+            is_first_list,
+            known_tools,
+        );
 
         // Flag detected tools for blocking
         for name in result.flagged_tool_names() {
@@ -477,6 +487,9 @@ impl ProxyBridge {
         // Phase 5: Pinned tool manifest for schema verification.
         // Built from the first tools/list response, verified on subsequent ones.
         let mut pinned_manifest: Option<ToolManifest> = None;
+
+        // OWASP ASI06: Memory poisoning defense — track data flow across requests.
+        let mut memory_tracker = crate::memory_tracking::MemoryTracker::new();
 
         // Context-aware evaluation tracking.
         let mut call_counts: HashMap<String, u64> = HashMap::new();
@@ -582,6 +595,29 @@ impl ProxyBridge {
                                             .map_err(ProxyError::Framing)?;
                                         continue;
                                     }
+                                    // OWASP ASI06: Check for memory poisoning (replayed response data in params)
+                                    let poisoning_matches = memory_tracker.check_parameters(&arguments);
+                                    if !poisoning_matches.is_empty() {
+                                        for m in &poisoning_matches {
+                                            tracing::warn!(
+                                                "SECURITY: Memory poisoning detected in tool call '{}': \
+                                                 param '{}' contains replayed data (fingerprint: {})",
+                                                tool_name, m.param_location, m.fingerprint
+                                            );
+                                        }
+                                        let action = extract_action(&tool_name, &arguments);
+                                        let _ = self.audit.log_entry(
+                                            &action,
+                                            &Verdict::Allow,
+                                            json!({
+                                                "source": "proxy",
+                                                "event": "memory_poisoning_detected",
+                                                "matches": poisoning_matches.len(),
+                                                "tool": tool_name,
+                                            }),
+                                        ).await;
+                                    }
+
                                     let ann = known_tool_annotations.get(&tool_name);
                                     // Build evaluation context from session tracking
                                     let eval_ctx = EvaluationContext {
@@ -1112,6 +1148,7 @@ impl ProxyBridge {
                                             &mut known_tool_annotations,
                                             &mut flagged_tools,
                                             &self.audit,
+                                            &self.known_tools,
                                         ).await;
 
                                         // Phase 4B: Persist any newly flagged tools
@@ -1393,6 +1430,9 @@ impl ProxyBridge {
                                     }
                                 }
                             }
+
+                            // OWASP ASI06: Record response data for poisoning detection
+                            memory_tracker.record_response(&msg);
 
                             // Relay child response to agent
                             write_message(&mut agent_writer, &msg).await
@@ -1891,6 +1931,7 @@ mod tests {
             &mut known,
             &mut std::collections::HashSet::new(),
             &audit,
+            &crate::rug_pull::build_known_tools(&[]),
         )
         .await;
 
@@ -1930,6 +1971,7 @@ mod tests {
             &mut known,
             &mut std::collections::HashSet::new(),
             &audit,
+            &crate::rug_pull::build_known_tools(&[]),
         )
         .await;
 
@@ -1962,7 +2004,14 @@ mod tests {
                 }]
             }
         });
-        ProxyBridge::extract_tool_annotations(&response1, &mut known, &mut flagged, &audit).await;
+        ProxyBridge::extract_tool_annotations(
+            &response1,
+            &mut known,
+            &mut flagged,
+            &audit,
+            &crate::rug_pull::build_known_tools(&[]),
+        )
+        .await;
         assert!(!known["read_file"].destructive_hint);
 
         // Second tools/list: read_file suddenly destructive (rug-pull!)
@@ -1979,7 +2028,14 @@ mod tests {
                 }]
             }
         });
-        ProxyBridge::extract_tool_annotations(&response2, &mut known, &mut flagged, &audit).await;
+        ProxyBridge::extract_tool_annotations(
+            &response2,
+            &mut known,
+            &mut flagged,
+            &audit,
+            &crate::rug_pull::build_known_tools(&[]),
+        )
+        .await;
 
         // Should have updated to new (suspicious) values
         assert!(known["read_file"].destructive_hint);
@@ -2011,7 +2067,14 @@ mod tests {
                 ]
             }
         });
-        ProxyBridge::extract_tool_annotations(&response1, &mut known, &mut flagged, &audit).await;
+        ProxyBridge::extract_tool_annotations(
+            &response1,
+            &mut known,
+            &mut flagged,
+            &audit,
+            &crate::rug_pull::build_known_tools(&[]),
+        )
+        .await;
         assert_eq!(known.len(), 2);
 
         // Second tools/list: write_file removed (rug-pull via removal)
@@ -2024,7 +2087,14 @@ mod tests {
                 ]
             }
         });
-        ProxyBridge::extract_tool_annotations(&response2, &mut known, &mut flagged, &audit).await;
+        ProxyBridge::extract_tool_annotations(
+            &response2,
+            &mut known,
+            &mut flagged,
+            &audit,
+            &crate::rug_pull::build_known_tools(&[]),
+        )
+        .await;
 
         // write_file should have been removed from known
         assert_eq!(known.len(), 1);
@@ -2050,7 +2120,14 @@ mod tests {
                 ]
             }
         });
-        ProxyBridge::extract_tool_annotations(&response1, &mut known, &mut flagged, &audit).await;
+        ProxyBridge::extract_tool_annotations(
+            &response1,
+            &mut known,
+            &mut flagged,
+            &audit,
+            &crate::rug_pull::build_known_tools(&[]),
+        )
+        .await;
         assert_eq!(known.len(), 1);
 
         // Second tools/list: suspicious_tool added (tool injection)
@@ -2064,7 +2141,14 @@ mod tests {
                 ]
             }
         });
-        ProxyBridge::extract_tool_annotations(&response2, &mut known, &mut flagged, &audit).await;
+        ProxyBridge::extract_tool_annotations(
+            &response2,
+            &mut known,
+            &mut flagged,
+            &audit,
+            &crate::rug_pull::build_known_tools(&[]),
+        )
+        .await;
 
         // New tool should be tracked but flagged
         assert_eq!(known.len(), 2);
@@ -2106,6 +2190,7 @@ mod tests {
             &mut known,
             &mut std::collections::HashSet::new(),
             &audit,
+            &crate::rug_pull::build_known_tools(&[]),
         )
         .await;
 
@@ -2391,6 +2476,7 @@ mod tests {
             &mut known,
             &mut std::collections::HashSet::new(),
             &audit,
+            &crate::rug_pull::build_known_tools(&[]),
         )
         .await;
         assert!(known.is_empty());

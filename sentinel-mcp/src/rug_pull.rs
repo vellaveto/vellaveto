@@ -128,12 +128,17 @@ pub struct RugPullResult {
 }
 
 impl RugPullResult {
-    /// Tools that should be flagged for blocking (changed + newly added).
+    /// Tools that should be flagged for blocking (changed + newly added + squatting).
     pub fn flagged_tool_names(&self) -> Vec<&str> {
         self.changed_tools
             .iter()
             .chain(self.new_tools.iter())
             .map(|s| s.as_str())
+            .chain(
+                self.squatting_alerts
+                    .iter()
+                    .map(|a| a.suspicious_tool.as_str()),
+            )
             .collect()
     }
 
@@ -438,9 +443,13 @@ pub async fn audit_rug_pull_events(result: &RugPullResult, audit: &AuditLogger, 
 // ── Tool Squatting Detection ─────────────────────
 
 /// Compute Levenshtein edit distance between two strings.
+///
+/// Uses character counts (not byte lengths) for correct Unicode handling.
 fn levenshtein(a: &str, b: &str) -> usize {
-    let a_len = a.len();
-    let b_len = b.len();
+    let a_chars: Vec<char> = a.chars().collect();
+    let b_chars: Vec<char> = b.chars().collect();
+    let a_len = a_chars.len();
+    let b_len = b_chars.len();
     if a_len == 0 {
         return b_len;
     }
@@ -451,13 +460,11 @@ fn levenshtein(a: &str, b: &str) -> usize {
     let mut prev: Vec<usize> = (0..=b_len).collect();
     let mut curr = vec![0usize; b_len + 1];
 
-    for (i, ca) in a.chars().enumerate() {
+    for (i, &ca) in a_chars.iter().enumerate() {
         curr[0] = i + 1;
-        for (j, cb) in b.chars().enumerate() {
+        for (j, &cb) in b_chars.iter().enumerate() {
             let cost = if ca == cb { 0 } else { 1 };
-            curr[j + 1] = (prev[j + 1] + 1)
-                .min(curr[j] + 1)
-                .min(prev[j] + cost);
+            curr[j + 1] = (prev[j + 1] + 1).min(curr[j] + 1).min(prev[j] + cost);
         }
         std::mem::swap(&mut prev, &mut curr);
     }
@@ -465,41 +472,82 @@ fn levenshtein(a: &str, b: &str) -> usize {
 }
 
 /// Map common Unicode confusables to their ASCII equivalents.
-/// Covers Cyrillic, Greek, and other common homoglyphs.
+/// Covers Cyrillic (lowercase + uppercase), Greek, fullwidth Latin,
+/// and other common homoglyphs used in tool squatting attacks.
 fn normalize_homoglyphs(s: &str) -> String {
     s.chars()
         .map(|c| match c {
-            // Cyrillic confusables
+            // Cyrillic lowercase confusables
             '\u{0430}' => 'a', // Cyrillic a -> a
+            '\u{0432}' => 'b', // Cyrillic ve -> b (visually similar to 'b' in some fonts)
             '\u{0435}' => 'e', // Cyrillic ie -> e
+            '\u{043A}' => 'k', // Cyrillic ka -> k
+            '\u{043C}' => 'm', // Cyrillic em -> m
+            '\u{043D}' => 'h', // Cyrillic en -> h
             '\u{043E}' => 'o', // Cyrillic o -> o
             '\u{0440}' => 'p', // Cyrillic er -> p
             '\u{0441}' => 'c', // Cyrillic es -> c
+            '\u{0442}' => 't', // Cyrillic te -> t (in upright fonts)
             '\u{0443}' => 'y', // Cyrillic u -> y
             '\u{0445}' => 'x', // Cyrillic ha -> x
             '\u{0456}' => 'i', // Cyrillic i -> i
             '\u{0458}' => 'j', // Cyrillic je -> j
             '\u{04BB}' => 'h', // Cyrillic shha -> h
             '\u{0455}' => 's', // Cyrillic dze -> s
-            '\u{0410}' => 'a', // Cyrillic A -> a (uppercase Cyrillic)
+            '\u{0454}' => 'e', // Cyrillic ukrainian ie -> e
+            '\u{044A}' => 'b', // Cyrillic hard sign -> b (visual)
+            // Cyrillic uppercase confusables
+            '\u{0410}' => 'a', // Cyrillic A -> a
             '\u{0412}' => 'b', // Cyrillic Ve -> b
             '\u{0415}' => 'e', // Cyrillic Ie -> e
+            '\u{041A}' => 'k', // Cyrillic Ka -> k
+            '\u{041C}' => 'm', // Cyrillic Em -> m
             '\u{041D}' => 'h', // Cyrillic En -> h
             '\u{041E}' => 'o', // Cyrillic O -> o
             '\u{0420}' => 'p', // Cyrillic Er -> p
             '\u{0421}' => 'c', // Cyrillic Es -> c
             '\u{0422}' => 't', // Cyrillic Te -> t
             '\u{0425}' => 'x', // Cyrillic Ha -> x
-            // Greek confusables
+            '\u{0405}' => 's', // Cyrillic Dze -> s
+            '\u{0406}' => 'i', // Cyrillic I -> i
+            // Greek lowercase confusables
             '\u{03B1}' => 'a', // alpha -> a
+            '\u{03B5}' => 'e', // epsilon -> e
+            '\u{03B9}' => 'i', // iota -> i
+            '\u{03BA}' => 'k', // kappa -> k
+            '\u{03BD}' => 'v', // nu -> v (visually similar)
             '\u{03BF}' => 'o', // omicron -> o
             '\u{03C1}' => 'p', // rho -> p
-            '\u{03B5}' => 'e', // epsilon -> e
+            '\u{03C4}' => 't', // tau -> t
+            '\u{03C5}' => 'u', // upsilon -> u
+            '\u{03C7}' => 'x', // chi -> x
+            // Greek uppercase confusables
+            '\u{0391}' => 'a', // Alpha -> a
+            '\u{0392}' => 'b', // Beta -> b
+            '\u{0395}' => 'e', // Epsilon -> e
+            '\u{0397}' => 'h', // Eta -> h
+            '\u{0399}' => 'i', // Iota -> i
+            '\u{039A}' => 'k', // Kappa -> k
+            '\u{039C}' => 'm', // Mu -> m
+            '\u{039D}' => 'n', // Nu -> n
+            '\u{039F}' => 'o', // Omicron -> o
+            '\u{03A1}' => 'p', // Rho -> p
+            '\u{03A4}' => 't', // Tau -> t
+            '\u{03A7}' => 'x', // Chi -> x
+            '\u{03A5}' => 'y', // Upsilon -> y
+            '\u{0396}' => 'z', // Zeta -> z
+            // Fullwidth Latin (U+FF01..U+FF5E map to U+0021..U+007E)
+            c @ '\u{FF21}'..='\u{FF3A}' => (c as u32 - 0xFF21 + b'a' as u32) as u8 as char,
+            c @ '\u{FF41}'..='\u{FF5A}' => (c as u32 - 0xFF41 + b'a' as u32) as u8 as char,
+            c @ '\u{FF10}'..='\u{FF19}' => (c as u32 - 0xFF10 + b'0' as u32) as u8 as char,
+            '\u{FF3F}' => '_', // Fullwidth underscore -> _
             // Other common confusables
             '\u{0131}' => 'i', // dotless i -> i
             '\u{1D00}' => 'a', // small capital A -> a
             '\u{0261}' => 'g', // latin small letter script g -> g
             '\u{01C0}' => 'l', // latin letter dental click -> l
+            '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}' => '-', // various dashes -> hyphen
+            '\u{2018}' | '\u{2019}' | '\u{02BC}' => '\'', // curly quotes -> apostrophe
             other => other,
         })
         .collect()
@@ -538,15 +586,16 @@ pub fn detect_squatting(tool_name: &str, known_tools: &HashSet<String>) -> Vec<S
 
     // Check Levenshtein distance
     // Skip very short names (<=2 chars) as too many false positives
-    if normalized.len() > 2 {
+    let normalized_char_count = normalized.chars().count();
+    if normalized_char_count > 2 {
         for known in known_tools {
             // Already reported as homoglyph
             if alerts.iter().any(|a| a.similar_to == *known) {
                 continue;
             }
-            // Quick length check to skip obvious non-matches
+            // Quick length check to skip obvious non-matches (char count, not byte length)
             let len_diff =
-                (normalized.len() as isize - known.len() as isize).unsigned_abs();
+                (normalized_char_count as isize - known.chars().count() as isize).unsigned_abs();
             if len_diff > 2 {
                 continue;
             }
@@ -567,10 +616,7 @@ pub fn detect_squatting(tool_name: &str, known_tools: &HashSet<String>) -> Vec<S
 
 /// Build the set of known tool names from defaults + config overrides.
 pub fn build_known_tools(config_tools: &[String]) -> HashSet<String> {
-    let mut tools: HashSet<String> = DEFAULT_KNOWN_TOOLS
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let mut tools: HashSet<String> = DEFAULT_KNOWN_TOOLS.iter().map(|s| s.to_string()).collect();
     for t in config_tools {
         tools.insert(t.to_lowercase());
     }
@@ -1055,10 +1101,7 @@ mod tests {
         let known = build_known_tools(&[]);
         // "bash" with Cyrillic a (U+0430) instead of Latin a
         let alerts = detect_squatting("b\u{0430}sh", &known);
-        assert!(
-            !alerts.is_empty(),
-            "Cyrillic 'a' in bash should be flagged"
-        );
+        assert!(!alerts.is_empty(), "Cyrillic 'a' in bash should be flagged");
         assert!(alerts
             .iter()
             .any(|a| a.similar_to == "bash" && a.kind == SquattingKind::Homoglyph));
@@ -1140,5 +1183,113 @@ mod tests {
         assert_eq!(super::normalize_homoglyphs("\u{0435}xec"), "exec");
         // Already ASCII stays the same
         assert_eq!(super::normalize_homoglyphs("bash"), "bash");
+    }
+
+    // ── Adversarial Tests: Squatting Detection Fixes ──
+
+    #[test]
+    fn test_flagged_tool_names_includes_squatting_alerts() {
+        let mut result = RugPullResult::default();
+        result.squatting_alerts.push(SquattingAlert {
+            suspicious_tool: "reаd_file".to_string(), // Cyrillic 'а'
+            similar_to: "read_file".to_string(),
+            distance: 0,
+            kind: SquattingKind::Homoglyph,
+        });
+        let flagged = result.flagged_tool_names();
+        assert!(
+            flagged.contains(&"reаd_file"),
+            "flagged_tool_names must include squatting alerts, got: {:?}",
+            flagged
+        );
+    }
+
+    #[test]
+    fn test_levenshtein_unicode_correctness() {
+        // Cyrillic string: "баш" (3 chars, 6 bytes)
+        // Latin string: "баш" vs "баш" should be 0
+        assert_eq!(super::levenshtein("баш", "баш"), 0);
+        // "баш" (3 chars) vs "bash" (4 chars) — should not panic
+        let dist = super::levenshtein("баш", "bash");
+        assert!(dist > 0, "Different strings should have nonzero distance");
+        // Single emoji vs 2-char string (emoji is 1 char but 4 bytes)
+        let dist = super::levenshtein("🔥", "ab");
+        assert_eq!(dist, 2); // delete emoji, insert a, insert b = 2? No: insert a, insert b, sub emoji = 2 ops
+    }
+
+    #[test]
+    fn test_homoglyph_cyrillic_lowercase_ve() {
+        // Cyrillic lowercase ve (U+0432) should map to 'b'
+        assert_eq!(super::normalize_homoglyphs("\u{0432}ash"), "bash");
+    }
+
+    #[test]
+    fn test_homoglyph_cyrillic_ka_em_en_te() {
+        assert_eq!(super::normalize_homoglyphs("\u{043A}"), "k"); // ka -> k
+        assert_eq!(super::normalize_homoglyphs("\u{043C}"), "m"); // em -> m
+        assert_eq!(super::normalize_homoglyphs("\u{043D}"), "h"); // en -> h
+        assert_eq!(super::normalize_homoglyphs("\u{0442}"), "t"); // te -> t
+    }
+
+    #[test]
+    fn test_homoglyph_greek_iota_kappa_nu() {
+        assert_eq!(super::normalize_homoglyphs("\u{03B9}"), "i"); // iota -> i
+        assert_eq!(super::normalize_homoglyphs("\u{03BA}"), "k"); // kappa -> k
+        assert_eq!(super::normalize_homoglyphs("\u{03BD}"), "v"); // nu -> v
+    }
+
+    #[test]
+    fn test_homoglyph_fullwidth_latin() {
+        // Fullwidth 'A' (U+FF21) -> 'a'
+        assert_eq!(super::normalize_homoglyphs("\u{FF21}"), "a");
+        // Fullwidth 'Z' (U+FF3A) -> 'z'
+        assert_eq!(super::normalize_homoglyphs("\u{FF3A}"), "z");
+        // Fullwidth 'a' (U+FF41) -> 'a'
+        assert_eq!(super::normalize_homoglyphs("\u{FF41}"), "a");
+        // Fullwidth '0' (U+FF10) -> '0'
+        assert_eq!(super::normalize_homoglyphs("\u{FF10}"), "0");
+        // Fullwidth '_' (U+FF3F) -> '_'
+        assert_eq!(super::normalize_homoglyphs("\u{FF3F}"), "_");
+    }
+
+    #[test]
+    fn test_squatting_fullwidth_tool_name() {
+        let known = build_known_tools(&[]);
+        // "bash" in fullwidth Latin (U+FF42, U+FF41, U+FF53, U+FF48) -> normalizes to "bash"
+        let fullwidth_bash = "\u{FF42}\u{FF41}\u{FF53}\u{FF48}";
+        let alerts = detect_squatting(fullwidth_bash, &known);
+        // After homoglyph normalization, this becomes "bash" which is an exact match
+        // But the original string isn't "bash", so it should be flagged as homoglyph
+        assert!(
+            !alerts.is_empty(),
+            "Fullwidth Latin 'bash' should be flagged as squatting"
+        );
+    }
+
+    #[test]
+    fn test_squatting_alerts_in_detect_rug_pull_and_squatting() {
+        let known_annotations = HashMap::new();
+        let known_tools = build_known_tools(&[]);
+
+        let response = json!({
+            "result": {
+                "tools": [
+                    {"name": "read_flie"},
+                ]
+            }
+        });
+
+        let result =
+            detect_rug_pull_and_squatting(&response, &known_annotations, true, &known_tools);
+        assert!(
+            !result.squatting_alerts.is_empty(),
+            "detect_rug_pull_and_squatting must detect squatting"
+        );
+        // Flagged tool names should include the squatting alert
+        let flagged = result.flagged_tool_names();
+        assert!(
+            flagged.contains(&"read_flie"),
+            "Squatted tool must appear in flagged_tool_names"
+        );
     }
 }

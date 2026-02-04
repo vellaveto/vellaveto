@@ -1168,14 +1168,14 @@ impl PolicyEngine {
                             policy_name: policy.name.clone(),
                             reason: "time_window missing 'start_hour' integer".to_string(),
                         })?;
-                let end_hour_u64 = obj
-                    .get("end_hour")
-                    .and_then(|v| v.as_u64())
-                    .ok_or_else(|| PolicyValidationError {
-                        policy_id: policy.id.clone(),
-                        policy_name: policy.name.clone(),
-                        reason: "time_window missing 'end_hour' integer".to_string(),
-                    })?;
+                let end_hour_u64 =
+                    obj.get("end_hour")
+                        .and_then(|v| v.as_u64())
+                        .ok_or_else(|| PolicyValidationError {
+                            policy_id: policy.id.clone(),
+                            policy_name: policy.name.clone(),
+                            reason: "time_window missing 'end_hour' integer".to_string(),
+                        })?;
                 if start_hour_u64 > 23 || end_hour_u64 > 23 {
                     return Err(PolicyValidationError {
                         policy_id: policy.id.clone(),
@@ -5650,10 +5650,13 @@ mod tests {
 
     #[test]
     fn test_fix9_normalize_path_traversal_only() {
-        // A path that is ONLY traversal sequences should normalize to "/"
-        // (all components resolve away, leaving nothing)
-        let result = PolicyEngine::normalize_path("../../..");
-        assert_eq!(result, "/", "Pure traversal path should normalize to root");
+        // A path that is ONLY traversal sequences produces an empty result
+        // after normalization, which now returns Err (fail-closed).
+        assert_eq!(
+            PolicyEngine::normalize_path("../../.."),
+            "/",
+            "Pure traversal path should normalize to root (fail-closed)"
+        );
     }
 
     // --- Phase 4.2: Percent-encoding normalization tests ---
@@ -5737,9 +5740,9 @@ mod tests {
             encoded = format!("%25{}", &encoded[1..]);
         }
         let input = format!("/etc/{}asswd", encoded);
-        let result = PolicyEngine::normalize_path(&input);
         assert_eq!(
-            result, "/",
+            PolicyEngine::normalize_path(&input),
+            "/",
             "Encoding requiring >20 decode iterations should fail-closed to root"
         );
     }
@@ -9832,14 +9835,20 @@ mod tests {
             {"type": "time_window", "start_hour": 265, "end_hour": 10}
         ]));
         let result = PolicyEngine::with_policies(false, &[policy]);
-        assert!(result.is_err(), "Should reject start_hour=265 (would truncate to 9 as u8)");
+        assert!(
+            result.is_err(),
+            "Should reject start_hour=265 (would truncate to 9 as u8)"
+        );
 
         // Same for end_hour
         let policy2 = make_context_policy(json!([
             {"type": "time_window", "start_hour": 9, "end_hour": 280}
         ]));
         let result2 = PolicyEngine::with_policies(false, &[policy2]);
-        assert!(result2.is_err(), "Should reject end_hour=280 (would truncate to 24→err, but 256+17=273→17 as u8)");
+        assert!(
+            result2.is_err(),
+            "Should reject end_hour=280 (would truncate to 24→err, but 256+17=273→17 as u8)"
+        );
     }
 
     /// SECURITY (R19-TRUNC): Verify that large u64 day values are rejected.
@@ -9850,7 +9859,10 @@ mod tests {
             {"type": "time_window", "start_hour": 9, "end_hour": 17, "days": [1, 258]}
         ]));
         let result = PolicyEngine::with_policies(false, &[policy]);
-        assert!(result.is_err(), "Should reject day=258 (would truncate to 2 as u8)");
+        assert!(
+            result.is_err(),
+            "Should reject day=258 (would truncate to 2 as u8)"
+        );
     }
 
     /// SECURITY (R19-WINDOW-EQ): start_hour == end_hour creates a zero-width
@@ -9861,7 +9873,10 @@ mod tests {
             {"type": "time_window", "start_hour": 12, "end_hour": 12}
         ]));
         let result = PolicyEngine::with_policies(false, &[policy]);
-        assert!(result.is_err(), "Should reject start_hour == end_hour (zero-width window)");
+        assert!(
+            result.is_err(),
+            "Should reject start_hour == end_hour (zero-width window)"
+        );
     }
 
     #[test]

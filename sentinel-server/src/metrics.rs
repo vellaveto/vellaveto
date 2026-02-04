@@ -49,10 +49,7 @@ pub fn init_prometheus() -> Option<PrometheusHandle> {
                 "sentinel_active_sessions",
                 "Number of currently active sessions"
             );
-            metrics::describe_gauge!(
-                "sentinel_uptime_seconds",
-                "Server uptime in seconds"
-            );
+            metrics::describe_gauge!("sentinel_uptime_seconds", "Server uptime in seconds");
 
             tracing::info!("Prometheus metrics recorder installed");
             Some(handle)

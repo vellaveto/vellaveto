@@ -663,7 +663,9 @@ async fn add_policy(
         if id_trimmed == "*" || id_trimmed == "*:*" {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Wildcard-only policy IDs ('*', '*:*') are not allowed via API"})),
+                Json(
+                    json!({"error": "Wildcard-only policy IDs ('*', '*:*') are not allowed via API"}),
+                ),
             );
         }
     }
@@ -1059,11 +1061,7 @@ async fn prometheus_metrics(State(state): State<AppState>) -> Response {
             crate::metrics::set_uptime_seconds(state.metrics.start_time.elapsed().as_secs_f64());
 
             let body = handle.render();
-            (
-                [(header::CONTENT_TYPE, "text/plain; version=0.0.4")],
-                body,
-            )
-                .into_response()
+            ([(header::CONTENT_TYPE, "text/plain; version=0.0.4")], body).into_response()
         }
         None => StatusCode::NOT_FOUND.into_response(),
     }
@@ -1742,7 +1740,10 @@ mod tests {
             "agent_id should be derived from token hash, got: {}",
             agent_id
         );
-        assert!(!agent_id.contains("note:"), "No note when no client agent_id");
+        assert!(
+            !agent_id.contains("note:"),
+            "No note when no client agent_id"
+        );
     }
 
     #[test]

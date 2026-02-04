@@ -6,7 +6,14 @@
 //! allowed requests.
 
 use anyhow::{Context, Result};
+use axum::{
+    extract::Request,
+    http::{header, HeaderValue, StatusCode},
+    middleware::Next,
+    response::{IntoResponse, Response},
+};
 use clap::Parser;
+use governor::{Quota, RateLimiter};
 use sentinel_audit::AuditLogger;
 use sentinel_config::PolicyConfig;
 use sentinel_engine::PolicyEngine;
@@ -93,6 +100,10 @@ struct Args {
     /// Use --no-canonicalize only if upstream requires exact byte-for-byte forwarding.
     #[arg(long)]
     no_canonicalize: bool,
+
+    /// Maximum requests per second (global rate limit). 0 = no limit.
+    #[arg(long, default_value_t = 200)]
+    rate_limit: u32,
 }
 
 #[tokio::main]
@@ -105,6 +116,16 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
+
+    // SECURITY: Warn if upstream does not use TLS
+    if args.upstream.starts_with("http://") {
+        tracing::warn!(
+            "SECURITY: Upstream URL uses plaintext HTTP ({}). \
+             Tool-call payloads and credentials will be transmitted unencrypted. \
+             Use https:// in production.",
+            args.upstream
+        );
+    }
 
     // Load and compile policies
     let policy_config = PolicyConfig::load_file(&args.config)
@@ -216,7 +237,11 @@ async fn main() -> Result<()> {
     // http://169.254.169.254 for cloud metadata). The proxy should not blindly
     // follow redirects — it should treat them as errors.
     let http_client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .read_timeout(Duration::from_secs(60))
         .timeout(Duration::from_secs(300))
+        .pool_idle_timeout(Duration::from_secs(90))
+        .pool_max_idle_per_host(10)
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .context("Failed to create HTTP client")?;
@@ -324,23 +349,49 @@ async fn main() -> Result<()> {
             .ok()
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false),
+        known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
     };
 
     if state.canonicalize {
         tracing::info!("TOCTOU canonicalization enabled — forwarding re-serialized JSON");
     }
 
+    // Build rate limiter (global, token-bucket)
+    let global_rate_limiter = if args.rate_limit > 0 {
+        let quota = Quota::per_second(std::num::NonZeroU32::new(args.rate_limit).unwrap());
+        let limiter = Arc::new(RateLimiter::direct(quota));
+        tracing::info!(rps = args.rate_limit, "Global rate limiting enabled");
+        Some(limiter)
+    } else {
+        tracing::info!("Rate limiting disabled");
+        None
+    };
+
     // Build router
     // SECURITY (R8-HTTP-1): Apply a 1 MB request body limit to prevent
     // resource exhaustion from oversized payloads. Matches sentinel-server.
-    let app = axum::Router::new()
+    let mut app = axum::Router::new()
         .route(
             "/mcp",
             axum::routing::post(proxy::handle_mcp_post).delete(proxy::handle_mcp_delete),
         )
         .route("/health", axum::routing::get(health))
         .layer(axum::extract::DefaultBodyLimit::max(1_048_576))
+        .layer(axum::middleware::from_fn(security_headers))
+        .layer(axum::middleware::from_fn(request_id))
         .with_state(state);
+
+    if let Some(limiter) = global_rate_limiter {
+        app = app.layer(axum::middleware::from_fn(move |request, next: Next| {
+            let limiter = limiter.clone();
+            async move {
+                if limiter.check().is_err() {
+                    return StatusCode::TOO_MANY_REQUESTS.into_response();
+                }
+                next.run(request).await
+            }
+        }));
+    }
 
     // Spawn background session cleanup task
     tokio::spawn(async move {
@@ -385,6 +436,63 @@ async fn main() -> Result<()> {
 
     tracing::info!("Proxy shut down gracefully");
     Ok(())
+}
+
+/// Middleware that adds standard security headers to all proxy responses.
+async fn security_headers(request: Request, next: Next) -> Response {
+    let is_https = request.uri().scheme_str() == Some("https")
+        || request
+            .headers()
+            .get("x-forwarded-proto")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.eq_ignore_ascii_case("https"))
+            .unwrap_or(false);
+
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        header::HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::HeaderName::from_static("x-frame-options"),
+        HeaderValue::from_static("DENY"),
+    );
+    headers.insert(
+        header::HeaderName::from_static("content-security-policy"),
+        HeaderValue::from_static("default-src 'none'"),
+    );
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(
+        header::HeaderName::from_static("x-permitted-cross-domain-policies"),
+        HeaderValue::from_static("none"),
+    );
+    if is_https {
+        headers.insert(
+            header::HeaderName::from_static("strict-transport-security"),
+            HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+        );
+    }
+    response
+}
+
+/// Middleware that adds a unique request ID to every response.
+async fn request_id(request: Request, next: Next) -> Response {
+    let incoming_id = request
+        .headers()
+        .get("x-request-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| s.len() <= 128)
+        .map(|s| s.to_string());
+
+    let mut response = next.run(request).await;
+    let id = incoming_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    if let Ok(val) = HeaderValue::from_str(&id) {
+        response
+            .headers_mut()
+            .insert(header::HeaderName::from_static("x-request-id"), val);
+    }
+    response
 }
 
 async fn health() -> &'static str {

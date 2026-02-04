@@ -157,12 +157,10 @@ pub fn classify_message(msg: &Value) -> MessageType {
             // An empty URI produces an Action with empty target_paths and target_domains,
             // which causes the engine to skip all path and network rule checks.
             match params.and_then(|p| p.get("uri")).and_then(|u| u.as_str()) {
-                Some(uri) if !uri.is_empty() => {
-                    MessageType::ResourceRead {
-                        id,
-                        uri: uri.to_string(),
-                    }
-                }
+                Some(uri) if !uri.is_empty() => MessageType::ResourceRead {
+                    id,
+                    uri: uri.to_string(),
+                },
                 _ => MessageType::Invalid {
                     id,
                     reason: "resources/read missing or empty uri parameter".to_string(),

@@ -8,6 +8,7 @@
 
 use dashmap::DashMap;
 use sentinel_config::ToolManifest;
+use sentinel_mcp::memory_tracking::MemoryTracker;
 use sentinel_mcp::rug_pull::ToolAnnotations;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -43,6 +44,10 @@ pub struct SessionState {
     /// History of tool names called in this session (most recent last).
     /// Capped at 100 entries to bound memory usage.
     pub action_history: Vec<String>,
+    /// OWASP ASI06: Per-session memory poisoning tracker.
+    /// Records fingerprints of notable strings from tool responses and flags
+    /// when those strings appear verbatim in subsequent tool call parameters.
+    pub memory_tracker: MemoryTracker,
 }
 
 impl SessionState {
@@ -61,6 +66,7 @@ impl SessionState {
             pinned_manifest: None,
             call_counts: HashMap::new(),
             action_history: Vec::new(),
+            memory_tracker: MemoryTracker::new(),
         }
     }
 

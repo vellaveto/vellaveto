@@ -30,6 +30,7 @@ pub struct PoisoningMatch {
 ///
 /// Stores SHA-256 fingerprints of notable strings from tool responses,
 /// then checks subsequent tool call parameters for matches.
+#[derive(Debug)]
 pub struct MemoryTracker {
     /// Ring buffer of SHA-256 fingerprints (FIFO eviction at capacity).
     fingerprints: VecDeque<[u8; 32]>,
@@ -155,8 +156,18 @@ impl MemoryTracker {
         }
     }
 
+    /// Maximum recursion depth for JSON traversal to prevent stack overflow.
+    const MAX_RECURSION_DEPTH: usize = 64;
+
     /// Extract strings from arbitrary JSON values.
     fn extract_from_value(&mut self, value: &serde_json::Value) {
+        self.extract_from_value_inner(value, 0);
+    }
+
+    fn extract_from_value_inner(&mut self, value: &serde_json::Value, depth: usize) {
+        if depth >= Self::MAX_RECURSION_DEPTH {
+            return;
+        }
         match value {
             serde_json::Value::String(s) => {
                 if s.len() >= MIN_TRACKABLE_LENGTH {
@@ -165,12 +176,12 @@ impl MemoryTracker {
             }
             serde_json::Value::Object(map) => {
                 for val in map.values() {
-                    self.extract_from_value(val);
+                    self.extract_from_value_inner(val, depth + 1);
                 }
             }
             serde_json::Value::Array(arr) => {
                 for val in arr {
-                    self.extract_from_value(val);
+                    self.extract_from_value_inner(val, depth + 1);
                 }
             }
             _ => {}
@@ -197,19 +208,38 @@ impl MemoryTracker {
         path: &str,
         matches: &mut Vec<PoisoningMatch>,
     ) {
+        self.check_value_inner(value, path, matches, 0);
+    }
+
+    fn check_value_inner(
+        &self,
+        value: &serde_json::Value,
+        path: &str,
+        matches: &mut Vec<PoisoningMatch>,
+        depth: usize,
+    ) {
+        if depth >= Self::MAX_RECURSION_DEPTH {
+            return;
+        }
         match value {
             serde_json::Value::String(s) => {
                 if s.len() >= MIN_TRACKABLE_LENGTH {
                     let hash = Self::hash(s);
                     if self.fingerprints.contains(&hash) {
+                        // Use char boundary-safe truncation for preview
+                        let preview = if s.len() > 80 {
+                            let mut end = 80;
+                            while !s.is_char_boundary(end) && end > 0 {
+                                end -= 1;
+                            }
+                            format!("{}...", &s[..end])
+                        } else {
+                            s.clone()
+                        };
                         matches.push(PoisoningMatch {
                             param_location: path.to_string(),
                             fingerprint: hex::encode(hash),
-                            matched_preview: if s.len() > 80 {
-                                format!("{}...", &s[..80])
-                            } else {
-                                s.clone()
-                            },
+                            matched_preview: preview,
                         });
                     }
                 }
@@ -217,13 +247,13 @@ impl MemoryTracker {
             serde_json::Value::Object(map) => {
                 for (key, val) in map {
                     let child_path = format!("{}.{}", path, key);
-                    self.check_value(val, &child_path, matches);
+                    self.check_value_inner(val, &child_path, matches, depth + 1);
                 }
             }
             serde_json::Value::Array(arr) => {
                 for (i, val) in arr.iter().enumerate() {
                     let child_path = format!("{}[{}]", path, i);
-                    self.check_value(val, &child_path, matches);
+                    self.check_value_inner(val, &child_path, matches, depth + 1);
                 }
             }
             _ => {}
@@ -286,7 +316,11 @@ mod tests {
             }
         });
         tracker.record_response(&response);
-        assert_eq!(tracker.fingerprint_count(), 0, "Short strings should not be tracked");
+        assert_eq!(
+            tracker.fingerprint_count(),
+            0,
+            "Short strings should not be tracked"
+        );
     }
 
     #[test]
@@ -376,11 +410,17 @@ mod tests {
             "url": "https://session-a-only.example.com/secret/endpoint"
         });
         let matches_b = tracker_b.check_parameters(&params);
-        assert!(matches_b.is_empty(), "Session B should not see Session A data");
+        assert!(
+            matches_b.is_empty(),
+            "Session B should not see Session A data"
+        );
 
         // Session A should detect it
         let matches_a = tracker_a.check_parameters(&params);
-        assert!(!matches_a.is_empty(), "Session A should detect its own data");
+        assert!(
+            !matches_a.is_empty(),
+            "Session A should detect its own data"
+        );
     }
 
     #[test]
@@ -424,5 +464,64 @@ mod tests {
         });
         let matches = tracker.check_parameters(&params);
         assert!(!matches.is_empty(), "Should detect URL from error message");
+    }
+
+    // ── Adversarial Tests: Safety Fixes ──
+
+    #[test]
+    fn test_deep_nested_json_no_stack_overflow() {
+        let mut tracker = MemoryTracker::new();
+
+        // Build a deeply nested JSON structure (100 levels deep)
+        let mut nested = json!("deeply nested secret string value that is long enough");
+        for _ in 0..100 {
+            nested = json!({"inner": nested});
+        }
+
+        let response = json!({
+            "result": {
+                "structuredContent": nested
+            }
+        });
+        // Should NOT panic (stack overflow) — recursion is capped
+        tracker.record_response(&response);
+
+        // Build deeply nested params too
+        let mut nested_params = json!("deeply nested secret string value that is long enough");
+        for _ in 0..100 {
+            nested_params = json!({"inner": nested_params});
+        }
+        // Should NOT panic
+        let _matches = tracker.check_parameters(&nested_params);
+    }
+
+    #[test]
+    fn test_matched_preview_multibyte_utf8_safe() {
+        let mut tracker = MemoryTracker::new();
+
+        // Create a string with multi-byte chars near the 80-byte boundary
+        // 'é' is 2 bytes in UTF-8, so 40 'é' chars = 80 bytes
+        let multibyte_str: String = "é".repeat(50);
+        assert!(multibyte_str.len() > 80); // Ensure it exceeds 80 bytes
+
+        let response = json!({
+            "result": {
+                "content": [{
+                    "type": "text",
+                    "text": multibyte_str
+                }]
+            }
+        });
+        tracker.record_response(&response);
+
+        let params = json!({"data": multibyte_str});
+        // Should NOT panic on byte boundary
+        let matches = tracker.check_parameters(&params);
+        assert!(
+            !matches.is_empty(),
+            "Should detect replayed multibyte string"
+        );
+        // Preview should be valid UTF-8 and end with "..."
+        assert!(matches[0].matched_preview.ends_with("..."));
     }
 }
