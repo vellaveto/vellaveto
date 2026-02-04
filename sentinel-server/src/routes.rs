@@ -21,23 +21,6 @@ use subtle::ConstantTimeEq;
 
 use crate::AppState;
 
-/// Recompile the policy engine from the current policy set and swap it in.
-/// On compilation failure (invalid patterns), logs a warning and keeps the old engine.
-fn recompile_engine(state: &AppState) {
-    let policies = state.policies.load();
-    match PolicyEngine::with_policies(false, &policies) {
-        Ok(engine) => {
-            state.engine.store(Arc::new(engine));
-        }
-        Err(errors) => {
-            for e in &errors {
-                tracing::warn!("Policy recompilation error: {}", e);
-            }
-            tracing::warn!("Keeping previous compiled engine due to errors");
-        }
-    }
-}
-
 pub fn build_router(state: AppState) -> Router {
     // Build CORS layer from configured origins.
     // Default (empty vec) = localhost only. "*" = any origin.
@@ -610,15 +593,32 @@ async fn add_policy(
         );
     }
 
+    // Build candidate policy list
     let id = policy.id.clone();
-    state.policies.rcu(|old| {
-        let mut new = old.as_ref().clone();
-        new.push(policy.clone());
-        PolicyEngine::sort_policies(&mut new);
-        new
-    });
-    tracing::info!("Added policy: {}", id);
-    recompile_engine(&state);
+    let mut candidate = existing.as_ref().clone();
+    candidate.push(policy.clone());
+    PolicyEngine::sort_policies(&mut candidate);
+
+    // Compile-first: verify the new policy set compiles before storing
+    match PolicyEngine::with_policies(false, &candidate) {
+        Ok(compiled_engine) => {
+            // Atomically store both the compiled engine and the policy list
+            state.engine.store(Arc::new(compiled_engine));
+            state.policies.store(Arc::new(candidate));
+            tracing::info!("Added policy: {}", id);
+        }
+        Err(errors) => {
+            let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+            tracing::warn!("add_policy rejected: compilation failed: {:?}", msgs);
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "Policy compilation failed — policy NOT added",
+                    "details": msgs,
+                })),
+            );
+        }
+    }
 
     // Audit trail for policy mutation
     let action = Action::new("sentinel", "add_policy", json!({"policy_id": id}));
@@ -641,44 +641,58 @@ async fn remove_policy(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    let before = state.policies.load().len();
-    state.policies.rcu(|old| {
-        let mut new = old.as_ref().clone();
-        new.retain(|p| p.id != id);
-        new
-    });
-    let after = state.policies.load().len();
-    let removed = before.saturating_sub(after);
+    let existing = state.policies.load();
+    let candidate: Vec<Policy> = existing.iter().filter(|p| p.id != id).cloned().collect();
+    let removed = existing.len().saturating_sub(candidate.len());
 
-    if removed > 0 {
-        tracing::info!("Removed {} policy(ies) with id: {}", removed, id);
-        recompile_engine(&state);
-
-        // Audit trail for policy mutation
-        let action = Action::new(
-            "sentinel",
-            "remove_policy",
-            json!({"policy_id": id, "removed_count": removed}),
-        );
-        if let Err(e) = state
-            .audit
-            .log_entry(
-                &action,
-                &Verdict::Allow,
-                json!({"source": "api", "event": "policy_removed"}),
-            )
-            .await
-        {
-            tracing::warn!("Failed to audit remove_policy: {}", e);
-        }
-
-        (StatusCode::OK, Json(json!({"removed": removed, "id": id})))
-    } else {
-        (
+    if removed == 0 {
+        return (
             StatusCode::NOT_FOUND,
             Json(json!({"error": format!("No policy with id '{}'", id)})),
-        )
+        );
     }
+
+    // Compile-first: verify the remaining set compiles before storing
+    match PolicyEngine::with_policies(false, &candidate) {
+        Ok(compiled_engine) => {
+            state.engine.store(Arc::new(compiled_engine));
+            state.policies.store(Arc::new(candidate));
+            tracing::info!("Removed {} policy(ies) with id: {}", removed, id);
+        }
+        Err(errors) => {
+            // This is unlikely (removing a policy shouldn't break compilation)
+            // but we stay fail-closed.
+            let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+            tracing::error!("remove_policy rejected: recompilation failed: {:?}", msgs);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": "Policy recompilation failed after removal — no changes applied",
+                    "details": msgs,
+                })),
+            );
+        }
+    }
+
+    // Audit trail for policy mutation
+    let action = Action::new(
+        "sentinel",
+        "remove_policy",
+        json!({"policy_id": id, "removed_count": removed}),
+    );
+    if let Err(e) = state
+        .audit
+        .log_entry(
+            &action,
+            &Verdict::Allow,
+            json!({"source": "api", "event": "policy_removed"}),
+        )
+        .await
+    {
+        tracing::warn!("Failed to audit remove_policy: {}", e);
+    }
+
+    (StatusCode::OK, Json(json!({"removed": removed, "id": id})))
 }
 
 async fn reload_policies(

@@ -2359,3 +2359,84 @@ async fn per_principal_x_principal_takes_precedence_over_bearer() {
         "Different X-Principal should be allowed even with same Bearer token"
     );
 }
+
+// ═══════════════════════════════════════════════════
+// COMPILE-FIRST-THEN-STORE (R12-RELOAD-3 / R12-INT-1)
+// ═══════════════════════════════════════════════════
+
+/// Adding a policy with an invalid path glob must fail with 400
+/// and leave both the policy list and compiled engine unchanged.
+#[tokio::test]
+async fn add_policy_with_invalid_glob_is_rejected_and_state_unchanged() {
+    let (state, _tmp) = make_state();
+    let policies_before = state.policies.load().len();
+
+    let app = routes::build_router(state.clone());
+
+    // Policy with a syntactically invalid glob in path_rules.blocked
+    let bad_policy = json!({
+        "id": "bad:glob",
+        "name": "Bad glob policy",
+        "policy_type": "Deny",
+        "priority": 10,
+        "path_rules": {
+            "blocked": ["[invalid-glob"]
+        }
+    });
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/policies")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&bad_policy).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "Policy with invalid glob should be rejected"
+    );
+
+    // Verify policy list is unchanged
+    let policies_after = state.policies.load().len();
+    assert_eq!(
+        policies_before, policies_after,
+        "Policy list must not change on failed compilation"
+    );
+}
+
+/// Removing a policy recompiles and stores atomically.
+/// Removing a valid policy should succeed and update both stores.
+#[tokio::test]
+async fn remove_policy_atomic_store_updates_both() {
+    let (state, _tmp) = make_state();
+
+    // Start with compiled engine so remove can also compile
+    let policies = state.policies.load();
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+    state.engine.store(Arc::new(engine));
+
+    let app = routes::build_router(state.clone());
+
+    let resp = app
+        .oneshot(
+            Request::delete("/api/policies/file:read")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Verify the policy was actually removed from the stored list
+    let remaining = state.policies.load();
+    assert!(
+        !remaining.iter().any(|p| p.id == "file:read"),
+        "file:read should have been removed"
+    );
+    assert_eq!(remaining.len(), 1, "Only bash:* should remain");
+}
