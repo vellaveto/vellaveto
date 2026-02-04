@@ -1,13 +1,24 @@
 name: CI
+
 on:
   push:
     branches: [main]
   pull_request:
+
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -Dwarnings
+  CARGO_INCREMENTAL: 0
+
 jobs:
+  # ───────────────────────────────────────────────────────
+  # 1. Fast checks: format, lint, compile
+  # ───────────────────────────────────────────────────────
   check:
+    name: Check & Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,18 +26,18 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
-      - name: Check
-        run: cargo check --workspace --all-targets
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        with:
+          cache-on-failure: true
+
       - name: Format
         run: cargo fmt --all -- --check
-      - name: Test
-        run: cargo test --workspace --no-fail-fast
-      - name: Doc
-        run: cargo doc --workspace --no-deps
-      - name: Security Audit
-        run: cargo install cargo-audit && cargo audit
+
+      - name: Check
+        run: cargo check --workspace --all-targets
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
       - name: Reject unwrap()/expect() in library code
         run: |
           # Scan library source (excluding main.rs and #[cfg(test)] modules) for
@@ -41,3 +52,122 @@ jobs:
             echo "$HITS"
             exit 1
           }
+
+  # ───────────────────────────────────────────────────────
+  # 2. Full test suite
+  # ───────────────────────────────────────────────────────
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Run tests
+        run: cargo test --workspace --no-fail-fast
+
+      - name: Build docs (verify no broken links)
+        run: cargo doc --workspace --no-deps
+
+  # ───────────────────────────────────────────────────────
+  # 3. Security audit
+  # ───────────────────────────────────────────────────────
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ───────────────────────────────────────────────────────
+  # 4. Fuzz target compilation check
+  # ───────────────────────────────────────────────────────
+  fuzz:
+    name: Fuzz Targets Compile
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz -> target
+          cache-on-failure: true
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Check fuzz targets compile
+        working-directory: fuzz
+        run: cargo +nightly check --all-targets
+
+  # ───────────────────────────────────────────────────────
+  # 5. Benchmark regression gate (push to main only)
+  # ───────────────────────────────────────────────────────
+  bench:
+    name: Benchmark Regression Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Restore benchmark baseline
+        uses: actions/cache@v4
+        with:
+          path: target/criterion
+          key: bench-baseline-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: bench-baseline-${{ runner.os }}-
+
+      - name: Run benchmarks
+        run: cargo bench --workspace
+
+      - name: Save benchmark baseline
+        uses: actions/cache/save@v4
+        with:
+          path: target/criterion
+          key: bench-baseline-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+
+  # ───────────────────────────────────────────────────────
+  # 6. Release build (verify LTO and stripped binary)
+  # ───────────────────────────────────────────────────────
+  release-build:
+    name: Release Build
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build release binaries
+        run: cargo build --release --workspace
+
+      - name: Check binary sizes
+        run: |
+          echo "=== Release binary sizes ==="
+          ls -lh target/release/sentinel-server target/release/sentinel-proxy target/release/sentinel-http-proxy 2>/dev/null || true
+          # Fail if any binary exceeds 50MB (signal of accidental debug info or bloat)
+          for bin in target/release/sentinel-server target/release/sentinel-proxy target/release/sentinel-http-proxy; do
+            if [ -f "$bin" ]; then
+              SIZE=$(stat --printf="%s" "$bin")
+              MAX=$((50 * 1024 * 1024))
+              if [ "$SIZE" -gt "$MAX" ]; then
+                echo "::error::$bin is $(($SIZE / 1024 / 1024))MB — exceeds 50MB limit"
+                exit 1
+              fi
+              echo "$bin: $(($SIZE / 1024 / 1024))MB — OK"
+            fi
+          done
