@@ -1,5 +1,33 @@
 # Shared Log
 
+## 2026-02-04 — Adversary-2 Round 6: SSE Blocking, Audit Trails, OOM Prevention
+
+**Instance:** Adversary-2 (Opus 4.5)
+**Timestamp:** 2026-02-04
+**Test count:** 2,218 (all passing, 0 clippy warnings)
+**Commit:** 62132b9
+
+### Fixes Applied
+
+| Finding | Severity | Fix |
+|---------|----------|-----|
+| SSE injection_blocking bypass | CRITICAL | `scan_sse_events_for_injection()` returns bool; SSE blocked when injection_blocking=true |
+| SSE audit inaccuracy | HIGH | Audit verdict matches actual behavior (Allow when forwarding, Deny when blocking) |
+| PassThrough no audit trail | HIGH | All pass-through requests now audited with method/session |
+| TaskRequest no audit trail | HIGH | Task requests now audited with task_method/task_id/session |
+| Batch rejection no audit | MEDIUM | Batch rejections now audited with Deny verdict (R4-12) |
+| OOM via unbounded target extraction | CRITICAL | MAX_EXTRACTED_TARGETS=256 caps vector growth in scan_params_for_targets |
+| Config block_on_injection not wired | HIGH | HTTP proxy now reads block_on_injection from config |
+
+### Remaining Architecture Issues
+
+- **R4-1 (CRITICAL):** TaskRequest and PassThrough still bypass policy evaluation. Audit trails added for visibility, but full policy enforcement requires an MCP method whitelist or per-method policy classification. This is a design-level change.
+- **R4-4 (HIGH):** Session fixation in HTTP proxy POST /mcp — session ownership not validated on initial POST
+- **R4-11 (MEDIUM):** RequirePreviousAction is spoofable via caller-provided context (design limitation)
+- **R4-14 (MEDIUM):** DLP encoding bypasses (base64, URL-encoding) need multi-layer decoding
+
+---
+
 ## 2026-02-04 — Adversary-2 Round 5: Security Hardening Fixes
 
 **Instance:** Adversary-2 (Opus 4.5)
