@@ -811,7 +811,7 @@ impl AuditLogger {
         });
         let manifest_path = self.rotation_manifest_path();
         let mut manifest_line =
-            serde_json::to_string(&manifest_entry).map_err(|e| AuditError::Serialization(e))?;
+            serde_json::to_string(&manifest_entry).map_err(AuditError::Serialization)?;
         manifest_line.push('\n');
 
         let mut manifest_file = OpenOptions::new()
