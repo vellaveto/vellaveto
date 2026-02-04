@@ -26,3 +26,8 @@ percent-encoding = "2.3"
 [dev-dependencies]
 proptest = "1.4"
 tempfile = "3.0"
+criterion = { version = "0.8", features = ["html_reports"] }
+
+[[bench]]
+name = "inspection"
+harness = false

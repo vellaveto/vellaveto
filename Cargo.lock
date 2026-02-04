@@ -2290,6 +2290,7 @@ dependencies = [
  "aho-corasick",
  "base64",
  "chrono",
+ "criterion",
  "percent-encoding",
  "proptest",
  "regex",
