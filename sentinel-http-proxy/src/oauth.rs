@@ -643,12 +643,10 @@ mod tests {
 
     #[test]
     fn test_deserialize_claims_with_resource() {
-        let json = r#"{"sub":"user","aud":"mcp-server","scope":"","resource":"https://mcp.example.com"}"#;
+        let json =
+            r#"{"sub":"user","aud":"mcp-server","scope":"","resource":"https://mcp.example.com"}"#;
         let claims: OAuthClaims = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            claims.resource,
-            Some("https://mcp.example.com".to_string())
-        );
+        assert_eq!(claims.resource, Some("https://mcp.example.com".to_string()));
     }
 
     #[test]

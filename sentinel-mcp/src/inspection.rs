@@ -467,7 +467,10 @@ pub const DLP_PATTERNS: &[(&str, &str)] = &[
         r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----",
     ),
     // Bounded quantifier {1,512} prevents ReDoS on crafted Slack-like tokens.
-    ("slack_token", r"xox[bporas]-[0-9]{10,13}-[A-Za-z0-9-]{1,512}"),
+    (
+        "slack_token",
+        r"xox[bporas]-[0-9]{10,13}-[A-Za-z0-9-]{1,512}",
+    ),
     (
         "jwt_token",
         // Bounded quantifiers {1,8192} prevent ReDoS while covering realistic JWT sizes.
@@ -1319,7 +1322,10 @@ mod tests {
             }
         });
         let findings = scan_response_for_secrets(&response);
-        assert!(!findings.is_empty(), "Should detect AWS key in response content");
+        assert!(
+            !findings.is_empty(),
+            "Should detect AWS key in response content"
+        );
         assert!(findings.iter().any(|f| f.pattern_name == "aws_access_key"));
         assert!(findings
             .iter()
@@ -1362,7 +1368,10 @@ mod tests {
             }
         });
         let findings = scan_response_for_secrets(&response);
-        assert!(findings.is_empty(), "Clean response should have no findings");
+        assert!(
+            findings.is_empty(),
+            "Clean response should have no findings"
+        );
     }
 
     #[test]
@@ -1380,7 +1389,10 @@ mod tests {
             }
         });
         let findings = scan_response_for_secrets(&response);
-        assert!(!findings.is_empty(), "Should detect GitHub token in response");
+        assert!(
+            !findings.is_empty(),
+            "Should detect GitHub token in response"
+        );
         assert!(findings.iter().any(|f| f.pattern_name == "github_token"));
     }
 
@@ -1433,10 +1445,7 @@ mod tests {
         // R4-14: URL-encoded AWS key should be detected.
         // URL-encode each character as %XX
         let raw_key = "AKIAIOSFODNN7EXAMPLE";
-        let encoded: String = raw_key
-            .bytes()
-            .map(|b| format!("%{:02X}", b))
-            .collect();
+        let encoded: String = raw_key.bytes().map(|b| format!("%{:02X}", b)).collect();
         let params = json!({"data": encoded});
         let findings = scan_parameters_for_secrets(&params);
         assert!(
@@ -1447,8 +1456,7 @@ mod tests {
         assert!(
             findings
                 .iter()
-                .any(|f| f.pattern_name == "aws_access_key"
-                    && f.location.contains("url_encoded")),
+                .any(|f| f.pattern_name == "aws_access_key" && f.location.contains("url_encoded")),
             "Finding should indicate URL decoding, got: {:?}",
             findings
         );
@@ -1485,8 +1493,7 @@ mod tests {
         // R4-14: URL-safe base64 (no padding) should also be decoded.
         use base64::Engine;
         let raw_key = "AKIAIOSFODNN7EXAMPLE";
-        let encoded =
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw_key);
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw_key);
         let params = json!({"data": encoded});
         let findings = scan_parameters_for_secrets(&params);
         assert!(

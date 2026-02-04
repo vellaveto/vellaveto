@@ -146,10 +146,7 @@ fn test_meta_field_preserved_with_strict_schema() {
     });
     match registry.validate("strict_tool", &content_with_meta) {
         ValidationResult::Valid => {} // expected: _meta is allowed
-        other => panic!(
-            "Expected Valid (meta should be preserved), got {:?}",
-            other
-        ),
+        other => panic!("Expected Valid (meta should be preserved), got {:?}", other),
     }
 
     // Content with a truly extra property should still fail
@@ -160,9 +157,7 @@ fn test_meta_field_preserved_with_strict_schema() {
     match registry.validate("strict_tool", &content_with_extra) {
         ValidationResult::Invalid { violations } => {
             assert!(
-                violations
-                    .iter()
-                    .any(|v| v.contains("extra_field")),
+                violations.iter().any(|v| v.contains("extra_field")),
                 "Should flag extra_field but not _meta"
             );
         }
@@ -386,7 +381,10 @@ fn test_response_dlp_empty_response_passes() {
     });
 
     let findings = scan_response_for_secrets(&empty_response);
-    assert!(findings.is_empty(), "Empty response should have no findings");
+    assert!(
+        findings.is_empty(),
+        "Empty response should have no findings"
+    );
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -434,7 +432,11 @@ fn test_output_schema_registry_multiple_tools() {
     });
 
     registry.register_from_tools_list(&response);
-    assert_eq!(registry.len(), 2, "Should register 2 tools with output schemas");
+    assert_eq!(
+        registry.len(),
+        2,
+        "Should register 2 tools with output schemas"
+    );
 
     // tool_a validation
     let valid_a = json!({ "result": "hello" });

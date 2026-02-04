@@ -561,11 +561,8 @@ impl ToolManifest {
         }
 
         // Build pinned tool lookup for detailed comparison
-        let pinned_tools_by_name: std::collections::HashMap<&str, &ManifestToolEntry> = self
-            .tools
-            .iter()
-            .map(|t| (t.name.as_str(), t))
-            .collect();
+        let pinned_tools_by_name: std::collections::HashMap<&str, &ManifestToolEntry> =
+            self.tools.iter().map(|t| (t.name.as_str(), t)).collect();
 
         // Check for new or changed tools
         for live_tool in &live.tools {
@@ -1975,10 +1972,7 @@ policy_type = "Allow"
             }
         });
         let result = pinned.verify(&changed);
-        assert!(
-            !result.passed,
-            "Should detect title change as discrepancy"
-        );
+        assert!(!result.passed, "Should detect title change as discrepancy");
         assert!(
             result
                 .discrepancies

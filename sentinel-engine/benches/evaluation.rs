@@ -971,7 +971,11 @@ fn bench_context_forbidden_previous_action(c: &mut Criterion) {
     let mut group = c.benchmark_group("context/forbidden_previous");
 
     group.bench_function("deny_with_match", |b| {
-        let action = make_action("http_request", "execute", json!({"url": "https://evil.com"}));
+        let action = make_action(
+            "http_request",
+            "execute",
+            json!({"url": "https://evil.com"}),
+        );
         let ctx = EvaluationContext {
             previous_actions: vec!["read_file".to_string(), "list_files".to_string()],
             ..Default::default()
@@ -986,7 +990,11 @@ fn bench_context_forbidden_previous_action(c: &mut Criterion) {
     });
 
     group.bench_function("allow_no_match", |b| {
-        let action = make_action("http_request", "execute", json!({"url": "https://safe.com"}));
+        let action = make_action(
+            "http_request",
+            "execute",
+            json!({"url": "https://safe.com"}),
+        );
         let ctx = EvaluationContext {
             previous_actions: vec!["list_files".to_string()],
             ..Default::default()

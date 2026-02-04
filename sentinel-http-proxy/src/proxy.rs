@@ -1777,9 +1777,7 @@ async fn forward_to_upstream(
                                     .register_from_tools_list(&response_json);
 
                                 // MCP 2025-06-18: Validate structuredContent against registered schemas
-                                if let Some(structured) =
-                                    result.get("structuredContent")
-                                {
+                                if let Some(structured) = result.get("structuredContent") {
                                     // Try to extract tool name from request tracking (best-effort).
                                     // For JSON responses we don't have request→response mapping here,
                                     // so we log a warning if validation fails without a tool name.
@@ -1920,16 +1918,13 @@ async fn forward_to_upstream(
 
                         // DLP response scanning: detect secrets in tool responses.
                         if state.response_dlp_enabled {
-                            if let Ok(response_json) =
-                                serde_json::from_slice::<Value>(&body_bytes)
+                            if let Ok(response_json) = serde_json::from_slice::<Value>(&body_bytes)
                             {
                                 let dlp_findings = scan_response_for_secrets(&response_json);
                                 if !dlp_findings.is_empty() {
                                     let patterns: Vec<String> = dlp_findings
                                         .iter()
-                                        .map(|f| {
-                                            format!("{}:{}", f.pattern_name, f.location)
-                                        })
+                                        .map(|f| format!("{}:{}", f.pattern_name, f.location))
                                         .collect();
                                     tracing::warn!(
                                         "SECURITY: Secrets detected in tool response! \
@@ -2270,10 +2265,7 @@ async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &Pro
                         .log_entry(
                             &action,
                             &Verdict::Deny {
-                                reason: format!(
-                                    "Secrets detected in SSE response: {:?}",
-                                    patterns
-                                ),
+                                reason: format!("Secrets detected in SSE response: {:?}", patterns),
                             },
                             json!({
                                 "source": "http_proxy",

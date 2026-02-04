@@ -159,8 +159,12 @@ pub fn detect_rug_pull(
     let mut updated_known = known.clone();
 
     for tool in tools {
+        // SECURITY: Normalize tool names to prevent Unicode homoglyph bypass.
+        // Without normalization, a server could use "bаsh" (Cyrillic 'а') to
+        // evade flagging of "bash" (Latin 'a'). Same normalization as
+        // classify_message() for consistency.
         let name = match tool.get("name").and_then(|n| n.as_str()) {
-            Some(n) => n.to_string(),
+            Some(n) => crate::extractor::normalize_method(n),
             None => continue,
         };
 
@@ -613,6 +617,125 @@ mod tests {
         assert!(
             h.chars().all(|c| c.is_ascii_hexdigit()),
             "Hash should be hex"
+        );
+    }
+
+    // --- Unicode normalization tests ---
+
+    #[test]
+    fn test_zero_width_char_tool_name_normalized() {
+        // First tools/list: "bash" (clean)
+        let response1 = json!({
+            "result": {
+                "tools": [
+                    {"name": "bash", "annotations": {"readOnlyHint": false}},
+                ]
+            }
+        });
+        let known = HashMap::new();
+        let result1 = detect_rug_pull(&response1, &known, true);
+        assert!(!result1.has_detections());
+        assert!(result1.updated_known.contains_key("bash"));
+
+        // Second tools/list: "bash\u{200B}" (zero-width space injected)
+        // Should normalize to "bash" and NOT be detected as a new tool
+        let response2 = json!({
+            "result": {
+                "tools": [
+                    {"name": "bash\u{200B}", "annotations": {"readOnlyHint": false}},
+                ]
+            }
+        });
+        let result2 = detect_rug_pull(&response2, &result1.updated_known, false);
+        assert!(
+            !result2.has_detections(),
+            "Zero-width char variant should normalize to same tool name"
+        );
+    }
+
+    #[test]
+    fn test_case_variant_tool_name_normalized() {
+        // First tools/list: "ReadFile"
+        let response1 = json!({
+            "result": {
+                "tools": [
+                    {"name": "ReadFile", "annotations": {"readOnlyHint": true}},
+                ]
+            }
+        });
+        let known = HashMap::new();
+        let result1 = detect_rug_pull(&response1, &known, true);
+        assert!(!result1.has_detections());
+        // Stored as normalized lowercase
+        assert!(result1.updated_known.contains_key("readfile"));
+
+        // Second tools/list: "readfile" (different case)
+        // Should normalize to same key and NOT be detected as new
+        let response2 = json!({
+            "result": {
+                "tools": [
+                    {"name": "readfile", "annotations": {"readOnlyHint": true}},
+                ]
+            }
+        });
+        let result2 = detect_rug_pull(&response2, &result1.updated_known, false);
+        assert!(
+            !result2.has_detections(),
+            "Case variant should normalize to same tool name"
+        );
+    }
+
+    #[test]
+    fn test_annotation_change_detected_after_normalization() {
+        // First tools/list: "BASH" with readOnly=false
+        let response1 = json!({
+            "result": {
+                "tools": [
+                    {"name": "BASH", "annotations": {"readOnlyHint": false}},
+                ]
+            }
+        });
+        let known = HashMap::new();
+        let result1 = detect_rug_pull(&response1, &known, true);
+
+        // Second tools/list: "bash\u{200B}" with readOnly=true (rug-pull!)
+        // Normalization should map to same name, and annotation change should be detected
+        let response2 = json!({
+            "result": {
+                "tools": [
+                    {"name": "bash\u{200B}", "annotations": {"readOnlyHint": true}},
+                ]
+            }
+        });
+        let result2 = detect_rug_pull(&response2, &result1.updated_known, false);
+        assert!(
+            result2.has_detections(),
+            "Annotation change should be detected despite Unicode variant"
+        );
+        assert_eq!(result2.changed_tools, vec!["bash"]);
+    }
+
+    #[test]
+    fn test_flagged_names_are_normalized() {
+        let mut known = HashMap::new();
+        known.insert("bash".to_string(), ToolAnnotations::default());
+
+        // New tool with zero-width chars should be flagged with normalized name
+        let response = json!({
+            "result": {
+                "tools": [
+                    {"name": "bash"},
+                    {"name": "Evil\u{200B}Tool"},
+                ]
+            }
+        });
+        let result = detect_rug_pull(&response, &known, false);
+        let flagged = result.flagged_tool_names();
+        // The flagged name should be normalized (lowercase, no zero-width)
+        assert!(
+            flagged.contains(&"evil\u{200b}tool") || flagged.contains(&"eviltool"),
+            "Flagged name should be normalized: {:?}",
+            flagged
         );
     }
 }

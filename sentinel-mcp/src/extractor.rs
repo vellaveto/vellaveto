@@ -70,7 +70,7 @@ pub enum MessageType {
 /// Strips trailing slashes, null bytes, and whitespace to prevent
 /// bypass via `"tools/call/"`, `"tools/call\0"`, or `"tools/call "`.
 /// Returns the normalized lowercase form for case-insensitive comparison.
-fn normalize_method(method: &str) -> String {
+pub(crate) fn normalize_method(method: &str) -> String {
     method
         .trim()
         .replace(
@@ -136,8 +136,7 @@ pub fn classify_message(msg: &Value) -> MessageType {
                     if normalized_name.is_empty() {
                         return MessageType::Invalid {
                             id,
-                            reason: "tools/call tool name is empty after normalization"
-                                .to_string(),
+                            reason: "tools/call tool name is empty after normalization".to_string(),
                         };
                     }
 
@@ -217,6 +216,10 @@ pub fn extract_action(tool_name: &str, arguments: &Value) -> Action {
 /// Maximum recursion depth for parameter scanning (defense-in-depth against stack overflow).
 const MAX_PARAM_SCAN_DEPTH: usize = 32;
 
+/// Maximum number of extracted paths + domains to prevent OOM from large parameter arrays.
+/// Matches the server-side limit in sentinel-server/src/routes.rs.
+const MAX_EXTRACTED_TARGETS: usize = 256;
+
 /// Scan parameter values for file paths and URLs, populating target_paths and target_domains.
 fn extract_targets_from_params(value: &Value, paths: &mut Vec<String>, domains: &mut Vec<String>) {
     extract_targets_from_params_inner(value, paths, domains, 0);
@@ -229,6 +232,10 @@ fn extract_targets_from_params_inner(
     depth: usize,
 ) {
     if depth >= MAX_PARAM_SCAN_DEPTH {
+        return;
+    }
+    // SECURITY (R11-PATH-4): Cap extracted targets to prevent OOM.
+    if paths.len() + domains.len() >= MAX_EXTRACTED_TARGETS {
         return;
     }
     match value {
@@ -276,6 +283,13 @@ fn extract_targets_from_params_inner(
                 if !clean.is_empty() {
                     paths.push(clean.to_string());
                 }
+            } else if looks_like_relative_path(s) {
+                // SECURITY (R11-PATH-3): Catch relative paths containing ..
+                // or starting with ~/ that bypass the absolute-path check.
+                let clean = strip_query_and_fragment(s);
+                if !clean.is_empty() {
+                    paths.push(format!("/{}", clean));
+                }
             }
         }
         Value::Object(map) => {
@@ -296,6 +310,19 @@ fn extract_targets_from_params_inner(
 fn strip_query_and_fragment(path: &str) -> &str {
     let path = path.split('?').next().unwrap_or(path);
     path.split('#').next().unwrap_or(path)
+}
+
+/// Detect relative paths that could bypass the absolute-path check.
+fn looks_like_relative_path(s: &str) -> bool {
+    if s.contains(' ') {
+        return false;
+    }
+    s.starts_with("../")
+        || s.starts_with("./")
+        || s.starts_with("~/")
+        || s.contains("/../")
+        || s == ".."
+        || s == "~"
 }
 
 /// Extract an [`Action`] from a `resources/read` URI.

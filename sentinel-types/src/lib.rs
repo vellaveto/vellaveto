@@ -34,10 +34,7 @@ pub enum ValidationError {
         max: usize,
     },
     /// A target path or domain contains a null byte.
-    TargetNullByte {
-        field: &'static str,
-        index: usize,
-    },
+    TargetNullByte { field: &'static str, index: usize },
 }
 
 impl fmt::Display for ValidationError {
@@ -482,7 +479,10 @@ mod tests {
         action.target_paths = vec!["/tmp/foo\0bar".to_string()];
         assert!(matches!(
             action.validate(),
-            Err(ValidationError::TargetNullByte { field: "target_paths", index: 0 })
+            Err(ValidationError::TargetNullByte {
+                field: "target_paths",
+                index: 0
+            })
         ));
     }
 
@@ -492,7 +492,10 @@ mod tests {
         action.target_domains = vec!["evil\0.com".to_string()];
         assert!(matches!(
             action.validate(),
-            Err(ValidationError::TargetNullByte { field: "target_domains", index: 0 })
+            Err(ValidationError::TargetNullByte {
+                field: "target_domains",
+                index: 0
+            })
         ));
     }
 
@@ -502,7 +505,11 @@ mod tests {
         action.target_paths = vec!["a".repeat(4097)];
         assert!(matches!(
             action.validate(),
-            Err(ValidationError::TargetTooLong { field: "target_paths", index: 0, .. })
+            Err(ValidationError::TargetTooLong {
+                field: "target_paths",
+                index: 0,
+                ..
+            })
         ));
     }
 
@@ -521,7 +528,10 @@ mod tests {
         // 200 + 100 = 300 > 256
         assert!(matches!(
             action.validate(),
-            Err(ValidationError::TooManyTargets { count: 300, max: 256 })
+            Err(ValidationError::TooManyTargets {
+                count: 300,
+                max: 256
+            })
         ));
     }
 
@@ -540,21 +550,35 @@ mod tests {
         action.target_paths = vec!["/ok".to_string(), "/bad\0path".to_string()];
         assert!(matches!(
             action.validate(),
-            Err(ValidationError::TargetNullByte { field: "target_paths", index: 1 })
+            Err(ValidationError::TargetNullByte {
+                field: "target_paths",
+                index: 1
+            })
         ));
     }
 
     #[test]
     fn test_target_validation_error_display() {
-        let e = ValidationError::TooManyTargets { count: 500, max: 256 };
+        let e = ValidationError::TooManyTargets {
+            count: 500,
+            max: 256,
+        };
         assert!(e.to_string().contains("500"));
         assert!(e.to_string().contains("256"));
 
-        let e = ValidationError::TargetNullByte { field: "target_paths", index: 3 };
+        let e = ValidationError::TargetNullByte {
+            field: "target_paths",
+            index: 3,
+        };
         assert!(e.to_string().contains("target_paths[3]"));
         assert!(e.to_string().contains("null byte"));
 
-        let e = ValidationError::TargetTooLong { field: "target_domains", index: 0, len: 5000, max: 4096 };
+        let e = ValidationError::TargetTooLong {
+            field: "target_domains",
+            index: 0,
+            len: 5000,
+            max: 4096,
+        };
         assert!(e.to_string().contains("5000"));
         assert!(e.to_string().contains("4096"));
     }

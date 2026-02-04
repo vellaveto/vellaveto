@@ -1,5 +1,64 @@
 # Shared Log
 
+## 2026-02-04 — Controller: Fresh Security Audit + 8 Hardening Fixes
+
+**Instance:** Controller (Opus 4.5)
+**Timestamp:** 2026-02-04
+**Test count:** 2,288 (all passing, 0 clippy warnings)
+
+### Audit Methodology
+Deployed 3 parallel security audit agents covering HTTP proxy (15 findings), MCP proxy (12 findings), and engine+server (13 findings). Triaged 40 total findings, fixed 8 highest-impact ones.
+
+### Fixes Applied
+
+| Finding | Severity | Fix |
+|---------|----------|-----|
+| R4-16: MaxCalls pattern recompiled per eval | LOW (perf) | Pre-compile PatternMatcher at policy compile time |
+| Bearer prefix case-sensitive (RFC 7235) | HIGH | `eq_ignore_ascii_case("bearer ")` in server + HTTP proxy |
+| agent_id unbounded length DoS | HIGH | Reject >256 bytes in sanitize_context() |
+| X-Principal unbounded length DoS | HIGH | Reject >256 bytes in extract_principal_key() |
+| Trace header unbounded size | MEDIUM | Cap at 4KB, consolidate duplicate insertion |
+| Auth error leaks scheme info | MEDIUM | Generic "Authentication required" message |
+| Unused HashMap imports (clippy) | LOW | Removed from benchmark file |
+| Redundant guard (clippy) | LOW | Fixed in framing.rs |
+
+### Files Modified
+- `sentinel-engine/src/lib.rs` — Pre-compiled PatternMatcher in MaxCalls/MaxCallsInWindow
+- `sentinel-engine/benches/evaluation.rs` — Removed unused HashMap imports
+- `sentinel-server/src/routes.rs` — Bearer case, agent_id/X-Principal limits, error messages
+- `sentinel-http-proxy/src/proxy.rs` — Bearer case, trace header limit, error message
+- `sentinel-mcp/src/framing.rs` — Clippy fix
+
+### New Tests: 5 total
+
+---
+
+## 2026-02-04 — Controller: R4-1/R4-4/R4-14 Security Fixes (3 findings)
+
+**Instance:** Controller (Opus 4.5)
+**Timestamp:** 2026-02-04
+**Test count:** 2,280 (all passing, 0 failures)
+
+### Fixes Applied
+
+| Finding | Severity | Fix |
+|---------|----------|-----|
+| R4-1: Task requests bypass DLP scanning | CRITICAL | `scan_parameters_for_secrets()` added to TaskRequest handlers in both HTTP and stdio proxies |
+| R4-4: Session fixation in HTTP proxy | HIGH | OAuth subject ownership validation on session reuse; 403 Forbidden if different subject |
+| R4-14: DLP encoding bypasses (base64/URL) | MEDIUM | Multi-layer decoding: base64 (4 variants) + percent-decoding + deduplication in `scan_string_for_secrets()` |
+
+### Files Modified
+- `sentinel-http-proxy/src/proxy.rs` — DLP task scanning + session fixation prevention
+- `sentinel-http-proxy/tests/proxy_integration.rs` — 6 new integration tests
+- `sentinel-http-proxy/src/oauth.rs` — OAuth field compilation fixes
+- `sentinel-mcp/src/proxy.rs` — DLP task scanning + 3 unit tests (committed in adversary round)
+- `sentinel-mcp/src/inspection.rs` — Multi-layer DLP decoding + 7 encoding bypass tests
+- `sentinel-mcp/Cargo.toml` — Added base64, percent-encoding deps
+
+### New Tests: 19 total
+
+---
+
 ## 2026-02-04 — Instance B: R4-1 CRITICAL Fix — Task Request Policy Enforcement
 
 **Instance:** Instance B (Opus 4.5)

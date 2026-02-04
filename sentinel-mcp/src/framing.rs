@@ -34,6 +34,16 @@ pub async fn read_message<R: tokio::io::AsyncRead + Unpin>(
             FramingError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
         })?;
 
+        // SECURITY (R10-FRAME-5): Strip UTF-8 BOM (U+FEFF, bytes EF BB BF)
+        // from line start. Some clients/intermediaries prepend a BOM which
+        // would cause an opaque JSON parse error. Consistent with the
+        // zero-width char stripping done by normalize_method in extractor.rs.
+        let line = if line.starts_with('\u{FEFF}') {
+            &line[3..] // UTF-8 BOM is 3 bytes
+        } else {
+            &line
+        };
+
         // Fix #14: Skip empty lines instead of treating them as EOF.
         let trimmed = line.trim();
         if trimmed.is_empty() {
@@ -159,6 +169,10 @@ pub async fn write_message<W: tokio::io::AsyncWrite + Unpin>(
 /// This prevents parser-disagreement attacks where an attacker sends
 /// `{"path":"safe","path":"malicious"}` and exploits the difference between
 /// first-key-wins and last-key-wins parsers (CVE-2017-12635, CVE-2020-16250).
+/// Maximum JSON nesting depth for duplicate key detection.
+/// Matches serde_json's default recursion limit (128).
+const MAX_DUPLICATE_KEY_DEPTH: usize = 128;
+
 pub fn find_duplicate_json_key(raw: &str) -> Option<String> {
     let bytes = raw.as_bytes();
     let len = bytes.len();
@@ -181,11 +195,19 @@ pub fn find_duplicate_json_key(raw: &str) -> Option<String> {
 
         match bytes[i] {
             b'{' => {
+                // SECURITY (R10-FRAME-8): Limit nesting depth to prevent
+                // excessive HashSet allocations from deeply nested input.
+                if stack.len() >= MAX_DUPLICATE_KEY_DEPTH {
+                    return Some(format!("<nesting depth exceeds {}>", MAX_DUPLICATE_KEY_DEPTH));
+                }
                 stack.push(Some(HashSet::new()));
                 next_string_is_key = true;
                 i += 1;
             }
             b'[' => {
+                if stack.len() >= MAX_DUPLICATE_KEY_DEPTH {
+                    return Some(format!("<nesting depth exceeds {}>", MAX_DUPLICATE_KEY_DEPTH));
+                }
                 stack.push(None);
                 next_string_is_key = false;
                 i += 1;

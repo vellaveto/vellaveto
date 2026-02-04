@@ -1248,10 +1248,7 @@ impl PolicyEngine {
                         reason: "max_calls_in_window missing 'max' integer".to_string(),
                     }
                 })?;
-                let window =
-                    obj.get("window")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as usize;
+                let window = obj.get("window").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
                 let deny_reason = format!(
                     "Tool '{}' called more than {} times in last {} actions (policy '{}')",
                     tool_pattern,
@@ -1694,9 +1691,7 @@ impl PolicyEngine {
                                 });
                             }
                             // If allowed list is non-empty, agent must be in it
-                            if !allowed.is_empty()
-                                && !allowed.contains(&id_lower)
-                            {
+                            if !allowed.is_empty() && !allowed.contains(&id_lower) {
                                 return Some(Verdict::Deny {
                                     reason: deny_reason.clone(),
                                 });
@@ -1739,10 +1734,7 @@ impl PolicyEngine {
                     deny_reason,
                 } => {
                     let history = if *window > 0 {
-                        let start = context
-                            .previous_actions
-                            .len()
-                            .saturating_sub(*window);
+                        let start = context.previous_actions.len().saturating_sub(*window);
                         &context.previous_actions[start..]
                     } else {
                         &context.previous_actions[..]
@@ -3125,7 +3117,16 @@ impl PolicyEngine {
             return "/".to_string();
         }
 
-        s.into_owned()
+        // SECURITY (R11-PATH-6): Enforce absolute path output.
+        // If the input was a relative path (e.g., "etc/passwd"), the result
+        // will not start with '/', causing it to miss absolute-path glob
+        // patterns like "/etc/**". Prepend '/' to make it matchable.
+        let s = s.into_owned();
+        if !s.starts_with('/') {
+            return format!("/{}", s);
+        }
+
+        s
     }
 
     /// Extract the domain from a URL string.
@@ -9061,7 +9062,11 @@ mod tests {
         let v = engine
             .evaluate_action_with_context(&action, &[], Some(&ctx))
             .unwrap();
-        assert!(matches!(v, Verdict::Allow), "lowercase should match: {:?}", v);
+        assert!(
+            matches!(v, Verdict::Allow),
+            "lowercase should match: {:?}",
+            v
+        );
 
         // Mixed case variant should be allowed
         let ctx = EvaluationContext {
@@ -9071,7 +9076,11 @@ mod tests {
         let v = engine
             .evaluate_action_with_context(&action, &[], Some(&ctx))
             .unwrap();
-        assert!(matches!(v, Verdict::Allow), "uppercase should match: {:?}", v);
+        assert!(
+            matches!(v, Verdict::Allow),
+            "uppercase should match: {:?}",
+            v
+        );
 
         // Case variation of blocked agent should be blocked
         let policy2 = make_context_policy(json!([
@@ -9085,7 +9094,11 @@ mod tests {
         let v = engine2
             .evaluate_action_with_context(&action, &[], Some(&ctx))
             .unwrap();
-        assert!(matches!(v, Verdict::Deny { .. }), "case variant of blocked should deny: {:?}", v);
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "case variant of blocked should deny: {:?}",
+            v
+        );
     }
 
     #[test]
@@ -9213,7 +9226,11 @@ mod tests {
             network_rules: None,
         };
         let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-        let action = Action::new("http_request", "execute", json!({"url": "https://evil.com"}));
+        let action = Action::new(
+            "http_request",
+            "execute",
+            json!({"url": "https://evil.com"}),
+        );
         let ctx = EvaluationContext {
             previous_actions: vec!["read_file".to_string(), "list_files".to_string()],
             ..Default::default()
@@ -9244,8 +9261,11 @@ mod tests {
             network_rules: None,
         };
         let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-        let action =
-            Action::new("http_request", "execute", json!({"url": "https://api.github.com"}));
+        let action = Action::new(
+            "http_request",
+            "execute",
+            json!({"url": "https://api.github.com"}),
+        );
         let ctx = EvaluationContext {
             previous_actions: vec!["list_files".to_string()],
             ..Default::default()

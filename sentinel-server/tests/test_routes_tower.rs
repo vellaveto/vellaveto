@@ -1090,7 +1090,10 @@ async fn auth_post_without_header_returns_401() {
         .await
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["error"].as_str().unwrap().contains("Authentication required"));
+    assert!(json["error"]
+        .as_str()
+        .unwrap()
+        .contains("Authentication required"));
 }
 
 #[tokio::test]

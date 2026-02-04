@@ -162,7 +162,9 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         manifest_config: None,
         allowed_origins: vec![],
         canonicalize: false,
-        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        output_schema_registry: Arc::new(
+            sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
+        ),
         response_dlp_enabled: false,
     }
 }
@@ -1599,7 +1601,9 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         manifest_config: None,
         allowed_origins: vec![],
         canonicalize: false,
-        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        output_schema_registry: Arc::new(
+            sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
+        ),
         response_dlp_enabled: false,
     };
     let sessions = state.sessions.clone();
@@ -1883,7 +1887,9 @@ async fn trace_resource_read_denied_includes_trace() {
         manifest_config: None,
         allowed_origins: vec![],
         canonicalize: false,
-        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        output_schema_registry: Arc::new(
+            sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
+        ),
         response_dlp_enabled: false,
     };
     let app = build_router(state);
@@ -1956,7 +1962,9 @@ async fn trace_constraint_details_visible() {
         manifest_config: None,
         allowed_origins: vec![],
         canonicalize: false,
-        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        output_schema_registry: Arc::new(
+            sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
+        ),
         response_dlp_enabled: false,
     };
     let app = build_router(state);
@@ -2148,7 +2156,9 @@ fn build_oauth_test_state(
         manifest_config: None,
         allowed_origins: vec![],
         canonicalize: false,
-        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        output_schema_registry: Arc::new(
+            sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
+        ),
         response_dlp_enabled: false,
     }
 }
@@ -2670,7 +2680,9 @@ fn build_api_key_test_state(
         manifest_config: None,
         allowed_origins: vec![],
         canonicalize: false,
-        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        output_schema_registry: Arc::new(
+            sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
+        ),
         response_dlp_enabled: false,
     }
 }
@@ -2702,7 +2714,10 @@ async fn api_key_no_token_returns_401() {
 
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     let json = json_body(resp).await;
-    assert!(json["error"].as_str().unwrap().contains("Authentication required"));
+    assert!(json["error"]
+        .as_str()
+        .unwrap()
+        .contains("Authentication required"));
 }
 
 #[tokio::test]
@@ -3085,7 +3100,9 @@ fn build_test_state_deny_tasks(upstream_url: &str, tmp: &TempDir) -> ProxyState 
         manifest_config: None,
         allowed_origins: vec![],
         canonicalize: false,
-        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        output_schema_registry: Arc::new(
+            sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
+        ),
         response_dlp_enabled: false,
     }
 }
@@ -3193,7 +3210,9 @@ async fn task_get_allowed_when_no_deny_policy() {
         manifest_config: None,
         allowed_origins: vec![],
         canonicalize: false,
-        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        output_schema_registry: Arc::new(
+            sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
+        ),
         response_dlp_enabled: false,
     };
     let app = build_router(state);
@@ -3256,7 +3275,9 @@ async fn task_request_fail_closed_no_matching_policy() {
         manifest_config: None,
         allowed_origins: vec![],
         canonicalize: false,
-        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        output_schema_registry: Arc::new(
+            sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
+        ),
         response_dlp_enabled: false,
     };
     let app = build_router(state);
@@ -3318,7 +3339,9 @@ async fn task_request_dlp_blocks_secret_in_task_id() {
         manifest_config: None,
         allowed_origins: vec![],
         canonicalize: false,
-        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        output_schema_registry: Arc::new(
+            sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
+        ),
         response_dlp_enabled: false,
     };
     let app = build_router(state);
@@ -3386,7 +3409,9 @@ async fn task_request_clean_params_not_dlp_blocked() {
         manifest_config: None,
         allowed_origins: vec![],
         canonicalize: false,
-        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        output_schema_registry: Arc::new(
+            sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
+        ),
         response_dlp_enabled: false,
     };
     let app = build_router(state);
@@ -3452,7 +3477,9 @@ async fn task_request_dlp_blocks_github_token_in_params() {
         manifest_config: None,
         allowed_origins: vec![],
         canonicalize: false,
-        output_schema_registry: Arc::new(sentinel_mcp::output_validation::OutputSchemaRegistry::new()),
+        output_schema_registry: Arc::new(
+            sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
+        ),
         response_dlp_enabled: false,
     };
     let app = build_router(state);

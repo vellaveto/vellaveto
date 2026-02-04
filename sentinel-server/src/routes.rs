@@ -1,6 +1,6 @@
 use axum::{
     extract::{DefaultBodyLimit, Path, Request, State},
-    http::{header, HeaderName, HeaderValue, Method, StatusCode},
+    http::{header, HeaderMap, HeaderName, HeaderValue, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
@@ -345,6 +345,15 @@ fn scan_params_for_targets_inner(
                 if !clean.is_empty() {
                     paths.push(clean.to_string());
                 }
+            } else if looks_like_relative_path(s) {
+                // SECURITY (R11-PATH-3): Catch relative paths containing ..
+                // or starting with ~/ that would bypass extraction. Prepend /
+                // so they are visible to path policy checks.
+                let clean = strip_query_and_fragment(s);
+                if !clean.is_empty() {
+                    // Convert to absolute for policy checking
+                    paths.push(format!("/{}", clean));
+                }
             }
         }
         serde_json::Value::Object(map) => {
@@ -365,6 +374,51 @@ fn scan_params_for_targets_inner(
 fn strip_query_and_fragment(path: &str) -> &str {
     let path = path.split('?').next().unwrap_or(path);
     path.split('#').next().unwrap_or(path)
+}
+
+/// Detect relative paths that could bypass extraction.
+///
+/// Catches `../` traversal, `~/` home directory expansion, and `./` current
+/// directory relative paths. These are not caught by the `starts_with('/')`
+/// check for absolute paths but could be resolved by downstream tools.
+fn looks_like_relative_path(s: &str) -> bool {
+    if s.contains(' ') {
+        return false; // Likely not a path
+    }
+    s.starts_with("../")
+        || s.starts_with("./")
+        || s.starts_with("~/")
+        || s.contains("/../")
+        || s == ".."
+        || s == "~"
+}
+
+/// Derive the resolver identity from the authenticated principal.
+///
+/// SECURITY (R11-APPR-4): The `resolved_by` field in approval resolution must
+/// reflect the actual authenticated identity, not a client-supplied string.
+/// If a Bearer token is present, derive the identity from the token hash.
+/// The client-supplied value is appended as a note but cannot override the
+/// authenticated identity.
+fn derive_resolver_identity(headers: &HeaderMap, client_value: &str) -> String {
+    if let Some(auth) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    {
+        if auth.len() > 7 && auth[..7].eq_ignore_ascii_case("bearer ") {
+            let token = &auth[7..];
+            if !token.is_empty() {
+                use sha2::{Digest, Sha256};
+                let hash = Sha256::digest(token.as_bytes());
+                let principal = format!("bearer:{}", hex::encode(&hash[..8]));
+                if client_value != "anonymous" {
+                    return format!("{} (note: {})", principal, client_value);
+                }
+                return principal;
+            }
+        }
+    }
+    client_value.to_string()
 }
 
 /// Sanitize client-supplied evaluation context.
@@ -788,11 +842,17 @@ const MAX_RESOLVED_BY_LEN: usize = 1024;
 async fn approve_approval(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    headers: HeaderMap,
     body: Option<Json<ResolveRequest>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let resolved_by = body
+    // SECURITY (R11-APPR-4): Derive resolver identity from the authenticated
+    // principal (Bearer token hash) rather than trusting the client-supplied
+    // resolved_by field. The client value is kept as a note but the auth
+    // identity is the authoritative record.
+    let client_resolved_by = body
         .map(|b| b.resolved_by.clone())
         .unwrap_or_else(|| "anonymous".to_string());
+    let resolved_by = derive_resolver_identity(&headers, &client_resolved_by);
 
     if resolved_by.len() > MAX_RESOLVED_BY_LEN {
         return Err((
@@ -877,11 +937,13 @@ async fn approve_approval(
 async fn deny_approval(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    headers: HeaderMap,
     body: Option<Json<ResolveRequest>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let resolved_by = body
+    let client_resolved_by = body
         .map(|b| b.resolved_by.clone())
         .unwrap_or_else(|| "anonymous".to_string());
+    let resolved_by = derive_resolver_identity(&headers, &client_resolved_by);
 
     if resolved_by.len() > MAX_RESOLVED_BY_LEN {
         return Err((
