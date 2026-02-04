@@ -732,6 +732,7 @@ fn bench_network_rules_blocked(c: &mut Criterion) {
                 "*.evil.com".to_string(),
                 "*.pastebin.com".to_string(),
             ],
+            ip_rules: None,
         }),
     }];
     let engine = PolicyEngine::with_policies(false, &policies).unwrap();
@@ -772,6 +773,7 @@ fn bench_network_rules_allowed(c: &mut Criterion) {
                 "cdn.trusted.net".to_string(),
             ],
             blocked_domains: vec![],
+            ip_rules: None,
         }),
     }];
     let engine = PolicyEngine::with_policies(false, &policies).unwrap();

@@ -6,8 +6,10 @@ use thiserror::Error;
 
 use chrono::{Datelike, Timelike};
 use globset::{Glob, GlobMatcher};
+use ipnet::IpNet;
 use regex::Regex;
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::path::{Component, PathBuf};
 use std::time::Instant;
 
@@ -240,6 +242,17 @@ pub struct CompiledNetworkRules {
     pub blocked_domains: Vec<String>,
 }
 
+/// Pre-compiled IP access control rules for DNS rebinding protection.
+///
+/// CIDRs are parsed at policy compile time so evaluation is a fast
+/// prefix-length comparison with no parsing overhead.
+#[derive(Debug, Clone)]
+pub struct CompiledIpRules {
+    pub block_private: bool,
+    pub blocked_cidrs: Vec<IpNet>,
+    pub allowed_cidrs: Vec<IpNet>,
+}
+
 /// A pre-compiled context condition for session-level policy evaluation.
 ///
 /// Context conditions are checked after tool match and path/network rules,
@@ -323,6 +336,8 @@ pub struct CompiledPolicy {
     pub compiled_path_rules: Option<CompiledPathRules>,
     /// Pre-compiled network access control rules (from policy.network_rules).
     pub compiled_network_rules: Option<CompiledNetworkRules>,
+    /// Pre-compiled IP access control rules (DNS rebinding protection).
+    pub compiled_ip_rules: Option<CompiledIpRules>,
     /// Pre-compiled context conditions (from conditions JSON `context_conditions` key).
     pub context_conditions: Vec<CompiledContextCondition>,
 }
@@ -645,6 +660,36 @@ impl PolicyEngine {
             None => None,
         };
 
+        // Compile IP rules — parse CIDRs at compile time (fail-closed on invalid CIDR).
+        let compiled_ip_rules = match policy.network_rules.as_ref().and_then(|nr| nr.ip_rules.as_ref()) {
+            Some(ir) => {
+                let mut blocked_cidrs = Vec::with_capacity(ir.blocked_cidrs.len());
+                for cidr_str in &ir.blocked_cidrs {
+                    let cidr: IpNet = cidr_str.parse().map_err(|e| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!("Invalid blocked CIDR '{}': {}", cidr_str, e),
+                    })?;
+                    blocked_cidrs.push(cidr);
+                }
+                let mut allowed_cidrs = Vec::with_capacity(ir.allowed_cidrs.len());
+                for cidr_str in &ir.allowed_cidrs {
+                    let cidr: IpNet = cidr_str.parse().map_err(|e| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!("Invalid allowed CIDR '{}': {}", cidr_str, e),
+                    })?;
+                    allowed_cidrs.push(cidr);
+                }
+                Some(CompiledIpRules {
+                    block_private: ir.block_private,
+                    blocked_cidrs,
+                    allowed_cidrs,
+                })
+            }
+            None => None,
+        };
+
         Ok(CompiledPolicy {
             policy: policy.clone(),
             tool_matcher,
@@ -659,6 +704,7 @@ impl PolicyEngine {
             required_reasons,
             compiled_path_rules,
             compiled_network_rules,
+            compiled_ip_rules,
             context_conditions,
         })
     }
@@ -1592,6 +1638,10 @@ impl PolicyEngine {
         if let Some(denial) = self.check_network_rules(action, cp) {
             return Ok(Some(denial));
         }
+        // Check IP rules (DNS rebinding protection) after network rules.
+        if let Some(denial) = self.check_ip_rules(action, cp) {
+            return Ok(Some(denial));
+        }
         // Check context conditions (session-level) before policy type dispatch.
         // SECURITY: If a policy declares context conditions but no context is
         // provided, deny the action (fail-closed). Skipping would let callers
@@ -1868,6 +1918,75 @@ impl PolicyEngine {
                     reason: format!(
                         "Domain '{}' not in allowed domains for policy '{}'",
                         domain, cp.policy.name
+                    ),
+                });
+            }
+        }
+
+        None
+    }
+
+    /// Check resolved IPs against compiled IP rules (DNS rebinding protection).
+    ///
+    /// Returns `Some(Deny)` if any resolved IP violates the rules.
+    /// Returns `None` if all IPs pass or no IP rules are configured.
+    fn check_ip_rules(&self, action: &Action, cp: &CompiledPolicy) -> Option<Verdict> {
+        let ip_rules = match &cp.compiled_ip_rules {
+            Some(r) => r,
+            None => return None,
+        };
+
+        // Fail-closed: if ip_rules are configured but no resolved IPs provided
+        // and the action has target domains, deny (caller didn't perform DNS resolution).
+        if action.resolved_ips.is_empty() && !action.target_domains.is_empty() {
+            return Some(Verdict::Deny {
+                reason: format!(
+                    "IP rules configured but no resolved IPs provided for policy '{}'",
+                    cp.policy.name
+                ),
+            });
+        }
+
+        for ip_str in &action.resolved_ips {
+            let ip: IpAddr = match ip_str.parse() {
+                Ok(ip) => ip,
+                Err(_) => {
+                    return Some(Verdict::Deny {
+                        reason: format!("Invalid resolved IP '{}'", ip_str),
+                    })
+                }
+            };
+
+            // Check private IP blocking
+            if ip_rules.block_private && is_private_ip(ip) {
+                return Some(Verdict::Deny {
+                    reason: format!(
+                        "Resolved IP '{}' is a private/reserved address (DNS rebinding protection) in policy '{}'",
+                        ip, cp.policy.name
+                    ),
+                });
+            }
+
+            // Check blocked CIDRs
+            for cidr in &ip_rules.blocked_cidrs {
+                if cidr.contains(&ip) {
+                    return Some(Verdict::Deny {
+                        reason: format!(
+                            "Resolved IP '{}' in blocked CIDR '{}' in policy '{}'",
+                            ip, cidr, cp.policy.name
+                        ),
+                    });
+                }
+            }
+
+            // Check allowed CIDRs (allowlist mode)
+            if !ip_rules.allowed_cidrs.is_empty()
+                && !ip_rules.allowed_cidrs.iter().any(|c| c.contains(&ip))
+            {
+                return Some(Verdict::Deny {
+                    reason: format!(
+                        "Resolved IP '{}' not in allowed CIDRs for policy '{}'",
+                        ip, cp.policy.name
                     ),
                 });
             }
@@ -3808,6 +3927,11 @@ impl PolicyEngine {
         if let Some(denial) = self.check_network_rules(action, cp) {
             return Ok((Some(denial), Vec::new()));
         }
+        // Check IP rules (DNS rebinding protection) after network rules.
+        // SECURITY: Without this, ?trace=true would bypass IP-based blocking.
+        if let Some(denial) = self.check_ip_rules(action, cp) {
+            return Ok((Some(denial), Vec::new()));
+        }
         // Check context conditions.
         // SECURITY: Fail-closed when context conditions exist but no context provided.
         if !cp.context_conditions.is_empty() {
@@ -4128,6 +4252,38 @@ impl PolicyEngine {
         }
 
         max_depth
+    }
+
+    /// Returns true if any compiled policy has IP rules configured.
+    ///
+    /// Used by proxy layers to skip DNS resolution when no policies require it.
+    pub fn has_ip_rules(&self) -> bool {
+        self.compiled_policies
+            .iter()
+            .any(|cp| cp.compiled_ip_rules.is_some())
+    }
+}
+
+/// Check whether an IP address is private/reserved (RFC 1918, loopback, link-local, etc.).
+///
+/// Used by [`PolicyEngine::check_ip_rules`] when `block_private` is enabled.
+fn is_private_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            v4.is_loopback()      // 127.0.0.0/8
+            || v4.is_private()     // 10/8, 172.16/12, 192.168/16
+            || v4.is_link_local()  // 169.254/16
+            || v4.is_unspecified() // 0.0.0.0
+            || v4.is_broadcast()   // 255.255.255.255
+        }
+        IpAddr::V6(v6) => {
+            v6.is_loopback()       // ::1
+            || v6.is_unspecified() // ::
+            // IPv4-mapped IPv6 (::ffff:x.x.x.x) — check inner IPv4
+            || v6.to_ipv4_mapped().is_some_and(|v4| {
+                v4.is_loopback() || v4.is_private() || v4.is_link_local()
+            })
+        }
     }
 }
 
@@ -8129,6 +8285,7 @@ mod tests {
             NetworkRules {
                 allowed_domains: vec![],
                 blocked_domains: vec!["evil.com".to_string(), "*.malware.org".to_string()],
+                ip_rules: None,
             },
         )];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
@@ -8151,6 +8308,7 @@ mod tests {
             NetworkRules {
                 allowed_domains: vec![],
                 blocked_domains: vec!["*.malware.org".to_string()],
+                ip_rules: None,
             },
         )];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
@@ -8169,6 +8327,7 @@ mod tests {
             NetworkRules {
                 allowed_domains: vec!["api.example.com".to_string(), "*.trusted.net".to_string()],
                 blocked_domains: vec![],
+                ip_rules: None,
             },
         )];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
@@ -8197,6 +8356,7 @@ mod tests {
             NetworkRules {
                 allowed_domains: vec![],
                 blocked_domains: vec!["evil.com".to_string()],
+                ip_rules: None,
             },
         )];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
@@ -8206,6 +8366,307 @@ mod tests {
             matches!(verdict, Verdict::Allow),
             "With no target_domains, network rules should not block, got: {:?}",
             verdict
+        );
+    }
+
+    // ═══════════════════════════════════════════════════
+    // IP RULES (DNS REBINDING PROTECTION)
+    // ═══════════════════════════════════════════════════
+
+    fn policy_with_ip_rules(ip_rules: sentinel_types::IpRules) -> Policy {
+        Policy {
+            id: "http:*".to_string(),
+            name: "IP-controlled policy".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: Some(NetworkRules {
+                allowed_domains: vec![],
+                blocked_domains: vec![],
+                ip_rules: Some(ip_rules),
+            }),
+        }
+    }
+
+    fn action_with_resolved_ips(domains: Vec<&str>, ips: Vec<&str>) -> Action {
+        let mut action = Action::new("http", "get", json!({}));
+        action.target_domains = domains.into_iter().map(|s| s.to_string()).collect();
+        action.resolved_ips = ips.into_iter().map(|s| s.to_string()).collect();
+        action
+    }
+
+    #[test]
+    fn test_ip_rules_block_private_loopback() {
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["127.0.0.1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "Loopback 127.0.0.1 should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_private_rfc1918() {
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        for ip in &["10.0.0.1", "172.16.0.1", "192.168.1.1"] {
+            let action = action_with_resolved_ips(vec!["example.com"], vec![ip]);
+            let verdict = engine.evaluate_action(&action, &policies).unwrap();
+            assert!(
+                matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+                "RFC 1918 address {} should be blocked, got: {:?}",
+                ip, verdict
+            );
+        }
+    }
+
+    #[test]
+    fn test_ip_rules_block_private_link_local() {
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["169.254.1.1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "Link-local 169.254.x should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_private_ipv6_loopback() {
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["::1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "IPv6 loopback ::1 should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_private_ipv4_mapped_v6() {
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["::ffff:127.0.0.1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "IPv4-mapped v6 ::ffff:127.0.0.1 should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_allow_public_ip() {
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["8.8.8.8"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Allow),
+            "Public IP 8.8.8.8 should be allowed, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_blocked_cidr() {
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: false,
+            blocked_cidrs: vec!["100.64.0.0/10".to_string()],
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // IP in blocked CIDR -> deny
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["100.100.1.1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("blocked CIDR")),
+            "IP in blocked CIDR should be denied, got: {:?}",
+            verdict
+        );
+
+        // IP outside blocked CIDR -> allow
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["8.8.8.8"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Allow),
+            "IP outside blocked CIDR should be allowed, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_allowed_cidr() {
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: false,
+            allowed_cidrs: vec!["203.0.113.0/24".to_string()],
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // IP in allowed CIDR -> allow
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["203.0.113.50"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Allow),
+            "IP in allowed CIDR should pass, got: {:?}",
+            verdict
+        );
+
+        // IP not in allowed CIDR -> deny
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["8.8.8.8"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("not in allowed")),
+            "IP outside allowed CIDR should be denied, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_no_resolved_ips_with_domains_denies() {
+        // Fail-closed: domains present but no resolved IPs -> deny
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let mut action = Action::new("http", "get", json!({}));
+        action.target_domains = vec!["example.com".to_string()];
+        // resolved_ips intentionally left empty
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("no resolved IPs")),
+            "Missing resolved IPs should fail-closed, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_no_domains_no_resolved_ips_passes() {
+        // No targets at all -> IP rules should not interfere
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = Action::new("http", "get", json!({}));
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Allow),
+            "No targets should pass IP rules, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_invalid_cidr_compile_error() {
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: false,
+            blocked_cidrs: vec!["not-a-cidr".to_string()],
+            ..Default::default()
+        })];
+        let result = PolicyEngine::with_policies(false, &policies);
+        assert!(
+            result.is_err(),
+            "Invalid CIDR should cause compile error, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_none_skips_check() {
+        // No ip_rules -> backward compatible, no IP checking
+        let policies = vec![policy_with_network_rules(
+            "http:*",
+            "Domain only",
+            PolicyType::Allow,
+            NetworkRules {
+                allowed_domains: vec!["example.com".to_string()],
+                blocked_domains: vec![],
+                ip_rules: None,
+            },
+        )];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_domains("http", "get", vec!["example.com"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Allow),
+            "No ip_rules should not affect domain-only evaluation, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_invalid_resolved_ip_denies() {
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["not-an-ip"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("Invalid resolved IP")),
+            "Unparseable IP should be denied, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_has_ip_rules_returns_true_when_configured() {
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        assert!(
+            engine.has_ip_rules(),
+            "Engine with ip_rules should return true"
+        );
+    }
+
+    #[test]
+    fn test_has_ip_rules_returns_false_when_not_configured() {
+        let policies = vec![Policy {
+            id: "http:*".to_string(),
+            name: "No IP rules".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        assert!(
+            !engine.has_ip_rules(),
+            "Engine without ip_rules should return false"
         );
     }
 
@@ -8264,6 +8725,7 @@ mod tests {
             network_rules: Some(NetworkRules {
                 allowed_domains: vec!["api.safe.com".to_string()],
                 blocked_domains: vec![],
+                ip_rules: None,
             }),
         }];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
@@ -8843,6 +9305,7 @@ mod tests {
             network_rules: Some(NetworkRules {
                 allowed_domains: vec!["valid.example.com".to_string()],
                 blocked_domains: vec!["-invalid.com".to_string()],
+                ip_rules: None,
             }),
         };
 

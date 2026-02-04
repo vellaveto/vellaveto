@@ -2219,6 +2219,7 @@ dependencies = [
  "chrono",
  "criterion",
  "globset",
+ "ipnet",
  "percent-encoding",
  "proptest",
  "regex",

@@ -89,6 +89,10 @@ pub struct Action {
     /// Domains targeted by this action (e.g. from `https://` URIs).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub target_domains: Vec<String>,
+    /// IP addresses resolved from target_domains (populated by proxy layer).
+    /// Used by the engine for DNS rebinding protection when `IpRules` are configured.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resolved_ips: Vec<String>,
 }
 
 /// Validate a single name field (tool or function).
@@ -137,6 +141,7 @@ impl Action {
             parameters,
             target_paths: Vec::new(),
             target_domains: Vec::new(),
+            resolved_ips: Vec::new(),
         }
     }
 
@@ -159,6 +164,7 @@ impl Action {
             parameters,
             target_paths: Vec::new(),
             target_domains: Vec::new(),
+            resolved_ips: Vec::new(),
         })
     }
 
@@ -253,6 +259,27 @@ pub struct NetworkRules {
     /// Domain patterns for blocked destinations. Any match results in denial.
     #[serde(default)]
     pub blocked_domains: Vec<String>,
+    /// IP-level access control for DNS rebinding protection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ip_rules: Option<IpRules>,
+}
+
+/// IP-level access control rules (DNS rebinding protection).
+///
+/// When configured, the proxy layer resolves target domains to IP addresses
+/// and the engine checks them against these rules. This prevents attacks
+/// where an allowed domain's DNS record changes to point at a private IP.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct IpRules {
+    /// Block connections to private/reserved IPs (RFC 1918, loopback, link-local).
+    #[serde(default)]
+    pub block_private: bool,
+    /// CIDR ranges to block (e.g. "10.0.0.0/8").
+    #[serde(default)]
+    pub blocked_cidrs: Vec<String>,
+    /// CIDR ranges to allow. If non-empty, only matching IPs are allowed.
+    #[serde(default)]
+    pub allowed_cidrs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

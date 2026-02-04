@@ -95,6 +95,43 @@ const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
 /// to prevent OOM from unbounded upstream responses (e.g., infinite SSE streams).
 const MAX_RESPONSE_BODY_SIZE: usize = 10 * 1024 * 1024;
 
+/// Maximum size of a single SSE event's data payload (1 MB).
+/// Events larger than this are skipped during injection/DLP scanning
+/// to prevent expensive regex processing on oversized payloads.
+const MAX_SSE_EVENT_SIZE: usize = 1024 * 1024;
+
+/// Resolve target domains to IP addresses for DNS rebinding protection.
+///
+/// Populates `action.resolved_ips` with the IP addresses that each target domain
+/// resolves to. If DNS resolution fails for a domain, no IPs are added for it —
+/// the engine will deny the action fail-closed if IP rules are configured.
+async fn resolve_domains(action: &mut Action) {
+    if action.target_domains.is_empty() {
+        return;
+    }
+    let mut resolved = Vec::new();
+    for domain in &action.target_domains {
+        // Strip port if present (domain might be "example.com:8080")
+        let host = domain.split(':').next().unwrap_or(domain);
+        match tokio::net::lookup_host((host, 0)).await {
+            Ok(addrs) => {
+                for addr in addrs {
+                    resolved.push(addr.ip().to_string());
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    domain = %domain,
+                    error = %e,
+                    "DNS resolution failed — resolved_ips will be empty for this domain"
+                );
+                // Fail-closed: engine will deny if ip_rules configured but no IPs resolved
+            }
+        }
+    }
+    action.resolved_ips = resolved;
+}
+
 /// Read a response body with a size limit to prevent OOM.
 ///
 /// Uses chunked reading so oversized responses are rejected before fully
@@ -514,7 +551,13 @@ pub async fn handle_mcp_post(
                 );
             }
 
-            let action = extractor::extract_action(&tool_name, &arguments);
+            let mut action = extractor::extract_action(&tool_name, &arguments);
+
+            // DNS rebinding protection: resolve target domains to IPs when any
+            // policy has ip_rules configured.
+            if state.engine.has_ip_rules() {
+                resolve_domains(&mut action).await;
+            }
 
             // Build evaluation context from session state for context-aware policies
             let eval_ctx = build_evaluation_context(&state.sessions, &session_id);
@@ -675,7 +718,12 @@ pub async fn handle_mcp_post(
             }
         }
         MessageType::ResourceRead { id, uri } => {
-            let action = extractor::extract_resource_action(&uri);
+            let mut action = extractor::extract_resource_action(&uri);
+
+            // DNS rebinding protection for resource reads
+            if state.engine.has_ip_rules() {
+                resolve_domains(&mut action).await;
+            }
 
             let eval_ctx = build_evaluation_context(&state.sessions, &session_id);
 
@@ -1426,17 +1474,31 @@ fn validate_origin(headers: &HeaderMap, allowed_origins: &[String]) -> Result<()
 ///
 /// Returns `None` if the URL cannot be parsed.
 fn extract_authority_from_origin(origin: &str) -> Option<String> {
-    // Origin format: "scheme://host[:port]"
-    // Find the start of the authority (after "://")
+    // Origin format per RFC 6454: "scheme://host[:port]"
+    // Defence-in-depth: strip path, query, fragment, and userinfo even though
+    // a valid Origin header should never contain them.
     let authority_start = origin.find("://").map(|i| i + 3)?;
     let authority = &origin[authority_start..];
-    // Strip any trailing path (shouldn't be present in Origin, but be safe)
+    // Strip path, query, and fragment
     let authority = authority.split('/').next().unwrap_or(authority);
-    if authority.is_empty() {
-        None
+    let authority = authority.split('?').next().unwrap_or(authority);
+    let authority = authority.split('#').next().unwrap_or(authority);
+    // Strip userinfo (RFC 3986 §3.2.1: userinfo@host)
+    let authority = if let Some(at_pos) = authority.rfind('@') {
+        &authority[at_pos + 1..]
     } else {
-        Some(authority.to_string())
+        authority
+    };
+    // Validate: authority must only contain alphanumeric, '.', '-', ':', '[', ']'
+    // (brackets for IPv6 like [::1]:3001)
+    if authority.is_empty()
+        || !authority
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '[' | ']'))
+    {
+        return None;
     }
+    Some(authority.to_lowercase())
 }
 
 /// Maximum entries in action_history per session (memory bound).
@@ -1498,18 +1560,26 @@ fn build_audit_context(
 
 /// If canonicalize mode is enabled, re-serialize the parsed JSON to canonical
 /// form before forwarding. This ensures upstream sees exactly what was evaluated,
-/// closing the TOCTOU gap. Falls back to original bytes on serialization failure.
-fn canonicalize_body(state: &ProxyState, parsed: &Value, original: Bytes) -> Bytes {
+/// closing the TOCTOU gap.
+///
+/// SECURITY (R17-CANON-1): Returns `None` when canonicalization is enabled but
+/// re-serialization fails, instead of falling back to original bytes.
+/// Forwarding un-canonicalized bytes would reopen the TOCTOU gap that
+/// canonicalization is designed to close.
+fn canonicalize_body(state: &ProxyState, parsed: &Value, original: Bytes) -> Option<Bytes> {
     if state.canonicalize {
         match serde_json::to_vec(parsed) {
-            Ok(canonical) => Bytes::from(canonical),
+            Ok(canonical) => Some(Bytes::from(canonical)),
             Err(e) => {
-                tracing::warn!("Canonicalization failed, forwarding original bytes: {}", e);
-                original
+                tracing::error!(
+                    "SECURITY: Canonicalization failed, rejecting request (fail-closed): {}",
+                    e
+                );
+                None
             }
         }
     } else {
-        original
+        Some(original)
     }
 }
 
@@ -2139,8 +2209,12 @@ async fn scan_sse_events_for_injection(
     // A malicious server could embed non-UTF-8 bytes to bypass injection scanning.
     let sse_text = String::from_utf8_lossy(sse_bytes);
 
-    // SSE events are delimited by blank lines (\n\n)
-    let events: Vec<&str> = sse_text.split("\n\n").collect();
+    // SECURITY (R17-SSE-1): Normalize SSE line endings per W3C spec.
+    // SSE allows \r\n, \r, or \n as line terminators. A malicious server using
+    // \r\r delimiters would bypass split("\n\n"), causing events to merge and
+    // potentially exceed MAX_SSE_EVENT_SIZE (skipping all scanning).
+    let normalized = sse_text.replace("\r\n", "\n").replace('\r', "\n");
+    let events: Vec<&str> = normalized.split("\n\n").collect();
     let mut all_matches: Vec<String> = Vec::new();
 
     for event in &events {
@@ -2160,6 +2234,14 @@ async fn scan_sse_events_for_injection(
 
         let data_payload = data_parts.join("\n");
         if data_payload.trim().is_empty() {
+            continue;
+        }
+        // SECURITY: Skip oversized events to prevent expensive scanning
+        if data_payload.len() > MAX_SSE_EVENT_SIZE {
+            tracing::debug!(
+                "Skipping oversized SSE event ({} bytes) for injection scan",
+                data_payload.len()
+            );
             continue;
         }
 
@@ -2289,8 +2371,11 @@ async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &Pro
     // SECURITY (R11-RESP-5): Use lossy UTF-8 conversion instead of skipping.
     let sse_text = String::from_utf8_lossy(sse_bytes);
 
+    // SECURITY (R17-SSE-1): Normalize SSE line endings per W3C spec (see injection scanner).
+    let normalized = sse_text.replace("\r\n", "\n").replace('\r', "\n");
+
     // SECURITY (R11-RESP-4): Concatenate data: lines per event before scanning.
-    for event in sse_text.split("\n\n") {
+    for event in normalized.split("\n\n") {
         let mut data_parts: Vec<&str> = Vec::new();
         for line in event.lines() {
             if let Some(rest) = line.strip_prefix("data:") {
@@ -2302,6 +2387,14 @@ async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &Pro
         }
         let data_payload = data_parts.join("\n");
         if data_payload.trim().is_empty() {
+            continue;
+        }
+        // SECURITY: Skip oversized events to prevent expensive scanning
+        if data_payload.len() > MAX_SSE_EVENT_SIZE {
+            tracing::debug!(
+                "Skipping oversized SSE event ({} bytes) for DLP scan",
+                data_payload.len()
+            );
             continue;
         }
 
@@ -2362,8 +2455,11 @@ fn register_schemas_from_sse(sse_bytes: &[u8], state: &ProxyState) {
     // SECURITY (R11-RESP-5): Use lossy UTF-8 conversion to avoid silent bypass.
     let sse_text = String::from_utf8_lossy(sse_bytes);
 
+    // SECURITY (R17-SSE-1): Normalize SSE line endings per W3C spec.
+    let normalized = sse_text.replace("\r\n", "\n").replace('\r', "\n");
+
     // SECURITY (R11-RESP-4): Concatenate data: lines per event before parsing.
-    for event in sse_text.split("\n\n") {
+    for event in normalized.split("\n\n") {
         let mut data_parts: Vec<&str> = Vec::new();
         for line in event.lines() {
             if let Some(rest) = line.strip_prefix("data:") {
@@ -2375,6 +2471,10 @@ fn register_schemas_from_sse(sse_bytes: &[u8], state: &ProxyState) {
         }
         let data_payload = data_parts.join("\n");
         if data_payload.trim().is_empty() {
+            continue;
+        }
+        // SECURITY: Skip oversized events
+        if data_payload.len() > MAX_SSE_EVENT_SIZE {
             continue;
         }
 
@@ -2805,6 +2905,42 @@ mod tests {
     #[test]
     fn test_extract_authority_from_origin_invalid() {
         assert_eq!(extract_authority_from_origin("not-a-url"), None);
+    }
+
+    #[test]
+    fn test_extract_authority_strips_userinfo() {
+        // Userinfo must be stripped to prevent credential leaks and authority confusion
+        assert_eq!(
+            extract_authority_from_origin("http://user:pass@evil.com"),
+            Some("evil.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_authority_strips_fragment_and_query() {
+        assert_eq!(
+            extract_authority_from_origin("http://good.com?foo=bar"),
+            Some("good.com".to_string())
+        );
+        assert_eq!(
+            extract_authority_from_origin("http://good.com#fragment"),
+            Some("good.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_authority_normalizes_case() {
+        assert_eq!(
+            extract_authority_from_origin("http://Example.COM:8080"),
+            Some("example.com:8080".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_authority_rejects_invalid_chars() {
+        // Spaces, angle brackets, etc. should be rejected
+        assert_eq!(extract_authority_from_origin("http://evil .com"), None);
+        assert_eq!(extract_authority_from_origin("http://<script>"), None);
     }
 
     // --- KL2: TOCTOU Canonicalization tests ---

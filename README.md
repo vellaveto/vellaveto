@@ -594,6 +594,7 @@ Environment variables **override** values set in the config file. See below for 
 | **Rate limiting** | Per-IP, per-principal (X-Principal / Bearer / IP fallback), and per-endpoint rate limiting with burst support, trusted proxy handling, and capacity bounds |
 | **Session management** | Inactivity timeout and absolute session lifetime; configurable max concurrent sessions with eviction |
 | **Approval capacity limits** | Pending approval store has a configurable max capacity (default 10,000) to prevent memory exhaustion; write-lock acquired before persistence to prevent visibility gaps |
+| **DNS rebinding protection** | Optional IP-level access control blocks private/reserved IPs, custom CIDR ranges, and allowlists resolved addresses (HTTP proxy mode) |
 | **Supply chain verification** | Optional SHA-256 hash verification of MCP server binaries before spawn |
 | **CI security scanning** | `cargo audit` for dependency vulnerabilities; `unwrap()` hygiene check in library code |
 
@@ -601,7 +602,7 @@ Environment variables **override** values set in the config file. See below for 
 
 - **Injection detection is a pre-filter, not a security boundary.** Pattern-based injection detection catches known attack signatures but can be evaded by motivated attackers using encoding, typoglycemia, semantic synonyms, or novel phrasing. Even in blocking mode (`block_on_injection = true`), it is one layer in a defense-in-depth strategy.
 
-- **No DNS rebinding protection.** Domain rules match DNS name patterns but do not pin resolved IP addresses. An upstream server's DNS record could change between policy evaluation and the proxied network connection.
+- **DNS rebinding protection requires HTTP proxy mode.** When `ip_rules` are configured on a network policy, the HTTP proxy resolves target domains to IP addresses and the engine checks them against private-IP blocklists and CIDR rules. This is not available in stdio proxy mode since the actual connection is made by the client, not the proxy. Configure `block_private = true` in `network_rules.ip_rules` to block connections to RFC 1918, loopback, and link-local addresses. See `examples/production.toml` for a working example.
 
 - **TOCTOU mitigated by default.** Both proxies re-serialize parsed JSON before forwarding, ensuring the upstream server sees exactly what was evaluated. The HTTP proxy can opt out via `--no-canonicalize`; in that mode, duplicate keys are still rejected but other parse ambiguities (key ordering, Unicode escapes) could differ between evaluation and upstream interpretation.
 

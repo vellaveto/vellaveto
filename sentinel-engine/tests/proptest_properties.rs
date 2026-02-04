@@ -670,6 +670,7 @@ proptest! {
             network_rules: Some(NetworkRules {
                 allowed_domains: vec![],
                 blocked_domains: vec!["*.evil.com".to_string()],
+                ip_rules: None,
             }),
         };
 
@@ -706,6 +707,7 @@ proptest! {
             network_rules: Some(NetworkRules {
                 allowed_domains: vec!["*.trusted.com".to_string()],
                 blocked_domains: vec![],
+                ip_rules: None,
             }),
         };
 
@@ -736,6 +738,7 @@ proptest! {
             network_rules: Some(NetworkRules {
                 allowed_domains: vec!["*.trusted.com".to_string()],
                 blocked_domains: vec![],
+                ip_rules: None,
             }),
         };
 
@@ -770,6 +773,7 @@ proptest! {
             network_rules: Some(NetworkRules {
                 allowed_domains: vec!["*.trusted.com".to_string()],
                 blocked_domains: vec!["*.evil.com".to_string()],
+                ip_rules: None,
             }),
         };
 
@@ -801,6 +805,7 @@ proptest! {
             network_rules: Some(NetworkRules {
                 allowed_domains: vec!["*.trusted.com".to_string()],
                 blocked_domains: vec![],
+                ip_rules: None,
             }),
         };
 

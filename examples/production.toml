@@ -99,6 +99,26 @@ parameter_constraints = [
 ]
 
 # ====================================================================
+# POLICY 3b: DNS rebinding protection (P240)
+# ====================================================================
+# Prevents DNS rebinding attacks where an allowed domain resolves to a
+# private/internal IP address. The proxy resolves target domains before
+# evaluation and the engine checks resolved IPs against these rules.
+# Requires HTTP proxy mode (--upstream-url).
+
+[[policies]]
+name = "DNS rebinding protection"
+tool_pattern = "http_request"
+function_pattern = "*"
+policy_type = "Allow"
+priority = 240
+id = "http_request:*:dns-rebinding"
+
+[policies.network_rules.ip_rules]
+block_private = true
+blocked_cidrs = ["100.64.0.0/10"]  # CGN range
+
+# ====================================================================
 # POLICY 4: Dangerous shell commands require approval (P200)
 # ====================================================================
 # Destructive filesystem and system commands are sent to the approval
