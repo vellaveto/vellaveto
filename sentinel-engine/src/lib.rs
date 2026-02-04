@@ -1156,43 +1156,46 @@ impl PolicyEngine {
 
         match kind {
             "time_window" => {
-                let start_hour =
+                // SECURITY (R19-TRUNC): Validate u64 range BEFORE casting to u8.
+                // Without this, `start_hour: 265` truncates to `265 % 256 = 9` as u8,
+                // silently passing the `> 23` check. An attacker could craft a policy
+                // that appears to restrict hours but actually maps to a different hour.
+                let start_hour_u64 =
                     obj.get("start_hour")
                         .and_then(|v| v.as_u64())
                         .ok_or_else(|| PolicyValidationError {
                             policy_id: policy.id.clone(),
                             policy_name: policy.name.clone(),
                             reason: "time_window missing 'start_hour' integer".to_string(),
-                        })? as u8;
-                let end_hour = obj
+                        })?;
+                let end_hour_u64 = obj
                     .get("end_hour")
                     .and_then(|v| v.as_u64())
                     .ok_or_else(|| PolicyValidationError {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
                         reason: "time_window missing 'end_hour' integer".to_string(),
-                    })? as u8;
-                if start_hour > 23 || end_hour > 23 {
+                    })?;
+                if start_hour_u64 > 23 || end_hour_u64 > 23 {
                     return Err(PolicyValidationError {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
                         reason: format!(
                             "time_window hours must be 0-23, got start={} end={}",
-                            start_hour, end_hour
+                            start_hour_u64, end_hour_u64
                         ),
                     });
                 }
-                let days = obj
+                let start_hour = start_hour_u64 as u8;
+                let end_hour = end_hour_u64 as u8;
+                // SECURITY (R19-TRUNC): Validate day values as u64 BEFORE casting to u8.
+                // Same truncation issue as hours: `day: 258` → `258 % 256 = 2` as u8.
+                let days_u64: Vec<u64> = obj
                     .get("days")
                     .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_u64().map(|d| d as u8))
-                            .collect::<Vec<u8>>()
-                    })
+                    .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect())
                     .unwrap_or_default();
-                // Validate day values: 1=Mon, 2=Tue, ..., 7=Sun (ISO 8601)
-                for &day in &days {
+                for &day in &days_u64 {
                     if !(1..=7).contains(&day) {
                         return Err(PolicyValidationError {
                             policy_id: policy.id.clone(),
@@ -1203,6 +1206,22 @@ impl PolicyEngine {
                             ),
                         });
                     }
+                }
+                let days: Vec<u8> = days_u64.iter().map(|&d| d as u8).collect();
+                // SECURITY (R19-WINDOW-EQ): Reject start_hour == end_hour as a
+                // configuration error. The window check `hour >= X && hour < X` is
+                // always false, creating a permanent deny that looks like a time
+                // restriction but blocks all hours silently.
+                if start_hour == end_hour {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "time_window start_hour and end_hour must differ (both are {}); \
+                             a zero-width window permanently denies all requests",
+                            start_hour
+                        ),
+                    });
                 }
                 let deny_reason = format!(
                     "Outside allowed time window ({:02}:00-{:02}:00) for policy '{}'",
@@ -9802,6 +9821,47 @@ mod tests {
         ]));
         let result = PolicyEngine::with_policies(false, &[policy]);
         assert!(result.is_err());
+    }
+
+    /// SECURITY (R19-TRUNC): Verify that large u64 hour values are rejected
+    /// instead of silently truncating to u8 (e.g., 265 → 9).
+    #[test]
+    fn test_context_compile_error_truncated_hour_value() {
+        // 265 as u8 = 9, which would pass > 23 check without the fix
+        let policy = make_context_policy(json!([
+            {"type": "time_window", "start_hour": 265, "end_hour": 10}
+        ]));
+        let result = PolicyEngine::with_policies(false, &[policy]);
+        assert!(result.is_err(), "Should reject start_hour=265 (would truncate to 9 as u8)");
+
+        // Same for end_hour
+        let policy2 = make_context_policy(json!([
+            {"type": "time_window", "start_hour": 9, "end_hour": 280}
+        ]));
+        let result2 = PolicyEngine::with_policies(false, &[policy2]);
+        assert!(result2.is_err(), "Should reject end_hour=280 (would truncate to 24→err, but 256+17=273→17 as u8)");
+    }
+
+    /// SECURITY (R19-TRUNC): Verify that large u64 day values are rejected.
+    #[test]
+    fn test_context_compile_error_truncated_day_value() {
+        // 258 as u8 = 2 (Tuesday), which would pass 1..=7 check without the fix
+        let policy = make_context_policy(json!([
+            {"type": "time_window", "start_hour": 9, "end_hour": 17, "days": [1, 258]}
+        ]));
+        let result = PolicyEngine::with_policies(false, &[policy]);
+        assert!(result.is_err(), "Should reject day=258 (would truncate to 2 as u8)");
+    }
+
+    /// SECURITY (R19-WINDOW-EQ): start_hour == end_hour creates a zero-width
+    /// window that always denies. Reject at compile time.
+    #[test]
+    fn test_context_compile_error_zero_width_time_window() {
+        let policy = make_context_policy(json!([
+            {"type": "time_window", "start_hour": 12, "end_hour": 12}
+        ]));
+        let result = PolicyEngine::with_policies(false, &[policy]);
+        assert!(result.is_err(), "Should reject start_hour == end_hour (zero-width window)");
     }
 
     #[test]

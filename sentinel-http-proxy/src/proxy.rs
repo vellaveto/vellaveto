@@ -565,26 +565,69 @@ pub async fn handle_mcp_post(
                 resolve_domains(&mut action).await;
             }
 
-            // Build evaluation context from session state for context-aware policies
-            let eval_ctx = build_evaluation_context(&state.sessions, &session_id);
+            // SECURITY (R19-TOCTOU): Combine context read, evaluation, and session
+            // update into a single block that holds the DashMap shard lock. Without
+            // this, concurrent requests clone the same call_counts snapshot, all pass
+            // max_calls evaluation, and all increment — bypassing rate limits.
+            //
+            // This is safe because engine evaluation is synchronous (no await) and
+            // fast (<5ms). The shard lock is released when `session` drops.
+            let eval_result = if let Some(mut session) =
+                state.sessions.get_mut(&session_id)
+            {
+                let eval_ctx = EvaluationContext {
+                    timestamp: None,
+                    agent_id: session.oauth_subject.clone(),
+                    call_counts: session.call_counts.clone(),
+                    previous_actions: session.action_history.clone(),
+                };
 
-            // Choose traced or non-traced evaluation path
-            let eval_result = if params.trace {
-                state
-                    .engine
-                    .evaluate_action_traced_with_context(&action, eval_ctx.as_ref())
-                    .map(|(v, t)| (v, Some(t)))
+                let result = if params.trace {
+                    state
+                        .engine
+                        .evaluate_action_traced_with_context(&action, Some(&eval_ctx))
+                        .map(|(v, t)| (v, Some(t)))
+                } else {
+                    state
+                        .engine
+                        .evaluate_action_with_context(
+                            &action,
+                            &state.policies,
+                            Some(&eval_ctx),
+                        )
+                        .map(|v| (v, None))
+                };
+
+                // Atomically update session while still holding the shard lock
+                if let Ok((Verdict::Allow, _)) = &result {
+                    *session
+                        .call_counts
+                        .entry(tool_name.to_string())
+                        .or_insert(0) += 1;
+                    if session.action_history.len() >= MAX_ACTION_HISTORY {
+                        session.action_history.remove(0);
+                    }
+                    session.action_history.push(tool_name.to_string());
+                }
+
+                result
             } else {
-                state
-                    .engine
-                    .evaluate_action_with_context(&action, &state.policies, eval_ctx.as_ref())
-                    .map(|v| (v, None))
+                // No session found: evaluate without context
+                if params.trace {
+                    state
+                        .engine
+                        .evaluate_action_traced_with_context(&action, None)
+                        .map(|(v, t)| (v, Some(t)))
+                } else {
+                    state
+                        .engine
+                        .evaluate_action_with_context(&action, &state.policies, None)
+                        .map(|v| (v, None))
+                }
             };
 
             match eval_result {
                 Ok((Verdict::Allow, trace)) => {
-                    // Update session tracking after allowed tool call
-                    update_session_after_allow(&state.sessions, &session_id, &tool_name);
                     // Forward to upstream — canonicalize if configured (KL2 TOCTOU fix)
                     let forward_body = match canonicalize_body(&state, &msg, body) {
                         Some(b) => b,
@@ -1623,19 +1666,7 @@ fn build_evaluation_context(
         })
 }
 
-/// Update session state after an allowed tool call.
-fn update_session_after_allow(sessions: &SessionStore, session_id: &str, tool_name: &str) {
-    if let Some(mut session) = sessions.get_mut(session_id) {
-        *session
-            .call_counts
-            .entry(tool_name.to_string())
-            .or_insert(0) += 1;
-        if session.action_history.len() >= MAX_ACTION_HISTORY {
-            session.action_history.remove(0);
-        }
-        session.action_history.push(tool_name.to_string());
-    }
-}
+
 
 /// Build audit context JSON, optionally including OAuth subject.
 fn build_audit_context(
@@ -2582,7 +2613,15 @@ async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &Pro
         }
 
         let dlp_findings = if let Ok(json_val) = serde_json::from_str::<Value>(&data_payload) {
-            scan_response_for_secrets(&json_val)
+            // SECURITY (R19-SSE-NOTIF-DLP): SSE streams can carry both responses
+            // (result/error) and notifications (method+params, no id). The original
+            // code only called scan_response_for_secrets which scans result/error
+            // fields, missing secrets in notification params entirely.
+            let mut findings = scan_response_for_secrets(&json_val);
+            if json_val.get("method").is_some() {
+                findings.extend(scan_notification_for_secrets(&json_val));
+            }
+            findings
         } else {
             // SECURITY (R17-SSE-4): Non-JSON SSE data must also be scanned.
             // A malicious upstream can embed secrets in plain-text SSE data lines
