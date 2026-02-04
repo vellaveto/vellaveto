@@ -2570,3 +2570,70 @@ async fn remove_policy_atomic_store_updates_both() {
     );
     assert_eq!(remaining.len(), 1, "Only bash:* should remain");
 }
+
+// === R16 Security Fix Tests ===
+
+#[tokio::test]
+async fn approval_rejects_oversized_id() {
+    let (state, _tmp) = make_approval_state();
+    let app = routes::build_router(state);
+
+    let long_id = "a".repeat(200);
+    let resp = app
+        .oneshot(
+            Request::post(format!("/api/approvals/{}/approve", long_id))
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"resolved_by":"test"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(
+        json["error"].as_str().unwrap().contains("characters"),
+        "Error should mention character limit"
+    );
+}
+
+#[tokio::test]
+async fn approval_rejects_control_chars_in_id() {
+    let (state, _tmp) = make_approval_state();
+    let app = routes::build_router(state);
+
+    // Control chars in URL path won't be routed normally, but test via get endpoint
+    // which also validates. Use a tab character.
+    let resp = app
+        .oneshot(
+            Request::get("/api/approvals/abc%09def")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn approval_deny_rejects_oversized_id() {
+    let (state, _tmp) = make_approval_state();
+    let app = routes::build_router(state);
+
+    let long_id = "b".repeat(200);
+    let resp = app
+        .oneshot(
+            Request::post(format!("/api/approvals/{}/deny", long_id))
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"resolved_by":"test"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}

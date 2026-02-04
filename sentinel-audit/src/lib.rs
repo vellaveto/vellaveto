@@ -952,6 +952,28 @@ impl AuditLogger {
 
             let rotated_path = PathBuf::from(rotated_file);
 
+            // SECURITY (R16-AUDIT-1): Validate rotated_file is under the same
+            // directory as the audit log. Prevents path traversal via a crafted
+            // rotation manifest that could read arbitrary files on the filesystem.
+            if let Some(expected_dir) = self.log_path.parent() {
+                let canonical_dir = expected_dir
+                    .canonicalize()
+                    .unwrap_or_else(|_| expected_dir.to_path_buf());
+                let canonical_rotated = rotated_path
+                    .canonicalize()
+                    .unwrap_or_else(|_| rotated_path.clone());
+                if !canonical_rotated.starts_with(&canonical_dir) {
+                    return Ok(RotationVerification {
+                        valid: false,
+                        files_checked: i,
+                        first_failure: Some(format!(
+                            "Rotated file path traversal detected: {}",
+                            rotated_path.display()
+                        )),
+                    });
+                }
+            }
+
             // Check file exists
             if !rotated_path.exists() {
                 return Ok(RotationVerification {
@@ -1199,6 +1221,17 @@ impl AuditLogger {
             )));
         }
 
+        // SECURITY (R16-AUDIT-2): Validate metadata nesting depth to prevent
+        // stack overflow in recursive redaction functions. Action parameters are
+        // already depth-checked (max 20), but metadata was not.
+        const MAX_METADATA_DEPTH: usize = 20;
+        if Self::json_depth(&metadata) > MAX_METADATA_DEPTH {
+            return Err(AuditError::Validation(format!(
+                "Metadata exceeds maximum nesting depth of {}",
+                MAX_METADATA_DEPTH
+            )));
+        }
+
         // Redact sensitive values based on configured redaction level
         let logged_action = match self.redaction_level {
             RedactionLevel::Off => action.clone(),
@@ -1277,6 +1310,19 @@ impl AuditLogger {
 
         file.write_all(&line_bytes).await?;
         file.flush().await?;
+
+        // SECURITY (R16-AUDIT-4): Restrict audit log file permissions on Unix (0o600).
+        // Parity with checkpoint file permissions — prevents other users from
+        // reading action parameters or modifying the hash chain.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = tokio::fs::set_permissions(
+                &self.log_path,
+                std::fs::Permissions::from_mode(0o600),
+            )
+            .await;
+        }
 
         // Fix #35: For Deny verdicts, call sync_data() to ensure the entry
         // survives power loss. Allow/RequireApproval can remain buffered.
@@ -3706,6 +3752,75 @@ mod tests {
         assert_eq!(
             mode, 0o600,
             "Checkpoint should have 0o600 permissions, got {:o}",
+            mode
+        );
+    }
+
+    // SECURITY (R16-AUDIT-2): Metadata depth validation
+    #[tokio::test]
+    async fn test_metadata_depth_rejected() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.log");
+        let logger = AuditLogger::new(log_path);
+
+        // Build deeply nested metadata (depth > 20)
+        let mut nested = json!("leaf");
+        for _ in 0..25 {
+            nested = json!({"inner": nested});
+        }
+
+        let action = Action::new("tool", "func", json!({}));
+        let result = logger
+            .log_entry(&action, &Verdict::Allow, nested)
+            .await;
+
+        assert!(result.is_err(), "Deeply nested metadata should be rejected");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("nesting depth"),
+            "Error should mention nesting depth, got: {}",
+            err_msg
+        );
+    }
+
+    #[tokio::test]
+    async fn test_metadata_shallow_accepted() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.log");
+        let logger = AuditLogger::new(log_path);
+
+        // Build shallow metadata (depth = 3, well under 20)
+        let metadata = json!({"a": {"b": {"c": "value"}}});
+
+        let action = Action::new("tool", "func", json!({}));
+        let result = logger
+            .log_entry(&action, &Verdict::Allow, metadata)
+            .await;
+
+        assert!(result.is_ok(), "Shallow metadata should be accepted");
+    }
+
+    // SECURITY (R16-AUDIT-4): Audit log file permissions
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_audit_log_permissions_0600() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone());
+
+        let action = Action::new("tool", "func", json!({}));
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+
+        let metadata = std::fs::metadata(&log_path).unwrap();
+        let mode = metadata.permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "Audit log should have 0o600 permissions, got {:o}",
             mode
         );
     }

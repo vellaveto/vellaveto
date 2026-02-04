@@ -1,5 +1,56 @@
 # Shared Log
 
+## 2026-02-04 — Instance B Session 8: Phase 11 Sprint 1+2 (11.1 + 11.4)
+
+**Instance:** Instance B (Opus 4.5)
+**Timestamp:** 2026-02-04
+**Test count:** 2,317 (all passing, 0 clippy warnings)
+
+### 11.1 — Path normalization: configurable decode limit (COMPLETE)
+
+- Added `max_path_decode_iterations: Option<u32>` to `PolicyConfig` in sentinel-config
+- Wired through all engine construction sites:
+  - `sentinel-server/src/main.rs` (startup + CLI evaluate)
+  - `sentinel-server/src/lib.rs` (config reload path)
+  - `sentinel-http-proxy/src/main.rs` (startup)
+  - `sentinel-proxy/src/main.rs` (startup)
+  - `sentinel-mcp/src/lib.rs` (McpServer field + recompile_engine)
+- TOML config: `max_path_decode_iterations = 5` (optional, default stays 20)
+- 2 new config round-trip tests (TOML + JSON)
+
+### 11.4 — DLP multi-layer decode chains (COMPLETE)
+
+- Refactored `scan_string_for_secrets()` into 5-layer decode pipeline:
+  1. Raw string scan
+  2. base64(raw) scan
+  3. percent(raw) scan
+  4. **NEW:** percent(base64(raw)) scan — catches base64-then-URL-encoded secrets
+  5. **NEW:** base64(percent(raw)) scan — catches URL-then-base64-encoded secrets
+- Extracted helper functions: `try_base64_decode()`, `try_percent_decode()`, `scan_decoded_layer()`
+- Time budget: 50ms debug / 5ms release (prevents DoS on large inputs)
+- 5 new tests: base64+percent, percent+base64, double-encoded GitHub token, location labels, clean double-encoding no false positive
+- Location labels: `(base64+url_encoded)`, `(url_encoded+base64)` for two-layer findings
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `sentinel-config/src/lib.rs` | `PolicyConfig::max_path_decode_iterations` field + 2 tests |
+| `sentinel-server/src/main.rs` | Wire max_path_decode_iterations at startup + CLI |
+| `sentinel-server/src/lib.rs` | Wire on config reload |
+| `sentinel-http-proxy/src/main.rs` | Wire at startup |
+| `sentinel-proxy/src/main.rs` | Wire at startup |
+| `sentinel-mcp/src/lib.rs` | McpServer field + recompile integration |
+| `sentinel-mcp/src/inspection.rs` | 5-layer DLP decode pipeline + 5 tests |
+| `sentinel-server/tests/test_config_enhancements.rs` | Updated struct literals |
+
+### Remaining Phase 11 Tasks
+
+- **11.2** (Instance A): Per-principal rate limit docs — not started
+- **11.3** (Instance B): DNS rebinding — needs design review first, Sprint 3
+
+---
+
 ## 2026-02-04 — Controller Session 19: Compilation Fix + Test Coverage + Cleanup
 
 **Instance:** Controller (Opus 4.5)

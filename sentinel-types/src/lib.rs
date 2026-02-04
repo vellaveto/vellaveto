@@ -18,6 +18,8 @@ pub enum ValidationError {
     EmptyField { field: &'static str },
     /// Tool or function name contains a null byte.
     NullByte { field: &'static str },
+    /// Tool or function name contains a control character (tab, newline, etc.).
+    ControlCharacter { field: &'static str },
     /// Tool or function name exceeds the maximum length.
     TooLong {
         field: &'static str,
@@ -45,6 +47,9 @@ impl fmt::Display for ValidationError {
             }
             ValidationError::NullByte { field } => {
                 write!(f, "Action {} contains null byte", field)
+            }
+            ValidationError::ControlCharacter { field } => {
+                write!(f, "Action {} contains control character", field)
             }
             ValidationError::TooLong { field, len, max } => {
                 write!(f, "Action {} too long: {} bytes (max {})", field, len, max)
@@ -107,8 +112,10 @@ fn validate_name(value: &str, field: &'static str) -> Result<(), ValidationError
     if value.trim().is_empty() {
         return Err(ValidationError::EmptyField { field });
     }
+    // SECURITY (R16-TYPES-1): Use distinct variant for control characters
+    // so error messages accurately describe the issue.
     if value.chars().any(|c| c.is_control() && c != '\0') {
-        return Err(ValidationError::NullByte { field }); // Reuse NullByte variant for control chars
+        return Err(ValidationError::ControlCharacter { field });
     }
     Ok(())
 }
@@ -338,8 +345,14 @@ impl EvaluationContext {
     /// Returns true if any context field is populated with meaningful data.
     /// Used by the engine to decide whether falling back to the legacy path
     /// (which cannot evaluate context conditions) is safe.
+    // SECURITY (R16-TYPES-2): Include timestamp so time-window policies
+    // fail-closed when compiled policies are unavailable, rather than
+    // silently falling back to the legacy path that ignores time constraints.
     pub fn has_any_meaningful_fields(&self) -> bool {
-        self.agent_id.is_some() || !self.call_counts.is_empty() || !self.previous_actions.is_empty()
+        self.timestamp.is_some()
+            || self.agent_id.is_some()
+            || !self.call_counts.is_empty()
+            || !self.previous_actions.is_empty()
     }
 }
 
@@ -487,6 +500,43 @@ mod tests {
         let e = ValidationError::EmptyField { field: "tool" };
         assert!(e.to_string().contains("tool"));
         assert!(e.to_string().contains("empty"));
+    }
+
+    #[test]
+    fn test_validated_rejects_control_chars_with_correct_variant() {
+        // Tab character should produce ControlCharacter, not NullByte
+        let result = Action::validated("read\tfile", "execute", json!({}));
+        assert!(
+            matches!(
+                result,
+                Err(ValidationError::ControlCharacter { field: "tool" })
+            ),
+            "Tab should produce ControlCharacter variant, got: {:?}",
+            result
+        );
+
+        // Newline in function
+        let result = Action::validated("tool", "exec\nute", json!({}));
+        assert!(
+            matches!(
+                result,
+                Err(ValidationError::ControlCharacter { field: "function" })
+            ),
+            "Newline should produce ControlCharacter variant, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_control_character_error_display() {
+        let e = ValidationError::ControlCharacter { field: "tool" };
+        let msg = e.to_string();
+        assert!(
+            msg.contains("control character"),
+            "Error message should say 'control character', got: {}",
+            msg
+        );
+        assert!(!msg.contains("null byte"), "Should NOT mention null byte");
     }
 
     // --- Target validation tests ---
@@ -698,5 +748,28 @@ mod tests {
             prop_assert_eq!(&action, &deserialized,
                 "Valid action must roundtrip through serde unchanged");
         }
+    }
+
+    // SECURITY (R16-TYPES-2): EvaluationContext.has_any_meaningful_fields()
+    // must include timestamp so time-window policies fail-closed.
+    #[test]
+    fn test_context_timestamp_only_is_meaningful() {
+        let ctx = EvaluationContext {
+            timestamp: Some("2024-01-01T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+        assert!(
+            ctx.has_any_meaningful_fields(),
+            "Context with only timestamp should be meaningful"
+        );
+    }
+
+    #[test]
+    fn test_context_empty_is_not_meaningful() {
+        let ctx = EvaluationContext::default();
+        assert!(
+            !ctx.has_any_meaningful_fields(),
+            "Default context should not be meaningful"
+        );
     }
 }

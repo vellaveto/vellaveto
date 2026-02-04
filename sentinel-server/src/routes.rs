@@ -518,7 +518,10 @@ async fn evaluate(
     // Record metrics
     state.metrics.record_evaluation(&verdict);
 
-    // Log to audit — fire-and-forget on error (don't fail the request)
+    // Log to audit — fire-and-forget on error (don't fail the request).
+    // SECURITY (R16-AUDIT-3): Log at error level (not warn) because a silent
+    // audit failure means security decisions proceed without an audit trail.
+    // An attacker who fills the disk can suppress audit logging entirely.
     if let Err(e) = state
         .audit
         .log_entry(
@@ -528,7 +531,8 @@ async fn evaluate(
         )
         .await
     {
-        tracing::warn!("Failed to write audit entry: {}", e);
+        tracing::error!("AUDIT FAILURE: security decision not recorded: {}", e);
+        state.metrics.record_error();
     }
 
     Ok(Json(EvaluateResponse {
@@ -900,6 +904,8 @@ async fn get_approval(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    validate_approval_id(&id)?;
+
     let approval = state.approvals.get(&id).await.map_err(|e| {
         tracing::debug!("Approval lookup failed for '{}': {}", id, e);
         (
@@ -935,12 +941,52 @@ fn default_resolver() -> String {
 /// Maximum length for the `resolved_by` field (Finding B1: prevents multi-MB strings).
 const MAX_RESOLVED_BY_LEN: usize = 1024;
 
+/// Maximum length for approval ID path parameters.
+/// UUIDs are 36 chars; 128 gives ample margin while preventing log bloat.
+const MAX_APPROVAL_ID_LEN: usize = 128;
+
+/// Validate an approval ID from a URL path parameter.
+/// SECURITY (R16-APPR-1): Reject oversized or malformed IDs to prevent
+/// log bloat and provide clean error messages.
+fn validate_approval_id(id: &str) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    if id.is_empty() || id.len() > MAX_APPROVAL_ID_LEN {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!(
+                    "Approval ID must be 1-{} characters",
+                    MAX_APPROVAL_ID_LEN
+                ),
+            }),
+        ));
+    }
+    // SECURITY (R16-APPR-2): Reject control characters in approval IDs
+    if id.chars().any(|c| c.is_control()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Approval ID contains invalid characters".to_string(),
+            }),
+        ));
+    }
+    Ok(())
+}
+
+/// Sanitize the resolved_by field: strip control characters.
+/// SECURITY (R16-APPR-2): Prevents stored XSS via audit trail if
+/// rendered in a web UI, and prevents log injection with newlines/tabs.
+fn sanitize_resolved_by(value: &str) -> String {
+    value.chars().filter(|c| !c.is_control()).collect()
+}
+
 async fn approve_approval(
     State(state): State<AppState>,
     Path(id): Path<String>,
     headers: HeaderMap,
     body: Option<Json<ResolveRequest>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    validate_approval_id(&id)?;
+
     // SECURITY (R11-APPR-4): Derive resolver identity from the authenticated
     // principal (Bearer token hash) rather than trusting the client-supplied
     // resolved_by field. The client value is kept as a note but the auth
@@ -948,7 +994,7 @@ async fn approve_approval(
     let client_resolved_by = body
         .map(|b| b.resolved_by.clone())
         .unwrap_or_else(|| "anonymous".to_string());
-    let resolved_by = derive_resolver_identity(&headers, &client_resolved_by);
+    let resolved_by = sanitize_resolved_by(&derive_resolver_identity(&headers, &client_resolved_by));
 
     if resolved_by.len() > MAX_RESOLVED_BY_LEN {
         return Err((
@@ -1036,10 +1082,12 @@ async fn deny_approval(
     headers: HeaderMap,
     body: Option<Json<ResolveRequest>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    validate_approval_id(&id)?;
+
     let client_resolved_by = body
         .map(|b| b.resolved_by.clone())
         .unwrap_or_else(|| "anonymous".to_string());
-    let resolved_by = derive_resolver_identity(&headers, &client_resolved_by);
+    let resolved_by = sanitize_resolved_by(&derive_resolver_identity(&headers, &client_resolved_by));
 
     if resolved_by.len() > MAX_RESOLVED_BY_LEN {
         return Err((
