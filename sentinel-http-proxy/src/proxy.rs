@@ -81,6 +81,9 @@ pub struct ProxyState {
     pub output_schema_registry: Arc<OutputSchemaRegistry>,
     /// When true, scan tool responses for secrets (DLP response scanning).
     pub response_dlp_enabled: bool,
+    /// When true, block responses that contain detected secrets instead of just logging.
+    /// SECURITY (R18-DLP-BLOCK): Without this, DLP is log-only and secrets still reach the client.
+    pub response_dlp_blocking: bool,
 }
 
 /// MCP Session ID header name.
@@ -97,8 +100,10 @@ const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
 const MAX_RESPONSE_BODY_SIZE: usize = 10 * 1024 * 1024;
 
 /// Maximum size of a single SSE event's data payload (1 MB).
-/// Events larger than this are skipped during injection/DLP scanning
-/// to prevent expensive regex processing on oversized payloads.
+/// SECURITY (R18-SSE-OVERSIZE): Events larger than this are treated as
+/// suspicious and flagged (fail-closed). A malicious server can pad events
+/// to exceed this limit and bypass all scanning. Oversized events are
+/// logged at warn level and, when blocking is enabled, trigger denial.
 const MAX_SSE_EVENT_SIZE: usize = 1024 * 1024;
 
 /// Resolve target domains to IP addresses for DNS rebinding protection.
@@ -1714,10 +1719,31 @@ async fn forward_to_upstream(
 
                         // DLP + OutputSchemaRegistry scanning for SSE events.
                         if state.response_dlp_enabled {
-                            scan_sse_events_for_dlp(&sse_bytes, session_id, state).await;
+                            let dlp_found =
+                                scan_sse_events_for_dlp(&sse_bytes, session_id, state).await;
+                            // SECURITY (R18-DLP-BLOCK): Block SSE stream if secrets detected
+                            // and response_dlp_blocking is enabled.
+                            if dlp_found && state.response_dlp_blocking {
+                                return (
+                                    StatusCode::OK,
+                                    Json(json!({
+                                        "jsonrpc": "2.0",
+                                        "error": {
+                                            "code": -32002,
+                                            "message": "SSE response blocked: secrets detected by DLP",
+                                        },
+                                    })),
+                                )
+                                    .into_response();
+                            }
                         }
                         // Register output schemas from SSE tools/list responses.
                         register_schemas_from_sse(&sse_bytes, state);
+
+                        // SECURITY (R18-SSE-RUG): Rug-pull detection and manifest
+                        // verification for SSE responses. Without this, a server
+                        // returning tools/list via SSE would bypass both checks.
+                        check_sse_for_rug_pull_and_manifest(&sse_bytes, session_id, state).await;
 
                         // SECURITY (R12-RESP-10): Do NOT copy Mcp-Session-Id from upstream.
                         // The proxy is the session authority. Forwarding the upstream's
@@ -2086,6 +2112,7 @@ async fn forward_to_upstream(
                         }
 
                         // DLP response scanning: detect secrets in tool responses.
+                        let mut blocked_by_dlp: Option<String> = None;
                         if state.response_dlp_enabled {
                             if let Ok(response_json) = serde_json::from_slice::<Value>(&body_bytes)
                             {
@@ -2097,10 +2124,32 @@ async fn forward_to_upstream(
                                         .collect();
                                     tracing::warn!(
                                         "SECURITY: Secrets detected in tool response! \
-                                         Session: {}, Findings: {:?}",
+                                         Session: {}, Findings: {:?}, Blocking: {}",
                                         session_id,
-                                        patterns
+                                        patterns,
+                                        state.response_dlp_blocking,
                                     );
+
+                                    // SECURITY (R18-DLP-BLOCK): When blocking is enabled,
+                                    // record the reason so we can return an error instead
+                                    // of forwarding the secret-containing response.
+                                    if state.response_dlp_blocking {
+                                        blocked_by_dlp = Some(format!(
+                                            "Response blocked: secrets detected ({:?})",
+                                            patterns
+                                        ));
+                                    }
+
+                                    let verdict = if state.response_dlp_blocking {
+                                        Verdict::Deny {
+                                            reason: format!(
+                                                "Response DLP blocked: {:?}",
+                                                patterns
+                                            ),
+                                        }
+                                    } else {
+                                        Verdict::Allow
+                                    };
                                     let action = Action::new(
                                         "sentinel",
                                         "response_dlp_scan",
@@ -2110,19 +2159,15 @@ async fn forward_to_upstream(
                                             "finding_count": dlp_findings.len(),
                                         }),
                                     );
-                                    // SECURITY (R13-DLP-9): Log Verdict::Allow (not Deny)
-                                    // because DLP is currently log-only — the response IS
-                                    // forwarded. Logging Deny when the response goes through
-                                    // creates a misleading audit trail.
                                     if let Err(e) = state
                                         .audit
                                         .log_entry(
                                             &action,
-                                            &Verdict::Allow,
+                                            &verdict,
                                             json!({
                                                 "source": "http_proxy",
                                                 "event": "response_dlp_alert",
-                                                "blocked": false,
+                                                "blocked": state.response_dlp_blocking,
                                                 "dlp_detail": format!(
                                                     "Secrets detected in response: {:?}",
                                                     patterns
@@ -2156,7 +2201,23 @@ async fn forward_to_upstream(
                                 .into_response();
                         }
 
-                        // Forward the raw bytes (no injection detected or blocking disabled)
+                        // SECURITY (R18-DLP-BLOCK): If response DLP blocking is enabled
+                        // and secrets were detected, return a sanitized error.
+                        if let Some(reason) = blocked_by_dlp {
+                            return (
+                                StatusCode::OK,
+                                Json(json!({
+                                    "jsonrpc": "2.0",
+                                    "error": {
+                                        "code": -32002,
+                                        "message": reason,
+                                    },
+                                })),
+                            )
+                                .into_response();
+                        }
+
+                        // Forward the raw bytes (no injection/DLP blocking triggered)
                         // SECURITY (R12-RESP-10): Do NOT copy Mcp-Session-Id from upstream.
                         // The proxy is the session authority — see SSE path comment above.
                         Response::builder()
@@ -2286,12 +2347,17 @@ async fn scan_sse_events_for_injection(
         if data_payload.trim().is_empty() {
             continue;
         }
-        // SECURITY: Skip oversized events to prevent expensive scanning
+        // SECURITY (R18-SSE-OVERSIZE): Oversized events are treated as suspicious.
+        // A malicious server can pad events to exceed the size limit and bypass scanning.
+        // Fail-closed: flag as injection match so blocking mode will reject the stream.
         if data_payload.len() > MAX_SSE_EVENT_SIZE {
-            tracing::debug!(
-                "Skipping oversized SSE event ({} bytes) for injection scan",
-                data_payload.len()
+            tracing::warn!(
+                "SECURITY: Oversized SSE event ({} bytes > {} limit) — \
+                 treating as suspicious (potential scan evasion)",
+                data_payload.len(),
+                MAX_SSE_EVENT_SIZE,
             );
+            all_matches.push(format!("oversized_sse_event({}bytes)", data_payload.len()));
             continue;
         }
 
@@ -2415,9 +2481,10 @@ async fn scan_sse_events_for_injection(
 /// Scan SSE event data payloads for DLP secret patterns.
 ///
 /// Parses SSE events, extracts JSON-RPC result payloads, and scans
-/// them for secrets (AWS keys, GitHub tokens, etc). Findings are
-/// logged as audit entries (log-only, not blocking).
-async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &ProxyState) {
+/// them for secrets (AWS keys, GitHub tokens, etc). Findings are logged
+/// as audit entries. Returns `true` if any secrets were detected.
+async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &ProxyState) -> bool {
+    let mut secrets_found = false;
     // SECURITY (R11-RESP-5): Use lossy UTF-8 conversion instead of skipping.
     let sse_text = String::from_utf8_lossy(sse_bytes);
 
@@ -2439,12 +2506,16 @@ async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &Pro
         if data_payload.trim().is_empty() {
             continue;
         }
-        // SECURITY: Skip oversized events to prevent expensive scanning
+        // SECURITY (R18-SSE-OVERSIZE): Oversized events are treated as suspicious.
+        // Fail-closed: flag as found so blocking mode will reject the entire stream.
         if data_payload.len() > MAX_SSE_EVENT_SIZE {
-            tracing::debug!(
-                "Skipping oversized SSE event ({} bytes) for DLP scan",
-                data_payload.len()
+            tracing::warn!(
+                "SECURITY: Oversized SSE event ({} bytes > {} limit) — \
+                 treating as suspicious for DLP (potential scan evasion)",
+                data_payload.len(),
+                MAX_SSE_EVENT_SIZE,
             );
+            secrets_found = true;
             continue;
         }
 
@@ -2458,16 +2529,25 @@ async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &Pro
         };
 
         if !dlp_findings.is_empty() {
+            secrets_found = true;
             let patterns: Vec<String> = dlp_findings
                 .iter()
                 .map(|f| format!("{}:{}", f.pattern_name, f.location))
                 .collect();
             tracing::warn!(
                 "SECURITY: Secrets detected in SSE tool response! \
-                 Session: {}, Findings: {:?}",
+                 Session: {}, Findings: {:?}, Blocking: {}",
                 session_id,
-                patterns
+                patterns,
+                state.response_dlp_blocking,
             );
+            let verdict = if state.response_dlp_blocking {
+                Verdict::Deny {
+                    reason: format!("SSE response DLP blocked: {:?}", patterns),
+                }
+            } else {
+                Verdict::Allow
+            };
             let action = Action::new(
                 "sentinel",
                 "sse_response_dlp_scan",
@@ -2477,18 +2557,15 @@ async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &Pro
                     "finding_count": dlp_findings.len(),
                 }),
             );
-            // SECURITY (R14-SSE-5): Log Verdict::Allow (not Deny)
-            // because SSE DLP is log-only — the stream IS forwarded.
-            // Matches the regular response DLP fix (R13-DLP-9).
             if let Err(e) = state
                 .audit
                 .log_entry(
                     &action,
-                    &Verdict::Allow,
+                    &verdict,
                     json!({
                         "source": "http_proxy",
                         "event": "sse_response_dlp_alert",
-                        "blocked": false,
+                        "blocked": state.response_dlp_blocking,
                         "dlp_detail": format!(
                             "Secrets detected in SSE response: {:?}",
                             patterns
@@ -2498,6 +2575,70 @@ async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &Pro
                 .await
             {
                 tracing::warn!("Failed to audit SSE DLP finding: {}", e);
+            }
+        }
+    }
+    secrets_found
+}
+
+/// Process SSE events for rug-pull detection and manifest verification.
+///
+/// SECURITY (R18-SSE-RUG): The JSON response path calls `extract_annotations_from_response`
+/// and `verify_manifest_from_response` on every response. Without this function, a malicious
+/// server could bypass rug-pull detection and manifest pinning by returning tools/list
+/// responses via SSE instead of JSON.
+async fn check_sse_for_rug_pull_and_manifest(
+    sse_bytes: &[u8],
+    session_id: &str,
+    state: &ProxyState,
+) {
+    let sse_text = String::from_utf8_lossy(sse_bytes);
+    let normalized = sse_text.replace("\r\n", "\n").replace('\r', "\n");
+
+    for event in normalized.split("\n\n") {
+        let mut data_parts: Vec<&str> = Vec::new();
+        for line in event.lines() {
+            if let Some(rest) = line.strip_prefix("data:") {
+                data_parts.push(rest.trim_start());
+            }
+        }
+        if data_parts.is_empty() {
+            continue;
+        }
+        let data_payload = data_parts.join("\n");
+        if data_payload.trim().is_empty() {
+            continue;
+        }
+        // SECURITY (R18-SSE-OVERSIZE): Log oversized events for rug-pull/manifest.
+        // We skip processing but warn — the injection/DLP scanners handle blocking.
+        if data_payload.len() > MAX_SSE_EVENT_SIZE {
+            tracing::warn!(
+                "SECURITY: Oversized SSE event ({} bytes) skipped for rug-pull/manifest check",
+                data_payload.len(),
+            );
+            continue;
+        }
+
+        if let Ok(json_val) = serde_json::from_str::<Value>(&data_payload) {
+            // Rug-pull detection: extract annotations from tools/list responses
+            extract_annotations_from_response(
+                &json_val,
+                session_id,
+                &state.sessions,
+                &state.audit,
+            )
+            .await;
+
+            // Manifest verification: verify tools/list against pinned manifest
+            if let Some(ref manifest_cfg) = state.manifest_config {
+                verify_manifest_from_response(
+                    &json_val,
+                    session_id,
+                    &state.sessions,
+                    manifest_cfg,
+                    &state.audit,
+                )
+                .await;
             }
         }
     }
@@ -2529,8 +2670,12 @@ fn register_schemas_from_sse(sse_bytes: &[u8], state: &ProxyState) {
         if data_payload.trim().is_empty() {
             continue;
         }
-        // SECURITY: Skip oversized events
+        // SECURITY (R18-SSE-OVERSIZE): Log oversized events for schema registration.
         if data_payload.len() > MAX_SSE_EVENT_SIZE {
+            tracing::warn!(
+                "SECURITY: Oversized SSE event ({} bytes) skipped for schema registration",
+                data_payload.len(),
+            );
             continue;
         }
 
@@ -3022,6 +3167,7 @@ mod tests {
             canonicalize,
             output_schema_registry: Arc::new(OutputSchemaRegistry::new()),
             response_dlp_enabled: false,
+            response_dlp_blocking: false,
         }
     }
 

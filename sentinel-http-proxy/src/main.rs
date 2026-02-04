@@ -320,6 +320,10 @@ async fn main() -> Result<()> {
                 .unwrap_or(false),
         output_schema_registry: Arc::new(OutputSchemaRegistry::new()),
         response_dlp_enabled: true,
+        response_dlp_blocking: std::env::var("SENTINEL_DLP_BLOCKING")
+            .ok()
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false),
     };
 
     if state.canonicalize {
