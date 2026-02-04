@@ -7,7 +7,7 @@
 
 use proptest::prelude::*;
 use sentinel_engine::PolicyEngine;
-use sentinel_types::{Action, Policy, PolicyType, Verdict};
+use sentinel_types::{Action, NetworkRules, PathRules, Policy, PolicyType, Verdict};
 use serde_json::json;
 
 /// Generate arbitrary Action values for testing.
@@ -435,5 +435,403 @@ proptest! {
                 "Deny at priority {} must beat Allow at priority {}. Got: {:?}",
                 deny_priority, allow_priority, other),
         }
+    }
+}
+
+// ═══════════════════════════════════════════════════
+// PATH RULES PROPERTIES (check_path_rules)
+// ═══════════════════════════════════════════════════
+
+// PROPERTY 15: Blocked path always denies, regardless of tool Allow
+proptest! {
+    #[test]
+    fn blocked_path_always_denies(
+        tool in "[a-z]{3,10}",
+        path_suffix in "[a-z]{1,10}",
+    ) {
+        let target_path = format!("/home/user/.aws/{}", path_suffix);
+        let policy = Policy {
+            id: format!("{}:*", tool),
+            name: "Allow with blocked path".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+            path_rules: Some(PathRules {
+                allowed: vec![],
+                blocked: vec!["/home/*/.aws/**".to_string()],
+            }),
+            network_rules: None,
+        };
+
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let mut action = Action::new(&tool, "read", json!({}));
+        action.target_paths = vec![target_path.clone()];
+
+        let result = engine.evaluate_action(&action, &[]);
+        match result {
+            Ok(Verdict::Deny { reason }) => {
+                prop_assert!(reason.contains("blocked"),
+                    "Denial reason must mention 'blocked'. Got: {}", reason);
+            }
+            other => prop_assert!(false,
+                "Blocked path '{}' must always deny. Got: {:?}", target_path, other),
+        }
+    }
+}
+
+// PROPERTY 16: Allowed path permits access
+proptest! {
+    #[test]
+    fn allowed_path_permits(
+        tool in "[a-z]{3,10}",
+        filename in "[a-z]{1,10}",
+    ) {
+        let target_path = format!("/tmp/{}", filename);
+        let policy = Policy {
+            id: format!("{}:*", tool),
+            name: "Allow with allowed path".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+            path_rules: Some(PathRules {
+                allowed: vec!["/tmp/**".to_string()],
+                blocked: vec![],
+            }),
+            network_rules: None,
+        };
+
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let mut action = Action::new(&tool, "write", json!({}));
+        action.target_paths = vec![target_path.clone()];
+
+        let result = engine.evaluate_action(&action, &[]);
+        prop_assert!(matches!(result, Ok(Verdict::Allow)),
+            "Path '{}' in allowed set must be allowed. Got: {:?}", target_path, result);
+    }
+}
+
+// PROPERTY 17: Path not in allowed set denies
+proptest! {
+    #[test]
+    fn path_not_in_allowed_set_denies(
+        tool in "[a-z]{3,10}",
+        filename in "[a-z]{1,10}",
+    ) {
+        // Allowed list only permits /tmp/**, but target is /etc/
+        let target_path = format!("/etc/{}", filename);
+        let policy = Policy {
+            id: format!("{}:*", tool),
+            name: "Allow only tmp".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+            path_rules: Some(PathRules {
+                allowed: vec!["/tmp/**".to_string()],
+                blocked: vec![],
+            }),
+            network_rules: None,
+        };
+
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let mut action = Action::new(&tool, "read", json!({}));
+        action.target_paths = vec![target_path.clone()];
+
+        let result = engine.evaluate_action(&action, &[]);
+        match result {
+            Ok(Verdict::Deny { reason }) => {
+                prop_assert!(reason.contains("not in allowed"),
+                    "Denial reason must mention 'not in allowed'. Got: {}", reason);
+            }
+            other => prop_assert!(false,
+                "Path '{}' not in allowed set must deny. Got: {:?}", target_path, other),
+        }
+    }
+}
+
+// PROPERTY 18: Empty target_paths skips path rules (no denial)
+proptest! {
+    #[test]
+    fn empty_target_paths_skips_path_rules(
+        tool in "[a-z]{3,10}",
+    ) {
+        let policy = Policy {
+            id: format!("{}:*", tool),
+            name: "Allow with strict path rules".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+            path_rules: Some(PathRules {
+                allowed: vec!["/allowed/**".to_string()],
+                blocked: vec!["/blocked/**".to_string()],
+            }),
+            network_rules: None,
+        };
+
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        // Action with NO target_paths
+        let action = Action::new(&tool, "list", json!({}));
+
+        let result = engine.evaluate_action(&action, &[]);
+        prop_assert!(matches!(result, Ok(Verdict::Allow)),
+            "Empty target_paths must skip path rules. Got: {:?}", result);
+    }
+}
+
+// PROPERTY 19: Path normalization strips traversal before matching
+proptest! {
+    #[test]
+    fn path_normalization_before_match(
+        tool in "[a-z]{3,10}",
+        depth in 1..5usize,
+        filename in "[a-z]{1,10}",
+    ) {
+        let traversal = "../".repeat(depth);
+        // Construct path like /safe/../../etc/filename which normalizes to /etc/filename
+        let target_path = format!("/safe/{}{}", traversal, filename);
+        let policy = Policy {
+            id: format!("{}:*", tool),
+            name: "Allow only safe".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+            path_rules: Some(PathRules {
+                allowed: vec!["/safe/**".to_string()],
+                blocked: vec![],
+            }),
+            network_rules: None,
+        };
+
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let mut action = Action::new(&tool, "read", json!({}));
+        action.target_paths = vec![target_path.clone()];
+
+        let result = engine.evaluate_action(&action, &[]);
+        // After normalization, traversals escape /safe/, so this must deny
+        match result {
+            Ok(Verdict::Deny { .. }) => {} // Expected: traversal escapes allowed set
+            other => prop_assert!(false,
+                "Traversal path '{}' must deny after normalization. Got: {:?}",
+                target_path, other),
+        }
+    }
+}
+
+// PROPERTY 20: Blocked takes precedence over allowed
+proptest! {
+    #[test]
+    fn blocked_takes_precedence_over_allowed(
+        tool in "[a-z]{3,10}",
+        filename in "[a-z]{1,10}",
+    ) {
+        // Path matches BOTH allowed and blocked — blocked must win
+        let target_path = format!("/data/secret/{}", filename);
+        let policy = Policy {
+            id: format!("{}:*", tool),
+            name: "Conflict: allowed and blocked overlap".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+            path_rules: Some(PathRules {
+                allowed: vec!["/data/**".to_string()],
+                blocked: vec!["/data/secret/**".to_string()],
+            }),
+            network_rules: None,
+        };
+
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let mut action = Action::new(&tool, "read", json!({}));
+        action.target_paths = vec![target_path.clone()];
+
+        let result = engine.evaluate_action(&action, &[]);
+        match result {
+            Ok(Verdict::Deny { reason }) => {
+                prop_assert!(reason.contains("blocked"),
+                    "Denial reason must mention 'blocked'. Got: {}", reason);
+            }
+            other => prop_assert!(false,
+                "Path '{}' matching both allowed and blocked must deny. Got: {:?}",
+                target_path, other),
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════
+// NETWORK RULES PROPERTIES (check_network_rules)
+// ═══════════════════════════════════════════════════
+
+// PROPERTY 21: Blocked domain always denies
+proptest! {
+    #[test]
+    fn blocked_domain_always_denies(
+        tool in "[a-z]{3,10}",
+        subdomain in "[a-z]{2,8}",
+    ) {
+        let domain = format!("{}.evil.com", subdomain);
+        let policy = Policy {
+            id: format!("{}:*", tool),
+            name: "Allow with blocked domains".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+            path_rules: None,
+            network_rules: Some(NetworkRules {
+                allowed_domains: vec![],
+                blocked_domains: vec!["*.evil.com".to_string()],
+            }),
+        };
+
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let mut action = Action::new(&tool, "request", json!({}));
+        action.target_domains = vec![domain.clone()];
+
+        let result = engine.evaluate_action(&action, &[]);
+        match result {
+            Ok(Verdict::Deny { reason }) => {
+                prop_assert!(reason.contains("blocked"),
+                    "Denial reason must mention 'blocked'. Got: {}", reason);
+            }
+            other => prop_assert!(false,
+                "Blocked domain '{}' must always deny. Got: {:?}", domain, other),
+        }
+    }
+}
+
+// PROPERTY 22: Allowed domain permits access
+proptest! {
+    #[test]
+    fn allowed_domain_permits(
+        tool in "[a-z]{3,10}",
+        subdomain in "[a-z]{2,8}",
+    ) {
+        let domain = format!("{}.trusted.com", subdomain);
+        let policy = Policy {
+            id: format!("{}:*", tool),
+            name: "Allow trusted domains".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+            path_rules: None,
+            network_rules: Some(NetworkRules {
+                allowed_domains: vec!["*.trusted.com".to_string()],
+                blocked_domains: vec![],
+            }),
+        };
+
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let mut action = Action::new(&tool, "request", json!({}));
+        action.target_domains = vec![domain.clone()];
+
+        let result = engine.evaluate_action(&action, &[]);
+        prop_assert!(matches!(result, Ok(Verdict::Allow)),
+            "Domain '{}' in allowed set must be allowed. Got: {:?}", domain, result);
+    }
+}
+
+// PROPERTY 23: Domain not in allowed set denies
+proptest! {
+    #[test]
+    fn domain_not_in_allowed_set_denies(
+        tool in "[a-z]{3,10}",
+        subdomain in "[a-z]{2,8}",
+    ) {
+        let domain = format!("{}.untrusted.com", subdomain);
+        let policy = Policy {
+            id: format!("{}:*", tool),
+            name: "Allow only trusted".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+            path_rules: None,
+            network_rules: Some(NetworkRules {
+                allowed_domains: vec!["*.trusted.com".to_string()],
+                blocked_domains: vec![],
+            }),
+        };
+
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let mut action = Action::new(&tool, "request", json!({}));
+        action.target_domains = vec![domain.clone()];
+
+        let result = engine.evaluate_action(&action, &[]);
+        match result {
+            Ok(Verdict::Deny { reason }) => {
+                prop_assert!(reason.contains("not in allowed"),
+                    "Denial reason must mention 'not in allowed'. Got: {}", reason);
+            }
+            other => prop_assert!(false,
+                "Domain '{}' not in allowed set must deny. Got: {:?}", domain, other),
+        }
+    }
+}
+
+// PROPERTY 24: Empty target_domains skips network rules
+proptest! {
+    #[test]
+    fn empty_target_domains_skips_network_rules(
+        tool in "[a-z]{3,10}",
+    ) {
+        let policy = Policy {
+            id: format!("{}:*", tool),
+            name: "Allow with strict network rules".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+            path_rules: None,
+            network_rules: Some(NetworkRules {
+                allowed_domains: vec!["*.trusted.com".to_string()],
+                blocked_domains: vec!["*.evil.com".to_string()],
+            }),
+        };
+
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        // Action with NO target_domains
+        let action = Action::new(&tool, "compute", json!({}));
+
+        let result = engine.evaluate_action(&action, &[]);
+        prop_assert!(matches!(result, Ok(Verdict::Allow)),
+            "Empty target_domains must skip network rules. Got: {:?}", result);
+    }
+}
+
+// PROPERTY 25: Domain matching is case-insensitive
+proptest! {
+    #[test]
+    fn domain_matching_is_case_insensitive(
+        tool in "[a-z]{3,10}",
+        subdomain in "[a-z]{2,8}",
+    ) {
+        // Use uppercase in the action domain; pattern is lowercase
+        let domain_upper = format!("{}.TRUSTED.COM", subdomain.to_uppercase());
+        let policy = Policy {
+            id: format!("{}:*", tool),
+            name: "Allow trusted".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+            path_rules: None,
+            network_rules: Some(NetworkRules {
+                allowed_domains: vec!["*.trusted.com".to_string()],
+                blocked_domains: vec![],
+            }),
+        };
+
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let mut action = Action::new(&tool, "request", json!({}));
+        action.target_domains = vec![domain_upper.clone()];
+
+        let result = engine.evaluate_action(&action, &[]);
+        prop_assert!(matches!(result, Ok(Verdict::Allow)),
+            "Case-different domain '{}' must still match. Got: {:?}", domain_upper, result);
+    }
+}
+
+// PROPERTY 26: Wildcard domain matches subdomains but not suffix attacks
+proptest! {
+    #[test]
+    fn wildcard_domain_matches_subdomains_not_suffix(
+        subdomain in "[a-z]{2,8}",
+    ) {
+        // *.example.com must match sub.example.com
+        let good_domain = format!("{}.example.com", subdomain);
+        prop_assert!(
+            PolicyEngine::match_domain_pattern(&good_domain, "*.example.com"),
+            "*.example.com must match '{}'", good_domain
+        );
+
+        // *.example.com must NOT match notexample.com (suffix attack)
+        let bad_domain = format!("{}example.com", subdomain);
+        prop_assert!(
+            !PolicyEngine::match_domain_pattern(&bad_domain, "*.example.com"),
+            "*.example.com must NOT match '{}' (suffix attack)", bad_domain
+        );
     }
 }

@@ -27,10 +27,17 @@ jobs:
         run: cargo doc --workspace --no-deps
       - name: Security Audit
         run: cargo install cargo-audit && cargo audit
-      - name: Check for unwrap() in library code
+      - name: Reject unwrap()/expect() in library code
         run: |
-          # Check for unwrap() in library code (excluding tests and binaries)
-          if grep -rn '\.unwrap()' --include='*.rs' sentinel-*/src/ | grep -v '#\[cfg(test)\]' | grep -v 'mod tests' | grep -v 'main.rs' | grep -v '#\[test\]' | head -20; then
-            echo "WARNING: Found unwrap() calls in library code (see above)"
-            echo "Consider using ? operator or .expect() with context"
-          fi
+          # Scan library source (excluding main.rs and #[cfg(test)] modules) for
+          # .unwrap() and .expect() calls. Fails the build if any are found.
+          HITS=$(find sentinel-*/src/ -name '*.rs' -not -name 'main.rs' \
+            | xargs awk 'FNR==1 { skip=0 }
+              /^#\[cfg\(test\)\]/ { skip=1 }
+              skip==0 && /\.unwrap\(\)/ { printf "%s:%d: %s\n", FILENAME, FNR, $0; found=1 }
+              skip==0 && /\.expect\(/ { printf "%s:%d: %s\n", FILENAME, FNR, $0; found=1 }
+              END { exit found ? 1 : 0 }' 2>&1) || {
+            echo "::error::Found unwrap()/expect() in library code (see below)"
+            echo "$HITS"
+            exit 1
+          }

@@ -413,10 +413,10 @@ pub async fn handle_mcp_post(
                     let response = attach_session_header(response, &session_id);
                     attach_trace_header(response, trace)
                 }
-                Ok((verdict @ Verdict::Deny { .. }, trace)) => {
-                    let reason = match &verdict {
-                        Verdict::Deny { reason } => reason.clone(),
-                        _ => unreachable!(),
+                Ok((Verdict::Deny { ref reason }, trace)) => {
+                    let reason = reason.clone();
+                    let verdict = Verdict::Deny {
+                        reason: reason.clone(),
                     };
 
                     // Audit the denial
@@ -452,10 +452,10 @@ pub async fn handle_mcp_post(
                         &session_id,
                     )
                 }
-                Ok((verdict @ Verdict::RequireApproval { .. }, trace)) => {
-                    let reason = match &verdict {
-                        Verdict::RequireApproval { reason } => reason.clone(),
-                        _ => unreachable!(),
+                Ok((Verdict::RequireApproval { ref reason }, trace)) => {
+                    let reason = reason.clone();
+                    let verdict = Verdict::RequireApproval {
+                        reason: reason.clone(),
                     };
 
                     // Create pending approval if store is configured
@@ -572,7 +572,7 @@ pub async fn handle_mcp_post(
                     let (code, reason) = match &verdict {
                         Verdict::Deny { reason } => (-32001, reason.clone()),
                         Verdict::RequireApproval { reason } => (-32002, reason.clone()),
-                        _ => unreachable!(),
+                        Verdict::Allow => (-32001, "Unexpected Allow verdict".to_string()),
                     };
 
                     // Create pending approval for RequireApproval verdicts
@@ -1828,10 +1828,7 @@ mod tests {
             engine: Arc::new(PolicyEngine::new(false)),
             policies: Arc::new(vec![]),
             audit: Arc::new(AuditLogger::new(PathBuf::from("/tmp/test-audit.log"))),
-            sessions: Arc::new(SessionStore::new(
-                std::time::Duration::from_secs(300),
-                100,
-            )),
+            sessions: Arc::new(SessionStore::new(std::time::Duration::from_secs(300), 100)),
             upstream_url: "http://localhost:9999".to_string(),
             http_client: reqwest::Client::new(),
             oauth: None,
@@ -1864,7 +1861,10 @@ mod tests {
         let parsed: Value = serde_json::from_slice(&original).unwrap();
         let result = canonicalize_body(&state, &parsed, original.clone());
         // With canonicalize on, should be re-serialized (compact, no extra whitespace)
-        assert_ne!(result, original, "Canonicalized should differ from original with extra whitespace");
+        assert_ne!(
+            result, original,
+            "Canonicalized should differ from original with extra whitespace"
+        );
         // Re-serialized JSON should parse to the same value
         let reparsed: Value = serde_json::from_slice(&result).unwrap();
         assert_eq!(parsed, reparsed);
@@ -1885,7 +1885,10 @@ mod tests {
         let original = Bytes::from(serde_json::to_vec(&msg).unwrap());
         let result = canonicalize_body(&state, &msg, original);
         let reparsed: Value = serde_json::from_slice(&result).unwrap();
-        assert_eq!(msg, reparsed, "Canonical form must be semantically identical");
+        assert_eq!(
+            msg, reparsed,
+            "Canonical form must be semantically identical"
+        );
     }
 
     #[test]

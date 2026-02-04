@@ -49,6 +49,13 @@ pub async fn read_message<R: tokio::io::AsyncRead + Unpin>(
         }
 
         let value: Value = serde_json::from_str(trimmed).map_err(FramingError::Json)?;
+
+        // MCP 2025-06-18 removed JSON-RPC batching. Reject arrays at the
+        // transport layer so that batch payloads never reach the classifier.
+        if value.is_array() {
+            return Err(FramingError::BatchNotAllowed);
+        }
+
         return Ok(Some(value));
     }
 }
@@ -174,7 +181,15 @@ pub fn find_duplicate_json_key(raw: &str) -> Option<String> {
                         // Walk through string content, handling escape sequences
                 while i < len {
                     if bytes[i] == b'\\' {
-                        i += 2; // skip escape char + escaped char
+                        i += 1; // skip backslash
+                        if i < len {
+                            if bytes[i] == b'u' {
+                                // \uXXXX — skip u + 4 hex digits (6 bytes total including \)
+                                i += 5.min(len - i);
+                            } else {
+                                i += 1; // skip single escaped char
+                            }
+                        }
                     } else if bytes[i] == b'"' {
                         i += 1; // skip closing quote
                         break;
@@ -229,6 +244,8 @@ pub enum FramingError {
     LineTooLong(usize),
     #[error("Duplicate JSON key detected: \"{0}\"")]
     DuplicateKeys(String),
+    #[error("JSON-RPC batching is not allowed (MCP 2025-06-18)")]
+    BatchNotAllowed,
 }
 
 #[cfg(test)]

@@ -128,6 +128,7 @@ impl CanonicalPolicies {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn test_canonical_policy_creation() {
@@ -202,5 +203,70 @@ mod tests {
         let allow = CanonicalPolicies::allow_all();
         assert!(matches!(allow.policy_type, PolicyType::Allow));
         assert_eq!(allow.id, "*");
+    }
+
+    // ═══════════════════════════════════════════════════
+    // PROPERTY-BASED TESTS: Canonical JSON Determinism
+    // ═══════════════════════════════════════════════════
+
+    /// Generate arbitrary policies for canonical serialization testing.
+    fn arb_canonical_policy() -> impl Strategy<Value = Policy> {
+        (
+            prop_oneof![
+                Just("*".to_string()),
+                Just("bash:*".to_string()),
+                Just("file:read".to_string()),
+                Just("net:*".to_string()),
+            ],
+            "[a-z ]{3,20}",
+            prop_oneof![Just(PolicyType::Allow), Just(PolicyType::Deny)],
+            1..=1000i32,
+        )
+            .prop_map(|(id, name, policy_type, priority)| Policy {
+                id,
+                name,
+                policy_type,
+                priority,
+                path_rules: None,
+                network_rules: None,
+            })
+    }
+
+    proptest! {
+        // PROPERTY: Same policy always produces identical serialized bytes
+        #[test]
+        fn canonical_is_deterministic(policy in arb_canonical_policy()) {
+            let bytes1 = serde_json::to_vec(&policy).unwrap();
+            let bytes2 = serde_json::to_vec(&policy).unwrap();
+            prop_assert_eq!(&bytes1, &bytes2,
+                "Canonical serialization must be deterministic for policy {:?}", policy.id);
+        }
+
+        // PROPERTY: serialize → deserialize → serialize produces same bytes
+        #[test]
+        fn canonical_roundtrip(policy in arb_canonical_policy()) {
+            let bytes1 = serde_json::to_vec(&policy).unwrap();
+            let deserialized: Policy = serde_json::from_slice(&bytes1).unwrap();
+            let bytes2 = serde_json::to_vec(&deserialized).unwrap();
+            prop_assert_eq!(&bytes1, &bytes2,
+                "Roundtrip serialization must produce identical bytes");
+        }
+
+        // PROPERTY: Changing priority produces different canonical form
+        #[test]
+        fn field_change_changes_output(
+            policy in arb_canonical_policy(),
+            delta in 1..100i32,
+        ) {
+            let mut modified = policy.clone();
+            modified.priority = policy.priority.saturating_add(delta);
+            // Only assert if the priority actually changed
+            if modified.priority != policy.priority {
+                let bytes_orig = serde_json::to_vec(&policy).unwrap();
+                let bytes_mod = serde_json::to_vec(&modified).unwrap();
+                prop_assert_ne!(&bytes_orig, &bytes_mod,
+                    "Changed priority must produce different canonical form");
+            }
+        }
     }
 }

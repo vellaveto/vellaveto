@@ -2998,6 +2998,16 @@ impl PolicyEngine {
         action: &Action,
         cp: &CompiledPolicy,
     ) -> Result<(Option<Verdict>, Vec<ConstraintResult>), EngineError> {
+        // Check path rules BEFORE policy type dispatch (mirrors apply_compiled_policy).
+        // Without this, ?trace=true would bypass all path/domain blocking.
+        if let Some(denial) = self.check_path_rules(action, cp) {
+            return Ok((Some(denial), Vec::new()));
+        }
+        // Check network rules before policy type dispatch.
+        if let Some(denial) = self.check_network_rules(action, cp) {
+            return Ok((Some(denial), Vec::new()));
+        }
+
         match &cp.policy.policy_type {
             PolicyType::Allow => Ok((Some(Verdict::Allow), Vec::new())),
             PolicyType::Deny => Ok((

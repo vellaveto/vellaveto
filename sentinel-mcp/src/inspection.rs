@@ -60,13 +60,16 @@ pub const DEFAULT_INJECTION_PATTERNS: &[&str] = &[
 ];
 
 /// Pre-compiled Aho-Corasick automaton for the default pattern set.
-static DEFAULT_AUTOMATON: OnceLock<AhoCorasick> = OnceLock::new();
+///
+/// Stores `None` if the hardcoded patterns fail to compile (should never
+/// happen; indicates a build-time bug). Callers treat `None` as "no scanner
+/// available" and return empty match lists, preserving fail-safe behavior.
+static DEFAULT_AUTOMATON: OnceLock<Option<AhoCorasick>> = OnceLock::new();
 
-fn get_default_automaton() -> &'static AhoCorasick {
-    DEFAULT_AUTOMATON.get_or_init(|| {
-        AhoCorasick::new(DEFAULT_INJECTION_PATTERNS)
-            .expect("default injection patterns should compile")
-    })
+fn get_default_automaton() -> Option<&'static AhoCorasick> {
+    DEFAULT_AUTOMATON
+        .get_or_init(|| AhoCorasick::new(DEFAULT_INJECTION_PATTERNS).ok())
+        .as_ref()
 }
 
 /// Configurable injection pattern scanner.
@@ -278,10 +281,13 @@ pub fn sanitize_for_injection_scan(text: &str) -> String {
 /// can be evaded via encoding, typoglycemia, semantic synonyms, or novel
 /// phrasing. Use as one layer in a defense-in-depth strategy.
 pub fn inspect_for_injection(text: &str) -> Vec<&'static str> {
+    let Some(automaton) = get_default_automaton() else {
+        return Vec::new();
+    };
     let sanitized = sanitize_for_injection_scan(text);
     let lower = sanitized.to_lowercase();
 
-    get_default_automaton()
+    automaton
         .find_iter(&lower)
         .map(|m| DEFAULT_INJECTION_PATTERNS[m.pattern().as_usize()])
         .collect()

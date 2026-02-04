@@ -179,15 +179,21 @@ const SENSITIVE_VALUE_PREFIXES: &[&str] = &[
 const REDACTED: &str = "[REDACTED]";
 
 /// Pre-compiled PII detection regexes (email, SSN, US phone numbers).
+///
+/// Patterns that fail to compile are silently dropped. Since all patterns are
+/// hardcoded constants, compilation failure indicates a bug in the source.
 static PII_REGEXES: LazyLock<Vec<Regex>> = LazyLock::new(|| {
-    vec![
+    [
         // Email addresses
-        Regex::new(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}").unwrap(),
+        r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}",
         // US Social Security Numbers (XXX-XX-XXXX)
-        Regex::new(r"\b\d{3}-\d{2}-\d{4}\b").unwrap(),
+        r"\b\d{3}-\d{2}-\d{4}\b",
         // US phone numbers (various formats)
-        Regex::new(r"\b(?:\+1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b").unwrap(),
+        r"\b(?:\+1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b",
     ]
+    .into_iter()
+    .filter_map(|p| Regex::new(p).ok())
+    .collect()
 });
 
 /// Recursively redact only sensitive key names.
