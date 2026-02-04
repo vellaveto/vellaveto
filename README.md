@@ -1,10 +1,10 @@
 <p align="center">
-  <h1 align="center">Sentinel</h1>
+  <h1 align="center">🛡️ Sentinel</h1>
   <p align="center">
     <strong>Runtime security engine for AI agent tool calls</strong>
   </p>
   <p align="center">
-    Intercept &middot; Evaluate &middot; Enforce &middot; Audit
+    🔍 Intercept &middot; ⚖️ Evaluate &middot; 🚫 Enforce &middot; 📋 Audit
   </p>
   <p align="center">
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
@@ -16,12 +16,12 @@
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
   </p>
   <p align="center">
-    <a href="#quick-start">Quick Start</a> &middot;
-    <a href="#features">Features</a> &middot;
-    <a href="#deployment-modes">Deployment</a> &middot;
-    <a href="#http-api-reference">API</a> &middot;
-    <a href="#audit-system">Audit</a> &middot;
-    <a href="#security-properties">Security</a>
+    <a href="#-quick-start">Quick Start</a> &middot;
+    <a href="#-features">Features</a> &middot;
+    <a href="#-deployment-modes">Deployment</a> &middot;
+    <a href="#-http-api-reference">API</a> &middot;
+    <a href="#-audit-system">Audit</a> &middot;
+    <a href="#-security-properties">Security</a>
   </p>
 </p>
 
@@ -30,30 +30,30 @@
 Sentinel is a lightweight, high-performance firewall that sits between AI agents and their tools. It intercepts [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) and function-calling requests, enforces security policies on paths, domains, and actions, and maintains a tamper-evident audit trail with cryptographic guarantees.
 
 <table>
-<tr><td><strong>Language</strong></td><td>Rust</td></tr>
-<tr><td><strong>Test suite</strong></td><td>2,415 tests, 0 failures, 0 warnings</td></tr>
-<tr><td><strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
-<tr><td><strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
-<tr><td><strong>MCP version</strong></td><td>2025-06-18 (Streamable HTTP)</td></tr>
-<tr><td><strong>License</strong></td><td>MIT</td></tr>
+<tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>2,415 tests, 0 failures, 0 warnings</td></tr>
+<tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
+<tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
+<tr><td>🔌 <strong>MCP version</strong></td><td>2025-06-18 (Streamable HTTP)</td></tr>
+<tr><td>📄 <strong>License</strong></td><td>MIT</td></tr>
 </table>
 
-## Why Sentinel?
+## ❓ Why Sentinel?
 
 AI agents with tool access can read files, make HTTP requests, execute commands, and modify data. Without guardrails, a prompt injection or misbehaving agent can:
 
-- **Exfiltrate credentials** (`~/.aws/credentials`, `~/.ssh/id_rsa`)
-- **Call unauthorized APIs** (sending data to `*.ngrok.io` or `*.requestbin.com`)
-- **Execute destructive commands** (`rm -rf /`)
-- **Bypass restrictions** via Unicode tricks, path traversal, or tool annotation changes
-- **Launder data** by planting instructions in tool responses for later execution
-- **Impersonate tools** via name squatting with homoglyphs or typos
+- 🔑 **Exfiltrate credentials** (`~/.aws/credentials`, `~/.ssh/id_rsa`)
+- 🌐 **Call unauthorized APIs** (sending data to `*.ngrok.io` or `*.requestbin.com`)
+- 💥 **Execute destructive commands** (`rm -rf /`)
+- 🎭 **Bypass restrictions** via Unicode tricks, path traversal, or tool annotation changes
+- 🧪 **Launder data** by planting instructions in tool responses for later execution
+- 👥 **Impersonate tools** via name squatting with homoglyphs or typos
 
 Sentinel enforces security policies on every tool call before it reaches the tool server, and logs every decision to a tamper-evident audit trail.
 
-## Features
+## ✨ Features
 
-### Core Policy Engine
+### 🎯 Core Policy Engine
 - **Policy evaluation** with glob, regex, and domain matching on tool calls and parameters
 - **Parameter constraints** with deep recursive JSON scanning across nested objects and arrays
 - **Context-aware policies** with time windows, per-session call limits, agent ID restrictions, and action sequence enforcement
@@ -62,16 +62,16 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Evaluation traces** for full decision explainability (OPA-style)
 - **Canonical presets** for common security scenarios (dangerous tools, network allowlisting, etc.)
 
-### Threat Detection (OWASP Agentic Top 10)
-- **Injection detection** (ASI01) -- Aho-Corasick multi-pattern scanning with Unicode NFKC normalization and configurable blocking
-- **Tool squatting detection** (ASI03) -- Flags tools with names similar to known tools via Levenshtein distance and homoglyph analysis (Cyrillic, Greek, mathematical confusables)
-- **Rug-pull detection** (ASI03) -- Alerts on MCP tool annotation changes, schema mutations, tool removals, and new tool additions with persistent flagging
-- **Memory poisoning defense** (ASI06) -- Cross-request data flow tracking detects when tool response data is replayed verbatim in subsequent tool call parameters
-- **DLP response scanning** -- Detects secrets (AWS keys, GitHub tokens, JWTs, private keys, Slack tokens) in tool responses through 5 decode layers
-- **Elicitation interception** (MCP 2025-06-18) -- Validates `elicitation/create` requests, blocks sensitive field types, enforces per-session rate limits
-- **Sampling policy enforcement** -- Configurable policies for `sampling/createMessage` with content inspection and model filtering
+### 🕵️ Threat Detection (OWASP Agentic Top 10)
+- **Injection detection** (ASI01) — Aho-Corasick multi-pattern scanning with Unicode NFKC normalization and configurable blocking
+- **Tool squatting detection** (ASI03) — Flags tools with names similar to known tools via Levenshtein distance and homoglyph analysis (Cyrillic, Greek, mathematical confusables)
+- **Rug-pull detection** (ASI03) — Alerts on MCP tool annotation changes, schema mutations, tool removals, and new tool additions with persistent flagging
+- **Memory poisoning defense** (ASI06) — Cross-request data flow tracking detects when tool response data is replayed verbatim in subsequent tool call parameters
+- **DLP response scanning** — Detects secrets (AWS keys, GitHub tokens, JWTs, private keys, Slack tokens) in tool responses through 5 decode layers
+- **Elicitation interception** (MCP 2025-06-18) — Validates `elicitation/create` requests, blocks sensitive field types, enforces per-session rate limits
+- **Sampling policy enforcement** — Configurable policies for `sampling/createMessage` with content inspection and model filtering
 
-### Deployment & Operations
+### 🚀 Deployment & Operations
 - **Three deployment modes**: HTTP API server, MCP stdio proxy, HTTP reverse proxy
 - **Prometheus metrics** at `/metrics` with evaluation latency histograms, verdict counters, and DLP finding counts
 - **Hot policy reload** via SIGHUP signal or filesystem watching with atomic swap and audit trail
@@ -79,21 +79,21 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Tamper-evident audit logging** with SHA-256 hash chains, Ed25519 signed checkpoints, and rotation chain continuity
 - **Structured output validation** via OutputSchemaRegistry against declared `outputSchema`
 
-### Authentication & Access Control
+### 🔐 Authentication & Access Control
 - **OAuth 2.1 / JWT** validation with JWKS and scope enforcement (RS256, ES256, EdDSA)
 - **CSRF protection** via Origin header validation on mutating endpoints
 - **Rate limiting** per-IP, per-principal, and per-endpoint with configurable burst
 - **Security headers** including HSTS, CSP, X-Frame-Options, and X-Permitted-Cross-Domain-Policies
 - **Constant-time auth** comparison to prevent timing attacks
 
-### Network & Path Security
+### 🌐 Network & Path Security
 - **Path normalization** with multi-layer percent-decode, `..` resolution, and null byte stripping
 - **Domain normalization** with trailing dot, case folding, scheme/port stripping, and RFC 1035 validation
 - **DNS rebinding protection** with IP-level access control (block private IPs, CIDR allow/blocklists)
 - **Supply chain verification** with SHA-256 hash checking of MCP server binaries
 - **MCP 2025-06-18 compliance** with protocol version header, RFC 8707 resource indicators, and `_meta` preservation
 
-## Quick Start
+## 🚀 Quick Start
 
 ```bash
 # Build
@@ -140,11 +140,11 @@ curl -s http://localhost:8080/api/evaluate \
 # -> {"verdict":{"Deny":{"reason":"Denied by policy 'Block bash'"}}, ...}
 ```
 
-## How It Works
+## ⚙️ How It Works
 
 ```
                     +------------------+
-  AI Agent -------->|    Sentinel      |--------> Tool Server
+  AI Agent -------->|   🛡️ Sentinel   |--------> Tool Server
                     |                  |
                     |  1. Parse action |
                     |  2. Match policy |
@@ -163,11 +163,11 @@ Sentinel supports three deployment modes:
 
 | Mode | Binary | Use Case |
 |------|--------|----------|
-| **HTTP API** | `sentinel serve` | Standalone policy server; agents call `/api/evaluate` |
-| **Stdio Proxy** | `sentinel-proxy` | Wraps a local MCP server; intercepts stdin/stdout |
-| **HTTP Proxy** | `sentinel-http-proxy` | Reverse proxy for remote MCP servers (Streamable HTTP + SSE) |
+| 🖥️ **HTTP API** | `sentinel serve` | Standalone policy server; agents call `/api/evaluate` |
+| 📡 **Stdio Proxy** | `sentinel-proxy` | Wraps a local MCP server; intercepts stdin/stdout |
+| 🔄 **HTTP Proxy** | `sentinel-http-proxy` | Reverse proxy for remote MCP servers (Streamable HTTP + SSE) |
 
-## Policy Configuration
+## 📝 Policy Configuration
 
 Policies are defined in TOML (or JSON). Each policy matches tool calls by tool and function name, with optional parameter constraints. Policies are evaluated in priority order (highest first); the first match wins.
 
@@ -226,7 +226,7 @@ parameter_constraints = [
 Each constraint specifies `on_match`: `"deny"`, `"allow"`, or `"require_approval"`.
 Missing parameters default to `"deny"` (fail-closed), overridable with `on_missing: "skip"`.
 
-### Wildcard Parameter Scanning
+### 🔍 Wildcard Parameter Scanning
 
 Use `param = "*"` to recursively scan **all** string values in the parameters JSON, regardless of nesting depth:
 
@@ -244,7 +244,7 @@ parameter_constraints = [
 ]
 ```
 
-### Require Approval
+### ✋ Require Approval
 
 Policies can require human-in-the-loop approval:
 
@@ -275,7 +275,7 @@ curl -X POST http://localhost:8080/api/approvals/$APPROVAL_ID/deny \
 
 Pending approvals expire after 15 minutes by default.
 
-### Canonical Presets
+### 📦 Canonical Presets
 
 Built-in policy presets for common scenarios:
 
@@ -287,7 +287,7 @@ sentinel policies --preset deny-all    # Deny everything by default
 sentinel policies --preset allow-all   # Allow everything (testing only)
 ```
 
-### Elicitation & Sampling Policies
+### 🗳️ Elicitation & Sampling Policies
 
 Control how Sentinel handles MCP elicitation (server-initiated user prompts) and sampling (LLM re-invocation) requests:
 
@@ -303,7 +303,7 @@ allowed_models = []                    # Empty = any model when enabled
 block_if_contains_tool_output = true   # Prevent exfiltration via sampling
 ```
 
-### Injection Scanning
+### 💉 Injection Scanning
 
 Configure how the injection scanner handles detected prompt injection patterns:
 
@@ -317,7 +317,7 @@ disabled_patterns = ["pretend you are"]
 
 When `block_on_injection` is `true`, responses matching injection patterns are replaced with a JSON-RPC error (`-32005`) instead of being forwarded.
 
-### DLP Response Scanning
+### 🔒 DLP Response Scanning
 
 Sentinel scans tool **responses** for leaked secrets using 7 built-in patterns:
 
@@ -333,7 +333,7 @@ Sentinel scans tool **responses** for leaked secrets using 7 built-in patterns:
 
 DLP scanning uses a 5-layer decode pipeline (raw, base64, percent-encoded, and both combinations) to catch obfuscated secrets.
 
-### Rate Limiting
+### 🚦 Rate Limiting
 
 ```toml
 [rate_limit]
@@ -352,9 +352,9 @@ per_principal_burst = 10
 
 Per-principal rate limiting keys requests by identity: the `X-Principal` header if present, then the Bearer token from the `Authorization` header, falling back to client IP.
 
-> **Note:** The `X-Principal` header is client-supplied and can be spoofed. For production deployments, enable OAuth 2.1 so the principal is derived from a validated JWT `sub` claim.
+> **⚠️ Note:** The `X-Principal` header is client-supplied and can be spoofed. For production deployments, enable OAuth 2.1 so the principal is derived from a validated JWT `sub` claim.
 
-### Audit Configuration
+### 📋 Audit Configuration
 
 ```toml
 [audit]
@@ -366,7 +366,7 @@ name = "credit_card"
 pattern = "\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}"
 ```
 
-### Supply Chain Verification
+### 🔗 Supply Chain Verification
 
 ```toml
 [supply_chain]
@@ -376,9 +376,9 @@ enabled = true
 "/usr/local/bin/my-mcp" = "sha256hexdigest..."
 ```
 
-## Deployment Modes
+## 🏗️ Deployment Modes
 
-### HTTP API Server
+### 🖥️ HTTP API Server
 
 The primary mode. Runs a standalone HTTP server that agents call to evaluate tool calls.
 
@@ -389,7 +389,7 @@ SENTINEL_API_KEY=your-secret sentinel serve \
   --bind 127.0.0.1
 ```
 
-### MCP Stdio Proxy
+### 📡 MCP Stdio Proxy
 
 Wraps a local MCP server process. Intercepts JSON-RPC messages over stdin/stdout.
 
@@ -406,7 +406,7 @@ Features:
 - Detects child process crashes and flushes pending requests with errors
 - Configurable request timeout (`--timeout 30`)
 
-### Streamable HTTP Reverse Proxy
+### 🔄 Streamable HTTP Reverse Proxy
 
 Sits between clients and a remote MCP server over HTTP. Supports SSE streaming and session management per the MCP Streamable HTTP transport spec.
 
@@ -428,7 +428,7 @@ Features:
 - DLP scanning of responses and SSE streams
 - DNS rebinding protection with IP-level access control
 
-#### OAuth 2.1
+#### 🔑 OAuth 2.1
 
 ```bash
 sentinel-http-proxy \
@@ -442,7 +442,7 @@ sentinel-http-proxy \
 
 Supports RS256, ES256, and EdDSA algorithms. Algorithm confusion attacks are prevented by restricting to asymmetric algorithms only. The `--oauth-expected-resource` flag enables RFC 8707 resource indicator validation, preventing token replay attacks.
 
-## HTTP API Reference
+## 📡 HTTP API Reference
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
@@ -527,20 +527,20 @@ curl "http://localhost:8080/api/audit/export?format=jsonl&since=2026-02-04T00:00
   -H "Authorization: Bearer $SENTINEL_API_KEY"
 ```
 
-## Audit System
+## 📋 Audit System
 
 Every policy decision is logged to a tamper-evident audit trail.
 
 ### Properties
 
-- **JSONL format** -- one JSON entry per line, streamable and easy to ingest
-- **SHA-256 hash chain** -- each entry includes the hash of the previous entry; any tampering breaks the chain
-- **Rotation chain continuity** -- when logs rotate, a rotation manifest links files together with tail hashes
-- **Ed25519 signed checkpoints** -- periodic cryptographic snapshots of chain state for independent verification
-- **Sensitive value redaction** -- API keys, tokens, passwords, and secrets are automatically redacted before logging
-- **SIEM integration** -- export entries in CEF or JSON Lines format via API or configurable webhook
-- **Duplicate entry detection** -- detects replayed or duplicated audit entries
-- **Approval audit trail** -- approve/deny decisions are logged with resolver identity, original tool, and approval ID
+- 📄 **JSONL format** — one JSON entry per line, streamable and easy to ingest
+- 🔗 **SHA-256 hash chain** — each entry includes the hash of the previous entry; any tampering breaks the chain
+- 🔄 **Rotation chain continuity** — when logs rotate, a rotation manifest links files together with tail hashes
+- ✍️ **Ed25519 signed checkpoints** — periodic cryptographic snapshots of chain state for independent verification
+- 🙈 **Sensitive value redaction** — API keys, tokens, passwords, and secrets are automatically redacted before logging
+- 📊 **SIEM integration** — export entries in CEF or JSON Lines format via API or configurable webhook
+- 🔁 **Duplicate entry detection** — detects replayed or duplicated audit entries
+- ✅ **Approval audit trail** — approve/deny decisions are logged with resolver identity, original tool, and approval ID
 
 ### Verification
 
@@ -558,7 +558,7 @@ curl http://localhost:8080/api/audit/checkpoints/verify \
   -H "Authorization: Bearer $SENTINEL_API_KEY" | jq .
 ```
 
-### Signing Key
+### 🔑 Signing Key
 
 ```bash
 # Use a persistent key (hex-encoded 32-byte Ed25519 seed)
@@ -569,7 +569,7 @@ export SENTINEL_SIGNING_KEY="a1b2c3d4..."
 
 Checkpoints are created every 300 seconds by default (configurable via `SENTINEL_CHECKPOINT_INTERVAL`).
 
-## Evaluation Traces
+## 🔎 Evaluation Traces
 
 Request a full decision trace showing which policies were checked and why:
 
@@ -585,7 +585,7 @@ The trace includes:
 - Final verdict with reason
 - Evaluation duration in microseconds
 
-## Environment Variables
+## 🌍 Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -602,31 +602,31 @@ Rate limiting environment variables: `SENTINEL_RATE_EVALUATE`, `SENTINEL_RATE_EV
 
 Environment variables override values set in the config file.
 
-## Security Properties
+## 🛡️ Security Properties
 
 | Property | Implementation |
 |----------|---------------|
-| **Fail-closed** | Empty policy set, missing parameters, and evaluation errors all produce `Deny` |
-| **Input validation** | Action names validated (no empty strings, null bytes, max 256 chars); domain patterns validated per RFC 1035 |
-| **ReDoS protection** | Regex patterns reject nested quantifiers (`(a+)+`) and overlength (>1024 chars) |
-| **Path normalization** | Resolves `..`, `.`, percent-encoding (multi-layer), null bytes; prevents traversal |
-| **Domain normalization** | Trailing dots, case folding, `@` in authority, scheme/port stripping; RFC 1035 label validation |
-| **Injection detection** | Aho-Corasick with Unicode NFKC normalization, zero-width/bidi/tag character stripping |
-| **Tool squatting** | Levenshtein distance + homoglyph detection against known tool names |
-| **Rug-pull detection** | Alerts on annotation changes, schema mutations, tool removals/additions; persistent flagging |
-| **Memory poisoning** | Cross-request SHA-256 fingerprint tracking detects data laundering from tool responses |
-| **DLP scanning** | 5-layer decode pipeline (raw, base64, percent, and combinations) for secret detection |
-| **Elicitation guard** | Field type blocking, per-session rate limits, configurable allow/deny |
-| **Sampling guard** | Content inspection, model filtering, tool-output exfiltration prevention |
-| **CSRF protection** | Origin header validation on POST/DELETE endpoints |
-| **Constant-time auth** | API key comparison uses `subtle::ConstantTimeEq` |
-| **Tamper-evident audit** | SHA-256 hash chain + Ed25519 checkpoints + rotation manifests |
-| **DNS rebinding** | IP-level access control blocks private/reserved IPs and custom CIDR ranges |
-| **OAuth 2.1** | JWT/JWKS validation, algorithm confusion prevention, scope enforcement |
-| **Rate limiting** | Per-IP, per-principal, per-endpoint with burst support and capacity bounds |
-| **Supply chain** | SHA-256 hash verification of MCP server binaries before spawn |
+| 🚪 **Fail-closed** | Empty policy set, missing parameters, and evaluation errors all produce `Deny` |
+| ✅ **Input validation** | Action names validated (no empty strings, null bytes, max 256 chars); domain patterns validated per RFC 1035 |
+| 🛑 **ReDoS protection** | Regex patterns reject nested quantifiers (`(a+)+`) and overlength (>1024 chars) |
+| 📂 **Path normalization** | Resolves `..`, `.`, percent-encoding (multi-layer), null bytes; prevents traversal |
+| 🌐 **Domain normalization** | Trailing dots, case folding, `@` in authority, scheme/port stripping; RFC 1035 label validation |
+| 💉 **Injection detection** | Aho-Corasick with Unicode NFKC normalization, zero-width/bidi/tag character stripping |
+| 👥 **Tool squatting** | Levenshtein distance + homoglyph detection against known tool names |
+| 🔄 **Rug-pull detection** | Alerts on annotation changes, schema mutations, tool removals/additions; persistent flagging |
+| 🧠 **Memory poisoning** | Cross-request SHA-256 fingerprint tracking detects data laundering from tool responses |
+| 🔒 **DLP scanning** | 5-layer decode pipeline (raw, base64, percent, and combinations) for secret detection |
+| 🗳️ **Elicitation guard** | Field type blocking, per-session rate limits, configurable allow/deny |
+| 🤖 **Sampling guard** | Content inspection, model filtering, tool-output exfiltration prevention |
+| 🛡️ **CSRF protection** | Origin header validation on POST/DELETE endpoints |
+| ⏱️ **Constant-time auth** | API key comparison uses `subtle::ConstantTimeEq` |
+| 📋 **Tamper-evident audit** | SHA-256 hash chain + Ed25519 checkpoints + rotation manifests |
+| 🌍 **DNS rebinding** | IP-level access control blocks private/reserved IPs and custom CIDR ranges |
+| 🔑 **OAuth 2.1** | JWT/JWKS validation, algorithm confusion prevention, scope enforcement |
+| 🚦 **Rate limiting** | Per-IP, per-principal, per-endpoint with burst support and capacity bounds |
+| 🔗 **Supply chain** | SHA-256 hash verification of MCP server binaries before spawn |
 
-### Known Limitations
+### ⚠️ Known Limitations
 
 - **Injection detection is a pre-filter, not a security boundary.** Pattern-based detection catches known signatures but can be evaded by encoding, typoglycemia, or paraphrasing. It is one layer in a defense-in-depth strategy.
 
@@ -642,7 +642,7 @@ Environment variables override values set in the config file.
 
 - **Checkpoint trust anchor.** Checkpoint signatures use self-embedded Ed25519 keys (TOFU model). Pin a trusted key via `SENTINEL_TRUSTED_KEY` for stronger guarantees.
 
-## Architecture
+## 🏛️ Architecture
 
 ```
 sentinel-types             Core types: Action, Policy, Verdict, EvaluationTrace
@@ -669,12 +669,12 @@ server     proxy     http-proxy   HTTP API, stdio proxy, HTTP reverse proxy
 
 ### Design Principles
 
-- **Fail-closed** -- errors, missing policies, and missing parameters all result in denial
-- **Pre-compiled patterns** -- all glob, regex, and domain patterns compiled at policy load time; the evaluation hot path has zero mutex acquisitions and zero regex compilation
-- **Tool-indexed evaluation** -- policies indexed by tool name at load time for O(matching) instead of O(all policies)
-- **Zero `unwrap()` in library code** -- all error paths return typed errors; panics are reserved for tests only
+- 🚪 **Fail-closed** — errors, missing policies, and missing parameters all result in denial
+- ⚡ **Pre-compiled patterns** — all glob, regex, and domain patterns compiled at policy load time; the evaluation hot path has zero mutex acquisitions and zero regex compilation
+- 🗂️ **Tool-indexed evaluation** — policies indexed by tool name at load time for O(matching) instead of O(all policies)
+- 🚫 **Zero `unwrap()` in library code** — all error paths return typed errors; panics are reserved for tests only
 
-### Performance
+### ⚡ Performance
 
 All patterns are pre-compiled at load time using:
 - **Aho-Corasick automaton** for multi-pattern injection scanning (15 patterns in a single pass)
@@ -687,11 +687,11 @@ Benchmark results (criterion, single-threaded):
 
 | Scenario | Latency |
 |----------|---------|
-| Single policy evaluation | 7-31 ns |
-| 100 policies | ~1.2 us |
-| 1,000 policies | ~12 us |
+| Single policy evaluation | 7–31 ns |
+| 100 policies | ~1.2 μs |
+| 1,000 policies | ~12 μs |
 
-## CLI Reference
+## 💻 CLI Reference
 
 ```bash
 # HTTP policy server
@@ -728,7 +728,7 @@ sentinel-http-proxy \
   [--canonicalize]
 ```
 
-## Development
+## 🧑‍💻 Development
 
 ```bash
 # Run all tests
@@ -757,20 +757,20 @@ cargo +nightly fuzz run fuzz_json_rpc_framing -- -max_total_time=60
 kill -HUP $(pidof sentinel-server)
 ```
 
-### CI Pipeline
+### 🔄 CI Pipeline
 
 CI runs 6 parallel jobs on every push and pull request:
 
 | Job | Description |
 |-----|-------------|
-| **Check & Lint** | `cargo fmt`, `cargo check`, `cargo clippy`, `unwrap()` hygiene scan |
-| **Test Suite** | `cargo test --workspace`, doc build verification |
-| **Security Audit** | `cargo audit` via `rustsec/audit-check` for dependency CVEs |
-| **Fuzz Targets** | Compiles all 5 fuzz targets on nightly to catch build regressions |
-| **Benchmarks** | Runs criterion benchmarks with cached baselines (main branch only) |
-| **Release Build** | Full LTO release build with 50MB binary size guard |
+| 🧹 **Check & Lint** | `cargo fmt`, `cargo check`, `cargo clippy`, `unwrap()` hygiene scan |
+| 🧪 **Test Suite** | `cargo test --workspace`, doc build verification |
+| 🔐 **Security Audit** | `cargo audit` via `rustsec/audit-check` for dependency CVEs |
+| 🐛 **Fuzz Targets** | Compiles all 5 fuzz targets on nightly to catch build regressions |
+| 📈 **Benchmarks** | Runs criterion benchmarks with cached baselines (main branch only) |
+| 📦 **Release Build** | Full LTO release build with 50MB binary size guard |
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 sentinel/
@@ -789,7 +789,7 @@ sentinel/
   scripts/                 Benchmark regression scripts
 ```
 
-## References
+## 📚 References
 
 - [MCP Specification 2025-06-18](https://modelcontextprotocol.io/specification/2025-06-18)
 - [MCP Security Best Practices](https://modelcontextprotocol.io/specification/draft/basic/security_best_practices)
@@ -798,6 +798,6 @@ sentinel/
 - [ETDI: Mitigating Tool Squatting and Rug Pull Attacks in MCP](https://arxiv.org/abs/2506.01333)
 - [Enterprise-Grade Security for MCP](https://arxiv.org/pdf/2504.08623)
 
-## License
+## 📄 License
 
 This project is licensed under the [MIT License](LICENSE-MIT).
