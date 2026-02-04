@@ -884,6 +884,7 @@ mod owasp_mcp07_auth {
             metrics: Arc::new(Metrics::default()),
             trusted_proxies: Arc::new(vec![]),
             policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+            prometheus_handle: None,
         };
         (state, tmp)
     }
@@ -1267,6 +1268,7 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
             metrics: Arc::new(Metrics::default()),
             trusted_proxies: Arc::new(vec![]),
             policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+            prometheus_handle: None,
         };
 
         let app = routes::build_router(state);
@@ -1509,6 +1511,7 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1587,6 +1590,7 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

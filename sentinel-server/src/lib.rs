@@ -1,3 +1,4 @@
+pub mod metrics;
 pub mod routes;
 
 use arc_swap::ArcSwap;
@@ -464,6 +465,9 @@ pub struct AppState {
     /// where concurrent mutations can silently drop policies or resurrect deleted
     /// ones. The read path (evaluate) remains lock-free via ArcSwap::load().
     pub policy_write_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Prometheus metrics handle for rendering `/metrics` endpoint.
+    /// None when Prometheus is not initialized (e.g., recorder already installed).
+    pub prometheus_handle: Option<metrics_exporter_prometheus::PrometheusHandle>,
 }
 
 /// Reload policies from the config file and recompile the engine.

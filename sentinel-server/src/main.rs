@@ -469,6 +469,12 @@ async fn cmd_serve(
         }
     };
 
+    // Initialize Prometheus metrics recorder.
+    let prometheus_handle = sentinel_server::metrics::init_prometheus();
+
+    // Set initial gauge values
+    sentinel_server::metrics::set_policies_loaded(policies.len() as f64);
+
     let state = AppState {
         engine: Arc::new(ArcSwap::from_pointee(engine)),
         policies: Arc::new(ArcSwap::from_pointee(policies)),
@@ -481,6 +487,7 @@ async fn cmd_serve(
         metrics: Arc::new(sentinel_server::Metrics::default()),
         trusted_proxies: Arc::new(trusted_proxies),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle,
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -583,6 +590,39 @@ async fn cmd_serve(
         if let Err(e) = sentinel_server::spawn_config_watcher(state.clone()) {
             tracing::warn!("Failed to start config file watcher: {}", e);
         }
+    }
+
+    // SIGHUP handler: reload policies from the config file without restarting.
+    // This provides an operator-friendly mechanism for hot policy reload via
+    // `kill -HUP <pid>` in addition to the existing file watcher and API endpoint.
+    #[cfg(unix)]
+    {
+        let sighup_state = state.clone();
+        tokio::spawn(async move {
+            let mut sighup = match tokio::signal::unix::signal(
+                tokio::signal::unix::SignalKind::hangup(),
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("Failed to install SIGHUP handler: {}", e);
+                    return;
+                }
+            };
+            tracing::info!("SIGHUP handler installed — send HUP to reload policies");
+            loop {
+                sighup.recv().await;
+                tracing::info!("Received SIGHUP, reloading policies...");
+                match sentinel_server::reload_policies_from_file(&sighup_state, "sighup").await {
+                    Ok(count) => {
+                        tracing::info!("SIGHUP: reloaded {} policies", count);
+                        sentinel_server::metrics::set_policies_loaded(count as f64);
+                    }
+                    Err(e) => {
+                        tracing::error!("SIGHUP: policy reload failed: {}", e);
+                    }
+                }
+            }
+        });
     }
 
     // Keep a reference to audit for shutdown flush

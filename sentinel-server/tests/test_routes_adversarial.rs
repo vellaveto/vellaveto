@@ -48,6 +48,7 @@ fn make_state() -> (AppState, TempDir) {
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
     };
     (state, tmp)
 }
@@ -69,6 +70,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
     };
     (state, tmp)
 }
@@ -474,6 +476,7 @@ priority = 1
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
     };
     let policies = state.policies.clone();
     let app = routes::build_router(state);

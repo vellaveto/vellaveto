@@ -49,6 +49,7 @@ fn make_state() -> (AppState, TempDir) {
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
     };
     (state, tmp)
 }
@@ -70,6 +71,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
     };
     (state, tmp)
 }
@@ -703,6 +705,7 @@ priority = 1
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
     };
     let app = routes::build_router(state.clone());
 
@@ -788,6 +791,7 @@ fn make_approval_state() -> (AppState, TempDir) {
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
     };
     (state, tmp)
 }
@@ -1235,6 +1239,7 @@ fn make_authed_state() -> (AppState, TempDir) {
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
     };
     (state, tmp)
 }
@@ -1707,6 +1712,7 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
     };
     (state, tmp)
 }
@@ -2353,6 +2359,7 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
     };
     (state, tmp)
 }

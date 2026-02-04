@@ -26,7 +26,8 @@ pub fn build_router(state: AppState) -> Router {
     // Default (empty vec) = localhost only. "*" = any origin.
     let cors = build_cors_layer(&state.cors_origins);
 
-    Router::new()
+    // Authenticated routes (behind API key + rate limit middleware)
+    let authenticated = Router::new()
         .route("/health", get(health))
         .route("/api/evaluate", post(evaluate))
         .route("/api/policies", get(list_policies))
@@ -43,12 +44,19 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/approvals/{id}", get(get_approval))
         .route("/api/approvals/{id}/approve", post(approve_approval))
         .route("/api/approvals/{id}/deny", post(deny_approval))
-        .route("/api/metrics", get(metrics))
+        .route("/api/metrics", get(metrics_json))
         .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_api_key,
-        ))
+        ));
+
+    // Merge the /metrics Prometheus endpoint OUTSIDE auth middleware so
+    // Prometheus scrapers do not need an API key. This endpoint only
+    // exposes operational counters, not security-sensitive data.
+    Router::new()
+        .route("/metrics", get(prometheus_metrics))
+        .merge(authenticated)
         .layer(middleware::from_fn(request_id))
         .layer(middleware::from_fn(security_headers))
         .layer(DefaultBodyLimit::max(1_048_576)) // 1 MB max request body
@@ -427,31 +435,70 @@ fn derive_resolver_identity(headers: &HeaderMap, client_value: &str) -> String {
 /// `previous_actions` because they could lie to bypass MaxCalls or
 /// RequirePreviousAction policies. These fields are stripped.
 ///
-/// Only `agent_id` is preserved from client input (it should match the
-/// authenticated identity, but auth is handled separately). `timestamp` is
-/// always overridden with the server's wall-clock time.
-fn sanitize_context(context: Option<EvaluationContext>) -> Option<EvaluationContext> {
+/// SECURITY (R20-AGENT-ID): When the request is authenticated with a Bearer
+/// token, `agent_id` is derived from the token hash (matching the approval
+/// endpoint's `derive_resolver_identity` pattern). This prevents a client
+/// from spoofing another agent's identity to bypass agent_id-based policies.
+/// Client-supplied agent_id is only preserved as a note appended to the
+/// derived principal, or used as-is when no auth is configured.
+fn sanitize_context(
+    context: Option<EvaluationContext>,
+    headers: &HeaderMap,
+) -> Option<EvaluationContext> {
     /// Maximum agent_id length to prevent memory abuse via oversized identifiers.
     const MAX_AGENT_ID_LEN: usize = 256;
-    context.map(|ctx| EvaluationContext {
-        // Override timestamp with server time — never trust client clocks
-        timestamp: None,
-        // Preserve agent_id — should match auth principal but useful for
-        // agent_id-scoped policies. Reject oversized values to prevent DoS.
-        agent_id: ctx
+    context.map(|ctx| {
+        // Derive agent_id from authenticated principal when available.
+        let client_agent_id = ctx
             .agent_id
-            .filter(|id| !id.is_empty() && id.len() <= MAX_AGENT_ID_LEN),
-        // Strip session-state fields: the stateless server API has no session
-        // tracking, so these must not be client-controlled
-        call_counts: std::collections::HashMap::new(),
-        previous_actions: Vec::new(),
+            .filter(|id| !id.is_empty() && id.len() <= MAX_AGENT_ID_LEN);
+
+        let agent_id = if let Some(auth) = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+        {
+            if auth.len() > 7 && auth[..7].eq_ignore_ascii_case("bearer ") {
+                let token = &auth[7..];
+                if !token.is_empty() {
+                    use sha2::{Digest, Sha256};
+                    let hash = Sha256::digest(token.as_bytes());
+                    let principal = format!("bearer:{}", hex::encode(&hash[..8]));
+                    // Append client-supplied agent_id as a note (not authoritative)
+                    Some(match client_agent_id {
+                        Some(ref client_id) => {
+                            format!("{} (note: {})", principal, client_id)
+                        }
+                        None => principal,
+                    })
+                } else {
+                    client_agent_id
+                }
+            } else {
+                client_agent_id
+            }
+        } else {
+            // No auth header — accept client-supplied agent_id as-is
+            client_agent_id
+        };
+
+        EvaluationContext {
+            // Override timestamp with server time — never trust client clocks
+            timestamp: None,
+            agent_id,
+            // Strip session-state fields: the stateless server API has no session
+            // tracking, so these must not be client-controlled
+            call_counts: std::collections::HashMap::new(),
+            previous_actions: Vec::new(),
+        }
     })
 }
 
 async fn evaluate(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<EvaluateRequest>,
 ) -> Result<Json<EvaluateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let eval_start = std::time::Instant::now();
     let mut action = req.action;
 
     // SECURITY (R10-1): Validate the deserialized action to catch null bytes,
@@ -467,7 +514,8 @@ async fn evaluate(
 
     // SECURITY: Sanitize client-supplied context to prevent spoofing of
     // session-state fields (call_counts, previous_actions, timestamp).
-    let context = sanitize_context(req.context);
+    // R20-AGENT-ID: Derive agent_id from auth header when present.
+    let context = sanitize_context(req.context, &headers);
 
     // SECURITY (R10-2): Always run auto-extraction from parameters,
     // ignoring client-supplied target_paths/target_domains. A malicious
@@ -486,6 +534,8 @@ async fn evaluate(
         .map_err(|e| {
             tracing::error!("Engine evaluation error: {}", e);
             state.metrics.record_error();
+            crate::metrics::record_evaluation_verdict("error");
+            crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -515,8 +565,16 @@ async fn evaluate(
         (verdict, None)
     };
 
-    // Record metrics
+    // Record metrics (both internal AtomicU64 and Prometheus)
     state.metrics.record_evaluation(&verdict);
+
+    let verdict_label = match &verdict {
+        Verdict::Allow => "allow",
+        Verdict::Deny { .. } => "deny",
+        Verdict::RequireApproval { .. } => "require_approval",
+    };
+    crate::metrics::record_evaluation_verdict(verdict_label);
+    crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
 
     // Log to audit — fire-and-forget on error (don't fail the request).
     // SECURITY (R16-AUDIT-3): Log at error level (not warn) because a silent
@@ -533,6 +591,8 @@ async fn evaluate(
     {
         tracing::error!("AUDIT FAILURE: security decision not recorded: {}", e);
         state.metrics.record_error();
+    } else {
+        crate::metrics::increment_audit_entries();
     }
 
     Ok(Json(EvaluateResponse {
@@ -920,9 +980,35 @@ async fn create_checkpoint(
     Ok(Json(value))
 }
 
-// === Metrics Endpoint ===
+// === Prometheus Metrics Endpoint ===
 
-async fn metrics(State(state): State<AppState>) -> Json<serde_json::Value> {
+/// Serve Prometheus text exposition format metrics.
+///
+/// This endpoint is intentionally outside the auth middleware so that
+/// Prometheus scrapers can access it without an API key. It only exposes
+/// operational counters and gauges, not security-sensitive data.
+async fn prometheus_metrics(State(state): State<AppState>) -> Response {
+    match &state.prometheus_handle {
+        Some(handle) => {
+            // Update dynamic gauges before rendering
+            let policy_count = state.policies.load().len();
+            crate::metrics::set_policies_loaded(policy_count as f64);
+            crate::metrics::set_uptime_seconds(state.metrics.start_time.elapsed().as_secs_f64());
+
+            let body = handle.render();
+            (
+                [(header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+                body,
+            )
+                .into_response()
+        }
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+// === JSON Metrics Endpoint ===
+
+async fn metrics_json(State(state): State<AppState>) -> Json<serde_json::Value> {
     let m = &state.metrics;
     let uptime = m.start_time.elapsed();
     Json(json!({

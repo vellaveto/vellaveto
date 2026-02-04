@@ -49,6 +49,7 @@ fn state_with_api_key(tmp: &TempDir) -> AppState {
         metrics: Arc::new(Metrics::default()),
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
     }
 }
 
