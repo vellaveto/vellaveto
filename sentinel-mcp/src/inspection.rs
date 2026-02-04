@@ -780,6 +780,27 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
     findings
 }
 
+/// Scan a raw text string for DLP secret patterns, using the full multi-layer
+/// decode pipeline (base64, percent-encoding, and combinatorial chains).
+///
+/// SECURITY (R17-SSE-4): Needed for SSE DLP scanning when the event payload
+/// is not valid JSON. Without this, a malicious upstream can embed secrets
+/// in non-JSON SSE data lines to bypass DLP detection entirely.
+pub fn scan_text_for_secrets(text: &str, location: &str) -> Vec<DlpFinding> {
+    static DLP_REGEXES: std::sync::OnceLock<Vec<(&'static str, regex::Regex)>> =
+        std::sync::OnceLock::new();
+    let regexes = DLP_REGEXES.get_or_init(|| {
+        DLP_PATTERNS
+            .iter()
+            .filter_map(|(name, pat)| regex::Regex::new(pat).ok().map(|re| (*name, re)))
+            .collect()
+    });
+
+    let mut findings = Vec::new();
+    scan_string_for_secrets(text, location, regexes, &mut findings);
+    findings
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1540,6 +1561,29 @@ mod tests {
                 .any(|f| f.location.contains("resource.text")),
             "Finding location must indicate resource.text. Got: {:?}",
             findings
+        );
+    }
+
+    /// R17-SSE-4: scan_text_for_secrets must detect secrets in raw text
+    /// using the multi-layer decode pipeline.
+    #[test]
+    fn test_scan_text_for_secrets_detects_raw_key() {
+        let findings = scan_text_for_secrets("Here is a key: AKIAIOSFODNN7EXAMPLE", "sse_data");
+        assert!(
+            !findings.is_empty(),
+            "scan_text_for_secrets must detect AWS key in raw text"
+        );
+    }
+
+    #[test]
+    fn test_scan_text_for_secrets_detects_base64_key() {
+        use base64::Engine;
+        let raw_key = "AKIAIOSFODNN7EXAMPLE";
+        let encoded = base64::engine::general_purpose::STANDARD.encode(raw_key);
+        let findings = scan_text_for_secrets(&encoded, "sse_data");
+        assert!(
+            !findings.is_empty(),
+            "scan_text_for_secrets must detect base64-encoded AWS key"
         );
     }
 

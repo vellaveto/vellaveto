@@ -21,7 +21,8 @@ use sentinel_mcp::extractor::{self, MessageType};
 use sentinel_mcp::inspection::sanitize_for_injection_scan;
 use sentinel_mcp::inspection::{
     inspect_for_injection, scan_parameters_for_secrets, scan_response_for_secrets,
-    scan_tool_descriptions, scan_tool_descriptions_with_scanner, InjectionScanner,
+    scan_text_for_secrets, scan_tool_descriptions, scan_tool_descriptions_with_scanner,
+    InjectionScanner,
 };
 use sentinel_mcp::output_validation::{OutputSchemaRegistry, ValidationResult};
 use sentinel_types::{Action, EvaluationContext, EvaluationTrace, Policy, Verdict};
@@ -2447,50 +2448,56 @@ async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &Pro
             continue;
         }
 
-        if let Ok(json_val) = serde_json::from_str::<Value>(&data_payload) {
-            let dlp_findings = scan_response_for_secrets(&json_val);
-            if !dlp_findings.is_empty() {
-                let patterns: Vec<String> = dlp_findings
-                    .iter()
-                    .map(|f| format!("{}:{}", f.pattern_name, f.location))
-                    .collect();
-                tracing::warn!(
-                    "SECURITY: Secrets detected in SSE tool response! \
-                     Session: {}, Findings: {:?}",
-                    session_id,
-                    patterns
-                );
-                let action = Action::new(
-                    "sentinel",
-                    "sse_response_dlp_scan",
+        let dlp_findings = if let Ok(json_val) = serde_json::from_str::<Value>(&data_payload) {
+            scan_response_for_secrets(&json_val)
+        } else {
+            // SECURITY (R17-SSE-4): Non-JSON SSE data must also be scanned.
+            // A malicious upstream can embed secrets in plain-text SSE data lines
+            // (e.g., `data: AKIAIOSFODNN7EXAMPLE\n\n`) to bypass JSON-only DLP.
+            scan_text_for_secrets(&data_payload, "sse_data(raw)")
+        };
+
+        if !dlp_findings.is_empty() {
+            let patterns: Vec<String> = dlp_findings
+                .iter()
+                .map(|f| format!("{}:{}", f.pattern_name, f.location))
+                .collect();
+            tracing::warn!(
+                "SECURITY: Secrets detected in SSE tool response! \
+                 Session: {}, Findings: {:?}",
+                session_id,
+                patterns
+            );
+            let action = Action::new(
+                "sentinel",
+                "sse_response_dlp_scan",
+                json!({
+                    "findings": patterns,
+                    "session": session_id,
+                    "finding_count": dlp_findings.len(),
+                }),
+            );
+            // SECURITY (R14-SSE-5): Log Verdict::Allow (not Deny)
+            // because SSE DLP is log-only — the stream IS forwarded.
+            // Matches the regular response DLP fix (R13-DLP-9).
+            if let Err(e) = state
+                .audit
+                .log_entry(
+                    &action,
+                    &Verdict::Allow,
                     json!({
-                        "findings": patterns,
-                        "session": session_id,
-                        "finding_count": dlp_findings.len(),
+                        "source": "http_proxy",
+                        "event": "sse_response_dlp_alert",
+                        "blocked": false,
+                        "dlp_detail": format!(
+                            "Secrets detected in SSE response: {:?}",
+                            patterns
+                        ),
                     }),
-                );
-                // SECURITY (R14-SSE-5): Log Verdict::Allow (not Deny)
-                // because SSE DLP is log-only — the stream IS forwarded.
-                // Matches the regular response DLP fix (R13-DLP-9).
-                if let Err(e) = state
-                    .audit
-                    .log_entry(
-                        &action,
-                        &Verdict::Allow,
-                        json!({
-                            "source": "http_proxy",
-                            "event": "sse_response_dlp_alert",
-                            "blocked": false,
-                            "dlp_detail": format!(
-                                "Secrets detected in SSE response: {:?}",
-                                patterns
-                            ),
-                        }),
-                    )
-                    .await
-                {
-                    tracing::warn!("Failed to audit SSE DLP finding: {}", e);
-                }
+                )
+                .await
+            {
+                tracing::warn!("Failed to audit SSE DLP finding: {}", e);
             }
         }
     }

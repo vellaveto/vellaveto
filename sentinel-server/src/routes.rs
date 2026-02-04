@@ -583,12 +583,28 @@ async fn add_policy(
         );
     }
 
-    // 3. Validate priority is within a reasonable range
-    if policy.priority < -10_000 || policy.priority > 10_000 {
+    // 3. Validate priority is within a reasonable range.
+    // SECURITY (R17-POL-1): Dynamic policies added via API are capped at ±1000
+    // to prevent an attacker from shadowing config-loaded deny policies with
+    // a max-priority Allow rule.
+    if policy.priority < -1_000 || policy.priority > 1_000 {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Policy priority must be between -10000 and 10000"})),
+            Json(json!({"error": "Dynamic policy priority must be between -1000 and 1000"})),
         );
+    }
+
+    // SECURITY (R17-POL-2): Reject wildcard-only IDs that match ALL tools.
+    // An attacker with API access could POST id="*", type=Allow, priority=1000
+    // to override all deny rules. Require at least a colon-separated scope.
+    {
+        let id_trimmed = policy.id.trim();
+        if id_trimmed == "*" || id_trimmed == "*:*" {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Wildcard-only policy IDs ('*', '*:*') are not allowed via API"})),
+            );
+        }
     }
 
     // SECURITY (R15-RACE-*): Hold write lock for the entire read-modify-write

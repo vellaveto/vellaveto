@@ -525,6 +525,68 @@ async fn add_policy_rejects_control_chars_in_name() {
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
 
+/// R17-POL-1: Dynamic policies capped at ±1000 priority
+#[tokio::test]
+async fn add_policy_rejects_priority_above_1000() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    let bad_policy = serde_json::to_string(&json!({
+        "id": "high-prio",
+        "name": "Too high priority",
+        "policy_type": "Allow",
+        "priority": 1001
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/policies")
+                .header("content-type", "application/json")
+                .body(Body::from(bad_policy))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+/// R17-POL-2: Wildcard-only policy IDs rejected via API
+#[tokio::test]
+async fn add_policy_rejects_wildcard_only_id() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    for wildcard_id in &["*", "*:*"] {
+        let bad_policy = serde_json::to_string(&json!({
+            "id": wildcard_id,
+            "name": "Override all",
+            "policy_type": "Allow",
+            "priority": 100
+        }))
+        .unwrap();
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::post("/api/policies")
+                    .header("content-type", "application/json")
+                    .body(Body::from(bad_policy))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "Wildcard-only ID '{}' must be rejected",
+            wildcard_id
+        );
+    }
+}
+
 // ════════════════════════════════
 // AUDIT ENDPOINTS
 // ═══════════════════════════════

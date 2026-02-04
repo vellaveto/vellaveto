@@ -153,13 +153,21 @@ pub fn classify_message(msg: &Value) -> MessageType {
             }
         }
         "resources/read" => {
-            let uri = params
-                .and_then(|p| p.get("uri"))
-                .and_then(|u| u.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            MessageType::ResourceRead { id, uri }
+            // SECURITY (R17-URI-1): Reject empty/missing URI to prevent policy bypass.
+            // An empty URI produces an Action with empty target_paths and target_domains,
+            // which causes the engine to skip all path and network rule checks.
+            match params.and_then(|p| p.get("uri")).and_then(|u| u.as_str()) {
+                Some(uri) if !uri.is_empty() => {
+                    MessageType::ResourceRead {
+                        id,
+                        uri: uri.to_string(),
+                    }
+                }
+                _ => MessageType::Invalid {
+                    id,
+                    reason: "resources/read missing or empty uri parameter".to_string(),
+                },
+            }
         }
         "sampling/createmessage" => MessageType::SamplingRequest { id },
         "elicitation/create" => MessageType::ElicitationRequest { id },
@@ -688,6 +696,7 @@ mod tests {
 
     #[test]
     fn test_classify_resource_read_missing_params() {
+        // R17-URI-1: Missing URI must be rejected as Invalid (not accepted as empty)
         let msg = json!({
             "jsonrpc": "2.0",
             "id": 12,
@@ -695,10 +704,36 @@ mod tests {
         });
         let mt = classify_message(&msg);
         match mt {
-            MessageType::ResourceRead { uri, .. } => {
-                assert_eq!(uri, "");
+            MessageType::Invalid { reason, .. } => {
+                assert!(
+                    reason.contains("empty uri") || reason.contains("missing"),
+                    "Expected rejection for missing URI, got: {}",
+                    reason
+                );
             }
-            _ => panic!("Expected ResourceRead"),
+            _ => panic!("Expected Invalid for missing URI, got: {:?}", mt),
+        }
+    }
+
+    #[test]
+    fn test_classify_resource_read_empty_uri_rejected() {
+        // R17-URI-1: Empty string URI must also be rejected
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 13,
+            "method": "resources/read",
+            "params": {"uri": ""}
+        });
+        let mt = classify_message(&msg);
+        match mt {
+            MessageType::Invalid { reason, .. } => {
+                assert!(
+                    reason.contains("empty"),
+                    "Expected rejection for empty URI, got: {}",
+                    reason
+                );
+            }
+            _ => panic!("Expected Invalid for empty URI, got: {:?}", mt),
         }
     }
 
