@@ -496,6 +496,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             audit: Default::default(),
             supply_chain: Default::default(),
             manifest: Default::default(),
+            memory_tracking: Default::default(),
             elicitation: Default::default(),
             sampling: Default::default(),
             max_path_decode_iterations: None,

@@ -717,6 +717,25 @@ impl ManifestConfig {
     }
 }
 
+/// Memory poisoning defense configuration (OWASP ASI06).
+///
+/// # TOML Example
+///
+/// ```toml
+/// [memory_tracking]
+/// enabled = false
+/// block_on_match = false
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct MemoryTrackingConfig {
+    /// Enable cross-request data flow tracking. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Block tool calls that replay data from previous responses. Default: false.
+    #[serde(default)]
+    pub block_on_match: bool,
+}
+
 /// Elicitation interception configuration (MCP 2025-06-18, P2.2).
 ///
 /// Controls whether server-initiated user prompts (`elicitation/create`)
@@ -832,6 +851,10 @@ pub struct PolicyConfig {
     /// Optional tool manifest verification configuration.
     #[serde(default)]
     pub manifest: ManifestConfig,
+
+    /// Memory poisoning defense configuration.
+    #[serde(default)]
+    pub memory_tracking: MemoryTrackingConfig,
 
     /// Elicitation interception configuration (MCP 2025-06-18).
     #[serde(default)]
@@ -2004,6 +2027,7 @@ policy_type = "Allow"
             audit: AuditConfig::default(),
             supply_chain: SupplyChainConfig::default(),
             manifest: ManifestConfig::default(),
+            memory_tracking: MemoryTrackingConfig::default(),
             elicitation: ElicitationConfig::default(),
             sampling: SamplingConfig::default(),
             max_path_decode_iterations: None,
