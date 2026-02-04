@@ -49,6 +49,16 @@ pub enum MessageType {
     ResourceRead { id: Value, uri: String },
     /// A `sampling/createMessage` request — blocked unconditionally as an exfiltration vector.
     SamplingRequest { id: Value },
+    /// An `elicitation/create` request (MCP 2025-06-18) — server-initiated user prompt.
+    ElicitationRequest { id: Value },
+    /// A `tasks/get` or `tasks/cancel` request (MCP 2025-11-25) — async task management.
+    TaskRequest {
+        id: Value,
+        task_method: String,
+        task_id: Option<String>,
+    },
+    /// A JSON-RPC batch (array of requests) — rejected per MCP 2025-06-18.
+    Batch,
     /// An invalid request that should be rejected with an error response.
     Invalid { id: Value, reason: String },
     /// Any other message (notifications, responses, other methods).
@@ -84,6 +94,11 @@ fn normalize_method(method: &str) -> String {
 /// and whitespace are stripped, and comparison is case-insensitive. This prevents
 /// bypass attacks like `"tools/call/"` or `"Tools/Call"`.
 pub fn classify_message(msg: &Value) -> MessageType {
+    // MCP 2025-06-18 removed JSON-RPC batching. Reject arrays early.
+    if msg.is_array() {
+        return MessageType::Batch;
+    }
+
     let method = match msg.get("method").and_then(|v| v.as_str()) {
         Some(m) => m,
         None => {
@@ -136,6 +151,18 @@ pub fn classify_message(msg: &Value) -> MessageType {
             MessageType::ResourceRead { id, uri }
         }
         "sampling/createmessage" => MessageType::SamplingRequest { id },
+        "elicitation/create" => MessageType::ElicitationRequest { id },
+        method @ ("tasks/get" | "tasks/cancel") => {
+            let task_id = params
+                .and_then(|p| p.get("id"))
+                .and_then(|t| t.as_str())
+                .map(|s| s.to_string());
+            MessageType::TaskRequest {
+                id,
+                task_method: method.to_string(),
+                task_id,
+            }
+        }
         _ => MessageType::PassThrough,
     }
 }
@@ -175,32 +202,53 @@ pub fn extract_action(tool_name: &str, arguments: &Value) -> Action {
     }
 }
 
+/// Maximum recursion depth for parameter scanning (defense-in-depth against stack overflow).
+const MAX_PARAM_SCAN_DEPTH: usize = 32;
+
 /// Scan parameter values for file paths and URLs, populating target_paths and target_domains.
 fn extract_targets_from_params(value: &Value, paths: &mut Vec<String>, domains: &mut Vec<String>) {
+    extract_targets_from_params_inner(value, paths, domains, 0);
+}
+
+fn extract_targets_from_params_inner(
+    value: &Value,
+    paths: &mut Vec<String>,
+    domains: &mut Vec<String>,
+    depth: usize,
+) {
+    if depth >= MAX_PARAM_SCAN_DEPTH {
+        return;
+    }
     match value {
         Value::String(s) => {
+            // Only lowercase the scheme for comparison, preserve original path case
             let lower = s.to_lowercase();
-            if lower.starts_with("file://") {
-                // Extract path from file:// URI
-                if let Some(path) = lower.strip_prefix("file://") {
-                    let file_path = if let Some(rest) = path.strip_prefix("localhost") {
-                        rest.to_string()
-                    } else if path.starts_with('/') {
-                        path.to_string()
-                    } else {
-                        path.find('/')
-                            .map(|i| path[i..].to_string())
-                            .unwrap_or_default()
-                    };
-                    if !file_path.is_empty() {
-                        paths.push(file_path);
-                    }
+            if let Some(lower_after_scheme) = lower.strip_prefix("file://") {
+                // Extract path from file:// URI, preserving original case.
+                // Find the scheme end in the original string.
+                let after_scheme = &s[7..]; // skip "file://"
+                let path_original = if lower_after_scheme.starts_with("localhost") {
+                    &after_scheme["localhost".len()..]
+                } else if after_scheme.starts_with('/') {
+                    after_scheme
+                } else {
+                    after_scheme
+                        .find('/')
+                        .map(|i| &after_scheme[i..])
+                        .unwrap_or("")
+                };
+                // Strip query strings and fragments before adding
+                let file_path = strip_query_and_fragment(path_original);
+                if !file_path.is_empty() {
+                    paths.push(file_path.to_string());
                 }
             } else if lower.starts_with("http://") || lower.starts_with("https://") {
                 // Extract domain from HTTP(S) URL
                 if let Some(authority) = s.find("://").map(|i| &s[i + 3..]) {
                     let host = authority.split('/').next().unwrap_or(authority);
                     let host = host.split(':').next().unwrap_or(host);
+                    let host = host.split('?').next().unwrap_or(host);
+                    let host = host.split('#').next().unwrap_or(host);
                     let host = if let Some(pos) = host.rfind('@') {
                         &host[pos + 1..]
                     } else {
@@ -211,22 +259,31 @@ fn extract_targets_from_params(value: &Value, paths: &mut Vec<String>, domains: 
                     }
                 }
             } else if s.starts_with('/') && !s.contains(' ') {
-                // Looks like an absolute file path
-                paths.push(s.clone());
+                // Looks like an absolute file path — strip query/fragments
+                let clean = strip_query_and_fragment(s);
+                if !clean.is_empty() {
+                    paths.push(clean.to_string());
+                }
             }
         }
         Value::Object(map) => {
             for val in map.values() {
-                extract_targets_from_params(val, paths, domains);
+                extract_targets_from_params_inner(val, paths, domains, depth + 1);
             }
         }
         Value::Array(arr) => {
             for val in arr {
-                extract_targets_from_params(val, paths, domains);
+                extract_targets_from_params_inner(val, paths, domains, depth + 1);
             }
         }
         _ => {}
     }
+}
+
+/// Strip query string (`?...`) and fragment (`#...`) from a path.
+fn strip_query_and_fragment(path: &str) -> &str {
+    let path = path.split('?').next().unwrap_or(path);
+    path.split('#').next().unwrap_or(path)
 }
 
 /// Extract an [`Action`] from a `resources/read` URI.
@@ -245,17 +302,22 @@ pub fn extract_resource_action(uri: &str) -> Action {
 
     // Lowercase the scheme for comparison (RFC 3986 §3.1: schemes are case-insensitive)
     let uri_lower = uri.to_lowercase();
-    if let Some(path) = uri_lower.strip_prefix("file://") {
-        // file:///etc/passwd → /etc/passwd
-        // file://localhost/etc/passwd → /etc/passwd (strip optional host)
-        let file_path = if let Some(rest) = path.strip_prefix("localhost") {
-            rest
-        } else if path.starts_with('/') {
-            path
+    if let Some(lower_after_scheme) = uri_lower.strip_prefix("file://") {
+        // Preserve original path case for case-sensitive filesystems.
+        let after_scheme = &uri[7..]; // skip "file://"
+        let file_path = if lower_after_scheme.starts_with("localhost") {
+            &after_scheme["localhost".len()..]
+        } else if after_scheme.starts_with('/') {
+            after_scheme
         } else {
             // file://host/path — extract path after host
-            path.find('/').map(|i| &path[i..]).unwrap_or(path)
+            after_scheme
+                .find('/')
+                .map(|i| &after_scheme[i..])
+                .unwrap_or(after_scheme)
         };
+        // Strip query strings and fragments
+        let file_path = strip_query_and_fragment(file_path);
         params.insert(PARAM_PATH.to_string(), Value::String(file_path.to_string()));
         target_paths.push(file_path.to_string());
     } else if uri_lower.starts_with("http://") || uri_lower.starts_with("https://") {
@@ -264,6 +326,8 @@ pub fn extract_resource_action(uri: &str) -> Action {
         if let Some(authority) = uri.find("://").map(|i| &uri[i + 3..]) {
             let host = authority.split('/').next().unwrap_or(authority);
             let host = host.split(':').next().unwrap_or(host);
+            let host = host.split('?').next().unwrap_or(host);
+            let host = host.split('#').next().unwrap_or(host);
             let host = if let Some(pos) = host.rfind('@') {
                 &host[pos + 1..]
             } else {
@@ -279,6 +343,21 @@ pub fn extract_resource_action(uri: &str) -> Action {
     action.target_paths = target_paths;
     action.target_domains = target_domains;
     action
+}
+
+/// Build a JSON-RPC error response for a rejected batch request.
+///
+/// Per MCP 2025-06-18, JSON-RPC batching is no longer supported.
+/// Uses `id: null` since batch messages don't have a single ID.
+pub fn make_batch_error_response() -> Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": null,
+        "error": {
+            "code": -32600,
+            "message": "JSON-RPC batching is not supported (MCP 2025-06-18)"
+        }
+    })
 }
 
 /// Build a JSON-RPC error response for an invalid request.
@@ -884,5 +963,177 @@ mod tests {
         let action = extract_resource_action("https://evil.com/data");
         assert!(action.target_domains.contains(&"evil.com".to_string()));
         assert!(action.target_paths.is_empty());
+    }
+
+    // --- JSON-RPC batch rejection tests (MCP 2025-06-18) ---
+
+    #[test]
+    fn test_classify_batch_request_returns_batch() {
+        let msg = json!([
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "bash", "arguments": {}}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "read_file", "arguments": {}}}
+        ]);
+        assert_eq!(classify_message(&msg), MessageType::Batch);
+    }
+
+    #[test]
+    fn test_classify_empty_batch_returns_batch() {
+        let msg = json!([]);
+        assert_eq!(classify_message(&msg), MessageType::Batch);
+    }
+
+    #[test]
+    fn test_classify_single_element_batch_returns_batch() {
+        let msg = json!([{"jsonrpc": "2.0", "id": 1, "method": "ping"}]);
+        assert_eq!(classify_message(&msg), MessageType::Batch);
+    }
+
+    #[test]
+    fn test_make_batch_error_response_format() {
+        let resp = make_batch_error_response();
+        assert_eq!(resp["jsonrpc"], "2.0");
+        assert!(resp["id"].is_null());
+        assert_eq!(resp["error"]["code"], -32600);
+        assert!(resp["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("batching")));
+    }
+
+    // --- Elicitation classification tests (MCP 2025-06-18) ---
+
+    #[test]
+    fn test_classify_elicitation_create() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 20,
+            "method": "elicitation/create",
+            "params": {
+                "message": "Please enter your API key",
+                "requestedSchema": {"type": "object", "properties": {"api_key": {"type": "string"}}}
+            }
+        });
+        match classify_message(&msg) {
+            MessageType::ElicitationRequest { id } => {
+                assert_eq!(id, json!(20));
+            }
+            other => panic!("Expected ElicitationRequest, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_classify_elicitation_case_insensitive() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 21,
+            "method": "Elicitation/Create",
+            "params": {}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::ElicitationRequest { .. }
+        ));
+    }
+
+    #[test]
+    fn test_classify_elicitation_trailing_slash() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 22,
+            "method": "elicitation/create/",
+            "params": {}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::ElicitationRequest { .. }
+        ));
+    }
+
+    // --- MCP Tasks classification tests (MCP 2025-11-25) ---
+
+    #[test]
+    fn test_classify_tasks_get() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 30,
+            "method": "tasks/get",
+            "params": {"id": "task-abc-123"}
+        });
+        match classify_message(&msg) {
+            MessageType::TaskRequest {
+                id,
+                task_method,
+                task_id,
+            } => {
+                assert_eq!(id, json!(30));
+                assert_eq!(task_method, "tasks/get");
+                assert_eq!(task_id, Some("task-abc-123".to_string()));
+            }
+            other => panic!("Expected TaskRequest, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_classify_tasks_cancel() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 31,
+            "method": "tasks/cancel",
+            "params": {"id": "task-def-456"}
+        });
+        match classify_message(&msg) {
+            MessageType::TaskRequest {
+                task_method,
+                task_id,
+                ..
+            } => {
+                assert_eq!(task_method, "tasks/cancel");
+                assert_eq!(task_id, Some("task-def-456".to_string()));
+            }
+            other => panic!("Expected TaskRequest, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_classify_tasks_get_no_task_id() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 32,
+            "method": "tasks/get",
+            "params": {}
+        });
+        match classify_message(&msg) {
+            MessageType::TaskRequest { task_id, .. } => {
+                assert_eq!(task_id, None);
+            }
+            other => panic!("Expected TaskRequest, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_classify_tasks_case_insensitive() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 33,
+            "method": "Tasks/Get",
+            "params": {"id": "t1"}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::TaskRequest { .. }
+        ));
+    }
+
+    #[test]
+    fn test_classify_tasks_trailing_slash() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 34,
+            "method": "tasks/cancel/",
+            "params": {"id": "t2"}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::TaskRequest { .. }
+        ));
     }
 }

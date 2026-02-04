@@ -1,0 +1,251 @@
+# Sentinel Production Configuration
+#
+# A realistic enterprise policy set for deploying Sentinel in front of
+# AI agent tool calls. This configuration covers:
+#
+#   - Credential and secret file protection
+#   - Network exfiltration prevention with domain allowlisting
+#   - Dangerous command gating via approval queue
+#   - Prompt injection scanning
+#   - Rate limiting for API stability
+#   - Audit log PII redaction
+#   - Supply chain verification for MCP server binaries
+#   - Tool manifest pinning (rug-pull detection)
+#
+# Usage:
+#   export SENTINEL_API_KEY=$(openssl rand -hex 32)
+#   cargo run -p sentinel-server -- serve --config examples/production.toml
+
+# ====================================================================
+# POLICY 1: Block access to credential and secret files (P300)
+# ====================================================================
+# Highest priority. Blocks any tool from reading SSH keys, cloud
+# credentials, environment files, or OS secret stores. Uses wildcard
+# param scanning to catch paths hidden in nested JSON fields.
+
+[[policies]]
+name = "Block credential file access"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "*:*:credential-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "/home/*/.aws/**",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.ssh/**",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.gcp/**",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.azure/**",     on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.config/gh/**", on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.kube/config",  on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.npmrc",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/home/*/.env*",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/shadow",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/etc/gshadow",          on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "/root/**",              on_match = "deny", on_missing = "skip" },
+]
+
+# ====================================================================
+# POLICY 2: Block known exfiltration channels (P280)
+# ====================================================================
+# Catches data exfiltration via tunneling services, pastebins, and
+# file-sharing platforms commonly used in attack chains.
+
+[[policies]]
+name = "Block exfiltration domains"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 280
+id = "*:*:exfil-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "domain_match", pattern = "*.ngrok.io",       on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "domain_match", pattern = "*.ngrok-free.app", on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "domain_match", pattern = "*.requestbin.com", on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "domain_match", pattern = "*.pipedream.net",  on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "domain_match", pattern = "*.pastebin.com",   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "domain_match", pattern = "*.webhook.site",   on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "domain_match", pattern = "*.burpcollaborator.net", on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "domain_match", pattern = "*.transfer.sh",    on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "domain_match", pattern = "*.file.io",        on_match = "deny", on_missing = "skip" },
+]
+
+# ====================================================================
+# POLICY 3: HTTP domain allowlist (P250)
+# ====================================================================
+# Only allows outbound HTTP to approved API endpoints. Replace these
+# domains with your organization's actual trusted services.
+
+[[policies]]
+name = "HTTP domain allowlist"
+tool_pattern = "http_request"
+function_pattern = "*"
+priority = 250
+id = "http_request:*:domain-allowlist"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "url", op = "domain_not_in", patterns = [
+    "api.github.com",
+    "*.googleapis.com",
+    "*.internal.corp",
+    "registry.npmjs.org",
+    "pypi.org",
+  ], on_match = "deny" },
+]
+
+# ====================================================================
+# POLICY 4: Dangerous shell commands require approval (P200)
+# ====================================================================
+# Destructive filesystem and system commands are sent to the approval
+# queue for human review before execution.
+
+[[policies]]
+name = "Dangerous commands require approval"
+tool_pattern = "bash"
+function_pattern = "execute"
+priority = 200
+id = "bash:execute:dangerous"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "command", op = "regex", pattern = "(?i)(rm\\s+-rf|dd\\s+if=|mkfs|format\\s+|fdisk|wipefs|shred)", on_match = "require_approval" },
+]
+
+# ====================================================================
+# POLICY 5: Block privilege escalation (P190)
+# ====================================================================
+# Prevents agents from running commands as root or modifying system
+# authentication state.
+
+[[policies]]
+name = "Block privilege escalation"
+tool_pattern = "bash"
+function_pattern = "execute"
+priority = 190
+id = "bash:execute:privesc-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "command", op = "regex", pattern = "(?i)(^sudo\\s|\\bsu\\s+-|\\bchmod\\s+[0-7]*s|\\bchown\\s+root|\\busermod\\s|\\bpasswd\\s)", on_match = "deny" },
+]
+
+# ====================================================================
+# POLICY 6: Block package installation without approval (P180)
+# ====================================================================
+# Package manager commands could introduce supply chain attacks.
+
+[[policies]]
+name = "Package install requires approval"
+tool_pattern = "bash"
+function_pattern = "execute"
+priority = 180
+id = "bash:execute:pkg-install"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "command", op = "regex", pattern = "(?i)(npm\\s+install|pip\\s+install|apt(-get)?\\s+install|brew\\s+install|cargo\\s+install)", on_match = "require_approval" },
+]
+
+# ====================================================================
+# POLICY 7: Default allow for all other operations (P1)
+# ====================================================================
+# Catch-all at lowest priority — everything not blocked above is allowed.
+
+[[policies]]
+name = "Default allow"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+priority = 1
+
+# ====================================================================
+# INJECTION SCANNING
+# ====================================================================
+# Scans MCP tool responses for prompt injection signatures.
+# block_on_injection = true means detected injections are blocked,
+# not just logged.
+
+[injection]
+enabled = true
+block_on_injection = true
+extra_patterns = [
+  "transfer funds",
+  "send bitcoin",
+  "exfiltrate",
+  "ignore previous instructions",
+  "you are now",
+  "new system prompt",
+]
+
+# ====================================================================
+# RATE LIMITING
+# ====================================================================
+# Protects the Sentinel API from abuse and ensures fair resource
+# allocation across multiple agents.
+
+[rate_limit]
+evaluate_rps = 1000
+evaluate_burst = 50
+admin_rps = 20
+admin_burst = 5
+readonly_rps = 200
+readonly_burst = 20
+per_ip_rps = 100
+per_ip_burst = 20
+per_ip_max_capacity = 100000
+per_principal_rps = 50
+per_principal_burst = 10
+
+# ====================================================================
+# AUDIT LOG
+# ====================================================================
+# Redacts PII from audit log entries. KeysAndPatterns removes both
+# sensitive key names (password, token, secret) and pattern-matched
+# values (emails, SSNs, credit cards).
+
+[audit]
+redaction_level = "KeysAndPatterns"
+
+[[audit.custom_pii_patterns]]
+name = "internal_employee_id"
+pattern = "EMP-\\d{6}"
+
+[[audit.custom_pii_patterns]]
+name = "internal_project_code"
+pattern = "PROJ-[A-Z]{2,4}-\\d{4}"
+
+# ====================================================================
+# SUPPLY CHAIN VERIFICATION
+# ====================================================================
+# Verifies SHA-256 hashes of MCP server binaries before spawning.
+# Replace paths and hashes with your actual server binaries.
+# Generate hashes with: sha256sum /path/to/mcp-server
+
+[supply_chain]
+enabled = false
+validate_paths_on_load = true
+
+[supply_chain.allowed_servers]
+# "/usr/local/bin/my-mcp-server" = "sha256hexdigesthere..."
+
+# ====================================================================
+# TOOL MANIFEST PINNING
+# ====================================================================
+# Detects tool rug-pull attacks by pinning expected tool schemas.
+# On first run, Sentinel creates a manifest from the tools/list
+# response. On subsequent runs, schema changes are detected.
+
+[manifest]
+enabled = true
+enforcement = "Warn"
+require_signature = false
+# manifest_path = "/etc/sentinel/manifest.json"
+# trusted_keys = ["hex-encoded-ed25519-public-key"]

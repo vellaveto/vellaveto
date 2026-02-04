@@ -8,7 +8,7 @@ use sentinel_approval::ApprovalStore;
 use sentinel_audit::AuditLogger;
 use sentinel_config::{ManifestConfig, ToolManifest};
 use sentinel_engine::PolicyEngine;
-use sentinel_types::{EvaluationTrace, Policy, Verdict};
+use sentinel_types::{EvaluationContext, EvaluationTrace, Policy, Verdict};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -19,10 +19,13 @@ use tokio::process::{ChildStdin, ChildStdout};
 
 use crate::extractor::{
     classify_message, extract_action, extract_resource_action, make_approval_response,
-    make_denial_response, make_invalid_response, MessageType,
+    make_batch_error_response, make_denial_response, make_invalid_response, MessageType,
 };
 use crate::framing::{read_message, write_message};
-use crate::inspection::{scan_response_for_injection, InjectionScanner};
+use crate::inspection::{
+    scan_parameters_for_secrets, scan_response_for_injection, scan_tool_descriptions,
+    scan_tool_descriptions_with_scanner, InjectionScanner,
+};
 pub use crate::rug_pull::ToolAnnotations;
 
 /// Decision after evaluating a tool call.
@@ -220,15 +223,23 @@ impl ProxyBridge {
     }
 
     /// Evaluate an action against policies, optionally producing a trace.
+    ///
+    /// When `context` is provided, uses context-aware evaluation for time windows,
+    /// call limits, agent identity, and action history.
     fn evaluate_action_inner(
         &self,
         action: &sentinel_types::Action,
+        context: Option<&EvaluationContext>,
     ) -> Result<(Verdict, Option<EvaluationTrace>), sentinel_engine::EngineError> {
         if self.enable_trace {
-            let (verdict, trace) = self.engine.evaluate_action_traced(action)?;
+            let (verdict, trace) = self
+                .engine
+                .evaluate_action_traced_with_context(action, context)?;
             Ok((verdict, Some(trace)))
         } else {
-            let verdict = self.engine.evaluate_action(action, &self.policies)?;
+            let verdict =
+                self.engine
+                    .evaluate_action_with_context(action, &self.policies, context)?;
             Ok((verdict, None))
         }
     }
@@ -246,10 +257,11 @@ impl ProxyBridge {
         tool_name: &str,
         arguments: &Value,
         annotations: Option<&ToolAnnotations>,
+        context: Option<&EvaluationContext>,
     ) -> ProxyDecision {
         let action = extract_action(tool_name, arguments);
 
-        match self.evaluate_action_inner(&action) {
+        match self.evaluate_action_inner(&action, context) {
             Ok((Verdict::Allow, _trace)) => {
                 // Log awareness when allowing destructive tools
                 if let Some(ann) = annotations {
@@ -317,10 +329,15 @@ impl ProxyBridge {
     }
 
     /// Evaluate a `resources/read` request and decide whether to forward or block.
-    pub fn evaluate_resource_read(&self, id: &Value, uri: &str) -> ProxyDecision {
+    pub fn evaluate_resource_read(
+        &self,
+        id: &Value,
+        uri: &str,
+        context: Option<&EvaluationContext>,
+    ) -> ProxyDecision {
         let action = extract_resource_action(uri);
 
-        match self.evaluate_action_inner(&action) {
+        match self.evaluate_action_inner(&action, context) {
             Ok((Verdict::Allow, _trace)) => {
                 if let Some(t) = _trace {
                     tracing::debug!(
@@ -420,6 +437,11 @@ impl ProxyBridge {
         // Built from the first tools/list response, verified on subsequent ones.
         let mut pinned_manifest: Option<ToolManifest> = None;
 
+        // Context-aware evaluation tracking.
+        let mut call_counts: HashMap<String, u64> = HashMap::new();
+        let mut action_history: Vec<String> = Vec::new();
+        const MAX_ACTION_HISTORY: usize = 100;
+
         // Spawn a task to relay child → agent responses
         let (response_tx, mut response_rx) = tokio::sync::mpsc::channel::<Value>(256);
 
@@ -473,9 +495,52 @@ impl ProxyBridge {
                                             .map_err(ProxyError::Framing)?;
                                         continue;
                                     }
+                                    // P2: DLP scan parameters for secret exfiltration
+                                    let dlp_findings = scan_parameters_for_secrets(&arguments);
+                                    if !dlp_findings.is_empty() {
+                                        tracing::warn!(
+                                            "SECURITY: DLP alert for tool '{}': {:?}",
+                                            tool_name,
+                                            dlp_findings.iter().map(|f| &f.pattern_name).collect::<Vec<_>>()
+                                        );
+                                        let action = extract_action(&tool_name, &arguments);
+                                        let patterns: Vec<String> = dlp_findings.iter()
+                                            .map(|f| format!("{} at {}", f.pattern_name, f.location))
+                                            .collect();
+                                        if let Err(e) = self.audit.log_entry(
+                                            &action,
+                                            &Verdict::Deny {
+                                                reason: format!(
+                                                    "DLP: secrets detected in parameters: {:?}",
+                                                    patterns
+                                                ),
+                                            },
+                                            json!({
+                                                "source": "proxy",
+                                                "event": "dlp_secret_detected",
+                                                "tool": tool_name,
+                                                "findings": patterns,
+                                            }),
+                                        ).await {
+                                            tracing::warn!("Failed to audit DLP finding: {}", e);
+                                        }
+                                    }
                                     let ann = known_tool_annotations.get(&tool_name);
-                                    match self.evaluate_tool_call(&id, &tool_name, &arguments, ann) {
+                                    // Build evaluation context from session tracking
+                                    let eval_ctx = EvaluationContext {
+                                        timestamp: None,
+                                        agent_id: None,
+                                        call_counts: call_counts.clone(),
+                                        previous_actions: action_history.clone(),
+                                    };
+                                    match self.evaluate_tool_call(&id, &tool_name, &arguments, ann, Some(&eval_ctx)) {
                                         ProxyDecision::Forward => {
+                                            // Update session tracking after allowed tool call
+                                            *call_counts.entry(tool_name.clone()).or_insert(0) += 1;
+                                            if action_history.len() >= MAX_ACTION_HISTORY {
+                                                action_history.remove(0);
+                                            }
+                                            action_history.push(tool_name.clone());
                                             // Track this request for timeout
                                             if !id.is_null() {
                                                 let id_key = id.to_string();
@@ -530,7 +595,13 @@ impl ProxyBridge {
                                     }
                                 }
                                 MessageType::ResourceRead { id, uri } => {
-                                    match self.evaluate_resource_read(&id, &uri) {
+                                    let eval_ctx = EvaluationContext {
+                                        timestamp: None,
+                                        agent_id: None,
+                                        call_counts: call_counts.clone(),
+                                        previous_actions: action_history.clone(),
+                                    };
+                                    match self.evaluate_resource_read(&id, &uri, Some(&eval_ctx)) {
                                         ProxyDecision::Forward => {
                                             if !id.is_null() {
                                                 let id_key = id.to_string();
@@ -591,6 +662,43 @@ impl ProxyBridge {
                                         tracing::warn!("Audit log failed: {}", e);
                                     }
                                     tracing::warn!("Blocked sampling/createMessage request");
+                                    write_message(&mut agent_writer, &response).await
+                                        .map_err(ProxyError::Framing)?;
+                                }
+                                MessageType::ElicitationRequest { id } => {
+                                    // Log elicitation attempts — these are server→client
+                                    // prompts that could be used for social engineering.
+                                    let reason = "elicitation/create intercepted: server-initiated user prompt";
+                                    let action = sentinel_types::Action::new("sentinel", "elicitation_intercepted", json!({}));
+                                    if let Err(e) = self.audit.log_entry(
+                                        &action,
+                                        &Verdict::Deny { reason: reason.to_string() },
+                                        json!({"source": "proxy", "event": "elicitation_intercepted"}),
+                                    ).await {
+                                        tracing::warn!("Audit log failed: {}", e);
+                                    }
+                                    tracing::warn!("Blocked elicitation/create request");
+                                    let response = make_denial_response(&id, reason);
+                                    write_message(&mut agent_writer, &response).await
+                                        .map_err(ProxyError::Framing)?;
+                                }
+                                MessageType::TaskRequest { task_method, task_id, .. } => {
+                                    // MCP 2025-11-25 tasks: pass through to server.
+                                    // These are async operation management messages.
+                                    tracing::debug!(
+                                        "Task request: {} (task_id: {:?})",
+                                        task_method,
+                                        task_id
+                                    );
+                                    write_message(&mut child_stdin, &msg).await
+                                        .map_err(ProxyError::Framing)?;
+                                }
+                                MessageType::Batch => {
+                                    // MCP 2025-06-18: batching removed from spec.
+                                    // Should not reach here (framing layer rejects first),
+                                    // but handle as defense in depth.
+                                    let response = make_batch_error_response();
+                                    tracing::warn!("Rejected JSON-RPC batch request");
                                     write_message(&mut agent_writer, &response).await
                                         .map_err(ProxyError::Framing)?;
                                 }
@@ -718,6 +826,42 @@ impl ProxyBridge {
                                         for name in flagged_tools.difference(&flagged_before) {
                                             let reason = "annotation_change_or_new_tool";
                                             self.persist_flagged_tool(name, reason).await;
+                                        }
+
+                                        // P2: Scan tool descriptions for embedded injection
+                                        if !self.injection_disabled {
+                                            let desc_findings = if let Some(ref scanner) = self.injection_scanner {
+                                                scan_tool_descriptions_with_scanner(&msg, scanner)
+                                            } else {
+                                                scan_tool_descriptions(&msg)
+                                            };
+                                            for finding in &desc_findings {
+                                                tracing::warn!(
+                                                    "SECURITY: Injection detected in tool '{}' description! Patterns: {:?}",
+                                                    finding.tool_name,
+                                                    finding.matched_patterns
+                                                );
+                                                let action = sentinel_types::Action::new(
+                                                    "sentinel",
+                                                    "tool_description_injection",
+                                                    json!({
+                                                        "tool": finding.tool_name,
+                                                        "matched_patterns": finding.matched_patterns,
+                                                    }),
+                                                );
+                                                if let Err(e) = self.audit.log_entry(
+                                                    &action,
+                                                    &Verdict::Deny {
+                                                        reason: format!(
+                                                            "Tool '{}' description contains injection patterns: {:?}",
+                                                            finding.tool_name, finding.matched_patterns
+                                                        ),
+                                                    },
+                                                    json!({"source": "proxy", "event": "tool_description_injection"}),
+                                                ).await {
+                                                    tracing::warn!("Failed to audit tool description injection: {}", e);
+                                                }
+                                            }
                                         }
 
                                         // Phase 5: Manifest verification on tools/list responses
@@ -989,8 +1133,13 @@ mod tests {
             network_rules: None,
         }];
         let bridge = test_bridge(policies);
-        let decision =
-            bridge.evaluate_tool_call(&json!(1), "read_file", &json!({"path": "/tmp/test"}), None);
+        let decision = bridge.evaluate_tool_call(
+            &json!(1),
+            "read_file",
+            &json!({"path": "/tmp/test"}),
+            None,
+            None,
+        );
         assert!(matches!(decision, ProxyDecision::Forward));
     }
 
@@ -1005,8 +1154,13 @@ mod tests {
             network_rules: None,
         }];
         let bridge = test_bridge(policies);
-        let decision =
-            bridge.evaluate_tool_call(&json!(2), "bash", &json!({"command": "rm -rf /"}), None);
+        let decision = bridge.evaluate_tool_call(
+            &json!(2),
+            "bash",
+            &json!({"command": "rm -rf /"}),
+            None,
+            None,
+        );
         match decision {
             ProxyDecision::Block(resp, verdict) => {
                 assert_eq!(resp["error"]["code"], -32001);
@@ -1032,7 +1186,7 @@ mod tests {
             network_rules: None,
         }];
         let bridge = test_bridge(policies);
-        let decision = bridge.evaluate_tool_call(&json!(3), "unknown_tool", &json!({}), None);
+        let decision = bridge.evaluate_tool_call(&json!(3), "unknown_tool", &json!({}), None, None);
         assert!(matches!(decision, ProxyDecision::Block(_, _)));
     }
 
@@ -1049,7 +1203,7 @@ mod tests {
             network_rules: None,
         }];
         let bridge = test_bridge(policies);
-        let decision = bridge.evaluate_tool_call(&json!(4), "write_file", &json!({}), None);
+        let decision = bridge.evaluate_tool_call(&json!(4), "write_file", &json!({}), None, None);
         match decision {
             ProxyDecision::Block(resp, verdict) => {
                 assert_eq!(resp["error"]["code"], -32002);
@@ -1091,6 +1245,7 @@ mod tests {
             "read_file",
             &json!({"path": "/etc/passwd"}),
             None,
+            None,
         );
         assert!(matches!(decision, ProxyDecision::Block(_, _)));
 
@@ -1100,6 +1255,7 @@ mod tests {
             "read_file",
             &json!({"path": "/tmp/safe.txt"}),
             None,
+            None,
         );
         assert!(matches!(decision, ProxyDecision::Forward));
     }
@@ -1107,7 +1263,7 @@ mod tests {
     #[test]
     fn test_evaluate_empty_policies_denies() {
         let bridge = test_bridge(vec![]);
-        let decision = bridge.evaluate_tool_call(&json!(7), "any_tool", &json!({}), None);
+        let decision = bridge.evaluate_tool_call(&json!(7), "any_tool", &json!({}), None, None);
         assert!(matches!(decision, ProxyDecision::Block(_, _)));
     }
 
@@ -1124,7 +1280,7 @@ mod tests {
             network_rules: None,
         }];
         let bridge = test_bridge(policies);
-        let decision = bridge.evaluate_resource_read(&json!(10), "file:///tmp/safe.txt");
+        let decision = bridge.evaluate_resource_read(&json!(10), "file:///tmp/safe.txt", None);
         assert!(matches!(decision, ProxyDecision::Forward));
     }
 
@@ -1139,7 +1295,7 @@ mod tests {
             network_rules: None,
         }];
         let bridge = test_bridge(policies);
-        let decision = bridge.evaluate_resource_read(&json!(11), "file:///etc/passwd");
+        let decision = bridge.evaluate_resource_read(&json!(11), "file:///etc/passwd", None);
         match decision {
             ProxyDecision::Block(resp, verdict) => {
                 assert_eq!(resp["error"]["code"], -32001);
@@ -1175,11 +1331,11 @@ mod tests {
         let bridge = test_bridge(policies);
 
         // file:///etc/shadow → path=/etc/shadow → blocked by glob
-        let decision = bridge.evaluate_resource_read(&json!(12), "file:///etc/shadow");
+        let decision = bridge.evaluate_resource_read(&json!(12), "file:///etc/shadow", None);
         assert!(matches!(decision, ProxyDecision::Block(_, _)));
 
         // file:///tmp/ok.txt → path=/tmp/ok.txt → allowed
-        let decision = bridge.evaluate_resource_read(&json!(13), "file:///tmp/ok.txt");
+        let decision = bridge.evaluate_resource_read(&json!(13), "file:///tmp/ok.txt", None);
         assert!(matches!(decision, ProxyDecision::Forward));
     }
 
@@ -1204,7 +1360,8 @@ mod tests {
         }];
         let bridge = test_bridge(policies);
 
-        let decision = bridge.evaluate_resource_read(&json!(14), "https://data.evil.com/exfil");
+        let decision =
+            bridge.evaluate_resource_read(&json!(14), "https://data.evil.com/exfil", None);
         assert!(matches!(decision, ProxyDecision::Block(_, _)));
     }
 
@@ -1220,7 +1377,7 @@ mod tests {
             network_rules: None,
         }];
         let bridge = test_bridge(policies);
-        let decision = bridge.evaluate_resource_read(&json!(15), "file:///etc/passwd");
+        let decision = bridge.evaluate_resource_read(&json!(15), "file:///etc/passwd", None);
         assert!(matches!(decision, ProxyDecision::Block(_, _)));
     }
 
@@ -1260,8 +1417,13 @@ mod tests {
         }];
         let bridge = test_bridge_traced(policies);
         assert!(bridge.enable_trace);
-        let decision =
-            bridge.evaluate_tool_call(&json!(1), "read_file", &json!({"path": "/tmp/test"}), None);
+        let decision = bridge.evaluate_tool_call(
+            &json!(1),
+            "read_file",
+            &json!({"path": "/tmp/test"}),
+            None,
+            None,
+        );
         assert!(matches!(decision, ProxyDecision::Forward));
     }
 
@@ -1277,7 +1439,7 @@ mod tests {
         }];
         let bridge = test_bridge_traced(policies);
         let decision =
-            bridge.evaluate_tool_call(&json!(2), "bash", &json!({"command": "ls"}), None);
+            bridge.evaluate_tool_call(&json!(2), "bash", &json!({"command": "ls"}), None, None);
         match decision {
             ProxyDecision::Block(resp, Verdict::Deny { .. }) => {
                 assert_eq!(resp["error"]["code"], -32001);
@@ -1303,7 +1465,7 @@ mod tests {
             network_rules: None,
         }];
         let bridge = test_bridge_traced(policies);
-        let decision = bridge.evaluate_resource_read(&json!(3), "file:///etc/shadow");
+        let decision = bridge.evaluate_resource_read(&json!(3), "file:///etc/shadow", None);
         assert!(matches!(
             decision,
             ProxyDecision::Block(_, Verdict::Deny { .. })
@@ -1771,6 +1933,7 @@ mod tests {
             "delete_file",
             &json!({"path": "/tmp/test"}),
             Some(&ann),
+            None,
         );
         assert!(matches!(decision, ProxyDecision::Forward));
     }
@@ -1798,6 +1961,7 @@ mod tests {
             "read_file",
             &json!({"path": "/tmp/safe"}),
             Some(&ann),
+            None,
         );
         assert!(matches!(decision, ProxyDecision::Forward));
     }

@@ -475,22 +475,23 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
     PolicyEngine::sort_policies(&mut new_policies);
     let count = new_policies.len();
 
-    // Update policies via ArcSwap (lock-free)
-    state.policies.store(Arc::new(new_policies));
+    // Compile engine BEFORE storing policies to avoid TOCTOU:
+    // if we stored policies first, concurrent requests would see new policies
+    // but the old engine until recompilation finishes. If recompilation fails,
+    // policies and engine would be permanently inconsistent.
+    let new_engine = PolicyEngine::with_policies(false, &new_policies).map_err(|errors| {
+        for e in &errors {
+            tracing::warn!("Policy recompilation error: {}", e);
+        }
+        format!(
+            "Reload rejected: {} policy compilation error(s) — keeping previous policies and engine",
+            errors.len()
+        )
+    })?;
 
-    // Recompile engine
-    let policies = state.policies.load();
-    match PolicyEngine::with_policies(false, &policies) {
-        Ok(engine) => {
-            state.engine.store(Arc::new(engine));
-        }
-        Err(errors) => {
-            for e in &errors {
-                tracing::warn!("Policy recompilation error: {}", e);
-            }
-            tracing::warn!("Keeping previous compiled engine due to errors");
-        }
-    }
+    // Both compiled successfully — swap atomically (both or neither).
+    state.policies.store(Arc::new(new_policies));
+    state.engine.store(Arc::new(new_engine));
 
     tracing::info!(
         "Reloaded {} policies from {} (source: {})",

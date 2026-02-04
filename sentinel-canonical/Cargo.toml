@@ -7,3 +7,6 @@ edition = "2021"
 sentinel-types = { path = "../sentinel-types" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+proptest = "1.4"

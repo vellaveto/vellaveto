@@ -12,6 +12,7 @@ anyhow = { workspace = true }
 globset = "0.4"
 regex = "1"
 percent-encoding = "2.3"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
 tokio = { workspace = true }

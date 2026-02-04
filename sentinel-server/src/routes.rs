@@ -7,7 +7,7 @@ use axum::{
     Json, Router,
 };
 use sentinel_engine::PolicyEngine;
-use sentinel_types::{Action, Policy, Verdict};
+use sentinel_types::{Action, EvaluationContext, Policy, Verdict};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::atomic::Ordering;
@@ -238,6 +238,18 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
     })
 }
 
+/// Request body for the evaluate endpoint.
+///
+/// Accepts an action plus an optional evaluation context for context-aware
+/// policy evaluation (time windows, call limits, agent identity, etc.).
+#[derive(Deserialize)]
+struct EvaluateRequest {
+    #[serde(flatten)]
+    action: Action,
+    #[serde(default)]
+    context: Option<EvaluationContext>,
+}
+
 #[derive(Serialize)]
 struct EvaluateResponse {
     verdict: Verdict,
@@ -264,33 +276,53 @@ fn auto_extract_targets(action: &mut Action) {
     );
 }
 
+/// Maximum recursion depth for parameter scanning (defense-in-depth against stack overflow).
+const MAX_PARAM_SCAN_DEPTH: usize = 32;
+
 fn scan_params_for_targets(
     value: &serde_json::Value,
     paths: &mut Vec<String>,
     domains: &mut Vec<String>,
 ) {
+    scan_params_for_targets_inner(value, paths, domains, 0);
+}
+
+fn scan_params_for_targets_inner(
+    value: &serde_json::Value,
+    paths: &mut Vec<String>,
+    domains: &mut Vec<String>,
+    depth: usize,
+) {
+    if depth >= MAX_PARAM_SCAN_DEPTH {
+        return;
+    }
     match value {
         serde_json::Value::String(s) => {
             let lower = s.to_lowercase();
-            if lower.starts_with("file://") {
-                if let Some(path) = lower.strip_prefix("file://") {
-                    let file_path = if let Some(rest) = path.strip_prefix("localhost") {
-                        rest.to_string()
-                    } else if path.starts_with('/') {
-                        path.to_string()
-                    } else {
-                        path.find('/')
-                            .map(|i| path[i..].to_string())
-                            .unwrap_or_default()
-                    };
-                    if !file_path.is_empty() {
-                        paths.push(file_path);
-                    }
+            if let Some(lower_after_scheme) = lower.strip_prefix("file://") {
+                // Preserve original path case for case-sensitive filesystems
+                let after_scheme = &s[7..]; // skip "file://"
+                let path_original = if lower_after_scheme.starts_with("localhost") {
+                    &after_scheme["localhost".len()..]
+                } else if after_scheme.starts_with('/') {
+                    after_scheme
+                } else {
+                    after_scheme
+                        .find('/')
+                        .map(|i| &after_scheme[i..])
+                        .unwrap_or("")
+                };
+                // Strip query strings and fragments
+                let file_path = strip_query_and_fragment(path_original);
+                if !file_path.is_empty() {
+                    paths.push(file_path.to_string());
                 }
             } else if lower.starts_with("http://") || lower.starts_with("https://") {
                 if let Some(authority) = s.find("://").map(|i| &s[i + 3..]) {
                     let host = authority.split('/').next().unwrap_or(authority);
                     let host = host.split(':').next().unwrap_or(host);
+                    let host = host.split('?').next().unwrap_or(host);
+                    let host = host.split('#').next().unwrap_or(host);
                     let host = if let Some(pos) = host.rfind('@') {
                         &host[pos + 1..]
                     } else {
@@ -301,27 +333,66 @@ fn scan_params_for_targets(
                     }
                 }
             } else if s.starts_with('/') && !s.contains(' ') {
-                paths.push(s.clone());
+                // Strip query/fragments from raw paths
+                let clean = strip_query_and_fragment(s);
+                if !clean.is_empty() {
+                    paths.push(clean.to_string());
+                }
             }
         }
         serde_json::Value::Object(map) => {
             for val in map.values() {
-                scan_params_for_targets(val, paths, domains);
+                scan_params_for_targets_inner(val, paths, domains, depth + 1);
             }
         }
         serde_json::Value::Array(arr) => {
             for val in arr {
-                scan_params_for_targets(val, paths, domains);
+                scan_params_for_targets_inner(val, paths, domains, depth + 1);
             }
         }
         _ => {}
     }
 }
 
+/// Strip query string (`?...`) and fragment (`#...`) from a path.
+fn strip_query_and_fragment(path: &str) -> &str {
+    let path = path.split('?').next().unwrap_or(path);
+    path.split('#').next().unwrap_or(path)
+}
+
+/// Sanitize client-supplied evaluation context.
+///
+/// The server evaluate endpoint is a stateless API — it has no session tracking.
+/// Clients cannot be trusted to provide their own `call_counts` or
+/// `previous_actions` because they could lie to bypass MaxCalls or
+/// RequirePreviousAction policies. These fields are stripped.
+///
+/// Only `agent_id` is preserved from client input (it should match the
+/// authenticated identity, but auth is handled separately). `timestamp` is
+/// always overridden with the server's wall-clock time.
+fn sanitize_context(context: Option<EvaluationContext>) -> Option<EvaluationContext> {
+    context.map(|ctx| EvaluationContext {
+        // Override timestamp with server time — never trust client clocks
+        timestamp: None,
+        // Preserve agent_id — should match auth principal but useful for
+        // agent_id-scoped policies
+        agent_id: ctx.agent_id,
+        // Strip session-state fields: the stateless server API has no session
+        // tracking, so these must not be client-controlled
+        call_counts: std::collections::HashMap::new(),
+        previous_actions: Vec::new(),
+    })
+}
+
 async fn evaluate(
     State(state): State<AppState>,
-    Json(mut action): Json<Action>,
+    Json(req): Json<EvaluateRequest>,
 ) -> Result<Json<EvaluateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let mut action = req.action;
+    // SECURITY: Sanitize client-supplied context to prevent spoofing of
+    // session-state fields (call_counts, previous_actions, timestamp).
+    let context = sanitize_context(req.context);
+
     // Auto-extract target_paths and target_domains from parameters if not provided
     if action.target_paths.is_empty() && action.target_domains.is_empty() {
         auto_extract_targets(&mut action);
@@ -332,7 +403,7 @@ async fn evaluate(
     let verdict = state
         .engine
         .load()
-        .evaluate_action(&action, &policies)
+        .evaluate_action_with_context(&action, &policies, context.as_ref())
         .map_err(|e| {
             tracing::error!("Engine evaluation error: {}", e);
             state.metrics.record_error();
@@ -1147,5 +1218,44 @@ mod tests {
             "Should fall back to IP, got: {}",
             key
         );
+    }
+
+    // --- Context sanitization tests ---
+
+    #[test]
+    fn test_sanitize_context_none_stays_none() {
+        assert!(sanitize_context(None).is_none());
+    }
+
+    #[test]
+    fn test_sanitize_context_strips_call_counts_and_history() {
+        let mut call_counts = std::collections::HashMap::new();
+        call_counts.insert("read_file".to_string(), 99);
+        let spoofed = EvaluationContext {
+            timestamp: Some("2026-01-01T00:00:00Z".to_string()),
+            agent_id: Some("agent-a".to_string()),
+            call_counts,
+            previous_actions: vec!["login".to_string(), "auth".to_string()],
+        };
+        let sanitized = sanitize_context(Some(spoofed)).unwrap();
+        // agent_id preserved
+        assert_eq!(sanitized.agent_id, Some("agent-a".to_string()));
+        // Session-state fields stripped
+        assert!(sanitized.call_counts.is_empty());
+        assert!(sanitized.previous_actions.is_empty());
+        // Timestamp overridden (set to None = server will use wall clock)
+        assert!(sanitized.timestamp.is_none());
+    }
+
+    #[test]
+    fn test_sanitize_context_preserves_agent_id() {
+        let ctx = EvaluationContext {
+            timestamp: None,
+            agent_id: Some("my-agent".to_string()),
+            call_counts: std::collections::HashMap::new(),
+            previous_actions: Vec::new(),
+        };
+        let sanitized = sanitize_context(Some(ctx)).unwrap();
+        assert_eq!(sanitized.agent_id, Some("my-agent".to_string()));
     }
 }

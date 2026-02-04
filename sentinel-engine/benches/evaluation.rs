@@ -6,7 +6,7 @@ use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use sentinel_engine::PolicyEngine;
-use sentinel_types::{Action, Policy, PolicyType};
+use sentinel_types::{Action, NetworkRules, PathRules, Policy, PolicyType};
 use serde_json::json;
 
 // ---------------------------------------------------------------------------
@@ -626,6 +626,271 @@ fn bench_compiled_on_no_match_chain(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
+// Benchmarks: Path rules (PathRules struct on compiled policies)
+// ---------------------------------------------------------------------------
+
+fn bench_path_rules_blocked(c: &mut Criterion) {
+    let policies = vec![Policy {
+        id: "file:*:path-block".to_string(),
+        name: "Block sensitive paths".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: Some(PathRules {
+            allowed: vec![],
+            blocked: vec![
+                "/home/*/.aws/**".to_string(),
+                "/home/*/.ssh/**".to_string(),
+                "/etc/shadow".to_string(),
+                "/etc/passwd".to_string(),
+                "/root/**".to_string(),
+            ],
+        }),
+        network_rules: None,
+    }];
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+    let mut group = c.benchmark_group("path_rules");
+
+    group.bench_function("blocked_match", |b| {
+        let mut action = make_action("file", "read", json!({}));
+        action.target_paths = vec!["/home/user/.aws/credentials".to_string()];
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.bench_function("not_blocked", |b| {
+        let mut action = make_action("file", "read", json!({}));
+        action.target_paths = vec!["/tmp/safe.txt".to_string()];
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.bench_function("traversal_blocked", |b| {
+        let mut action = make_action("file", "read", json!({}));
+        action.target_paths = vec!["/tmp/../home/user/.aws/credentials".to_string()];
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.bench_function("no_target_paths", |b| {
+        let action = make_action("file", "read", json!({}));
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.finish();
+}
+
+fn bench_path_rules_allowed(c: &mut Criterion) {
+    let policies = vec![Policy {
+        id: "file:*:path-allow".to_string(),
+        name: "Allow only safe dirs".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: Some(PathRules {
+            allowed: vec![
+                "/tmp/**".to_string(),
+                "/home/user/workspace/**".to_string(),
+                "/var/log/**".to_string(),
+            ],
+            blocked: vec![],
+        }),
+        network_rules: None,
+    }];
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+    let mut group = c.benchmark_group("path_rules_allowlist");
+
+    group.bench_function("in_allowed_set", |b| {
+        let mut action = make_action("file", "read", json!({}));
+        action.target_paths = vec!["/tmp/test.txt".to_string()];
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.bench_function("not_in_allowed_set", |b| {
+        let mut action = make_action("file", "read", json!({}));
+        action.target_paths = vec!["/etc/config.ini".to_string()];
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// Benchmarks: Network rules (NetworkRules struct on compiled policies)
+// ---------------------------------------------------------------------------
+
+fn bench_network_rules_blocked(c: &mut Criterion) {
+    let policies = vec![Policy {
+        id: "http:*:net-block".to_string(),
+        name: "Block exfil domains".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: Some(NetworkRules {
+            allowed_domains: vec![],
+            blocked_domains: vec![
+                "*.ngrok.io".to_string(),
+                "*.requestbin.com".to_string(),
+                "*.pipedream.net".to_string(),
+                "*.evil.com".to_string(),
+                "*.pastebin.com".to_string(),
+            ],
+        }),
+    }];
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+    let mut group = c.benchmark_group("network_rules");
+
+    group.bench_function("blocked_match", |b| {
+        let mut action = make_action("http", "get", json!({}));
+        action.target_domains = vec!["exfil.evil.com".to_string()];
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.bench_function("not_blocked", |b| {
+        let mut action = make_action("http", "get", json!({}));
+        action.target_domains = vec!["api.example.com".to_string()];
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.bench_function("no_target_domains", |b| {
+        let action = make_action("http", "get", json!({}));
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.finish();
+}
+
+fn bench_network_rules_allowed(c: &mut Criterion) {
+    let policies = vec![Policy {
+        id: "http:*:net-allow".to_string(),
+        name: "Domain allowlist".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: Some(NetworkRules {
+            allowed_domains: vec![
+                "api.example.com".to_string(),
+                "*.internal.corp".to_string(),
+                "cdn.trusted.net".to_string(),
+            ],
+            blocked_domains: vec![],
+        }),
+    }];
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+    let mut group = c.benchmark_group("network_rules_allowlist");
+
+    group.bench_function("in_allowed_set", |b| {
+        let mut action = make_action("http", "get", json!({}));
+        action.target_domains = vec!["api.example.com".to_string()];
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.bench_function("wildcard_allowed", |b| {
+        let mut action = make_action("http", "get", json!({}));
+        action.target_domains = vec!["svc.internal.corp".to_string()];
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.bench_function("not_in_allowed_set", |b| {
+        let mut action = make_action("http", "get", json!({}));
+        action.target_domains = vec!["attacker.com".to_string()];
+        b.iter(|| engine.evaluate_action(black_box(&action), black_box(&[])))
+    });
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// Benchmarks: match_domain_pattern (direct)
+// ---------------------------------------------------------------------------
+
+fn bench_match_domain_pattern(c: &mut Criterion) {
+    let mut group = c.benchmark_group("match_domain_pattern");
+
+    group.bench_function("exact_match", |b| {
+        b.iter(|| {
+            PolicyEngine::match_domain_pattern(black_box("example.com"), black_box("example.com"))
+        })
+    });
+
+    group.bench_function("wildcard_match", |b| {
+        b.iter(|| {
+            PolicyEngine::match_domain_pattern(
+                black_box("api.example.com"),
+                black_box("*.example.com"),
+            )
+        })
+    });
+
+    group.bench_function("wildcard_no_match", |b| {
+        b.iter(|| {
+            PolicyEngine::match_domain_pattern(
+                black_box("notexample.com"),
+                black_box("*.example.com"),
+            )
+        })
+    });
+
+    group.bench_function("deep_subdomain", |b| {
+        b.iter(|| {
+            PolicyEngine::match_domain_pattern(
+                black_box("a.b.c.d.example.com"),
+                black_box("*.example.com"),
+            )
+        })
+    });
+
+    group.bench_function("case_insensitive", |b| {
+        b.iter(|| {
+            PolicyEngine::match_domain_pattern(
+                black_box("API.EXAMPLE.COM"),
+                black_box("*.example.com"),
+            )
+        })
+    });
+
+    group.bench_function("no_match", |b| {
+        b.iter(|| {
+            PolicyEngine::match_domain_pattern(
+                black_box("totally-different.org"),
+                black_box("*.example.com"),
+            )
+        })
+    });
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// Benchmarks: with_policies() compilation cost
+// ---------------------------------------------------------------------------
+
+fn bench_compile_policies(c: &mut Criterion) {
+    let mut group = c.benchmark_group("compile_policies");
+
+    group.bench_function("10_policies", |b| {
+        let policies = generate_mixed_policies(10);
+        b.iter(|| PolicyEngine::with_policies(false, black_box(&policies)))
+    });
+
+    group.bench_function("50_policies", |b| {
+        let policies = generate_mixed_policies(50);
+        b.iter(|| PolicyEngine::with_policies(false, black_box(&policies)))
+    });
+
+    group.bench_function("100_policies", |b| {
+        let policies = generate_mixed_policies(100);
+        b.iter(|| PolicyEngine::with_policies(false, black_box(&policies)))
+    });
+
+    group.bench_function("500_policies", |b| {
+        let policies = generate_mixed_policies(500);
+        b.iter(|| PolicyEngine::with_policies(false, black_box(&policies)))
+    });
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
 // Group and main
 // ---------------------------------------------------------------------------
 
@@ -640,7 +905,12 @@ criterion_group!(
     bench_policy_count_scaling,
 );
 
-criterion_group!(path_benches, bench_normalize_path, bench_extract_domain,);
+criterion_group!(
+    path_benches,
+    bench_normalize_path,
+    bench_extract_domain,
+    bench_match_domain_pattern,
+);
 
 criterion_group!(
     constraint_benches,
@@ -662,9 +932,180 @@ criterion_group!(
     bench_compiled_on_no_match_chain,
 );
 
+criterion_group!(
+    rules_benches,
+    bench_path_rules_blocked,
+    bench_path_rules_allowed,
+    bench_network_rules_blocked,
+    bench_network_rules_allowed,
+);
+
+criterion_group!(compile_benches, bench_compile_policies,);
+
+// ---------------------------------------------------------------------------
+// Benchmarks: Context-aware evaluation (session state)
+// ---------------------------------------------------------------------------
+
+fn bench_context_forbidden_previous_action(c: &mut Criterion) {
+    use sentinel_types::EvaluationContext;
+    use std::collections::HashMap;
+
+    let policies = vec![
+        Policy {
+            id: "http_request:*".to_string(),
+            name: "Block exfil after read".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "context_conditions": [
+                        {"type": "forbidden_previous_action", "forbidden_tool": "read_file"}
+                    ],
+                }),
+            },
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        },
+        make_allow_policy("*", 1),
+    ];
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+    let mut group = c.benchmark_group("context/forbidden_previous");
+
+    group.bench_function("deny_with_match", |b| {
+        let action = make_action("http_request", "execute", json!({"url": "https://evil.com"}));
+        let ctx = EvaluationContext {
+            previous_actions: vec!["read_file".to_string(), "list_files".to_string()],
+            ..Default::default()
+        };
+        b.iter(|| {
+            engine.evaluate_action_with_context(
+                black_box(&action),
+                black_box(&[]),
+                Some(black_box(&ctx)),
+            )
+        })
+    });
+
+    group.bench_function("allow_no_match", |b| {
+        let action = make_action("http_request", "execute", json!({"url": "https://safe.com"}));
+        let ctx = EvaluationContext {
+            previous_actions: vec!["list_files".to_string()],
+            ..Default::default()
+        };
+        b.iter(|| {
+            engine.evaluate_action_with_context(
+                black_box(&action),
+                black_box(&[]),
+                Some(black_box(&ctx)),
+            )
+        })
+    });
+
+    group.bench_function("large_history_100", |b| {
+        let action = make_action("http_request", "execute", json!({}));
+        let ctx = EvaluationContext {
+            previous_actions: (0..100).map(|i| format!("tool_{}", i)).collect(),
+            ..Default::default()
+        };
+        b.iter(|| {
+            engine.evaluate_action_with_context(
+                black_box(&action),
+                black_box(&[]),
+                Some(black_box(&ctx)),
+            )
+        })
+    });
+
+    group.finish();
+}
+
+fn bench_context_max_calls_in_window(c: &mut Criterion) {
+    use sentinel_types::EvaluationContext;
+    use std::collections::HashMap;
+
+    let policies = vec![
+        Policy {
+            id: "read_file:*".to_string(),
+            name: "Rate limit reads".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "context_conditions": [
+                        {"type": "max_calls_in_window", "tool_pattern": "read_file", "max": 10, "window": 20}
+                    ],
+                }),
+            },
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        },
+        make_allow_policy("*", 1),
+    ];
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+    let mut group = c.benchmark_group("context/max_calls_window");
+
+    group.bench_function("under_limit", |b| {
+        let action = make_action("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            previous_actions: vec!["read_file".to_string(); 5],
+            ..Default::default()
+        };
+        b.iter(|| {
+            engine.evaluate_action_with_context(
+                black_box(&action),
+                black_box(&[]),
+                Some(black_box(&ctx)),
+            )
+        })
+    });
+
+    group.bench_function("at_limit_deny", |b| {
+        let action = make_action("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            previous_actions: vec!["read_file".to_string(); 15],
+            ..Default::default()
+        };
+        b.iter(|| {
+            engine.evaluate_action_with_context(
+                black_box(&action),
+                black_box(&[]),
+                Some(black_box(&ctx)),
+            )
+        })
+    });
+
+    group.bench_function("large_history_window", |b| {
+        let action = make_action("read_file", "execute", json!({}));
+        let mut history: Vec<String> = (0..100).map(|i| format!("tool_{}", i)).collect();
+        history.extend(vec!["read_file".to_string(); 5]);
+        let ctx = EvaluationContext {
+            previous_actions: history,
+            ..Default::default()
+        };
+        b.iter(|| {
+            engine.evaluate_action_with_context(
+                black_box(&action),
+                black_box(&[]),
+                Some(black_box(&ctx)),
+            )
+        })
+    });
+
+    group.finish();
+}
+
+criterion_group!(
+    context_benches,
+    bench_context_forbidden_previous_action,
+    bench_context_max_calls_in_window,
+);
+
 criterion_main!(
     eval_benches,
     path_benches,
     constraint_benches,
-    compiled_benches
+    compiled_benches,
+    rules_benches,
+    compile_benches,
+    context_benches
 );

@@ -1,3 +1,5 @@
+pub mod pii;
+
 use chrono::Utc;
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
 use regex::Regex;
@@ -11,6 +13,8 @@ use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use uuid::Uuid;
+
+pub use pii::{validate_regex_safety, CustomPiiPattern, PiiScanner};
 
 #[derive(Error, Debug)]
 pub enum AuditError {
@@ -179,15 +183,21 @@ const SENSITIVE_VALUE_PREFIXES: &[&str] = &[
 const REDACTED: &str = "[REDACTED]";
 
 /// Pre-compiled PII detection regexes (email, SSN, US phone numbers).
+///
+/// Patterns that fail to compile are silently dropped. Since all patterns are
+/// hardcoded constants, compilation failure indicates a bug in the source.
 static PII_REGEXES: LazyLock<Vec<Regex>> = LazyLock::new(|| {
-    vec![
+    [
         // Email addresses
-        Regex::new(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}").unwrap(),
+        r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}",
         // US Social Security Numbers (XXX-XX-XXXX)
-        Regex::new(r"\b\d{3}-\d{2}-\d{4}\b").unwrap(),
+        r"\b\d{3}-\d{2}-\d{4}\b",
         // US phone numbers (various formats)
-        Regex::new(r"\b(?:\+1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b").unwrap(),
+        r"\b(?:\+1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b",
     ]
+    .into_iter()
+    .filter_map(|p| Regex::new(p).ok())
+    .collect()
 });
 
 /// Recursively redact only sensitive key names.
@@ -252,6 +262,52 @@ fn redact_keys_and_patterns(value: &serde_json::Value) -> serde_json::Value {
     }
 }
 
+/// Recursively redact sensitive keys, value prefixes, and PII patterns using
+/// a [`PiiScanner`] for **substring** replacement instead of whole-value replacement.
+///
+/// Example: `"Call 555-123-4567"` → `"Call [REDACTED]"` (not just `"[REDACTED]"`).
+fn redact_keys_and_patterns_with_scanner(
+    value: &serde_json::Value,
+    scanner: &PiiScanner,
+) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut result = serde_json::Map::new();
+            for (key, val) in map {
+                let key_lower = key.to_lowercase();
+                if SENSITIVE_PARAM_KEYS.iter().any(|k| key_lower == *k) {
+                    result.insert(key.clone(), serde_json::Value::String(REDACTED.to_string()));
+                } else {
+                    result.insert(
+                        key.clone(),
+                        redact_keys_and_patterns_with_scanner(val, scanner),
+                    );
+                }
+            }
+            serde_json::Value::Object(result)
+        }
+        serde_json::Value::Array(arr) => serde_json::Value::Array(
+            arr.iter()
+                .map(|v| redact_keys_and_patterns_with_scanner(v, scanner))
+                .collect(),
+        ),
+        serde_json::Value::String(s) => {
+            // Check value prefixes first (whole-value replacement for secrets)
+            if SENSITIVE_VALUE_PREFIXES
+                .iter()
+                .any(|prefix| s.starts_with(prefix))
+            {
+                serde_json::Value::String(REDACTED.to_string())
+            } else {
+                // Substring PII redaction via scanner
+                let redacted = scanner.redact_string(s);
+                serde_json::Value::String(redacted)
+            }
+        }
+        _ => value.clone(),
+    }
+}
+
 /// Default max file size before rotation: 100 MB.
 const DEFAULT_MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
 
@@ -280,6 +336,9 @@ pub struct AuditLogger {
     /// This prevents an attacker with file write access from forging checkpoints
     /// with their own keypair.
     trusted_verifying_key: Option<String>,
+    /// Optional PII scanner with custom patterns (replaces global PII_REGEXES).
+    /// When present, uses substring redaction instead of whole-value replacement.
+    pii_scanner: Option<PiiScanner>,
 }
 
 impl AuditLogger {
@@ -294,6 +353,7 @@ impl AuditLogger {
             max_file_size: DEFAULT_MAX_FILE_SIZE,
             signing_key: None,
             trusted_verifying_key: None,
+            pii_scanner: None,
         }
     }
 
@@ -307,6 +367,7 @@ impl AuditLogger {
             max_file_size: DEFAULT_MAX_FILE_SIZE,
             signing_key: None,
             trusted_verifying_key: None,
+            pii_scanner: None,
         }
     }
 
@@ -340,6 +401,16 @@ impl AuditLogger {
     /// key pins all subsequent ones (TOFU model).
     pub fn with_trusted_key(mut self, hex_key: String) -> Self {
         self.trusted_verifying_key = Some(hex_key);
+        self
+    }
+
+    /// Set custom PII patterns for enhanced detection.
+    ///
+    /// When called, a `PiiScanner` is built with both default and custom patterns.
+    /// The scanner uses **substring** replacement (e.g., "Call 555-123-4567" →
+    /// "Call [REDACTED]") instead of the legacy whole-value replacement.
+    pub fn with_custom_pii_patterns(mut self, patterns: Vec<CustomPiiPattern>) -> Self {
+        self.pii_scanner = Some(PiiScanner::new(&patterns));
         self
     }
 
@@ -1120,7 +1191,11 @@ impl AuditLogger {
             }
             RedactionLevel::KeysAndPatterns => {
                 let mut a = action.clone();
-                a.parameters = redact_keys_and_patterns(&action.parameters);
+                a.parameters = if let Some(scanner) = &self.pii_scanner {
+                    redact_keys_and_patterns_with_scanner(&action.parameters, scanner)
+                } else {
+                    redact_keys_and_patterns(&action.parameters)
+                };
                 a
             }
         };
@@ -1128,7 +1203,13 @@ impl AuditLogger {
         let logged_metadata = match self.redaction_level {
             RedactionLevel::Off => metadata,
             RedactionLevel::KeysOnly => redact_keys_only(&metadata),
-            RedactionLevel::KeysAndPatterns => redact_keys_and_patterns(&metadata),
+            RedactionLevel::KeysAndPatterns => {
+                if let Some(scanner) = &self.pii_scanner {
+                    redact_keys_and_patterns_with_scanner(&metadata, scanner)
+                } else {
+                    redact_keys_and_patterns(&metadata)
+                }
+            }
         };
 
         let mut last_hash_guard = self.last_hash.lock().await;

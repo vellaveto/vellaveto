@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt;
 
 /// Maximum length for tool and function names (bytes).
@@ -219,9 +220,33 @@ pub struct ConstraintResult {
     pub passed: bool,
 }
 
+/// Session-level context for policy evaluation.
+///
+/// Separate from [`Action`] because Action = "what to do" (from the agent),
+/// while Context = "session state" (from the proxy). This security boundary
+/// ensures agents don't control context fields like call counts or timestamps.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EvaluationContext {
+    /// ISO 8601 timestamp for the evaluation. When `None`, the engine uses
+    /// the current wall-clock time. Providing an explicit timestamp enables
+    /// deterministic testing of time-window policies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
+    /// Identity of the agent making the request (e.g., OAuth subject, API key hash).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// Per-tool call counts for the current session (tool_name → count).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub call_counts: HashMap<String, u64>,
+    /// History of tool names called in this session (most recent last).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_actions: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use serde_json::json;
 
     #[test]
@@ -362,5 +387,104 @@ mod tests {
         let e = ValidationError::EmptyField { field: "tool" };
         assert!(e.to_string().contains("tool"));
         assert!(e.to_string().contains("empty"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // PROPERTY-BASED TESTS: Action Validation
+    // ═══════════════════════════════════════════════════
+
+    proptest! {
+        // PROPERTY: validated() succeeds iff validate() succeeds on the same inputs
+        #[test]
+        fn validated_ok_iff_validate_ok(
+            tool in "[a-z_]{0,260}",
+            function in "[a-z_]{0,260}",
+        ) {
+            let validated_result = Action::validated(&tool, &function, json!({}));
+            let new_action = Action::new(&tool, &function, json!({}));
+            let validate_result = new_action.validate();
+
+            prop_assert_eq!(
+                validated_result.is_ok(),
+                validate_result.is_ok(),
+                "validated() and validate() must agree for tool={:?} function={:?}\n\
+                 validated: {:?}\n\
+                 validate:  {:?}",
+                tool, function, validated_result, validate_result
+            );
+        }
+
+        // PROPERTY: Any name containing a null byte is always rejected
+        #[test]
+        fn null_byte_always_rejected(
+            prefix in "[a-z]{1,10}",
+            suffix in "[a-z]{1,10}",
+        ) {
+            let tool_with_null = format!("{}\0{}", prefix, suffix);
+
+            // Null in tool
+            let result = Action::validated(&tool_with_null, "func", json!({}));
+            prop_assert!(
+                matches!(result, Err(ValidationError::NullByte { field: "tool" })),
+                "Null byte in tool must be rejected. Got: {:?}", result
+            );
+
+            // Null in function
+            let result = Action::validated("tool", &tool_with_null, json!({}));
+            prop_assert!(
+                matches!(result, Err(ValidationError::NullByte { field: "function" })),
+                "Null byte in function must be rejected. Got: {:?}", result
+            );
+        }
+
+        // PROPERTY: Empty tool or function name is always rejected
+        #[test]
+        fn empty_name_always_rejected(
+            other in "[a-z]{1,10}",
+        ) {
+            let result = Action::validated("", &other, json!({}));
+            prop_assert!(
+                matches!(result, Err(ValidationError::EmptyField { field: "tool" })),
+                "Empty tool must be rejected. Got: {:?}", result
+            );
+
+            let result = Action::validated(&other, "", json!({}));
+            prop_assert!(
+                matches!(result, Err(ValidationError::EmptyField { field: "function" })),
+                "Empty function must be rejected. Got: {:?}", result
+            );
+        }
+
+        // PROPERTY: 256-byte name is accepted, 257-byte name is rejected
+        #[test]
+        fn max_length_boundary(
+            ch in "[a-z]",
+        ) {
+            let at_max = ch.repeat(256);
+            let over_max = ch.repeat(257);
+
+            let ok_result = Action::validated(&at_max, "func", json!({}));
+            prop_assert!(ok_result.is_ok(),
+                "256-byte name must be accepted. Got: {:?}", ok_result);
+
+            let err_result = Action::validated(&over_max, "func", json!({}));
+            prop_assert!(
+                matches!(err_result, Err(ValidationError::TooLong { field: "tool", .. })),
+                "257-byte name must be rejected. Got: {:?}", err_result
+            );
+        }
+
+        // PROPERTY: Valid actions roundtrip through serde unchanged
+        #[test]
+        fn valid_names_roundtrip_serde(
+            tool in "[a-z_]{1,20}",
+            function in "[a-z_]{1,20}",
+        ) {
+            let action = Action::validated(&tool, &function, json!({"key": "value"})).unwrap();
+            let serialized = serde_json::to_string(&action).unwrap();
+            let deserialized: Action = serde_json::from_str(&serialized).unwrap();
+            prop_assert_eq!(&action, &deserialized,
+                "Valid action must roundtrip through serde unchanged");
+        }
     }
 }
