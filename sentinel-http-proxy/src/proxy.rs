@@ -1588,12 +1588,15 @@ fn extract_text_from_result(result: &Value) -> String {
 /// and inspects each payload for injection. Detections are logged as
 /// audit entries with a Deny verdict.
 ///
-/// This is a log-only scan (consistent with JSON response scanning) —
-/// the SSE stream is still forwarded to preserve protocol correctness.
-async fn scan_sse_events_for_injection(sse_bytes: &[u8], session_id: &str, state: &ProxyState) {
+/// Scans SSE events for prompt injection patterns.
+///
+/// Returns `true` if injection matches were found, `false` otherwise.
+/// The caller should check `state.injection_blocking` and block the response
+/// when this returns `true` and blocking is enabled.
+async fn scan_sse_events_for_injection(sse_bytes: &[u8], session_id: &str, state: &ProxyState) -> bool {
     let sse_text = match std::str::from_utf8(sse_bytes) {
         Ok(t) => t,
-        Err(_) => return, // Non-UTF-8 SSE body, skip scanning
+        Err(_) => return false, // Non-UTF-8 SSE body, skip scanning
     };
 
     // SSE events are delimited by blank lines (\n\n)
@@ -1688,13 +1691,25 @@ async fn scan_sse_events_for_injection(sse_bytes: &[u8], session_id: &str, state
         }
     }
 
-    if !all_matches.is_empty() {
+    let found = !all_matches.is_empty();
+    if found {
         tracing::warn!(
             "SECURITY: Potential prompt injection in SSE response! \
-             Session: {}, Patterns: {:?}",
+             Session: {}, Patterns: {:?}, Blocking: {}",
             session_id,
-            all_matches
+            all_matches,
+            state.injection_blocking
         );
+        let verdict = if state.injection_blocking {
+            Verdict::Deny {
+                reason: format!(
+                    "SSE response blocked: prompt injection detected ({:?})",
+                    all_matches
+                ),
+            }
+        } else {
+            Verdict::Allow
+        };
         let action = Action::new(
             "sentinel",
             "sse_response_inspection",
@@ -1702,18 +1717,14 @@ async fn scan_sse_events_for_injection(sse_bytes: &[u8], session_id: &str, state
                 "matched_patterns": all_matches,
                 "session": session_id,
                 "event_count": events.len(),
+                "blocking": state.injection_blocking,
             }),
         );
         if let Err(e) = state
             .audit
             .log_entry(
                 &action,
-                &Verdict::Deny {
-                    reason: format!(
-                        "Prompt injection detected in SSE response: {:?}",
-                        all_matches
-                    ),
-                },
+                &verdict,
                 json!({
                     "source": "http_proxy",
                     "event": "sse_injection_detected",
@@ -1724,6 +1735,7 @@ async fn scan_sse_events_for_injection(sse_bytes: &[u8], session_id: &str, state
             tracing::warn!("Failed to audit SSE injection detection: {}", e);
         }
     }
+    found
 }
 
 /// Add the Mcp-Session-Id header to a response.
