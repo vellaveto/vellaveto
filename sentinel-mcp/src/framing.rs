@@ -100,11 +100,38 @@ async fn read_bounded_line<R: tokio::io::AsyncRead + Unpin>(
                 let chunk_len = buf.len();
                 if accumulated.len() + chunk_len > MAX_LINE_LENGTH {
                     reader.consume(chunk_len);
+                    // SECURITY (R10-FRAME-7): Drain the remainder of the
+                    // oversized line up to the next newline (or EOF). Without
+                    // this, a retry would pick up a fragment that could be
+                    // crafted as valid JSON, causing framing desync.
+                    drain_until_newline(reader).await;
                     return Err(FramingError::LineTooLong(accumulated.len() + chunk_len));
                 }
                 accumulated.extend_from_slice(buf);
                 reader.consume(chunk_len);
             }
+        }
+    }
+}
+
+/// Drain bytes from the reader until a newline or EOF is reached.
+///
+/// Used after a `LineTooLong` error to re-synchronize the reader to the
+/// next message boundary. Without this, a retry after an oversized line
+/// would pick up a tail fragment that could be crafted as valid JSON.
+async fn drain_until_newline<R: tokio::io::AsyncRead + Unpin>(reader: &mut BufReader<R>) {
+    loop {
+        match reader.fill_buf().await {
+            Ok([]) => break, // EOF
+            Ok(buf) => {
+                if let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+                    reader.consume(pos + 1);
+                    break;
+                }
+                let len = buf.len();
+                reader.consume(len);
+            }
+            Err(_) => break,
         }
     }
 }
@@ -199,15 +226,30 @@ pub fn find_duplicate_json_key(raw: &str) -> Option<String> {
                 }
 
                 if next_string_is_key {
-                    // Extract the key using serde_json to correctly handle escapes
+                    // Extract the key using serde_json to correctly handle escapes.
+                    // SECURITY (R10-FRAME-1): If the key bytes are not valid UTF-8
+                    // or serde_json cannot parse the key string, treat the entire
+                    // message as having a malformed key and reject it. Silently
+                    // skipping would allow an attacker to create a "phantom" key
+                    // that shadows a later duplicate.
                     if let Ok(key_str) = std::str::from_utf8(&bytes[start..i]) {
-                        if let Ok(parsed_key) = serde_json::from_str::<String>(key_str) {
-                            if let Some(Some(seen_keys)) = stack.last_mut() {
-                                if !seen_keys.insert(parsed_key.clone()) {
-                                    return Some(parsed_key);
+                        match serde_json::from_str::<String>(key_str) {
+                            Ok(parsed_key) => {
+                                if let Some(Some(seen_keys)) = stack.last_mut() {
+                                    if !seen_keys.insert(parsed_key.clone()) {
+                                        return Some(parsed_key);
+                                    }
                                 }
                             }
+                            Err(_) => {
+                                // Unparseable key — return it as a "duplicate" to
+                                // trigger rejection. This is fail-closed: if we
+                                // can't understand a key, we reject the message.
+                                return Some(format!("<malformed key at byte {}>", start));
+                            }
                         }
+                    } else {
+                        return Some(format!("<invalid UTF-8 key at byte {}>", start));
                     }
                     next_string_is_key = false;
                 }
@@ -467,5 +509,50 @@ mod tests {
         let mut reader = BufReader::new(cursor);
         let result = read_message(&mut reader).await;
         assert!(matches!(result.unwrap_err(), FramingError::BatchNotAllowed));
+    }
+
+    // === R10-FRAME-1: Malformed key rejection ===
+
+    #[test]
+    fn test_malformed_key_lone_surrogate_rejected() {
+        // Lone high surrogate \uD800 cannot be decoded to a valid String.
+        // The duplicate key detector must reject the message, not silently skip.
+        let json = r#"{"good": 1, "\uD800bad": 2}"#;
+        let result = find_duplicate_json_key(json);
+        assert!(
+            result.is_some(),
+            "Malformed key (lone surrogate) must cause rejection"
+        );
+    }
+
+    #[test]
+    fn test_unicode_escape_keys_detected_as_duplicate() {
+        // \u0070\u0061\u0074\u0068 == "path" — must detect duplicate
+        let json = r#"{"path": "safe", "\u0070\u0061\u0074\u0068": "malicious"}"#;
+        let dup = find_duplicate_json_key(json);
+        assert_eq!(dup, Some("path".to_string()));
+    }
+
+    // === R10-FRAME-7: LineTooLong drains oversized line remainder ===
+
+    #[tokio::test]
+    async fn test_line_too_long_drains_remainder() {
+        // Send an oversized line followed by a valid message.
+        // After LineTooLong, the next read_message should get the valid message,
+        // NOT a fragment of the oversized line.
+        let long_payload = "x".repeat(MAX_LINE_LENGTH + 100);
+        let valid_msg = r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#;
+        let data = format!("{}\n{}\n", long_payload, valid_msg);
+        let cursor = Cursor::new(data.into_bytes());
+        let mut reader = BufReader::new(cursor);
+
+        // First read should fail with LineTooLong
+        let result = read_message(&mut reader).await;
+        assert!(matches!(result, Err(FramingError::LineTooLong(_))));
+
+        // Second read should get the valid message (not a fragment)
+        let msg = read_message(&mut reader).await.unwrap();
+        assert!(msg.is_some(), "Should read valid message after oversized line");
+        assert_eq!(msg.unwrap()["method"], "ping");
     }
 }

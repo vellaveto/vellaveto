@@ -400,14 +400,29 @@ async fn evaluate(
     Json(req): Json<EvaluateRequest>,
 ) -> Result<Json<EvaluateResponse>, (StatusCode, Json<ErrorResponse>)> {
     let mut action = req.action;
+
+    // SECURITY (R10-1): Validate the deserialized action to catch null bytes,
+    // oversized fields, and other malformed input before processing.
+    if let Err(e) = action.validate() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("Invalid action: {}", e),
+            }),
+        ));
+    }
+
     // SECURITY: Sanitize client-supplied context to prevent spoofing of
     // session-state fields (call_counts, previous_actions, timestamp).
     let context = sanitize_context(req.context);
 
-    // Auto-extract target_paths and target_domains from parameters if not provided
-    if action.target_paths.is_empty() && action.target_domains.is_empty() {
-        auto_extract_targets(&mut action);
-    }
+    // SECURITY (R10-2): Always run auto-extraction from parameters,
+    // ignoring client-supplied target_paths/target_domains. A malicious
+    // client could supply crafted paths that bypass path policy checks,
+    // so we clear them and re-extract from the actual parameters.
+    action.target_paths.clear();
+    action.target_domains.clear();
+    auto_extract_targets(&mut action);
 
     let policies = state.policies.load();
 
@@ -1102,7 +1117,10 @@ fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
     {
-        if let Some(token) = auth.get(7..).filter(|_| auth.len() > 7 && auth[..7].eq_ignore_ascii_case("bearer ")) {
+        if let Some(token) = auth
+            .get(7..)
+            .filter(|_| auth.len() > 7 && auth[..7].eq_ignore_ascii_case("bearer "))
+        {
             if !token.is_empty() {
                 use sha2::{Digest, Sha256};
                 let hash = Sha256::digest(token.as_bytes());
@@ -1270,5 +1288,70 @@ mod tests {
         };
         let sanitized = sanitize_context(Some(ctx)).unwrap();
         assert_eq!(sanitized.agent_id, Some("my-agent".to_string()));
+    }
+
+    #[test]
+    fn test_sanitize_context_rejects_oversized_agent_id() {
+        let oversized_id = "a".repeat(257);
+        let ctx = EvaluationContext {
+            timestamp: None,
+            agent_id: Some(oversized_id),
+            call_counts: std::collections::HashMap::new(),
+            previous_actions: Vec::new(),
+        };
+        let sanitized = sanitize_context(Some(ctx)).unwrap();
+        assert!(
+            sanitized.agent_id.is_none(),
+            "Agent ID > 256 bytes should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_context_allows_max_length_agent_id() {
+        let max_id = "b".repeat(256);
+        let ctx = EvaluationContext {
+            timestamp: None,
+            agent_id: Some(max_id.clone()),
+            call_counts: std::collections::HashMap::new(),
+            previous_actions: Vec::new(),
+        };
+        let sanitized = sanitize_context(Some(ctx)).unwrap();
+        assert_eq!(sanitized.agent_id, Some(max_id));
+    }
+
+    #[test]
+    fn test_sanitize_context_rejects_empty_agent_id() {
+        let ctx = EvaluationContext {
+            timestamp: None,
+            agent_id: Some("".to_string()),
+            call_counts: std::collections::HashMap::new(),
+            previous_actions: Vec::new(),
+        };
+        let sanitized = sanitize_context(Some(ctx)).unwrap();
+        assert!(
+            sanitized.agent_id.is_none(),
+            "Empty agent_id should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_principal_key_rejects_oversized_x_principal() {
+        let oversized = "x".repeat(257);
+        let trusted = vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)];
+        let request = build_request(&[("x-principal", &oversized)]);
+        let key = extract_principal_key(&request, &trusted);
+        assert!(
+            !key.starts_with("principal:"),
+            "Oversized X-Principal should be ignored"
+        );
+    }
+
+    #[test]
+    fn test_principal_key_allows_max_length_x_principal() {
+        let max_principal = "y".repeat(256);
+        let trusted = vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)];
+        let request = build_request(&[("x-principal", &max_principal)]);
+        let key = extract_principal_key(&request, &trusted);
+        assert_eq!(key, format!("principal:{}", max_principal));
     }
 }

@@ -87,12 +87,12 @@ struct Args {
     #[arg(long, default_value_t = 86400)]
     session_max_lifetime: u64,
 
-    /// Re-serialize JSON-RPC messages before forwarding to upstream (TOCTOU mitigation).
-    /// When enabled, upstream receives the canonical form of the parsed message,
-    /// ensuring it sees exactly what Sentinel evaluated. Without this, original
-    /// bytes are forwarded (duplicate keys are rejected regardless).
+    /// Disable re-serialization of JSON-RPC messages before forwarding to upstream.
+    /// By default, messages are re-serialized (canonicalized) to close the TOCTOU gap
+    /// where the proxy evaluates a parsed representation but forwards original bytes.
+    /// Use --no-canonicalize only if upstream requires exact byte-for-byte forwarding.
     #[arg(long)]
-    canonicalize: bool,
+    no_canonicalize: bool,
 }
 
 #[tokio::main]
@@ -299,8 +299,10 @@ async fn main() -> Result<()> {
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
-        canonicalize: args.canonicalize
-            || std::env::var("SENTINEL_CANONICALIZE")
+        // SECURITY (R10-FRAME-2): Default to canonicalize=true (safe mode).
+        // The env var SENTINEL_NO_CANONICALIZE=true or --no-canonicalize opt out.
+        canonicalize: !args.no_canonicalize
+            && !std::env::var("SENTINEL_NO_CANONICALIZE")
                 .ok()
                 .map(|v| v == "true" || v == "1")
                 .unwrap_or(false),
