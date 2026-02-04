@@ -1542,6 +1542,23 @@ async fn forward_to_upstream(
     match result {
         Ok(upstream_resp) => {
             let status = upstream_resp.status();
+
+            // SECURITY (R11-RESP-3): Validate upstream status code before forwarding.
+            // A malicious upstream could return 3xx redirects (SSRF), 401/407 (credential
+            // harvesting), or 1xx (protocol confusion). Only allow 200-299 and 4xx-5xx.
+            let status = if status.is_redirection()
+                || status.as_u16() < 200
+                || status.as_u16() == 407
+            {
+                tracing::warn!(
+                    "SECURITY: Upstream returned suspicious status {} — mapping to 502",
+                    status
+                );
+                StatusCode::BAD_GATEWAY
+            } else {
+                status
+            };
+
             let headers = upstream_resp.headers().clone();
             let content_type = headers
                 .get("content-type")
@@ -2071,100 +2088,103 @@ async fn scan_sse_events_for_injection(
     session_id: &str,
     state: &ProxyState,
 ) -> bool {
-    let sse_text = match std::str::from_utf8(sse_bytes) {
-        Ok(t) => t,
-        Err(_) => return false, // Non-UTF-8 SSE body, skip scanning
-    };
+    // SECURITY (R11-RESP-5): Use lossy UTF-8 conversion instead of skipping.
+    // A malicious server could embed non-UTF-8 bytes to bypass injection scanning.
+    let sse_text = String::from_utf8_lossy(sse_bytes);
 
     // SSE events are delimited by blank lines (\n\n)
     let events: Vec<&str> = sse_text.split("\n\n").collect();
     let mut all_matches: Vec<String> = Vec::new();
 
     for event in &events {
-        // Extract the data payload from each event
+        // SECURITY (R11-RESP-4): Concatenate all data: lines per event before scanning.
+        // SSE spec says multiple data: lines are joined with \n. An attacker can split
+        // an injection payload across data: lines to evade per-line scanning.
+        let mut data_parts: Vec<&str> = Vec::new();
         for line in event.lines() {
-            let data_payload = if let Some(rest) = line.strip_prefix("data:") {
-                rest.trim_start()
-            } else if let Some(rest) = line.strip_prefix("data: ") {
-                rest
-            } else {
-                continue;
-            };
-
-            if data_payload.is_empty() {
-                continue;
+            if let Some(rest) = line.strip_prefix("data:") {
+                data_parts.push(rest.trim_start());
             }
+        }
 
-            // Try to parse as JSON (MCP SSE typically sends JSON-RPC in data lines)
-            if let Ok(json_val) = serde_json::from_str::<Value>(data_payload) {
-                // Scan result content
-                if let Some(result) = json_val.get("result") {
-                    let text = extract_text_from_result(result);
-                    if !text.is_empty() {
-                        let matches: Vec<String> =
-                            if let Some(ref scanner) = state.injection_scanner {
-                                scanner
-                                    .inspect(&text)
-                                    .into_iter()
-                                    .map(|s| s.to_string())
-                                    .collect()
-                            } else {
-                                inspect_for_injection(&text)
-                                    .into_iter()
-                                    .map(|s| s.to_string())
-                                    .collect()
-                            };
-                        all_matches.extend(matches);
-                    }
-                }
+        if data_parts.is_empty() {
+            continue;
+        }
 
-                // Scan error fields
-                if let Some(error) = json_val.get("error") {
-                    let mut error_text = String::new();
-                    if let Some(msg) = error.get("message").and_then(|m| m.as_str()) {
-                        error_text.push_str(msg);
-                        error_text.push('\n');
-                    }
-                    if let Some(data) = error.get("data") {
-                        if let Some(s) = data.as_str() {
-                            error_text.push_str(s);
+        let data_payload = data_parts.join("\n");
+        if data_payload.trim().is_empty() {
+            continue;
+        }
+
+        // Try to parse as JSON (MCP SSE typically sends JSON-RPC in data lines)
+        if let Ok(json_val) = serde_json::from_str::<Value>(&data_payload) {
+            // Scan result content
+            if let Some(result) = json_val.get("result") {
+                let text = extract_text_from_result(result);
+                if !text.is_empty() {
+                    let matches: Vec<String> =
+                        if let Some(ref scanner) = state.injection_scanner {
+                            scanner
+                                .inspect(&text)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
                         } else {
-                            error_text.push_str(&data.to_string());
-                        }
-                    }
-                    if !error_text.is_empty() {
-                        let matches: Vec<String> =
-                            if let Some(ref scanner) = state.injection_scanner {
-                                scanner
-                                    .inspect(&error_text)
-                                    .into_iter()
-                                    .map(|s| s.to_string())
-                                    .collect()
-                            } else {
-                                inspect_for_injection(&error_text)
-                                    .into_iter()
-                                    .map(|s| s.to_string())
-                                    .collect()
-                            };
-                        all_matches.extend(matches);
+                            inspect_for_injection(&text)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        };
+                    all_matches.extend(matches);
+                }
+            }
+
+            // Scan error fields
+            if let Some(error) = json_val.get("error") {
+                let mut error_text = String::new();
+                if let Some(msg) = error.get("message").and_then(|m| m.as_str()) {
+                    error_text.push_str(msg);
+                    error_text.push('\n');
+                }
+                if let Some(data) = error.get("data") {
+                    if let Some(s) = data.as_str() {
+                        error_text.push_str(s);
+                    } else {
+                        error_text.push_str(&data.to_string());
                     }
                 }
-            } else {
-                // Not JSON — scan raw text
-                let matches: Vec<String> = if let Some(ref scanner) = state.injection_scanner {
-                    scanner
-                        .inspect(data_payload)
-                        .into_iter()
-                        .map(|s| s.to_string())
-                        .collect()
-                } else {
-                    inspect_for_injection(data_payload)
-                        .into_iter()
-                        .map(|s| s.to_string())
-                        .collect()
-                };
-                all_matches.extend(matches);
+                if !error_text.is_empty() {
+                    let matches: Vec<String> =
+                        if let Some(ref scanner) = state.injection_scanner {
+                            scanner
+                                .inspect(&error_text)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        } else {
+                            inspect_for_injection(&error_text)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        };
+                    all_matches.extend(matches);
+                }
             }
+        } else {
+            // Not JSON — scan concatenated raw text
+            let matches: Vec<String> = if let Some(ref scanner) = state.injection_scanner {
+                scanner
+                    .inspect(&data_payload)
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            } else {
+                inspect_for_injection(&data_payload)
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            };
+            all_matches.extend(matches);
         }
     }
 
@@ -2221,61 +2241,62 @@ async fn scan_sse_events_for_injection(
 /// them for secrets (AWS keys, GitHub tokens, etc). Findings are
 /// logged as audit entries (log-only, not blocking).
 async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &ProxyState) {
-    let sse_text = match std::str::from_utf8(sse_bytes) {
-        Ok(t) => t,
-        Err(_) => return,
-    };
+    // SECURITY (R11-RESP-5): Use lossy UTF-8 conversion instead of skipping.
+    let sse_text = String::from_utf8_lossy(sse_bytes);
 
+    // SECURITY (R11-RESP-4): Concatenate data: lines per event before scanning.
     for event in sse_text.split("\n\n") {
+        let mut data_parts: Vec<&str> = Vec::new();
         for line in event.lines() {
-            let data_payload = if let Some(rest) = line.strip_prefix("data:") {
-                rest.trim_start()
-            } else {
-                continue;
-            };
-
-            if data_payload.is_empty() {
-                continue;
+            if let Some(rest) = line.strip_prefix("data:") {
+                data_parts.push(rest.trim_start());
             }
+        }
+        if data_parts.is_empty() {
+            continue;
+        }
+        let data_payload = data_parts.join("\n");
+        if data_payload.trim().is_empty() {
+            continue;
+        }
 
-            if let Ok(json_val) = serde_json::from_str::<Value>(data_payload) {
-                let dlp_findings = scan_response_for_secrets(&json_val);
-                if !dlp_findings.is_empty() {
-                    let patterns: Vec<String> = dlp_findings
-                        .iter()
-                        .map(|f| format!("{}:{}", f.pattern_name, f.location))
-                        .collect();
-                    tracing::warn!(
-                        "SECURITY: Secrets detected in SSE tool response! \
-                         Session: {}, Findings: {:?}",
-                        session_id,
-                        patterns
-                    );
-                    let action = Action::new(
-                        "sentinel",
-                        "sse_response_dlp_scan",
+        if let Ok(json_val) = serde_json::from_str::<Value>(&data_payload) {
+            let dlp_findings = scan_response_for_secrets(&json_val);
+            if !dlp_findings.is_empty() {
+                let patterns: Vec<String> = dlp_findings
+                    .iter()
+                    .map(|f| format!("{}:{}", f.pattern_name, f.location))
+                    .collect();
+                tracing::warn!(
+                    "SECURITY: Secrets detected in SSE tool response! \
+                     Session: {}, Findings: {:?}",
+                    session_id,
+                    patterns
+                );
+                let action = Action::new(
+                    "sentinel",
+                    "sse_response_dlp_scan",
+                    json!({
+                        "findings": patterns,
+                        "session": session_id,
+                        "finding_count": dlp_findings.len(),
+                    }),
+                );
+                if let Err(e) = state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Deny {
+                            reason: format!("Secrets detected in SSE response: {:?}", patterns),
+                        },
                         json!({
-                            "findings": patterns,
-                            "session": session_id,
-                            "finding_count": dlp_findings.len(),
+                            "source": "http_proxy",
+                            "event": "sse_response_dlp_alert",
                         }),
-                    );
-                    if let Err(e) = state
-                        .audit
-                        .log_entry(
-                            &action,
-                            &Verdict::Deny {
-                                reason: format!("Secrets detected in SSE response: {:?}", patterns),
-                            },
-                            json!({
-                                "source": "http_proxy",
-                                "event": "sse_response_dlp_alert",
-                            }),
-                        )
-                        .await
-                    {
-                        tracing::warn!("Failed to audit SSE DLP finding: {}", e);
-                    }
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit SSE DLP finding: {}", e);
                 }
             }
         }
@@ -2287,29 +2308,30 @@ async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &Pro
 /// Parses SSE events looking for JSON-RPC responses containing tools/list
 /// results and registers their output schemas in the registry.
 fn register_schemas_from_sse(sse_bytes: &[u8], state: &ProxyState) {
-    let sse_text = match std::str::from_utf8(sse_bytes) {
-        Ok(t) => t,
-        Err(_) => return,
-    };
+    // SECURITY (R11-RESP-5): Use lossy UTF-8 conversion to avoid silent bypass.
+    let sse_text = String::from_utf8_lossy(sse_bytes);
 
+    // SECURITY (R11-RESP-4): Concatenate data: lines per event before parsing.
     for event in sse_text.split("\n\n") {
+        let mut data_parts: Vec<&str> = Vec::new();
         for line in event.lines() {
-            let data_payload = if let Some(rest) = line.strip_prefix("data:") {
-                rest.trim_start()
-            } else {
-                continue;
-            };
-
-            if data_payload.is_empty() {
-                continue;
+            if let Some(rest) = line.strip_prefix("data:") {
+                data_parts.push(rest.trim_start());
             }
+        }
+        if data_parts.is_empty() {
+            continue;
+        }
+        let data_payload = data_parts.join("\n");
+        if data_payload.trim().is_empty() {
+            continue;
+        }
 
-            if let Ok(json_val) = serde_json::from_str::<Value>(data_payload) {
-                // register_from_tools_list checks for result.tools internally
-                state
-                    .output_schema_registry
-                    .register_from_tools_list(&json_val);
-            }
+        if let Ok(json_val) = serde_json::from_str::<Value>(&data_payload) {
+            // register_from_tools_list checks for result.tools internally
+            state
+                .output_schema_registry
+                .register_from_tools_list(&json_val);
         }
     }
 }

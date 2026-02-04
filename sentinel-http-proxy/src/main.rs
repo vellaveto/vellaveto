@@ -204,8 +204,13 @@ async fn main() -> Result<()> {
     );
 
     // HTTP client for upstream
+    // SECURITY (R11-RESP-9): Disable automatic redirect following to prevent SSRF.
+    // A malicious upstream could return 3xx redirects to internal services (e.g.,
+    // http://169.254.169.254 for cloud metadata). The proxy should not blindly
+    // follow redirects — it should treat them as errors.
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(300))
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .context("Failed to create HTTP client")?;
 
