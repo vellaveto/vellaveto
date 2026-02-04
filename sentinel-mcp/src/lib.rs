@@ -1,6 +1,7 @@
 pub mod extractor;
 pub mod framing;
 pub mod inspection;
+pub mod output_validation;
 pub mod proxy;
 pub mod rug_pull;
 

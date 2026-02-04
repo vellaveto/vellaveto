@@ -444,4 +444,28 @@ mod tests {
         // "b" appears in different array element objects — not duplicates
         assert!(find_duplicate_json_key(json).is_none());
     }
+
+    // === JSON-RPC batch rejection tests (MCP 2025-06-18) ===
+
+    #[tokio::test]
+    async fn test_read_message_rejects_batch() {
+        let data = b"[{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"},{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\"}]\n";
+        let cursor = Cursor::new(data.to_vec());
+        let mut reader = BufReader::new(cursor);
+        let result = read_message(&mut reader).await;
+        assert!(result.is_err(), "Batch requests must be rejected");
+        assert!(
+            matches!(result.unwrap_err(), FramingError::BatchNotAllowed),
+            "Error should be BatchNotAllowed"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_read_message_rejects_empty_batch() {
+        let data = b"[]\n";
+        let cursor = Cursor::new(data.to_vec());
+        let mut reader = BufReader::new(cursor);
+        let result = read_message(&mut reader).await;
+        assert!(matches!(result.unwrap_err(), FramingError::BatchNotAllowed));
+    }
 }

@@ -19,8 +19,11 @@ use sentinel_engine::PolicyEngine;
 use sentinel_mcp::extractor::{self, MessageType};
 #[cfg(test)]
 use sentinel_mcp::inspection::sanitize_for_injection_scan;
-use sentinel_mcp::inspection::{inspect_for_injection, InjectionScanner};
-use sentinel_types::{Action, EvaluationTrace, Policy, Verdict};
+use sentinel_mcp::inspection::{
+    inspect_for_injection, scan_parameters_for_secrets, scan_tool_descriptions,
+    scan_tool_descriptions_with_scanner, InjectionScanner,
+};
+use sentinel_types::{Action, EvaluationContext, EvaluationTrace, Policy, Verdict};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use subtle::ConstantTimeEq;
@@ -384,23 +387,68 @@ pub async fn handle_mcp_post(
                 );
             }
 
+            // P2: DLP scan parameters for secret exfiltration
+            let dlp_findings = scan_parameters_for_secrets(&arguments);
+            if !dlp_findings.is_empty() {
+                tracing::warn!(
+                    "SECURITY: DLP alert for tool '{}' in session {}: {:?}",
+                    tool_name,
+                    session_id,
+                    dlp_findings
+                        .iter()
+                        .map(|f| &f.pattern_name)
+                        .collect::<Vec<_>>()
+                );
+                let dlp_action = extractor::extract_action(&tool_name, &arguments);
+                let patterns: Vec<String> = dlp_findings
+                    .iter()
+                    .map(|f| format!("{} at {}", f.pattern_name, f.location))
+                    .collect();
+                if let Err(e) = state
+                    .audit
+                    .log_entry(
+                        &dlp_action,
+                        &Verdict::Deny {
+                            reason: format!("DLP: secrets detected in parameters: {:?}", patterns),
+                        },
+                        build_audit_context(
+                            &session_id,
+                            json!({
+                                "event": "dlp_secret_detected",
+                                "tool": tool_name,
+                                "findings": patterns,
+                            }),
+                            &oauth_claims,
+                        ),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit DLP finding: {}", e);
+                }
+            }
+
             let action = extractor::extract_action(&tool_name, &arguments);
+
+            // Build evaluation context from session state for context-aware policies
+            let eval_ctx = build_evaluation_context(&state.sessions, &session_id);
 
             // Choose traced or non-traced evaluation path
             let eval_result = if params.trace {
                 state
                     .engine
-                    .evaluate_action_traced(&action)
+                    .evaluate_action_traced_with_context(&action, eval_ctx.as_ref())
                     .map(|(v, t)| (v, Some(t)))
             } else {
                 state
                     .engine
-                    .evaluate_action(&action, &state.policies)
+                    .evaluate_action_with_context(&action, &state.policies, eval_ctx.as_ref())
                     .map(|v| (v, None))
             };
 
             match eval_result {
                 Ok((Verdict::Allow, trace)) => {
+                    // Update session tracking after allowed tool call
+                    update_session_after_allow(&state.sessions, &session_id, &tool_name);
                     // Forward to upstream — canonicalize if configured (KL2 TOCTOU fix)
                     let forward_body = canonicalize_body(&state, &msg, body);
                     let response = forward_to_upstream(
@@ -542,15 +590,17 @@ pub async fn handle_mcp_post(
         MessageType::ResourceRead { id, uri } => {
             let action = extractor::extract_resource_action(&uri);
 
+            let eval_ctx = build_evaluation_context(&state.sessions, &session_id);
+
             let eval_result = if params.trace {
                 state
                     .engine
-                    .evaluate_action_traced(&action)
+                    .evaluate_action_traced_with_context(&action, eval_ctx.as_ref())
                     .map(|(v, t)| (v, Some(t)))
             } else {
                 state
                     .engine
-                    .evaluate_action(&action, &state.policies)
+                    .evaluate_action_with_context(&action, &state.policies, eval_ctx.as_ref())
                     .map(|v| (v, None))
             };
 
@@ -719,6 +769,82 @@ pub async fn handle_mcp_post(
             // For now we handle the simple JSON response case.
 
             attach_session_header(response, &session_id)
+        }
+        MessageType::ElicitationRequest { id } => {
+            tracing::warn!(
+                "SECURITY: Blocked elicitation/create request in session {}",
+                session_id
+            );
+
+            let action = Action::new(
+                "sentinel",
+                "elicitation_interception",
+                json!({"method": "elicitation/create", "session": session_id}),
+            );
+            let verdict = Verdict::Deny {
+                reason: "Server-initiated elicitation/create blocked".to_string(),
+            };
+            if let Err(e) = state
+                .audit
+                .log_entry(
+                    &action,
+                    &verdict,
+                    json!({"source": "http_proxy", "event": "elicitation_interception"}),
+                )
+                .await
+            {
+                tracing::warn!("Failed to audit elicitation interception: {}", e);
+            }
+
+            let response = json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": {
+                    "code": -32001,
+                    "message": "elicitation/create blocked by Sentinel proxy policy"
+                }
+            });
+            attach_session_header(
+                (StatusCode::OK, Json(response)).into_response(),
+                &session_id,
+            )
+        }
+        MessageType::TaskRequest {
+            task_method,
+            task_id,
+            ..
+        } => {
+            // MCP 2025-11-25 tasks: pass through to upstream server.
+            tracing::debug!(
+                "Task request in session {}: {} (task_id: {:?})",
+                session_id,
+                task_method,
+                task_id
+            );
+            let forward_body = canonicalize_body(&state, &msg, body);
+            let response = forward_to_upstream(
+                &state,
+                &session_id,
+                forward_body,
+                auth_header_for_upstream.as_deref(),
+            )
+            .await;
+            attach_session_header(response, &session_id)
+        }
+        MessageType::Batch => {
+            tracing::warn!("Rejected JSON-RPC batch request in session {}", session_id);
+            let response = json!({
+                "jsonrpc": "2.0",
+                "id": null,
+                "error": {
+                    "code": -32600,
+                    "message": "JSON-RPC batching is not supported (MCP 2025-06-18)"
+                }
+            });
+            attach_session_header(
+                (StatusCode::OK, Json(response)).into_response(),
+                &session_id,
+            )
         }
         MessageType::Invalid { id, reason } => {
             let response = json!({
@@ -981,6 +1107,38 @@ fn extract_authority_from_origin(origin: &str) -> Option<String> {
     }
 }
 
+/// Maximum entries in action_history per session (memory bound).
+const MAX_ACTION_HISTORY: usize = 100;
+
+/// Build an `EvaluationContext` from the current session state.
+fn build_evaluation_context(
+    sessions: &SessionStore,
+    session_id: &str,
+) -> Option<EvaluationContext> {
+    sessions
+        .get_mut(session_id)
+        .map(|session| EvaluationContext {
+            timestamp: None, // Use real time (chrono::Utc::now() fallback in engine)
+            agent_id: session.oauth_subject.clone(),
+            call_counts: session.call_counts.clone(),
+            previous_actions: session.action_history.clone(),
+        })
+}
+
+/// Update session state after an allowed tool call.
+fn update_session_after_allow(sessions: &SessionStore, session_id: &str, tool_name: &str) {
+    if let Some(mut session) = sessions.get_mut(session_id) {
+        *session
+            .call_counts
+            .entry(tool_name.to_string())
+            .or_insert(0) += 1;
+        if session.action_history.len() >= MAX_ACTION_HISTORY {
+            session.action_history.remove(0);
+        }
+        session.action_history.push(tool_name.to_string());
+    }
+}
+
 /// Build audit context JSON, optionally including OAuth subject.
 fn build_audit_context(
     session_id: &str,
@@ -1168,6 +1326,44 @@ async fn forward_to_upstream(
                                     &state.audit,
                                 )
                                 .await;
+
+                                // P2: Scan tool descriptions for embedded injection
+                                if !state.injection_disabled {
+                                    let desc_findings = if let Some(ref scanner) =
+                                        state.injection_scanner
+                                    {
+                                        scan_tool_descriptions_with_scanner(&response_json, scanner)
+                                    } else {
+                                        scan_tool_descriptions(&response_json)
+                                    };
+                                    for finding in &desc_findings {
+                                        tracing::warn!(
+                                            "SECURITY: Injection in tool '{}' description! Session: {}, Patterns: {:?}",
+                                            finding.tool_name, session_id, finding.matched_patterns
+                                        );
+                                        let action = Action::new(
+                                            "sentinel",
+                                            "tool_description_injection",
+                                            json!({
+                                                "tool": finding.tool_name,
+                                                "matched_patterns": finding.matched_patterns,
+                                                "session": session_id,
+                                            }),
+                                        );
+                                        if let Err(e) = state.audit.log_entry(
+                                            &action,
+                                            &Verdict::Deny {
+                                                reason: format!(
+                                                    "Tool '{}' description contains injection: {:?}",
+                                                    finding.tool_name, finding.matched_patterns
+                                                ),
+                                            },
+                                            json!({"source": "http_proxy", "event": "tool_description_injection"}),
+                                        ).await {
+                                            tracing::warn!("Failed to audit tool description injection: {}", e);
+                                        }
+                                    }
+                                }
 
                                 // Phase 5: Verify tool manifest if configured
                                 if let Some(ref manifest_cfg) = state.manifest_config {

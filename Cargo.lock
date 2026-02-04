@@ -2200,7 +2200,9 @@ dependencies = [
 name = "sentinel-config"
 version = "0.1.0"
 dependencies = [
+ "ed25519-dalek",
  "hex",
+ "rand 0.8.5",
  "sentinel-types",
  "serde",
  "serde_json",
@@ -2214,6 +2216,7 @@ name = "sentinel-engine"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "criterion",
  "globset",
  "percent-encoding",
@@ -2285,6 +2288,7 @@ dependencies = [
  "aho-corasick",
  "chrono",
  "proptest",
+ "regex",
  "sentinel-approval",
  "sentinel-audit",
  "sentinel-config",

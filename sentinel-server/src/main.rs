@@ -74,6 +74,11 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         list_rotated: bool,
     },
+    /// Compute SHA-256 hash of a binary (for supply_chain.allowed_servers config)
+    HashBinary {
+        /// Path to the binary to hash
+        path: String,
+    },
 }
 
 #[tokio::main]
@@ -108,6 +113,7 @@ async fn main() -> Result<()> {
             trusted_key,
             list_rotated,
         } => cmd_verify(audit, trusted_key, list_rotated).await,
+        Commands::HashBinary { path } => cmd_hash_binary(path),
     }
 }
 
@@ -165,6 +171,24 @@ async fn cmd_serve(
     // When set, verify_checkpoints() rejects checkpoints signed by any other key,
     // preventing an attacker with file write access from forging checkpoints.
     let mut audit_logger = AuditLogger::new(audit_path.clone()).with_signing_key(signing_key);
+
+    // Wire custom PII patterns from config into audit logger
+    if !policy_config.audit.custom_pii_patterns.is_empty() {
+        let pii_patterns: Vec<sentinel_audit::CustomPiiPattern> = policy_config
+            .audit
+            .custom_pii_patterns
+            .iter()
+            .map(|p| sentinel_audit::CustomPiiPattern {
+                name: p.name.clone(),
+                pattern: p.pattern.clone(),
+            })
+            .collect();
+        tracing::info!(
+            "Custom PII patterns loaded: {} patterns",
+            pii_patterns.len()
+        );
+        audit_logger = audit_logger.with_custom_pii_patterns(pii_patterns);
+    }
 
     // Apply audit redaction level from config
     if let Some(ref level_str) = policy_config.audit.redaction_level {
@@ -865,6 +889,13 @@ async fn shutdown_signal() {
             tracing::info!("Received SIGTERM, starting graceful shutdown...");
         },
     }
+}
+
+fn cmd_hash_binary(path: String) -> Result<()> {
+    let hash = sentinel_config::SupplyChainConfig::compute_hash(&path)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    println!("\"{}\" = \"{}\"", path, hash);
+    Ok(())
 }
 
 fn extract_tool_pattern(id: &str) -> String {

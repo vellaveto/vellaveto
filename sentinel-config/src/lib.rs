@@ -130,6 +130,26 @@ pub struct RateLimitConfig {
     pub per_principal_burst: Option<u32>,
 }
 
+/// A custom PII detection pattern for audit log redaction.
+///
+/// Allows operators to add site-specific patterns beyond the built-in set
+/// (email, SSN, phone, credit card, etc.).
+///
+/// # TOML Example
+///
+/// ```toml
+/// [[audit.custom_pii_patterns]]
+/// name = "internal_employee_id"
+/// pattern = "EMP-\\d{6}"
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomPiiPattern {
+    /// Human-readable name for this pattern (used in diagnostics).
+    pub name: String,
+    /// Regex pattern string. Invalid patterns are logged and skipped at startup.
+    pub pattern: String,
+}
+
 /// Audit log configuration.
 ///
 /// # TOML Example
@@ -137,6 +157,10 @@ pub struct RateLimitConfig {
 /// ```toml
 /// [audit]
 /// redaction_level = "KeysAndPatterns"
+///
+/// [[audit.custom_pii_patterns]]
+/// name = "internal_employee_id"
+/// pattern = "EMP-\\d{6}"
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AuditConfig {
@@ -146,6 +170,9 @@ pub struct AuditConfig {
     /// - `"KeysAndPatterns"` (default): redact keys, prefixes, and PII patterns
     #[serde(default)]
     pub redaction_level: Option<String>,
+    /// Custom PII detection patterns appended to the built-in set.
+    #[serde(default)]
+    pub custom_pii_patterns: Vec<CustomPiiPattern>,
 }
 
 /// Supply chain verification configuration.
@@ -170,9 +197,24 @@ pub struct SupplyChainConfig {
     /// Map of binary path → expected SHA-256 hex digest.
     #[serde(default)]
     pub allowed_servers: std::collections::HashMap<String, String>,
+    /// When true, validate that all paths in `allowed_servers` exist at load time.
+    #[serde(default)]
+    pub validate_paths_on_load: bool,
 }
 
 impl SupplyChainConfig {
+    /// Compute the SHA-256 hash of a file at the given path.
+    ///
+    /// Returns the hex-encoded hash string, or an error if the file cannot be read.
+    pub fn compute_hash(path: &str) -> Result<String, String> {
+        let data = std::fs::read(path).map_err(|e| format!("Failed to read '{}': {}", path, e))?;
+
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(&data);
+        Ok(hex::encode(hasher.finalize()))
+    }
+
     /// Verify that a binary at `path` matches its expected SHA-256 hash.
     ///
     /// Returns `Ok(())` if verification passes or is disabled. Returns
@@ -187,13 +229,7 @@ impl SupplyChainConfig {
             .get(path)
             .ok_or_else(|| format!("Binary '{}' not in allowed_servers list", path))?;
 
-        let data =
-            std::fs::read(path).map_err(|e| format!("Failed to read binary '{}': {}", path, e))?;
-
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(&data);
-        let actual_hash = hex::encode(hasher.finalize());
+        let actual_hash = Self::compute_hash(path)?;
 
         if actual_hash != *expected_hash {
             return Err(format!(
@@ -204,6 +240,25 @@ impl SupplyChainConfig {
 
         Ok(())
     }
+
+    /// Validate that all paths in `allowed_servers` exist on the filesystem.
+    ///
+    /// Returns `Ok(())` if all paths exist, or `Err(missing_paths)` with a list
+    /// of paths that could not be found.
+    pub fn validate_paths(&self) -> Result<(), Vec<String>> {
+        let missing: Vec<String> = self
+            .allowed_servers
+            .keys()
+            .filter(|path| !std::path::Path::new(path).exists())
+            .cloned()
+            .collect();
+
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(missing)
+        }
+    }
 }
 
 /// A pinned tool manifest that records the expected tools and their schema hashes.
@@ -211,6 +266,22 @@ impl SupplyChainConfig {
 /// Created from a `tools/list` response, then persisted. On subsequent
 /// `tools/list` responses, the live tools are compared against this manifest
 /// to detect unexpected changes (new tools, removed tools, schema mutations).
+/// Snapshot of MCP tool annotations at manifest creation time.
+///
+/// These hints describe behavioral properties of a tool. Changes to annotations
+/// between manifest versions may indicate a rug-pull attack.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct ManifestAnnotations {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_only_hint: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destructive_hint: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotent_hint: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_world_hint: Option<bool>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolManifest {
     /// Schema version for forward compatibility.
@@ -220,6 +291,12 @@ pub struct ToolManifest {
     /// Optional Ed25519 signature over the canonical manifest content.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
+    /// ISO 8601 timestamp when the manifest was created.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    /// Hex-encoded Ed25519 verifying key (32 bytes) for signature verification.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verifying_key: Option<String>,
 }
 
 /// A single tool entry in a pinned manifest.
@@ -230,6 +307,12 @@ pub struct ManifestToolEntry {
     /// SHA-256 hex digest of the canonical JSON-serialized `inputSchema`.
     /// If the tool has no inputSchema, this is the hash of the empty string.
     pub input_schema_hash: String,
+    /// SHA-256 hex digest of the tool's description string.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description_hash: Option<String>,
+    /// Snapshot of tool annotations at manifest creation time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub annotations: Option<ManifestAnnotations>,
 }
 
 /// Result of manifest verification.
@@ -264,11 +347,40 @@ impl ToolManifest {
                 use sha2::{Digest, Sha256};
                 let mut hasher = Sha256::new();
                 hasher.update(schema_json.as_bytes());
-                let hash = hex::encode(hasher.finalize());
+                let input_schema_hash = hex::encode(hasher.finalize());
+
+                // Hash the description if present
+                let description_hash = tool.get("description").and_then(|d| d.as_str()).map(|d| {
+                    let mut h = Sha256::new();
+                    h.update(d.as_bytes());
+                    hex::encode(h.finalize())
+                });
+
+                // Snapshot annotations if present
+                let annotations = tool.get("annotations").and_then(|a| {
+                    let ann = ManifestAnnotations {
+                        read_only_hint: a.get("readOnlyHint").and_then(|v| v.as_bool()),
+                        destructive_hint: a.get("destructiveHint").and_then(|v| v.as_bool()),
+                        idempotent_hint: a.get("idempotentHint").and_then(|v| v.as_bool()),
+                        open_world_hint: a.get("openWorldHint").and_then(|v| v.as_bool()),
+                    };
+                    // Only include if at least one field is set
+                    if ann.read_only_hint.is_some()
+                        || ann.destructive_hint.is_some()
+                        || ann.idempotent_hint.is_some()
+                        || ann.open_world_hint.is_some()
+                    {
+                        Some(ann)
+                    } else {
+                        None
+                    }
+                });
 
                 Some(ManifestToolEntry {
                     name,
-                    input_schema_hash: hash,
+                    input_schema_hash,
+                    description_hash,
+                    annotations,
                 })
             })
             .collect();
@@ -277,10 +389,129 @@ impl ToolManifest {
         entries.sort_by(|a, b| a.name.cmp(&b.name));
 
         Some(ToolManifest {
-            schema_version: "1.0".to_string(),
+            schema_version: "2.0".to_string(),
             tools: entries,
             signature: None,
+            created_at: None,
+            verifying_key: None,
         })
+    }
+
+    /// Load a pinned manifest from a JSON file.
+    pub fn load_pinned_manifest(
+        path: &str,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let content = std::fs::read_to_string(path)?;
+        let manifest: ToolManifest = serde_json::from_str(&content)?;
+        Ok(manifest)
+    }
+
+    /// Save this manifest to a JSON file.
+    pub fn save_manifest(
+        &self,
+        path: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let content = serde_json::to_string_pretty(self)?;
+        std::fs::write(path, content)?;
+        Ok(())
+    }
+
+    /// Compute the canonical content that is signed.
+    ///
+    /// Content = SHA-256(schema_version || created_at || sorted_tools[]).
+    /// Each tool: name || input_schema_hash || description_hash || annotations_string.
+    /// All fields are length-prefixed with u64 LE to prevent boundary collisions.
+    pub fn signing_content(&self) -> Vec<u8> {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+
+        Self::hash_field(&mut hasher, self.schema_version.as_bytes());
+        Self::hash_field(
+            &mut hasher,
+            self.created_at.as_deref().unwrap_or("").as_bytes(),
+        );
+
+        // Tools are already sorted by name in from_tools_list
+        for tool in &self.tools {
+            Self::hash_field(&mut hasher, tool.name.as_bytes());
+            Self::hash_field(&mut hasher, tool.input_schema_hash.as_bytes());
+            Self::hash_field(
+                &mut hasher,
+                tool.description_hash.as_deref().unwrap_or("").as_bytes(),
+            );
+            let ann_str = tool
+                .annotations
+                .as_ref()
+                .map(|a| serde_json::to_string(a).unwrap_or_default())
+                .unwrap_or_default();
+            Self::hash_field(&mut hasher, ann_str.as_bytes());
+        }
+
+        hasher.finalize().to_vec()
+    }
+
+    fn hash_field(hasher: &mut sha2::Sha256, data: &[u8]) {
+        use sha2::Digest;
+        hasher.update((data.len() as u64).to_le_bytes());
+        hasher.update(data);
+    }
+
+    /// Sign this manifest with an Ed25519 signing key.
+    ///
+    /// Populates the `signature` and `verifying_key` fields.
+    pub fn sign(&mut self, signing_key: &ed25519_dalek::SigningKey) {
+        use ed25519_dalek::Signer;
+        let content = self.signing_content();
+        let signature = signing_key.sign(&content);
+        self.signature = Some(hex::encode(signature.to_bytes()));
+        let vk = signing_key.verifying_key();
+        self.verifying_key = Some(hex::encode(vk.as_bytes()));
+    }
+
+    /// Verify the manifest signature against a trusted public key.
+    ///
+    /// Returns `Ok(())` if the signature is valid, or `Err(reason)` if verification fails.
+    pub fn verify_signature(&self, trusted_key_hex: &str) -> Result<(), String> {
+        use ed25519_dalek::{Verifier, VerifyingKey};
+
+        let sig_hex = self
+            .signature
+            .as_ref()
+            .ok_or_else(|| "Manifest has no signature".to_string())?;
+
+        let sig_bytes: [u8; 64] = hex::decode(sig_hex)
+            .map_err(|e| format!("Invalid signature hex: {}", e))?
+            .try_into()
+            .map_err(|_| "Signature must be 64 bytes".to_string())?;
+
+        let key_bytes: [u8; 32] = hex::decode(trusted_key_hex)
+            .map_err(|e| format!("Invalid key hex: {}", e))?
+            .try_into()
+            .map_err(|_| "Verifying key must be 32 bytes".to_string())?;
+
+        let signature = ed25519_dalek::Signature::from_bytes(&sig_bytes);
+        let verifying_key = VerifyingKey::from_bytes(&key_bytes)
+            .map_err(|e| format!("Invalid verifying key: {}", e))?;
+
+        let content = self.signing_content();
+        verifying_key
+            .verify(&content, &signature)
+            .map_err(|e| format!("Signature verification failed: {}", e))
+    }
+
+    /// Verify the manifest signature against any of the given trusted keys.
+    ///
+    /// Returns `Ok(())` if at least one key verifies the signature.
+    pub fn verify_signature_any(&self, trusted_keys: &[String]) -> Result<(), String> {
+        if trusted_keys.is_empty() {
+            return Err("No trusted keys provided".to_string());
+        }
+        for key in trusted_keys {
+            if self.verify_signature(key).is_ok() {
+                return Ok(());
+            }
+        }
+        Err("Signature does not match any trusted key".to_string())
     }
 
     /// Verify a live `tools/list` response against this pinned manifest.
@@ -346,6 +577,16 @@ impl ToolManifest {
     }
 }
 
+/// Enforcement mode for manifest verification failures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ManifestEnforcement {
+    /// Log discrepancies but allow the request (default).
+    #[default]
+    Warn,
+    /// Block requests when manifest verification fails.
+    Block,
+}
+
 /// Tool manifest verification configuration.
 ///
 /// # TOML Example
@@ -353,6 +594,9 @@ impl ToolManifest {
 /// ```toml
 /// [manifest]
 /// enabled = true
+/// enforcement = "Warn"
+/// require_signature = false
+/// manifest_path = "/etc/sentinel/manifest.json"
 /// trusted_keys = ["hex-encoded-ed25519-public-key"]
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -363,6 +607,15 @@ pub struct ManifestConfig {
     /// Trusted Ed25519 public keys (hex-encoded 32-byte) for manifest signatures.
     #[serde(default)]
     pub trusted_keys: Vec<String>,
+    /// What to do when manifest verification fails. Default: Warn.
+    #[serde(default)]
+    pub enforcement: ManifestEnforcement,
+    /// Optional file path to a pre-signed manifest file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manifest_path: Option<String>,
+    /// Require a valid signature on manifests. Default: false.
+    #[serde(default)]
+    pub require_signature: bool,
 }
 
 impl ManifestConfig {
@@ -379,11 +632,43 @@ impl ManifestConfig {
             return Ok(());
         }
 
+        // Check signature if required
+        if self.require_signature && !self.trusted_keys.is_empty() {
+            if let Err(sig_err) = pinned.verify_signature_any(&self.trusted_keys) {
+                let msg = format!("Manifest signature verification failed: {}", sig_err);
+                if self.enforcement == ManifestEnforcement::Block {
+                    return Err(vec![msg]);
+                }
+                // Warn mode: continue silently (logging happens at server level)
+            }
+        } else if self.require_signature && self.trusted_keys.is_empty() {
+            let msg = "require_signature is set but no trusted_keys configured".to_string();
+            if self.enforcement == ManifestEnforcement::Block {
+                return Err(vec![msg]);
+            }
+        }
+
         let result = pinned.verify(live_response);
         if result.passed {
             Ok(())
-        } else {
+        } else if self.enforcement == ManifestEnforcement::Block {
             Err(result.discrepancies)
+        } else {
+            // Warn mode: schema mismatches are not blocking
+            Ok(())
+        }
+    }
+
+    /// Load a pre-signed manifest from the configured path.
+    pub fn load_pinned_manifest(
+        &self,
+    ) -> Result<Option<ToolManifest>, Box<dyn std::error::Error + Send + Sync>> {
+        match &self.manifest_path {
+            Some(path) => {
+                let manifest = ToolManifest::load_pinned_manifest(path)?;
+                Ok(Some(manifest))
+            }
+            None => Ok(None),
         }
     }
 }
@@ -810,6 +1095,7 @@ per_ip_rps = 50
         let config = SupplyChainConfig {
             enabled: false,
             allowed_servers: std::collections::HashMap::new(),
+            ..Default::default()
         };
         assert!(config.verify_binary("/nonexistent/path").is_ok());
     }
@@ -832,6 +1118,7 @@ per_ip_rps = 50
         let config = SupplyChainConfig {
             enabled: true,
             allowed_servers: allowed,
+            ..Default::default()
         };
         assert!(config.verify_binary(&bin_path.to_string_lossy()).is_ok());
     }
@@ -851,6 +1138,7 @@ per_ip_rps = 50
         let config = SupplyChainConfig {
             enabled: true,
             allowed_servers: allowed,
+            ..Default::default()
         };
         let result = config.verify_binary(&bin_path.to_string_lossy());
         assert!(result.is_err());
@@ -862,6 +1150,7 @@ per_ip_rps = 50
         let config = SupplyChainConfig {
             enabled: true,
             allowed_servers: std::collections::HashMap::new(),
+            ..Default::default()
         };
         let result = config.verify_binary("/usr/bin/something");
         assert!(result.is_err());
@@ -879,6 +1168,7 @@ per_ip_rps = 50
         let config = SupplyChainConfig {
             enabled: true,
             allowed_servers: allowed,
+            ..Default::default()
         };
         let result = config.verify_binary("/nonexistent/binary");
         assert!(result.is_err());
@@ -917,7 +1207,7 @@ per_ip_rps = 50
             ),
         ]);
         let manifest = ToolManifest::from_tools_list(&response).unwrap();
-        assert_eq!(manifest.schema_version, "1.0");
+        assert_eq!(manifest.schema_version, "2.0");
         assert_eq!(manifest.tools.len(), 2);
         // Tools should be sorted by name
         assert_eq!(manifest.tools[0].name, "read_file");
@@ -997,6 +1287,8 @@ per_ip_rps = 50
             schema_version: "1.0".to_string(),
             tools: vec![],
             signature: None,
+            created_at: None,
+            verifying_key: None,
         };
         let bad_response = serde_json::json!({"error": "something"});
         let result = pinned.verify(&bad_response);
@@ -1012,14 +1304,21 @@ per_ip_rps = 50
         let config = ManifestConfig {
             enabled: false,
             trusted_keys: vec![],
+            enforcement: ManifestEnforcement::default(),
+            manifest_path: None,
+            require_signature: false,
         };
         let pinned = ToolManifest {
             schema_version: "1.0".to_string(),
             tools: vec![ManifestToolEntry {
                 name: "tool_a".to_string(),
                 input_schema_hash: "deadbeef".to_string(),
+                description_hash: None,
+                annotations: None,
             }],
             signature: None,
+            created_at: None,
+            verifying_key: None,
         };
         // Even with a completely wrong response, disabled config passes
         let bad_response = serde_json::json!({"error": "something"});
@@ -1031,6 +1330,9 @@ per_ip_rps = 50
         let config = ManifestConfig {
             enabled: true,
             trusted_keys: vec![],
+            enforcement: ManifestEnforcement::Block,
+            manifest_path: None,
+            require_signature: false,
         };
         let original =
             make_tools_list_response(&[("tool_a", serde_json::json!({"type": "object"}))]);
@@ -1063,5 +1365,312 @@ per_ip_rps = 50
         assert_eq!(manifest.tools[0].name, "simple_tool");
         // Hash of empty string
         assert_eq!(manifest.tools[0].input_schema_hash.len(), 64);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // MANIFEST SIGNING TESTS (C-17.2)
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_manifest_sign_and_verify_roundtrip() {
+        let signing_key = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
+        let vk_hex = hex::encode(signing_key.verifying_key().as_bytes());
+
+        let response =
+            make_tools_list_response(&[("tool_a", serde_json::json!({"type": "object"}))]);
+        let mut manifest = ToolManifest::from_tools_list(&response).unwrap();
+        manifest.created_at = Some("2026-02-04T12:00:00Z".to_string());
+        manifest.sign(&signing_key);
+
+        assert!(manifest.signature.is_some());
+        assert!(manifest.verifying_key.is_some());
+        assert!(manifest.verify_signature(&vk_hex).is_ok());
+    }
+
+    #[test]
+    fn test_manifest_verify_with_wrong_key_fails() {
+        let signing_key = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
+        let other_key = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
+        let other_vk_hex = hex::encode(other_key.verifying_key().as_bytes());
+
+        let response =
+            make_tools_list_response(&[("tool_a", serde_json::json!({"type": "object"}))]);
+        let mut manifest = ToolManifest::from_tools_list(&response).unwrap();
+        manifest.sign(&signing_key);
+
+        assert!(manifest.verify_signature(&other_vk_hex).is_err());
+    }
+
+    #[test]
+    fn test_manifest_tampered_manifest_fails() {
+        let signing_key = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
+        let vk_hex = hex::encode(signing_key.verifying_key().as_bytes());
+
+        let response =
+            make_tools_list_response(&[("tool_a", serde_json::json!({"type": "object"}))]);
+        let mut manifest = ToolManifest::from_tools_list(&response).unwrap();
+        manifest.sign(&signing_key);
+
+        // Tamper with the manifest
+        manifest.tools.push(ManifestToolEntry {
+            name: "injected".to_string(),
+            input_schema_hash: "deadbeef".to_string(),
+            description_hash: None,
+            annotations: None,
+        });
+
+        assert!(manifest.verify_signature(&vk_hex).is_err());
+    }
+
+    #[test]
+    fn test_manifest_unsigned_when_required_fails() {
+        let signing_key = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
+        let vk_hex = hex::encode(signing_key.verifying_key().as_bytes());
+
+        let config = ManifestConfig {
+            enabled: true,
+            trusted_keys: vec![vk_hex],
+            enforcement: ManifestEnforcement::Block,
+            manifest_path: None,
+            require_signature: true,
+        };
+
+        let response =
+            make_tools_list_response(&[("tool_a", serde_json::json!({"type": "object"}))]);
+        let pinned = ToolManifest::from_tools_list(&response).unwrap();
+        // pinned is NOT signed
+        let result = config.verify_manifest(&pinned, &response);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_manifest_no_trusted_keys_skips_signature() {
+        let config = ManifestConfig {
+            enabled: true,
+            trusted_keys: vec![],
+            enforcement: ManifestEnforcement::Block,
+            manifest_path: None,
+            require_signature: false,
+        };
+        let response =
+            make_tools_list_response(&[("tool_a", serde_json::json!({"type": "object"}))]);
+        let pinned = ToolManifest::from_tools_list(&response).unwrap();
+        let result = config.verify_manifest(&pinned, &response);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_manifest_signing_content_deterministic() {
+        let response = make_tools_list_response(&[
+            ("tool_a", serde_json::json!({"type": "object"})),
+            ("tool_b", serde_json::json!({"type": "string"})),
+        ]);
+        let manifest = ToolManifest::from_tools_list(&response).unwrap();
+        let c1 = manifest.signing_content();
+        let c2 = manifest.signing_content();
+        assert_eq!(c1, c2);
+    }
+
+    #[test]
+    fn test_manifest_description_hash_populated() {
+        let response = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "tools": [{
+                    "name": "tool_a",
+                    "description": "A helpful tool",
+                    "inputSchema": {"type": "object"}
+                }]
+            }
+        });
+        let manifest = ToolManifest::from_tools_list(&response).unwrap();
+        assert!(manifest.tools[0].description_hash.is_some());
+        assert_eq!(
+            manifest.tools[0].description_hash.as_ref().unwrap().len(),
+            64
+        );
+    }
+
+    #[test]
+    fn test_manifest_annotations_snapshot() {
+        let response = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "tools": [{
+                    "name": "tool_a",
+                    "inputSchema": {"type": "object"},
+                    "annotations": {
+                        "readOnlyHint": true,
+                        "destructiveHint": false
+                    }
+                }]
+            }
+        });
+        let manifest = ToolManifest::from_tools_list(&response).unwrap();
+        let ann = manifest.tools[0].annotations.as_ref().unwrap();
+        assert_eq!(ann.read_only_hint, Some(true));
+        assert_eq!(ann.destructive_hint, Some(false));
+        assert_eq!(ann.idempotent_hint, None);
+    }
+
+    #[test]
+    fn test_manifest_load_save_roundtrip() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("manifest.json");
+
+        let signing_key = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
+        let response =
+            make_tools_list_response(&[("tool_a", serde_json::json!({"type": "object"}))]);
+        let mut manifest = ToolManifest::from_tools_list(&response).unwrap();
+        manifest.sign(&signing_key);
+
+        manifest.save_manifest(path.to_str().unwrap()).unwrap();
+        let loaded = ToolManifest::load_pinned_manifest(path.to_str().unwrap()).unwrap();
+        assert_eq!(manifest, loaded);
+    }
+
+    #[test]
+    fn test_manifest_backward_compat_v1() {
+        // v1 manifests (without new fields) should deserialize fine
+        let json = r#"{
+            "schema_version": "1.0",
+            "tools": [{"name": "tool_a", "input_schema_hash": "abcdef1234567890"}]
+        }"#;
+        let manifest: ToolManifest = serde_json::from_str(json).unwrap();
+        assert_eq!(manifest.schema_version, "1.0");
+        assert_eq!(manifest.tools[0].name, "tool_a");
+        assert!(manifest.signature.is_none());
+        assert!(manifest.created_at.is_none());
+        assert!(manifest.verifying_key.is_none());
+        assert!(manifest.tools[0].description_hash.is_none());
+        assert!(manifest.tools[0].annotations.is_none());
+    }
+
+    #[test]
+    fn test_manifest_verify_signature_any() {
+        let key1 = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
+        let key2 = ed25519_dalek::SigningKey::generate(&mut rand::thread_rng());
+        let vk1 = hex::encode(key1.verifying_key().as_bytes());
+        let vk2 = hex::encode(key2.verifying_key().as_bytes());
+
+        let response =
+            make_tools_list_response(&[("tool_a", serde_json::json!({"type": "object"}))]);
+        let mut manifest = ToolManifest::from_tools_list(&response).unwrap();
+        manifest.sign(&key1);
+
+        // Should pass with key1 in the list
+        assert!(manifest
+            .verify_signature_any(&[vk2.clone(), vk1.clone()])
+            .is_ok());
+        // Should fail with only key2
+        assert!(manifest.verify_signature_any(&[vk2]).is_err());
+    }
+
+    // --- Custom PII pattern config tests ---
+
+    #[test]
+    fn test_custom_pii_patterns_default_empty() {
+        let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#;
+        let config = PolicyConfig::from_toml(toml).unwrap();
+        assert!(config.audit.custom_pii_patterns.is_empty());
+    }
+
+    #[test]
+    fn test_custom_pii_patterns_parsed() {
+        let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+
+[[audit.custom_pii_patterns]]
+name = "employee_id"
+pattern = "EMP-\\d{6}"
+"#;
+        let config = PolicyConfig::from_toml(toml).unwrap();
+        assert_eq!(config.audit.custom_pii_patterns.len(), 1);
+        assert_eq!(config.audit.custom_pii_patterns[0].name, "employee_id");
+    }
+
+    // --- Supply chain new methods tests ---
+
+    #[test]
+    fn test_supply_chain_compute_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin_path = dir.path().join("test-binary");
+        std::fs::write(&bin_path, b"hello").unwrap();
+
+        let hash = SupplyChainConfig::compute_hash(bin_path.to_str().unwrap()).unwrap();
+        assert_eq!(hash.len(), 64); // SHA-256 hex
+                                    // Hash of "hello"
+        assert_eq!(
+            hash,
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
+    }
+
+    #[test]
+    fn test_supply_chain_validate_paths_all_exist() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin_path = dir.path().join("server");
+        std::fs::write(&bin_path, b"binary").unwrap();
+
+        let mut allowed = std::collections::HashMap::new();
+        allowed.insert(bin_path.to_string_lossy().to_string(), "hash".to_string());
+
+        let config = SupplyChainConfig {
+            enabled: true,
+            allowed_servers: allowed,
+            ..Default::default()
+        };
+        assert!(config.validate_paths().is_ok());
+    }
+
+    #[test]
+    fn test_supply_chain_validate_paths_missing() {
+        let mut allowed = std::collections::HashMap::new();
+        allowed.insert("/nonexistent/server".to_string(), "hash".to_string());
+
+        let config = SupplyChainConfig {
+            enabled: true,
+            allowed_servers: allowed,
+            ..Default::default()
+        };
+        let result = config.validate_paths();
+        assert!(result.is_err());
+        let missing = result.unwrap_err();
+        assert!(missing.contains(&"/nonexistent/server".to_string()));
+    }
+
+    // --- ManifestEnforcement tests ---
+
+    #[test]
+    fn test_manifest_enforcement_warn_allows_schema_mismatch() {
+        let config = ManifestConfig {
+            enabled: true,
+            trusted_keys: vec![],
+            enforcement: ManifestEnforcement::Warn,
+            manifest_path: None,
+            require_signature: false,
+        };
+        let original =
+            make_tools_list_response(&[("tool_a", serde_json::json!({"type": "object"}))]);
+        let pinned = ToolManifest::from_tools_list(&original).unwrap();
+        let modified = make_tools_list_response(&[
+            ("tool_a", serde_json::json!({"type": "object"})),
+            ("injected_tool", serde_json::json!({"type": "object"})),
+        ]);
+        // Warn mode: schema mismatches are non-blocking
+        let result = config.verify_manifest(&pinned, &modified);
+        assert!(result.is_ok());
     }
 }

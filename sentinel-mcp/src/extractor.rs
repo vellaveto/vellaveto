@@ -51,6 +51,12 @@ pub enum MessageType {
     SamplingRequest { id: Value },
     /// An `elicitation/create` request (MCP 2025-06-18) — server-initiated user prompt.
     ElicitationRequest { id: Value },
+    /// A `tasks/get` or `tasks/cancel` request (MCP 2025-11-25) — async task management.
+    TaskRequest {
+        id: Value,
+        task_method: String,
+        task_id: Option<String>,
+    },
     /// A JSON-RPC batch (array of requests) — rejected per MCP 2025-06-18.
     Batch,
     /// An invalid request that should be rejected with an error response.
@@ -146,6 +152,17 @@ pub fn classify_message(msg: &Value) -> MessageType {
         }
         "sampling/createmessage" => MessageType::SamplingRequest { id },
         "elicitation/create" => MessageType::ElicitationRequest { id },
+        method @ ("tasks/get" | "tasks/cancel") => {
+            let task_id = params
+                .and_then(|p| p.get("id"))
+                .and_then(|t| t.as_str())
+                .map(|s| s.to_string());
+            MessageType::TaskRequest {
+                id,
+                task_method: method.to_string(),
+                task_id,
+            }
+        }
         _ => MessageType::PassThrough,
     }
 }
@@ -946,5 +963,177 @@ mod tests {
         let action = extract_resource_action("https://evil.com/data");
         assert!(action.target_domains.contains(&"evil.com".to_string()));
         assert!(action.target_paths.is_empty());
+    }
+
+    // --- JSON-RPC batch rejection tests (MCP 2025-06-18) ---
+
+    #[test]
+    fn test_classify_batch_request_returns_batch() {
+        let msg = json!([
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "bash", "arguments": {}}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "read_file", "arguments": {}}}
+        ]);
+        assert_eq!(classify_message(&msg), MessageType::Batch);
+    }
+
+    #[test]
+    fn test_classify_empty_batch_returns_batch() {
+        let msg = json!([]);
+        assert_eq!(classify_message(&msg), MessageType::Batch);
+    }
+
+    #[test]
+    fn test_classify_single_element_batch_returns_batch() {
+        let msg = json!([{"jsonrpc": "2.0", "id": 1, "method": "ping"}]);
+        assert_eq!(classify_message(&msg), MessageType::Batch);
+    }
+
+    #[test]
+    fn test_make_batch_error_response_format() {
+        let resp = make_batch_error_response();
+        assert_eq!(resp["jsonrpc"], "2.0");
+        assert!(resp["id"].is_null());
+        assert_eq!(resp["error"]["code"], -32600);
+        assert!(resp["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("batching")));
+    }
+
+    // --- Elicitation classification tests (MCP 2025-06-18) ---
+
+    #[test]
+    fn test_classify_elicitation_create() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 20,
+            "method": "elicitation/create",
+            "params": {
+                "message": "Please enter your API key",
+                "requestedSchema": {"type": "object", "properties": {"api_key": {"type": "string"}}}
+            }
+        });
+        match classify_message(&msg) {
+            MessageType::ElicitationRequest { id } => {
+                assert_eq!(id, json!(20));
+            }
+            other => panic!("Expected ElicitationRequest, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_classify_elicitation_case_insensitive() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 21,
+            "method": "Elicitation/Create",
+            "params": {}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::ElicitationRequest { .. }
+        ));
+    }
+
+    #[test]
+    fn test_classify_elicitation_trailing_slash() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 22,
+            "method": "elicitation/create/",
+            "params": {}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::ElicitationRequest { .. }
+        ));
+    }
+
+    // --- MCP Tasks classification tests (MCP 2025-11-25) ---
+
+    #[test]
+    fn test_classify_tasks_get() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 30,
+            "method": "tasks/get",
+            "params": {"id": "task-abc-123"}
+        });
+        match classify_message(&msg) {
+            MessageType::TaskRequest {
+                id,
+                task_method,
+                task_id,
+            } => {
+                assert_eq!(id, json!(30));
+                assert_eq!(task_method, "tasks/get");
+                assert_eq!(task_id, Some("task-abc-123".to_string()));
+            }
+            other => panic!("Expected TaskRequest, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_classify_tasks_cancel() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 31,
+            "method": "tasks/cancel",
+            "params": {"id": "task-def-456"}
+        });
+        match classify_message(&msg) {
+            MessageType::TaskRequest {
+                task_method,
+                task_id,
+                ..
+            } => {
+                assert_eq!(task_method, "tasks/cancel");
+                assert_eq!(task_id, Some("task-def-456".to_string()));
+            }
+            other => panic!("Expected TaskRequest, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_classify_tasks_get_no_task_id() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 32,
+            "method": "tasks/get",
+            "params": {}
+        });
+        match classify_message(&msg) {
+            MessageType::TaskRequest { task_id, .. } => {
+                assert_eq!(task_id, None);
+            }
+            other => panic!("Expected TaskRequest, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_classify_tasks_case_insensitive() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 33,
+            "method": "Tasks/Get",
+            "params": {"id": "t1"}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::TaskRequest { .. }
+        ));
+    }
+
+    #[test]
+    fn test_classify_tasks_trailing_slash() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 34,
+            "method": "tasks/cancel/",
+            "params": {"id": "t2"}
+        });
+        assert!(matches!(
+            classify_message(&msg),
+            MessageType::TaskRequest { .. }
+        ));
     }
 }

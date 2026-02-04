@@ -7,7 +7,7 @@ use axum::{
     Json, Router,
 };
 use sentinel_engine::PolicyEngine;
-use sentinel_types::{Action, Policy, Verdict};
+use sentinel_types::{Action, EvaluationContext, Policy, Verdict};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::atomic::Ordering;
@@ -238,6 +238,18 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
     })
 }
 
+/// Request body for the evaluate endpoint.
+///
+/// Accepts an action plus an optional evaluation context for context-aware
+/// policy evaluation (time windows, call limits, agent identity, etc.).
+#[derive(Deserialize)]
+struct EvaluateRequest {
+    #[serde(flatten)]
+    action: Action,
+    #[serde(default)]
+    context: Option<EvaluationContext>,
+}
+
 #[derive(Serialize)]
 struct EvaluateResponse {
     verdict: Verdict,
@@ -350,8 +362,11 @@ fn strip_query_and_fragment(path: &str) -> &str {
 
 async fn evaluate(
     State(state): State<AppState>,
-    Json(mut action): Json<Action>,
+    Json(req): Json<EvaluateRequest>,
 ) -> Result<Json<EvaluateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let mut action = req.action;
+    let context = req.context;
+
     // Auto-extract target_paths and target_domains from parameters if not provided
     if action.target_paths.is_empty() && action.target_domains.is_empty() {
         auto_extract_targets(&mut action);
@@ -362,7 +377,7 @@ async fn evaluate(
     let verdict = state
         .engine
         .load()
-        .evaluate_action(&action, &policies)
+        .evaluate_action_with_context(&action, &policies, context.as_ref())
         .map_err(|e| {
             tracing::error!("Engine evaluation error: {}", e);
             state.metrics.record_error();

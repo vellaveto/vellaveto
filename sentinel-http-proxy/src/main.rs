@@ -152,7 +152,27 @@ async fn main() -> Result<()> {
 
     // Initialize audit logger
     let audit_path = PathBuf::from(&args.audit_log);
-    let audit = Arc::new(AuditLogger::new(audit_path.clone()));
+    let mut audit_logger = AuditLogger::new(audit_path.clone());
+
+    // Wire custom PII patterns from config into audit logger
+    if !policy_config.audit.custom_pii_patterns.is_empty() {
+        let pii_patterns: Vec<sentinel_audit::CustomPiiPattern> = policy_config
+            .audit
+            .custom_pii_patterns
+            .iter()
+            .map(|p| sentinel_audit::CustomPiiPattern {
+                name: p.name.clone(),
+                pattern: p.pattern.clone(),
+            })
+            .collect();
+        tracing::info!(
+            "Custom PII patterns loaded: {} patterns",
+            pii_patterns.len()
+        );
+        audit_logger = audit_logger.with_custom_pii_patterns(pii_patterns);
+    }
+
+    let audit = Arc::new(audit_logger);
 
     if let Err(e) = audit.initialize_chain().await {
         tracing::warn!("Failed to initialize audit chain: {}", e);

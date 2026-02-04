@@ -1,9 +1,10 @@
 use sentinel_types::{
-    Action, ActionSummary, ConstraintResult, EvaluationTrace, Policy, PolicyMatch, PolicyType,
-    Verdict,
+    Action, ActionSummary, ConstraintResult, EvaluationContext, EvaluationTrace, Policy,
+    PolicyMatch, PolicyType, Verdict,
 };
 use thiserror::Error;
 
+use chrono::{Datelike, Timelike};
 use globset::{Glob, GlobMatcher};
 use regex::Regex;
 use std::collections::HashMap;
@@ -239,6 +240,40 @@ pub struct CompiledNetworkRules {
     pub blocked_domains: Vec<String>,
 }
 
+/// A pre-compiled context condition for session-level policy evaluation.
+///
+/// Context conditions are checked after tool match and path/network rules,
+/// but before policy type dispatch. They require an [`EvaluationContext`]
+/// to evaluate — when no context is provided, all context conditions are skipped.
+#[derive(Debug, Clone)]
+pub enum CompiledContextCondition {
+    /// Allow tool calls only within a time window.
+    TimeWindow {
+        start_hour: u8,
+        end_hour: u8,
+        /// ISO weekday numbers (1=Mon, 7=Sun). Empty = all days.
+        days: Vec<u8>,
+        deny_reason: String,
+    },
+    /// Limit how many times a tool (or tool pattern) can be called per session.
+    MaxCalls {
+        tool_pattern: String,
+        max: u64,
+        deny_reason: String,
+    },
+    /// Restrict which agent identities can use this policy.
+    AgentId {
+        allowed: Vec<String>,
+        blocked: Vec<String>,
+        deny_reason: String,
+    },
+    /// Require that a specific tool was called earlier in the session.
+    RequirePreviousAction {
+        required_tool: String,
+        deny_reason: String,
+    },
+}
+
 /// A policy with all patterns pre-compiled for zero-lock evaluation.
 ///
 /// Created by [`PolicyEngine::compile_policies`] or [`PolicyEngine::with_policies`].
@@ -267,6 +302,8 @@ pub struct CompiledPolicy {
     pub compiled_path_rules: Option<CompiledPathRules>,
     /// Pre-compiled network access control rules (from policy.network_rules).
     pub compiled_network_rules: Option<CompiledNetworkRules>,
+    /// Pre-compiled context conditions (from conditions JSON `context_conditions` key).
+    pub context_conditions: Vec<CompiledContextCondition>,
 }
 
 /// The core policy evaluation engine.
@@ -474,9 +511,10 @@ impl PolicyEngine {
             required_parameters,
             constraints,
             on_no_match_continue,
+            context_conditions,
         ) = match &policy.policy_type {
             PolicyType::Allow | PolicyType::Deny => {
-                (false, Vec::new(), Vec::new(), Vec::new(), false)
+                (false, Vec::new(), Vec::new(), Vec::new(), false, Vec::new())
             }
             PolicyType::Conditional { conditions } => {
                 Self::compile_conditions(policy, conditions, strict_mode)?
@@ -557,12 +595,13 @@ impl PolicyEngine {
             required_reasons,
             compiled_path_rules,
             compiled_network_rules,
+            context_conditions,
         })
     }
 
     /// Compile condition JSON into pre-parsed fields and compiled constraints.
     ///
-    /// Returns: (require_approval, forbidden_parameters, required_parameters, constraints, on_no_match_continue)
+    /// Returns: (require_approval, forbidden_parameters, required_parameters, constraints, on_no_match_continue, context_conditions)
     #[allow(clippy::type_complexity)]
     fn compile_conditions(
         policy: &Policy,
@@ -575,6 +614,7 @@ impl PolicyEngine {
             Vec<String>,
             Vec<CompiledConstraint>,
             bool,
+            Vec<CompiledContextCondition>,
         ),
         PolicyValidationError,
     > {
@@ -643,6 +683,20 @@ impl PolicyEngine {
             }
         }
 
+        // Parse context conditions (session-level checks)
+        let mut context_conditions = Vec::new();
+        if let Some(ctx_arr) = conditions.get("context_conditions") {
+            let arr = ctx_arr.as_array().ok_or_else(|| PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: "context_conditions must be an array".to_string(),
+            })?;
+
+            for ctx_val in arr {
+                context_conditions.push(Self::compile_context_condition(policy, ctx_val)?);
+            }
+        }
+
         // Validate strict mode unknown keys
         if strict_mode {
             let known_keys = [
@@ -650,6 +704,7 @@ impl PolicyEngine {
                 "forbidden_parameters",
                 "required_parameters",
                 "parameter_constraints",
+                "context_conditions",
                 "on_no_match",
             ];
             if let Some(obj) = conditions.as_object() {
@@ -671,6 +726,7 @@ impl PolicyEngine {
             required_parameters,
             constraints,
             on_no_match_continue,
+            context_conditions,
         ))
     }
 
@@ -936,6 +992,152 @@ impl PolicyEngine {
         }
     }
 
+    /// Compile a single context condition JSON object into a [`CompiledContextCondition`].
+    fn compile_context_condition(
+        policy: &Policy,
+        value: &serde_json::Value,
+    ) -> Result<CompiledContextCondition, PolicyValidationError> {
+        let obj = value.as_object().ok_or_else(|| PolicyValidationError {
+            policy_id: policy.id.clone(),
+            policy_name: policy.name.clone(),
+            reason: "Each context condition must be a JSON object".to_string(),
+        })?;
+
+        let kind =
+            obj.get("type")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: "Context condition missing required 'type' string field".to_string(),
+                })?;
+
+        match kind {
+            "time_window" => {
+                let start_hour =
+                    obj.get("start_hour")
+                        .and_then(|v| v.as_u64())
+                        .ok_or_else(|| PolicyValidationError {
+                            policy_id: policy.id.clone(),
+                            policy_name: policy.name.clone(),
+                            reason: "time_window missing 'start_hour' integer".to_string(),
+                        })? as u8;
+                let end_hour = obj
+                    .get("end_hour")
+                    .and_then(|v| v.as_u64())
+                    .ok_or_else(|| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "time_window missing 'end_hour' integer".to_string(),
+                    })? as u8;
+                if start_hour > 23 || end_hour > 23 {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "time_window hours must be 0-23, got start={} end={}",
+                            start_hour, end_hour
+                        ),
+                    });
+                }
+                let days = obj
+                    .get("days")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_u64().map(|d| d as u8))
+                            .collect::<Vec<u8>>()
+                    })
+                    .unwrap_or_default();
+                let deny_reason = format!(
+                    "Outside allowed time window ({:02}:00-{:02}:00) for policy '{}'",
+                    start_hour, end_hour, policy.name
+                );
+                Ok(CompiledContextCondition::TimeWindow {
+                    start_hour,
+                    end_hour,
+                    days,
+                    deny_reason,
+                })
+            }
+            "max_calls" => {
+                let tool_pattern = obj
+                    .get("tool_pattern")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("*")
+                    .to_string();
+                let max = obj.get("max").and_then(|v| v.as_u64()).ok_or_else(|| {
+                    PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "max_calls missing 'max' integer".to_string(),
+                    }
+                })?;
+                let deny_reason = format!(
+                    "Tool call limit ({}) exceeded for pattern '{}' in policy '{}'",
+                    max, tool_pattern, policy.name
+                );
+                Ok(CompiledContextCondition::MaxCalls {
+                    tool_pattern,
+                    max,
+                    deny_reason,
+                })
+            }
+            "agent_id" => {
+                let allowed = obj
+                    .get("allowed")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect::<Vec<String>>()
+                    })
+                    .unwrap_or_default();
+                let blocked = obj
+                    .get("blocked")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect::<Vec<String>>()
+                    })
+                    .unwrap_or_default();
+                let deny_reason =
+                    format!("Agent identity not authorized by policy '{}'", policy.name);
+                Ok(CompiledContextCondition::AgentId {
+                    allowed,
+                    blocked,
+                    deny_reason,
+                })
+            }
+            "require_previous_action" => {
+                let required_tool = obj
+                    .get("required_tool")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "require_previous_action missing 'required_tool' string"
+                            .to_string(),
+                    })?
+                    .to_string();
+                let deny_reason = format!(
+                    "Required previous action '{}' not found in session history (policy '{}')",
+                    required_tool, policy.name
+                );
+                Ok(CompiledContextCondition::RequirePreviousAction {
+                    required_tool,
+                    deny_reason,
+                })
+            }
+            _ => Err(PolicyValidationError {
+                policy_id: policy.id.clone(),
+                policy_name: policy.name.clone(),
+                reason: format!("Unknown context condition type '{}'", kind),
+            }),
+        }
+    }
+
     /// Sort policies by priority (highest first), with deny-overrides at equal priority,
     /// and a stable tertiary tiebreaker by policy ID for deterministic ordering.
     ///
@@ -1030,6 +1232,43 @@ impl PolicyEngine {
         })
     }
 
+    /// Evaluate an action with optional session context.
+    ///
+    /// This is the context-aware counterpart to [`Self::evaluate_action`].
+    /// When `context` is `Some`, context conditions (time windows, call limits,
+    /// agent identity, action history) are evaluated. When `None`, behaves
+    /// identically to `evaluate_action`.
+    pub fn evaluate_action_with_context(
+        &self,
+        action: &Action,
+        policies: &[Policy],
+        context: Option<&EvaluationContext>,
+    ) -> Result<Verdict, EngineError> {
+        if context.is_none() {
+            return self.evaluate_action(action, policies);
+        }
+        // Fast path: use pre-compiled policies
+        if !self.compiled_policies.is_empty() {
+            return self.evaluate_with_compiled_ctx(action, context);
+        }
+        // Fallback: context conditions only work with compiled policies.
+        // Evaluate without context on the legacy path.
+        self.evaluate_action(action, policies)
+    }
+
+    /// Evaluate an action with full decision trace and optional session context.
+    pub fn evaluate_action_traced_with_context(
+        &self,
+        action: &Action,
+        context: Option<&EvaluationContext>,
+    ) -> Result<(Verdict, EvaluationTrace), EngineError> {
+        if context.is_none() {
+            return self.evaluate_action_traced(action);
+        }
+        // Traced context-aware path
+        self.evaluate_action_traced_ctx(action, context)
+    }
+
     // ═══════════════════════════════════════════════════
     // COMPILED EVALUATION PATH (zero Mutex, zero runtime compilation)
     // ═══════════════════════════════════════════════════
@@ -1097,13 +1336,80 @@ impl PolicyEngine {
         })
     }
 
-    /// Apply a matched compiled policy to produce a verdict.
+    /// Evaluate with compiled policies and session context.
+    fn evaluate_with_compiled_ctx(
+        &self,
+        action: &Action,
+        context: Option<&EvaluationContext>,
+    ) -> Result<Verdict, EngineError> {
+        if !self.tool_index.is_empty() || !self.always_check.is_empty() {
+            let tool_specific = self.tool_index.get(&action.tool);
+            let tool_slice = tool_specific.map(|v| v.as_slice()).unwrap_or(&[]);
+            let always_slice = &self.always_check;
+
+            let mut ti = 0;
+            let mut ai = 0;
+            loop {
+                let next_idx = match (tool_slice.get(ti), always_slice.get(ai)) {
+                    (Some(&t), Some(&a)) => {
+                        if t <= a {
+                            ti += 1;
+                            t
+                        } else {
+                            ai += 1;
+                            a
+                        }
+                    }
+                    (Some(&t), None) => {
+                        ti += 1;
+                        t
+                    }
+                    (None, Some(&a)) => {
+                        ai += 1;
+                        a
+                    }
+                    (None, None) => break,
+                };
+
+                let cp = &self.compiled_policies[next_idx];
+                if cp.tool_matcher.matches(action) {
+                    if let Some(verdict) = self.apply_compiled_policy_ctx(action, cp, context)? {
+                        return Ok(verdict);
+                    }
+                }
+            }
+        } else {
+            for cp in &self.compiled_policies {
+                if cp.tool_matcher.matches(action) {
+                    if let Some(verdict) = self.apply_compiled_policy_ctx(action, cp, context)? {
+                        return Ok(verdict);
+                    }
+                }
+            }
+        }
+
+        Ok(Verdict::Deny {
+            reason: "No matching policy".to_string(),
+        })
+    }
+
+    /// Apply a matched compiled policy to produce a verdict (no context).
     /// Returns `None` when a Conditional policy with `on_no_match: "continue"` has no
     /// constraints fire, signaling the evaluation loop to try the next policy.
     fn apply_compiled_policy(
         &self,
         action: &Action,
         cp: &CompiledPolicy,
+    ) -> Result<Option<Verdict>, EngineError> {
+        self.apply_compiled_policy_ctx(action, cp, None)
+    }
+
+    /// Apply a matched compiled policy with optional context.
+    fn apply_compiled_policy_ctx(
+        &self,
+        action: &Action,
+        cp: &CompiledPolicy,
+        context: Option<&EvaluationContext>,
     ) -> Result<Option<Verdict>, EngineError> {
         // Check path rules before policy type dispatch.
         // Blocked paths → deny immediately regardless of policy type.
@@ -1114,6 +1420,13 @@ impl PolicyEngine {
         if let Some(denial) = self.check_network_rules(action, cp) {
             return Ok(Some(denial));
         }
+        // Check context conditions (session-level) before policy type dispatch.
+        // When context is None, all context conditions are skipped (backward compat).
+        if let Some(ctx) = context {
+            if let Some(denial) = self.check_context_conditions(ctx, cp) {
+                return Ok(Some(denial));
+            }
+        }
 
         match &cp.policy.policy_type {
             PolicyType::Allow => Ok(Some(Verdict::Allow)),
@@ -1122,6 +1435,124 @@ impl PolicyEngine {
             })),
             PolicyType::Conditional { .. } => self.evaluate_compiled_conditions(action, cp),
         }
+    }
+
+    /// Evaluate context conditions against session state.
+    ///
+    /// Returns `Some(Deny)` if any context condition fails, `None` if all pass.
+    fn check_context_conditions(
+        &self,
+        context: &EvaluationContext,
+        cp: &CompiledPolicy,
+    ) -> Option<Verdict> {
+        for cond in &cp.context_conditions {
+            match cond {
+                CompiledContextCondition::TimeWindow {
+                    start_hour,
+                    end_hour,
+                    days,
+                    deny_reason,
+                } => {
+                    let now = context
+                        .timestamp
+                        .as_ref()
+                        .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
+                        .map(|dt| dt.with_timezone(&chrono::Utc))
+                        .unwrap_or_else(chrono::Utc::now);
+
+                    let hour = now.hour() as u8;
+
+                    // Check day of week (1=Mon, 7=Sun)
+                    if !days.is_empty() {
+                        let weekday = now.weekday().num_days_from_monday() as u8 + 1;
+                        if !days.contains(&weekday) {
+                            return Some(Verdict::Deny {
+                                reason: deny_reason.clone(),
+                            });
+                        }
+                    }
+
+                    // Check hour window (supports midnight wrap)
+                    let in_window = if start_hour <= end_hour {
+                        // Normal: 9-17 means 9 <= hour < 17
+                        hour >= *start_hour && hour < *end_hour
+                    } else {
+                        // Midnight wrap: 22-6 means hour >= 22 || hour < 6
+                        hour >= *start_hour || hour < *end_hour
+                    };
+
+                    if !in_window {
+                        return Some(Verdict::Deny {
+                            reason: deny_reason.clone(),
+                        });
+                    }
+                }
+                CompiledContextCondition::MaxCalls {
+                    tool_pattern,
+                    max,
+                    deny_reason,
+                } => {
+                    let count = if tool_pattern == "*" {
+                        context.call_counts.values().sum::<u64>()
+                    } else {
+                        let matcher = PatternMatcher::compile(tool_pattern);
+                        context
+                            .call_counts
+                            .iter()
+                            .filter(|(name, _)| matcher.matches(name))
+                            .map(|(_, count)| count)
+                            .sum::<u64>()
+                    };
+
+                    if count >= *max {
+                        return Some(Verdict::Deny {
+                            reason: deny_reason.clone(),
+                        });
+                    }
+                }
+                CompiledContextCondition::AgentId {
+                    allowed,
+                    blocked,
+                    deny_reason,
+                } => {
+                    match &context.agent_id {
+                        Some(id) => {
+                            // Check blocked list first
+                            if blocked.iter().any(|b| b == id) {
+                                return Some(Verdict::Deny {
+                                    reason: deny_reason.clone(),
+                                });
+                            }
+                            // If allowed list is non-empty, agent must be in it
+                            if !allowed.is_empty() && !allowed.iter().any(|a| a == id) {
+                                return Some(Verdict::Deny {
+                                    reason: deny_reason.clone(),
+                                });
+                            }
+                        }
+                        None => {
+                            // Fail-closed: no agent_id + non-empty allowed/blocked lists = deny
+                            if !allowed.is_empty() || !blocked.is_empty() {
+                                return Some(Verdict::Deny {
+                                    reason: deny_reason.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+                CompiledContextCondition::RequirePreviousAction {
+                    required_tool,
+                    deny_reason,
+                } => {
+                    if !context.previous_actions.iter().any(|a| a == required_tool) {
+                        return Some(Verdict::Deny {
+                            reason: deny_reason.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Check action target_paths against compiled path rules.
@@ -2950,6 +3381,103 @@ impl PolicyEngine {
         Ok((verdict, trace))
     }
 
+    /// Traced evaluation with optional session context.
+    fn evaluate_action_traced_ctx(
+        &self,
+        action: &Action,
+        context: Option<&EvaluationContext>,
+    ) -> Result<(Verdict, EvaluationTrace), EngineError> {
+        let start = Instant::now();
+        let mut policy_matches: Vec<PolicyMatch> = Vec::new();
+        let mut policies_checked: usize = 0;
+        let mut final_verdict: Option<Verdict> = None;
+
+        let action_summary = ActionSummary {
+            tool: action.tool.clone(),
+            function: action.function.clone(),
+            param_count: action.parameters.as_object().map(|o| o.len()).unwrap_or(0),
+            param_keys: action
+                .parameters
+                .as_object()
+                .map(|o| o.keys().cloned().collect())
+                .unwrap_or_default(),
+        };
+
+        if self.compiled_policies.is_empty() {
+            let verdict = Verdict::Deny {
+                reason: "No policies defined".to_string(),
+            };
+            let trace = EvaluationTrace {
+                action_summary,
+                policies_checked: 0,
+                policies_matched: 0,
+                matches: Vec::new(),
+                verdict: verdict.clone(),
+                duration_us: start.elapsed().as_micros() as u64,
+            };
+            return Ok((verdict, trace));
+        }
+
+        let indices = self.collect_candidate_indices(action);
+
+        for idx in &indices {
+            let cp = &self.compiled_policies[*idx];
+            policies_checked += 1;
+
+            let tool_matched = cp.tool_matcher.matches(action);
+            if !tool_matched {
+                policy_matches.push(PolicyMatch {
+                    policy_id: cp.policy.id.clone(),
+                    policy_name: cp.policy.name.clone(),
+                    policy_type: Self::policy_type_str(&cp.policy.policy_type),
+                    priority: cp.policy.priority,
+                    tool_matched: false,
+                    constraint_results: Vec::new(),
+                    verdict_contribution: None,
+                });
+                continue;
+            }
+
+            let (verdict, constraint_results) =
+                self.apply_compiled_policy_traced_ctx(action, cp, context)?;
+
+            let pm = PolicyMatch {
+                policy_id: cp.policy.id.clone(),
+                policy_name: cp.policy.name.clone(),
+                policy_type: Self::policy_type_str(&cp.policy.policy_type),
+                priority: cp.policy.priority,
+                tool_matched: true,
+                constraint_results,
+                verdict_contribution: verdict.clone(),
+            };
+            policy_matches.push(pm);
+
+            if let Some(v) = verdict {
+                if final_verdict.is_none() {
+                    final_verdict = Some(v);
+                }
+                break;
+            }
+        }
+
+        let verdict = final_verdict.unwrap_or(Verdict::Deny {
+            reason: "No matching policy".to_string(),
+        });
+
+        let policies_matched = policy_matches.iter().filter(|m| m.tool_matched).count();
+
+        let trace = EvaluationTrace {
+            action_summary,
+            policies_checked,
+            policies_matched,
+            matches: policy_matches,
+            verdict: verdict.clone(),
+            duration_us: start.elapsed().as_micros() as u64,
+        };
+
+        Ok((verdict, trace))
+    }
+
     /// Collect candidate policy indices in priority order using the tool index.
     fn collect_candidate_indices(&self, action: &Action) -> Vec<usize> {
         if self.tool_index.is_empty() && self.always_check.is_empty() {
@@ -2998,6 +3526,15 @@ impl PolicyEngine {
         action: &Action,
         cp: &CompiledPolicy,
     ) -> Result<(Option<Verdict>, Vec<ConstraintResult>), EngineError> {
+        self.apply_compiled_policy_traced_ctx(action, cp, None)
+    }
+
+    fn apply_compiled_policy_traced_ctx(
+        &self,
+        action: &Action,
+        cp: &CompiledPolicy,
+        context: Option<&EvaluationContext>,
+    ) -> Result<(Option<Verdict>, Vec<ConstraintResult>), EngineError> {
         // Check path rules BEFORE policy type dispatch (mirrors apply_compiled_policy).
         // Without this, ?trace=true would bypass all path/domain blocking.
         if let Some(denial) = self.check_path_rules(action, cp) {
@@ -3006,6 +3543,12 @@ impl PolicyEngine {
         // Check network rules before policy type dispatch.
         if let Some(denial) = self.check_network_rules(action, cp) {
             return Ok((Some(denial), Vec::new()));
+        }
+        // Check context conditions.
+        if let Some(ctx) = context {
+            if let Some(denial) = self.check_context_conditions(ctx, cp) {
+                return Ok((Some(denial), Vec::new()));
+            }
         }
 
         match &cp.policy.policy_type {
@@ -8037,5 +8580,324 @@ mod tests {
             !values2.is_empty(),
             "Values at depth MAX_JSON_DEPTH - 1 should be collected"
         );
+    }
+
+    // ═══════════════════════════════════════════════════
+    // CONTEXT-AWARE EVALUATION TESTS (C-17.3)
+    // ═══════════════════════════════════════════════════
+
+    fn make_context_policy(context_conditions: serde_json::Value) -> Policy {
+        Policy {
+            id: "read_file:*".to_string(),
+            name: "context-test".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "context_conditions": context_conditions,
+                }),
+            },
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }
+    }
+
+    fn make_context_engine(policy: Policy) -> PolicyEngine {
+        PolicyEngine::with_policies(false, &[policy]).unwrap()
+    }
+
+    #[test]
+    fn test_context_time_window_allow_during_hours() {
+        let policy = make_context_policy(json!([
+            {"type": "time_window", "start_hour": 0, "end_hour": 23}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            timestamp: Some("2026-02-04T12:00:00Z".to_string()),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_context_time_window_deny_outside_hours() {
+        let policy = make_context_policy(json!([
+            {"type": "time_window", "start_hour": 9, "end_hour": 17}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            timestamp: Some("2026-02-04T20:00:00Z".to_string()),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_context_time_window_midnight_wrap() {
+        // 22:00 - 06:00 (overnight window)
+        let policy = make_context_policy(json!([
+            {"type": "time_window", "start_hour": 22, "end_hour": 6}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+
+        // 23:00 should be allowed
+        let ctx = EvaluationContext {
+            timestamp: Some("2026-02-04T23:00:00Z".to_string()),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Allow));
+
+        // 03:00 should be allowed
+        let ctx = EvaluationContext {
+            timestamp: Some("2026-02-04T03:00:00Z".to_string()),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Allow));
+
+        // 10:00 should be denied
+        let ctx = EvaluationContext {
+            timestamp: Some("2026-02-04T10:00:00Z".to_string()),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_context_time_window_day_of_week_filter() {
+        // Only allow on Monday (1) and Tuesday (2)
+        let policy = make_context_policy(json!([
+            {"type": "time_window", "start_hour": 0, "end_hour": 23, "days": [1, 2]}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+
+        // 2026-02-04 is a Wednesday (day 3), should be denied
+        let ctx = EvaluationContext {
+            timestamp: Some("2026-02-04T12:00:00Z".to_string()),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Deny { .. }));
+
+        // 2026-02-02 is a Monday (day 1), should be allowed
+        let ctx = EvaluationContext {
+            timestamp: Some("2026-02-02T12:00:00Z".to_string()),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_context_max_calls_under_limit() {
+        let policy = make_context_policy(json!([
+            {"type": "max_calls", "tool_pattern": "read_file", "max": 5}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let mut counts = HashMap::new();
+        counts.insert("read_file".to_string(), 3);
+        let ctx = EvaluationContext {
+            call_counts: counts,
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_context_max_calls_at_limit_denies() {
+        let policy = make_context_policy(json!([
+            {"type": "max_calls", "tool_pattern": "read_file", "max": 5}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let mut counts = HashMap::new();
+        counts.insert("read_file".to_string(), 5);
+        let ctx = EvaluationContext {
+            call_counts: counts,
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_context_max_calls_wildcard_pattern() {
+        let policy = make_context_policy(json!([
+            {"type": "max_calls", "tool_pattern": "*", "max": 10}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let mut counts = HashMap::new();
+        counts.insert("read_file".to_string(), 5);
+        counts.insert("write_file".to_string(), 6);
+        let ctx = EvaluationContext {
+            call_counts: counts,
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_context_agent_id_allowed() {
+        let policy = make_context_policy(json!([
+            {"type": "agent_id", "allowed": ["agent-a", "agent-b"]}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_id: Some("agent-a".to_string()),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_context_agent_id_blocked() {
+        let policy = make_context_policy(json!([
+            {"type": "agent_id", "blocked": ["evil-agent"]}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_id: Some("evil-agent".to_string()),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_context_agent_id_missing_fails_closed() {
+        let policy = make_context_policy(json!([
+            {"type": "agent_id", "allowed": ["agent-a"]}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext::default(); // No agent_id
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_context_require_previous_action_present() {
+        let policy = make_context_policy(json!([
+            {"type": "require_previous_action", "required_tool": "authenticate"}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            previous_actions: vec!["authenticate".to_string(), "list_files".to_string()],
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_context_require_previous_action_absent() {
+        let policy = make_context_policy(json!([
+            {"type": "require_previous_action", "required_tool": "authenticate"}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            previous_actions: vec!["list_files".to_string()],
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_context_none_skips_all_conditions() {
+        // When context is None, all context conditions should be skipped
+        let policy = make_context_policy(json!([
+            {"type": "agent_id", "allowed": ["agent-a"]}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        // evaluate_action (no context) should not check context conditions
+        // With compiled policies but no context, the conditional policy evaluates
+        // as "allow" since there are no parameter constraints.
+        let v = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(matches!(v, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_context_compile_error_unknown_type() {
+        let policy = make_context_policy(json!([
+            {"type": "unknown_condition"}
+        ]));
+        let result = PolicyEngine::with_policies(false, &[policy]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_context_compile_error_invalid_time_window() {
+        let policy = make_context_policy(json!([
+            {"type": "time_window", "start_hour": 25, "end_hour": 10}
+        ]));
+        let result = PolicyEngine::with_policies(false, &[policy]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_context_traced_with_context() {
+        let policy = make_context_policy(json!([
+            {"type": "max_calls", "tool_pattern": "read_file", "max": 2}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let mut counts = HashMap::new();
+        counts.insert("read_file".to_string(), 5);
+        let ctx = EvaluationContext {
+            call_counts: counts,
+            ..Default::default()
+        };
+        let (v, _trace) = engine
+            .evaluate_action_traced_with_context(&action, Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Deny { .. }));
     }
 }
