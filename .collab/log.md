@@ -1,5 +1,43 @@
 # Shared Log
 
+## 2026-02-04 — Adversary-2 Round 7: DLP Blocking, Resource DLP, Deep Audit
+
+**Instance:** Adversary-2 (Opus 4.5)
+**Timestamp:** 2026-02-04
+**Test count:** 2,231 (all passing, 0 clippy warnings)
+**Commit:** 5d3d849
+
+### Fixes Applied
+
+| Finding | Severity | Fix |
+|---------|----------|-----|
+| DLP log-only in MCP proxy | CRITICAL | DLP now blocks tool calls when secrets detected (sends error response) |
+| Resource read lacks DLP | CRITICAL | resources/read URI now scanned for secrets before policy evaluation |
+| SSE injection_blocking bypass | CRITICAL | SSE streams blocked when injection found + injection_blocking=true |
+| PassThrough no audit trail | HIGH | Pass-through requests now audited with method/session |
+| TaskRequest no audit trail | HIGH | Task requests now audited with method/task_id/session |
+| Batch rejection no audit | MEDIUM | Batch rejections now audited with Deny verdict |
+| OOM via unbounded target extraction | CRITICAL | MAX_EXTRACTED_TARGETS=256 caps vector growth |
+| Config block_on_injection not wired | HIGH | HTTP proxy reads block_on_injection from config |
+
+### New Findings (Not Yet Fixed)
+
+| Finding | Severity | Status |
+|---------|----------|--------|
+| PassThrough/TaskRequest bypass policy evaluation | CRITICAL | Audit trail added; full policy enforcement needs design change |
+| Injection_blocking defaults to false | HIGH | Design choice — log-only by default |
+| Unicode homoglyphs in rug-pull tool name comparison | MEDIUM | Needs normalization before comparison |
+| Approval system capacity DoS (10K limit) | MEDIUM | Fail-closed, but no auto-expiry background task |
+| DLP patterns heuristic-only (evasion possible) | HIGH | Known limitation, documented |
+
+### Cumulative Security Improvements (Rounds 1-7)
+
+Total findings identified: **35+**
+Total findings fixed: **25+**
+Test count progression: 2,200 → 2,211 → 2,218 → 2,231
+
+---
+
 ## 2026-02-04 — Adversary-2 Round 6: SSE Blocking, Audit Trails, OOM Prevention
 
 **Instance:** Adversary-2 (Opus 4.5)
