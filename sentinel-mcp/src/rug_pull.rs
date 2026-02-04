@@ -1,19 +1,78 @@
-//! Shared rug-pull detection logic for MCP proxies.
+//! Shared rug-pull and tool squatting detection logic for MCP proxies.
 //!
 //! Rug-pull attacks manipulate tool annotations or tool lists between
 //! `tools/list` responses. This module provides a unified detection
 //! algorithm used by both the stdio and HTTP proxy implementations.
 //!
-//! Three attack types are detected:
+//! Four attack types are detected:
 //! 1. **Annotation changes** — tool claims different capabilities than before
 //! 2. **Tool additions** — new tools appear after the initial `tools/list`
 //! 3. **Tool removals** — known tools disappear from `tools/list`
+//! 4. **Tool squatting** — tool names similar to known tools (Levenshtein/homoglyph)
 
 use sentinel_audit::AuditLogger;
 use sentinel_types::{Action, Verdict};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
+
+// ── Tool Squatting Detection Types ─────────────────────
+
+/// Kind of tool squatting detected.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SquattingKind {
+    /// Tool name is within Levenshtein edit distance of a known tool.
+    Levenshtein,
+    /// Tool name matches a known tool after homoglyph normalization.
+    Homoglyph,
+}
+
+/// Alert for a suspected squatting tool.
+#[derive(Debug, Clone)]
+pub struct SquattingAlert {
+    /// The suspicious tool name (as received).
+    pub suspicious_tool: String,
+    /// The known tool it resembles.
+    pub similar_to: String,
+    /// Edit distance (0 for homoglyph matches).
+    pub distance: usize,
+    /// Type of squatting detected.
+    pub kind: SquattingKind,
+}
+
+/// Default well-known tool names to detect squatting against.
+pub const DEFAULT_KNOWN_TOOLS: &[&str] = &[
+    "read_file",
+    "write_file",
+    "edit_file",
+    "list_files",
+    "search_files",
+    "bash",
+    "execute",
+    "run_command",
+    "shell",
+    "terminal",
+    "read",
+    "write",
+    "delete",
+    "create_file",
+    "move_file",
+    "copy_file",
+    "http_request",
+    "fetch",
+    "curl",
+    "download",
+    "upload",
+    "send_email",
+    "database_query",
+    "sql_query",
+    "list_directory",
+    "get_url",
+    "post_url",
+    "execute_command",
+    "run_script",
+    "eval",
+];
 
 /// Tool annotations extracted from `tools/list` responses.
 ///
@@ -60,10 +119,12 @@ pub struct RugPullResult {
     pub new_tools: Vec<String>,
     /// Tools that disappeared from `tools/list`.
     pub removed_tools: Vec<String>,
-    /// Updated map of tool name → annotations (replaces the previous known state).
+    /// Updated map of tool name -> annotations (replaces the previous known state).
     pub updated_known: HashMap<String, ToolAnnotations>,
     /// Total number of tools in the current response.
     pub tool_count: usize,
+    /// Tool squatting alerts detected during analysis.
+    pub squatting_alerts: Vec<SquattingAlert>,
 }
 
 impl RugPullResult {
@@ -76,11 +137,12 @@ impl RugPullResult {
             .collect()
     }
 
-    /// Whether any rug-pull indicators were detected.
+    /// Whether any rug-pull or squatting indicators were detected.
     pub fn has_detections(&self) -> bool {
         !self.changed_tools.is_empty()
             || !self.new_tools.is_empty()
             || !self.removed_tools.is_empty()
+            || !self.squatting_alerts.is_empty()
     }
 }
 
@@ -134,9 +196,9 @@ pub fn compute_schema_hash(schema: &serde_json::Value) -> Option<String> {
 /// Returns a [`RugPullResult`] describing all detected changes.
 ///
 /// # Arguments
-/// - `response` — the full JSON-RPC response (must have `result.tools` array)
-/// - `known` — previously known tool annotations (empty on first call)
-/// - `is_first_list` — whether this is the initial `tools/list` for this session
+/// - `response` -- the full JSON-RPC response (must have `result.tools` array)
+/// - `known` -- previously known tool annotations (empty on first call)
+/// - `is_first_list` -- whether this is the initial `tools/list` for this session
 pub fn detect_rug_pull(
     response: &serde_json::Value,
     known: &HashMap<String, ToolAnnotations>,
@@ -160,7 +222,7 @@ pub fn detect_rug_pull(
 
     for tool in tools {
         // SECURITY: Normalize tool names to prevent Unicode homoglyph bypass.
-        // Without normalization, a server could use "bаsh" (Cyrillic 'а') to
+        // Without normalization, a server could use "bash" (Cyrillic 'a') to
         // evade flagging of "bash" (Latin 'a'). Same normalization as
         // classify_message() for consistency.
         let name = match tool.get("name").and_then(|n| n.as_str()) {
@@ -205,7 +267,7 @@ pub fn detect_rug_pull(
                 );
             }
         } else if !is_first_list {
-            // New tool added after initial tools/list — suspicious
+            // New tool added after initial tools/list -- suspicious
             result.new_tools.push(name.clone());
             tracing::warn!(
                 "SECURITY: New tool '{}' appeared after initial tools/list. \
@@ -250,13 +312,13 @@ pub fn detect_rug_pull(
 /// Audit rug-pull detection events to the audit log.
 ///
 /// Creates separate audit entries for annotation changes, tool removals,
-/// and tool additions. Each event is logged as a `Verdict::Deny` with
-/// the `sentinel` tool namespace.
+/// tool additions, and squatting alerts. Each event is logged as a
+/// `Verdict::Deny` with the `sentinel` tool namespace.
 ///
 /// # Arguments
-/// - `result` — the detection result from [`detect_rug_pull`]
-/// - `audit` — the audit logger
-/// - `source` — identifier for the proxy type (e.g., `"proxy"` or `"http_proxy"`)
+/// - `result` -- the detection result from [`detect_rug_pull`]
+/// - `audit` -- the audit logger
+/// - `source` -- identifier for the proxy type (e.g., `"proxy"` or `"http_proxy"`)
 pub async fn audit_rug_pull_events(result: &RugPullResult, audit: &AuditLogger, source: &str) {
     if !result.changed_tools.is_empty() {
         let action = Action::new(
@@ -335,6 +397,224 @@ pub async fn audit_rug_pull_events(result: &RugPullResult, audit: &AuditLogger, 
             tracing::warn!("Failed to audit tool addition: {}", e);
         }
     }
+
+    if !result.squatting_alerts.is_empty() {
+        let squatting_names: Vec<&str> = result
+            .squatting_alerts
+            .iter()
+            .map(|a| a.suspicious_tool.as_str())
+            .collect();
+        let action = Action::new(
+            "sentinel",
+            "tool_squatting_detected",
+            json!({
+                "suspicious_tools": squatting_names,
+                "alerts": result.squatting_alerts.iter().map(|a| {
+                    json!({
+                        "suspicious": &a.suspicious_tool,
+                        "similar_to": &a.similar_to,
+                        "distance": a.distance,
+                        "kind": format!("{:?}", a.kind),
+                    })
+                }).collect::<Vec<_>>(),
+            }),
+        );
+        let verdict = Verdict::Deny {
+            reason: format!("Tool squatting detected: {}", squatting_names.join(", ")),
+        };
+        if let Err(e) = audit
+            .log_entry(
+                &action,
+                &verdict,
+                json!({"source": source, "event": "tool_squatting"}),
+            )
+            .await
+        {
+            tracing::warn!("Failed to audit tool squatting: {}", e);
+        }
+    }
+}
+
+// ── Tool Squatting Detection ─────────────────────
+
+/// Compute Levenshtein edit distance between two strings.
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a_len = a.len();
+    let b_len = b.len();
+    if a_len == 0 {
+        return b_len;
+    }
+    if b_len == 0 {
+        return a_len;
+    }
+
+    let mut prev: Vec<usize> = (0..=b_len).collect();
+    let mut curr = vec![0usize; b_len + 1];
+
+    for (i, ca) in a.chars().enumerate() {
+        curr[0] = i + 1;
+        for (j, cb) in b.chars().enumerate() {
+            let cost = if ca == cb { 0 } else { 1 };
+            curr[j + 1] = (prev[j + 1] + 1)
+                .min(curr[j] + 1)
+                .min(prev[j] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b_len]
+}
+
+/// Map common Unicode confusables to their ASCII equivalents.
+/// Covers Cyrillic, Greek, and other common homoglyphs.
+fn normalize_homoglyphs(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            // Cyrillic confusables
+            '\u{0430}' => 'a', // Cyrillic a -> a
+            '\u{0435}' => 'e', // Cyrillic ie -> e
+            '\u{043E}' => 'o', // Cyrillic o -> o
+            '\u{0440}' => 'p', // Cyrillic er -> p
+            '\u{0441}' => 'c', // Cyrillic es -> c
+            '\u{0443}' => 'y', // Cyrillic u -> y
+            '\u{0445}' => 'x', // Cyrillic ha -> x
+            '\u{0456}' => 'i', // Cyrillic i -> i
+            '\u{0458}' => 'j', // Cyrillic je -> j
+            '\u{04BB}' => 'h', // Cyrillic shha -> h
+            '\u{0455}' => 's', // Cyrillic dze -> s
+            '\u{0410}' => 'a', // Cyrillic A -> a (uppercase Cyrillic)
+            '\u{0412}' => 'b', // Cyrillic Ve -> b
+            '\u{0415}' => 'e', // Cyrillic Ie -> e
+            '\u{041D}' => 'h', // Cyrillic En -> h
+            '\u{041E}' => 'o', // Cyrillic O -> o
+            '\u{0420}' => 'p', // Cyrillic Er -> p
+            '\u{0421}' => 'c', // Cyrillic Es -> c
+            '\u{0422}' => 't', // Cyrillic Te -> t
+            '\u{0425}' => 'x', // Cyrillic Ha -> x
+            // Greek confusables
+            '\u{03B1}' => 'a', // alpha -> a
+            '\u{03BF}' => 'o', // omicron -> o
+            '\u{03C1}' => 'p', // rho -> p
+            '\u{03B5}' => 'e', // epsilon -> e
+            // Other common confusables
+            '\u{0131}' => 'i', // dotless i -> i
+            '\u{1D00}' => 'a', // small capital A -> a
+            '\u{0261}' => 'g', // latin small letter script g -> g
+            '\u{01C0}' => 'l', // latin letter dental click -> l
+            other => other,
+        })
+        .collect()
+}
+
+/// Detect tool names suspiciously similar to known tools.
+///
+/// Checks for:
+/// 1. **Levenshtein distance <= 2**: Tools within 2 edits of a known tool
+/// 2. **Homoglyph collision**: Tools that match a known tool after Unicode normalization
+///
+/// Exact matches are NOT flagged (the tool IS the known tool).
+pub fn detect_squatting(tool_name: &str, known_tools: &HashSet<String>) -> Vec<SquattingAlert> {
+    let mut alerts = Vec::new();
+    let normalized = crate::extractor::normalize_method(tool_name);
+
+    // Skip if the tool IS a known tool (exact match after normalization)
+    if known_tools.contains(&normalized) {
+        return alerts;
+    }
+
+    // Check homoglyph normalization
+    let homoglyph_normalized = normalize_homoglyphs(&normalized);
+    for known in known_tools {
+        if homoglyph_normalized == *known && normalized != *known {
+            alerts.push(SquattingAlert {
+                suspicious_tool: tool_name.to_string(),
+                similar_to: known.clone(),
+                distance: 0,
+                kind: SquattingKind::Homoglyph,
+            });
+            // Don't also report Levenshtein for the same known tool
+            continue;
+        }
+    }
+
+    // Check Levenshtein distance
+    // Skip very short names (<=2 chars) as too many false positives
+    if normalized.len() > 2 {
+        for known in known_tools {
+            // Already reported as homoglyph
+            if alerts.iter().any(|a| a.similar_to == *known) {
+                continue;
+            }
+            // Quick length check to skip obvious non-matches
+            let len_diff =
+                (normalized.len() as isize - known.len() as isize).unsigned_abs();
+            if len_diff > 2 {
+                continue;
+            }
+            let dist = levenshtein(&normalized, known);
+            if dist > 0 && dist <= 2 {
+                alerts.push(SquattingAlert {
+                    suspicious_tool: tool_name.to_string(),
+                    similar_to: known.clone(),
+                    distance: dist,
+                    kind: SquattingKind::Levenshtein,
+                });
+            }
+        }
+    }
+
+    alerts
+}
+
+/// Build the set of known tool names from defaults + config overrides.
+pub fn build_known_tools(config_tools: &[String]) -> HashSet<String> {
+    let mut tools: HashSet<String> = DEFAULT_KNOWN_TOOLS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    for t in config_tools {
+        tools.insert(t.to_lowercase());
+    }
+    tools
+}
+
+/// Analyze a `tools/list` response for rug-pull AND squatting indicators.
+///
+/// Like [`detect_rug_pull`], but also checks tool names against known tools
+/// for squatting detection.
+pub fn detect_rug_pull_and_squatting(
+    response: &serde_json::Value,
+    known_annotations: &HashMap<String, ToolAnnotations>,
+    is_first_list: bool,
+    known_tools: &HashSet<String>,
+) -> RugPullResult {
+    let mut result = detect_rug_pull(response, known_annotations, is_first_list);
+
+    // Run squatting detection on all tools in the response
+    let tools = response
+        .get("result")
+        .and_then(|r| r.get("tools"))
+        .and_then(|t| t.as_array());
+
+    if let Some(tools) = tools {
+        for tool in tools {
+            if let Some(name) = tool.get("name").and_then(|n| n.as_str()) {
+                let squatting_alerts = detect_squatting(name, known_tools);
+                for alert in &squatting_alerts {
+                    tracing::warn!(
+                        "SECURITY: Tool squatting detected: '{}' is suspicious \
+                         -- similar to '{}' ({:?}, distance {})",
+                        alert.suspicious_tool,
+                        alert.similar_to,
+                        alert.kind,
+                        alert.distance
+                    );
+                }
+                result.squatting_alerts.extend(squatting_alerts);
+            }
+        }
+    }
+
+    result
 }
 
 #[cfg(test)]
@@ -737,5 +1017,128 @@ mod tests {
             "Flagged name should be normalized: {:?}",
             flagged
         );
+    }
+
+    // ── Tool Squatting Detection Tests ─────────────────────
+
+    #[test]
+    fn test_levenshtein_basic() {
+        assert_eq!(super::levenshtein("kitten", "sitting"), 3);
+        assert_eq!(super::levenshtein("", "abc"), 3);
+        assert_eq!(super::levenshtein("abc", ""), 3);
+        assert_eq!(super::levenshtein("abc", "abc"), 0);
+        assert_eq!(super::levenshtein("read_file", "read_flie"), 2);
+    }
+
+    #[test]
+    fn test_squatting_levenshtein_near_match() {
+        let known = build_known_tools(&[]);
+        let alerts = detect_squatting("read_flie", &known);
+        assert!(!alerts.is_empty(), "read_flie should be flagged");
+        assert!(alerts
+            .iter()
+            .any(|a| a.similar_to == "read_file" && a.kind == SquattingKind::Levenshtein));
+    }
+
+    #[test]
+    fn test_squatting_levenshtein_far_enough() {
+        let known = build_known_tools(&[]);
+        let alerts = detect_squatting("completely_different_tool", &known);
+        assert!(
+            alerts.is_empty(),
+            "Completely different name should not be flagged"
+        );
+    }
+
+    #[test]
+    fn test_squatting_homoglyph_cyrillic_a() {
+        let known = build_known_tools(&[]);
+        // "bash" with Cyrillic a (U+0430) instead of Latin a
+        let alerts = detect_squatting("b\u{0430}sh", &known);
+        assert!(
+            !alerts.is_empty(),
+            "Cyrillic 'a' in bash should be flagged"
+        );
+        assert!(alerts
+            .iter()
+            .any(|a| a.similar_to == "bash" && a.kind == SquattingKind::Homoglyph));
+    }
+
+    #[test]
+    fn test_squatting_exact_match_not_flagged() {
+        let known = build_known_tools(&[]);
+        let alerts = detect_squatting("read_file", &known);
+        assert!(alerts.is_empty(), "Exact match should NOT be flagged");
+    }
+
+    #[test]
+    fn test_squatting_empty_known_tools_no_flags() {
+        let known = HashSet::new();
+        let alerts = detect_squatting("read_file", &known);
+        assert!(alerts.is_empty(), "No known tools -> no flags");
+    }
+
+    #[test]
+    fn test_squatting_case_normalized() {
+        let known = build_known_tools(&[]);
+        // "Read_File" normalizes to "read_file" which is an exact match -> not flagged
+        let alerts = detect_squatting("Read_File", &known);
+        assert!(
+            alerts.is_empty(),
+            "Case variant of known tool should not be flagged"
+        );
+    }
+
+    #[test]
+    fn test_squatting_combined_with_rug_pull() {
+        let mut known_annotations = HashMap::new();
+        known_annotations.insert("read_file".to_string(), ToolAnnotations::default());
+        let known_tools = build_known_tools(&[]);
+
+        let response = json!({
+            "result": {
+                "tools": [
+                    {"name": "read_file", "annotations": {"readOnlyHint": false}},
+                    {"name": "read_flie"},
+                ]
+            }
+        });
+
+        let result =
+            detect_rug_pull_and_squatting(&response, &known_annotations, false, &known_tools);
+        // Should detect both annotation change AND squatting
+        assert!(result.has_detections());
+        assert!(!result.changed_tools.is_empty() || !result.new_tools.is_empty());
+        assert!(!result.squatting_alerts.is_empty());
+    }
+
+    #[test]
+    fn test_squatting_custom_known_tools() {
+        let known = build_known_tools(&["my_custom_tool".to_string()]);
+        let alerts = detect_squatting("my_custum_tool", &known);
+        assert!(
+            !alerts.is_empty(),
+            "Near match to custom tool should be flagged"
+        );
+    }
+
+    #[test]
+    fn test_squatting_short_names_not_flagged() {
+        let known = build_known_tools(&[]);
+        // Very short names (<=2 chars) should not trigger Levenshtein false positives
+        let alerts = detect_squatting("ab", &known);
+        assert!(
+            alerts.is_empty(),
+            "Very short names should not be flagged via Levenshtein"
+        );
+    }
+
+    #[test]
+    fn test_homoglyph_normalization() {
+        // Cyrillic confusables
+        assert_eq!(super::normalize_homoglyphs("b\u{0430}sh"), "bash");
+        assert_eq!(super::normalize_homoglyphs("\u{0435}xec"), "exec");
+        // Already ASCII stays the same
+        assert_eq!(super::normalize_homoglyphs("bash"), "bash");
     }
 }

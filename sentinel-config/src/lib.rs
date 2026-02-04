@@ -749,6 +749,12 @@ pub struct PolicyConfig {
     /// Set to 0 to disable iterative decoding (single pass only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_path_decode_iterations: Option<u32>,
+
+    /// Known tool names used for squatting detection. Tools with names
+    /// similar to these (Levenshtein distance <= 2 or homoglyph matches)
+    /// are flagged. When empty, the built-in default list is used.
+    #[serde(default)]
+    pub known_tool_names: Vec<String>,
 }
 
 /// Maximum number of custom PII patterns allowed in config.
@@ -766,6 +772,9 @@ pub const MAX_POLICIES: usize = 10_000;
 
 /// Maximum number of trusted keys for manifest verification.
 pub const MAX_TRUSTED_KEYS: usize = 50;
+
+/// Maximum number of known tool names for squatting detection.
+pub const MAX_KNOWN_TOOL_NAMES: usize = 1_000;
 
 impl PolicyConfig {
     /// Parse config from a JSON string.
@@ -816,6 +825,13 @@ impl PolicyConfig {
                 "manifest.trusted_keys has {} entries, max is {}",
                 self.manifest.trusted_keys.len(),
                 MAX_TRUSTED_KEYS
+            ));
+        }
+        if self.known_tool_names.len() > MAX_KNOWN_TOOL_NAMES {
+            return Err(format!(
+                "known_tool_names has {} entries, max is {}",
+                self.known_tool_names.len(),
+                MAX_KNOWN_TOOL_NAMES
             ));
         }
         Ok(())
@@ -1877,6 +1893,7 @@ policy_type = "Allow"
             supply_chain: SupplyChainConfig::default(),
             manifest: ManifestConfig::default(),
             max_path_decode_iterations: None,
+            known_tool_names: vec![],
         };
         config.policies = (0..=MAX_POLICIES)
             .map(|i| PolicyRule {

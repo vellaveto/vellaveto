@@ -497,6 +497,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             supply_chain: Default::default(),
             manifest: Default::default(),
             max_path_decode_iterations: None,
+            known_tool_names: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {
