@@ -544,7 +544,14 @@ fn scan_value_for_secrets(
 
 /// Maximum time budget for multi-layer DLP decoding per string value.
 /// If decoding takes longer than this, remaining layers are skipped.
-const DLP_DECODE_BUDGET: std::time::Duration = std::time::Duration::from_millis(2);
+/// Debug builds use a generous budget (50ms) because unoptimized regex
+/// matching is ~10-50x slower than release and parallel test threads
+/// cause contention. Release builds use 5ms which is ample for the
+/// 5-layer decode pipeline (typically <1ms).
+#[cfg(debug_assertions)]
+const DLP_DECODE_BUDGET: std::time::Duration = std::time::Duration::from_millis(50);
+#[cfg(not(debug_assertions))]
+const DLP_DECODE_BUDGET: std::time::Duration = std::time::Duration::from_millis(5);
 
 /// Attempt base64 decoding across standard and URL-safe variants (with and without padding).
 /// Returns `Some(decoded_string)` on success, `None` if no variant produces valid UTF-8.
@@ -619,24 +626,24 @@ fn scan_string_for_secrets(
     let start = std::time::Instant::now();
     let mut matched_patterns = std::collections::HashSet::new();
 
-    // Layer 1: Scan the raw string directly
+    // Layer 1: Scan the raw string directly (always runs, no budget check)
     scan_decoded_layer(s, path, "", regexes, &mut matched_patterns, findings);
 
     // Layer 2: base64(raw)
+    if start.elapsed() >= DLP_DECODE_BUDGET {
+        return;
+    }
     let base64_decoded = try_base64_decode(s);
     if let Some(ref decoded) = base64_decoded {
-        if start.elapsed() >= DLP_DECODE_BUDGET {
-            return;
-        }
         scan_decoded_layer(decoded, path, "(base64)", regexes, &mut matched_patterns, findings);
     }
 
     // Layer 3: percent(raw)
+    if start.elapsed() >= DLP_DECODE_BUDGET {
+        return;
+    }
     let percent_decoded = try_percent_decode(s);
     if let Some(ref decoded) = percent_decoded {
-        if start.elapsed() >= DLP_DECODE_BUDGET {
-            return;
-        }
         scan_decoded_layer(decoded, path, "(url_encoded)", regexes, &mut matched_patterns, findings);
     }
 

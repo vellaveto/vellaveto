@@ -607,7 +607,7 @@ Environment variables **override** values set in the config file. See below for 
 
 - **Path normalization decode limit.** `normalize_path()` iteratively decodes percent-encoding up to 20 layers (configurable via `PolicyEngine::set_max_path_decode_iterations`), then fails-closed to `"/"` and emits a warning. Paths exceeding the limit will match root rather than their intended target. This is intentional to prevent CPU exhaustion from adversarial inputs.
 
-- **DLP scanning is single-pass per encoding layer.** DLP detects secrets in raw, base64-decoded, and percent-decoded forms, but does not handle split secrets across multiple fields or multi-step encoding chains (e.g., base64-of-URL-encoded). Treat DLP as a best-effort safety net, not a guarantee.
+- **DLP does not detect split secrets.** DLP scans each string value through 5 decode layers (raw, base64, percent, base64+percent, percent+base64) with a per-value time budget. However, secrets split across multiple JSON fields or fragmented within a single field are not reassembled. Treat DLP as a best-effort safety net, not a guarantee.
 
 - **Checkpoint trust anchor.** Checkpoint signatures use self-embedded Ed25519 public keys by default (TOFU model). For stronger guarantees, pin a trusted verifying key via the `SENTINEL_TRUSTED_KEY` environment variable.
 
