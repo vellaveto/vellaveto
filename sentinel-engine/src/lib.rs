@@ -661,7 +661,11 @@ impl PolicyEngine {
         };
 
         // Compile IP rules — parse CIDRs at compile time (fail-closed on invalid CIDR).
-        let compiled_ip_rules = match policy.network_rules.as_ref().and_then(|nr| nr.ip_rules.as_ref()) {
+        let compiled_ip_rules = match policy
+            .network_rules
+            .as_ref()
+            .and_then(|nr| nr.ip_rules.as_ref())
+        {
             Some(ir) => {
                 let mut blocked_cidrs = Vec::with_capacity(ir.blocked_cidrs.len());
                 for cidr_str in &ir.blocked_cidrs {
@@ -4274,7 +4278,7 @@ fn is_private_ip(ip: IpAddr) -> bool {
             || v4.is_private()     // 10/8, 172.16/12, 192.168/16
             || v4.is_link_local()  // 169.254/16
             || v4.is_unspecified() // 0.0.0.0
-            || v4.is_broadcast()   // 255.255.255.255
+            || v4.is_broadcast() // 255.255.255.255
         }
         IpAddr::V6(v6) => {
             v6.is_loopback()       // ::1
@@ -8087,6 +8091,53 @@ mod tests {
         assert!(matches!(trace_d.verdict, Verdict::Deny { .. }));
     }
 
+    /// R17-ENGINE-1: The traced evaluation path must enforce IP rules.
+    /// Previously, `apply_compiled_policy_traced_ctx` was missing the
+    /// `check_ip_rules` call, allowing `?trace=true` to bypass IP blocking.
+    #[test]
+    fn test_traced_ip_rules_enforced() {
+        use sentinel_types::IpRules;
+
+        let policies = vec![Policy {
+            id: "http:*".to_string(),
+            name: "Allow with IP block".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: Some(sentinel_types::NetworkRules {
+                allowed_domains: vec!["example.com".to_string()],
+                blocked_domains: vec![],
+                ip_rules: Some(IpRules {
+                    block_private: true,
+                    allowed_cidrs: vec![],
+                    blocked_cidrs: vec![],
+                }),
+            }),
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // Action with a private IP (loopback) that resolves for a domain
+        let mut action = action_with("http", "get", json!({}));
+        action.target_domains = vec!["example.com".to_string()];
+        action.resolved_ips = vec!["127.0.0.1".to_string()];
+
+        // Non-traced path should deny
+        let verdict = engine.evaluate_action(&action, &[]).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "Non-traced path must deny private IP. Got: {:?}",
+            verdict
+        );
+
+        // Traced path must also deny (was previously bypassed)
+        let (traced_verdict, _trace) = engine.evaluate_action_traced(&action).unwrap();
+        assert!(
+            matches!(traced_verdict, Verdict::Deny { .. }),
+            "Traced path must deny private IP (R17-ENGINE-1 regression). Got: {:?}",
+            traced_verdict
+        );
+    }
+
     // ═══════════════════════════════════════════════════
     // PATH/NETWORK RULES TESTS (Phase 3E)
     // ═══════════════════════════════════════════════════
@@ -8425,7 +8476,8 @@ mod tests {
             assert!(
                 matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
                 "RFC 1918 address {} should be blocked, got: {:?}",
-                ip, verdict
+                ip,
+                verdict
             );
         }
     }

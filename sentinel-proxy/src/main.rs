@@ -148,7 +148,10 @@ async fn main() -> Result<()> {
     })?;
     if let Some(max_iter) = policy_config.max_path_decode_iterations {
         engine.set_max_path_decode_iterations(max_iter);
-        tracing::info!(max_path_decode_iterations = max_iter, "custom path decode iteration limit");
+        tracing::info!(
+            max_path_decode_iterations = max_iter,
+            "custom path decode iteration limit"
+        );
     }
     let timeout = std::time::Duration::from_secs(cli.timeout);
     let mut bridge = ProxyBridge::new(engine, policies, audit)

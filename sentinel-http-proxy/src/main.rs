@@ -118,7 +118,10 @@ async fn main() -> Result<()> {
         Ok(mut engine) => {
             if let Some(max_iter) = policy_config.max_path_decode_iterations {
                 engine.set_max_path_decode_iterations(max_iter);
-                tracing::info!(max_path_decode_iterations = max_iter, "custom path decode iteration limit");
+                tracing::info!(
+                    max_path_decode_iterations = max_iter,
+                    "custom path decode iteration limit"
+                );
             }
             tracing::info!(
                 "Compiled {} policies (pre-compiled evaluation path active)",

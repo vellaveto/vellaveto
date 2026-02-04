@@ -580,7 +580,16 @@ pub async fn handle_mcp_post(
                     // Update session tracking after allowed tool call
                     update_session_after_allow(&state.sessions, &session_id, &tool_name);
                     // Forward to upstream — canonicalize if configured (KL2 TOCTOU fix)
-                    let forward_body = canonicalize_body(&state, &msg, body);
+                    let forward_body = match canonicalize_body(&state, &msg, body) {
+                        Some(b) => b,
+                        None => {
+                            return make_jsonrpc_error(
+                                msg.get("id"),
+                                -32603,
+                                "Internal error: canonicalization failed",
+                            )
+                        }
+                    };
                     let response = forward_to_upstream(
                         &state,
                         &session_id,
@@ -742,7 +751,16 @@ pub async fn handle_mcp_post(
             match eval_result {
                 Ok((Verdict::Allow, trace)) => {
                     // Canonicalize if configured (KL2 TOCTOU fix)
-                    let forward_body = canonicalize_body(&state, &msg, body);
+                    let forward_body = match canonicalize_body(&state, &msg, body) {
+                        Some(b) => b,
+                        None => {
+                            return make_jsonrpc_error(
+                                msg.get("id"),
+                                -32603,
+                                "Internal error: canonicalization failed",
+                            )
+                        }
+                    };
                     let response = forward_to_upstream(
                         &state,
                         &session_id,
@@ -915,7 +933,16 @@ pub async fn handle_mcp_post(
             }
 
             // Canonicalize if configured (KL2 TOCTOU fix)
-            let forward_body = canonicalize_body(&state, &msg, body);
+            let forward_body = match canonicalize_body(&state, &msg, body) {
+                Some(b) => b,
+                None => {
+                    return make_jsonrpc_error(
+                        msg.get("id"),
+                        -32603,
+                        "Internal error: canonicalization failed",
+                    )
+                }
+            };
             let response = forward_to_upstream(
                 &state,
                 &session_id,
@@ -1074,7 +1101,16 @@ pub async fn handle_mcp_post(
                         tracing::warn!("Audit log failed: {}", e);
                     }
 
-                    let forward_body = canonicalize_body(&state, &msg, body);
+                    let forward_body = match canonicalize_body(&state, &msg, body) {
+                        Some(b) => b,
+                        None => {
+                            return make_jsonrpc_error(
+                                msg.get("id"),
+                                -32603,
+                                "Internal error: canonicalization failed",
+                            )
+                        }
+                    };
                     let response = forward_to_upstream(
                         &state,
                         &session_id,
@@ -1581,6 +1617,19 @@ fn canonicalize_body(state: &ProxyState, parsed: &Value, original: Bytes) -> Opt
     } else {
         Some(original)
     }
+}
+
+/// Build a JSON-RPC error response (fail-closed helper).
+fn make_jsonrpc_error(id: Option<&Value>, code: i64, message: &str) -> Response {
+    let error_response = json!({
+        "jsonrpc": "2.0",
+        "id": id.cloned().unwrap_or(Value::Null),
+        "error": {
+            "code": code,
+            "message": message,
+        }
+    });
+    (StatusCode::OK, Json(error_response)).into_response()
 }
 
 /// Forward a request to the upstream MCP server.
@@ -2974,7 +3023,7 @@ mod tests {
         let state = make_test_proxy_state(false);
         let original = Bytes::from(r#"{"jsonrpc":"2.0",  "id":1,  "method":"tools/call"}"#);
         let parsed: Value = serde_json::from_slice(&original).unwrap();
-        let result = canonicalize_body(&state, &parsed, original.clone());
+        let result = canonicalize_body(&state, &parsed, original.clone()).unwrap();
         // With canonicalize off, should return original bytes exactly
         assert_eq!(result, original);
     }
@@ -2985,7 +3034,7 @@ mod tests {
         // Original has extra whitespace
         let original = Bytes::from(r#"{"jsonrpc":"2.0",  "id":1,  "method":"tools/call"}"#);
         let parsed: Value = serde_json::from_slice(&original).unwrap();
-        let result = canonicalize_body(&state, &parsed, original.clone());
+        let result = canonicalize_body(&state, &parsed, original.clone()).unwrap();
         // With canonicalize on, should be re-serialized (compact, no extra whitespace)
         assert_ne!(
             result, original,
@@ -3009,7 +3058,7 @@ mod tests {
             }
         });
         let original = Bytes::from(serde_json::to_vec(&msg).unwrap());
-        let result = canonicalize_body(&state, &msg, original);
+        let result = canonicalize_body(&state, &msg, original).unwrap();
         let reparsed: Value = serde_json::from_slice(&result).unwrap();
         assert_eq!(
             msg, reparsed,
@@ -3022,7 +3071,7 @@ mod tests {
         let state = make_test_proxy_state(true);
         let original = Bytes::from(r#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#);
         let parsed: Value = serde_json::from_slice(&original).unwrap();
-        let result = canonicalize_body(&state, &parsed, original);
+        let result = canonicalize_body(&state, &parsed, original).unwrap();
         // Even if bytes differ due to key ordering, semantics must match
         let reparsed: Value = serde_json::from_slice(&result).unwrap();
         assert_eq!(parsed, reparsed);

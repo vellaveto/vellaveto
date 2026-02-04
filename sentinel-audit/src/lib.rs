@@ -1317,11 +1317,9 @@ impl AuditLogger {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = tokio::fs::set_permissions(
-                &self.log_path,
-                std::fs::Permissions::from_mode(0o600),
-            )
-            .await;
+            let _ =
+                tokio::fs::set_permissions(&self.log_path, std::fs::Permissions::from_mode(0o600))
+                    .await;
         }
 
         // Fix #35: For Deny verdicts, call sync_data() to ensure the entry
@@ -3770,9 +3768,7 @@ mod tests {
         }
 
         let action = Action::new("tool", "func", json!({}));
-        let result = logger
-            .log_entry(&action, &Verdict::Allow, nested)
-            .await;
+        let result = logger.log_entry(&action, &Verdict::Allow, nested).await;
 
         assert!(result.is_err(), "Deeply nested metadata should be rejected");
         let err_msg = result.unwrap_err().to_string();
@@ -3793,9 +3789,7 @@ mod tests {
         let metadata = json!({"a": {"b": {"c": "value"}}});
 
         let action = Action::new("tool", "func", json!({}));
-        let result = logger
-            .log_entry(&action, &Verdict::Allow, metadata)
-            .await;
+        let result = logger.log_entry(&action, &Verdict::Allow, metadata).await;
 
         assert!(result.is_ok(), "Shallow metadata should be accepted");
     }

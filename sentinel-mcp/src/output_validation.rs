@@ -25,6 +25,15 @@ pub struct OutputSchemaRegistry {
     schemas: RwLock<HashMap<String, Value>>,
 }
 
+/// Maximum number of tool schemas stored in the registry.
+/// Prevents memory exhaustion from a malicious MCP server advertising
+/// thousands of tools with large outputSchema objects.
+const MAX_SCHEMA_ENTRIES: usize = 1000;
+
+/// Maximum serialized size (bytes) of a single output schema.
+/// Schemas larger than this are silently dropped to prevent memory abuse.
+const MAX_SCHEMA_SIZE: usize = 64 * 1024; // 64 KB
+
 /// Result of validating structured output against a tool's declared schema.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValidationResult {
@@ -70,6 +79,16 @@ impl OutputSchemaRegistry {
 
             if let (Some(name), Some(schema)) = (name, schema) {
                 if schema.is_object() {
+                    // SECURITY: Reject oversized schemas to prevent memory exhaustion
+                    if let Ok(serialized) = serde_json::to_string(schema) {
+                        if serialized.len() > MAX_SCHEMA_SIZE {
+                            continue;
+                        }
+                    }
+                    // SECURITY: Cap total registry size
+                    if schemas.len() >= MAX_SCHEMA_ENTRIES && !schemas.contains_key(name) {
+                        continue;
+                    }
                     schemas.insert(name.to_string(), schema.clone());
                 }
             }
@@ -79,6 +98,16 @@ impl OutputSchemaRegistry {
     /// Register a single tool's output schema directly.
     pub fn register(&self, tool_name: &str, schema: Value) {
         if let Ok(mut schemas) = self.schemas.write() {
+            // SECURITY: Reject oversized schemas
+            if let Ok(serialized) = serde_json::to_string(&schema) {
+                if serialized.len() > MAX_SCHEMA_SIZE {
+                    return;
+                }
+            }
+            // SECURITY: Cap total registry size
+            if schemas.len() >= MAX_SCHEMA_ENTRIES && !schemas.contains_key(tool_name) {
+                return;
+            }
             schemas.insert(tool_name.to_string(), schema);
         }
     }
@@ -598,5 +627,43 @@ mod tests {
             }
             other => panic!("Expected Invalid, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_registry_rejects_oversized_schema() {
+        let registry = OutputSchemaRegistry::new();
+        // Create a schema larger than MAX_SCHEMA_SIZE (64 KB)
+        let big_value = "x".repeat(70_000);
+        let big_schema = json!({
+            "type": "object",
+            "description": big_value
+        });
+        registry.register("big_tool", big_schema);
+        assert!(
+            !registry.has_schema("big_tool"),
+            "Oversized schema should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_registry_caps_total_entries() {
+        let registry = OutputSchemaRegistry::new();
+        // Register MAX_SCHEMA_ENTRIES tools
+        for i in 0..MAX_SCHEMA_ENTRIES {
+            registry.register(&format!("tool_{}", i), json!({"type": "object"}));
+        }
+        assert!(registry.has_schema("tool_0"));
+        assert!(registry.has_schema(&format!("tool_{}", MAX_SCHEMA_ENTRIES - 1)));
+
+        // One more should be rejected (new key)
+        registry.register("overflow_tool", json!({"type": "object"}));
+        assert!(
+            !registry.has_schema("overflow_tool"),
+            "Should reject new entries past MAX_SCHEMA_ENTRIES"
+        );
+
+        // But updating an existing entry should still work
+        registry.register("tool_0", json!({"type": "string"}));
+        assert!(registry.has_schema("tool_0"));
     }
 }

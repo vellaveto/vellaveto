@@ -318,25 +318,25 @@ fn scan_params_for_targets_inner(
                     && scheme.len() <= 10
                     && scheme.chars().all(|c| c.is_ascii_alphabetic())
                 {
-                if let Some(authority) = s.find("://").map(|i| &s[i + 3..]) {
-                    let host_raw = authority.split('/').next().unwrap_or(authority);
-                    // SECURITY (R12-EXT-2): Percent-decode authority before splitting on '@'.
-                    // Without this, http://evil.com%40blocked.com bypasses domain matching.
-                    let decoded =
-                        percent_encoding::percent_decode_str(host_raw).decode_utf8_lossy();
-                    let host = decoded.as_ref();
-                    let host = host.split(':').next().unwrap_or(host);
-                    let host = host.split('?').next().unwrap_or(host);
-                    let host = host.split('#').next().unwrap_or(host);
-                    let host = if let Some(pos) = host.rfind('@') {
-                        &host[pos + 1..]
-                    } else {
-                        host
-                    };
-                    if !host.is_empty() {
-                        domains.push(host.to_lowercase());
+                    if let Some(authority) = s.find("://").map(|i| &s[i + 3..]) {
+                        let host_raw = authority.split('/').next().unwrap_or(authority);
+                        // SECURITY (R12-EXT-2): Percent-decode authority before splitting on '@'.
+                        // Without this, http://evil.com%40blocked.com bypasses domain matching.
+                        let decoded =
+                            percent_encoding::percent_decode_str(host_raw).decode_utf8_lossy();
+                        let host = decoded.as_ref();
+                        let host = host.split(':').next().unwrap_or(host);
+                        let host = host.split('?').next().unwrap_or(host);
+                        let host = host.split('#').next().unwrap_or(host);
+                        let host = if let Some(pos) = host.rfind('@') {
+                            &host[pos + 1..]
+                        } else {
+                            host
+                        };
+                        if !host.is_empty() {
+                            domains.push(host.to_lowercase());
+                        }
                     }
-                }
                 }
             } else if s.starts_with('/') && !s.contains(' ') {
                 // Strip query/fragments from raw paths
@@ -777,12 +777,7 @@ async fn audit_entries(
     let offset = params.offset.unwrap_or(0);
 
     // Return the most recent entries (tail of the list), paginated.
-    let page: Vec<_> = entries
-        .into_iter()
-        .rev()
-        .skip(offset)
-        .take(limit)
-        .collect();
+    let page: Vec<_> = entries.into_iter().rev().skip(offset).take(limit).collect();
 
     Ok(Json(
         json!({"total": total, "count": page.len(), "offset": offset, "limit": limit, "entries": page}),
@@ -987,10 +982,7 @@ fn validate_approval_id(id: &str) -> Result<(), (StatusCode, Json<ErrorResponse>
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!(
-                    "Approval ID must be 1-{} characters",
-                    MAX_APPROVAL_ID_LEN
-                ),
+                error: format!("Approval ID must be 1-{} characters", MAX_APPROVAL_ID_LEN),
             }),
         ));
     }
@@ -1028,7 +1020,8 @@ async fn approve_approval(
     let client_resolved_by = body
         .map(|b| b.resolved_by.clone())
         .unwrap_or_else(|| "anonymous".to_string());
-    let resolved_by = sanitize_resolved_by(&derive_resolver_identity(&headers, &client_resolved_by));
+    let resolved_by =
+        sanitize_resolved_by(&derive_resolver_identity(&headers, &client_resolved_by));
 
     if resolved_by.len() > MAX_RESOLVED_BY_LEN {
         return Err((
@@ -1121,7 +1114,8 @@ async fn deny_approval(
     let client_resolved_by = body
         .map(|b| b.resolved_by.clone())
         .unwrap_or_else(|| "anonymous".to_string());
-    let resolved_by = sanitize_resolved_by(&derive_resolver_identity(&headers, &client_resolved_by));
+    let resolved_by =
+        sanitize_resolved_by(&derive_resolver_identity(&headers, &client_resolved_by));
 
     if resolved_by.len() > MAX_RESOLVED_BY_LEN {
         return Err((

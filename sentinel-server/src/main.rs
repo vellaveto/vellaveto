@@ -445,7 +445,10 @@ async fn cmd_serve(
         Ok(mut compiled) => {
             if let Some(max_iter) = policy_config.max_path_decode_iterations {
                 compiled.set_max_path_decode_iterations(max_iter);
-                tracing::info!(max_path_decode_iterations = max_iter, "custom path decode iteration limit");
+                tracing::info!(
+                    max_path_decode_iterations = max_iter,
+                    "custom path decode iteration limit"
+                );
             }
             tracing::info!(
                 "Pre-compiled {} policies — zero-Mutex evaluation enabled",

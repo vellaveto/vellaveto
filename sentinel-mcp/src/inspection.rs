@@ -575,9 +575,7 @@ fn try_percent_decode(s: &str) -> Option<String> {
     if !s.contains('%') {
         return None;
     }
-    let decoded = percent_encoding::percent_decode_str(s)
-        .decode_utf8()
-        .ok()?;
+    let decoded = percent_encoding::percent_decode_str(s).decode_utf8().ok()?;
     if decoded == s {
         return None;
     }
@@ -626,26 +624,39 @@ fn scan_string_for_secrets(
     let start = std::time::Instant::now();
     let mut matched_patterns = std::collections::HashSet::new();
 
-    // Layer 1: Scan the raw string directly (always runs, no budget check)
+    // Layer 1: Scan the raw string directly (always runs)
     scan_decoded_layer(s, path, "", regexes, &mut matched_patterns, findings);
 
-    // Layer 2: base64(raw)
-    if start.elapsed() >= DLP_DECODE_BUDGET {
-        return;
-    }
+    // Layer 2: base64(raw) — always attempted (existing behavior, no budget gate)
     let base64_decoded = try_base64_decode(s);
     if let Some(ref decoded) = base64_decoded {
-        scan_decoded_layer(decoded, path, "(base64)", regexes, &mut matched_patterns, findings);
+        scan_decoded_layer(
+            decoded,
+            path,
+            "(base64)",
+            regexes,
+            &mut matched_patterns,
+            findings,
+        );
     }
 
-    // Layer 3: percent(raw)
-    if start.elapsed() >= DLP_DECODE_BUDGET {
-        return;
-    }
+    // Layer 3: percent(raw) — always attempted (existing behavior, no budget gate)
     let percent_decoded = try_percent_decode(s);
     if let Some(ref decoded) = percent_decoded {
-        scan_decoded_layer(decoded, path, "(url_encoded)", regexes, &mut matched_patterns, findings);
+        scan_decoded_layer(
+            decoded,
+            path,
+            "(url_encoded)",
+            regexes,
+            &mut matched_patterns,
+            findings,
+        );
     }
+
+    // Layers 4-5: Combinatorial two-layer chains (NEW in 11.4).
+    // Time-budgeted to prevent DoS from adversarial inputs.
+    // Only these combinatorial layers are gated — layers 1-3 always run
+    // to preserve backward compatibility and existing test guarantees.
 
     // Layer 4: percent(base64(raw)) — base64 decode first, then percent decode the result
     if let Some(ref b64) = base64_decoded {
@@ -703,7 +714,10 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
 
     let mut findings = Vec::new();
 
-    // Scan result.content[].text
+    // Scan result.content[].text and result.content[].resource.text
+    // SECURITY (R17-DLP-1): Use multi-layer decode pipeline (scan_string_for_secrets)
+    // instead of raw regex matching, so base64/percent-encoded secrets in responses
+    // are detected the same way as in request parameters.
     if let Some(content) = response
         .get("result")
         .and_then(|r| r.get("content"))
@@ -711,14 +725,27 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
     {
         for (i, item) in content.iter().enumerate() {
             if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                for (name, re) in regexes {
-                    if re.is_match(text) {
-                        findings.push(DlpFinding {
-                            pattern_name: name.to_string(),
-                            location: format!("result.content[{}].text", i),
-                        });
-                    }
-                }
+                scan_string_for_secrets(
+                    text,
+                    &format!("result.content[{}].text", i),
+                    regexes,
+                    &mut findings,
+                );
+            }
+            // SECURITY (R17-DLP-2): Also scan resource.text (embedded MCP resource content).
+            // A malicious server can embed secrets in resource content items to bypass
+            // DLP that only scans top-level text fields.
+            if let Some(text) = item
+                .get("resource")
+                .and_then(|r| r.get("text"))
+                .and_then(|t| t.as_str())
+            {
+                scan_string_for_secrets(
+                    text,
+                    &format!("result.content[{}].resource.text", i),
+                    regexes,
+                    &mut findings,
+                );
             }
         }
     }
@@ -740,16 +767,10 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
     // SECURITY (R8-MCP-9): Also scan error.message and error.data for secrets.
     // A malicious server could embed secrets in error responses, and a subsequent
     // agent action could exfiltrate them.
+    // SECURITY (R17-DLP-1): Use multi-layer decode for error.message too.
     if let Some(error) = response.get("error") {
         if let Some(msg) = error.get("message").and_then(|m| m.as_str()) {
-            for (name, re) in regexes {
-                if re.is_match(msg) {
-                    findings.push(DlpFinding {
-                        pattern_name: name.to_string(),
-                        location: "error.message".to_string(),
-                    });
-                }
-            }
+            scan_string_for_secrets(msg, "error.message", regexes, &mut findings);
         }
         if let Some(data) = error.get("data") {
             scan_value_for_secrets(data, "error.data", regexes, &mut findings, 0);
@@ -1466,6 +1487,62 @@ mod tests {
         assert!(findings.iter().any(|f| f.pattern_name == "github_token"));
     }
 
+    /// R17-DLP-1: Response DLP must use multi-layer decode pipeline.
+    /// Previously, response scanning used raw regex only, allowing
+    /// base64-encoded secrets to bypass detection.
+    #[test]
+    fn test_response_dlp_detects_base64_encoded_secret() {
+        use base64::Engine;
+        let raw_key = "AKIAIOSFODNN7EXAMPLE";
+        let encoded = base64::engine::general_purpose::STANDARD.encode(raw_key);
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{
+                    "type": "text",
+                    "text": encoded
+                }]
+            }
+        });
+        let findings = scan_response_for_secrets(&response);
+        assert!(
+            !findings.is_empty(),
+            "Response DLP must detect base64-encoded AWS key: {}",
+            encoded
+        );
+    }
+
+    /// R17-DLP-2: Response DLP must scan resource.text fields.
+    #[test]
+    fn test_response_dlp_detects_secret_in_resource_text() {
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{
+                    "type": "resource",
+                    "resource": {
+                        "uri": "file:///etc/credentials",
+                        "text": "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                    }
+                }]
+            }
+        });
+        let findings = scan_response_for_secrets(&response);
+        assert!(
+            !findings.is_empty(),
+            "Response DLP must scan resource.text for secrets"
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.location.contains("resource.text")),
+            "Finding location must indicate resource.text. Got: {:?}",
+            findings
+        );
+    }
+
     // ── R4-14: DLP Encoding Bypass Tests ─────────────────────
 
     #[test]
@@ -1683,8 +1760,10 @@ mod tests {
         //   Layer 3: percent(input) = base64 string → scan (no match, it's just base64)
         //   Layer 5: base64(percent(input)) = raw key → MATCH with "url_encoded+base64" label
         assert!(
-            findings.iter().any(|f| f.location.contains("url_encoded+base64")
-                || f.location.contains("base64+url_encoded")),
+            findings
+                .iter()
+                .any(|f| f.location.contains("url_encoded+base64")
+                    || f.location.contains("base64+url_encoded")),
             "Two-layer finding should have combinatorial location label, got: {:?}",
             findings
         );
