@@ -706,6 +706,8 @@ fn cmd_policies(preset: String) -> Result<()> {
             policy_type: p.policy_type.clone(),
             priority: Some(p.priority),
             id: Some(p.id.clone()),
+            path_rules: p.path_rules.clone(),
+            network_rules: p.network_rules.clone(),
         })
         .collect();
 

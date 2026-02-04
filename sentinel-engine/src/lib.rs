@@ -327,6 +327,10 @@ pub struct CompiledPolicy {
     pub context_conditions: Vec<CompiledContextCondition>,
 }
 
+/// Default maximum percent-decoding iterations in [`PolicyEngine::normalize_path`].
+/// Paths requiring more iterations fail-closed to `"/"`.
+pub const DEFAULT_MAX_PATH_DECODE_ITERATIONS: u32 = 20;
+
 /// The core policy evaluation engine.
 ///
 /// Evaluates [`Action`]s against a set of [`Policy`] rules to produce a [`Verdict`].
@@ -336,10 +340,6 @@ pub struct CompiledPolicy {
 /// - **Fail-closed**: An empty policy set produces `Verdict::Deny`.
 /// - **Priority ordering**: Higher-priority policies are evaluated first.
 /// - **Pattern matching**: Policy IDs use `"tool:function"` convention with wildcard support.
-/// Default maximum percent-decoding iterations in [`PolicyEngine::normalize_path`].
-/// Paths requiring more iterations fail-closed to `"/"`.
-pub const DEFAULT_MAX_PATH_DECODE_ITERATIONS: u32 = 20;
-
 pub struct PolicyEngine {
     strict_mode: bool,
     compiled_policies: Vec<CompiledPolicy>,
@@ -5556,6 +5556,61 @@ mod tests {
         assert_eq!(
             result, "/",
             "Encoding requiring >20 decode iterations should fail-closed to root"
+        );
+    }
+
+    #[test]
+    fn test_normalize_path_bounded_custom_limit() {
+        // Build a 5-level encoded path that needs exactly 5 decode passes.
+        let mut encoded = "%70".to_string(); // level 0: %70 → p
+        for _ in 0..5 {
+            encoded = format!("%25{}", &encoded[1..]);
+        }
+        let input = format!("/etc/{}asswd", encoded);
+
+        // With limit=10, 5 iterations succeeds.
+        assert_eq!(
+            PolicyEngine::normalize_path_bounded(&input, 10),
+            "/etc/passwd"
+        );
+
+        // With limit=3, 5 iterations exceeds the cap → fail-closed to "/".
+        assert_eq!(
+            PolicyEngine::normalize_path_bounded(&input, 3),
+            "/"
+        );
+    }
+
+    #[test]
+    fn test_normalize_path_bounded_zero_limit() {
+        // With limit=0, even a single percent-encoded char fails closed.
+        assert_eq!(
+            PolicyEngine::normalize_path_bounded("/etc/%70asswd", 0),
+            "/"
+        );
+        // Plain paths (no percent-encoding) still work fine.
+        assert_eq!(
+            PolicyEngine::normalize_path_bounded("/etc/passwd", 0),
+            "/etc/passwd"
+        );
+    }
+
+    #[test]
+    fn test_set_max_path_decode_iterations() {
+        let mut engine = PolicyEngine::new(false);
+        // Default is the constant.
+        assert_eq!(
+            PolicyEngine::normalize_path("/etc/%70asswd"),
+            "/etc/passwd"
+        );
+
+        // After setting to 0, the engine's internal calls would use the
+        // configured limit. Verify the setter doesn't panic.
+        engine.set_max_path_decode_iterations(5);
+        // The public associated function still uses the default (backward compat).
+        assert_eq!(
+            PolicyEngine::normalize_path("/etc/%70asswd"),
+            "/etc/passwd"
         );
     }
 

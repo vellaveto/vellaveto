@@ -1628,6 +1628,32 @@ async fn forward_to_upstream(
                     }
                 }
             } else {
+                // SECURITY (R12-RESP-2): Validate content type. MCP Streamable HTTP
+                // only defines application/json and text/event-stream. Unexpected
+                // content types could bypass all scanning (injection, DLP, schema).
+                if !content_type.is_empty()
+                    && !content_type.starts_with("application/json")
+                    && !content_type.starts_with("text/json")
+                {
+                    tracing::warn!(
+                        "SECURITY: Upstream returned unexpected content-type '{}' — \
+                         blocking to prevent scan bypass",
+                        content_type
+                    );
+                    return (
+                        StatusCode::BAD_GATEWAY,
+                        Json(json!({
+                            "jsonrpc": "2.0",
+                            "error": {
+                                "code": -32000,
+                                "message": "Upstream returned unexpected content type"
+                            },
+                            "id": null
+                        })),
+                    )
+                        .into_response();
+                }
+
                 // JSON response — read body, inspect, and forward
                 // Bounded read prevents OOM from oversized responses.
                 match read_bounded_response(upstream_resp, MAX_RESPONSE_BODY_SIZE).await {

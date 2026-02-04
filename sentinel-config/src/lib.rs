@@ -1,4 +1,4 @@
-use sentinel_types::{Policy, PolicyType};
+use sentinel_types::{NetworkRules, PathRules, Policy, PolicyType};
 use serde::{Deserialize, Serialize};
 
 fn default_priority() -> Option<i32> {
@@ -66,6 +66,15 @@ pub struct PolicyRule {
     pub priority: Option<i32>,
     #[serde(default)]
     pub id: Option<String>,
+    /// Optional path-based access control rules (file system operations).
+    /// SECURITY (R12-CFG-1): Previously missing — path_rules from config were
+    /// silently discarded in to_policies(), making path constraints inoperable
+    /// for config-defined policies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path_rules: Option<PathRules>,
+    /// Optional network-based access control rules (domain blocking).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_rules: Option<NetworkRules>,
 }
 
 impl PolicyRule {
@@ -842,8 +851,11 @@ impl PolicyConfig {
                     name: rule.name.clone(),
                     policy_type: rule.policy_type.clone(),
                     priority,
-                    path_rules: None,
-                    network_rules: None,
+                    // SECURITY (R12-CFG-1): Preserve path_rules and network_rules
+                    // from config. Previously hardcoded to None, silently discarding
+                    // all file-path and domain constraints from config-defined policies.
+                    path_rules: rule.path_rules.clone(),
+                    network_rules: rule.network_rules.clone(),
                 }
             })
             .collect()
@@ -1854,6 +1866,8 @@ policy_type = "Allow"
                 policy_type: PolicyType::Allow,
                 priority: Some(100),
                 id: None,
+                path_rules: None,
+                network_rules: None,
             })
             .collect();
         let err = config.validate().unwrap_err();

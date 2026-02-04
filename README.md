@@ -281,6 +281,24 @@ per_principal_burst = 10
 
 Per-principal rate limiting keys requests by identity: the `X-Principal` header if present, then the Bearer token from the `Authorization` header, falling back to client IP. This allows rate limiting individual API consumers even when they share an IP (e.g., behind a load balancer).
 
+> **Trustworthy principal identification:** The `X-Principal` header is client-supplied and can be spoofed. For production deployments, enable OAuth 2.1 so the principal is derived from a validated JWT `sub` claim:
+>
+> ```toml
+> [rate_limit]
+> per_principal_rps = 50
+> per_principal_burst = 10
+> ```
+>
+> ```bash
+> sentinel-http-proxy \
+>   --upstream http://localhost:8000/mcp \
+>   --config policy.toml \
+>   --oauth-issuer https://auth.example.com \
+>   --oauth-audience mcp-server
+> ```
+>
+> With OAuth enabled, the Bearer token is validated and its subject is used for rate limiting instead of the untrusted `X-Principal` header.
+
 ### Injection Scanning
 
 Configure how the injection scanner handles detected prompt injection patterns:
@@ -587,13 +605,13 @@ Environment variables **override** values set in the config file. See below for 
 
 - **TOCTOU mitigated by default.** Both proxies re-serialize parsed JSON before forwarding, ensuring the upstream server sees exactly what was evaluated. The HTTP proxy can opt out via `--no-canonicalize`; in that mode, duplicate keys are still rejected but other parse ambiguities (key ordering, Unicode escapes) could differ between evaluation and upstream interpretation.
 
-- **Path normalization decode limit.** `normalize_path()` iteratively decodes percent-encoding up to 20 layers, then fails-closed to `"/"`. Paths with 21+ layers of encoding will match root rather than their intended target. This is intentional to prevent CPU exhaustion from adversarial inputs.
+- **Path normalization decode limit.** `normalize_path()` iteratively decodes percent-encoding up to 20 layers (configurable via `PolicyEngine::set_max_path_decode_iterations`), then fails-closed to `"/"` and emits a warning. Paths exceeding the limit will match root rather than their intended target. This is intentional to prevent CPU exhaustion from adversarial inputs.
 
 - **DLP scanning is single-pass per encoding layer.** DLP detects secrets in raw, base64-decoded, and percent-decoded forms, but does not handle split secrets across multiple fields or multi-step encoding chains (e.g., base64-of-URL-encoded). Treat DLP as a best-effort safety net, not a guarantee.
 
 - **Checkpoint trust anchor.** Checkpoint signatures use self-embedded Ed25519 public keys by default (TOFU model). For stronger guarantees, pin a trusted verifying key via the `SENTINEL_TRUSTED_KEY` environment variable.
 
-- **Per-principal rate limiting relies on client-supplied headers.** When using `X-Principal` for rate limit keying, clients can choose their own identity. Combine with API key auth or OAuth for trustworthy principal identification.
+- **Per-principal rate limiting relies on client-supplied headers.** When using `X-Principal` for rate limit keying, clients can choose their own identity. Enable OAuth 2.1 to derive principal identity from validated JWTs instead (see [Rate Limiting](#rate-limiting)).
 
 - **Stdio proxy always re-serializes JSON.** The stdio proxy canonicalizes every message via `serde_json`. Upstream servers that depend on exact byte-for-byte forwarding (preserving key order or whitespace) are not supported in stdio mode.
 
