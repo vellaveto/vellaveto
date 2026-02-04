@@ -20,9 +20,9 @@ use sentinel_mcp::extractor::{self, MessageType};
 #[cfg(test)]
 use sentinel_mcp::inspection::sanitize_for_injection_scan;
 use sentinel_mcp::inspection::{
-    inspect_for_injection, scan_parameters_for_secrets, scan_response_for_secrets,
-    scan_text_for_secrets, scan_tool_descriptions, scan_tool_descriptions_with_scanner,
-    InjectionScanner,
+    inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
+    scan_response_for_secrets, scan_text_for_secrets, scan_tool_descriptions,
+    scan_tool_descriptions_with_scanner, InjectionScanner,
 };
 use sentinel_mcp::output_validation::{OutputSchemaRegistry, ValidationResult};
 use sentinel_types::{Action, EvaluationContext, EvaluationTrace, Policy, Verdict};
@@ -936,6 +936,68 @@ pub async fn handle_mcp_post(
                 .await
             {
                 tracing::warn!("Failed to audit pass-through request: {}", e);
+            }
+
+            // SECURITY (R18-NOTIF-DLP): Scan notification params for secrets.
+            // Notifications bypass tool-call DLP because they are PassThrough.
+            // An agent could exfiltrate secrets via notification params.
+            if state.response_dlp_enabled && msg.get("method").is_some() && msg.get("id").is_none()
+            {
+                let dlp_findings = scan_notification_for_secrets(&msg);
+                if !dlp_findings.is_empty() {
+                    let patterns: Vec<String> = dlp_findings
+                        .iter()
+                        .map(|f| format!("{}:{}", f.pattern_name, f.location))
+                        .collect();
+                    tracing::warn!(
+                        "SECURITY: Secrets detected in notification params! \
+                         Session: {}, Method: {}, Findings: {:?}",
+                        session_id,
+                        method_name,
+                        patterns
+                    );
+                    let verdict = if state.response_dlp_blocking {
+                        Verdict::Deny {
+                            reason: format!(
+                                "Notification blocked: secrets detected ({:?})",
+                                patterns
+                            ),
+                        }
+                    } else {
+                        Verdict::Allow
+                    };
+                    let n_action = Action::new(
+                        "sentinel",
+                        "notification_dlp_scan",
+                        json!({
+                            "findings": patterns,
+                            "method": method_name,
+                            "session": session_id,
+                        }),
+                    );
+                    if let Err(e) = state
+                        .audit
+                        .log_entry(
+                            &n_action,
+                            &verdict,
+                            json!({
+                                "source": "http_proxy",
+                                "event": "notification_dlp_alert",
+                                "blocked": state.response_dlp_blocking,
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit notification DLP: {}", e);
+                    }
+                    if state.response_dlp_blocking {
+                        return make_jsonrpc_error(
+                            msg.get("id"),
+                            -32002,
+                            "Notification blocked: secrets detected in parameters",
+                        );
+                    }
+                }
             }
 
             // Canonicalize if configured (KL2 TOCTOU fix)

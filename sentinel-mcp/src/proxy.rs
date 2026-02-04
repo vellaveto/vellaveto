@@ -24,8 +24,9 @@ use crate::extractor::{
 };
 use crate::framing::{read_message, write_message};
 use crate::inspection::{
-    scan_parameters_for_secrets, scan_response_for_injection, scan_response_for_secrets,
-    scan_tool_descriptions, scan_tool_descriptions_with_scanner, InjectionScanner,
+    scan_notification_for_secrets, scan_parameters_for_secrets, scan_response_for_injection,
+    scan_response_for_secrets, scan_tool_descriptions, scan_tool_descriptions_with_scanner,
+    InjectionScanner,
 };
 use crate::output_validation::OutputSchemaRegistry;
 pub use crate::rug_pull::ToolAnnotations;
@@ -1040,7 +1041,59 @@ impl ProxyBridge {
                                         .map_err(ProxyError::Framing)?;
                                     continue;
                                 }
-                                // Notifications (method without id) are forwarded through.
+                                // Notifications (method without id) are forwarded through,
+                                // but we still scan them for DLP.
+                                // SECURITY (R18-NOTIF-DLP): Notifications bypass
+                                // scan_response_for_secrets (no result/error fields).
+                                // A malicious server can embed secrets in notification
+                                // params to exfiltrate data.
+                                if self.response_dlp_enabled {
+                                    let dlp_findings = scan_notification_for_secrets(&msg);
+                                    if !dlp_findings.is_empty() {
+                                        let patterns: Vec<String> = dlp_findings
+                                            .iter()
+                                            .map(|f| format!("{} at {}", f.pattern_name, f.location))
+                                            .collect();
+                                        tracing::warn!(
+                                            "SECURITY: DLP alert in server notification: {:?}",
+                                            patterns
+                                        );
+                                        let action = sentinel_types::Action::new(
+                                            "sentinel",
+                                            "notification_dlp_secret_detected",
+                                            json!({
+                                                "findings": patterns,
+                                                "method": msg.get("method"),
+                                            }),
+                                        );
+                                        let verdict = if self.response_dlp_blocking {
+                                            Verdict::Deny {
+                                                reason: format!(
+                                                    "Notification blocked: secrets detected ({:?})",
+                                                    patterns
+                                                ),
+                                            }
+                                        } else {
+                                            Verdict::Allow
+                                        };
+                                        if let Err(e) = self.audit.log_entry(
+                                            &action,
+                                            &verdict,
+                                            json!({
+                                                "source": "proxy",
+                                                "event": "notification_dlp_secret_detected",
+                                                "findings": patterns,
+                                                "blocked": self.response_dlp_blocking,
+                                            }),
+                                        ).await {
+                                            tracing::warn!("Failed to audit notification DLP: {}", e);
+                                        }
+                                        if self.response_dlp_blocking {
+                                            // Drop the notification — don't forward it
+                                            continue;
+                                        }
+                                    }
+                                }
                             }
 
                             // Remove from pending requests on response

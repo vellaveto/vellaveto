@@ -780,6 +780,38 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
     findings
 }
 
+/// Scan a notification message's params for DLP secret patterns.
+///
+/// SECURITY (R18-NOTIF-DLP): Notifications (server→client messages with `method`
+/// but no `id`) bypass `scan_response_for_secrets` because they have no `result`
+/// or `error` fields. A malicious server can embed secrets in notification params
+/// (e.g., `notifications/resources/updated` with a URI containing an AWS key, or
+/// `notifications/progress` with secrets in the `message` field).
+pub fn scan_notification_for_secrets(notification: &serde_json::Value) -> Vec<DlpFinding> {
+    static DLP_REGEXES: std::sync::OnceLock<Vec<(&'static str, regex::Regex)>> =
+        std::sync::OnceLock::new();
+    let regexes = DLP_REGEXES.get_or_init(|| {
+        DLP_PATTERNS
+            .iter()
+            .filter_map(|(name, pat)| regex::Regex::new(pat).ok().map(|re| (*name, re)))
+            .collect()
+    });
+
+    let mut findings = Vec::new();
+
+    // Scan params recursively — notifications carry data in params
+    if let Some(params) = notification.get("params") {
+        scan_value_for_secrets(params, "params", regexes, &mut findings, 0);
+    }
+
+    // Also scan the method name itself (unlikely but defensive)
+    if let Some(method) = notification.get("method").and_then(|m| m.as_str()) {
+        scan_string_for_secrets(method, "method", regexes, &mut findings);
+    }
+
+    findings
+}
+
 /// Scan a raw text string for DLP secret patterns, using the full multi-layer
 /// decode pipeline (base64, percent-encoding, and combinatorial chains).
 ///
@@ -1826,6 +1858,57 @@ mod tests {
             findings.is_empty(),
             "Clean double-encoded string should not trigger DLP, findings: {:?}",
             findings
+        );
+    }
+
+    #[test]
+    fn test_scan_notification_detects_secret_in_params() {
+        let notification = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/resources/updated",
+            "params": {
+                "uri": "file:///tmp/AKIAIOSFODNN7EXAMPLE.txt"
+            }
+        });
+        let findings = scan_notification_for_secrets(&notification);
+        assert!(
+            !findings.is_empty(),
+            "Should detect AWS key in notification params"
+        );
+    }
+
+    #[test]
+    fn test_scan_notification_detects_secret_in_progress_message() {
+        let notification = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/progress",
+            "params": {
+                "progressToken": "tok_123",
+                "progress": 50,
+                "total": 100,
+                "message": "Processing ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh1234"
+            }
+        });
+        let findings = scan_notification_for_secrets(&notification);
+        assert!(
+            !findings.is_empty(),
+            "Should detect GitHub PAT in notification progress message"
+        );
+    }
+
+    #[test]
+    fn test_scan_notification_clean_is_empty() {
+        let notification = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/resources/updated",
+            "params": {
+                "uri": "file:///tmp/safe.txt"
+            }
+        });
+        let findings = scan_notification_for_secrets(&notification);
+        assert!(
+            findings.is_empty(),
+            "Clean notification should have no DLP findings"
         );
     }
 }
