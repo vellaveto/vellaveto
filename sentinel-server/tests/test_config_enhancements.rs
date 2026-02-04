@@ -145,6 +145,8 @@ fn to_policies_produces_correct_policy_structs() {
         audit: Default::default(),
         supply_chain: Default::default(),
         manifest: Default::default(),
+        elicitation: Default::default(),
+        sampling: Default::default(),
         max_path_decode_iterations: None,
         known_tool_names: vec![],
     };
@@ -174,6 +176,8 @@ fn to_policies_uses_default_priority_when_none() {
         audit: Default::default(),
         supply_chain: Default::default(),
         manifest: Default::default(),
+        elicitation: Default::default(),
+        sampling: Default::default(),
         max_path_decode_iterations: None,
         known_tool_names: vec![],
     };
@@ -310,6 +314,8 @@ fn policy_config_toml_roundtrip() {
         audit: Default::default(),
         supply_chain: Default::default(),
         manifest: Default::default(),
+        elicitation: Default::default(),
+        sampling: Default::default(),
         max_path_decode_iterations: None,
         known_tool_names: vec![],
     };

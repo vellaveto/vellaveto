@@ -769,6 +769,8 @@ fn cmd_policies(preset: String) -> Result<()> {
         audit: Default::default(),
         supply_chain: Default::default(),
         manifest: Default::default(),
+        elicitation: Default::default(),
+        sampling: Default::default(),
         max_path_decode_iterations: None,
         known_tool_names: Default::default(),
     };

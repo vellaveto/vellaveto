@@ -717,6 +717,96 @@ impl ManifestConfig {
     }
 }
 
+/// Elicitation interception configuration (MCP 2025-06-18, P2.2).
+///
+/// Controls whether server-initiated user prompts (`elicitation/create`)
+/// are allowed, and what constraints apply. Elicitation can be used for
+/// social engineering — servers may request passwords, API keys, or other
+/// sensitive data via user prompts.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [elicitation]
+/// enabled = true
+/// blocked_field_types = ["password", "ssn", "secret"]
+/// max_per_session = 5
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ElicitationConfig {
+    /// Master toggle. Default: false (block all elicitation requests).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Field types that should be blocked (e.g. "password", "ssn").
+    /// Matched case-insensitively against `type` and `format` fields
+    /// in the elicitation schema.
+    #[serde(default)]
+    pub blocked_field_types: Vec<String>,
+    /// Maximum elicitation requests per session. Default: 5.
+    #[serde(default = "default_max_elicitation")]
+    pub max_per_session: u32,
+}
+
+fn default_max_elicitation() -> u32 {
+    5
+}
+
+impl Default for ElicitationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            blocked_field_types: Vec::new(),
+            max_per_session: default_max_elicitation(),
+        }
+    }
+}
+
+/// Maximum number of blocked field types for elicitation config.
+pub const MAX_BLOCKED_FIELD_TYPES: usize = 100;
+
+/// Sampling request policy configuration (P2.3).
+///
+/// Controls whether `sampling/createMessage` requests are allowed and
+/// what constraints apply. Sampling allows MCP servers to request the
+/// LLM to generate text, which can be an exfiltration vector if tool
+/// output is included in the prompt.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [sampling]
+/// enabled = true
+/// allowed_models = ["claude-3-opus", "claude-3-sonnet"]
+/// block_if_contains_tool_output = true
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SamplingConfig {
+    /// Master toggle. Default: false (block all sampling requests).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Allowed model name prefixes. Empty = any model allowed.
+    #[serde(default)]
+    pub allowed_models: Vec<String>,
+    /// Block if the prompt contains tool output. Default: true.
+    /// This prevents data laundering where a malicious tool response
+    /// plants instructions that get fed back to the LLM via sampling.
+    #[serde(default = "default_true")]
+    pub block_if_contains_tool_output: bool,
+}
+
+impl Default for SamplingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            allowed_models: Vec::new(),
+            block_if_contains_tool_output: true,
+        }
+    }
+}
+
+/// Maximum number of allowed models for sampling config.
+pub const MAX_ALLOWED_MODELS: usize = 100;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolicyConfig {
     pub policies: Vec<PolicyRule>,
@@ -742,6 +832,14 @@ pub struct PolicyConfig {
     /// Optional tool manifest verification configuration.
     #[serde(default)]
     pub manifest: ManifestConfig,
+
+    /// Elicitation interception configuration (MCP 2025-06-18).
+    #[serde(default)]
+    pub elicitation: ElicitationConfig,
+
+    /// Sampling request policy configuration.
+    #[serde(default)]
+    pub sampling: SamplingConfig,
 
     /// Maximum percent-decoding iterations for path normalization.
     /// Paths requiring more iterations fail-closed to `"/"` (attack indicator).
@@ -832,6 +930,20 @@ impl PolicyConfig {
                 "known_tool_names has {} entries, max is {}",
                 self.known_tool_names.len(),
                 MAX_KNOWN_TOOL_NAMES
+            ));
+        }
+        if self.elicitation.blocked_field_types.len() > MAX_BLOCKED_FIELD_TYPES {
+            return Err(format!(
+                "elicitation.blocked_field_types has {} entries, max is {}",
+                self.elicitation.blocked_field_types.len(),
+                MAX_BLOCKED_FIELD_TYPES
+            ));
+        }
+        if self.sampling.allowed_models.len() > MAX_ALLOWED_MODELS {
+            return Err(format!(
+                "sampling.allowed_models has {} entries, max is {}",
+                self.sampling.allowed_models.len(),
+                MAX_ALLOWED_MODELS
             ));
         }
         Ok(())
@@ -1892,6 +2004,8 @@ policy_type = "Allow"
             audit: AuditConfig::default(),
             supply_chain: SupplyChainConfig::default(),
             manifest: ManifestConfig::default(),
+            elicitation: ElicitationConfig::default(),
+            sampling: SamplingConfig::default(),
             max_path_decode_iterations: None,
             known_tool_names: vec![],
         };

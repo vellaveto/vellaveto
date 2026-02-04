@@ -1,3 +1,4 @@
+pub mod elicitation;
 pub mod extractor;
 pub mod framing;
 pub mod inspection;
