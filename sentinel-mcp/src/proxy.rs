@@ -653,7 +653,7 @@ impl ProxyBridge {
                                             // the JSON-RPC error data.
                                             if let Verdict::RequireApproval { ref reason } = verdict {
                                                 if let Some(ref store) = self.approval_store {
-                                                    match store.create(action.clone(), reason.clone()).await {
+                                                    match store.create(action.clone(), reason.clone(), None).await {
                                                         Ok(approval_id) => {
                                                             // Inject approval_id into error response data
                                                             if let Some(data) = response.get_mut("error")
@@ -756,7 +756,7 @@ impl ProxyBridge {
                                             let action = extract_resource_action(&uri);
                                             if let Verdict::RequireApproval { ref reason } = verdict {
                                                 if let Some(ref store) = self.approval_store {
-                                                    match store.create(action.clone(), reason.clone()).await {
+                                                    match store.create(action.clone(), reason.clone(), None).await {
                                                         Ok(approval_id) => {
                                                             if let Some(data) = response.get_mut("error")
                                                                 .and_then(|e| e.get_mut("data"))

@@ -549,7 +549,19 @@ async fn evaluate(
     // Fail-closed: if approval creation fails, convert to Deny so the caller
     // can't proceed without a resolvable approval_id.
     let (verdict, approval_id) = if let Verdict::RequireApproval { ref reason } = verdict {
-        match state.approvals.create(action.clone(), reason.clone()).await {
+        // SECURITY (R9-2): Record the requester identity so the approval endpoint
+        // can enforce separation of privilege (different principal must approve).
+        let requester = derive_resolver_identity(&headers, "anonymous");
+        let requested_by = if requester != "anonymous" {
+            Some(requester)
+        } else {
+            None
+        };
+        match state
+            .approvals
+            .create(action.clone(), reason.clone(), requested_by)
+            .await
+        {
             Ok(id) => (verdict, Some(id)),
             Err(e) => {
                 tracing::error!("Failed to create approval (fail-closed → Deny): {}", e);
@@ -801,8 +813,6 @@ async fn remove_policy(
 async fn reload_policies(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let config_path = state.config_path.as_str().to_string();
-
     let count = crate::reload_policies_from_file(&state, "api")
         .await
         .map_err(|e| {
@@ -815,7 +825,9 @@ async fn reload_policies(
             )
         })?;
 
-    Ok(Json(json!({"reloaded": count, "config": config_path})))
+    // SECURITY (R10-9): Do not return the full filesystem path in the response.
+    // It leaks deployment layout information to any authenticated caller.
+    Ok(Json(json!({"reloaded": count, "status": "ok"})))
 }
 
 /// SECURITY (R16-AUDIT-5): Default and maximum page size for audit entry listing.
@@ -1089,7 +1101,23 @@ async fn metrics_json(State(state): State<AppState>) -> Json<serde_json::Value> 
 
 async fn list_pending_approvals(State(state): State<AppState>) -> Json<serde_json::Value> {
     let pending = state.approvals.list_pending().await;
-    Json(json!({"count": pending.len(), "approvals": pending}))
+    // SECURITY (R11-APPR-10): Redact sensitive parameters before returning.
+    // The approval listing may contain API keys, credentials, or PII in the
+    // action parameters. Apply the same redaction used by the audit logger.
+    let redacted: Vec<serde_json::Value> = pending
+        .iter()
+        .map(|a| {
+            let mut val = serde_json::to_value(a).unwrap_or_default();
+            if let Some(action) = val.get_mut("action") {
+                if let Some(params) = action.get("parameters") {
+                    let redacted_params = sentinel_audit::redact_keys_and_patterns(params);
+                    action["parameters"] = redacted_params;
+                }
+            }
+            val
+        })
+        .collect();
+    Json(json!({"count": redacted.len(), "approvals": redacted}))
 }
 
 async fn get_approval(
@@ -1108,7 +1136,7 @@ async fn get_approval(
         )
     })?;
 
-    let value = serde_json::to_value(approval).map_err(|e| {
+    let mut value = serde_json::to_value(approval).map_err(|e| {
         tracing::error!("Approval serialization error: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1117,6 +1145,13 @@ async fn get_approval(
             }),
         )
     })?;
+    // SECURITY (R11-APPR-10): Redact parameters before returning
+    if let Some(action) = value.get_mut("action") {
+        if let Some(params) = action.get("parameters") {
+            let redacted = sentinel_audit::redact_keys_and_patterns(params);
+            action["parameters"] = redacted;
+        }
+    }
     Ok(Json(value))
 }
 
@@ -1212,6 +1247,11 @@ async fn approve_approval(
                 }
                 sentinel_approval::ApprovalError::Expired(_) => {
                     (StatusCode::GONE, "Approval expired")
+                }
+                sentinel_approval::ApprovalError::Validation(ref msg) => {
+                    // SECURITY (R9-2): Self-approval attempts return 403 Forbidden
+                    tracing::warn!("Approval validation failed for '{}': {}", id, msg);
+                    (StatusCode::FORBIDDEN, "Self-approval denied")
                 }
                 _ => {
                     tracing::error!("Approval approve error for '{}': {}", id, e);

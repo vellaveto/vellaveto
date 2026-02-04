@@ -64,7 +64,7 @@ fn create_and_approve_pending_approval() {
 
         // Create pending approval
         let id = store
-            .create(bash_action(), "Bash requires approval".to_string())
+            .create(bash_action(), "Bash requires approval".to_string(), None)
             .await
             .unwrap();
 
@@ -97,7 +97,7 @@ fn create_and_deny_pending_approval() {
         );
 
         let id = store
-            .create(bash_action(), "Bash requires approval".to_string())
+            .create(bash_action(), "Bash requires approval".to_string(), None)
             .await
             .unwrap();
 
@@ -122,7 +122,7 @@ fn double_approve_fails() {
         );
 
         let id = store
-            .create(bash_action(), "test".to_string())
+            .create(bash_action(), "test".to_string(), None)
             .await
             .unwrap();
 
@@ -155,7 +155,7 @@ fn stale_approvals_expire() {
         );
 
         let id = store
-            .create(bash_action(), "will expire".to_string())
+            .create(bash_action(), "will expire".to_string(), None)
             .await
             .unwrap();
 
@@ -190,7 +190,7 @@ fn approvals_persist_to_file() {
 
         // Create and approve
         let id = store
-            .create(bash_action(), "persist test".to_string())
+            .create(bash_action(), "persist test".to_string(), None)
             .await
             .unwrap();
         store.approve(&id, "admin").await.unwrap();
@@ -235,7 +235,10 @@ fn engine_verdict_drives_approval_creation() {
 
         // If RequireApproval, create pending approval
         if let Verdict::RequireApproval { reason } = &verdict {
-            let id = store.create(action.clone(), reason.clone()).await.unwrap();
+            let id = store
+                .create(action.clone(), reason.clone(), None)
+                .await
+                .unwrap();
             let approval = store.get(&id).await.unwrap();
             assert_eq!(approval.action.tool, "bash");
             assert_eq!(approval.status, ApprovalStatus::Pending);
@@ -257,15 +260,15 @@ fn multiple_approvals_tracked_independently() {
 
         // Create three pending approvals
         let id1 = store
-            .create(bash_action(), "first".to_string())
+            .create(bash_action(), "first".to_string(), None)
             .await
             .unwrap();
         let id2 = store
-            .create(bash_action(), "second".to_string())
+            .create(bash_action(), "second".to_string(), None)
             .await
             .unwrap();
         let id3 = store
-            .create(bash_action(), "third".to_string())
+            .create(bash_action(), "third".to_string(), None)
             .await
             .unwrap();
 

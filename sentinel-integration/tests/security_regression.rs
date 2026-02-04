@@ -643,18 +643,21 @@ fn finding_8_domain_policy_blocks_evil_despite_at_bypass_attempt() {
 
 #[test]
 fn finding_9_null_byte_path_normalizes_to_root() {
-    let result = PolicyEngine::normalize_path("/a/b\0/c");
     assert_eq!(
-        result, "/",
-        "Path with null bytes must normalize to root, not raw input"
+        PolicyEngine::normalize_path("/a/b\0/c"),
+        "/",
+        "Path with null bytes must return \"/\" (fail-closed), not raw input"
     );
 }
 
 #[test]
 fn finding_9_pure_traversal_normalizes_to_root() {
     // Path that resolves to nothing after normalization
-    let result = PolicyEngine::normalize_path("");
-    assert_eq!(result, "/", "Empty path must normalize to root");
+    assert_eq!(
+        PolicyEngine::normalize_path(""),
+        "/",
+        "Empty path must return \"/\" (fail-closed)"
+    );
 }
 
 #[test]
@@ -699,7 +702,7 @@ async fn finding_10_approvals_survive_restart() {
         sentinel_approval::ApprovalStore::new(path.clone(), std::time::Duration::from_secs(900));
     let action = Action::new("dangerous".to_string(), "exec".to_string(), json!({}));
     let id = store
-        .create(action.clone(), "needs review".to_string())
+        .create(action.clone(), "needs review".to_string(), None)
         .await
         .unwrap();
 

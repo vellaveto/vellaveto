@@ -143,10 +143,10 @@ fn exploit_31_path_normalization_deep_encoding_limit() {
 fn exploit_31_null_byte_in_path_rejected() {
     // Null bytes in paths must be rejected (not silently stripped)
     let path_with_null = "/home/user/.aws\0/credentials";
-    let normalized = PolicyEngine::normalize_path(path_with_null);
     assert_eq!(
-        normalized, "/",
-        "Null byte in path must produce safe fallback, not pass through"
+        PolicyEngine::normalize_path(path_with_null),
+        "/",
+        "Null byte in path must return \"/\" (fail-closed), not pass through"
     );
 }
 
@@ -154,10 +154,10 @@ fn exploit_31_null_byte_in_path_rejected() {
 fn exploit_31_percent_encoded_null_rejected() {
     // %00 = null byte — must also be rejected after decoding
     let path_with_encoded_null = "/home/user/.aws%00/credentials";
-    let normalized = PolicyEngine::normalize_path(path_with_encoded_null);
     assert_eq!(
-        normalized, "/",
-        "Percent-encoded null byte must produce safe fallback"
+        PolicyEngine::normalize_path(path_with_encoded_null),
+        "/",
+        "Percent-encoded null byte must return \"/\" (fail-closed)"
     );
 }
 

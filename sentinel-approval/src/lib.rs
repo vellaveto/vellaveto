@@ -20,6 +20,8 @@ pub enum ApprovalError {
     Expired(String),
     #[error("Approval store at capacity ({0} max pending)")]
     CapacityExceeded(usize),
+    #[error("Validation error: {0}")]
+    Validation(String),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
     #[error("Serialization error: {0}")]
@@ -44,6 +46,11 @@ pub struct PendingApproval {
     pub status: ApprovalStatus,
     pub resolved_by: Option<String>,
     pub resolved_at: Option<DateTime<Utc>>,
+    /// SECURITY (R9-2): Identity of the agent/principal that requested this approval.
+    /// Derived from the authenticated Bearer token hash at creation time.
+    /// Used to prevent self-approval: the resolver must differ from the requester.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_by: Option<String>,
 }
 
 /// Default maximum number of pending approvals before rejecting new ones.
@@ -178,7 +185,12 @@ impl ApprovalStore {
     ///
     /// The write lock is acquired before persistence to prevent a visibility
     /// gap where the approval exists on disk but not in memory (Finding #27).
-    pub async fn create(&self, action: Action, reason: String) -> Result<String, ApprovalError> {
+    pub async fn create(
+        &self,
+        action: Action,
+        reason: String,
+        requested_by: Option<String>,
+    ) -> Result<String, ApprovalError> {
         let dedup_key = compute_dedup_key(&action, &reason);
 
         // Check dedup index: if an identical pending approval exists, return its ID
@@ -209,6 +221,7 @@ impl ApprovalStore {
             status: ApprovalStatus::Pending,
             resolved_by: None,
             resolved_at: None,
+            requested_by,
         };
 
         // Acquire lock FIRST, then persist (Finding #27: prevents visibility gap)
@@ -252,6 +265,11 @@ impl ApprovalStore {
     }
 
     /// Approve a pending approval.
+    ///
+    /// SECURITY (R9-2): When `requested_by` is set on the approval, the
+    /// resolver identity (`by`) must differ from the requester. This prevents
+    /// an agent from approving its own tool calls — a separation-of-privilege
+    /// requirement for meaningful human-in-the-loop approval flows.
     pub async fn approve(&self, id: &str, by: &str) -> Result<PendingApproval, ApprovalError> {
         let mut pending = self.pending.write().await;
         let approval = pending
@@ -260,6 +278,23 @@ impl ApprovalStore {
 
         if approval.status != ApprovalStatus::Pending {
             return Err(ApprovalError::AlreadyResolved(id.to_string()));
+        }
+
+        // SECURITY (R9-2): Prevent self-approval. If the approval was
+        // requested by a known principal, the approver must be different.
+        // Compare the base principal (before any "(note: ...)" suffix).
+        if let Some(requester) = &approval.requested_by {
+            let requester_base = requester.split(" (note:").next().unwrap_or(requester);
+            let approver_base = by.split(" (note:").next().unwrap_or(by);
+            if !requester_base.is_empty()
+                && requester_base != "anonymous"
+                && requester_base == approver_base
+            {
+                return Err(ApprovalError::Validation(format!(
+                    "Self-approval denied: requester '{}' cannot approve their own request",
+                    requester_base
+                )));
+            }
         }
 
         // Compute dedup key before mutating the approval
@@ -453,7 +488,7 @@ mod tests {
         );
 
         let id = store
-            .create(test_action(), "needs review".to_string())
+            .create(test_action(), "needs review".to_string(), None)
             .await
             .unwrap();
         assert!(!id.is_empty());
@@ -472,7 +507,7 @@ mod tests {
         );
 
         let id = store
-            .create(test_action(), "needs review".to_string())
+            .create(test_action(), "needs review".to_string(), None)
             .await
             .unwrap();
 
@@ -491,7 +526,7 @@ mod tests {
         );
 
         let id = store
-            .create(test_action(), "needs review".to_string())
+            .create(test_action(), "needs review".to_string(), None)
             .await
             .unwrap();
 
@@ -508,7 +543,7 @@ mod tests {
         );
 
         let id = store
-            .create(test_action(), "needs review".to_string())
+            .create(test_action(), "needs review".to_string(), None)
             .await
             .unwrap();
 
@@ -538,11 +573,11 @@ mod tests {
         );
 
         let id1 = store
-            .create(test_action(), "reason1".to_string())
+            .create(test_action(), "reason1".to_string(), None)
             .await
             .unwrap();
         store
-            .create(test_action(), "reason2".to_string())
+            .create(test_action(), "reason2".to_string(), None)
             .await
             .unwrap();
 
@@ -562,7 +597,7 @@ mod tests {
         let store = ApprovalStore::new(log_path.clone(), std::time::Duration::from_secs(0));
 
         let id = store
-            .create(test_action(), "will expire".to_string())
+            .create(test_action(), "will expire".to_string(), None)
             .await
             .unwrap();
 
@@ -592,7 +627,7 @@ mod tests {
         let store = ApprovalStore::new(log_path.clone(), std::time::Duration::from_secs(900));
 
         store
-            .create(test_action(), "persisted".to_string())
+            .create(test_action(), "persisted".to_string(), None)
             .await
             .unwrap();
 
@@ -613,7 +648,11 @@ mod tests {
         );
 
         let id = store
-            .create(test_action(), "will expire before approve".to_string())
+            .create(
+                test_action(),
+                "will expire before approve".to_string(),
+                None,
+            )
             .await
             .unwrap();
 
@@ -643,7 +682,7 @@ mod tests {
         );
 
         let id = store
-            .create(test_action(), "will expire before deny".to_string())
+            .create(test_action(), "will expire before deny".to_string(), None)
             .await
             .unwrap();
 
@@ -665,11 +704,11 @@ mod tests {
         {
             let store = ApprovalStore::new(log_path.clone(), std::time::Duration::from_secs(900));
             id1 = store
-                .create(test_action(), "first".to_string())
+                .create(test_action(), "first".to_string(), None)
                 .await
                 .unwrap();
             id2 = store
-                .create(test_action(), "second".to_string())
+                .create(test_action(), "second".to_string(), None)
                 .await
                 .unwrap();
             store.approve(&id1, "admin").await.unwrap();
@@ -705,7 +744,7 @@ mod tests {
         );
 
         store
-            .create(test_action(), "expire me".to_string())
+            .create(test_action(), "expire me".to_string(), None)
             .await
             .unwrap();
 
@@ -734,8 +773,8 @@ mod tests {
         let action2 = test_action();
         let reason = "needs review".to_string();
 
-        let id1 = store.create(action1, reason.clone()).await.unwrap();
-        let id2 = store.create(action2, reason).await.unwrap();
+        let id1 = store.create(action1, reason.clone(), None).await.unwrap();
+        let id2 = store.create(action2, reason, None).await.unwrap();
 
         // Same action + same reason should return the same pending approval ID
         assert_eq!(
@@ -768,11 +807,11 @@ mod tests {
         );
 
         let id1 = store
-            .create(action1, "needs review".to_string())
+            .create(action1, "needs review".to_string(), None)
             .await
             .unwrap();
         let id2 = store
-            .create(action2, "needs review".to_string())
+            .create(action2, "needs review".to_string(), None)
             .await
             .unwrap();
 
@@ -794,11 +833,14 @@ mod tests {
         let reason = "needs review".to_string();
 
         // Create and approve the first one
-        let id1 = store.create(test_action(), reason.clone()).await.unwrap();
+        let id1 = store
+            .create(test_action(), reason.clone(), None)
+            .await
+            .unwrap();
         store.approve(&id1, "admin").await.unwrap();
 
         // Creating the same action+reason after approval should produce a NEW id
-        let id2 = store.create(test_action(), reason).await.unwrap();
+        let id2 = store.create(test_action(), reason, None).await.unwrap();
         assert_ne!(
             id1, id2,
             "After resolving, a new create should produce a fresh ID"
@@ -824,12 +866,14 @@ mod tests {
         let store1 = store.clone();
         let action1 = action.clone();
         let reason1 = reason.clone();
-        let handle1 = tokio::spawn(async move { store1.create(action1, reason1).await.unwrap() });
+        let handle1 =
+            tokio::spawn(async move { store1.create(action1, reason1, None).await.unwrap() });
 
         let store2 = store.clone();
         let action2 = action.clone();
         let reason2 = reason.clone();
-        let handle2 = tokio::spawn(async move { store2.create(action2, reason2).await.unwrap() });
+        let handle2 =
+            tokio::spawn(async move { store2.create(action2, reason2, None).await.unwrap() });
 
         let id1 = handle1.await.unwrap();
         let id2 = handle2.await.unwrap();

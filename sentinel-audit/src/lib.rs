@@ -231,7 +231,12 @@ fn redact_keys_only(value: &serde_json::Value) -> serde_json::Value {
 /// - Keys matching `SENSITIVE_PARAM_KEYS` (case-insensitive) have their values replaced.
 /// - String values starting with `SENSITIVE_VALUE_PREFIXES` are replaced.
 /// - String values matching PII patterns (email, SSN, phone) are replaced.
-fn redact_keys_and_patterns(value: &serde_json::Value) -> serde_json::Value {
+/// - Number values matching PII patterns are also redacted (R9-3).
+///
+/// Public so that other crates (e.g., sentinel-server) can apply the same
+/// redaction to approval listings and other API responses that may contain
+/// sensitive parameters.
+pub fn redact_keys_and_patterns(value: &serde_json::Value) -> serde_json::Value {
     match value {
         serde_json::Value::Object(map) => {
             let mut result = serde_json::Map::new();
@@ -257,6 +262,17 @@ fn redact_keys_and_patterns(value: &serde_json::Value) -> serde_json::Value {
                 .any(|prefix| s_lower.starts_with(&prefix.to_lowercase()))
                 || PII_REGEXES.iter().any(|re| re.is_match(s))
             {
+                serde_json::Value::String(REDACTED.to_string())
+            } else {
+                value.clone()
+            }
+        }
+        // SECURITY (R9-3): Numbers can contain PII (credit card numbers, SSNs
+        // stored as integers). Convert to string representation and check against
+        // PII regex patterns. If a match is found, redact the value.
+        serde_json::Value::Number(n) => {
+            let s = n.to_string();
+            if PII_REGEXES.iter().any(|re| re.is_match(&s)) {
                 serde_json::Value::String(REDACTED.to_string())
             } else {
                 value.clone()
@@ -308,6 +324,17 @@ fn redact_keys_and_patterns_with_scanner(
                 // Substring PII redaction via scanner
                 let redacted = scanner.redact_string(s);
                 serde_json::Value::String(redacted)
+            }
+        }
+        // SECURITY (R9-3): Numbers can contain PII (credit card numbers, SSNs
+        // stored as integers). Convert to string and apply scanner-based redaction.
+        serde_json::Value::Number(n) => {
+            let s = n.to_string();
+            let redacted = scanner.redact_string(&s);
+            if redacted != s {
+                serde_json::Value::String(redacted)
+            } else {
+                value.clone()
             }
         }
         _ => value.clone(),
@@ -880,12 +907,27 @@ impl AuditLogger {
         tokio::fs::rename(&self.log_path, &rotated_path).await?;
 
         // H1: Append rotation manifest entry
-        let manifest_entry = serde_json::json!({
+        // SECURITY (R9-1): Sign the manifest entry with Ed25519 when a signing
+        // key is configured. Without signatures, an attacker with file write
+        // access can forge manifest entries to hide deleted rotated files.
+        let mut manifest_entry = serde_json::json!({
             "timestamp": Utc::now().to_rfc3339(),
             "rotated_file": rotated_path.to_string_lossy(),
             "tail_hash": tail_hash,
             "entry_count": entry_count,
         });
+        if let Some(signing_key) = &self.signing_key {
+            // Sign the canonical JSON of the manifest entry (before adding signature)
+            let canonical = Self::canonical_json(&manifest_entry)?;
+            let mut hasher = Sha256::new();
+            hasher.update(&canonical);
+            let digest = hasher.finalize();
+            let signature = signing_key.sign(&digest);
+            manifest_entry["signature"] =
+                serde_json::Value::String(hex::encode(signature.to_bytes()));
+            manifest_entry["verifying_key"] =
+                serde_json::Value::String(hex::encode(signing_key.verifying_key().as_bytes()));
+        }
         let manifest_path = self.rotation_manifest_path();
         let mut manifest_line =
             serde_json::to_string(&manifest_entry).map_err(AuditError::Serialization)?;
@@ -937,6 +979,75 @@ impl AuditLogger {
                 continue;
             }
             let entry: serde_json::Value = serde_json::from_str(line)?;
+
+            // SECURITY (R9-1): Verify manifest entry signature when present.
+            // If a trusted verifying key is configured, ALL manifest entries
+            // MUST be signed. Without a trusted key, signed entries are still
+            // verified (opportunistic verification).
+            if let Some(sig_hex) = entry.get("signature").and_then(|v| v.as_str()) {
+                let vk_hex = entry
+                    .get("verifying_key")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+
+                // Key pinning: if trusted key is configured, manifest must match
+                if let Some(trusted) = &self.trusted_verifying_key {
+                    if vk_hex != trusted.as_str() {
+                        return Ok(RotationVerification {
+                            valid: false,
+                            files_checked: i,
+                            first_failure: Some(format!(
+                                "Manifest entry {} signed by untrusted key",
+                                i
+                            )),
+                        });
+                    }
+                }
+
+                // Reconstruct the unsigned entry for signature verification
+                let mut unsigned = entry.clone();
+                if let Some(obj) = unsigned.as_object_mut() {
+                    obj.remove("signature");
+                    obj.remove("verifying_key");
+                }
+                if let (Ok(canonical), Ok(vk_bytes), Ok(sig_bytes)) = (
+                    Self::canonical_json(&unsigned),
+                    hex::decode(vk_hex),
+                    hex::decode(sig_hex),
+                ) {
+                    let mut hasher = Sha256::new();
+                    hasher.update(&canonical);
+                    let digest = hasher.finalize();
+                    if let (Ok(vk_arr), Ok(sig_arr)) = (
+                        <[u8; 32]>::try_from(vk_bytes.as_slice()),
+                        <[u8; 64]>::try_from(sig_bytes.as_slice()),
+                    ) {
+                        if let Ok(vk) = VerifyingKey::from_bytes(&vk_arr) {
+                            let sig = ed25519_dalek::Signature::from_bytes(&sig_arr);
+                            if vk.verify(&digest, &sig).is_err() {
+                                return Ok(RotationVerification {
+                                    valid: false,
+                                    files_checked: i,
+                                    first_failure: Some(format!(
+                                        "Manifest entry {} signature invalid",
+                                        i
+                                    )),
+                                });
+                            }
+                        }
+                    }
+                }
+            } else if self.trusted_verifying_key.is_some() {
+                // Trusted key is configured but manifest entry is unsigned
+                return Ok(RotationVerification {
+                    valid: false,
+                    files_checked: i,
+                    first_failure: Some(format!(
+                        "Manifest entry {} is unsigned but signing is required",
+                        i
+                    )),
+                });
+            }
 
             let rotated_file = entry
                 .get("rotated_file")

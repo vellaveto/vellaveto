@@ -221,7 +221,9 @@ fn bench_normalize_path(c: &mut Criterion) {
     });
 
     group.bench_function("null_byte", |b| {
-        b.iter(|| PolicyEngine::normalize_path(black_box("/etc/passwd\0.txt")))
+        b.iter(|| {
+            let _ = PolicyEngine::normalize_path(black_box("/etc/passwd\0.txt"));
+        })
     });
 
     group.bench_function("long_path", |b| {

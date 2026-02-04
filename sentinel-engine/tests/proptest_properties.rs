@@ -111,7 +111,6 @@ proptest! {
     ) {
         let once = PolicyEngine::normalize_path(&path);
         let twice = PolicyEngine::normalize_path(&once);
-
         prop_assert_eq!(&once, &twice,
             "normalize_path must be idempotent: normalize(normalize(p)) == normalize(p)\n\
              input: {:?}\n\
@@ -166,7 +165,6 @@ proptest! {
     ) {
         let path = format!("{}{}", prefix, suffix);
         let normalized = PolicyEngine::normalize_path(&path);
-
         prop_assert!(!normalized.contains(".."),
             "normalize_path must remove all '..' sequences\n\
              input:      {:?}\n\
@@ -221,7 +219,6 @@ proptest! {
         path in "\\PC{0,50}",
     ) {
         let normalized = PolicyEngine::normalize_path(&path);
-
         // The normalized path must not contain ".." as a path component
         // (i.e., "/../" or leading "../" or exactly "..").
         // Note: "..foo" is a valid filename, not a traversal.

@@ -5641,10 +5641,10 @@ mod tests {
     fn test_fix9_normalize_path_empty_returns_root() {
         // Fix #9: When normalization produces empty string (e.g., null byte input),
         // return "/" instead of the raw input containing dangerous sequences.
-        let result = PolicyEngine::normalize_path("/a/b\0/c");
         assert_eq!(
-            result, "/",
-            "Null-byte path should normalize to root, not raw input"
+            PolicyEngine::normalize_path("/a/b\0/c"),
+            "/",
+            "Null-byte path should return \"/\" (fail-closed), not raw input"
         );
     }
 
@@ -5655,7 +5655,7 @@ mod tests {
         assert_eq!(
             PolicyEngine::normalize_path("../../.."),
             "/",
-            "Pure traversal path should normalize to root (fail-closed)"
+            "Pure traversal path should return \"/\" (fail-closed)"
         );
     }
 
@@ -5743,7 +5743,7 @@ mod tests {
         assert_eq!(
             PolicyEngine::normalize_path(&input),
             "/",
-            "Encoding requiring >20 decode iterations should fail-closed to root"
+            "Encoding requiring >20 decode iterations should fail-closed to \"/\""
         );
     }
 

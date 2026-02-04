@@ -154,6 +154,7 @@ async fn regression_25_pending_approvals_not_readable_without_auth() {
                 json!({"user": "admin", "secret_token": "tok_live_abc123"}),
             ),
             "needs review".to_string(),
+            None,
         )
         .await
         .unwrap();
@@ -225,7 +226,10 @@ async fn exploit_26_unbounded_approval_creation() {
                 "padding": "x".repeat(512), // ~512 bytes per entry
             }),
         );
-        store.create(action, format!("reason_{}", i)).await.unwrap();
+        store
+            .create(action, format!("reason_{}", i), None)
+            .await
+            .unwrap();
     }
 
     // All 1000 are pending — no limit enforced
@@ -285,6 +289,7 @@ async fn exploit_27_create_persist_before_lock_ordering() {
         .create(
             Action::new("file".to_string(), "read".to_string(), json!({})),
             "test".to_string(),
+            None,
         )
         .await
         .unwrap();
@@ -333,6 +338,7 @@ async fn exploit_28_silent_malformed_jsonl_drop() {
         .create(
             Action::new("file".to_string(), "read".to_string(), json!({})),
             "important approval".to_string(),
+            None,
         )
         .await
         .unwrap();
@@ -382,6 +388,7 @@ async fn exploit_28_truncated_entry_silently_lost() {
                 json!({"amount": 50000}),
             ),
             "high-value transfer".to_string(),
+            None,
         )
         .await
         .unwrap();
@@ -389,6 +396,7 @@ async fn exploit_28_truncated_entry_silently_lost() {
         .create(
             Action::new("file".to_string(), "delete".to_string(), json!({})),
             "file deletion".to_string(),
+            None,
         )
         .await
         .unwrap();
@@ -452,6 +460,7 @@ async fn exploit_bonus_resolved_by_unbounded_length() {
         .create(
             Action::new("file".to_string(), "read".to_string(), json!({})),
             "test".to_string(),
+            None,
         )
         .await
         .unwrap();

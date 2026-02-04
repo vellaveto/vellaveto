@@ -736,7 +736,7 @@ pub async fn handle_mcp_post(
 
                     // Create pending approval if store is configured
                     let approval_id = if let Some(ref store) = state.approval_store {
-                        match store.create(action.clone(), reason.clone()).await {
+                        match store.create(action.clone(), reason.clone(), None).await {
                             Ok(id) => {
                                 tracing::info!(
                                     "Created pending approval {} for tool '{}'",
@@ -870,7 +870,7 @@ pub async fn handle_mcp_post(
                     // Create pending approval for RequireApproval verdicts
                     let approval_id = if matches!(&verdict, Verdict::RequireApproval { .. }) {
                         if let Some(ref store) = state.approval_store {
-                            match store.create(action.clone(), reason.clone()).await {
+                            match store.create(action.clone(), reason.clone(), None).await {
                                 Ok(aid) => {
                                     tracing::info!(
                                         "Created pending approval {} for resource '{}'",
