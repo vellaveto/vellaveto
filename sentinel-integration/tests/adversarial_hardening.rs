@@ -107,6 +107,7 @@ fn ip_address_format_domain_bypass() {
         network_rules: Some(NetworkRules {
             allowed_domains: vec!["trusted.com".to_string()],
             blocked_domains: vec![],
+            ip_rules: None,
         }),
     };
 

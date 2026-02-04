@@ -1,5 +1,5 @@
 use axum::{
-    extract::{DefaultBodyLimit, Path, Request, State},
+    extract::{DefaultBodyLimit, Path, Query, Request, State},
     http::{header, HeaderMap, HeaderName, HeaderValue, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -739,8 +739,25 @@ async fn reload_policies(
     Ok(Json(json!({"reloaded": count, "config": config_path})))
 }
 
+/// SECURITY (R16-AUDIT-5): Default and maximum page size for audit entry listing.
+/// Prevents memory DoS from loading the entire audit log into a single response.
+const DEFAULT_AUDIT_PAGE_SIZE: usize = 100;
+const MAX_AUDIT_PAGE_SIZE: usize = 1000;
+
+/// Query parameters for paginated audit entry listing.
+#[derive(Deserialize)]
+struct AuditEntriesQuery {
+    /// Maximum number of entries to return (default 100, max 1000).
+    #[serde(default)]
+    limit: Option<usize>,
+    /// Number of entries to skip from the end (most recent first).
+    #[serde(default)]
+    offset: Option<usize>,
+}
+
 async fn audit_entries(
     State(state): State<AppState>,
+    Query(params): Query<AuditEntriesQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let entries = state.audit.load_entries().await.map_err(|e| {
         tracing::error!("Failed to load audit entries: {}", e);
@@ -752,7 +769,24 @@ async fn audit_entries(
         )
     })?;
 
-    Ok(Json(json!({"count": entries.len(), "entries": entries})))
+    let total = entries.len();
+    let limit = params
+        .limit
+        .unwrap_or(DEFAULT_AUDIT_PAGE_SIZE)
+        .min(MAX_AUDIT_PAGE_SIZE);
+    let offset = params.offset.unwrap_or(0);
+
+    // Return the most recent entries (tail of the list), paginated.
+    let page: Vec<_> = entries
+        .into_iter()
+        .rev()
+        .skip(offset)
+        .take(limit)
+        .collect();
+
+    Ok(Json(
+        json!({"total": total, "count": page.len(), "offset": offset, "limit": limit, "entries": page}),
+    ))
 }
 
 async fn audit_report(
@@ -768,16 +802,16 @@ async fn audit_report(
         )
     })?;
 
-    let value = serde_json::to_value(report).map_err(|e| {
-        tracing::error!("Audit report serialization error: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "Internal server error".to_string(),
-            }),
-        )
-    })?;
-    Ok(Json(value))
+    // SECURITY (R16-AUDIT-5): Return summary statistics only, not the full
+    // entry list. The entries endpoint provides paginated access to individual
+    // entries. Embedding all entries in the report response could exhaust
+    // server memory with a large audit log.
+    Ok(Json(json!({
+        "total_entries": report.total_entries,
+        "allow_count": report.allow_count,
+        "deny_count": report.deny_count,
+        "require_approval_count": report.require_approval_count,
+    })))
 }
 
 async fn audit_verify(
