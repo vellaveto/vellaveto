@@ -574,28 +574,33 @@ impl PolicyEngine {
             })
             .collect();
 
-        // Compile path rules
-        let compiled_path_rules = policy.path_rules.as_ref().map(|pr| {
-            let allowed = pr
-                .allowed
-                .iter()
-                .filter_map(|pattern| {
-                    Glob::new(pattern)
-                        .ok()
-                        .map(|g| (pattern.clone(), g.compile_matcher()))
-                })
-                .collect();
-            let blocked = pr
-                .blocked
-                .iter()
-                .filter_map(|pattern| {
-                    Glob::new(pattern)
-                        .ok()
-                        .map(|g| (pattern.clone(), g.compile_matcher()))
-                })
-                .collect();
-            CompiledPathRules { allowed, blocked }
-        });
+        // Compile path rules — SECURITY: invalid globs cause a compile error
+        // (fail-closed). Previously, filter_map silently dropped invalid patterns,
+        // meaning a typo in a blocked path glob would silently fail to block.
+        let compiled_path_rules = match policy.path_rules.as_ref() {
+            Some(pr) => {
+                let mut allowed = Vec::with_capacity(pr.allowed.len());
+                for pattern in &pr.allowed {
+                    let g = Glob::new(pattern).map_err(|e| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!("Invalid allowed path glob '{}': {}", pattern, e),
+                    })?;
+                    allowed.push((pattern.clone(), g.compile_matcher()));
+                }
+                let mut blocked = Vec::with_capacity(pr.blocked.len());
+                for pattern in &pr.blocked {
+                    let g = Glob::new(pattern).map_err(|e| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!("Invalid blocked path glob '{}': {}", pattern, e),
+                    })?;
+                    blocked.push((pattern.clone(), g.compile_matcher()));
+                }
+                Some(CompiledPathRules { allowed, blocked })
+            }
+            None => None,
+        };
 
         // Compile network rules (domain patterns are matched directly, no glob needed)
         // Validate domain patterns at compile time per RFC 1035.
@@ -804,11 +809,39 @@ impl PolicyEngine {
             .and_then(|v| v.as_str())
             .unwrap_or("deny")
             .to_string();
+        // SECURITY (R8-11): Validate on_match at compile time — a typo like
+        // "alow" would silently become a runtime error instead of a clear deny.
+        match on_match.as_str() {
+            "deny" | "allow" | "require_approval" => {}
+            other => {
+                return Err(PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!(
+                        "Constraint 'on_match' value '{}' is invalid; expected 'deny', 'allow', or 'require_approval'",
+                        other
+                    ),
+                });
+            }
+        }
         let on_missing = obj
             .get("on_missing")
             .and_then(|v| v.as_str())
             .unwrap_or("deny")
             .to_string();
+        match on_missing.as_str() {
+            "deny" | "skip" => {}
+            other => {
+                return Err(PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!(
+                        "Constraint 'on_missing' value '{}' is invalid; expected 'deny' or 'skip'",
+                        other
+                    ),
+                });
+            }
+        }
 
         match op {
             "glob" => {
@@ -1622,8 +1655,13 @@ impl PolicyEngine {
                     max,
                     deny_reason,
                 } => {
+                    // SECURITY (R8-6): Use saturating_add to prevent u64 overflow
+                    // which could wrap to 0, bypassing rate limits.
                     let count = if tool_pattern == "*" {
-                        context.call_counts.values().sum::<u64>()
+                        context
+                            .call_counts
+                            .values()
+                            .fold(0u64, |acc, v| acc.saturating_add(*v))
                     } else {
                         let matcher = PatternMatcher::compile(tool_pattern);
                         context
@@ -1631,7 +1669,7 @@ impl PolicyEngine {
                             .iter()
                             .filter(|(name, _)| matcher.matches(name))
                             .map(|(_, count)| count)
-                            .sum::<u64>()
+                            .fold(0u64, |acc, v| acc.saturating_add(*v))
                     };
 
                     if count >= *max {
@@ -3222,18 +3260,27 @@ impl PolicyEngine {
         let mut paren_depth = 0i32;
         let mut has_inner_quantifier = false;
         let chars: Vec<char> = pattern.chars().collect();
+        // SECURITY (R8-5): Use a skip_next flag to correctly handle escape
+        // sequences. The previous approach checked chars[i-1] == '\\' but
+        // failed for double-escapes like `\\\\(` (literal backslash + open paren).
+        let mut skip_next = false;
 
         for i in 0..chars.len() {
+            if skip_next {
+                skip_next = false;
+                continue;
+            }
             match chars[i] {
                 '\\' => {
-                    // Skip escaped character
+                    // Skip the NEXT character (the escaped one)
+                    skip_next = true;
                     continue;
                 }
-                '(' if i == 0 || chars[i - 1] != '\\' => {
+                '(' => {
                     paren_depth += 1;
                     has_inner_quantifier = false;
                 }
-                ')' if i == 0 || chars[i - 1] != '\\' => {
+                ')' => {
                     paren_depth -= 1;
                     // Check if the next char is a quantifier
                     if i + 1 < chars.len()
@@ -3246,10 +3293,7 @@ impl PolicyEngine {
                         ));
                     }
                 }
-                c if quantifiers.contains(&c)
-                    && paren_depth > 0
-                    && (i == 0 || chars[i - 1] != '\\') =>
-                {
+                c if quantifiers.contains(&c) && paren_depth > 0 => {
                     has_inner_quantifier = true;
                 }
                 _ => {}

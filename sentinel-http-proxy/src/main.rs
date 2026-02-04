@@ -13,6 +13,7 @@ use sentinel_engine::PolicyEngine;
 use sentinel_http_proxy::oauth::{OAuthConfig, OAuthValidator};
 use sentinel_http_proxy::proxy::{self, ProxyState};
 use sentinel_http_proxy::session::SessionStore;
+use sentinel_mcp::output_validation::OutputSchemaRegistry;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -70,6 +71,11 @@ struct Args {
     /// Forward the OAuth Bearer token to the upstream MCP server
     #[arg(long)]
     oauth_pass_through: bool,
+
+    /// Expected RFC 8707 resource indicator for OAuth token validation.
+    /// When set, JWT tokens must contain a matching `resource` claim.
+    #[arg(long)]
+    oauth_expected_resource: Option<String>,
 
     /// Allow starting without SENTINEL_API_KEY (unauthenticated mode).
     /// WARNING: All MCP endpoints will have no access control beyond OAuth (if configured).
@@ -212,6 +218,7 @@ async fn main() -> Result<()> {
             required_scopes: args.oauth_scopes.clone(),
             pass_through: args.oauth_pass_through,
             allowed_algorithms: sentinel_http_proxy::oauth::default_allowed_algorithms(),
+            expected_resource: args.oauth_expected_resource.clone(),
         };
         tracing::info!(
             "OAuth 2.1 enabled: issuer={}, audience={}, scopes={:?}, pass_through={}",
@@ -286,6 +293,8 @@ async fn main() -> Result<()> {
                 .ok()
                 .map(|v| v == "true" || v == "1")
                 .unwrap_or(false),
+        output_schema_registry: Arc::new(OutputSchemaRegistry::new()),
+        response_dlp_enabled: true,
     };
 
     if state.canonicalize {
@@ -293,12 +302,15 @@ async fn main() -> Result<()> {
     }
 
     // Build router
+    // SECURITY (R8-HTTP-1): Apply a 1 MB request body limit to prevent
+    // resource exhaustion from oversized payloads. Matches sentinel-server.
     let app = axum::Router::new()
         .route(
             "/mcp",
             axum::routing::post(proxy::handle_mcp_post).delete(proxy::handle_mcp_delete),
         )
         .route("/health", axum::routing::get(health))
+        .layer(axum::extract::DefaultBodyLimit::max(1_048_576))
         .with_state(state);
 
     // Spawn background session cleanup task

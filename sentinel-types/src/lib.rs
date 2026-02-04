@@ -5,6 +5,12 @@ use std::fmt;
 /// Maximum length for tool and function names (bytes).
 const MAX_NAME_LEN: usize = 256;
 
+/// Maximum length for individual path or domain strings (bytes).
+const MAX_TARGET_LEN: usize = 4096;
+
+/// Maximum number of combined target_paths + target_domains entries.
+const MAX_TARGETS: usize = 256;
+
 /// Validation errors for Action fields.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValidationError {
@@ -17,6 +23,20 @@ pub enum ValidationError {
         field: &'static str,
         len: usize,
         max: usize,
+    },
+    /// Too many target_paths + target_domains entries.
+    TooManyTargets { count: usize, max: usize },
+    /// A target path or domain string is too long.
+    TargetTooLong {
+        field: &'static str,
+        index: usize,
+        len: usize,
+        max: usize,
+    },
+    /// A target path or domain contains a null byte.
+    TargetNullByte {
+        field: &'static str,
+        index: usize,
     },
 }
 
@@ -31,6 +51,24 @@ impl fmt::Display for ValidationError {
             }
             ValidationError::TooLong { field, len, max } => {
                 write!(f, "Action {} too long: {} bytes (max {})", field, len, max)
+            }
+            ValidationError::TooManyTargets { count, max } => {
+                write!(f, "Too many targets: {} (max {})", count, max)
+            }
+            ValidationError::TargetTooLong {
+                field,
+                index,
+                len,
+                max,
+            } => {
+                write!(
+                    f,
+                    "Target {}[{}] too long: {} bytes (max {})",
+                    field, index, len, max
+                )
+            }
+            ValidationError::TargetNullByte { field, index } => {
+                write!(f, "Target {}[{}] contains null byte", field, index)
             }
         }
     }
@@ -111,12 +149,59 @@ impl Action {
         })
     }
 
-    /// Validate an existing Action's tool and function names.
+    /// Validate an existing Action's fields.
     ///
-    /// Returns `Ok(())` if valid, or a `ValidationError` describing the issue.
+    /// Checks tool/function names, and target_paths/target_domains for
+    /// null bytes, excessive length, and total count.
     pub fn validate(&self) -> Result<(), ValidationError> {
         validate_name(&self.tool, "tool")?;
         validate_name(&self.function, "function")?;
+
+        // Check combined target count
+        let total_targets = self.target_paths.len() + self.target_domains.len();
+        if total_targets > MAX_TARGETS {
+            return Err(ValidationError::TooManyTargets {
+                count: total_targets,
+                max: MAX_TARGETS,
+            });
+        }
+
+        // Validate individual target_paths
+        for (i, path) in self.target_paths.iter().enumerate() {
+            if path.contains('\0') {
+                return Err(ValidationError::TargetNullByte {
+                    field: "target_paths",
+                    index: i,
+                });
+            }
+            if path.len() > MAX_TARGET_LEN {
+                return Err(ValidationError::TargetTooLong {
+                    field: "target_paths",
+                    index: i,
+                    len: path.len(),
+                    max: MAX_TARGET_LEN,
+                });
+            }
+        }
+
+        // Validate individual target_domains
+        for (i, domain) in self.target_domains.iter().enumerate() {
+            if domain.contains('\0') {
+                return Err(ValidationError::TargetNullByte {
+                    field: "target_domains",
+                    index: i,
+                });
+            }
+            if domain.len() > MAX_TARGET_LEN {
+                return Err(ValidationError::TargetTooLong {
+                    field: "target_domains",
+                    index: i,
+                    len: domain.len(),
+                    max: MAX_TARGET_LEN,
+                });
+            }
+        }
+
         Ok(())
     }
 }
@@ -387,6 +472,91 @@ mod tests {
         let e = ValidationError::EmptyField { field: "tool" };
         assert!(e.to_string().contains("tool"));
         assert!(e.to_string().contains("empty"));
+    }
+
+    // --- Target validation tests ---
+
+    #[test]
+    fn test_validate_rejects_null_byte_in_target_path() {
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_paths = vec!["/tmp/foo\0bar".to_string()];
+        assert!(matches!(
+            action.validate(),
+            Err(ValidationError::TargetNullByte { field: "target_paths", index: 0 })
+        ));
+    }
+
+    #[test]
+    fn test_validate_rejects_null_byte_in_target_domain() {
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_domains = vec!["evil\0.com".to_string()];
+        assert!(matches!(
+            action.validate(),
+            Err(ValidationError::TargetNullByte { field: "target_domains", index: 0 })
+        ));
+    }
+
+    #[test]
+    fn test_validate_rejects_too_long_target_path() {
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_paths = vec!["a".repeat(4097)];
+        assert!(matches!(
+            action.validate(),
+            Err(ValidationError::TargetTooLong { field: "target_paths", index: 0, .. })
+        ));
+    }
+
+    #[test]
+    fn test_validate_accepts_max_length_target_path() {
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_paths = vec!["a".repeat(4096)];
+        assert!(action.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_too_many_targets() {
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_paths = (0..200).map(|i| format!("/path/{}", i)).collect();
+        action.target_domains = (0..100).map(|i| format!("d{}.com", i)).collect();
+        // 200 + 100 = 300 > 256
+        assert!(matches!(
+            action.validate(),
+            Err(ValidationError::TooManyTargets { count: 300, max: 256 })
+        ));
+    }
+
+    #[test]
+    fn test_validate_accepts_max_targets() {
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_paths = (0..128).map(|i| format!("/path/{}", i)).collect();
+        action.target_domains = (0..128).map(|i| format!("d{}.com", i)).collect();
+        // 128 + 128 = 256 == MAX_TARGETS
+        assert!(action.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_null_byte_second_target() {
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_paths = vec!["/ok".to_string(), "/bad\0path".to_string()];
+        assert!(matches!(
+            action.validate(),
+            Err(ValidationError::TargetNullByte { field: "target_paths", index: 1 })
+        ));
+    }
+
+    #[test]
+    fn test_target_validation_error_display() {
+        let e = ValidationError::TooManyTargets { count: 500, max: 256 };
+        assert!(e.to_string().contains("500"));
+        assert!(e.to_string().contains("256"));
+
+        let e = ValidationError::TargetNullByte { field: "target_paths", index: 3 };
+        assert!(e.to_string().contains("target_paths[3]"));
+        assert!(e.to_string().contains("null byte"));
+
+        let e = ValidationError::TargetTooLong { field: "target_domains", index: 0, len: 5000, max: 4096 };
+        assert!(e.to_string().contains("5000"));
+        assert!(e.to_string().contains("4096"));
     }
 
     // ═══════════════════════════════════════════════════

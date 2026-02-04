@@ -2286,7 +2286,9 @@ name = "sentinel-mcp"
 version = "0.1.0"
 dependencies = [
  "aho-corasick",
+ "base64",
  "chrono",
+ "percent-encoding",
  "proptest",
  "regex",
  "sentinel-approval",

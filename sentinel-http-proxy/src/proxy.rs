@@ -20,9 +20,10 @@ use sentinel_mcp::extractor::{self, MessageType};
 #[cfg(test)]
 use sentinel_mcp::inspection::sanitize_for_injection_scan;
 use sentinel_mcp::inspection::{
-    inspect_for_injection, scan_parameters_for_secrets, scan_tool_descriptions,
-    scan_tool_descriptions_with_scanner, InjectionScanner,
+    inspect_for_injection, scan_parameters_for_secrets, scan_response_for_secrets,
+    scan_tool_descriptions, scan_tool_descriptions_with_scanner, InjectionScanner,
 };
+use sentinel_mcp::output_validation::{OutputSchemaRegistry, ValidationResult};
 use sentinel_types::{Action, EvaluationContext, EvaluationTrace, Policy, Verdict};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -75,10 +76,20 @@ pub struct ProxyState {
     /// duplicate keys or parser-specific handling). Duplicate keys are always
     /// rejected regardless of this setting.
     pub canonicalize: bool,
+    /// Output schema registry for structuredContent validation (MCP 2025-06-18).
+    pub output_schema_registry: Arc<OutputSchemaRegistry>,
+    /// When true, scan tool responses for secrets (DLP response scanning).
+    pub response_dlp_enabled: bool,
 }
 
 /// MCP Session ID header name.
 const MCP_SESSION_ID: &str = "mcp-session-id";
+
+/// MCP protocol version header (MCP 2025-06-18 spec requirement).
+const MCP_PROTOCOL_VERSION_HEADER: &str = "mcp-protocol-version";
+
+/// The protocol version this proxy speaks.
+const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
 
 /// Maximum response body size (10 MB). Responses exceeding this are rejected
 /// to prevent OOM from unbounded upstream responses (e.g., infinite SSE streams).
@@ -245,6 +256,36 @@ pub async fn handle_mcp_post(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    // SECURITY (R8-HTTP-2): Validate Content-Type is application/json.
+    // The MCP Streamable HTTP spec requires JSON content. Rejecting other
+    // content types prevents bypass of WAF rules and request smuggling.
+    if let Some(ct) = headers.get("content-type").and_then(|v| v.to_str().ok()) {
+        if !ct.starts_with("application/json") {
+            return (
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                Json(json!({
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32700,
+                        "message": "Content-Type must be application/json"
+                    }
+                })),
+            )
+                .into_response();
+        }
+    }
+    // If Content-Type is absent, allow it for backwards compatibility with
+    // clients that don't set headers (POST body is still parsed as JSON).
+
+    // MCP 2025-06-18: Warn if MCP-Protocol-Version header is missing on inbound request.
+    // Non-blocking for backwards compatibility — older clients may not send it.
+    if !headers.contains_key(MCP_PROTOCOL_VERSION_HEADER) {
+        tracing::debug!(
+            "Inbound request missing {} header",
+            MCP_PROTOCOL_VERSION_HEADER
+        );
+    }
+
     // CSRF origin validation
     if let Err(response) = validate_origin(&headers, &state.allowed_origins) {
         return response;
@@ -308,6 +349,38 @@ pub async fn handle_mcp_post(
     // Session management
     let client_session_id = headers.get(MCP_SESSION_ID).and_then(|v| v.to_str().ok());
     let session_id = state.sessions.get_or_create(client_session_id);
+
+    // R4-4 FIX: Session fixation prevention — validate session ownership.
+    // When a client reuses a session that already has an OAuth subject bound,
+    // verify that the current request's OAuth subject matches the session owner.
+    // This prevents an attacker from pre-creating a session and tricking an
+    // authenticated user into binding their identity to it.
+    if let Some(ref claims) = oauth_claims {
+        if let Some(session) = state.sessions.get_mut(&session_id) {
+            if let Some(ref owner) = session.oauth_subject {
+                if owner != &claims.sub {
+                    tracing::warn!(
+                        "SECURITY: Session fixation attempt blocked — session {} owned by '{}', request from '{}'",
+                        session_id,
+                        owner,
+                        claims.sub
+                    );
+                    return (
+                        StatusCode::FORBIDDEN,
+                        Json(json!({
+                            "jsonrpc": "2.0",
+                            "error": {
+                                "code": -32001,
+                                "message": "Session owned by another user"
+                            },
+                            "id": null
+                        })),
+                    )
+                        .into_response();
+                }
+            }
+        }
+    }
 
     // Attach OAuth subject to session for audit trail
     if let Some(ref claims) = oauth_claims {
@@ -759,15 +832,23 @@ pub async fn handle_mcp_post(
                 .get("method")
                 .and_then(|m| m.as_str())
                 .unwrap_or("unknown");
-            let action = Action::new("sentinel", "pass_through", json!({
-                "method": method_name,
-                "session": &session_id,
-            }));
-            if let Err(e) = state.audit.log_entry(
-                &action,
-                &Verdict::Allow,
-                json!({"source": "http_proxy", "event": "pass_through_forwarded"}),
-            ).await {
+            let action = Action::new(
+                "sentinel",
+                "pass_through",
+                json!({
+                    "method": method_name,
+                    "session": &session_id,
+                }),
+            );
+            if let Err(e) = state
+                .audit
+                .log_entry(
+                    &action,
+                    &Verdict::Allow,
+                    json!({"source": "http_proxy", "event": "pass_through_forwarded"}),
+                )
+                .await
+            {
                 tracing::warn!("Failed to audit pass-through request: {}", e);
             }
 
@@ -852,18 +933,12 @@ pub async fn handle_mcp_post(
                         .map(|f| &f.pattern_name)
                         .collect::<Vec<_>>()
                 );
-                let dlp_action = extractor::extract_task_action(
-                    &task_method,
-                    task_id.as_deref(),
-                );
+                let dlp_action = extractor::extract_task_action(&task_method, task_id.as_deref());
                 let patterns: Vec<String> = dlp_findings
                     .iter()
                     .map(|f| format!("{} at {}", f.pattern_name, f.location))
                     .collect();
-                let deny_reason = format!(
-                    "DLP: secrets detected in task request: {:?}",
-                    patterns
-                );
+                let deny_reason = format!("DLP: secrets detected in task request: {:?}", patterns);
                 if let Err(e) = state
                     .audit
                     .log_entry(
@@ -899,10 +974,7 @@ pub async fn handle_mcp_post(
                 );
             }
 
-            let action = extractor::extract_task_action(
-                &task_method,
-                task_id.as_deref(),
-            );
+            let action = extractor::extract_task_action(&task_method, task_id.as_deref());
 
             let eval_ctx = build_evaluation_context(&state.sessions, &session_id);
 
@@ -1046,10 +1118,7 @@ pub async fn handle_mcp_post(
                 }
                 Err(e) => {
                     // Fail-closed: evaluation error → deny
-                    tracing::error!(
-                        "Policy evaluation error for task '{}': {}",
-                        task_method, e
-                    );
+                    tracing::error!("Policy evaluation error for task '{}': {}", task_method, e);
                     let response = json!({
                         "jsonrpc": "2.0",
                         "id": id,
@@ -1068,14 +1137,24 @@ pub async fn handle_mcp_post(
         MessageType::Batch => {
             tracing::warn!("Rejected JSON-RPC batch request in session {}", session_id);
             // SECURITY: Audit batch rejection (R4-12).
-            let batch_action = Action::new("sentinel", "batch_rejected", json!({
-                "session": &session_id,
-            }));
-            if let Err(e) = state.audit.log_entry(
-                &batch_action,
-                &Verdict::Deny { reason: "JSON-RPC batching not supported".to_string() },
-                json!({"source": "http_proxy", "event": "batch_rejected"}),
-            ).await {
+            let batch_action = Action::new(
+                "sentinel",
+                "batch_rejected",
+                json!({
+                    "session": &session_id,
+                }),
+            );
+            if let Err(e) = state
+                .audit
+                .log_entry(
+                    &batch_action,
+                    &Verdict::Deny {
+                        reason: "JSON-RPC batching not supported".to_string(),
+                    },
+                    json!({"source": "http_proxy", "event": "batch_rejected"}),
+                )
+                .await
+            {
                 tracing::warn!("Failed to audit batch rejection: {}", e);
             }
             let response = json!({
@@ -1442,7 +1521,8 @@ async fn forward_to_upstream(
         .http_client
         .post(upstream_url)
         .header("content-type", "application/json")
-        .header(MCP_SESSION_ID, session_id);
+        .header(MCP_SESSION_ID, session_id)
+        .header(MCP_PROTOCOL_VERSION_HEADER, MCP_PROTOCOL_VERSION);
 
     // Forward Authorization header in OAuth pass-through mode
     if let Some(auth) = auth_header {
@@ -1488,6 +1568,13 @@ async fn forward_to_upstream(
                             )
                                 .into_response();
                         }
+
+                        // DLP + OutputSchemaRegistry scanning for SSE events.
+                        if state.response_dlp_enabled {
+                            scan_sse_events_for_dlp(&sse_bytes, session_id, state).await;
+                        }
+                        // Register output schemas from SSE tools/list responses.
+                        register_schemas_from_sse(&sse_bytes, state);
 
                         let mut response = Response::builder()
                             .status(status)
@@ -1623,7 +1710,9 @@ async fn forward_to_upstream(
                                             finding.tool_name, finding.matched_patterns
                                         );
                                         // SECURITY: Block when injection_blocking is enabled.
-                                        if state.injection_blocking && blocked_by_injection.is_none() {
+                                        if state.injection_blocking
+                                            && blocked_by_injection.is_none()
+                                        {
                                             blocked_by_injection = Some(reason.clone());
                                         }
                                         let action = Action::new(
@@ -1673,6 +1762,69 @@ async fn forward_to_upstream(
                                         );
                                     }
                                 }
+
+                                // MCP 2025-06-18: Register output schemas from tools/list
+                                state
+                                    .output_schema_registry
+                                    .register_from_tools_list(&response_json);
+
+                                // MCP 2025-06-18: Validate structuredContent against registered schemas
+                                if let Some(structured) =
+                                    result.get("structuredContent")
+                                {
+                                    // Try to extract tool name from request tracking (best-effort).
+                                    // For JSON responses we don't have request→response mapping here,
+                                    // so we log a warning if validation fails without a tool name.
+                                    let tool_name = result
+                                        .get("_meta")
+                                        .and_then(|m| m.get("tool"))
+                                        .and_then(|t| t.as_str())
+                                        .unwrap_or("unknown");
+                                    match state
+                                        .output_schema_registry
+                                        .validate(tool_name, structured)
+                                    {
+                                        ValidationResult::Invalid { violations } => {
+                                            tracing::warn!(
+                                                "SECURITY: structuredContent validation failed for tool '{}': {:?}",
+                                                tool_name, violations
+                                            );
+                                            let action = Action::new(
+                                                "sentinel",
+                                                "output_schema_violation",
+                                                json!({
+                                                    "tool": tool_name,
+                                                    "violations": violations,
+                                                    "session": session_id,
+                                                }),
+                                            );
+                                            if let Err(e) = state.audit.log_entry(
+                                                &action,
+                                                &Verdict::Deny {
+                                                    reason: format!(
+                                                        "structuredContent validation failed: {:?}",
+                                                        violations
+                                                    ),
+                                                },
+                                                json!({"source": "http_proxy", "event": "output_schema_violation"}),
+                                            ).await {
+                                                tracing::warn!("Failed to audit output schema violation: {}", e);
+                                            }
+                                        }
+                                        ValidationResult::Valid => {
+                                            tracing::debug!(
+                                                "structuredContent validated for tool '{}'",
+                                                tool_name
+                                            );
+                                        }
+                                        ValidationResult::NoSchema => {
+                                            tracing::debug!(
+                                                "No output schema registered for tool '{}', skipping validation",
+                                                tool_name
+                                            );
+                                        }
+                                    }
+                                }
                             }
 
                             // Scan error fields for injection — malicious MCP servers can
@@ -1680,7 +1832,8 @@ async fn forward_to_upstream(
                             if let Some(error) = response_json.get("error") {
                                 if !state.injection_disabled {
                                     let mut error_text_parts: Vec<String> = Vec::new();
-                                    if let Some(msg) = error.get("message").and_then(|m| m.as_str()) {
+                                    if let Some(msg) = error.get("message").and_then(|m| m.as_str())
+                                    {
                                         error_text_parts.push(msg.to_string());
                                     }
                                     if let Some(data) = error.get("data") {
@@ -1752,6 +1905,60 @@ async fn forward_to_upstream(
                                                 );
                                             }
                                         }
+                                    }
+                                }
+                            }
+                        }
+
+                        // DLP response scanning: detect secrets in tool responses.
+                        if state.response_dlp_enabled {
+                            if let Ok(response_json) =
+                                serde_json::from_slice::<Value>(&body_bytes)
+                            {
+                                let dlp_findings = scan_response_for_secrets(&response_json);
+                                if !dlp_findings.is_empty() {
+                                    let patterns: Vec<String> = dlp_findings
+                                        .iter()
+                                        .map(|f| {
+                                            format!("{}:{}", f.pattern_name, f.location)
+                                        })
+                                        .collect();
+                                    tracing::warn!(
+                                        "SECURITY: Secrets detected in tool response! \
+                                         Session: {}, Findings: {:?}",
+                                        session_id,
+                                        patterns
+                                    );
+                                    let action = Action::new(
+                                        "sentinel",
+                                        "response_dlp_scan",
+                                        json!({
+                                            "findings": patterns,
+                                            "session": session_id,
+                                            "finding_count": dlp_findings.len(),
+                                        }),
+                                    );
+                                    if let Err(e) = state
+                                        .audit
+                                        .log_entry(
+                                            &action,
+                                            &Verdict::Deny {
+                                                reason: format!(
+                                                    "Secrets detected in response: {:?}",
+                                                    patterns
+                                                ),
+                                            },
+                                            json!({
+                                                "source": "http_proxy",
+                                                "event": "response_dlp_alert",
+                                            }),
+                                        )
+                                        .await
+                                    {
+                                        tracing::warn!(
+                                            "Failed to audit response DLP finding: {}",
+                                            e
+                                        );
                                     }
                                 }
                             }
@@ -1856,7 +2063,11 @@ fn extract_text_from_result(result: &Value) -> String {
 /// Returns `true` if injection matches were found, `false` otherwise.
 /// The caller should check `state.injection_blocking` and block the response
 /// when this returns `true` and blocking is enabled.
-async fn scan_sse_events_for_injection(sse_bytes: &[u8], session_id: &str, state: &ProxyState) -> bool {
+async fn scan_sse_events_for_injection(
+    sse_bytes: &[u8],
+    session_id: &str,
+    state: &ProxyState,
+) -> bool {
     let sse_text = match std::str::from_utf8(sse_bytes) {
         Ok(t) => t,
         Err(_) => return false, // Non-UTF-8 SSE body, skip scanning
@@ -2001,10 +2212,117 @@ async fn scan_sse_events_for_injection(sse_bytes: &[u8], session_id: &str, state
     found
 }
 
-/// Add the Mcp-Session-Id header to a response.
+/// Scan SSE event data payloads for DLP secret patterns.
+///
+/// Parses SSE events, extracts JSON-RPC result payloads, and scans
+/// them for secrets (AWS keys, GitHub tokens, etc). Findings are
+/// logged as audit entries (log-only, not blocking).
+async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &ProxyState) {
+    let sse_text = match std::str::from_utf8(sse_bytes) {
+        Ok(t) => t,
+        Err(_) => return,
+    };
+
+    for event in sse_text.split("\n\n") {
+        for line in event.lines() {
+            let data_payload = if let Some(rest) = line.strip_prefix("data:") {
+                rest.trim_start()
+            } else {
+                continue;
+            };
+
+            if data_payload.is_empty() {
+                continue;
+            }
+
+            if let Ok(json_val) = serde_json::from_str::<Value>(data_payload) {
+                let dlp_findings = scan_response_for_secrets(&json_val);
+                if !dlp_findings.is_empty() {
+                    let patterns: Vec<String> = dlp_findings
+                        .iter()
+                        .map(|f| format!("{}:{}", f.pattern_name, f.location))
+                        .collect();
+                    tracing::warn!(
+                        "SECURITY: Secrets detected in SSE tool response! \
+                         Session: {}, Findings: {:?}",
+                        session_id,
+                        patterns
+                    );
+                    let action = Action::new(
+                        "sentinel",
+                        "sse_response_dlp_scan",
+                        json!({
+                            "findings": patterns,
+                            "session": session_id,
+                            "finding_count": dlp_findings.len(),
+                        }),
+                    );
+                    if let Err(e) = state
+                        .audit
+                        .log_entry(
+                            &action,
+                            &Verdict::Deny {
+                                reason: format!(
+                                    "Secrets detected in SSE response: {:?}",
+                                    patterns
+                                ),
+                            },
+                            json!({
+                                "source": "http_proxy",
+                                "event": "sse_response_dlp_alert",
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit SSE DLP finding: {}", e);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Register output schemas from tools/list responses in SSE events.
+///
+/// Parses SSE events looking for JSON-RPC responses containing tools/list
+/// results and registers their output schemas in the registry.
+fn register_schemas_from_sse(sse_bytes: &[u8], state: &ProxyState) {
+    let sse_text = match std::str::from_utf8(sse_bytes) {
+        Ok(t) => t,
+        Err(_) => return,
+    };
+
+    for event in sse_text.split("\n\n") {
+        for line in event.lines() {
+            let data_payload = if let Some(rest) = line.strip_prefix("data:") {
+                rest.trim_start()
+            } else {
+                continue;
+            };
+
+            if data_payload.is_empty() {
+                continue;
+            }
+
+            if let Ok(json_val) = serde_json::from_str::<Value>(data_payload) {
+                // register_from_tools_list checks for result.tools internally
+                state
+                    .output_schema_registry
+                    .register_from_tools_list(&json_val);
+            }
+        }
+    }
+}
+
+/// Add the Mcp-Session-Id and MCP-Protocol-Version headers to a response.
 fn attach_session_header(mut response: Response, session_id: &str) -> Response {
     if let Ok(value) = session_id.parse() {
         response.headers_mut().insert(MCP_SESSION_ID, value);
+    }
+    if let Ok(value) = MCP_PROTOCOL_VERSION.parse() {
+        response
+            .headers_mut()
+            .insert(MCP_PROTOCOL_VERSION_HEADER, value);
     }
     response
 }
@@ -2426,6 +2744,8 @@ mod tests {
             manifest_config: None,
             allowed_origins: vec![],
             canonicalize,
+            output_schema_registry: Arc::new(OutputSchemaRegistry::new()),
+            response_dlp_enabled: false,
         }
     }
 
@@ -2612,5 +2932,25 @@ mod tests {
         } else {
             panic!("Test JSON must have error field");
         }
+    }
+
+    #[test]
+    fn test_mcp_protocol_version_constants() {
+        assert_eq!(MCP_PROTOCOL_VERSION, "2025-06-18");
+        assert_eq!(MCP_PROTOCOL_VERSION_HEADER, "mcp-protocol-version");
+    }
+
+    #[test]
+    fn test_attach_session_header_includes_protocol_version() {
+        let response = (StatusCode::OK, Json(json!({"ok": true}))).into_response();
+        let response = attach_session_header(response, "test-session-123");
+
+        let session_hdr = response.headers().get(MCP_SESSION_ID);
+        assert!(session_hdr.is_some());
+        assert_eq!(session_hdr.unwrap().to_str().unwrap(), "test-session-123");
+
+        let proto_hdr = response.headers().get(MCP_PROTOCOL_VERSION_HEADER);
+        assert!(proto_hdr.is_some());
+        assert_eq!(proto_hdr.unwrap().to_str().unwrap(), MCP_PROTOCOL_VERSION);
     }
 }

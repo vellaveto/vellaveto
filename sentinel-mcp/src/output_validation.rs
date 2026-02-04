@@ -215,9 +215,11 @@ fn validate_value_inner(
             }
 
             // Check additionalProperties
+            // MCP 2025-06-18: Always allow "_meta" as an additional property,
+            // since resource links are attached via _meta fields in tool results.
             if schema.get("additionalProperties") == Some(&Value::Bool(false)) {
                 for key in obj.keys() {
-                    if !props.contains_key(key) {
+                    if !props.contains_key(key) && key != "_meta" {
                         violations.push(format!(
                             "{}: unexpected property \"{}\" (additionalProperties: false)",
                             display_path(path),
@@ -553,6 +555,48 @@ mod tests {
                     .any(|v| v.contains("system_override") && v.contains("unexpected")));
             }
             other => panic!("Expected Invalid for puppet attack, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_meta_field_preserved_with_additional_properties_false() {
+        // MCP 2025-06-18: _meta fields carry resource links and must not be
+        // stripped by additionalProperties: false enforcement.
+        let registry = OutputSchemaRegistry::new();
+        registry.register(
+            "get_weather",
+            json!({
+                "type": "object",
+                "required": ["temperature"],
+                "properties": {
+                    "temperature": {"type": "number"}
+                },
+                "additionalProperties": false
+            }),
+        );
+
+        // Output with _meta should validate successfully
+        let with_meta = json!({
+            "temperature": 72.5,
+            "_meta": {
+                "resourceLink": "resource://weather/current"
+            }
+        });
+        assert_eq!(
+            registry.validate("get_weather", &with_meta),
+            ValidationResult::Valid
+        );
+
+        // But other extra properties should still be rejected
+        let with_extra = json!({
+            "temperature": 72.5,
+            "injected": "malicious data"
+        });
+        match registry.validate("get_weather", &with_extra) {
+            ValidationResult::Invalid { violations } => {
+                assert!(violations.iter().any(|v| v.contains("injected")));
+            }
+            other => panic!("Expected Invalid, got {:?}", other),
         }
     }
 }

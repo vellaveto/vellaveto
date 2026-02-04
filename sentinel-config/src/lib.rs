@@ -310,6 +310,10 @@ pub struct ManifestToolEntry {
     /// SHA-256 hex digest of the tool's description string.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description_hash: Option<String>,
+    /// SHA-256 hex digest of the tool's `title` display field (MCP 2025-06-18).
+    /// A changed title could be used for social engineering (rug-pull via UI).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_hash: Option<String>,
     /// Snapshot of tool annotations at manifest creation time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub annotations: Option<ManifestAnnotations>,
@@ -356,6 +360,13 @@ impl ToolManifest {
                     hex::encode(h.finalize())
                 });
 
+                // Hash the title if present (MCP 2025-06-18)
+                let title_hash = tool.get("title").and_then(|t| t.as_str()).map(|t| {
+                    let mut h = Sha256::new();
+                    h.update(t.as_bytes());
+                    hex::encode(h.finalize())
+                });
+
                 // Snapshot annotations if present
                 let annotations = tool.get("annotations").and_then(|a| {
                     let ann = ManifestAnnotations {
@@ -380,6 +391,7 @@ impl ToolManifest {
                     name,
                     input_schema_hash,
                     description_hash,
+                    title_hash,
                     annotations,
                 })
             })
@@ -438,6 +450,10 @@ impl ToolManifest {
             Self::hash_field(
                 &mut hasher,
                 tool.description_hash.as_deref().unwrap_or("").as_bytes(),
+            );
+            Self::hash_field(
+                &mut hasher,
+                tool.title_hash.as_deref().unwrap_or("").as_bytes(),
             );
             let ann_str = tool
                 .annotations
@@ -531,12 +547,6 @@ impl ToolManifest {
         let mut discrepancies = Vec::new();
 
         // Build lookup maps
-        let pinned_map: std::collections::HashMap<&str, &str> = self
-            .tools
-            .iter()
-            .map(|t| (t.name.as_str(), t.input_schema_hash.as_str()))
-            .collect();
-
         let live_map: std::collections::HashMap<&str, &str> = live
             .tools
             .iter()
@@ -550,20 +560,36 @@ impl ToolManifest {
             }
         }
 
+        // Build pinned tool lookup for detailed comparison
+        let pinned_tools_by_name: std::collections::HashMap<&str, &ManifestToolEntry> = self
+            .tools
+            .iter()
+            .map(|t| (t.name.as_str(), t))
+            .collect();
+
         // Check for new or changed tools
         for live_tool in &live.tools {
-            match pinned_map.get(live_tool.name.as_str()) {
+            match pinned_tools_by_name.get(live_tool.name.as_str()) {
                 None => {
                     discrepancies.push(format!(
                         "New tool '{}' not in pinned manifest",
                         live_tool.name
                     ));
                 }
-                Some(expected_hash) => {
-                    if *expected_hash != live_tool.input_schema_hash {
+                Some(pinned_entry) => {
+                    if pinned_entry.input_schema_hash != live_tool.input_schema_hash {
                         discrepancies.push(format!(
                             "Tool '{}' schema changed: expected {}, got {}",
-                            live_tool.name, expected_hash, live_tool.input_schema_hash
+                            live_tool.name,
+                            pinned_entry.input_schema_hash,
+                            live_tool.input_schema_hash
+                        ));
+                    }
+                    // MCP 2025-06-18: Detect title changes (social engineering vector)
+                    if pinned_entry.title_hash != live_tool.title_hash {
+                        discrepancies.push(format!(
+                            "Tool '{}' title changed (potential social engineering)",
+                            live_tool.name
                         ));
                     }
                 }
@@ -1380,6 +1406,7 @@ per_ip_rps = 50
                 name: "tool_a".to_string(),
                 input_schema_hash: "deadbeef".to_string(),
                 description_hash: None,
+                title_hash: None,
                 annotations: None,
             }],
             signature: None,
@@ -1482,6 +1509,7 @@ per_ip_rps = 50
             name: "injected".to_string(),
             input_schema_hash: "deadbeef".to_string(),
             description_hash: None,
+            title_hash: None,
             annotations: None,
         });
 
@@ -1867,5 +1895,102 @@ policy_type = "Allow"
             })
             .collect();
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_manifest_title_hash_populated_from_tools_list() {
+        let response = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "tools": [
+                    {
+                        "name": "search",
+                        "title": "Web Search",
+                        "description": "Search the web",
+                        "inputSchema": {"type": "object"}
+                    },
+                    {
+                        "name": "no_title",
+                        "description": "No title field",
+                        "inputSchema": {"type": "object"}
+                    }
+                ]
+            }
+        });
+        let manifest = ToolManifest::from_tools_list(&response).unwrap();
+        let search = manifest.tools.iter().find(|t| t.name == "search").unwrap();
+        assert!(search.title_hash.is_some(), "search should have title_hash");
+
+        let no_title = manifest
+            .tools
+            .iter()
+            .find(|t| t.name == "no_title")
+            .unwrap();
+        assert!(no_title.title_hash.is_none(), "no_title should have None");
+    }
+
+    #[test]
+    fn test_manifest_title_change_detected_as_drift() {
+        // Pin with title "Search"
+        let initial = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "tools": [{
+                    "name": "search",
+                    "title": "Web Search",
+                    "description": "Search the web",
+                    "inputSchema": {"type": "object"}
+                }]
+            }
+        });
+        let pinned = ToolManifest::from_tools_list(&initial).unwrap();
+
+        // Same tool with changed title
+        let changed = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "result": {
+                "tools": [{
+                    "name": "search",
+                    "title": "Admin Panel Access",
+                    "description": "Search the web",
+                    "inputSchema": {"type": "object"}
+                }]
+            }
+        });
+        let result = pinned.verify(&changed);
+        assert!(
+            !result.passed,
+            "Should detect title change as discrepancy"
+        );
+        assert!(
+            result
+                .discrepancies
+                .iter()
+                .any(|d| d.contains("title changed")),
+            "Discrepancy should mention title: {:?}",
+            result.discrepancies
+        );
+    }
+
+    #[test]
+    fn test_manifest_same_title_passes() {
+        let response = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "tools": [{
+                    "name": "search",
+                    "title": "Web Search",
+                    "description": "Search the web",
+                    "inputSchema": {"type": "object"}
+                }]
+            }
+        });
+        let pinned = ToolManifest::from_tools_list(&response).unwrap();
+        let result = pinned.verify(&response);
+        assert!(result.passed, "Identical tools/list should pass");
     }
 }

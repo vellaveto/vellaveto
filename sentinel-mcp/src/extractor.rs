@@ -129,9 +129,21 @@ pub fn classify_message(msg: &Value) -> MessageType {
                         .cloned()
                         .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
 
+                    // SECURITY (R8-MCP-10): Normalize tool name same as method
+                    // names — strip zero-width chars and trim whitespace to prevent
+                    // policy bypass via "bash\u{200B}" not matching "bash" policy.
+                    let normalized_name = normalize_method(name);
+                    if normalized_name.is_empty() {
+                        return MessageType::Invalid {
+                            id,
+                            reason: "tools/call tool name is empty after normalization"
+                                .to_string(),
+                        };
+                    }
+
                     MessageType::ToolCall {
                         id,
-                        tool_name: name.to_string(),
+                        tool_name: normalized_name,
                         arguments,
                     }
                 }
@@ -343,6 +355,24 @@ pub fn extract_resource_action(uri: &str) -> Action {
     action.target_paths = target_paths;
     action.target_domains = target_domains;
     action
+}
+
+/// Extract an [`Action`] from a classified task request.
+///
+/// The `tool` field is `"tasks"`, `function` is the task method (e.g., `"get"`, `"cancel"`).
+/// The `parameters` field contains the task_id (if present) and the original method name.
+///
+/// This allows policies to target task operations:
+/// - `tasks:get` — retrieving async task results (may contain sensitive tool output)
+/// - `tasks:cancel` — cancelling running tasks (may disrupt workflows)
+pub fn extract_task_action(task_method: &str, task_id: Option<&str>) -> Action {
+    let function = task_method.strip_prefix("tasks/").unwrap_or(task_method);
+    let mut params = serde_json::Map::new();
+    params.insert("method".to_string(), Value::String(task_method.to_string()));
+    if let Some(tid) = task_id {
+        params.insert("task_id".to_string(), Value::String(tid.to_string()));
+    }
+    Action::new("tasks", function, Value::Object(params))
 }
 
 /// Build a JSON-RPC error response for a rejected batch request.
@@ -1135,5 +1165,42 @@ mod tests {
             classify_message(&msg),
             MessageType::TaskRequest { .. }
         ));
+    }
+
+    // --- extract_task_action tests (R4-1 fix) ---
+
+    #[test]
+    fn test_extract_task_action_get() {
+        let action = extract_task_action("tasks/get", Some("task-abc-123"));
+        assert_eq!(action.tool, "tasks");
+        assert_eq!(action.function, "get");
+        assert_eq!(action.parameters["method"], "tasks/get");
+        assert_eq!(action.parameters["task_id"], "task-abc-123");
+    }
+
+    #[test]
+    fn test_extract_task_action_cancel() {
+        let action = extract_task_action("tasks/cancel", Some("task-def-456"));
+        assert_eq!(action.tool, "tasks");
+        assert_eq!(action.function, "cancel");
+        assert_eq!(action.parameters["method"], "tasks/cancel");
+        assert_eq!(action.parameters["task_id"], "task-def-456");
+    }
+
+    #[test]
+    fn test_extract_task_action_no_task_id() {
+        let action = extract_task_action("tasks/get", None);
+        assert_eq!(action.tool, "tasks");
+        assert_eq!(action.function, "get");
+        assert_eq!(action.parameters["method"], "tasks/get");
+        assert!(action.parameters.get("task_id").is_none());
+    }
+
+    #[test]
+    fn test_extract_task_action_unknown_method() {
+        // If a new task method is added, function extracts the suffix
+        let action = extract_task_action("tasks/list", None);
+        assert_eq!(action.tool, "tasks");
+        assert_eq!(action.function, "list");
     }
 }
