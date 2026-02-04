@@ -2339,6 +2339,7 @@ dependencies = [
  "governor",
  "hex",
  "notify",
+ "percent-encoding",
  "sentinel-approval",
  "sentinel-audit",
  "sentinel-canonical",
