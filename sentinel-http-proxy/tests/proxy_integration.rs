@@ -2702,7 +2702,7 @@ async fn api_key_no_token_returns_401() {
 
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     let json = json_body(resp).await;
-    assert!(json["error"].as_str().unwrap().contains("Authorization"));
+    assert!(json["error"].as_str().unwrap().contains("Authentication required"));
 }
 
 #[tokio::test]

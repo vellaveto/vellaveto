@@ -1027,21 +1027,14 @@ pub async fn handle_mcp_post(
                     }
 
                     let forward_body = canonicalize_body(&state, &msg, body);
-                    let mut response = forward_to_upstream(
+                    let response = forward_to_upstream(
                         &state,
                         &session_id,
                         forward_body,
                         auth_header_for_upstream.as_deref(),
                     )
                     .await;
-                    if let Some(t) = trace {
-                        // Include trace in response header if requested
-                        if let Ok(trace_json) = serde_json::to_string(&t) {
-                            if let Ok(hv) = axum::http::HeaderValue::from_str(&trace_json) {
-                                response.headers_mut().insert("x-sentinel-trace", hv);
-                            }
-                        }
-                    }
+                    let response = attach_trace_header(response, trace);
                     attach_session_header(response, &session_id)
                 }
                 Ok((Verdict::Deny { reason }, trace)) => {
@@ -1350,7 +1343,8 @@ fn validate_api_key(state: &ProxyState, headers: &HeaderMap) -> Result<(), Respo
         .and_then(|v| v.to_str().ok());
 
     match auth_header {
-        Some(h) if h.starts_with("Bearer ") => {
+        // RFC 7235: Authorization scheme comparison is case-insensitive.
+        Some(h) if h.len() > 7 && h[..7].eq_ignore_ascii_case("bearer ") => {
             let token = &h[7..];
             if token.as_bytes().ct_eq(api_key.as_bytes()).into() {
                 Ok(())
@@ -1364,7 +1358,7 @@ fn validate_api_key(state: &ProxyState, headers: &HeaderMap) -> Result<(), Respo
         }
         _ => Err((
             StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Missing or invalid Authorization header. Expected: Bearer <api_key>"})),
+            Json(json!({"error": "Authentication required"})),
         )
             .into_response()),
     }
@@ -2342,11 +2336,22 @@ fn attach_session_header(mut response: Response, session_id: &str) -> Response {
 }
 
 /// Attach evaluation trace as an X-Sentinel-Trace header for allowed (forwarded) requests.
+///
+/// Header value is capped at 4KB to prevent oversized HTTP responses from
+/// deeply nested traces.
 fn attach_trace_header(mut response: Response, trace: Option<EvaluationTrace>) -> Response {
+    const MAX_TRACE_HEADER_BYTES: usize = 4096;
     if let Some(t) = trace {
         if let Ok(json_str) = serde_json::to_string(&t) {
-            if let Ok(value) = json_str.parse() {
-                response.headers_mut().insert("x-sentinel-trace", value);
+            if json_str.len() <= MAX_TRACE_HEADER_BYTES {
+                if let Ok(value) = json_str.parse() {
+                    response.headers_mut().insert("x-sentinel-trace", value);
+                }
+            } else {
+                tracing::debug!(
+                    "Trace header too large ({} bytes), omitting from response",
+                    json_str.len()
+                );
             }
         }
     }

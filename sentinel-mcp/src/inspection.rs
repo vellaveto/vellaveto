@@ -317,8 +317,22 @@ pub fn scan_response_for_injection(response: &serde_json::Value) -> Vec<&'static
 
     if let Some(items) = content {
         for item in items {
+            // Scan top-level text field (type: "text")
             if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
                 all_matches.extend(inspect_for_injection(text));
+            }
+            // SECURITY (R8-MCP-6): Also scan embedded resource text and URI.
+            // Content items of type "resource" carry text in resource.text,
+            // and annotations may carry injectable strings.
+            if let Some(resource) = item.get("resource") {
+                if let Some(text) = resource.get("text").and_then(|t| t.as_str()) {
+                    all_matches.extend(inspect_for_injection(text));
+                }
+            }
+            // Scan annotations text if present
+            if let Some(annotations) = item.get("annotations") {
+                let raw = annotations.to_string();
+                all_matches.extend(inspect_for_injection(&raw));
             }
         }
     }

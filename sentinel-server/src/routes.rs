@@ -204,7 +204,8 @@ async fn require_api_key(State(state): State<AppState>, request: Request, next: 
         .map(|s| s.to_string());
 
     match auth_header {
-        Some(ref h) if h.starts_with("Bearer ") => {
+        // RFC 7235: Authorization scheme comparison is case-insensitive.
+        Some(ref h) if h.len() > 7 && h[..7].eq_ignore_ascii_case("bearer ") => {
             let token = &h[7..];
             if token.as_bytes().ct_eq(api_key.as_bytes()).into() {
                 next.run(request).await
@@ -218,7 +219,7 @@ async fn require_api_key(State(state): State<AppState>, request: Request, next: 
         }
         _ => (
             StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Missing or invalid Authorization header. Expected: Bearer <api_key>"})),
+            Json(json!({"error": "Authentication required"})),
         )
             .into_response(),
     }
@@ -377,12 +378,16 @@ fn strip_query_and_fragment(path: &str) -> &str {
 /// authenticated identity, but auth is handled separately). `timestamp` is
 /// always overridden with the server's wall-clock time.
 fn sanitize_context(context: Option<EvaluationContext>) -> Option<EvaluationContext> {
+    /// Maximum agent_id length to prevent memory abuse via oversized identifiers.
+    const MAX_AGENT_ID_LEN: usize = 256;
     context.map(|ctx| EvaluationContext {
         // Override timestamp with server time — never trust client clocks
         timestamp: None,
         // Preserve agent_id — should match auth principal but useful for
-        // agent_id-scoped policies
-        agent_id: ctx.agent_id,
+        // agent_id-scoped policies. Reject oversized values to prevent DoS.
+        agent_id: ctx
+            .agent_id
+            .filter(|id| !id.is_empty() && id.len() <= MAX_AGENT_ID_LEN),
         // Strip session-state fields: the stateless server API has no session
         // tracking, so these must not be client-controlled
         call_counts: std::collections::HashMap::new(),
@@ -1073,6 +1078,8 @@ fn extract_client_ip(request: &Request, trusted_proxies: &[std::net::IpAddr]) ->
 /// Rate limiting now runs AFTER `require_api_key`, so by the time this
 /// function is called, the Bearer token has already been validated.
 fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]) -> String {
+    /// Maximum X-Principal header length to prevent memory abuse in rate-limit maps.
+    const MAX_PRINCIPAL_LEN: usize = 256;
     // 1. X-Principal header — only trust from known proxies (KL1)
     if !trusted_proxies.is_empty() {
         let client_ip = extract_client_ip(request, trusted_proxies);
@@ -1082,7 +1089,7 @@ fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]
                 .get("x-principal")
                 .and_then(|v| v.to_str().ok())
             {
-                if !principal.is_empty() {
+                if !principal.is_empty() && principal.len() <= MAX_PRINCIPAL_LEN {
                     return format!("principal:{}", principal);
                 }
             }
@@ -1095,7 +1102,7 @@ fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
     {
-        if let Some(token) = auth.strip_prefix("Bearer ") {
+        if let Some(token) = auth.get(7..).filter(|_| auth.len() > 7 && auth[..7].eq_ignore_ascii_case("bearer ")) {
             if !token.is_empty() {
                 use sha2::{Digest, Sha256};
                 let hash = Sha256::digest(token.as_bytes());

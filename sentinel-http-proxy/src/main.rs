@@ -269,6 +269,17 @@ async fn main() -> Result<()> {
         }
     };
 
+    // SECURITY (R9-9): Warn when injection detection is active but blocking
+    // is disabled. This means injections are detected and logged but the
+    // malicious response is still forwarded to the agent.
+    if policy_config.injection.enabled && !policy_config.injection.block_on_injection {
+        tracing::warn!(
+            "Injection scanning is enabled but block_on_injection=false — \
+             injections will be DETECTED but NOT BLOCKED. Set \
+             [injection] block_on_injection=true in config to enforce blocking."
+        );
+    }
+
     // Keep a reference for post-shutdown audit flush (Challenge 15 fix)
     let shutdown_audit = audit.clone();
 

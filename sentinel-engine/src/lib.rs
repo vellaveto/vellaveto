@@ -257,7 +257,7 @@ pub enum CompiledContextCondition {
     },
     /// Limit how many times a tool (or tool pattern) can be called per session.
     MaxCalls {
-        tool_pattern: String,
+        tool_pattern: PatternMatcher,
         max: u64,
         deny_reason: String,
     },
@@ -287,7 +287,7 @@ pub enum CompiledContextCondition {
     /// Provides sliding-window rate limiting without requiring wall-clock
     /// timestamps. A `window` of 0 means the entire session history.
     MaxCallsInWindow {
-        tool_pattern: String,
+        tool_pattern: PatternMatcher,
         max: u64,
         /// Number of most-recent history entries to consider. 0 = all.
         window: usize,
@@ -1161,7 +1161,7 @@ impl PolicyEngine {
                     max, tool_pattern, policy.name
                 );
                 Ok(CompiledContextCondition::MaxCalls {
-                    tool_pattern,
+                    tool_pattern: PatternMatcher::compile(&tool_pattern),
                     max,
                     deny_reason,
                 })
@@ -1264,7 +1264,7 @@ impl PolicyEngine {
                     policy.name
                 );
                 Ok(CompiledContextCondition::MaxCallsInWindow {
-                    tool_pattern,
+                    tool_pattern: PatternMatcher::compile(&tool_pattern),
                     max,
                     window,
                     deny_reason,
@@ -1657,17 +1657,16 @@ impl PolicyEngine {
                 } => {
                     // SECURITY (R8-6): Use saturating_add to prevent u64 overflow
                     // which could wrap to 0, bypassing rate limits.
-                    let count = if tool_pattern == "*" {
+                    let count = if matches!(tool_pattern, PatternMatcher::Any) {
                         context
                             .call_counts
                             .values()
                             .fold(0u64, |acc, v| acc.saturating_add(*v))
                     } else {
-                        let matcher = PatternMatcher::compile(tool_pattern);
                         context
                             .call_counts
                             .iter()
-                            .filter(|(name, _)| matcher.matches(name))
+                            .filter(|(name, _)| tool_pattern.matches(name))
                             .map(|(_, count)| count)
                             .fold(0u64, |acc, v| acc.saturating_add(*v))
                     };
@@ -1748,8 +1747,7 @@ impl PolicyEngine {
                     } else {
                         &context.previous_actions[..]
                     };
-                    let matcher = PatternMatcher::compile(tool_pattern);
-                    let count = history.iter().filter(|a| matcher.matches(a)).count() as u64;
+                    let count = history.iter().filter(|a| tool_pattern.matches(a)).count() as u64;
                     if count >= *max {
                         return Some(Verdict::Deny {
                             reason: deny_reason.clone(),

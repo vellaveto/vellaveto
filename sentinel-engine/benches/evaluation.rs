@@ -948,7 +948,6 @@ criterion_group!(compile_benches, bench_compile_policies,);
 
 fn bench_context_forbidden_previous_action(c: &mut Criterion) {
     use sentinel_types::EvaluationContext;
-    use std::collections::HashMap;
 
     let policies = vec![
         Policy {
@@ -1021,7 +1020,6 @@ fn bench_context_forbidden_previous_action(c: &mut Criterion) {
 
 fn bench_context_max_calls_in_window(c: &mut Criterion) {
     use sentinel_types::EvaluationContext;
-    use std::collections::HashMap;
 
     let policies = vec![
         Policy {
