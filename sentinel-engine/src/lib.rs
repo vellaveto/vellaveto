@@ -23,6 +23,8 @@ pub enum EngineError {
     InvalidCondition { policy_id: String, reason: String },
     #[error("JSON error: {0}")]
     JsonError(#[from] serde_json::Error),
+    #[error("Path normalization failed (fail-closed): {reason}")]
+    PathNormalization { reason: String },
 }
 
 // ═══════════════════════════════════════════════════
@@ -1872,8 +1874,14 @@ impl PolicyEngine {
         }
 
         for raw_path in &action.target_paths {
-            let normalized =
-                Self::normalize_path_bounded(raw_path, self.max_path_decode_iterations);
+            let normalized = match Self::normalize_path_bounded(
+                raw_path, self.max_path_decode_iterations,
+            ) {
+                Ok(n) => n,
+                Err(e) => return Some(Verdict::Deny {
+                    reason: format!("Path normalization failed: {}", e),
+                }),
+            };
 
             // Check blocked patterns first (blocked takes precedence)
             for (pattern, matcher) in &rules.blocked {
@@ -2276,7 +2284,10 @@ impl PolicyEngine {
                         )?));
                     }
                 };
-                let normalized = Self::normalize_path_bounded(raw, self.max_path_decode_iterations);
+                let normalized = match Self::normalize_path_bounded(raw, self.max_path_decode_iterations) {
+                    Ok(n) => n,
+                    Err(e) => return Ok(Some(Verdict::Deny { reason: format!("Path normalization failed: {}", e) })),
+                };
                 if matcher.is_match(&normalized) {
                     Ok(Some(Self::make_constraint_verdict(
                         on_match,
@@ -2311,7 +2322,10 @@ impl PolicyEngine {
                         )?));
                     }
                 };
-                let normalized = Self::normalize_path_bounded(raw, self.max_path_decode_iterations);
+                let normalized = match Self::normalize_path_bounded(raw, self.max_path_decode_iterations) {
+                    Ok(n) => n,
+                    Err(e) => return Ok(Some(Verdict::Deny { reason: format!("Path normalization failed: {}", e) })),
+                };
                 for (_, m) in matchers {
                     if m.is_match(&normalized) {
                         return Ok(None); // Matched allowlist
@@ -2863,7 +2877,10 @@ impl PolicyEngine {
                 reason: "glob constraint missing 'pattern' string".to_string(),
             })?;
 
-        let normalized = Self::normalize_path_bounded(raw, self.max_path_decode_iterations);
+        let normalized = match Self::normalize_path_bounded(raw, self.max_path_decode_iterations) {
+            Ok(n) => n,
+            Err(e) => return Ok(Some(Verdict::Deny { reason: format!("Path normalization failed: {}", e) })),
+        };
 
         if self.glob_is_match(pattern_str, &normalized, &policy.id)? {
             Ok(Some(Self::make_constraint_verdict(
@@ -2917,7 +2934,10 @@ impl PolicyEngine {
                 reason: "not_glob constraint missing 'patterns' array".to_string(),
             })?;
 
-        let normalized = Self::normalize_path_bounded(raw, self.max_path_decode_iterations);
+        let normalized = match Self::normalize_path_bounded(raw, self.max_path_decode_iterations) {
+            Ok(n) => n,
+            Err(e) => return Ok(Some(Verdict::Deny { reason: format!("Path normalization failed: {}", e) })),
+        };
 
         for pat_val in patterns {
             let pat_str = pat_val
@@ -3233,7 +3253,7 @@ impl PolicyEngine {
     ///
     /// Uses the default decode iteration limit ([`DEFAULT_MAX_PATH_DECODE_ITERATIONS`]).
     /// For a configurable limit, use [`normalize_path_bounded`](Self::normalize_path_bounded).
-    pub fn normalize_path(raw: &str) -> String {
+    pub fn normalize_path(raw: &str) -> Result<String, EngineError> {
         Self::normalize_path_bounded(raw, DEFAULT_MAX_PATH_DECODE_ITERATIONS)
     }
 
@@ -3242,10 +3262,12 @@ impl PolicyEngine {
     /// Iteratively decodes percent-encoding until stable. If `max_iterations` is
     /// reached before stabilization, returns `"/"` (fail-closed) and emits a
     /// warning via `tracing`.
-    pub fn normalize_path_bounded(raw: &str, max_iterations: u32) -> String {
+    pub fn normalize_path_bounded(raw: &str, max_iterations: u32) -> Result<String, EngineError> {
         // Reject null bytes — return root instead of empty/raw to prevent bypass
         if raw.contains('\0') {
-            return "/".to_string();
+            return Err(EngineError::PathNormalization {
+                reason: "input contains null byte".to_string(),
+            });
         }
 
         // Phase 4.2: Percent-decode the path before normalization.
@@ -3262,7 +3284,9 @@ impl PolicyEngine {
         loop {
             let decoded = percent_encoding::percent_decode_str(&current).decode_utf8_lossy();
             if decoded.contains('\0') {
-                return "/".to_string();
+                return Err(EngineError::PathNormalization {
+                    reason: "decoded path contains null byte".to_string(),
+                });
             }
             if decoded.as_ref() == current.as_ref() {
                 break; // Stable — no more percent sequences to decode
@@ -3275,7 +3299,9 @@ impl PolicyEngine {
                     max_iterations,
                     "path normalization hit decode iteration limit — returning \"/\" (possible adversarial input)"
                 );
-                return "/".to_string();
+                return Err(EngineError::PathNormalization {
+                    reason: format!("decode iteration limit ({}) exceeded", max_iterations),
+                });
             }
             current = std::borrow::Cow::Owned(decoded.into_owned());
         }
@@ -3309,7 +3335,9 @@ impl PolicyEngine {
             // Fix #9: Return "/" (root) instead of the raw input when normalization
             // produces an empty string. The raw input contains the traversal sequences
             // that normalization was supposed to remove.
-            return "/".to_string();
+            return Err(EngineError::PathNormalization {
+                reason: "normalization produced empty path".to_string(),
+            });
         }
 
         // SECURITY (R11-PATH-6): Enforce absolute path output.
@@ -3318,10 +3346,10 @@ impl PolicyEngine {
         // patterns like "/etc/**". Prepend '/' to make it matchable.
         let s = s.into_owned();
         if !s.starts_with('/') {
-            return format!("/{}", s);
+            return Ok(format!("/{}", s));
         }
 
-        s
+        Ok(s)
     }
 
     /// Extract the domain from a URL string.
@@ -4132,18 +4160,20 @@ impl PolicyEngine {
         match constraint {
             CompiledConstraint::Glob { matcher, .. } => {
                 if let Some(s) = value.as_str() {
-                    let normalized =
-                        Self::normalize_path_bounded(s, self.max_path_decode_iterations);
-                    matcher.is_match(&normalized)
+                    match Self::normalize_path_bounded(s, self.max_path_decode_iterations) {
+                        Ok(ref normalized) => matcher.is_match(normalized),
+                        Err(_) => true,
+                    }
                 } else {
                     true // non-string → treated as match (fail-closed)
                 }
             }
             CompiledConstraint::NotGlob { matchers, .. } => {
                 if let Some(s) = value.as_str() {
-                    let normalized =
-                        Self::normalize_path_bounded(s, self.max_path_decode_iterations);
-                    !matchers.iter().any(|(_, m)| m.is_match(&normalized))
+                    match Self::normalize_path_bounded(s, self.max_path_decode_iterations) {
+                        Ok(ref normalized) => !matchers.iter().any(|(_, m)| m.is_match(normalized)),
+                        Err(_) => true,
+                    }
                 } else {
                     true
                 }
@@ -4546,9 +4576,9 @@ mod tests {
             "pattern": "/safe/**",
             "on_match": "allow"
         }]));
-        // Null byte path normalizes to empty, won't match /safe/**
+        // Null byte path: normalization Err -> fail-closed -> Deny
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
-        assert!(matches!(verdict, Verdict::Allow));
+        assert!(matches!(verdict, Verdict::Deny { .. }));
     }
 
     #[test]
@@ -5228,18 +5258,18 @@ mod tests {
 
     #[test]
     fn test_normalize_path_resolves_parent() {
-        assert_eq!(PolicyEngine::normalize_path("/a/b/../c"), "/a/c");
+        assert_eq!(PolicyEngine::normalize_path("/a/b/../c").unwrap(), "/a/c");
     }
 
     #[test]
     fn test_normalize_path_resolves_dot() {
-        assert_eq!(PolicyEngine::normalize_path("/a/./b/./c"), "/a/b/c");
+        assert_eq!(PolicyEngine::normalize_path("/a/./b/./c").unwrap(), "/a/b/c");
     }
 
     #[test]
     fn test_normalize_path_prevents_root_escape() {
         assert_eq!(
-            PolicyEngine::normalize_path("/a/../../etc/passwd"),
+            PolicyEngine::normalize_path("/a/../../etc/passwd").unwrap(),
             "/etc/passwd"
         );
     }
@@ -5247,13 +5277,13 @@ mod tests {
     #[test]
     fn test_normalize_path_root_on_null_byte() {
         // Fix #9: Null byte paths now return "/" instead of empty string or raw input
-        assert_eq!(PolicyEngine::normalize_path("/a/b\0/c"), "/");
+        assert!(PolicyEngine::normalize_path("/a/b\0/c").is_err());
     }
 
     #[test]
     fn test_normalize_path_absolute_stays_absolute() {
         assert_eq!(
-            PolicyEngine::normalize_path("/usr/local/bin"),
+            PolicyEngine::normalize_path("/usr/local/bin").unwrap(),
             "/usr/local/bin"
         );
     }
@@ -5641,10 +5671,9 @@ mod tests {
     fn test_fix9_normalize_path_empty_returns_root() {
         // Fix #9: When normalization produces empty string (e.g., null byte input),
         // return "/" instead of the raw input containing dangerous sequences.
-        assert_eq!(
-            PolicyEngine::normalize_path("/a/b\0/c"),
-            "/",
-            "Null-byte path should return \"/\" (fail-closed), not raw input"
+        assert!(
+            PolicyEngine::normalize_path("/a/b\0/c").is_err(),
+            "Null-byte path should return Err (fail-closed)"
         );
     }
 
@@ -5652,10 +5681,9 @@ mod tests {
     fn test_fix9_normalize_path_traversal_only() {
         // A path that is ONLY traversal sequences produces an empty result
         // after normalization, which now returns Err (fail-closed).
-        assert_eq!(
-            PolicyEngine::normalize_path("../../.."),
-            "/",
-            "Pure traversal path should return \"/\" (fail-closed)"
+        assert!(
+            PolicyEngine::normalize_path("../../..").is_err(),
+            "Pure traversal path should return Err (fail-closed)"
         );
     }
 
@@ -5664,14 +5692,14 @@ mod tests {
     #[test]
     fn test_normalize_path_percent_encoded_filename() {
         // %70 = 'p', so /etc/%70asswd → /etc/passwd
-        assert_eq!(PolicyEngine::normalize_path("/etc/%70asswd"), "/etc/passwd");
+        assert_eq!(PolicyEngine::normalize_path("/etc/%70asswd").unwrap(), "/etc/passwd");
     }
 
     #[test]
     fn test_normalize_path_percent_encoded_traversal() {
         // %2F = '/', %2E = '.', so /%2E%2E/%2E%2E/etc/passwd → /etc/passwd
         assert_eq!(
-            PolicyEngine::normalize_path("/%2E%2E/%2E%2E/etc/passwd"),
+            PolicyEngine::normalize_path("/%2E%2E/%2E%2E/etc/passwd").unwrap(),
             "/etc/passwd"
         );
     }
@@ -5680,13 +5708,13 @@ mod tests {
     fn test_normalize_path_percent_encoded_slash() {
         // %2F = '/' — encoded slashes in a single component
         // After decoding, path should be normalized correctly
-        assert_eq!(PolicyEngine::normalize_path("/etc%2Fpasswd"), "/etc/passwd");
+        assert_eq!(PolicyEngine::normalize_path("/etc%2Fpasswd").unwrap(), "/etc/passwd");
     }
 
     #[test]
     fn test_normalize_path_encoded_null_byte() {
         // %00 = null byte — should be rejected after decoding
-        assert_eq!(PolicyEngine::normalize_path("/etc/%00passwd"), "/");
+        assert!(PolicyEngine::normalize_path("/etc/%00passwd").is_err());
     }
 
     #[test]
@@ -5694,7 +5722,7 @@ mod tests {
         // %2570 = %25 + 70 → first decode: %70 → second decode: p
         // Loop decode ensures idempotency: normalize(normalize(x)) == normalize(x)
         // Full decode is more secure — prevents bypass via multi-layer encoding.
-        let result = PolicyEngine::normalize_path("/etc/%2570asswd");
+        let result = PolicyEngine::normalize_path("/etc/%2570asswd").unwrap();
         assert_eq!(
             result, "/etc/passwd",
             "Double-encoded input should be fully decoded for idempotency"
@@ -5704,7 +5732,7 @@ mod tests {
     #[test]
     fn test_normalize_path_mixed_encoded_and_plain() {
         assert_eq!(
-            PolicyEngine::normalize_path("/home/%75ser/.aws/credentials"),
+            PolicyEngine::normalize_path("/home/%75ser/.aws/credentials").unwrap(),
             "/home/user/.aws/credentials"
         );
     }
@@ -5713,7 +5741,7 @@ mod tests {
     fn test_normalize_path_fully_encoded_path() {
         // Full path encoded
         assert_eq!(
-            PolicyEngine::normalize_path("%2Fetc%2Fshadow"),
+            PolicyEngine::normalize_path("%2Fetc%2Fshadow").unwrap(),
             "/etc/shadow"
         );
     }
@@ -5722,7 +5750,7 @@ mod tests {
     fn test_normalize_path_six_level_encoding_decodes_fully() {
         // Build a 6-level encoded 'p': p → %70 → %2570 → %252570 → %25252570 → %2525252570 → %252525252570
         // Previous 5-iteration limit would fail to fully decode this.
-        let result = PolicyEngine::normalize_path("/etc/%252525252570asswd");
+        let result = PolicyEngine::normalize_path("/etc/%252525252570asswd").unwrap();
         assert_eq!(
             result, "/etc/passwd",
             "6-level encoding should be fully decoded with new higher limit"
@@ -5740,10 +5768,9 @@ mod tests {
             encoded = format!("%25{}", &encoded[1..]);
         }
         let input = format!("/etc/{}asswd", encoded);
-        assert_eq!(
-            PolicyEngine::normalize_path(&input),
-            "/",
-            "Encoding requiring >20 decode iterations should fail-closed to \"/\""
+        assert!(
+            PolicyEngine::normalize_path(&input).is_err(),
+            "Encoding requiring >20 decode iterations should fail-closed with Err"
         );
     }
 
@@ -5758,24 +5785,23 @@ mod tests {
 
         // With limit=10, 5 iterations succeeds.
         assert_eq!(
-            PolicyEngine::normalize_path_bounded(&input, 10),
+            PolicyEngine::normalize_path_bounded(&input, 10).unwrap(),
             "/etc/passwd"
         );
 
         // With limit=3, 5 iterations exceeds the cap → fail-closed to "/".
-        assert_eq!(PolicyEngine::normalize_path_bounded(&input, 3), "/");
+        assert!(PolicyEngine::normalize_path_bounded(&input, 3).is_err());
     }
 
     #[test]
     fn test_normalize_path_bounded_zero_limit() {
         // With limit=0, even a single percent-encoded char fails closed.
-        assert_eq!(
-            PolicyEngine::normalize_path_bounded("/etc/%70asswd", 0),
-            "/"
+        assert!(
+            PolicyEngine::normalize_path_bounded("/etc/%70asswd", 0).is_err()
         );
         // Plain paths (no percent-encoding) still work fine.
         assert_eq!(
-            PolicyEngine::normalize_path_bounded("/etc/passwd", 0),
+            PolicyEngine::normalize_path_bounded("/etc/passwd", 0).unwrap(),
             "/etc/passwd"
         );
     }
@@ -5784,13 +5810,13 @@ mod tests {
     fn test_set_max_path_decode_iterations() {
         let mut engine = PolicyEngine::new(false);
         // Default is the constant.
-        assert_eq!(PolicyEngine::normalize_path("/etc/%70asswd"), "/etc/passwd");
+        assert_eq!(PolicyEngine::normalize_path("/etc/%70asswd").unwrap(), "/etc/passwd");
 
         // After setting to 0, the engine's internal calls would use the
         // configured limit. Verify the setter doesn't panic.
         engine.set_max_path_decode_iterations(5);
         // The public associated function still uses the default (backward compat).
-        assert_eq!(PolicyEngine::normalize_path("/etc/%70asswd"), "/etc/passwd");
+        assert_eq!(PolicyEngine::normalize_path("/etc/%70asswd").unwrap(), "/etc/passwd");
     }
 
     #[test]
@@ -9054,13 +9080,17 @@ mod tests {
                     /// normalize_path is idempotent: normalizing twice yields same result.
                     #[test]
                     fn prop_normalize_path_idempotent(path in arb_path()) {
-                        let once = PolicyEngine::normalize_path(&path);
-                        let twice = PolicyEngine::normalize_path(&once);
-                        prop_assert_eq!(
-                            &once, &twice,
-                            "normalize_path must be idempotent: '{}' -> '{}' -> '{}'",
-                            path, once, twice
-                        );
+                        match PolicyEngine::normalize_path(&path) {
+                            Err(_) => {}
+                            Ok(once) => {
+                                let twice = PolicyEngine::normalize_path(&once).expect("idempotent");
+                                prop_assert_eq!(
+                                    &once, &twice,
+                                    "normalize_path must be idempotent: '{}' -> '{}' -> '{}'",
+                                    path, once, twice
+                                );
+                            }
+                        }
                     }
 
                     /// normalize_path is idempotent for percent-encoded input.
@@ -9073,24 +9103,29 @@ mod tests {
                             .map(|b| format!("%{:02X}", b))
                             .collect();
                         let input = format!("/{}", encoded);
-                        let once = PolicyEngine::normalize_path(&input);
-                        let twice = PolicyEngine::normalize_path(&once);
-                        prop_assert_eq!(
-                            &once, &twice,
-                            "normalize_path must be idempotent on encoded input: '{}' -> '{}' -> '{}'",
-                            input, once, twice
-                        );
+                        match PolicyEngine::normalize_path(&input) {
+                            Err(_) => {}
+                            Ok(once) => {
+                                let twice = PolicyEngine::normalize_path(&once).expect("idempotent");
+                                prop_assert_eq!(
+                                    &once, &twice,
+                                    "normalize_path must be idempotent on encoded input: '{}' -> '{}' -> '{}'",
+                                    input, once, twice
+                                );
+                            }
+                        }
                     }
 
                     /// normalize_path never returns an empty string.
                     #[test]
                     fn prop_normalize_path_never_empty(path in arb_path()) {
-                        let val = PolicyEngine::normalize_path(&path);
-                        prop_assert!(
-                            !val.is_empty(),
-                            "normalize_path must never return empty string for input '{}'",
-                            path
-                        );
+                        if let Ok(ref val) = PolicyEngine::normalize_path(&path) {
+                            prop_assert!(
+                                !val.is_empty(),
+                                "normalize_path must never return empty string for input '{}'",
+                                path
+                            );
+                        }
                     }
 
                     /// extract_domain always returns a lowercase string.

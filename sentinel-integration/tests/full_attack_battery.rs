@@ -427,7 +427,7 @@ fn attack_mcp06_variation_selector_evasion() {
 #[test]
 fn attack_path_traversal_basic() {
     let normalized =
-        PolicyEngine::normalize_path("/tmp/workspace/../../home/user/.aws/credentials");
+        PolicyEngine::normalize_path("/tmp/workspace/../../home/user/.aws/credentials").unwrap();
     assert_eq!(
         normalized, "/home/user/.aws/credentials",
         "Path traversal should resolve to absolute path"
@@ -439,7 +439,7 @@ fn attack_path_traversal_basic() {
 /// Expected: BLOCKED — iterative decode resolves it
 #[test]
 fn attack_path_traversal_double_encoded() {
-    let normalized = PolicyEngine::normalize_path("/tmp/%252e%252e/%252e%252e/etc/passwd");
+    let normalized = PolicyEngine::normalize_path("/tmp/%252e%252e/%252e%252e/etc/passwd").unwrap();
     assert_eq!(
         normalized, "/etc/passwd",
         "Double-encoded traversal should be resolved"
@@ -451,12 +451,10 @@ fn attack_path_traversal_double_encoded() {
 /// Expected: BLOCKED — null bytes rejected
 #[test]
 fn attack_path_traversal_null_byte() {
-    let normalized = PolicyEngine::normalize_path("/allowed/path\x00/../etc/passwd");
-    // Should either reject (return /) or strip null and resolve
+    // Null byte in path must return Err (fail-closed)
     assert!(
-        normalized == "/" || !normalized.contains('\0'),
-        "Null byte should be handled safely, got: {}",
-        normalized
+        PolicyEngine::normalize_path("/allowed/path\x00/../etc/passwd").is_err(),
+        "Null byte should be rejected with Err"
     );
 }
 
@@ -466,7 +464,7 @@ fn attack_path_traversal_null_byte() {
 #[test]
 fn attack_path_traversal_triple_encoded() {
     // %2525252e → %25252e → %252e → %2e → .
-    let normalized = PolicyEngine::normalize_path("/safe/%2525252e%2525252e/etc/shadow");
+    let normalized = PolicyEngine::normalize_path("/safe/%2525252e%2525252e/etc/shadow").unwrap();
     // After iterative decode, should resolve
     assert!(
         !normalized.contains("%2e") && !normalized.contains("%2E"),
@@ -481,7 +479,7 @@ fn attack_path_traversal_triple_encoded() {
 #[test]
 fn attack_path_traversal_fullwidth_slash() {
     let path = "/tmp\u{FF0F}..\u{FF0F}etc\u{FF0F}passwd";
-    let normalized = PolicyEngine::normalize_path(path);
+    let normalized = PolicyEngine::normalize_path(path).unwrap();
     // Fullwidth slashes should not be treated as path separators
     // The path should NOT resolve to /etc/passwd
     assert_ne!(

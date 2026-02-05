@@ -642,34 +642,32 @@ fn finding_8_domain_policy_blocks_evil_despite_at_bypass_attempt() {
 // ═══════════════════════════════════════════════════
 
 #[test]
-fn finding_9_null_byte_path_normalizes_to_root() {
-    assert_eq!(
-        PolicyEngine::normalize_path("/a/b\0/c"),
-        "/",
-        "Path with null bytes must return \"/\" (fail-closed), not raw input"
+fn finding_9_null_byte_path_normalizes_to_err() {
+    assert!(
+        PolicyEngine::normalize_path("/a/b\0/c").is_err(),
+        "Path with null bytes must return Err (fail-closed), not raw input"
     );
 }
 
 #[test]
-fn finding_9_pure_traversal_normalizes_to_root() {
+fn finding_9_empty_path_normalizes_to_err() {
     // Path that resolves to nothing after normalization
-    assert_eq!(
-        PolicyEngine::normalize_path(""),
-        "/",
-        "Empty path must return \"/\" (fail-closed)"
+    assert!(
+        PolicyEngine::normalize_path("").is_err(),
+        "Empty path must return Err (fail-closed)"
     );
 }
 
 #[test]
 fn finding_9_normal_paths_still_work() {
-    assert_eq!(PolicyEngine::normalize_path("/etc/passwd"), "/etc/passwd");
+    assert_eq!(PolicyEngine::normalize_path("/etc/passwd").unwrap(), "/etc/passwd");
     assert_eq!(
-        PolicyEngine::normalize_path("/a/../b"),
+        PolicyEngine::normalize_path("/a/../b").unwrap(),
         "/b",
         "Normal traversal should resolve correctly"
     );
     assert_eq!(
-        PolicyEngine::normalize_path("/a/./b/./c"),
+        PolicyEngine::normalize_path("/a/./b/./c").unwrap(),
         "/a/b/c",
         "Dot segments should be removed"
     );
@@ -678,7 +676,7 @@ fn finding_9_normal_paths_still_work() {
 #[test]
 fn finding_9_traversal_at_root_absorbed() {
     // Traversal beyond root should be absorbed, not preserved
-    let result = PolicyEngine::normalize_path("/a/../../etc/passwd");
+    let result = PolicyEngine::normalize_path("/a/../../etc/passwd").unwrap();
     assert_eq!(
         result, "/etc/passwd",
         "Traversal beyond root must be absorbed"

@@ -679,7 +679,7 @@ fn test_owasp_mcp05_deep_parameter_scanning() {
 #[test]
 fn test_owasp_mcp05_normalize_path_prevents_encoded_traversal() {
     // Percent-encoded traversal must be decoded and blocked
-    let normalized = PolicyEngine::normalize_path("/%2e%2e/%2e%2e/etc/passwd");
+    let normalized = PolicyEngine::normalize_path("/%2e%2e/%2e%2e/etc/passwd").unwrap();
     assert_eq!(
         normalized, "/etc/passwd",
         "Encoded traversal must be decoded and resolved"
@@ -690,7 +690,7 @@ fn test_owasp_mcp05_normalize_path_prevents_encoded_traversal() {
     );
 
     // Double-encoding
-    let double = PolicyEngine::normalize_path("/%252e%252e/etc/passwd");
+    let double = PolicyEngine::normalize_path("/%252e%252e/etc/passwd").unwrap();
     assert!(
         !double.contains(".."),
         "Double-encoded traversal must be resolved"

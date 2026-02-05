@@ -8,6 +8,7 @@ use sentinel_types::{Action, Verdict};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 use thiserror::Error;
 use tokio::fs::OpenOptions;
@@ -372,6 +373,10 @@ pub struct AuditLogger {
     /// Optional PII scanner with custom patterns (replaces global PII_REGEXES).
     /// When present, uses substring redaction instead of whole-value replacement.
     pii_scanner: Option<PiiScanner>,
+    /// In-memory entry count for the current log file.
+    /// Incremented after each successful write. Reset to 0 on rotation.
+    /// Used to avoid re-reading the file to count entries during rotation.
+    entry_count: AtomicU64,
 }
 
 impl AuditLogger {
@@ -387,6 +392,7 @@ impl AuditLogger {
             signing_key: None,
             trusted_verifying_key: None,
             pii_scanner: None,
+            entry_count: AtomicU64::new(0),
         }
     }
 
@@ -401,6 +407,7 @@ impl AuditLogger {
             signing_key: None,
             trusted_verifying_key: None,
             pii_scanner: None,
+            entry_count: AtomicU64::new(0),
         }
     }
 
@@ -895,12 +902,25 @@ impl AuditLogger {
             return Ok(false);
         }
 
-        // H1: Read the tail hash and entry count before rotation
-        let entries = self.load_entries().await.unwrap_or_default();
+        // H1: Read the tail hash before rotation
+        // SECURITY (R18-AUDIT-1): If load fails, skip rotation to avoid creating
+        // a corrupt manifest with empty tail_hash. Keep writing to current file.
+        let entries = match self.load_entries().await {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::error!(
+                    error = %e,
+                    path = %self.log_path.display(),
+                    "Failed to load audit entries for rotation — skipping rotation to preserve chain integrity"
+                );
+                return Ok(false);
+            }
+        };
         let tail_hash = entries
             .last()
             .and_then(|e| e.entry_hash.clone())
             .unwrap_or_default();
+        // Use loaded entry count (file is source of truth; in-memory counter is for optimization)
         let entry_count = entries.len();
 
         let rotated_path = self.rotated_path();
@@ -1399,6 +1419,7 @@ impl AuditLogger {
         // Done under the lock to prevent concurrent writes from racing.
         if self.maybe_rotate().await? {
             *last_hash_guard = None; // New file = new hash chain
+            self.entry_count.store(0, Ordering::Relaxed); // Reset counter for new file
         }
 
         let mut entry = AuditEntry {
@@ -1462,6 +1483,9 @@ impl AuditLogger {
         // If the write fails, the in-memory hash must not advance,
         // otherwise the chain diverges from what's on disk.
         *last_hash_guard = Some(hash);
+
+        // Increment in-memory entry count for rotation metadata
+        self.entry_count.fetch_add(1, Ordering::Relaxed);
 
         Ok(())
     }

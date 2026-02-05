@@ -108,7 +108,7 @@ fn exploit_30_percent_encoded_at_policy_bypass() {
 fn exploit_31_path_normalization_deep_encoding_limit() {
     // 3 levels of encoding: %252e → %2e → .
     let path_3_levels = "/home/user/%252e%252e/secret";
-    let normalized = PolicyEngine::normalize_path(path_3_levels);
+    let normalized = PolicyEngine::normalize_path(path_3_levels).unwrap();
     assert_eq!(
         normalized, "/home/secret",
         "3 levels of encoding should be fully normalized within 5 iterations"
@@ -120,7 +120,7 @@ fn exploit_31_path_normalization_deep_encoding_limit() {
     //   iter 2: %252e → %2e
     //   iter 3: %2e → .
     let path_5_levels = "/home/user/%25252e%25252e/secret";
-    let normalized = PolicyEngine::normalize_path(path_5_levels);
+    let normalized = PolicyEngine::normalize_path(path_5_levels).unwrap();
     // After 5 iterations, this should resolve to ../secret → /home/secret
     // The 5-iteration limit MIGHT be sufficient here, but let's verify
     let resolved_traversal = normalized == "/home/secret";
@@ -143,10 +143,9 @@ fn exploit_31_path_normalization_deep_encoding_limit() {
 fn exploit_31_null_byte_in_path_rejected() {
     // Null bytes in paths must be rejected (not silently stripped)
     let path_with_null = "/home/user/.aws\0/credentials";
-    assert_eq!(
-        PolicyEngine::normalize_path(path_with_null),
-        "/",
-        "Null byte in path must return \"/\" (fail-closed), not pass through"
+    assert!(
+        PolicyEngine::normalize_path(path_with_null).is_err(),
+        "Null byte in path must return Err (fail-closed), not pass through"
     );
 }
 
@@ -154,10 +153,9 @@ fn exploit_31_null_byte_in_path_rejected() {
 fn exploit_31_percent_encoded_null_rejected() {
     // %00 = null byte — must also be rejected after decoding
     let path_with_encoded_null = "/home/user/.aws%00/credentials";
-    assert_eq!(
-        PolicyEngine::normalize_path(path_with_encoded_null),
-        "/",
-        "Percent-encoded null byte must return \"/\" (fail-closed)"
+    assert!(
+        PolicyEngine::normalize_path(path_with_encoded_null).is_err(),
+        "Percent-encoded null byte must return Err (fail-closed)"
     );
 }
 
