@@ -1099,10 +1099,21 @@ impl PolicyConfig {
                 }
                 // Extract host portion (after "https://", before next "/" or ":")
                 let after_scheme = &trimmed["https://".len()..];
-                let host_end = after_scheme
+                // SECURITY (R25-SUP-2): Strip userinfo (credentials) before @.
+                // RFC 3986 §3.2.1: authority = [userinfo@]host[:port]
+                // Without this, "https://evil.com@localhost/path" would extract
+                // "evil.com" as the host, bypassing localhost SSRF checks.
+                let authority = after_scheme
+                    .find('/')
+                    .map_or(after_scheme, |i| &after_scheme[..i]);
+                let host_portion = match authority.rfind('@') {
+                    Some(at) => &after_scheme[at + 1..],
+                    None => after_scheme,
+                };
+                let host_end = host_portion
                     .find(['/', ':', '?', '#'])
-                    .unwrap_or(after_scheme.len());
-                let host = after_scheme[..host_end].to_lowercase();
+                    .unwrap_or(host_portion.len());
+                let host = host_portion[..host_end].to_lowercase();
                 if host.is_empty() {
                     return Err(
                         "audit_export.webhook_url has no host".to_string()
@@ -1117,6 +1128,16 @@ impl PolicyConfig {
                     ));
                 }
             }
+        }
+
+        // SECURITY (R25-SUP-7): Reject path traversal in persistence_path.
+        // A ".." component could escape the intended directory and write/read
+        // registry data from arbitrary filesystem locations.
+        if self.tool_registry.persistence_path.contains("..") {
+            return Err(format!(
+                "tool_registry.persistence_path must not contain '..', got '{}'",
+                self.tool_registry.persistence_path
+            ));
         }
 
         // SECURITY (R24-SUP-10): Bound batch_size to prevent excessive memory usage
@@ -2348,6 +2369,54 @@ policy_type = "Allow"
         let mut config = minimal_config();
         config.audit_export.webhook_url =
             Some("https://siem.example.com/ingest".to_string());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_webhook_url_userinfo_bypass() {
+        // R25-SUP-2: "https://evil.com@localhost/path" has actual host=localhost
+        let mut config = minimal_config();
+        config.audit_export.webhook_url =
+            Some("https://evil.com@localhost/ingest".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("localhost"),
+            "Webhook URL with @localhost should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_webhook_url_userinfo_127() {
+        // R25-SUP-2: "https://user:pass@127.0.0.1/path"
+        let mut config = minimal_config();
+        config.audit_export.webhook_url =
+            Some("https://user:pass@127.0.0.1/ingest".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("localhost"),
+            "Webhook URL with @127.0.0.1 should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_persistence_path_traversal() {
+        // R25-SUP-7: persistence_path must not contain ".."
+        let mut config = minimal_config();
+        config.tool_registry.persistence_path = "../../../etc/shadow".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains(".."),
+            "Persistence path with traversal should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_accepts_valid_persistence_path() {
+        let mut config = minimal_config();
+        config.tool_registry.persistence_path = "/var/lib/sentinel/registry.jsonl".to_string();
         assert!(config.validate().is_ok());
     }
 

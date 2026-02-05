@@ -94,10 +94,17 @@ fn cef_escape(s: &str) -> String {
 /// Escape special characters for CEF extension values (key=value pairs).
 ///
 /// Per the CEF specification, extension values must escape: backslash,
-/// equals sign, newline, carriage return. Pipe is NOT escaped in extensions.
+/// equals sign, newline, carriage return. We also escape pipes as a
+/// defense-in-depth measure — while the CEF spec does not require pipe
+/// escaping in extensions, unescaped pipes confuse many SIEM parsers
+/// and can break field boundary detection.
 fn cef_escape_ext(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('=', "\\=")
+        // SECURITY (R25-SUP-1): Escape pipes in extensions to prevent parser confusion.
+        // Many SIEMs split on unescaped pipes regardless of position, allowing
+        // attacker-controlled extension values to inject fake header fields.
+        .replace('|', "\\|")
         .replace('\n', "\\n")
         .replace('\r', "\\r")
         // SECURITY (R15-SIEM-2): Unicode line separators can inject fake CEF entries
@@ -403,9 +410,10 @@ mod tests {
     }
 
     #[test]
-    fn test_cef_ext_does_not_escape_pipe() {
-        // Pipe is only escaped in headers, NOT in extension values
-        assert_eq!(cef_escape_ext("a|b"), "a|b");
+    fn test_cef_ext_escapes_pipe() {
+        // SECURITY (R25-SUP-1): Pipes are now escaped in extensions too,
+        // to prevent SIEM parser confusion from attacker-controlled values.
+        assert_eq!(cef_escape_ext("a|b"), "a\\|b");
     }
 
     #[test]

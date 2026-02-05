@@ -165,6 +165,22 @@ fn schema_contains_field_type_inner(schema: &Value, field_type: &str, depth: usi
         return true;
     }
 
+    // SECURITY (R25-MCP-6): Scan $defs and definitions sections.
+    // JSON Schema draft 2019-09+ uses "$defs", older drafts use "definitions".
+    // A malicious schema can hide sensitive field types in these sections
+    // and reference them via $ref. Since we fail-closed on $ref, we also
+    // need to scan definitions to detect suspicious types that may be
+    // referenced from $ref-free schemas via oneOf/anyOf/allOf composition.
+    for defs_key in &["$defs", "definitions"] {
+        if let Some(defs) = schema.get(*defs_key).and_then(|v| v.as_object()) {
+            for (_def_name, def_schema) in defs {
+                if schema_contains_field_type_inner(def_schema, field_type, depth + 1) {
+                    return true;
+                }
+            }
+        }
+    }
+
     false
 }
 
@@ -281,18 +297,27 @@ fn extract_model_name(params: &Value) -> Option<String> {
 /// Check if content contains tool_result type blocks.
 ///
 /// MCP content can be an array of content blocks, each with a `type` field.
-/// We check for `type: "tool_result"` or `type: "tool_output"` blocks.
+/// We check for `type: "tool_result"`, `type: "tool_output"`, and
+/// `type: "resource"` blocks (which contain server-provided data that
+/// could be used for data laundering / memory poisoning).
 fn content_contains_tool_result(content: &Value) -> bool {
+    fn is_tool_content_type(t: &str) -> bool {
+        // SECURITY (R25-MCP-9): "resource" content blocks contain data from
+        // MCP resource reads. Including these in sampling requests enables
+        // data laundering just like tool_result/tool_output.
+        t == "tool_result" || t == "tool_output" || t == "resource"
+    }
+
     match content {
         Value::Array(items) => items.iter().any(|item| {
             item.get("type")
                 .and_then(|t| t.as_str())
-                .is_some_and(|t| t == "tool_result" || t == "tool_output")
+                .is_some_and(is_tool_content_type)
         }),
         Value::Object(obj) => obj
             .get("type")
             .and_then(|t| t.as_str())
-            .is_some_and(|t| t == "tool_result" || t == "tool_output"),
+            .is_some_and(is_tool_content_type),
         _ => false,
     }
 }
@@ -969,6 +994,108 @@ mod tests {
         assert!(
             schema_contains_field_type(&schema, "password"),
             "Should detect password in nested oneOf inside anyOf"
+        );
+    }
+
+    // ── R25-MCP-6: $defs/definitions scanning ──
+
+    #[test]
+    fn test_schema_defs_hidden_password() {
+        // R25-MCP-6: Sensitive type hidden in $defs section
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"}
+            },
+            "$defs": {
+                "credentials": {
+                    "type": "object",
+                    "properties": {
+                        "password": {"type": "string", "format": "password"}
+                    }
+                }
+            }
+        });
+        assert!(
+            schema_contains_field_type(&schema, "password"),
+            "Should detect password hidden in $defs"
+        );
+    }
+
+    #[test]
+    fn test_schema_definitions_hidden_ssn() {
+        // R25-MCP-6: Legacy "definitions" keyword (JSON Schema draft-04/07)
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"}
+            },
+            "definitions": {
+                "personal": {
+                    "type": "object",
+                    "properties": {
+                        "ssn": {"type": "string"}
+                    }
+                }
+            }
+        });
+        assert!(
+            schema_contains_field_type(&schema, "ssn"),
+            "Should detect ssn hidden in definitions"
+        );
+    }
+
+    #[test]
+    fn test_schema_defs_clean_no_false_positive() {
+        // $defs without sensitive fields should not trigger
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"}
+            },
+            "$defs": {
+                "address": {
+                    "type": "object",
+                    "properties": {
+                        "street": {"type": "string"},
+                        "city": {"type": "string"}
+                    }
+                }
+            }
+        });
+        assert!(
+            !schema_contains_field_type(&schema, "password"),
+            "Clean $defs should not trigger false positive"
+        );
+    }
+
+    // ── R25-MCP-9: Resource type in sampling content ──
+
+    #[test]
+    fn test_sampling_blocks_resource_content_type() {
+        // R25-MCP-9: "resource" content blocks contain server-provided data
+        let config = SamplingConfig {
+            enabled: true,
+            allowed_models: vec![],
+            block_if_contains_tool_output: true,
+        };
+
+        let params = json!({
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "resource", "resource": {"uri": "file:///etc/passwd"}}
+                    ]
+                }
+            ]
+        });
+
+        let verdict = inspect_sampling(&params, &config);
+        assert!(
+            matches!(verdict, SamplingVerdict::Deny { .. }),
+            "Resource content type should be blocked to prevent data laundering, got: {:?}",
+            verdict
         );
     }
 }

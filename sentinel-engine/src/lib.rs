@@ -3780,10 +3780,26 @@ impl PolicyEngine {
             return Some(std::borrow::Cow::Owned(stripped.to_string()));
         }
 
+        // SECURITY (R25-ENG-5): Strip wildcard prefix before IDNA normalization.
+        // IDNA rejects "*" as an invalid label, so "*.münchen.de" would fail
+        // normalization and the pattern would never match — effectively allowing
+        // the internationalized domain to bypass wildcard blocking.
+        let (wildcard_prefix, idna_input) = if let Some(rest) = stripped.strip_prefix("*.") {
+            ("*.", rest)
+        } else {
+            ("", stripped)
+        };
+
         // Apply IDNA normalization for internationalized domains
         // This converts Unicode to Punycode (e.g., "münchen.de" -> "xn--mnchen-3ya.de")
-        match idna::domain_to_ascii(stripped) {
-            Ok(ascii) => Some(std::borrow::Cow::Owned(ascii)),
+        match idna::domain_to_ascii(idna_input) {
+            Ok(ascii) => {
+                if wildcard_prefix.is_empty() {
+                    Some(std::borrow::Cow::Owned(ascii))
+                } else {
+                    Some(std::borrow::Cow::Owned(format!("{}{}", wildcard_prefix, ascii)))
+                }
+            }
             Err(_) => {
                 // Invalid domain name — fail-closed by returning None
                 tracing::debug!(domain = s, "IDNA normalization failed for domain");
@@ -4690,6 +4706,7 @@ fn is_private_ip(ip: IpAddr) -> bool {
             || is_6to4_private(&v6)              // 2002::/16
             || is_teredo_private(&v6)            // 2001::/32
             || is_nat64_private(&v6)             // 64:ff9b::/96
+            || is_nat64_local_private(&v6)       // 64:ff9b:1::/48 (RFC 8215)
         }
     }
 }
@@ -4824,6 +4841,32 @@ fn is_nat64_private(v6: &std::net::Ipv6Addr) -> bool {
         return false;
     }
     // Embedded IPv4 is in segments 6-7
+    let octets = [
+        (v6.segments()[6] >> 8) as u8,
+        (v6.segments()[6] & 0xff) as u8,
+        (v6.segments()[7] >> 8) as u8,
+        (v6.segments()[7] & 0xff) as u8,
+    ];
+    let embedded = std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], octets[3]);
+    is_embedded_ipv4_reserved(&embedded)
+}
+
+/// SECURITY (R25-ENG-2): 64:ff9b:1::/48 — NAT64 local-use prefix (RFC 8215)
+///
+/// RFC 8215 defines this range for NAT64 deployments that use locally assigned
+/// prefixes. Like the well-known prefix (64:ff9b::/96), it embeds IPv4 addresses
+/// in the last 32 bits. An attacker could use this to bypass private IP blocking
+/// since the well-known prefix is already detected but the local-use prefix was not.
+fn is_nat64_local_private(v6: &std::net::Ipv6Addr) -> bool {
+    // Check prefix 64:ff9b:0001::/48
+    // Segment 0 = 0x0064, Segment 1 = 0xff9b, Segment 2 = 0x0001
+    if v6.segments()[0] != 0x0064
+        || v6.segments()[1] != 0xff9b
+        || v6.segments()[2] != 0x0001
+    {
+        return false;
+    }
+    // Embedded IPv4 is in segments 6-7 (last 32 bits)
     let octets = [
         (v6.segments()[6] >> 8) as u8,
         (v6.segments()[6] & 0xff) as u8,
@@ -5892,6 +5935,28 @@ mod tests {
             "Example.COM",
             "example.com"
         ));
+    }
+
+    #[test]
+    fn test_match_domain_idna_wildcard() {
+        // R25-ENG-5: IDNA wildcard patterns should work with internationalized domains.
+        // "*.münchen.de" should match "sub.münchen.de" after IDNA normalization.
+        // Previously, the "*." prefix caused IDNA normalization to fail entirely.
+        assert!(
+            PolicyEngine::match_domain_pattern(
+                "sub.xn--mnchen-3ya.de",
+                "*.münchen.de"
+            ),
+            "IDNA wildcard should match punycode subdomain"
+        );
+        // Also test that the bare domain matches
+        assert!(
+            PolicyEngine::match_domain_pattern(
+                "xn--mnchen-3ya.de",
+                "*.münchen.de"
+            ),
+            "IDNA wildcard should match bare punycode domain"
+        );
     }
 
     // ═══════════════════════════════════════════════════
@@ -9291,6 +9356,47 @@ mod tests {
         assert!(
             matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
             "NAT64 with embedded CGNAT should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_private_nat64_local_use() {
+        // SECURITY (R25-ENG-2): NAT64 local-use prefix 64:ff9b:1::/48 (RFC 8215)
+        // with embedded private IPv4 192.168.1.1 = c0a8:0101
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(
+            vec!["example.com"],
+            vec!["64:ff9b:1:0:0:0:c0a8:0101"],
+        );
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "NAT64 local-use with embedded private IPv4 should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_allow_nat64_local_use_public() {
+        // NAT64 local-use with embedded public IPv4 should be allowed
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(
+            vec!["example.com"],
+            vec!["64:ff9b:1:0:0:0:0808:0808"], // 8.8.8.8
+        );
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Allow),
+            "NAT64 local-use with public IPv4 should be allowed, got: {:?}",
             verdict
         );
     }

@@ -1036,13 +1036,19 @@ fn attack_audit_cef_pipe_injection() {
     };
 
     let cef = to_cef(&entry);
-    // Count pipes — CEF has exactly 8 pipe-separated header fields
-    let pipe_count = cef.chars().filter(|c| *c == '|').count();
-    // After the header (7 pipes for 8 fields), remaining pipes should be escaped
+    // Count UNESCAPED pipes — CEF has exactly 7 pipe delimiters in the header.
+    // Escaped pipes (\|) should not be counted as delimiters.
+    let chars: Vec<char> = cef.chars().collect();
+    let unescaped_pipe_count = chars
+        .iter()
+        .enumerate()
+        .filter(|(i, c)| **c == '|' && (*i == 0 || chars[i - 1] != '\\'))
+        .count();
+    // CEF:0|vendor|product|version|sigId|name|severity|extensions = 7 unescaped pipes
     assert!(
-        pipe_count <= 8,
-        "ATTACK SUCCEEDED: Unescaped pipe in CEF — {} pipes found. Line: {}",
-        pipe_count,
+        unescaped_pipe_count == 7,
+        "ATTACK SUCCEEDED: Expected 7 unescaped pipes in CEF, got {}. Line: {}",
+        unescaped_pipe_count,
         cef
     );
 }
