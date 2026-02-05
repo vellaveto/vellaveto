@@ -51,6 +51,8 @@ pub struct SessionState {
     /// Number of elicitation requests processed in this session.
     /// Used for per-session rate limiting of `elicitation/create` requests.
     pub elicitation_count: u32,
+    /// SECURITY (R15-OAUTH-4): Token expiry timestamp (Unix seconds).
+    pub token_expires_at: Option<u64>,
 }
 
 impl SessionState {
@@ -71,6 +73,7 @@ impl SessionState {
             action_history: Vec::new(),
             memory_tracker: MemoryTracker::new(),
             elicitation_count: 0,
+            token_expires_at: None,
         }
     }
 
@@ -91,6 +94,15 @@ impl SessionState {
         }
         if let Some(max) = max_lifetime {
             if self.created_at.elapsed() > max {
+                return true;
+            }
+        }
+        if let Some(exp) = self.token_expires_at {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            if now >= exp {
                 return true;
             }
         }

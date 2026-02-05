@@ -9054,20 +9054,13 @@ mod tests {
                     /// normalize_path is idempotent: normalizing twice yields same result.
                     #[test]
                     fn prop_normalize_path_idempotent(path in arb_path()) {
-                        match PolicyEngine::normalize_path(&path) {
-                            Err(_) => {
-                                // Input rejected (null bytes, empty) — skip idempotency.
-                            }
-                            Ok(once) => {
-                                let twice = PolicyEngine::normalize_path(&once)
-                                    .expect("normalize_path(normalize_path(p)) must succeed if first succeeded");
-                                prop_assert_eq!(
-                                    &once, &twice,
-                                    "normalize_path must be idempotent: '{}' -> '{}' -> '{}'",
-                                    path, once, twice
-                                );
-                            }
-                        }
+                        let once = PolicyEngine::normalize_path(&path);
+                        let twice = PolicyEngine::normalize_path(&once);
+                        prop_assert_eq!(
+                            &once, &twice,
+                            "normalize_path must be idempotent: '{}' -> '{}' -> '{}'",
+                            path, once, twice
+                        );
                     }
 
                     /// normalize_path is idempotent for percent-encoded input.
@@ -9080,33 +9073,24 @@ mod tests {
                             .map(|b| format!("%{:02X}", b))
                             .collect();
                         let input = format!("/{}", encoded);
-                        match PolicyEngine::normalize_path(&input) {
-                            Err(_) => {
-                                // Input rejected — skip idempotency.
-                            }
-                            Ok(once) => {
-                                let twice = PolicyEngine::normalize_path(&once)
-                                    .expect("normalize_path(normalize_path(p)) must succeed if first succeeded");
-                                prop_assert_eq!(
-                                    &once, &twice,
-                                    "normalize_path must be idempotent on encoded input: '{}' -> '{}' -> '{}'",
-                                    input, once, twice
-                                );
-                            }
-                        }
+                        let once = PolicyEngine::normalize_path(&input);
+                        let twice = PolicyEngine::normalize_path(&once);
+                        prop_assert_eq!(
+                            &once, &twice,
+                            "normalize_path must be idempotent on encoded input: '{}' -> '{}' -> '{}'",
+                            input, once, twice
+                        );
                     }
 
                     /// normalize_path never returns an empty string.
                     #[test]
                     fn prop_normalize_path_never_empty(path in arb_path()) {
-                        if let Ok(ref val) = PolicyEngine::normalize_path(&path) {
-                            prop_assert!(
-                                !val.is_empty(),
-                                "normalize_path must never return empty string for input '{}'",
-                                path
-                            );
-                        }
-                        // If Err, that's fine — fail-closed rejects dangerous inputs.
+                        let val = PolicyEngine::normalize_path(&path);
+                        prop_assert!(
+                            !val.is_empty(),
+                            "normalize_path must never return empty string for input '{}'",
+                            path
+                        );
                     }
 
                     /// extract_domain always returns a lowercase string.

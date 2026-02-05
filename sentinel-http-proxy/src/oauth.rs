@@ -58,6 +58,14 @@ pub struct OAuthConfig {
     /// `resource` claim matching this value. This prevents a token scoped for one
     /// MCP server from being replayed against a different server.
     pub expected_resource: Option<String>,
+
+    /// Allowable clock skew when validating `exp`, `nbf`, and `iat` claims.
+    /// Accounts for clock drift between the authorization server and this proxy.
+    pub clock_skew_leeway: Duration,
+
+    /// When true, tokens without an `aud` claim are rejected even if the
+    /// `jsonwebtoken` library would otherwise accept them.
+    pub require_audience: bool,
 }
 
 /// Default allowed algorithms for OAuth 2.1 — asymmetric only.
@@ -202,6 +210,9 @@ pub enum OAuthError {
 
     #[error("resource mismatch: token resource '{token}' does not match expected '{expected}' (RFC 8707)")]
     ResourceMismatch { expected: String, token: String },
+
+    #[error("token missing required 'aud' claim")]
+    MissingAudience,
 }
 
 /// Cached JWKS key set with TTL-based refresh.
@@ -266,10 +277,15 @@ impl OAuthValidator {
         validation.set_audience(&[&self.config.audience]);
         validation.validate_exp = true;
         validation.validate_nbf = true; // Challenge 14 fix: reject tokens before nbf
+        validation.leeway = self.config.clock_skew_leeway.as_secs();
 
         // Decode and validate
         let token_data: TokenData<OAuthClaims> = decode(token, &decoding_key, &validation)?;
         let claims = token_data.claims;
+
+        if self.config.require_audience && claims.aud.is_empty() {
+            return Err(OAuthError::MissingAudience);
+        }
 
         // Check required scopes
         if !self.config.required_scopes.is_empty() {
@@ -311,12 +327,16 @@ impl OAuthValidator {
     }
 
     /// Get a decoding key from the cached JWKS, refreshing if stale.
+    ///
+    /// Uses a read lock for the fast path and upgrades to a write lock only on
+    /// cache miss. After acquiring the write lock we double-check freshness to
+    /// avoid redundant fetches when multiple tasks race on a stale cache.
     async fn get_decoding_key(
         &self,
         kid: &str,
         alg: &Algorithm,
     ) -> Result<DecodingKey, OAuthError> {
-        // Try cache first
+        // Fast path — read lock only
         {
             let cache = self.jwks_cache.read().await;
             if let Some(cached) = cache.as_ref() {
@@ -327,8 +347,21 @@ impl OAuthValidator {
                 }
             }
         }
+        // Read lock dropped here
 
-        // Cache miss or stale — fetch fresh JWKS
+        // Slow path — acquire write lock, then double-check before fetching
+        let mut cache = self.jwks_cache.write().await;
+
+        // Double-check: another task may have refreshed while we waited for the lock
+        if let Some(cached) = cache.as_ref() {
+            if cached.fetched_at.elapsed() < self.cache_ttl {
+                if let Some(key) = find_key_in_jwks(&cached.keys, kid, alg) {
+                    return Ok(key);
+                }
+            }
+        }
+
+        // Fetch JWKS while holding the write lock
         let jwks = self.fetch_jwks().await?;
 
         // Challenge 12 fix: Require kid when JWKS has multiple keys.
@@ -341,14 +374,11 @@ impl OAuthValidator {
         let key = find_key_in_jwks(&jwks, kid, alg)
             .ok_or_else(|| OAuthError::NoMatchingKey(kid.to_string()))?;
 
-        // Update cache
-        {
-            let mut cache = self.jwks_cache.write().await;
-            *cache = Some(CachedJwks {
-                keys: jwks,
-                fetched_at: Instant::now(),
-            });
-        }
+        // Update cache while still holding the write lock
+        *cache = Some(CachedJwks {
+            keys: jwks,
+            fetched_at: Instant::now(),
+        });
 
         Ok(key)
     }
@@ -455,6 +485,8 @@ mod tests {
             pass_through: false,
             allowed_algorithms: default_allowed_algorithms(),
             expected_resource: None,
+            clock_skew_leeway: Duration::from_secs(30),
+            require_audience: true,
         };
         assert_eq!(config.effective_jwks_uri(), "https://auth.example.com/keys");
     }
@@ -469,6 +501,8 @@ mod tests {
             pass_through: false,
             allowed_algorithms: default_allowed_algorithms(),
             expected_resource: None,
+            clock_skew_leeway: Duration::from_secs(30),
+            require_audience: true,
         };
         assert_eq!(
             config.effective_jwks_uri(),
@@ -486,6 +520,8 @@ mod tests {
             pass_through: false,
             allowed_algorithms: default_allowed_algorithms(),
             expected_resource: None,
+            clock_skew_leeway: Duration::from_secs(30),
+            require_audience: true,
         };
         assert_eq!(
             config.effective_jwks_uri(),
@@ -654,5 +690,34 @@ mod tests {
         let json = r#"{"sub":"user","aud":"mcp-server","scope":""}"#;
         let claims: OAuthClaims = serde_json::from_str(json).unwrap();
         assert_eq!(claims.resource, None);
+    }
+
+    #[test]
+    fn test_clock_skew_leeway_configurable() {
+        let config = OAuthConfig {
+            issuer: "https://auth.example.com".to_string(),
+            audience: "mcp-server".to_string(),
+            jwks_uri: None,
+            required_scopes: vec![],
+            pass_through: false,
+            allowed_algorithms: default_allowed_algorithms(),
+            expected_resource: None,
+            clock_skew_leeway: Duration::from_secs(60),
+            require_audience: true,
+        };
+        assert_eq!(config.clock_skew_leeway, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn test_deserialize_missing_aud_yields_empty_vec() {
+        let json = r#"{"sub":"user","scope":"read"}"#;
+        let claims: OAuthClaims = serde_json::from_str(json).unwrap();
+        assert!(claims.aud.is_empty());
+    }
+
+    #[test]
+    fn test_missing_audience_error_display() {
+        let err = OAuthError::MissingAudience;
+        assert_eq!(err.to_string(), "token missing required 'aud' claim");
     }
 }

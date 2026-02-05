@@ -10,8 +10,9 @@
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-2%2C415_passing-brightgreen.svg" alt="Tests: 2,415 passing">
+    <img src="https://img.shields.io/badge/tests-2%2C508_passing-brightgreen.svg" alt="Tests: 2,508 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
+    <img src="https://img.shields.io/badge/security_audit-254_findings%2C_31_attack_classes-informational.svg" alt="Security Audit: 254 findings, 31 attack classes">
     <a href="https://modelcontextprotocol.io/specification/2025-06-18"><img src="https://img.shields.io/badge/MCP-2025--06--18-blueviolet.svg" alt="MCP 2025-06-18"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
   </p>
@@ -31,7 +32,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 
 <table>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>2,415 tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>2,508 tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-06-18 (Streamable HTTP)</td></tr>
@@ -625,6 +626,21 @@ Environment variables override values set in the config file.
 | 🔑 **OAuth 2.1** | JWT/JWKS validation, algorithm confusion prevention, scope enforcement |
 | 🚦 **Rate limiting** | Per-IP, per-principal, per-endpoint with burst support and capacity bounds |
 | 🔗 **Supply chain** | SHA-256 hash verification of MCP server binaries before spawn |
+
+### 🔬 Security Audit
+
+Sentinel has undergone a comprehensive adversarial security audit covering 15+ rounds and 31 attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/). The full results are documented in [`ATTACK_PLAYBOOK.md`](ATTACK_PLAYBOOK.md).
+
+| Metric | Value |
+|--------|-------|
+| Attack classes tested | 31 |
+| Total findings | 254 |
+| Findings fixed | 18+ |
+| Dead-code features identified | 5 |
+| Critical findings | 7 |
+| Test count post-audit | 2,508 |
+
+Key areas covered: tool poisoning, prompt injection, path traversal, SSRF/domain bypass, session fixation, JSON parsing, memory poisoning, elicitation social engineering, audit log tampering, OAuth/JWT validation, SIEM export injection, rug-pull detection, tool squatting, DLP bypass, SSE transport parity, and config reload races.
 
 ### ⚠️ Known Limitations
 

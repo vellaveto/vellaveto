@@ -2154,6 +2154,8 @@ fn build_oauth_test_state(
         pass_through,
         allowed_algorithms: default_allowed_algorithms(),
         expected_resource: None,
+        clock_skew_leeway: std::time::Duration::from_secs(30),
+        require_audience: true,
     };
 
     ProxyState {

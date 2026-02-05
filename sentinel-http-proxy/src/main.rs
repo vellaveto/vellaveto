@@ -256,6 +256,8 @@ async fn main() -> Result<()> {
             pass_through: args.oauth_pass_through,
             allowed_algorithms: sentinel_http_proxy::oauth::default_allowed_algorithms(),
             expected_resource: args.oauth_expected_resource.clone(),
+            clock_skew_leeway: Duration::from_secs(30),
+            require_audience: true,
         };
         tracing::info!(
             "OAuth 2.1 enabled: issuer={}, audience={}, scopes={:?}, pass_through={}",

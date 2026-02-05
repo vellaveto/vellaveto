@@ -408,43 +408,35 @@ pub async fn handle_mcp_post(
     let client_session_id = headers.get(MCP_SESSION_ID).and_then(|v| v.to_str().ok());
     let session_id = state.sessions.get_or_create(client_session_id);
 
-    // R4-4 FIX: Session fixation prevention — validate session ownership.
-    // When a client reuses a session that already has an OAuth subject bound,
-    // verify that the current request's OAuth subject matches the session owner.
-    // This prevents an attacker from pre-creating a session and tricking an
-    // authenticated user into binding their identity to it.
+    // SECURITY (R15-OAUTH-2): Atomic session ownership check + bind.
     if let Some(ref claims) = oauth_claims {
-        if let Some(session) = state.sessions.get_mut(&session_id) {
-            if let Some(ref owner) = session.oauth_subject {
-                if owner != &claims.sub {
+        if let Some(mut session) = state.sessions.get_mut(&session_id) {
+            match &session.oauth_subject {
+                Some(owner) if owner != &claims.sub => {
                     tracing::warn!(
                         "SECURITY: Session fixation attempt blocked — session {} owned by '{}', request from '{}'",
-                        session_id,
-                        owner,
-                        claims.sub
+                        session_id, owner, claims.sub
                     );
                     return (
                         StatusCode::FORBIDDEN,
                         Json(json!({
                             "jsonrpc": "2.0",
-                            "error": {
-                                "code": -32001,
-                                "message": "Session owned by another user"
-                            },
+                            "error": {"code": -32001, "message": "Session owned by another user"},
                             "id": null
                         })),
-                    )
-                        .into_response();
+                    ).into_response();
                 }
-            }
-        }
-    }
-
-    // Attach OAuth subject to session for audit trail
-    if let Some(ref claims) = oauth_claims {
-        if let Some(mut session) = state.sessions.get_mut(&session_id) {
-            if session.oauth_subject.is_none() {
-                session.oauth_subject = Some(claims.sub.clone());
+                None => {
+                    session.oauth_subject = Some(claims.sub.clone());
+                    if claims.exp > 0 {
+                        session.token_expires_at = Some(claims.exp);
+                    }
+                }
+                _ => {
+                    if claims.exp > 0 {
+                        session.token_expires_at = Some(claims.exp);
+                    }
+                }
             }
         }
     }
