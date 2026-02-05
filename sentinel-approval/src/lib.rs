@@ -389,15 +389,19 @@ impl ApprovalStore {
     /// to prevent unbounded growth.
     pub async fn expire_stale(&self) -> usize {
         let now = Utc::now();
+        // SECURITY (R21-SUP-2): Acquire both locks atomically in consistent order
+        // (pending -> dedup_index) to prevent a race window where a concurrent
+        // create() inserts a dedup entry for an approval being expired.
         let mut pending = self.pending.write().await;
+        let mut dedup = self.dedup_index.write().await;
         let mut expired_count = 0;
         let mut to_persist = Vec::new();
-        let mut expired_dedup_keys = Vec::new();
 
         for approval in pending.values_mut() {
             if approval.status == ApprovalStatus::Pending && now > approval.expires_at {
-                // Compute dedup key before mutating status
-                expired_dedup_keys.push(compute_dedup_key(&approval.action, &approval.reason));
+                // Remove dedup key atomically while both locks are held
+                let dedup_key = compute_dedup_key(&approval.action, &approval.reason);
+                dedup.remove(&dedup_key);
                 approval.status = ApprovalStatus::Expired;
                 expired_count += 1;
                 to_persist.push(approval.clone());
@@ -409,17 +413,9 @@ impl ApprovalStore {
         pending
             .retain(|_, a| a.status == ApprovalStatus::Pending || a.created_at > retention_cutoff);
 
-        // Persist expired status outside the lock scope isn't possible since
-        // persist_approval needs &self, so we collect and persist after dropping the guard
+        // Drop both locks before I/O operations
+        drop(dedup);
         drop(pending);
-
-        // Remove expired entries from the dedup index
-        if !expired_dedup_keys.is_empty() {
-            let mut dedup = self.dedup_index.write().await;
-            for key in &expired_dedup_keys {
-                dedup.remove(key);
-            }
-        }
 
         for approval in &to_persist {
             if let Err(e) = self.persist_approval(approval).await {

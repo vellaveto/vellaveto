@@ -486,17 +486,16 @@ fn sanitize_context(
             client_agent_id
         };
 
-        // OWASP ASI07: For the stateless server API, agent_identity must be
-        // pre-validated by an upstream proxy (e.g., sentinel-http-proxy).
-        // We pass through the context's agent_identity if present, but this
-        // endpoint cannot validate JWTs directly — it has no JWKS configuration.
-        // In production, the HTTP proxy should be the entry point, which does
-        // validate X-Agent-Identity JWTs before populating agent_identity.
+        // SECURITY (R21-SRV-3): Strip agent_identity — the stateless server
+        // cannot validate JWTs (no JWKS configuration). Passing through an
+        // unvalidated client-supplied agent_identity would let attackers forge
+        // identity claims to match agent-identity-based policy conditions.
+        // Only the HTTP proxy should populate this after JWT verification.
         EvaluationContext {
             // Override timestamp with server time — never trust client clocks
             timestamp: None,
             agent_id,
-            agent_identity: ctx.agent_identity,
+            agent_identity: None,
             // Strip session-state fields: the stateless server API has no session
             // tracking, so these must not be client-controlled
             call_counts: std::collections::HashMap::new(),

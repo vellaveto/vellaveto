@@ -1986,11 +1986,11 @@ impl PolicyEngine {
                     window,
                     deny_reason,
                 } => {
-                    // SECURITY (R15-ENG-1): Fail-closed when previous_actions
-                    // is empty and call_counts is also empty. This means the
-                    // caller has no session history, so windowed rate limits
-                    // cannot be enforced — deny to be safe.
-                    if context.previous_actions.is_empty() && context.call_counts.is_empty() {
+                    // SECURITY (R21-ENG-1): Fail-closed when previous_actions
+                    // is empty. MaxCallsInWindow counts over previous_actions
+                    // only — call_counts is irrelevant here. Without history,
+                    // windowed rate limits cannot be enforced — deny to be safe.
+                    if context.previous_actions.is_empty() {
                         return Some(Verdict::Deny {
                             reason: format!(
                                 "{} (no session history available — fail-closed)",
@@ -4634,11 +4634,20 @@ impl PolicyEngine {
 fn is_private_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => {
+            let octets = v4.octets();
             v4.is_loopback()      // 127.0.0.0/8
             || v4.is_private()     // 10/8, 172.16/12, 192.168/16
             || v4.is_link_local()  // 169.254/16
             || v4.is_unspecified() // 0.0.0.0
-            || v4.is_broadcast() // 255.255.255.255
+            || v4.is_broadcast()   // 255.255.255.255
+            // SECURITY (R21-ENG-3): Additional reserved ranges
+            || octets[0] == 0                                        // 0.0.0.0/8 (RFC 1122)
+            || (octets[0] == 100 && (octets[1] & 0xC0) == 64)       // 100.64.0.0/10 CGNAT (RFC 6598)
+            || (octets[0] == 198 && (octets[1] & 0xFE) == 18)       // 198.18.0.0/15 benchmarking (RFC 2544)
+            || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0) // 192.0.0.0/24 (RFC 6890)
+            || (octets[0] == 192 && octets[1] == 0 && octets[2] == 2) // 192.0.2.0/24 TEST-NET-1 (RFC 5737)
+            || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100) // 198.51.100.0/24 TEST-NET-2
+            || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)  // 203.0.113.0/24 TEST-NET-3
         }
         IpAddr::V6(v6) => {
             v6.is_loopback()       // ::1
@@ -4649,10 +4658,11 @@ fn is_private_ip(ip: IpAddr) -> bool {
             || is_ipv6_documentation(&v6)  // 2001:db8::/32
             || is_ipv6_discard(&v6)        // 100::/64
             // Transition mechanisms with embedded IPv4
-            || is_ipv4_mapped_private(&v6) // ::ffff:x.x.x.x
-            || is_6to4_private(&v6)        // 2002::/16
-            || is_teredo_private(&v6)      // 2001::/32
-            || is_nat64_private(&v6)       // 64:ff9b::/96
+            || is_ipv4_mapped_private(&v6)      // ::ffff:x.x.x.x
+            || is_ipv4_compatible_private(&v6)   // ::x.x.x.x (R21-ENG-2)
+            || is_6to4_private(&v6)              // 2002::/16
+            || is_teredo_private(&v6)            // 2001::/32
+            || is_nat64_private(&v6)             // 64:ff9b::/96
         }
     }
 }
@@ -4690,6 +4700,36 @@ fn is_ipv4_mapped_private(v6: &std::net::Ipv6Addr) -> bool {
     v6.to_ipv4_mapped().is_some_and(|v4| {
         v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified()
     })
+}
+
+/// SECURITY (R21-ENG-2): ::x.x.x.x — IPv4-compatible IPv6 (deprecated, RFC 4291 §2.5.5.1)
+///
+/// Segments 0-4 are zero, segment 5 is NOT 0xffff (that would be IPv4-mapped).
+/// The embedded IPv4 is in segments 6-7. Many OS kernels route these to the
+/// embedded IPv4 address, enabling DNS rebinding if not blocked.
+fn is_ipv4_compatible_private(v6: &std::net::Ipv6Addr) -> bool {
+    let segs = v6.segments();
+    if segs[0] == 0 && segs[1] == 0 && segs[2] == 0
+        && segs[3] == 0 && segs[4] == 0 && segs[5] == 0
+    {
+        // Skip ::0.0.0.0 and ::0.0.0.1 (unspecified/loopback already covered)
+        if segs[6] == 0 && segs[7] <= 1 {
+            return false; // handled by is_loopback/is_unspecified
+        }
+        let octets = [
+            (segs[6] >> 8) as u8,
+            (segs[6] & 0xff) as u8,
+            (segs[7] >> 8) as u8,
+            (segs[7] & 0xff) as u8,
+        ];
+        let embedded = std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], octets[3]);
+        return embedded.is_loopback() || embedded.is_private() || embedded.is_link_local()
+            || embedded.is_unspecified()
+            || octets[0] == 0                                        // 0.0.0.0/8
+            || (octets[0] == 100 && (octets[1] & 0xC0) == 64)       // CGNAT
+            || (octets[0] == 198 && (octets[1] & 0xFE) == 18);      // benchmarking
+    }
+    false
 }
 
 /// 2002::/16 — 6to4 (RFC 3056) — extract embedded IPv4 from bits 16-47
@@ -9107,6 +9147,76 @@ mod tests {
     }
 
     #[test]
+    fn test_ip_rules_block_private_ipv4_compatible_v6() {
+        // SECURITY (R21-ENG-2): ::10.0.0.1 (IPv4-compatible, deprecated) embeds
+        // a private IPv4. Must be blocked to prevent DNS rebinding.
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["::10.0.0.1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "IPv4-compatible ::10.0.0.1 should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_private_ipv4_compatible_loopback() {
+        // ::127.0.0.1 is IPv4-compatible loopback — must be blocked
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["::127.0.0.1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "IPv4-compatible ::127.0.0.1 should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_cgnat_range() {
+        // SECURITY (R21-ENG-3): 100.64.0.0/10 (CGNAT, RFC 6598) must be blocked
+        // by block_private. In cloud environments this can reach metadata services.
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["100.100.1.1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "CGNAT 100.100.1.1 should be blocked by block_private, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_zero_network() {
+        // 0.x.x.x (RFC 1122 "this host on this network") must be blocked
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["0.1.2.3"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "0.1.2.3 should be blocked by block_private, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
     fn test_ip_rules_allow_public_ip() {
         let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
             block_private: true,
@@ -10265,6 +10375,34 @@ mod tests {
         assert!(
             matches!(v, Verdict::Deny { .. }),
             "MaxCallsInWindow with empty history must deny (fail-closed), got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_context_max_calls_in_window_nonempty_counts_empty_history_denies() {
+        // SECURITY (R21-ENG-1): MaxCallsInWindow with empty previous_actions
+        // but non-empty call_counts must STILL deny. MaxCallsInWindow counts
+        // over previous_actions only, so providing call_counts alone cannot
+        // satisfy the windowed check.
+        let policy = make_context_policy(json!([
+            {"type": "max_calls_in_window", "tool_pattern": "write_file", "max": 3, "window": 10}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("write_file", "execute", json!({}));
+        let mut counts = HashMap::new();
+        counts.insert("write_file".to_string(), 1u64);
+        let ctx = EvaluationContext {
+            previous_actions: Vec::new(), // empty — no history
+            call_counts: counts,          // non-empty — should NOT bypass check
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "R21-ENG-1: MaxCallsInWindow with empty history must deny even if call_counts non-empty, got: {:?}",
             v
         );
     }

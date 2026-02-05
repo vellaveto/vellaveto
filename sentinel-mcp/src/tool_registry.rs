@@ -21,6 +21,7 @@
 //! existing entries are loaded and trust scores recomputed from current timestamps.
 
 use chrono::{DateTime, Duration, Utc};
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -29,6 +30,8 @@ use thiserror::Error;
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::RwLock;
+
+type HmacSha256 = Hmac<Sha256>;
 
 /// Errors that can occur in registry operations.
 #[derive(Error, Debug)]
@@ -171,6 +174,9 @@ pub struct ToolRegistry {
     persistence_path: PathBuf,
     /// Trust threshold below which tools require approval.
     trust_threshold: f32,
+    /// Optional HMAC-SHA256 key for persistence integrity.
+    /// When set, each persisted line is signed and verified on load.
+    hmac_key: Option<[u8; 32]>,
 }
 
 impl ToolRegistry {
@@ -180,6 +186,7 @@ impl ToolRegistry {
             entries: RwLock::new(HashMap::new()),
             persistence_path: persistence_path.as_ref().to_path_buf(),
             trust_threshold: DEFAULT_TRUST_THRESHOLD,
+            hmac_key: None,
         }
     }
 
@@ -189,7 +196,17 @@ impl ToolRegistry {
             entries: RwLock::new(HashMap::new()),
             persistence_path: persistence_path.as_ref().to_path_buf(),
             trust_threshold: threshold.clamp(0.0, 1.0),
+            hmac_key: None,
         }
+    }
+
+    /// Set an HMAC-SHA256 key for persistence integrity.
+    ///
+    /// When set, each line in the JSONL persistence file is signed on write
+    /// and verified on load. Lines with invalid HMACs are rejected (fail-closed).
+    pub fn with_hmac_key(mut self, key: [u8; 32]) -> Self {
+        self.hmac_key = Some(key);
+        self
     }
 
     /// Get the configured trust threshold.
@@ -212,13 +229,39 @@ impl ToolRegistry {
         let reader = BufReader::new(file);
         let mut lines = reader.lines();
         let mut loaded = HashMap::new();
+        let mut rejected = 0usize;
 
-        while let Some(line) = lines.next_line().await? {
-            let line = line.trim();
-            if line.is_empty() {
+        while let Some(raw_line) = lines.next_line().await? {
+            let raw_line = raw_line.trim();
+            if raw_line.is_empty() {
                 continue;
             }
-            match serde_json::from_str::<ToolEntry>(line) {
+
+            // If HMAC key is configured, verify integrity of each line.
+            // Format: <json>\t<64-char-hex-hmac>
+            let json_part = if let Some(ref key) = self.hmac_key {
+                if let Some((json, hmac_hex)) = raw_line.rsplit_once('\t') {
+                    if !Self::verify_hmac(key, json.as_bytes(), hmac_hex) {
+                        tracing::warn!(
+                            "Rejecting tampered registry entry (HMAC mismatch)"
+                        );
+                        rejected += 1;
+                        continue;
+                    }
+                    json
+                } else {
+                    // HMAC key configured but line has no HMAC — reject (fail-closed)
+                    tracing::warn!(
+                        "Rejecting unsigned registry entry (HMAC key configured)"
+                    );
+                    rejected += 1;
+                    continue;
+                }
+            } else {
+                raw_line
+            };
+
+            match serde_json::from_str::<ToolEntry>(json_part) {
                 Ok(mut entry) => {
                     entry.compute_trust_score();
                     loaded.insert(entry.tool_id.clone(), entry);
@@ -227,6 +270,13 @@ impl ToolRegistry {
                     tracing::warn!("Skipping malformed registry entry: {}", e);
                 }
             }
+        }
+
+        if rejected > 0 {
+            tracing::warn!(
+                "Rejected {} tampered/unsigned registry entries (fail-closed)",
+                rejected
+            );
         }
 
         let count = loaded.len();
@@ -252,8 +302,16 @@ impl ToolRegistry {
             .await?;
 
         for entry in entries.values() {
-            let line = serde_json::to_string(entry)?;
-            file.write_all(line.as_bytes()).await?;
+            let json = serde_json::to_string(entry)?;
+            if let Some(ref key) = self.hmac_key {
+                // Sign each line: <json>\t<hmac_hex>\n
+                let hmac_hex = Self::compute_hmac(key, json.as_bytes());
+                file.write_all(json.as_bytes()).await?;
+                file.write_all(b"\t").await?;
+                file.write_all(hmac_hex.as_bytes()).await?;
+            } else {
+                file.write_all(json.as_bytes()).await?;
+            }
             file.write_all(b"\n").await?;
         }
         file.flush().await?;
@@ -387,6 +445,27 @@ impl ToolRegistry {
                 }
             }
         }
+    }
+
+    /// Compute HMAC-SHA256 over data, returning lowercase hex string.
+    fn compute_hmac(key: &[u8; 32], data: &[u8]) -> String {
+        let mut mac =
+            HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
+        mac.update(data);
+        let result = mac.finalize();
+        hex::encode(result.into_bytes())
+    }
+
+    /// Verify HMAC-SHA256 of data against expected hex string.
+    fn verify_hmac(key: &[u8; 32], data: &[u8], expected_hex: &str) -> bool {
+        let expected_bytes = match hex::decode(expected_hex) {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
+        let mut mac =
+            HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
+        mac.update(data);
+        mac.verify_slice(&expected_bytes).is_ok()
     }
 
     /// Register an unknown tool with an empty schema hash.
@@ -793,6 +872,106 @@ mod tests {
 
         let list = registry.list().await;
         assert_eq!(list.len(), 2);
+    }
+
+    // --- HMAC Integrity Tests ---
+
+    #[tokio::test]
+    async fn test_registry_hmac_persist_and_load() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let key = [0xABu8; 32];
+
+        let registry = ToolRegistry::new(&path).with_hmac_key(key);
+        registry
+            .register_tool("tool_a", &json!({"type": "object"}), false)
+            .await;
+        registry.persist().await.unwrap();
+
+        // Load with same key — should succeed
+        let registry2 = ToolRegistry::new(&path).with_hmac_key(key);
+        let count = registry2.load().await.unwrap();
+        assert_eq!(count, 1);
+        assert!(registry2.get("tool_a").await.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_registry_hmac_rejects_tampered_data() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let key = [0xCDu8; 32];
+
+        let registry = ToolRegistry::new(&path).with_hmac_key(key);
+        registry
+            .register_tool("tool_x", &json!({"type": "object"}), false)
+            .await;
+        registry.persist().await.unwrap();
+
+        // Tamper with the file: modify the JSON but keep the old HMAC
+        let content = tokio::fs::read_to_string(&path).await.unwrap();
+        let tampered = content.replace("tool_x", "tool_y");
+        tokio::fs::write(&path, tampered).await.unwrap();
+
+        // Load should reject the tampered entry
+        let registry2 = ToolRegistry::new(&path).with_hmac_key(key);
+        let count = registry2.load().await.unwrap();
+        assert_eq!(count, 0, "Tampered entry should be rejected");
+    }
+
+    #[tokio::test]
+    async fn test_registry_hmac_rejects_wrong_key() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let key1 = [0x11u8; 32];
+        let key2 = [0x22u8; 32];
+
+        let registry = ToolRegistry::new(&path).with_hmac_key(key1);
+        registry
+            .register_tool("tool_z", &json!({"type": "string"}), false)
+            .await;
+        registry.persist().await.unwrap();
+
+        // Load with different key — should reject
+        let registry2 = ToolRegistry::new(&path).with_hmac_key(key2);
+        let count = registry2.load().await.unwrap();
+        assert_eq!(count, 0, "Entry signed with wrong key should be rejected");
+    }
+
+    #[tokio::test]
+    async fn test_registry_hmac_rejects_unsigned_when_key_configured() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+
+        // Persist without HMAC
+        let registry = ToolRegistry::new(&path);
+        registry
+            .register_tool("tool_plain", &json!({}), false)
+            .await;
+        registry.persist().await.unwrap();
+
+        // Load with HMAC key — should reject unsigned entries (fail-closed)
+        let key = [0xFFu8; 32];
+        let registry2 = ToolRegistry::new(&path).with_hmac_key(key);
+        let count = registry2.load().await.unwrap();
+        assert_eq!(count, 0, "Unsigned entries should be rejected when HMAC key is set");
+    }
+
+    #[tokio::test]
+    async fn test_registry_no_hmac_loads_normally() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+
+        // Persist without HMAC
+        let registry = ToolRegistry::new(&path);
+        registry
+            .register_tool("tool_normal", &json!({}), false)
+            .await;
+        registry.persist().await.unwrap();
+
+        // Load without HMAC — should work normally
+        let registry2 = ToolRegistry::new(&path);
+        let count = registry2.load().await.unwrap();
+        assert_eq!(count, 1);
     }
 
     #[test]

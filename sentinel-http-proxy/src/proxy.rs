@@ -1141,14 +1141,18 @@ pub async fn handle_mcp_post(
                 sentinel_mcp::elicitation::inspect_sampling(&params, &state.sampling_config);
             match sampling_verdict {
                 sentinel_mcp::elicitation::SamplingVerdict::Allow => {
-                    // Forward the sampling request to upstream
-                    let forward_body = if state.canonicalize {
-                        match serde_json::to_vec(&msg) {
-                            Ok(b) => Bytes::from(b),
-                            Err(_) => body.clone(),
+                    // SECURITY (R21-PROXY-2): Use canonicalize_body() consistently
+                    // (fail-closed). Previous inline fallback to body.clone() reopened
+                    // the TOCTOU gap that canonicalization is designed to close.
+                    let forward_body = match canonicalize_body(&state, &msg, body.clone()) {
+                        Some(b) => b,
+                        None => {
+                            return make_jsonrpc_error(
+                                msg.get("id"),
+                                -32603,
+                                "Internal error: canonicalization failed",
+                            );
                         }
-                    } else {
-                        body.clone()
                     };
                     let response = forward_to_upstream(
                         &state,
@@ -1313,34 +1317,40 @@ pub async fn handle_mcp_post(
             attach_session_header(response, &session_id)
         }
         MessageType::ElicitationRequest { id } => {
-            // Read the current elicitation count from the session
-            let current_elicitation_count = state
-                .sessions
-                .get_mut(&session_id)
-                .map(|s| s.elicitation_count)
-                .unwrap_or(0);
-
+            // SECURITY (R21-PROXY-1): Hold the DashMap shard lock across read,
+            // inspect, and increment to prevent concurrent requests from all
+            // reading the same count and bypassing the rate limit.
             let params = msg.get("params").cloned().unwrap_or(json!({}));
-            let elicitation_verdict = sentinel_mcp::elicitation::inspect_elicitation(
-                &params,
-                &state.elicitation_config,
-                current_elicitation_count,
-            );
+            let elicitation_verdict = {
+                let mut session_ref = state.sessions.get_mut(&session_id);
+                let current_count = session_ref.as_ref().map(|s| s.elicitation_count).unwrap_or(0);
+                let verdict = sentinel_mcp::elicitation::inspect_elicitation(
+                    &params,
+                    &state.elicitation_config,
+                    current_count,
+                );
+                if matches!(verdict, sentinel_mcp::elicitation::ElicitationVerdict::Allow) {
+                    if let Some(ref mut s) = session_ref {
+                        s.elicitation_count += 1;
+                    }
+                }
+                verdict
+            };
             match elicitation_verdict {
                 sentinel_mcp::elicitation::ElicitationVerdict::Allow => {
-                    // Increment the session elicitation counter
-                    if let Some(mut session) = state.sessions.get_mut(&session_id) {
-                        session.elicitation_count += 1;
-                    }
 
-                    // Forward the elicitation request to upstream
-                    let forward_body = if state.canonicalize {
-                        match serde_json::to_vec(&msg) {
-                            Ok(b) => Bytes::from(b),
-                            Err(_) => body.clone(),
+                    // SECURITY (R21-PROXY-2): Use canonicalize_body() consistently
+                    // (fail-closed). Previous inline fallback to body.clone() reopened
+                    // the TOCTOU gap that canonicalization is designed to close.
+                    let forward_body = match canonicalize_body(&state, &msg, body.clone()) {
+                        Some(b) => b,
+                        None => {
+                            return make_jsonrpc_error(
+                                msg.get("id"),
+                                -32603,
+                                "Internal error: canonicalization failed",
+                            );
                         }
-                    } else {
-                        body.clone()
                     };
                     let response = forward_to_upstream(
                         &state,
@@ -2096,10 +2106,21 @@ fn build_audit_context_with_chain(
 /// Returns an empty Vec if the header is missing or malformed (fail-open for
 /// backwards compatibility with non-multi-agent scenarios).
 fn extract_call_chain_from_headers(headers: &HeaderMap) -> Vec<sentinel_types::CallChainEntry> {
+    /// Maximum number of entries in the call chain to prevent CPU exhaustion
+    /// from `check_privilege_escalation()` evaluating each entry.
+    const MAX_CHAIN_LENGTH: usize = 20;
+    /// Maximum header size to prevent memory exhaustion from deserialization.
+    const MAX_HEADER_SIZE: usize = 8192;
+
     headers
         .get(X_UPSTREAM_AGENTS)
         .and_then(|v| v.to_str().ok())
-        .and_then(|s| serde_json::from_str(s).ok())
+        .filter(|s| s.len() <= MAX_HEADER_SIZE)
+        .and_then(|s| serde_json::from_str::<Vec<sentinel_types::CallChainEntry>>(s).ok())
+        .map(|mut v| {
+            v.truncate(MAX_CHAIN_LENGTH);
+            v
+        })
         .unwrap_or_default()
 }
 

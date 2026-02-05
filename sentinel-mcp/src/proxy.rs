@@ -24,7 +24,8 @@ use crate::extractor::{
 };
 use crate::framing::{read_message, write_message};
 use crate::inspection::{
-    scan_notification_for_secrets, scan_parameters_for_secrets, scan_response_for_injection,
+    scan_notification_for_injection, scan_notification_for_secrets,
+    scan_parameters_for_secrets, scan_response_for_injection,
     scan_response_for_secrets, scan_tool_descriptions, scan_tool_descriptions_with_scanner,
     InjectionScanner,
 };
@@ -1261,6 +1262,53 @@ impl ProxyBridge {
                                             tracing::warn!("Failed to audit notification DLP: {}", e);
                                         }
                                         if self.response_dlp_blocking {
+                                            // Drop the notification — don't forward it
+                                            continue;
+                                        }
+                                    }
+                                }
+
+                                // SECURITY (R21-MCP-1): Scan notification params
+                                // for injection patterns. Notifications are forwarded
+                                // to the agent's LLM and can contain prompt injection.
+                                if !self.injection_disabled {
+                                    let injection_matches = scan_notification_for_injection(&msg);
+                                    if !injection_matches.is_empty() {
+                                        tracing::warn!(
+                                            "SECURITY: Injection detected in server notification: {:?}",
+                                            injection_matches
+                                        );
+                                        let action = sentinel_types::Action::new(
+                                            "sentinel",
+                                            "notification_injection_detected",
+                                            json!({
+                                                "patterns": injection_matches,
+                                                "method": msg.get("method"),
+                                            }),
+                                        );
+                                        let verdict = if self.injection_blocking {
+                                            Verdict::Deny {
+                                                reason: format!(
+                                                    "Notification blocked: injection detected ({:?})",
+                                                    injection_matches
+                                                ),
+                                            }
+                                        } else {
+                                            Verdict::Allow
+                                        };
+                                        if let Err(e) = self.audit.log_entry(
+                                            &action,
+                                            &verdict,
+                                            json!({
+                                                "source": "proxy",
+                                                "event": "notification_injection_detected",
+                                                "patterns": injection_matches,
+                                                "blocked": self.injection_blocking,
+                                            }),
+                                        ).await {
+                                            tracing::warn!("Failed to audit notification injection: {}", e);
+                                        }
+                                        if self.injection_blocking {
                                             // Drop the notification — don't forward it
                                             continue;
                                         }

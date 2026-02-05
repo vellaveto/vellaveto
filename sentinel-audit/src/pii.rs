@@ -108,35 +108,42 @@ struct NamedPiiRegex {
     #[allow(dead_code)]
     name: &'static str,
     regex: Regex,
+    /// SECURITY (R21-SUP-1): When true, matches are post-filtered through the
+    /// Luhn algorithm. This replaces the fragile magic-number index (`i == 3`)
+    /// that would silently break if patterns were reordered.
+    luhn_postfilter: bool,
 }
 
 /// Default built-in PII detection patterns.
 fn default_patterns() -> Vec<NamedPiiRegex> {
-    let patterns: &[(&str, &str)] = &[
-        ("email", r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"),
-        ("ssn", r"\b\d{3}-\d{2}-\d{4}\b"),
+    let patterns: &[(&str, &str, bool)] = &[
+        ("email", r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", false),
+        ("ssn", r"\b\d{3}-\d{2}-\d{4}\b", false),
         (
             "us_phone",
             r"\b(?:\+1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b",
+            false,
         ),
-        ("credit_card", r"\b(?:\d[ -]*?){13,19}\b"),
+        ("credit_card", r"\b(?:\d[ -]*?){13,19}\b", true),
         (
             "ipv4",
             r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b",
+            false,
         ),
         (
             "jwt",
             r"\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b",
+            false,
         ),
-        ("aws_key_id", r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),
+        ("aws_key_id", r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b", false),
     ];
 
     patterns
         .iter()
-        .filter_map(|(name, pat)| {
+        .filter_map(|(name, pat, luhn)| {
             Regex::new(pat)
                 .ok()
-                .map(|regex| NamedPiiRegex { name, regex })
+                .map(|regex| NamedPiiRegex { name, regex, luhn_postfilter: *luhn })
         })
         .collect()
 }
@@ -221,8 +228,8 @@ impl PiiScanner {
     pub fn redact_string(&self, input: &str) -> String {
         let mut result = input.to_string();
 
-        for (i, named) in self.default_patterns.iter().enumerate() {
-            if i == 3 {
+        for named in &self.default_patterns {
+            if named.luhn_postfilter {
                 // Credit card pattern — apply Luhn post-filter
                 result = named
                     .regex
@@ -249,8 +256,8 @@ impl PiiScanner {
 
     /// Check if any PII pattern matches the input string.
     pub fn has_pii(&self, input: &str) -> bool {
-        for (i, named) in self.default_patterns.iter().enumerate() {
-            if i == 3 {
+        for named in &self.default_patterns {
+            if named.luhn_postfilter {
                 // Credit card: needs Luhn check
                 if named
                     .regex
