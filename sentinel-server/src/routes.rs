@@ -943,6 +943,14 @@ async fn remove_policy(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> (StatusCode, Json<serde_json::Value>) {
+    // SECURITY (R23-SRV-4): Validate the path param (same rules as add_policy).
+    if id.is_empty() || id.len() > 256 || id.chars().any(|c| c.is_control()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid policy id"})),
+        );
+    }
+
     // SECURITY (R15-RACE-*): Serialize with other policy mutations.
     let _guard = state.policy_write_lock.lock().await;
 

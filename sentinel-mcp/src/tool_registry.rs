@@ -44,6 +44,8 @@ pub enum RegistryError {
     NotFound(String),
     #[error("Invalid timestamp: {0}")]
     InvalidTimestamp(String),
+    #[error("HMAC initialization failed")]
+    HmacInit,
 }
 
 /// Default trust threshold below which tools require approval.
@@ -241,7 +243,7 @@ impl ToolRegistry {
             // Format: <json>\t<64-char-hex-hmac>
             let json_part = if let Some(ref key) = self.hmac_key {
                 if let Some((json, hmac_hex)) = raw_line.rsplit_once('\t') {
-                    if !Self::verify_hmac(key, json.as_bytes(), hmac_hex) {
+                    if !Self::verify_hmac(key, json.as_bytes(), hmac_hex)? {
                         tracing::warn!(
                             "Rejecting tampered registry entry (HMAC mismatch)"
                         );
@@ -305,7 +307,7 @@ impl ToolRegistry {
             let json = serde_json::to_string(entry)?;
             if let Some(ref key) = self.hmac_key {
                 // Sign each line: <json>\t<hmac_hex>\n
-                let hmac_hex = Self::compute_hmac(key, json.as_bytes());
+                let hmac_hex = Self::compute_hmac(key, json.as_bytes())?;
                 file.write_all(json.as_bytes()).await?;
                 file.write_all(b"\t").await?;
                 file.write_all(hmac_hex.as_bytes()).await?;
@@ -448,24 +450,26 @@ impl ToolRegistry {
     }
 
     /// Compute HMAC-SHA256 over data, returning lowercase hex string.
-    fn compute_hmac(key: &[u8; 32], data: &[u8]) -> String {
+    /// SECURITY (R23-MCP-6): Fallible — no `expect()` in library code.
+    fn compute_hmac(key: &[u8; 32], data: &[u8]) -> Result<String, RegistryError> {
         let mut mac =
-            HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
+            HmacSha256::new_from_slice(key).map_err(|_| RegistryError::HmacInit)?;
         mac.update(data);
         let result = mac.finalize();
-        hex::encode(result.into_bytes())
+        Ok(hex::encode(result.into_bytes()))
     }
 
     /// Verify HMAC-SHA256 of data against expected hex string.
-    fn verify_hmac(key: &[u8; 32], data: &[u8], expected_hex: &str) -> bool {
+    /// SECURITY (R23-MCP-6): Fallible — no `expect()` in library code.
+    fn verify_hmac(key: &[u8; 32], data: &[u8], expected_hex: &str) -> Result<bool, RegistryError> {
         let expected_bytes = match hex::decode(expected_hex) {
             Ok(b) => b,
-            Err(_) => return false,
+            Err(_) => return Ok(false),
         };
         let mut mac =
-            HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
+            HmacSha256::new_from_slice(key).map_err(|_| RegistryError::HmacInit)?;
         mac.update(data);
-        mac.verify_slice(&expected_bytes).is_ok()
+        Ok(mac.verify_slice(&expected_bytes).is_ok())
     }
 
     /// Register an unknown tool with an empty schema hash.

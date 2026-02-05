@@ -4657,6 +4657,9 @@ fn is_private_ip(ip: IpAddr) -> bool {
             || (octets[0] == 192 && octets[1] == 0 && octets[2] == 2) // 192.0.2.0/24 TEST-NET-1 (RFC 5737)
             || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100) // 198.51.100.0/24 TEST-NET-2
             || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)  // 203.0.113.0/24 TEST-NET-3
+            // SECURITY (R23-ENG-3): Additional IANA reserved ranges
+            || (octets[0] == 192 && octets[1] == 88 && octets[2] == 99) // 192.88.99.0/24 deprecated 6to4 relay (RFC 7526)
+            || (octets[0] & 0xF0) == 240                               // 240.0.0.0/4 Reserved/Class E (RFC 1112)
         }
         IpAddr::V6(v6) => {
             v6.is_loopback()       // ::1
@@ -4724,6 +4727,9 @@ fn is_embedded_ipv4_reserved(v4: &std::net::Ipv4Addr) -> bool {
         || (octets[0] == 192 && octets[1] == 0 && octets[2] == 2) // 192.0.2.0/24 TEST-NET-1
         || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100) // 198.51.100.0/24 TEST-NET-2
         || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)  // 203.0.113.0/24 TEST-NET-3
+        // SECURITY (R23-ENG-3): Additional IANA reserved ranges
+        || (octets[0] == 192 && octets[1] == 88 && octets[2] == 99) // 192.88.99.0/24 deprecated 6to4 relay (RFC 7526)
+        || (octets[0] & 0xF0) == 240                               // 240.0.0.0/4 Reserved/Class E (RFC 1112)
 }
 
 /// ::ffff:x.x.x.x — IPv4-mapped IPv6 (check embedded IPv4)
@@ -9325,6 +9331,40 @@ mod tests {
         assert!(
             matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
             "CGNAT 100.100.1.1 should be blocked by block_private, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_class_e_reserved() {
+        // SECURITY (R23-ENG-3): 240.0.0.0/4 (Class E / Reserved) must be blocked
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["240.0.0.1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "Class E 240.0.0.1 should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_6to4_relay_anycast() {
+        // SECURITY (R23-ENG-3): 192.88.99.0/24 (deprecated 6to4 relay anycast) must be blocked
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["192.88.99.1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "6to4 relay 192.88.99.1 should be blocked, got: {:?}",
             verdict
         );
     }

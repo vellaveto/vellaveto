@@ -454,8 +454,15 @@ pub async fn handle_mcp_post(
                     }
                 }
                 _ => {
+                    // SECURITY (R23-PROXY-6): Use the EARLIEST token expiry
+                    // to prevent a long-lived token from extending a session
+                    // that was originally bound to a short-lived token.
                     if claims.exp > 0 {
-                        session.token_expires_at = Some(claims.exp);
+                        session.token_expires_at = Some(
+                            session
+                                .token_expires_at
+                                .map_or(claims.exp, |existing| existing.min(claims.exp)),
+                        );
                     }
                 }
             }
@@ -1964,10 +1971,15 @@ fn validate_origin(headers: &HeaderMap, allowed_origins: &[String]) -> Result<()
 
     if allowed_origins.is_empty() {
         // Same-origin check: Origin must match Host header
-        let host = headers
+        // SECURITY (R23-PROXY-3): Lowercase the Host header for case-insensitive
+        // comparison — DNS names are case-insensitive per RFC 4343, and
+        // extract_authority_from_origin already lowercases the Origin authority.
+        let host_raw = headers
             .get("host")
             .and_then(|h| h.to_str().ok())
             .unwrap_or("");
+        let host = host_raw.to_lowercase();
+        let host = host.as_str();
 
         // Extract host:port from origin URL (e.g., "http://localhost:3001" -> "localhost:3001")
         if let Some(origin_authority) = extract_authority_from_origin(origin) {

@@ -1171,7 +1171,12 @@ impl ProxyBridge {
                             // methods could also be used for credential phishing or data
                             // exfiltration to the agent.
                             if let Some(method) = msg.get("method").and_then(|m| m.as_str()) {
-                                let is_request = msg.get("id").is_some();
+                                // SECURITY (R23-MCP-3): JSON-RPC notifications have no
+                                // `id` field. Treat `"id": null` as a notification too
+                                // (some implementations serialize Option::None as null).
+                                let is_request = msg
+                                    .get("id")
+                                    .is_some_and(|v| !v.is_null());
                                 if is_request {
                                     // This is a server-initiated request — block it.
                                     tracing::warn!(

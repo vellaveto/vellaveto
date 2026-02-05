@@ -283,9 +283,22 @@ impl ApprovalStore {
         // SECURITY (R9-2): Prevent self-approval. If the approval was
         // requested by a known principal, the approver must be different.
         // Compare the base principal (before any "(note: ...)" suffix).
+        // SECURITY (R23-SUP-1): Also reject principals that contain the
+        // `" (note:"` separator themselves — an attacker could inject a
+        // crafted `requested_by` like `"victim (note:real_id"` so the
+        // split produces a different base than their actual identity.
         if let Some(requester) = &approval.requested_by {
             let requester_base = requester.split(" (note:").next().unwrap_or(requester);
             let approver_base = by.split(" (note:").next().unwrap_or(by);
+
+            // Reject if the base principal contains parentheses — indicates
+            // an attempt to embed a fake note separator in the identity.
+            if requester_base.contains('(') || approver_base.contains('(') {
+                return Err(ApprovalError::Validation(
+                    "Self-approval denied: principal contains invalid characters".to_string(),
+                ));
+            }
+
             if !requester_base.is_empty()
                 && requester_base != "anonymous"
                 && requester_base == approver_base

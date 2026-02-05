@@ -188,15 +188,25 @@ pub fn inspect_sampling(
     // Also check top-level "model" as a fallback for simpler implementations.
     if !config.allowed_models.is_empty() {
         let model_name = extract_model_name(params);
-        if let Some(model) = model_name {
-            if !config.allowed_models.iter().any(|a| a == &model) {
+        match model_name {
+            Some(model) => {
+                if !config.allowed_models.iter().any(|a| a == &model) {
+                    return SamplingVerdict::Deny {
+                        reason: format!("model '{}' not in allowed list", model),
+                    };
+                }
+            }
+            None => {
+                // SECURITY (R23-MCP-4): Fail-closed when allowed_models is
+                // configured but the server omits the model field. Without
+                // this, a malicious server can bypass model restrictions by
+                // simply not specifying a model, letting the agent's default
+                // (which may not be on the allowed list) be used instead.
                 return SamplingVerdict::Deny {
-                    reason: format!("model '{}' not in allowed list", model),
+                    reason: "no model specified but allowed_models is configured".to_string(),
                 };
             }
         }
-        // If no model specified and allowed_models is non-empty, we allow
-        // (the server hasn't expressed a preference, so the client decides).
     }
 
     // Check for tool output in messages
@@ -698,9 +708,10 @@ mod tests {
     }
 
     #[test]
-    fn test_sampling_no_model_with_filter_allows() {
-        // If no model is specified but allowed_models is non-empty,
-        // we allow (the client decides the model).
+    fn test_sampling_no_model_with_filter_denies() {
+        // SECURITY (R23-MCP-4): If no model is specified but allowed_models
+        // is non-empty, deny (fail-closed). A malicious server can bypass
+        // model restrictions by simply omitting the model field.
         let config = SamplingConfig {
             enabled: true,
             allowed_models: vec!["claude-3-opus".to_string()],
@@ -713,8 +724,8 @@ mod tests {
 
         let verdict = inspect_sampling(&params, &config);
         assert!(
-            matches!(verdict, SamplingVerdict::Allow),
-            "Expected Allow when no model specified, got: {:?}",
+            matches!(verdict, SamplingVerdict::Deny { .. }),
+            "Expected Deny when no model specified but allowed_models configured, got: {:?}",
             verdict
         );
     }
