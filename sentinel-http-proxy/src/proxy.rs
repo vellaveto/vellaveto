@@ -1024,6 +1024,63 @@ pub async fn handle_mcp_post(
             }
         }
         MessageType::ResourceRead { id, uri } => {
+            // SECURITY (R27-PROXY-2): Check for memory poisoning in resource URI.
+            // ResourceRead is a likely exfiltration vector: a poisoned tool response
+            // says "read this file" and the agent issues resources/read for that URI.
+            if let Some(session) = state.sessions.get_mut(&session_id) {
+                let uri_params = serde_json::json!({"uri": uri});
+                let poisoning_matches = session.memory_tracker.check_parameters(&uri_params);
+                if !poisoning_matches.is_empty() {
+                    for m in &poisoning_matches {
+                        tracing::warn!(
+                            "SECURITY: Memory poisoning detected in resources/read (session {}): \
+                             param '{}' contains replayed data (fingerprint: {})",
+                            session_id,
+                            m.param_location,
+                            m.fingerprint
+                        );
+                    }
+                    let action = extractor::extract_resource_action(&uri);
+                    let deny_reason = format!(
+                        "Memory poisoning detected: {} replayed data fragment(s) in resources/read",
+                        poisoning_matches.len()
+                    );
+                    if let Err(e) = state
+                        .audit
+                        .log_entry(
+                            &action,
+                            &Verdict::Deny {
+                                reason: deny_reason.clone(),
+                            },
+                            build_audit_context(
+                                &session_id,
+                                json!({
+                                    "event": "memory_poisoning_detected",
+                                    "matches": poisoning_matches.len(),
+                                    "uri": uri,
+                                }),
+                                &oauth_claims,
+                            ),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit memory poisoning: {}", e);
+                    }
+                    let error_response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32001,
+                            "message": "Request blocked: security policy violation"
+                        }
+                    });
+                    return attach_session_header(
+                        (StatusCode::OK, Json(error_response)).into_response(),
+                        &session_id,
+                    );
+                }
+            }
+
             let mut action = extractor::extract_resource_action(&uri);
 
             // DNS rebinding protection for resource reads
@@ -1444,6 +1501,65 @@ pub async fn handle_mcp_post(
                 task_method,
                 task_id
             );
+
+            // SECURITY (R27-PROXY-2): Check for memory poisoning in task params.
+            let task_params_for_poison = msg.get("params").cloned().unwrap_or(json!({}));
+            if let Some(session) = state.sessions.get_mut(&session_id) {
+                let poisoning_matches =
+                    session.memory_tracker.check_parameters(&task_params_for_poison);
+                if !poisoning_matches.is_empty() {
+                    for m in &poisoning_matches {
+                        tracing::warn!(
+                            "SECURITY: Memory poisoning detected in task '{}' (session {}): \
+                             param '{}' contains replayed data (fingerprint: {})",
+                            task_method,
+                            session_id,
+                            m.param_location,
+                            m.fingerprint
+                        );
+                    }
+                    let action =
+                        extractor::extract_task_action(&task_method, task_id.as_deref());
+                    let deny_reason = format!(
+                        "Memory poisoning detected: {} replayed data fragment(s) in task '{}'",
+                        poisoning_matches.len(),
+                        task_method
+                    );
+                    if let Err(e) = state
+                        .audit
+                        .log_entry(
+                            &action,
+                            &Verdict::Deny {
+                                reason: deny_reason.clone(),
+                            },
+                            build_audit_context(
+                                &session_id,
+                                json!({
+                                    "event": "memory_poisoning_detected",
+                                    "matches": poisoning_matches.len(),
+                                    "task_method": task_method,
+                                }),
+                                &oauth_claims,
+                            ),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit memory poisoning: {}", e);
+                    }
+                    let error_response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32001,
+                            "message": "Request blocked: security policy violation"
+                        }
+                    });
+                    return attach_session_header(
+                        (StatusCode::OK, Json(error_response)).into_response(),
+                        &session_id,
+                    );
+                }
+            }
 
             // R4-1: DLP scan task request parameters for secret exfiltration.
             // An agent could embed secrets in the task_id field to exfiltrate
@@ -2400,7 +2516,15 @@ async fn forward_to_upstream(
                         // SECURITY (R18-SSE-RUG): Rug-pull detection and manifest
                         // verification for SSE responses. Without this, a server
                         // returning tools/list via SSE would bypass both checks.
-                        check_sse_for_rug_pull_and_manifest(&sse_bytes, session_id, state).await;
+                        // SECURITY (R27-PROXY-1): Pass injection/DLP flags so that
+                        // record_response is skipped for tainted SSE events.
+                        check_sse_for_rug_pull_and_manifest(
+                            &sse_bytes,
+                            session_id,
+                            state,
+                            injection_found,
+                        )
+                        .await;
 
                         // SECURITY (R12-RESP-10): Do NOT copy Mcp-Session-Id from upstream.
                         // The proxy is the session authority. Forwarding the upstream's
@@ -3273,6 +3397,7 @@ async fn check_sse_for_rug_pull_and_manifest(
     sse_bytes: &[u8],
     session_id: &str,
     state: &ProxyState,
+    injection_found: bool,
 ) {
     let sse_text = String::from_utf8_lossy(sse_bytes);
     let normalized = sse_text.replace("\r\n", "\n").replace('\r', "\n");
@@ -3328,8 +3453,14 @@ async fn check_sse_for_rug_pull_and_manifest(
             }
 
             // OWASP ASI06: Record SSE response fingerprints for memory poisoning detection.
-            if let Some(mut session) = state.sessions.get_mut(session_id) {
-                session.memory_tracker.record_response(&json_val);
+            // SECURITY (R27-PROXY-1): Skip recording when injection was detected (even in
+            // log-only mode). Recording fingerprints from known-malicious responses would
+            // cause false-positive poisoning blocks when the agent later uses legitimate
+            // parameter values that happened to appear in the injection-laced response.
+            if !injection_found {
+                if let Some(mut session) = state.sessions.get_mut(session_id) {
+                    session.memory_tracker.record_response(&json_val);
+                }
             }
         }
     }

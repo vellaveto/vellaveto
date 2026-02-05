@@ -87,43 +87,48 @@ impl PerIpRateLimiter {
     /// Check the rate limit for a given IP. Returns `None` if allowed,
     /// `Some(retry_after_secs)` if rate-limited.
     ///
-    /// Uses a two-phase lookup to avoid TOCTOU races: first tries `get_mut`
-    /// for existing entries, then checks capacity before inserting new ones.
+    /// SECURITY (R27-SRV-1): Uses DashMap `entry()` API for atomic get-or-insert,
+    /// preventing the TOCTOU race where two concurrent requests from the same new IP
+    /// would both create separate limiters (losing the first thread's token consumption).
     /// If the number of tracked IPs exceeds max capacity, unknown IPs are
     /// immediately rate-limited (fail-closed) to prevent memory DoS.
     pub fn check(&self, ip: std::net::IpAddr) -> Option<u64> {
         let now = Instant::now();
 
-        // Fast path: existing IP — no capacity check needed
-        if let Some(mut entry) = self.buckets.get_mut(&ip) {
-            entry.value_mut().1 = now;
-            return match entry.value().0.check() {
-                Ok(()) => None,
-                Err(not_until) => {
-                    let wait =
-                        not_until.wait_time_from(governor::clock::DefaultClock::default().now());
-                    Some(wait.as_secs().max(1))
+        // Capacity check before entry() to avoid holding a shard lock during len().
+        // This is approximate (two threads may both pass) but that's acceptable —
+        // at worst we exceed capacity by the number of concurrent new-IP requests.
+        let at_capacity = self.buckets.len() >= self.max_capacity;
+
+        match self.buckets.entry(ip) {
+            dashmap::mapref::entry::Entry::Occupied(mut entry) => {
+                entry.get_mut().1 = now;
+                match entry.get().0.check() {
+                    Ok(()) => None,
+                    Err(not_until) => {
+                        let wait = not_until
+                            .wait_time_from(governor::clock::DefaultClock::default().now());
+                        Some(wait.as_secs().max(1))
+                    }
                 }
-            };
-        }
-
-        // New IP — check capacity before inserting (fail-closed)
-        if self.buckets.len() >= self.max_capacity {
-            return Some(60); // Ask client to retry in 60s (cleanup will free slots)
-        }
-
-        // Insert new bucket and consume the first token.
-        // We must call .check() on the new limiter so it counts against the quota.
-        let limiter = RateLimiter::direct(self.quota);
-        let result = match limiter.check() {
-            Ok(()) => None,
-            Err(not_until) => {
-                let wait = not_until.wait_time_from(governor::clock::DefaultClock::default().now());
-                Some(wait.as_secs().max(1))
             }
-        };
-        self.buckets.insert(ip, (limiter, now));
-        result
+            dashmap::mapref::entry::Entry::Vacant(vacancy) => {
+                if at_capacity {
+                    return Some(60); // Ask client to retry in 60s
+                }
+                let limiter = RateLimiter::direct(self.quota);
+                let result = match limiter.check() {
+                    Ok(()) => None,
+                    Err(not_until) => {
+                        let wait = not_until
+                            .wait_time_from(governor::clock::DefaultClock::default().now());
+                        Some(wait.as_secs().max(1))
+                    }
+                };
+                vacancy.insert((limiter, now));
+                result
+            }
+        }
     }
 
     /// Remove entries that haven't been seen for the given duration.
@@ -214,42 +219,46 @@ impl PerKeyRateLimiter {
     /// Check the rate limit for a given key. Returns `None` if allowed,
     /// `Some(retry_after_secs)` if rate-limited.
     ///
-    /// Uses a two-phase lookup to avoid TOCTOU races: first tries `get_mut`
-    /// for existing entries, then checks capacity before inserting new ones.
+    /// SECURITY (R27-SRV-2): Uses DashMap `entry()` API for atomic get-or-insert,
+    /// preventing the TOCTOU race where two concurrent requests with the same new key
+    /// would both create separate limiters (losing the first thread's token consumption).
     /// If the number of tracked keys exceeds max capacity, unknown keys are
     /// immediately rate-limited (fail-closed) to prevent memory DoS.
     pub fn check(&self, key: String) -> Option<u64> {
         let now = Instant::now();
 
-        // Fast path: existing key — no capacity check needed
-        if let Some(mut entry) = self.buckets.get_mut(&key) {
-            entry.value_mut().1 = now;
-            return match entry.value().0.check() {
-                Ok(()) => None,
-                Err(not_until) => {
-                    let wait =
-                        not_until.wait_time_from(governor::clock::DefaultClock::default().now());
-                    Some(wait.as_secs().max(1))
+        // Capacity check before entry() — approximate but acceptable.
+        let at_capacity = self.buckets.len() >= self.max_capacity;
+
+        match self.buckets.entry(key) {
+            dashmap::mapref::entry::Entry::Occupied(mut entry) => {
+                entry.get_mut().1 = now;
+                match entry.get().0.check() {
+                    Ok(()) => None,
+                    Err(not_until) => {
+                        let wait = not_until
+                            .wait_time_from(governor::clock::DefaultClock::default().now());
+                        Some(wait.as_secs().max(1))
+                    }
                 }
-            };
-        }
-
-        // New key — check capacity before inserting (fail-closed)
-        if self.buckets.len() >= self.max_capacity {
-            return Some(60); // Ask client to retry in 60s (cleanup will free slots)
-        }
-
-        // Insert new bucket and consume the first token.
-        let limiter = RateLimiter::direct(self.quota);
-        let result = match limiter.check() {
-            Ok(()) => None,
-            Err(not_until) => {
-                let wait = not_until.wait_time_from(governor::clock::DefaultClock::default().now());
-                Some(wait.as_secs().max(1))
             }
-        };
-        self.buckets.insert(key, (limiter, now));
-        result
+            dashmap::mapref::entry::Entry::Vacant(vacancy) => {
+                if at_capacity {
+                    return Some(60); // Ask client to retry in 60s
+                }
+                let limiter = RateLimiter::direct(self.quota);
+                let result = match limiter.check() {
+                    Ok(()) => None,
+                    Err(not_until) => {
+                        let wait = not_until
+                            .wait_time_from(governor::clock::DefaultClock::default().now());
+                        Some(wait.as_secs().max(1))
+                    }
+                };
+                vacancy.insert((limiter, now));
+                result
+            }
+        }
     }
 
     /// Remove entries that haven't been seen for the given duration.

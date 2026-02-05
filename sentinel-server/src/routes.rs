@@ -50,11 +50,14 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/registry/tools", get(list_registry_tools))
         .route("/api/registry/tools/{name}/approve", post(approve_registry_tool))
         .route("/api/registry/tools/{name}/revoke", post(revoke_registry_tool))
-        .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit))
+        // SECURITY (R27-SRV-8): rate_limit MUST be outermost (applied last)
+        // so it runs BEFORE auth. Previously auth was outermost, meaning
+        // unauthenticated flood requests bypassed rate limiting entirely.
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_api_key,
-        ));
+        ))
+        .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit));
 
     // Merge the /metrics Prometheus endpoint OUTSIDE auth middleware so
     // Prometheus scrapers do not need an API key. This endpoint only

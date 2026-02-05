@@ -3683,10 +3683,18 @@ impl PolicyEngine {
         let normalized = without_scheme.replace('\\', "/");
         let without_scheme = normalized.as_str();
 
-        // Fix #8: Extract the authority portion FIRST (before the first '/'),
+        // Fix #8: Extract the authority portion FIRST (before the first '/', '?', or '#'),
         // then search for '@' only within the authority. This prevents
         // ?email=user@safe.com in query params from being mistaken for userinfo.
-        let authority_raw = without_scheme.split('/').next().unwrap_or(without_scheme);
+        // SECURITY (R27-ENG-1): Per RFC 3986 §3.2 and WHATWG URL Standard, the authority
+        // is terminated by '/', '?', or '#' — whichever comes first. Previously only '/'
+        // was checked, so URLs like "http://evil.com#@legit.com" extracted "legit.com"
+        // instead of "evil.com" (the fragment '#' was not treated as an authority delimiter,
+        // causing rfind('@') to find the '@' after '#' and return the wrong domain).
+        let authority_raw = without_scheme
+            .split(['/', '?', '#'])
+            .next()
+            .unwrap_or(without_scheme);
 
         // Fix #30: Percent-decode the authority BEFORE searching for '@'.
         // Without this, "http://evil.com%40blocked.com/path" extracts authority
@@ -3824,9 +3832,23 @@ impl PolicyEngine {
                 }
             }
             Err(_) => {
-                // Invalid domain name — fail-closed by returning None
-                tracing::debug!(domain = s, "IDNA normalization failed for domain");
-                None
+                // SECURITY (R27-ENG-2): When IDNA normalization fails for a pure-ASCII
+                // domain (e.g., underscores in SRV records like "_sip._tcp.evil.com"),
+                // fall back to ASCII lowercase. Without this fallback, IDNA failure
+                // returns None → match_domain_pattern returns false → blocked patterns
+                // don't match → the domain passes through (fail-OPEN for blocking).
+                if idna_input.is_ascii() {
+                    let lowered = format!("{}{}", wildcard_prefix, idna_input.to_ascii_lowercase());
+                    tracing::debug!(
+                        domain = s,
+                        "IDNA normalization failed but domain is ASCII — using lowercase fallback"
+                    );
+                    Some(std::borrow::Cow::Owned(lowered))
+                } else {
+                    // Non-ASCII domain that fails IDNA — truly invalid
+                    tracing::debug!(domain = s, "IDNA normalization failed for non-ASCII domain");
+                    None
+                }
             }
         }
     }
@@ -5966,6 +5988,34 @@ mod tests {
     }
 
     #[test]
+    fn test_match_domain_underscore_not_bypassing_wildcard_block() {
+        // SECURITY (R27-ENG-2): Domains with underscores (e.g., SRV records like
+        // _sip._tcp.evil.com) must still match wildcard block patterns. Previously,
+        // IDNA normalization rejected underscores, returning None, which made
+        // match_domain_pattern return false — allowing the domain through.
+        assert!(
+            PolicyEngine::match_domain_pattern("_srv.evil.com", "*.evil.com"),
+            "R27-ENG-2: underscore domain must match wildcard block pattern"
+        );
+        assert!(
+            PolicyEngine::match_domain_pattern("_sip._tcp.evil.com", "*.evil.com"),
+            "R27-ENG-2: multi-underscore SRV domain must match wildcard block"
+        );
+    }
+
+    #[test]
+    fn test_match_domain_underscore_exact() {
+        assert!(
+            PolicyEngine::match_domain_pattern("_srv.evil.com", "_srv.evil.com"),
+            "R27-ENG-2: underscore exact match must work"
+        );
+        assert!(
+            !PolicyEngine::match_domain_pattern("_srv.evil.com", "_srv.other.com"),
+            "Underscore exact match should not cross-match"
+        );
+    }
+
+    #[test]
     fn test_match_domain_idna_wildcard() {
         // R25-ENG-5: IDNA wildcard patterns should work with internationalized domains.
         // "*.münchen.de" should match "sub.münchen.de" after IDNA normalization.
@@ -6475,6 +6525,35 @@ mod tests {
         let domain = PolicyEngine::extract_domain("http://evil.com%255C@legit.com/path");
         // After decode: "evil.com%5C@legit.com" — %5C is literal text, @ is userinfo separator
         assert_eq!(domain, "legit.com");
+    }
+
+    #[test]
+    fn test_extract_domain_fragment_authority_delimiter() {
+        // SECURITY (R27-ENG-1): '#' is an authority delimiter per RFC 3986.
+        // "http://evil.com#@legit.com" must extract "evil.com", NOT "legit.com".
+        let domain = PolicyEngine::extract_domain("http://evil.com#@legit.com");
+        assert_eq!(
+            domain, "evil.com",
+            "R27-ENG-1: fragment '#' must terminate authority before '@' parsing"
+        );
+    }
+
+    #[test]
+    fn test_extract_domain_query_authority_delimiter() {
+        // SECURITY (R27-ENG-1): '?' is an authority delimiter per RFC 3986.
+        // "http://evil.com?foo@legit.com" must extract "evil.com", NOT "legit.com".
+        let domain = PolicyEngine::extract_domain("http://evil.com?foo@legit.com");
+        assert_eq!(
+            domain, "evil.com",
+            "R27-ENG-1: query '?' must terminate authority before '@' parsing"
+        );
+    }
+
+    #[test]
+    fn test_extract_domain_fragment_no_at() {
+        // Fragment without '@' — should extract "evil.com" (fragment is not part of authority)
+        let domain = PolicyEngine::extract_domain("http://evil.com#fragment");
+        assert_eq!(domain, "evil.com");
     }
 
     // ---- Recursive parameter scanning (param: "*") tests ----
