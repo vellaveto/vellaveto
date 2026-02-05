@@ -2262,13 +2262,28 @@ impl PolicyEngine {
         }
 
         for ip_str in &action.resolved_ips {
-            let ip: IpAddr = match ip_str.parse() {
+            let raw_ip: IpAddr = match ip_str.parse() {
                 Ok(ip) => ip,
                 Err(_) => {
                     return Some(Verdict::Deny {
                         reason: format!("Invalid resolved IP '{}'", ip_str),
                     })
                 }
+            };
+
+            // SECURITY (R24-ENG-1): Canonicalize IPv4-mapped IPv6 addresses
+            // (e.g., ::ffff:10.0.0.1) to their IPv4 form so that IPv4 CIDRs
+            // like 10.0.0.0/8 correctly match. Without this, an attacker can
+            // bypass CIDR blocklists by using the mapped form.
+            let ip = match raw_ip {
+                IpAddr::V6(v6) => {
+                    if let Some(v4) = v6.to_ipv4_mapped() {
+                        IpAddr::V4(v4)
+                    } else {
+                        raw_ip
+                    }
+                }
+                _ => raw_ip,
             };
 
             // Check private IP blocking
@@ -9544,6 +9559,69 @@ mod tests {
         assert!(
             matches!(verdict, Verdict::Deny { ref reason } if reason.contains("Invalid resolved IP")),
             "Unparseable IP should be denied, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_ipv4_mapped_v6_blocked_by_v4_cidr() {
+        // R24-ENG-1: IPv4-mapped IPv6 addresses (::ffff:x.x.x.x) must be
+        // canonicalized to IPv4 before CIDR matching, otherwise an attacker
+        // can bypass IPv4 CIDR blocklists by using the mapped form.
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: false,
+            blocked_cidrs: vec!["100.64.0.0/10".to_string()],
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // IPv4-mapped IPv6 form of CGNAT address -> should be denied
+        let action =
+            action_with_resolved_ips(vec!["example.com"], vec!["::ffff:100.100.1.1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("blocked CIDR")),
+            "IPv4-mapped IPv6 in blocked CIDR should be denied, got: {:?}",
+            verdict
+        );
+
+        // Regular IPv4 in same CIDR -> also denied (baseline)
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["100.100.1.1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("blocked CIDR")),
+            "Plain IPv4 in blocked CIDR should be denied, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_ipv4_mapped_v6_allowed_cidr() {
+        // R24-ENG-1: IPv4-mapped IPv6 must also match IPv4 allowed CIDRs
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: false,
+            allowed_cidrs: vec!["203.0.113.0/24".to_string()],
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+
+        // Mapped form of allowed IP -> should pass
+        let action =
+            action_with_resolved_ips(vec!["example.com"], vec!["::ffff:203.0.113.50"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Allow),
+            "IPv4-mapped IPv6 in allowed CIDR should pass, got: {:?}",
+            verdict
+        );
+
+        // Mapped form of non-allowed IP -> denied
+        let action =
+            action_with_resolved_ips(vec!["example.com"], vec!["::ffff:8.8.8.8"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("not in allowed")),
+            "IPv4-mapped IPv6 outside allowed CIDR should be denied, got: {:?}",
             verdict
         );
     }

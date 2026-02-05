@@ -59,13 +59,22 @@ pub fn to_cef(entry: &AuditEntry) -> String {
         cef_escape(&entry.action.function)
     );
 
+    // SECURITY (R24-SUP-3): Include deny reason in CEF output for SIEM
+    // analysts to understand why a tool call was blocked.
+    let reason_ext = match &entry.verdict {
+        Verdict::Deny { reason } => format!(" cs2={} cs2Label=denyReason", cef_escape_ext(reason)),
+        Verdict::RequireApproval { reason, .. } => format!(" cs2={} cs2Label=approvalReason", cef_escape_ext(reason)),
+        Verdict::Allow => String::new(),
+    };
+
     format!(
-        "CEF:0|Sentinel|MCP Firewall|1.0|{}|{}|{}|rt={} cs1={} cs1Label=entryId",
+        "CEF:0|Sentinel|MCP Firewall|1.0|{}|{}|{}|rt={} cs1={} cs1Label=entryId{}",
         cef_escape(verdict_str),
         tool_function,
         severity,
         cef_escape_ext(&entry.timestamp),
         cef_escape_ext(&entry.id),
+        reason_ext,
     )
 }
 
@@ -172,6 +181,40 @@ mod tests {
         assert!(cef.contains("|Deny|"));
         assert!(cef.contains("bash:exec"));
         assert!(cef.contains("|8|")); // severity 8 for Deny
+    }
+
+    #[test]
+    fn test_cef_deny_includes_reason() {
+        // R24-SUP-3: CEF output must include deny reason for SIEM analysts
+        let entry = make_entry(
+            "bash",
+            "exec",
+            Verdict::Deny {
+                reason: "blocked by policy X".to_string(),
+            },
+        );
+        let cef = to_cef(&entry);
+        assert!(
+            cef.contains("cs2=blocked by policy X"),
+            "CEF should include deny reason, got: {}",
+            cef
+        );
+        assert!(
+            cef.contains("cs2Label=denyReason"),
+            "CEF should label deny reason, got: {}",
+            cef
+        );
+    }
+
+    #[test]
+    fn test_cef_allow_has_no_reason() {
+        let entry = make_entry("t", "f", Verdict::Allow);
+        let cef = to_cef(&entry);
+        assert!(
+            !cef.contains("cs2="),
+            "Allow verdict should have no reason field, got: {}",
+            cef
+        );
     }
 
     #[test]

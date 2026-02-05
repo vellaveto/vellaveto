@@ -554,9 +554,29 @@ impl AuditLogger {
         Ok(checkpoint)
     }
 
+    /// Maximum checkpoint file size (10 MB). Prevents memory DoS from
+    /// oversized checkpoint files.
+    const MAX_CHECKPOINT_FILE_SIZE: u64 = 10 * 1024 * 1024;
+
     /// Load all checkpoints from the checkpoint file.
     pub async fn load_checkpoints(&self) -> Result<Vec<Checkpoint>, AuditError> {
         let cp_path = self.checkpoint_path();
+
+        // SECURITY (R24-SRV-3): Check file size before reading to prevent
+        // memory DoS from oversized checkpoint files.
+        match tokio::fs::metadata(&cp_path).await {
+            Ok(meta) if meta.len() > Self::MAX_CHECKPOINT_FILE_SIZE => {
+                return Err(AuditError::Io(std::io::Error::other(format!(
+                    "Checkpoint file too large ({} bytes, max {} bytes)",
+                    meta.len(),
+                    Self::MAX_CHECKPOINT_FILE_SIZE
+                ))));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(AuditError::Io(e)),
+            _ => {}
+        }
+
         let content = match tokio::fs::read_to_string(&cp_path).await {
             Ok(c) => c,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),

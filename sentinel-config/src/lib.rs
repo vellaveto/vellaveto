@@ -1070,6 +1070,63 @@ impl PolicyConfig {
                 MAX_ALLOWED_MODELS
             ));
         }
+
+        // SECURITY (R24-SUP-4): Reject NaN/Infinity in trust_threshold.
+        // IEEE 754 special values bypass comparison operators, allowing
+        // any tool to pass or fail threshold checks unpredictably.
+        if !self.tool_registry.trust_threshold.is_finite() {
+            return Err(format!(
+                "tool_registry.trust_threshold must be finite, got {}",
+                self.tool_registry.trust_threshold
+            ));
+        }
+        if self.tool_registry.trust_threshold < 0.0 || self.tool_registry.trust_threshold > 1.0 {
+            return Err(format!(
+                "tool_registry.trust_threshold must be in [0.0, 1.0], got {}",
+                self.tool_registry.trust_threshold
+            ));
+        }
+
+        // SECURITY (R24-SUP-6): Validate webhook_url scheme to prevent SSRF.
+        // Only HTTPS is allowed for webhook destinations.
+        if let Some(ref wh_url) = self.audit_export.webhook_url {
+            let trimmed = wh_url.trim();
+            if !trimmed.is_empty() {
+                if !trimmed.starts_with("https://") {
+                    return Err(
+                        "audit_export.webhook_url must use HTTPS scheme".to_string()
+                    );
+                }
+                // Extract host portion (after "https://", before next "/" or ":")
+                let after_scheme = &trimmed["https://".len()..];
+                let host_end = after_scheme
+                    .find(['/', ':', '?', '#'])
+                    .unwrap_or(after_scheme.len());
+                let host = after_scheme[..host_end].to_lowercase();
+                if host.is_empty() {
+                    return Err(
+                        "audit_export.webhook_url has no host".to_string()
+                    );
+                }
+                // Reject localhost/loopback to prevent SSRF to internal services
+                let loopbacks = ["localhost", "127.0.0.1", "[::1]", "0.0.0.0"];
+                if loopbacks.iter().any(|lb| host == *lb) {
+                    return Err(format!(
+                        "audit_export.webhook_url must not target localhost/loopback, got '{}'",
+                        host
+                    ));
+                }
+            }
+        }
+
+        // SECURITY (R24-SUP-10): Bound batch_size to prevent excessive memory usage
+        if self.audit_export.batch_size > 10_000 {
+            return Err(format!(
+                "audit_export.batch_size must be <= 10000, got {}",
+                self.audit_export.batch_size
+            ));
+        }
+
         Ok(())
     }
 
@@ -2202,6 +2259,108 @@ policy_type = "Allow"
             })
             .collect();
         assert!(config.validate().is_ok());
+    }
+
+    fn minimal_config() -> PolicyConfig {
+        PolicyConfig::from_toml(r#"
+[[policies]]
+name = "t"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#).unwrap()
+    }
+
+    #[test]
+    fn test_validate_rejects_nan_trust_threshold() {
+        let mut config = minimal_config();
+        config.tool_registry.trust_threshold = f32::NAN;
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("trust_threshold must be finite"),
+            "NaN should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_infinity_trust_threshold() {
+        let mut config = minimal_config();
+        config.tool_registry.trust_threshold = f32::INFINITY;
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("trust_threshold must be finite"),
+            "Infinity should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_out_of_range_trust_threshold() {
+        let mut config = minimal_config();
+        config.tool_registry.trust_threshold = 1.5;
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("[0.0, 1.0]"),
+            "1.5 should be out of range, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_http_webhook_url() {
+        let mut config = minimal_config();
+        config.audit_export.webhook_url = Some("http://evil.com/ingest".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("HTTPS"),
+            "HTTP scheme should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_localhost_webhook_url() {
+        let mut config = minimal_config();
+        config.audit_export.webhook_url = Some("https://localhost/ingest".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("localhost"),
+            "Localhost should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_loopback_webhook_url() {
+        let mut config = minimal_config();
+        config.audit_export.webhook_url = Some("https://127.0.0.1/ingest".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("localhost"),
+            "Loopback should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_accepts_valid_webhook_url() {
+        let mut config = minimal_config();
+        config.audit_export.webhook_url =
+            Some("https://siem.example.com/ingest".to_string());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_excessive_batch_size() {
+        let mut config = minimal_config();
+        config.audit_export.batch_size = 100_000;
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("batch_size"),
+            "Excessive batch_size should be rejected, got: {}",
+            err
+        );
     }
 
     #[test]

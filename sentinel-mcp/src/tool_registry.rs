@@ -51,6 +51,10 @@ pub enum RegistryError {
 /// Default trust threshold below which tools require approval.
 pub const DEFAULT_TRUST_THRESHOLD: f32 = 0.3;
 
+/// Maximum number of entries in the tool registry.
+/// Prevents unbounded memory growth from auto-registration via evaluate endpoint.
+pub const MAX_REGISTRY_ENTRIES: usize = 10_000;
+
 /// Result of checking a tool's trust level in the registry.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TrustLevel {
@@ -481,6 +485,16 @@ impl ToolRegistry {
         let mut entries = self.entries.write().await;
         if entries.contains_key(tool_id) {
             return; // Already registered (possible race)
+        }
+        // SECURITY (R24-SRV-1): Cap registry size to prevent memory DoS
+        // via unbounded auto-registration through the evaluate endpoint.
+        if entries.len() >= MAX_REGISTRY_ENTRIES {
+            tracing::warn!(
+                tool_id = tool_id,
+                max = MAX_REGISTRY_ENTRIES,
+                "Tool registry at capacity, rejecting auto-registration"
+            );
+            return;
         }
         let mut entry = ToolEntry::new(tool_id.to_string(), String::new());
         entry.compute_trust_score();
@@ -995,5 +1009,34 @@ mod tests {
         let json = serde_json::to_string(&entry).unwrap();
         let parsed: ToolEntry = serde_json::from_str(&json).unwrap();
         assert_eq!(entry, parsed);
+    }
+
+    #[tokio::test]
+    async fn test_register_unknown_respects_capacity_limit() {
+        // R24-SRV-1: Tool registry must cap entries to prevent memory DoS
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("registry.jsonl");
+        let registry = ToolRegistry::new(&path);
+
+        // Pre-fill the registry to capacity
+        {
+            let mut entries = registry.entries.write().await;
+            for i in 0..MAX_REGISTRY_ENTRIES {
+                let mut e = ToolEntry::new(format!("tool_{}", i), String::new());
+                e.compute_trust_score();
+                entries.insert(format!("tool_{}", i), e);
+            }
+            assert_eq!(entries.len(), MAX_REGISTRY_ENTRIES);
+        }
+
+        // Attempt to register one more — should be silently rejected
+        registry.register_unknown("overflow_tool").await;
+
+        let entries = registry.entries.read().await;
+        assert_eq!(entries.len(), MAX_REGISTRY_ENTRIES);
+        assert!(
+            !entries.contains_key("overflow_tool"),
+            "Overflow registration should be rejected"
+        );
     }
 }

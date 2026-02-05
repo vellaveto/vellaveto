@@ -404,9 +404,21 @@ impl OAuthValidator {
             )));
         }
 
-        let jwks: JwkSet = response
-            .json()
+        // SECURITY (R24-PROXY-2): Bound JWKS response body to prevent OOM
+        // from oversized responses. 1 MB is generous for any legitimate JWKS.
+        const MAX_JWKS_BODY_SIZE: usize = 1024 * 1024;
+        let body_bytes = response
+            .bytes()
             .await
+            .map_err(|e| OAuthError::JwksFetchFailed(format!("body read failed: {}", e)))?;
+        if body_bytes.len() > MAX_JWKS_BODY_SIZE {
+            return Err(OAuthError::JwksFetchFailed(format!(
+                "JWKS response too large ({} bytes, max {} bytes)",
+                body_bytes.len(),
+                MAX_JWKS_BODY_SIZE
+            )));
+        }
+        let jwks: JwkSet = serde_json::from_slice(&body_bytes)
             .map_err(|e| OAuthError::JwksFetchFailed(format!("invalid JWKS JSON: {}", e)))?;
 
         tracing::info!("Fetched {} keys from JWKS endpoint", jwks.keys.len());

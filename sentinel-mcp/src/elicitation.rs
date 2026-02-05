@@ -92,7 +92,9 @@ const MAX_SCHEMA_SCAN_DEPTH: usize = 32;
 
 fn schema_contains_field_type_inner(schema: &Value, field_type: &str, depth: usize) -> bool {
     if depth >= MAX_SCHEMA_SCAN_DEPTH {
-        return false;
+        // SECURITY (R24-MCP-9): Fail-closed — deeply nested schemas are treated
+        // as suspicious rather than passing through unchecked.
+        return true;
     }
 
     let ft_lower = field_type.to_lowercase();
@@ -149,6 +151,18 @@ fn schema_contains_field_type_inner(schema: &Value, field_type: &str, depth: usi
         {
             return true;
         }
+    }
+
+    // SECURITY (R24-MCP-3): Detect $ref in schema — JSON Schema indirection
+    // can bypass blocked field type detection by referencing a definition
+    // that contains the sensitive type. Fail-closed: treat any $ref as
+    // potentially containing the blocked type.
+    if schema.get("$ref").is_some() {
+        tracing::debug!(
+            field_type = field_type,
+            "$ref detected in elicitation schema — treating as suspicious"
+        );
+        return true;
     }
 
     false
@@ -808,8 +822,9 @@ mod tests {
     }
 
     #[test]
-    fn test_schema_scan_depth_limit() {
-        // Build a deeply nested schema to test depth limiting
+    fn test_schema_scan_depth_limit_fail_closed() {
+        // R24-MCP-9: Build a deeply nested schema to test depth limiting.
+        // The depth limit should fail-closed (return true = suspicious).
         let mut schema = json!({"type": "string", "format": "password"});
         for _ in 0..(MAX_SCHEMA_SCAN_DEPTH + 5) {
             schema = json!({
@@ -820,11 +835,41 @@ mod tests {
             });
         }
 
-        // Should not find the deeply nested "password" format
-        // because we stop at MAX_SCHEMA_SCAN_DEPTH
+        // Should flag as suspicious because depth limit exceeded (fail-closed)
+        assert!(
+            schema_contains_field_type(&schema, "password"),
+            "Should flag deeply nested schemas as suspicious (fail-closed)"
+        );
+    }
+
+    #[test]
+    fn test_schema_ref_detected_as_suspicious() {
+        // R24-MCP-3: $ref in schema can bypass blocked field type detection
+        // by referencing a definition that contains the sensitive type.
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "auth": {"$ref": "#/definitions/credentials"}
+            }
+        });
+        assert!(
+            schema_contains_field_type(&schema, "password"),
+            "Should detect $ref as potentially containing blocked type"
+        );
+    }
+
+    #[test]
+    fn test_schema_no_false_positive_without_ref() {
+        // Normal schema without $ref should not trigger the $ref check
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"}
+            }
+        });
         assert!(
             !schema_contains_field_type(&schema, "password"),
-            "Should not find field type beyond max recursion depth"
+            "Normal schema should not be flagged as suspicious"
         );
     }
 
