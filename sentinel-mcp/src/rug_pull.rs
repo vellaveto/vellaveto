@@ -178,17 +178,20 @@ pub fn parse_annotations(ann: &serde_json::Value) -> ToolAnnotations {
     }
 }
 
-/// Compute a SHA-256 hash of a JSON value's canonical string representation.
+/// Compute a SHA-256 hash of a JSON value's RFC 8785 canonical representation.
 ///
-/// Used to fingerprint `inputSchema` for rug-pull schema change detection.
+/// SECURITY (R18-SCHEMA-1): Uses RFC 8785 (JCS) canonicalization instead of
+/// serde_json::to_string(). This ensures identical schemas from different JSON
+/// producers (which may serialize keys in different orders) produce the same
+/// hash, preventing false-positive rug-pull alerts.
+///
 /// Returns `None` if the value is `Null`.
 pub fn compute_schema_hash(schema: &serde_json::Value) -> Option<String> {
     if schema.is_null() {
         return None;
     }
-    // serde_json::to_string produces deterministic output for the same Value
-    // because serde_json::Value normalises the JSON structure.
-    let canonical = serde_json::to_string(schema).ok()?;
+    // RFC 8785 canonical JSON serialization — key order is deterministic
+    let canonical = serde_json_canonicalizer::to_string(schema).ok()?;
     let mut hasher = Sha256::new();
     hasher.update(canonical.as_bytes());
     let digest = hasher.finalize();
@@ -1290,6 +1293,50 @@ mod tests {
         assert!(
             flagged.contains(&"read_flie"),
             "Squatted tool must appear in flagged_tool_names"
+        );
+    }
+
+    #[test]
+    fn test_schema_hash_canonical_key_order() {
+        // RFC 8785: Different key orderings must produce the same hash.
+        // This test creates two semantically identical schemas with different
+        // key insertion order and verifies they hash identically.
+        let schema1 = json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "age": {"type": "integer"}
+            },
+            "required": ["name", "age"]
+        });
+
+        // Same schema, different key order (if we build it differently)
+        let schema2: serde_json::Value = serde_json::from_str(r#"{
+            "required": ["name", "age"],
+            "type": "object",
+            "properties": {
+                "age": {"type": "integer"},
+                "name": {"type": "string"}
+            }
+        }"#).unwrap();
+
+        let hash1 = compute_schema_hash(&schema1);
+        let hash2 = compute_schema_hash(&schema2);
+
+        assert!(hash1.is_some());
+        assert!(hash2.is_some());
+        assert_eq!(
+            hash1, hash2,
+            "Schemas with same content but different key order must hash identically"
+        );
+    }
+
+    #[test]
+    fn test_schema_hash_null_returns_none() {
+        let null_schema = serde_json::Value::Null;
+        assert!(
+            compute_schema_hash(&null_schema).is_none(),
+            "Null schema should return None"
         );
     }
 }
