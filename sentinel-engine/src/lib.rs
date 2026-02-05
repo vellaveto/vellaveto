@@ -1657,18 +1657,25 @@ impl PolicyEngine {
             let tool_slice = tool_specific.map(|v| v.as_slice()).unwrap_or(&[]);
             let always_slice = &self.always_check;
 
-            // Merge two sorted index slices, iterating in priority order
+            // Merge two sorted index slices, iterating in priority order.
+            // SECURITY (R26-ENG-1): When both slices reference the same policy index,
+            // increment BOTH pointers to avoid evaluating the policy twice.
             let mut ti = 0;
             let mut ai = 0;
             loop {
                 let next_idx = match (tool_slice.get(ti), always_slice.get(ai)) {
                     (Some(&t), Some(&a)) => {
-                        if t <= a {
+                        if t < a {
                             ti += 1;
                             t
-                        } else {
+                        } else if t > a {
                             ai += 1;
                             a
+                        } else {
+                            // t == a: same policy in both slices, skip duplicate
+                            ti += 1;
+                            ai += 1;
+                            t
                         }
                     }
                     (Some(&t), None) => {
@@ -1718,17 +1725,22 @@ impl PolicyEngine {
             let tool_slice = tool_specific.map(|v| v.as_slice()).unwrap_or(&[]);
             let always_slice = &self.always_check;
 
+            // SECURITY (R26-ENG-1): Deduplicate merge — see evaluate_compiled().
             let mut ti = 0;
             let mut ai = 0;
             loop {
                 let next_idx = match (tool_slice.get(ti), always_slice.get(ai)) {
                     (Some(&t), Some(&a)) => {
-                        if t <= a {
+                        if t < a {
                             ti += 1;
                             t
-                        } else {
+                        } else if t > a {
                             ai += 1;
                             a
+                        } else {
+                            ti += 1;
+                            ai += 1;
+                            t
                         }
                     }
                     (Some(&t), None) => {
@@ -2005,7 +2017,9 @@ impl PolicyEngine {
                     } else {
                         &context.previous_actions[..]
                     };
-                    let count = history.iter().filter(|a| tool_pattern.matches(a)).count() as u64;
+                    // SECURITY (R26-ENG-3): Fail-closed on count overflow.
+                    let count_usize = history.iter().filter(|a| tool_pattern.matches(a)).count();
+                    let count = u64::try_from(count_usize).unwrap_or(u64::MAX);
                     if count >= *max {
                         return Some(Verdict::Deny {
                             reason: deny_reason.clone(),
@@ -3682,7 +3696,16 @@ impl PolicyEngine {
         // host="blocked.com", so we must decode before splitting on '@'.
         let decoded_authority =
             percent_encoding::percent_decode_str(authority_raw).decode_utf8_lossy();
-        let authority = decoded_authority.as_ref();
+        // SECURITY (R26-ENG-4): Apply backslash normalization AGAIN after percent-decode.
+        // Input like "http://evil.com%5C@legit.com" has %5C decoded to '\' here.
+        // After normalization, the decoded backslash becomes '/', which is a path
+        // separator per WHATWG — so "evil.com/@legit.com" means authority="evil.com",
+        // path="@legit.com". We re-split on '/' to get the true authority.
+        let decoded_normalized = decoded_authority.replace('\\', "/");
+        let authority = decoded_normalized
+            .split('/')
+            .next()
+            .unwrap_or(&decoded_normalized);
 
         // Strip userinfo (user:pass@) — only within the authority portion
         let without_userinfo = if let Some(pos) = authority.rfind('@') {
@@ -4272,19 +4295,24 @@ impl PolicyEngine {
         let tool_slice = tool_specific.map(|v| v.as_slice()).unwrap_or(&[]);
         let always_slice = &self.always_check;
 
-        // Merge two sorted index slices
+        // Merge two sorted index slices.
+        // SECURITY (R26-ENG-1): Deduplicate when same index in both slices.
         let mut result = Vec::with_capacity(tool_slice.len() + always_slice.len());
         let mut ti = 0;
         let mut ai = 0;
         loop {
             let next_idx = match (tool_slice.get(ti), always_slice.get(ai)) {
                 (Some(&t), Some(&a)) => {
-                    if t <= a {
+                    if t < a {
                         ti += 1;
                         t
-                    } else {
+                    } else if t > a {
                         ai += 1;
                         a
+                    } else {
+                        ti += 1;
+                        ai += 1;
+                        t
                     }
                 }
                 (Some(&t), None) => {
@@ -6424,6 +6452,29 @@ mod tests {
             PolicyEngine::extract_domain("http://user:pass@host.com\\path"),
             "host.com"
         );
+    }
+
+    #[test]
+    fn test_extract_domain_percent_encoded_backslash_before_at() {
+        // SECURITY (R26-ENG-4): %5C is a percent-encoded backslash.
+        // "http://evil.com%5C@legit.com/path" should extract "evil.com" (backslash
+        // becomes path separator after decode), NOT "legit.com" (@ as userinfo).
+        // After decoding, "evil.com\@legit.com" → backslash normalized to "/" →
+        // "evil.com/@legit.com" → split on '/' → authority is "evil.com"
+        let domain = PolicyEngine::extract_domain("http://evil.com%5C@legit.com/path");
+        assert_eq!(
+            domain, "evil.com",
+            "R26-ENG-4: %5C before @ must not bypass domain extraction"
+        );
+    }
+
+    #[test]
+    fn test_extract_domain_double_encoded_backslash() {
+        // %255C = double-encoded backslash → decodes to "%5C" (literal, not backslash)
+        // This should NOT trigger backslash normalization
+        let domain = PolicyEngine::extract_domain("http://evil.com%255C@legit.com/path");
+        // After decode: "evil.com%5C@legit.com" — %5C is literal text, @ is userinfo separator
+        assert_eq!(domain, "legit.com");
     }
 
     // ---- Recursive parameter scanning (param: "*") tests ----

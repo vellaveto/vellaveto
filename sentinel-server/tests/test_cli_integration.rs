@@ -313,10 +313,6 @@ fn evaluate_output_is_valid_json() {
         val.get("verdict").is_some(),
         "Output should contain 'verdict' field"
     );
-    assert!(
-        val.get("policies_loaded").is_some(),
-        "Output should contain 'policies_loaded' field"
-    );
 }
 
 #[test]

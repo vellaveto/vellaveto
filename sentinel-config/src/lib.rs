@@ -1110,10 +1110,25 @@ impl PolicyConfig {
                     Some(at) => &after_scheme[at + 1..],
                     None => after_scheme,
                 };
-                let host_end = host_portion
-                    .find(['/', ':', '?', '#'])
-                    .unwrap_or(host_portion.len());
-                let host = host_portion[..host_end].to_lowercase();
+                // SECURITY (R26-SUP-4): Handle bracketed IPv6 addresses.
+                // For "[::1]:8080/path", the host is "[::1]", not "[" (which
+                // naive find(':') would produce by splitting on the first colon).
+                let host = if host_portion.starts_with('[') {
+                    // IPv6: extract up to and including the closing bracket
+                    if let Some(bracket_end) = host_portion.find(']') {
+                        host_portion[..bracket_end + 1].to_lowercase()
+                    } else {
+                        // Malformed IPv6 — no closing bracket
+                        return Err(
+                            "audit_export.webhook_url has malformed IPv6 address (missing ']')".to_string()
+                        );
+                    }
+                } else {
+                    let host_end = host_portion
+                        .find(['/', ':', '?', '#'])
+                        .unwrap_or(host_portion.len());
+                    host_portion[..host_end].to_lowercase()
+                };
                 if host.is_empty() {
                     return Err(
                         "audit_export.webhook_url has no host".to_string()
@@ -1130,14 +1145,18 @@ impl PolicyConfig {
             }
         }
 
-        // SECURITY (R25-SUP-7): Reject path traversal in persistence_path.
-        // A ".." component could escape the intended directory and write/read
-        // registry data from arbitrary filesystem locations.
-        if self.tool_registry.persistence_path.contains("..") {
-            return Err(format!(
-                "tool_registry.persistence_path must not contain '..', got '{}'",
-                self.tool_registry.persistence_path
-            ));
+        // SECURITY (R25-SUP-7, R26-SUP-1): Reject path traversal in persistence_path.
+        // Uses Path::components() to detect ParentDir (..) components, which is more
+        // robust than simple .contains("..") — handles "foo/./bar/../../../etc" etc.
+        {
+            use std::path::{Component, Path};
+            let p = Path::new(&self.tool_registry.persistence_path);
+            if p.components().any(|c| matches!(c, Component::ParentDir)) {
+                return Err(format!(
+                    "tool_registry.persistence_path must not contain '..' components, got '{}'",
+                    self.tool_registry.persistence_path
+                ));
+            }
         }
 
         // SECURITY (R24-SUP-10): Bound batch_size to prevent excessive memory usage
@@ -2418,6 +2437,47 @@ policy_type = "Allow"
         let mut config = minimal_config();
         config.tool_registry.persistence_path = "/var/lib/sentinel/registry.jsonl".to_string();
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_webhook_ipv6_loopback() {
+        // R26-SUP-4: IPv6 loopback [::1] must be rejected
+        let mut config = minimal_config();
+        config.audit_export.webhook_url =
+            Some("https://[::1]:8080/webhook".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("localhost") || err.contains("loopback"),
+            "Webhook URL with [::1] should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_webhook_ipv6_malformed() {
+        // R26-SUP-4: Malformed IPv6 (missing closing bracket) must be rejected
+        let mut config = minimal_config();
+        config.audit_export.webhook_url =
+            Some("https://[::1:8080/webhook".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("malformed IPv6"),
+            "Webhook URL with malformed IPv6 should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_persistence_path_traversal_via_components() {
+        // R26-SUP-1: Traversal via redundant components "foo/./bar/../../../etc"
+        let mut config = minimal_config();
+        config.tool_registry.persistence_path = "registry/./data/../../../etc/passwd".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains(".."),
+            "Persistence path with redundant-component traversal should be rejected, got: {}",
+            err
+        );
     }
 
     #[test]

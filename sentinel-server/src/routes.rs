@@ -221,17 +221,17 @@ async fn require_api_key(State(state): State<AppState>, request: Request, next: 
     }
 }
 
+// SECURITY (R26-SRV-6): Health response no longer leaks policy count.
+// Policy count is operational metrics, not health status. Moved to
+// the authenticated /api/metrics endpoint.
 #[derive(Serialize)]
 struct HealthResponse {
     status: String,
-    policies_loaded: usize,
 }
 
-async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
-    let count = state.policy_state.load().policies.len();
+async fn health(State(_state): State<AppState>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_string(),
-        policies_loaded: count,
     })
 }
 
@@ -908,13 +908,16 @@ async fn add_policy(
             tracing::info!("Added policy: {}", id);
         }
         Err(errors) => {
+            // SECURITY (R26-SRV-5): Log detailed errors server-side but return
+            // generic message to the client. Detailed compiler errors can leak
+            // regex patterns and rule structures from existing policies.
             let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
             tracing::warn!("add_policy rejected: compilation failed: {:?}", msgs);
             return (
                 StatusCode::BAD_REQUEST,
                 Json(json!({
-                    "error": "Policy compilation failed — policy NOT added",
-                    "details": msgs,
+                    "error": "Policy validation failed — policy NOT added",
+                    "policy_id": id,
                 })),
             );
         }

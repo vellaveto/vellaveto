@@ -626,6 +626,7 @@ pub async fn handle_mcp_post(
             }
 
             // OWASP ASI06: Check for memory poisoning (replayed response data in params)
+            // SECURITY (R26-PROXY-2): Block requests when poisoning is detected (was log-only).
             if let Some(session) = state.sessions.get_mut(&session_id) {
                 let poisoning_matches = session.memory_tracker.check_parameters(&arguments);
                 if !poisoning_matches.is_empty() {
@@ -640,11 +641,18 @@ pub async fn handle_mcp_post(
                         );
                     }
                     let action = extractor::extract_action(&tool_name, &arguments);
+                    let deny_reason = format!(
+                        "Memory poisoning detected: {} replayed data fragment(s) in tool '{}'",
+                        poisoning_matches.len(),
+                        tool_name
+                    );
                     if let Err(e) = state
                         .audit
                         .log_entry(
                             &action,
-                            &Verdict::Allow,
+                            &Verdict::Deny {
+                                reason: deny_reason.clone(),
+                            },
                             build_audit_context(
                                 &session_id,
                                 json!({
@@ -659,6 +667,18 @@ pub async fn handle_mcp_post(
                     {
                         tracing::warn!("Failed to audit memory poisoning: {}", e);
                     }
+                    let error_response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32001,
+                            "message": "Request blocked: security policy violation",
+                        }
+                    });
+                    return attach_session_header(
+                        (StatusCode::OK, Json(error_response)).into_response(),
+                        &session_id,
+                    );
                 }
             }
 
@@ -2748,12 +2768,8 @@ async fn forward_to_upstream(
                                 }
                             }
 
-                            // OWASP ASI06: Record response fingerprints for memory poisoning detection.
-                            // This feeds the per-session MemoryTracker so that subsequent tool call
-                            // parameters can be checked for replayed data from prior responses.
-                            if let Some(mut session) = state.sessions.get_mut(session_id) {
-                                session.memory_tracker.record_response(&response_json);
-                            }
+                            // NOTE: record_response moved AFTER injection/DLP blocking checks
+                            // (R26-MCP-1) to avoid recording fingerprints from blocked responses.
                         }
 
                         // DLP response scanning: detect secrets in tool responses.
@@ -2857,6 +2873,16 @@ async fn forward_to_upstream(
                                 })),
                             )
                                 .into_response();
+                        }
+
+                        // OWASP ASI06 (R26-MCP-1): Record response fingerprints for memory
+                        // poisoning detection ONLY if the response was not blocked by
+                        // injection detection or DLP. This prevents false positives from
+                        // data the agent never actually received.
+                        if let Ok(response_json) = serde_json::from_slice::<Value>(&body_bytes) {
+                            if let Some(mut session) = state.sessions.get_mut(session_id) {
+                                session.memory_tracker.record_response(&response_json);
+                            }
                         }
 
                         // Forward the raw bytes (no injection/DLP blocking triggered)
@@ -2976,7 +3002,10 @@ async fn scan_sse_events_for_injection(
         // an injection payload across data: lines to evade per-line scanning.
         let mut data_parts: Vec<&str> = Vec::new();
         for line in event.lines() {
-            if let Some(rest) = line.strip_prefix("data:") {
+            // SECURITY (R26-PROXY-3): Trim ASCII whitespace before prefix check.
+            // Unicode whitespace (e.g. U+00A0 NBSP) before "data:" would bypass scanning.
+            let trimmed = line.trim_start_matches([' ', '\t']);
+            if let Some(rest) = trimmed.strip_prefix("data:") {
                 data_parts.push(rest.trim_start());
             }
         }
@@ -3137,7 +3166,10 @@ async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &Pro
     for event in normalized.split("\n\n") {
         let mut data_parts: Vec<&str> = Vec::new();
         for line in event.lines() {
-            if let Some(rest) = line.strip_prefix("data:") {
+            // SECURITY (R26-PROXY-3): Trim ASCII whitespace before prefix check.
+            // Unicode whitespace (e.g. U+00A0 NBSP) before "data:" would bypass scanning.
+            let trimmed = line.trim_start_matches([' ', '\t']);
+            if let Some(rest) = trimmed.strip_prefix("data:") {
                 data_parts.push(rest.trim_start());
             }
         }
@@ -3248,7 +3280,10 @@ async fn check_sse_for_rug_pull_and_manifest(
     for event in normalized.split("\n\n") {
         let mut data_parts: Vec<&str> = Vec::new();
         for line in event.lines() {
-            if let Some(rest) = line.strip_prefix("data:") {
+            // SECURITY (R26-PROXY-3): Trim ASCII whitespace before prefix check.
+            // Unicode whitespace (e.g. U+00A0 NBSP) before "data:" would bypass scanning.
+            let trimmed = line.trim_start_matches([' ', '\t']);
+            if let Some(rest) = trimmed.strip_prefix("data:") {
                 data_parts.push(rest.trim_start());
             }
         }
@@ -3315,7 +3350,10 @@ fn register_schemas_from_sse(sse_bytes: &[u8], state: &ProxyState) {
     for event in normalized.split("\n\n") {
         let mut data_parts: Vec<&str> = Vec::new();
         for line in event.lines() {
-            if let Some(rest) = line.strip_prefix("data:") {
+            // SECURITY (R26-PROXY-3): Trim ASCII whitespace before prefix check.
+            // Unicode whitespace (e.g. U+00A0 NBSP) before "data:" would bypass scanning.
+            let trimmed = line.trim_start_matches([' ', '\t']);
+            if let Some(rest) = trimmed.strip_prefix("data:") {
                 data_parts.push(rest.trim_start());
             }
         }
@@ -3582,9 +3620,11 @@ mod tests {
 
         for event in &events {
             for line in event.lines() {
-                let data_payload = if let Some(rest) = line.strip_prefix("data: ") {
+                // SECURITY (R26-PROXY-3): Trim standard whitespace before prefix check.
+                let trimmed_line = line.trim_start_matches([' ', '\t']);
+                let data_payload = if let Some(rest) = trimmed_line.strip_prefix("data: ") {
                     rest
-                } else if let Some(rest) = line.strip_prefix("data:") {
+                } else if let Some(rest) = trimmed_line.strip_prefix("data:") {
                     rest.trim_start()
                 } else {
                     continue;

@@ -100,6 +100,18 @@ pub fn validate_regex_safety(pattern: &str) -> Result<(), String> {
         i += 1;
     }
 
+    // SECURITY (R26-ENG-6): Reject trailing backslash (incomplete escape sequence).
+    // While Regex::new() would also reject this, catching it early provides a
+    // clearer error message and consistent validation behavior.
+    // Count trailing backslashes: odd count means incomplete escape.
+    let trailing_bs = chars.iter().rev().take_while(|&&c| c == '\\').count();
+    if trailing_bs % 2 == 1 {
+        return Err(format!(
+            "Regex pattern ends with incomplete escape sequence: '{}'",
+            &pattern[..pattern.len().min(100)]
+        ));
+    }
+
     Ok(())
 }
 
@@ -541,6 +553,16 @@ mod tests {
     fn test_redos_deeply_nested_groups_rejected() {
         // ((a+))+ — nested groups with inner quantifier
         assert!(validate_regex_safety("((a+))+").is_err());
+    }
+
+    #[test]
+    fn test_redos_trailing_backslash_rejected() {
+        // R26-ENG-6: Trailing backslash is an incomplete escape sequence
+        assert!(validate_regex_safety(r"abc\").is_err());
+        // Double backslash at end is a valid escaped backslash
+        assert!(validate_regex_safety(r"abc\\").is_ok());
+        // Triple backslash = escaped backslash + trailing backslash
+        assert!(validate_regex_safety(r"abc\\\").is_err());
     }
 
     #[test]

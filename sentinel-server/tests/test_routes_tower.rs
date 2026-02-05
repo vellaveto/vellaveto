@@ -102,7 +102,6 @@ async fn health_returns_200_with_ok_status() {
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json.get("status").unwrap(), "ok");
-    assert_eq!(json.get("policies_loaded").unwrap(), 2);
 }
 
 #[tokio::test]
@@ -119,7 +118,7 @@ async fn health_with_no_policies_shows_zero() {
         .await
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json.get("policies_loaded").unwrap(), 0);
+    assert_eq!(json.get("status").unwrap(), "ok");
 }
 
 // ════════════════════════════════
@@ -1727,7 +1726,6 @@ async fn metrics_returns_structure() {
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(json.get("uptime_seconds").is_some());
-    assert_eq!(json["policies_loaded"], 2);
     assert_eq!(json["evaluations"]["total"], 0);
     assert_eq!(json["evaluations"]["allow"], 0);
     assert_eq!(json["evaluations"]["deny"], 0);

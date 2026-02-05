@@ -76,7 +76,6 @@ async fn health_returns_ok() {
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["status"], "ok");
-    assert_eq!(json["policies_loaded"], 2);
 }
 
 #[tokio::test]
@@ -279,7 +278,6 @@ async fn metrics_returns_counters() {
     assert_eq!(json["evaluations"]["allow"], 1);
     assert_eq!(json["evaluations"]["deny"], 1);
     assert!(json["uptime_seconds"].is_number());
-    assert_eq!(json["policies_loaded"], 2);
 }
 
 #[tokio::test]

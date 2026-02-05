@@ -633,6 +633,7 @@ impl ProxyBridge {
                                         continue;
                                     }
                                     // OWASP ASI06: Check for memory poisoning (replayed response data in params)
+                                    // SECURITY (R26-MCP-1): Block requests when poisoning detected (was log-only).
                                     let poisoning_matches = memory_tracker.check_parameters(&arguments);
                                     if !poisoning_matches.is_empty() {
                                         for m in &poisoning_matches {
@@ -643,9 +644,16 @@ impl ProxyBridge {
                                             );
                                         }
                                         let action = extract_action(&tool_name, &arguments);
+                                        let deny_reason = format!(
+                                            "Memory poisoning detected: {} replayed data fragment(s) in tool '{}'",
+                                            poisoning_matches.len(),
+                                            tool_name
+                                        );
                                         let _ = self.audit.log_entry(
                                             &action,
-                                            &Verdict::Allow,
+                                            &Verdict::Deny {
+                                                reason: deny_reason.clone(),
+                                            },
                                             json!({
                                                 "source": "proxy",
                                                 "event": "memory_poisoning_detected",
@@ -653,6 +661,18 @@ impl ProxyBridge {
                                                 "tool": tool_name,
                                             }),
                                         ).await;
+                                        // Block the tool call — send error back to agent.
+                                        let response = json!({
+                                            "jsonrpc": "2.0",
+                                            "id": id,
+                                            "error": {
+                                                "code": -32001,
+                                                "message": "Request blocked: security policy violation",
+                                            }
+                                        });
+                                        write_message(&mut agent_writer, &response).await
+                                            .map_err(ProxyError::Framing)?;
+                                        continue;
                                     }
 
                                     // Tool registry check: if enabled, unknown or untrusted tools

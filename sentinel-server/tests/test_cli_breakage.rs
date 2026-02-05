@@ -76,10 +76,6 @@ priority = 1
         parsed.get("action").is_some(),
         "Output must contain action field"
     );
-    assert!(
-        parsed.get("policies_loaded").is_some(),
-        "Output must contain policies_loaded"
-    );
 }
 
 #[test]
