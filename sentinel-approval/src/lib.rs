@@ -59,15 +59,21 @@ pub const DEFAULT_MAX_PENDING: usize = 10_000;
 /// Compute a deduplication key from an action and reason.
 ///
 /// The key is a SHA-256 hash of the canonical JSON representation of the
-/// action's tool, function, and parameters fields combined with the reason
-/// string. This ensures that identical requests map to the same key
-/// regardless of field ordering in the parameters object (because
-/// `serde_json::json!` produces deterministic output for the same input).
+/// action's tool, function, parameters, target_paths, and target_domains
+/// fields combined with the reason string. This ensures that identical
+/// requests map to the same key regardless of field ordering in the
+/// parameters object.
+///
+/// SECURITY (R28-SUP-1): target_paths and target_domains are included to
+/// prevent dedup collision between semantically different actions (e.g.,
+/// same tool/function/params but different file paths).
 fn compute_dedup_key(action: &Action, reason: &str) -> String {
     let canonical = serde_json::json!({
         "tool": action.tool,
         "function": action.function,
         "parameters": action.parameters,
+        "target_paths": action.target_paths,
+        "target_domains": action.target_domains,
     });
     let input = format!(
         "{}||{}",
@@ -123,6 +129,22 @@ impl ApprovalStore {
     /// Because the file is append-only (each state change appends a new line),
     /// later entries override earlier ones for the same ID.
     pub async fn load_from_file(&self) -> Result<usize, ApprovalError> {
+        // SECURITY (R28-SUP-3): Bound file size before reading to prevent OOM
+        // on startup from a corrupted or maliciously inflated approval file.
+        const MAX_APPROVAL_FILE_SIZE: u64 = 100 * 1024 * 1024; // 100 MB
+        match tokio::fs::metadata(&self.log_path).await {
+            Ok(meta) if meta.len() > MAX_APPROVAL_FILE_SIZE => {
+                return Err(ApprovalError::Validation(format!(
+                    "Approval file too large ({} bytes, max {} bytes)",
+                    meta.len(),
+                    MAX_APPROVAL_FILE_SIZE
+                )));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+            Err(e) => return Err(ApprovalError::Io(e)),
+            Ok(_) => {} // Size OK, proceed to read
+        }
+
         let content = match tokio::fs::read_to_string(&self.log_path).await {
             Ok(c) => c,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
@@ -299,9 +321,12 @@ impl ApprovalStore {
                 ));
             }
 
+            // SECURITY (R28-SUP-10): Case-insensitive comparison to prevent
+            // self-approval bypass via casing variations (e.g., "Admin@Corp.com"
+            // vs "admin@corp.com").
             if !requester_base.is_empty()
-                && requester_base != "anonymous"
-                && requester_base == approver_base
+                && !requester_base.eq_ignore_ascii_case("anonymous")
+                && requester_base.eq_ignore_ascii_case(approver_base)
             {
                 return Err(ApprovalError::Validation(format!(
                     "Self-approval denied: requester '{}' cannot approve their own request",

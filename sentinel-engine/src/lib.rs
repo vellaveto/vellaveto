@@ -2167,7 +2167,19 @@ impl PolicyEngine {
         };
 
         if action.target_paths.is_empty() {
-            return None; // No paths to check
+            // SECURITY (R28-ENG-1): When an allowlist is configured but no
+            // target paths were extracted, fail-closed. The absence of paths
+            // means the extractor could not identify what the tool accesses,
+            // so we cannot verify it's within the allowlist.
+            if !rules.allowed.is_empty() {
+                return Some(Verdict::Deny {
+                    reason: format!(
+                        "No target paths provided but path allowlist is configured for policy '{}'",
+                        cp.policy.name
+                    ),
+                });
+            }
+            return None; // Blocklist-only mode: nothing to block
         }
 
         for raw_path in &action.target_paths {
@@ -2217,7 +2229,19 @@ impl PolicyEngine {
         };
 
         if action.target_domains.is_empty() {
-            return None; // No domains to check
+            // SECURITY (R28-ENG-1): When an allowed_domains list is configured
+            // but no target domains were extracted, fail-closed. The absence of
+            // domains means the extractor could not determine where the tool
+            // connects, so we cannot verify it's within the allowlist.
+            if !rules.allowed_domains.is_empty() {
+                return Some(Verdict::Deny {
+                    reason: format!(
+                        "No target domains provided but domain allowlist is configured for policy '{}'",
+                        cp.policy.name
+                    ),
+                });
+            }
+            return None; // Blocklist-only mode: nothing to block
         }
 
         for raw_domain in &action.target_domains {

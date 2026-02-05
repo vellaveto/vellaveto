@@ -2072,6 +2072,8 @@ async fn validate_agent_identity(
             Ok(Some(identity))
         }
         Err(e) => {
+            // SECURITY (R28-PROXY-5): Log details server-side only; return
+            // generic error to client to prevent algorithm/kid enumeration.
             tracing::warn!("X-Agent-Identity JWT validation failed: {}", e);
             Err((
                 StatusCode::BAD_REQUEST,
@@ -2079,7 +2081,7 @@ async fn validate_agent_identity(
                     "jsonrpc": "2.0",
                     "error": {
                         "code": -32001,
-                        "message": format!("Invalid X-Agent-Identity token: {}", e)
+                        "message": "Invalid agent identity token"
                     },
                     "id": null
                 })),

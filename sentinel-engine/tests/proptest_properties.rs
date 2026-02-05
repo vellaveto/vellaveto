@@ -554,10 +554,10 @@ proptest! {
     }
 }
 
-// PROPERTY 18: Empty target_paths skips path rules (no denial)
+// PROPERTY 18: Empty target_paths with allowlist configured → Deny (fail-closed, R28-ENG-1)
 proptest! {
     #[test]
-    fn empty_target_paths_skips_path_rules(
+    fn empty_target_paths_with_allowlist_denies(
         tool in "[a-z]{3,10}",
     ) {
         let policy = Policy {
@@ -573,12 +573,12 @@ proptest! {
         };
 
         let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-        // Action with NO target_paths
+        // Action with NO target_paths — allowlist configured means fail-closed
         let action = Action::new(&tool, "list", json!({}));
 
         let result = engine.evaluate_action(&action, &[]);
-        prop_assert!(matches!(result, Ok(Verdict::Allow)),
-            "Empty target_paths must skip path rules. Got: {:?}", result);
+        prop_assert!(matches!(result, Ok(Verdict::Deny { .. })),
+            "Empty target_paths with allowlist must deny (fail-closed). Got: {:?}", result);
     }
 }
 
@@ -767,10 +767,10 @@ proptest! {
     }
 }
 
-// PROPERTY 24: Empty target_domains skips network rules
+// PROPERTY 24: Empty target_domains with allowlist configured → Deny (fail-closed, R28-ENG-1)
 proptest! {
     #[test]
-    fn empty_target_domains_skips_network_rules(
+    fn empty_target_domains_with_allowlist_denies(
         tool in "[a-z]{3,10}",
     ) {
         let policy = Policy {
@@ -787,12 +787,12 @@ proptest! {
         };
 
         let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
-        // Action with NO target_domains
+        // Action with NO target_domains — allowlist configured means fail-closed
         let action = Action::new(&tool, "compute", json!({}));
 
         let result = engine.evaluate_action(&action, &[]);
-        prop_assert!(matches!(result, Ok(Verdict::Allow)),
-            "Empty target_domains must skip network rules. Got: {:?}", result);
+        prop_assert!(matches!(result, Ok(Verdict::Deny { .. })),
+            "Empty target_domains with allowlist must deny (fail-closed). Got: {:?}", result);
     }
 }
 

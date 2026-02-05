@@ -990,7 +990,6 @@ async fn remove_policy(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
                     "error": "Policy recompilation failed after removal — no changes applied",
-                    "details": msgs,
                 })),
             );
         }
@@ -1961,8 +1960,8 @@ fn extract_client_ip(request: &Request, trusted_proxies: &[std::net::IpAddr]) ->
 ///    prevent raw token leakage in rate limit logs/maps (KL1 hardening).
 /// 3. Client IP address as a string — fallback for unauthenticated requests.
 ///
-/// Rate limiting now runs AFTER `require_api_key`, so by the time this
-/// function is called, the Bearer token has already been validated.
+/// Rate limiting runs BEFORE `require_api_key` (outermost middleware),
+/// so the Bearer token may not yet be validated when this is called.
 fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]) -> String {
     /// Maximum X-Principal header length to prevent memory abuse in rate-limit maps.
     const MAX_PRINCIPAL_LEN: usize = 256;

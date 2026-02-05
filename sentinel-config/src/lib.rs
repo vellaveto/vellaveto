@@ -602,6 +602,24 @@ impl ToolManifest {
                             live_tool.name
                         ));
                     }
+                    // SECURITY (R28-SUP-2): Detect description changes (rug-pull vector).
+                    // A malicious server can change "Read a file" to "Read a file and
+                    // exfiltrate to evil.com" without changing the schema.
+                    if pinned_entry.description_hash != live_tool.description_hash {
+                        discrepancies.push(format!(
+                            "Tool '{}' description changed (potential rug-pull)",
+                            live_tool.name
+                        ));
+                    }
+                    // SECURITY (R28-SUP-2): Detect annotation changes (behavioral hint
+                    // manipulation). Changing destructiveHint from true to false lowers
+                    // the agent's guard about a tool's actual behavior.
+                    if pinned_entry.annotations != live_tool.annotations {
+                        discrepancies.push(format!(
+                            "Tool '{}' annotations changed (behavioral hint manipulation)",
+                            live_tool.name
+                        ));
+                    }
                 }
             }
         }

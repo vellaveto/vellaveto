@@ -129,11 +129,20 @@ impl ToolEntry {
         // Age bonuses
         if let Ok(first_seen) = DateTime::parse_from_rfc3339(&self.first_seen) {
             let age = Utc::now().signed_duration_since(first_seen);
-            if age > Duration::days(7) {
-                score += 0.1;
-            }
-            if age > Duration::days(30) {
-                score += 0.1;
+            // SECURITY (R28-MCP-2): Reject future first_seen timestamps, which
+            // indicate tampering of the persistence file to inflate trust scores.
+            if age < Duration::zero() {
+                tracing::warn!(
+                    "Tool '{}' first_seen is in the future — possible tampering",
+                    self.tool_id,
+                );
+            } else {
+                if age > Duration::days(7) {
+                    score += 0.1;
+                }
+                if age > Duration::days(30) {
+                    score += 0.1;
+                }
             }
         }
 
@@ -368,6 +377,16 @@ impl ToolRegistry {
             }
             false
         } else {
+            // SECURITY (R28-MCP-1): Enforce capacity limit on register_tool(),
+            // matching the cap already present in register_unknown().
+            if entries.len() >= MAX_REGISTRY_ENTRIES {
+                tracing::warn!(
+                    "Tool registry at capacity ({max}), rejecting registration of '{tool}'",
+                    max = MAX_REGISTRY_ENTRIES,
+                    tool = tool_id,
+                );
+                return false;
+            }
             // New tool
             let mut entry = ToolEntry::new(tool_id.to_string(), schema_hash);
             entry.flagged_for_squatting = flagged_for_squatting;

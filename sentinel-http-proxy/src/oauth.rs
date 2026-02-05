@@ -249,9 +249,15 @@ impl OAuthValidator {
     ///
     /// Returns the validated claims on success.
     pub async fn validate_token(&self, auth_header: &str) -> Result<OAuthClaims, OAuthError> {
-        let token = auth_header
-            .strip_prefix("Bearer ")
-            .ok_or(OAuthError::InvalidFormat)?;
+        // SECURITY (R28-PROXY-1): Per RFC 7235 §2.1, the authentication scheme
+        // is case-insensitive. Accept "bearer", "Bearer", "BEARER", etc.
+        let token = if auth_header.len() > 7
+            && auth_header[..7].eq_ignore_ascii_case("bearer ")
+        {
+            &auth_header[7..]
+        } else {
+            return Err(OAuthError::InvalidFormat);
+        };
 
         if token.is_empty() {
             return Err(OAuthError::InvalidFormat);

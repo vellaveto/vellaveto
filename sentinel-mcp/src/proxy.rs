@@ -601,14 +601,14 @@ impl ProxyBridge {
                                         let patterns: Vec<String> = dlp_findings.iter()
                                             .map(|f| format!("{} at {}", f.pattern_name, f.location))
                                             .collect();
-                                        let deny_reason = format!(
+                                        let audit_reason = format!(
                                             "DLP: secrets detected in parameters: {:?}",
                                             patterns
                                         );
                                         if let Err(e) = self.audit.log_entry(
                                             &action,
                                             &Verdict::Deny {
-                                                reason: deny_reason.clone(),
+                                                reason: audit_reason.clone(),
                                             },
                                             json!({
                                                 "source": "proxy",
@@ -619,13 +619,14 @@ impl ProxyBridge {
                                         ).await {
                                             tracing::warn!("Failed to audit DLP finding: {}", e);
                                         }
-                                        // Block the tool call — send error back to agent.
+                                        // SECURITY (R28-MCP-5): Generic error to agent — do not
+                                        // leak which DLP patterns matched or their locations.
                                         let response = json!({
                                             "jsonrpc": "2.0",
                                             "id": id,
                                             "error": {
                                                 "code": -32001,
-                                                "message": deny_reason,
+                                                "message": "Request blocked: security policy violation",
                                             }
                                         });
                                         write_message(&mut agent_writer, &response).await
@@ -830,13 +831,13 @@ impl ProxyBridge {
                                         let patterns: Vec<String> = dlp_findings.iter()
                                             .map(|f| format!("{} at {}", f.pattern_name, f.location))
                                             .collect();
-                                        let deny_reason = format!(
+                                        let audit_reason = format!(
                                             "DLP: secrets detected in resource URI: {:?}",
                                             patterns
                                         );
                                         if let Err(e) = self.audit.log_entry(
                                             &action,
-                                            &Verdict::Deny { reason: deny_reason.clone() },
+                                            &Verdict::Deny { reason: audit_reason.clone() },
                                             json!({
                                                 "source": "proxy",
                                                 "event": "dlp_resource_blocked",
@@ -846,12 +847,13 @@ impl ProxyBridge {
                                         ).await {
                                             tracing::warn!("Failed to audit resource DLP: {}", e);
                                         }
+                                        // SECURITY (R28-MCP-5): Generic error to agent.
                                         let response = json!({
                                             "jsonrpc": "2.0",
                                             "id": id,
                                             "error": {
                                                 "code": -32001,
-                                                "message": deny_reason,
+                                                "message": "Request blocked: security policy violation",
                                             }
                                         });
                                         write_message(&mut agent_writer, &response).await
@@ -954,7 +956,9 @@ impl ProxyBridge {
                                     );
                                     match verdict {
                                         crate::elicitation::ElicitationVerdict::Allow => {
-                                            elicitation_count += 1;
+                                            // SECURITY (R28-MCP-8): Saturating add prevents
+                                            // panic from overflow-checks in release profile.
+                                            elicitation_count = elicitation_count.saturating_add(1);
                                             // Forward the elicitation request to the agent
                                             write_message(&mut agent_writer, &msg).await
                                                 .map_err(ProxyError::Framing)?;
@@ -1002,13 +1006,13 @@ impl ProxyBridge {
                                         let patterns: Vec<String> = dlp_findings.iter()
                                             .map(|f| format!("{} at {}", f.pattern_name, f.location))
                                             .collect();
-                                        let deny_reason = format!(
+                                        let audit_reason = format!(
                                             "DLP: secrets detected in task request: {:?}",
                                             patterns
                                         );
                                         if let Err(e) = self.audit.log_entry(
                                             &dlp_action,
-                                            &Verdict::Deny { reason: deny_reason.clone() },
+                                            &Verdict::Deny { reason: audit_reason.clone() },
                                             json!({
                                                 "source": "proxy",
                                                 "event": "dlp_secret_blocked_task",
@@ -1018,12 +1022,13 @@ impl ProxyBridge {
                                         ).await {
                                             tracing::warn!("Failed to audit DLP finding: {}", e);
                                         }
+                                        // SECURITY (R28-MCP-5): Generic error to agent.
                                         let response = json!({
                                             "jsonrpc": "2.0",
                                             "id": id,
                                             "error": {
                                                 "code": -32001,
-                                                "message": deny_reason,
+                                                "message": "Request blocked: security policy violation",
                                             }
                                         });
                                         write_message(&mut agent_writer, &response).await
