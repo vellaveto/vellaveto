@@ -536,3 +536,82 @@ async fn get_on_evaluate_endpoint_returns_405() {
         resp.status()
     );
 }
+
+/// SECURITY (R22-SRV-1): Client-supplied resolved_ips must be cleared before
+/// evaluation. A malicious client could supply "8.8.8.8" to bypass DNS
+/// rebinding / private-IP checks when the real resolution would be "127.0.0.1".
+#[tokio::test]
+async fn evaluate_clears_client_supplied_resolved_ips() {
+    let tmp = TempDir::new().unwrap();
+    let policies = vec![Policy {
+        id: "net:block-private".to_string(),
+        name: "Block private IPs".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 10,
+        path_rules: None,
+        network_rules: Some(sentinel_types::NetworkRules {
+            allowed_domains: vec!["*.example.com".to_string()],
+            blocked_domains: vec![],
+            ip_rules: Some(sentinel_types::IpRules {
+                block_private: true,
+                ..Default::default()
+            }),
+        }),
+    }];
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+    let state = AppState {
+        policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
+            engine,
+            policies,
+        })),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("test.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: Some(Arc::new("test-secret-key-123".to_string())),
+        rate_limits: Arc::new(RateLimits::disabled()),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
+        tool_registry: None,
+    };
+    let app = routes::build_router(state);
+
+    // Client supplies resolved_ips with a public IP to bypass private-IP block
+    let body = json!({
+        "tool": "http_request",
+        "function": "get",
+        "parameters": {"url": "http://example.com"},
+        "resolved_ips": ["8.8.8.8"]
+    });
+    let req = Request::post("/api/evaluate")
+        .header("Content-Type", "application/json")
+        .header("Authorization", "Bearer test-secret-key-123")
+        .body(Body::from(serde_json::to_string(&body).unwrap()))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    let status = resp.status();
+    let body_bytes = axum::body::to_bytes(resp.into_body(), 65536)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    // The response should show the action with cleared resolved_ips
+    // (they should be empty or re-extracted, NOT the client-supplied "8.8.8.8")
+    assert_eq!(status, StatusCode::OK, "Evaluate should succeed");
+    if let Some(action) = body.get("action") {
+        if let Some(ips) = action.get("resolved_ips") {
+            let empty = vec![];
+            let ips_arr = ips.as_array().unwrap_or(&empty);
+            assert!(
+                !ips_arr.iter().any(|ip| ip.as_str() == Some("8.8.8.8")),
+                "Client-supplied resolved_ips should have been cleared, but found 8.8.8.8 in {:?}",
+                ips_arr
+            );
+        }
+    }
+}

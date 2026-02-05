@@ -587,11 +587,12 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
     );
 
     // Audit trail
+    // SECURITY (R22-SRV-2): Do not log the filesystem config_path in audit
+    // entries — it leaks deployment layout. The source field is sufficient.
     let action = sentinel_types::Action::new(
         "sentinel",
         "reload_policies",
         serde_json::json!({
-            "config_path": config_path,
             "policy_count": count,
             "source": source,
         }),

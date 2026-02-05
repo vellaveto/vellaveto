@@ -125,7 +125,15 @@ fn complex_metadata_preserved_through_audit() {
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].metadata, metadata);
+        // SECURITY (R22-SUP-1): Default PiiScanner now redacts IPv4 addresses
+        let expected = json!({
+            "user": "admin",
+            "ip": "[REDACTED]",
+            "tags": ["security", "high-risk"],
+            "nested": {"level": 2, "flag": true},
+            "nullable": null
+        });
+        assert_eq!(entries[0].metadata, expected);
     });
 }
 

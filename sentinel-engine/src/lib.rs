@@ -3645,6 +3645,15 @@ impl PolicyEngine {
             url
         };
 
+        // SECURITY (R22-ENG-5): Normalize backslashes to forward slashes BEFORE
+        // splitting on path separator. Per the WHATWG URL Standard, `\` is treated
+        // as a path separator in "special" schemes (http, https, ftp, etc.).
+        // Without this, "http://evil.com\@legit.com/path" splits on '/' but the
+        // `\@legit.com/path` remains in the authority portion, and after rfind('@')
+        // we extract "legit.com/path" — completely wrong domain.
+        let normalized = without_scheme.replace('\\', "/");
+        let without_scheme = normalized.as_str();
+
         // Fix #8: Extract the authority portion FIRST (before the first '/'),
         // then search for '@' only within the authority. This prevents
         // ?email=user@safe.com in query params from being mistaken for userinfo.
@@ -4695,11 +4704,32 @@ fn is_ipv6_discard(v6: &std::net::Ipv6Addr) -> bool {
         && v6.segments()[3] == 0
 }
 
+/// SECURITY (R22-ENG-2): Consistent reserved-range check for embedded IPv4 addresses.
+///
+/// All IPv6 transition mechanisms (mapped, compatible, 6to4, Teredo, NAT64) must
+/// use the same set of checks. Previously, some functions only checked loopback +
+/// private + link-local, while is_ipv4_compatible_private also checked CGNAT, 0/8,
+/// and benchmarking ranges — creating inconsistent bypass opportunities.
+fn is_embedded_ipv4_reserved(v4: &std::net::Ipv4Addr) -> bool {
+    let octets = v4.octets();
+    v4.is_loopback()                                            // 127.0.0.0/8
+        || v4.is_private()                                       // 10/8, 172.16/12, 192.168/16
+        || v4.is_link_local()                                    // 169.254/16
+        || v4.is_unspecified()                                   // 0.0.0.0
+        || v4.is_broadcast()                                     // 255.255.255.255
+        || octets[0] == 0                                        // 0.0.0.0/8 (RFC 1122)
+        || (octets[0] == 100 && (octets[1] & 0xC0) == 64)       // 100.64.0.0/10 CGNAT (RFC 6598)
+        || (octets[0] == 198 && (octets[1] & 0xFE) == 18)       // 198.18.0.0/15 benchmarking (RFC 2544)
+        || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0) // 192.0.0.0/24 (RFC 6890)
+        || (octets[0] == 192 && octets[1] == 0 && octets[2] == 2) // 192.0.2.0/24 TEST-NET-1
+        || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100) // 198.51.100.0/24 TEST-NET-2
+        || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)  // 203.0.113.0/24 TEST-NET-3
+}
+
 /// ::ffff:x.x.x.x — IPv4-mapped IPv6 (check embedded IPv4)
 fn is_ipv4_mapped_private(v6: &std::net::Ipv6Addr) -> bool {
-    v6.to_ipv4_mapped().is_some_and(|v4| {
-        v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified()
-    })
+    v6.to_ipv4_mapped()
+        .is_some_and(|v4| is_embedded_ipv4_reserved(&v4))
 }
 
 /// SECURITY (R21-ENG-2): ::x.x.x.x — IPv4-compatible IPv6 (deprecated, RFC 4291 §2.5.5.1)
@@ -4723,11 +4753,7 @@ fn is_ipv4_compatible_private(v6: &std::net::Ipv6Addr) -> bool {
             (segs[7] & 0xff) as u8,
         ];
         let embedded = std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], octets[3]);
-        return embedded.is_loopback() || embedded.is_private() || embedded.is_link_local()
-            || embedded.is_unspecified()
-            || octets[0] == 0                                        // 0.0.0.0/8
-            || (octets[0] == 100 && (octets[1] & 0xC0) == 64)       // CGNAT
-            || (octets[0] == 198 && (octets[1] & 0xFE) == 18);      // benchmarking
+        return is_embedded_ipv4_reserved(&embedded);
     }
     false
 }
@@ -4745,7 +4771,7 @@ fn is_6to4_private(v6: &std::net::Ipv6Addr) -> bool {
         (v6.segments()[2] & 0xff) as u8,
     ];
     let embedded = std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], octets[3]);
-    embedded.is_loopback() || embedded.is_private() || embedded.is_link_local()
+    is_embedded_ipv4_reserved(&embedded)
 }
 
 /// 2001::/32 — Teredo (RFC 4380) — extract embedded IPv4 from last 32 bits (XORed)
@@ -4761,7 +4787,7 @@ fn is_teredo_private(v6: &std::net::Ipv6Addr) -> bool {
         ((v6.segments()[7] & 0xff) ^ 0xff) as u8,
     ];
     let embedded = std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], octets[3]);
-    embedded.is_loopback() || embedded.is_private() || embedded.is_link_local()
+    is_embedded_ipv4_reserved(&embedded)
 }
 
 /// 64:ff9b::/96 — NAT64 well-known prefix (RFC 6052) — extract embedded IPv4 from last 32 bits
@@ -4784,7 +4810,7 @@ fn is_nat64_private(v6: &std::net::Ipv6Addr) -> bool {
         (v6.segments()[7] & 0xff) as u8,
     ];
     let embedded = std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], octets[3]);
-    embedded.is_loopback() || embedded.is_private() || embedded.is_link_local()
+    is_embedded_ipv4_reserved(&embedded)
 }
 
 #[cfg(test)]
@@ -6281,6 +6307,36 @@ mod tests {
         assert_eq!(
             PolicyEngine::extract_domain("https://%65vil.com/data"),
             "evil.com"
+        );
+    }
+
+    #[test]
+    fn test_extract_domain_backslash_as_path_separator() {
+        // SECURITY (R22-ENG-5): Per WHATWG URL Standard, `\` is treated as a
+        // path separator in special schemes. Without normalization, the authority
+        // portion includes the backslash and everything after it.
+        assert_eq!(
+            PolicyEngine::extract_domain("http://evil.com\\@legit.com/path"),
+            "evil.com"
+        );
+        // Backslash before path — should split correctly
+        assert_eq!(
+            PolicyEngine::extract_domain("https://evil.com\\path\\to\\resource"),
+            "evil.com"
+        );
+        // Multiple backslashes
+        assert_eq!(
+            PolicyEngine::extract_domain("http://host.com\\\\foo"),
+            "host.com"
+        );
+    }
+
+    #[test]
+    fn test_extract_domain_backslash_with_userinfo() {
+        // Combined: backslash + userinfo should extract correct domain
+        assert_eq!(
+            PolicyEngine::extract_domain("http://user:pass@host.com\\path"),
+            "host.com"
         );
     }
 
@@ -9177,6 +9233,80 @@ mod tests {
         assert!(
             matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
             "IPv4-compatible ::127.0.0.1 should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_private_6to4_cgnat() {
+        // SECURITY (R22-ENG-2): 6to4 embedding CGNAT address 100.100.1.1
+        // 2002:6464:0101:: — previously not blocked because 6to4 only checked
+        // is_loopback/is_private/is_link_local (CGNAT is none of those).
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["2002:6464:0101::1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "6to4 with embedded CGNAT should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_private_nat64_cgnat() {
+        // SECURITY (R22-ENG-2): NAT64 embedding CGNAT address 100.100.1.1
+        // 64:ff9b::6464:0101
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["64:ff9b::6464:0101"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "NAT64 with embedded CGNAT should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_private_teredo_cgnat() {
+        // SECURITY (R22-ENG-2): Teredo embedding CGNAT address 100.100.1.1
+        // XOR with 0xFF: 100^0xFF=155, 100^0xFF=155, 1^0xFF=254, 1^0xFF=254
+        // Embedded in last 32 bits as 0x9b9b:0xfefe
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["2001:0000:0000:0000:0000:0000:9b9b:fefe"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "Teredo with embedded CGNAT should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_private_ipv4_mapped_cgnat() {
+        // SECURITY (R22-ENG-2): IPv4-mapped embedding CGNAT address
+        // ::ffff:100.100.1.1
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["::ffff:100.100.1.1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "IPv4-mapped with embedded CGNAT should be blocked, got: {:?}",
             verdict
         );
     }

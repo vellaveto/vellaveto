@@ -383,6 +383,11 @@ impl AuditLogger {
     /// Create a new audit logger writing to the specified path.
     /// Sensitive value redaction is enabled by default.
     /// Log rotation is enabled at 100 MB by default.
+    ///
+    /// SECURITY (R22-SUP-1): A default PiiScanner is always constructed so that
+    /// credit card (with Luhn), JWT, IPv4, and AWS key patterns are applied even
+    /// when no custom patterns are configured. The legacy PII_REGEXES fallback
+    /// (email/SSN/phone only) is never used.
     pub fn new(log_path: PathBuf) -> Self {
         Self {
             log_path,
@@ -391,7 +396,7 @@ impl AuditLogger {
             max_file_size: DEFAULT_MAX_FILE_SIZE,
             signing_key: None,
             trusted_verifying_key: None,
-            pii_scanner: None,
+            pii_scanner: Some(PiiScanner::new(&[])),
             entry_count: AtomicU64::new(0),
         }
     }

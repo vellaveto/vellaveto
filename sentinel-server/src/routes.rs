@@ -533,8 +533,11 @@ async fn evaluate(
     // ignoring client-supplied target_paths/target_domains. A malicious
     // client could supply crafted paths that bypass path policy checks,
     // so we clear them and re-extract from the actual parameters.
+    // SECURITY (R22-SRV-1): Also clear resolved_ips — a client could supply
+    // crafted IPs to bypass DNS rebinding / private-IP checks entirely.
     action.target_paths.clear();
     action.target_domains.clear();
+    action.resolved_ips.clear();
     auto_extract_targets(&mut action);
 
     // SECURITY (R15-CFG-2): Single atomic load of engine + policies.

@@ -444,14 +444,21 @@ fn key_algorithm_to_algorithm(ka: &KeyAlgorithm) -> Option<Algorithm> {
 }
 
 /// Find a matching decoding key in the JWKS by key ID and algorithm.
+///
+/// SECURITY (R22-PROXY-2): When the token specifies a `kid`, we REQUIRE
+/// the JWK to also have a `kid` and it must match. Previously, a JWK
+/// without a `kid` field would match *any* token kid, allowing an attacker
+/// to use a kidless JWK as a wildcard to validate tokens with arbitrary
+/// kid values. Per RFC 7517 §4.5, kid is OPTIONAL, but when the token
+/// asserts one we must only accept exact matches.
 fn find_key_in_jwks(jwks: &JwkSet, kid: &str, alg: &Algorithm) -> Option<DecodingKey> {
     for key in &jwks.keys {
         // Match by kid if provided
         if !kid.is_empty() {
-            if let Some(ref key_kid) = key.common.key_id {
-                if key_kid != kid {
-                    continue;
-                }
+            match &key.common.key_id {
+                Some(key_kid) if key_kid == kid => {} // exact match — continue
+                Some(_) => continue,                   // kid mismatch — skip
+                None => continue,                      // no kid on JWK — skip (R22-PROXY-2)
             }
         }
 

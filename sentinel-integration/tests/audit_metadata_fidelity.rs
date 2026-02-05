@@ -67,7 +67,18 @@ fn nested_metadata_preserved_exactly() {
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].metadata, metadata);
+        // SECURITY (R22-SUP-1): Default PiiScanner now redacts IPv4 addresses
+        let expected = json!({
+            "user": "admin",
+            "session": {
+                "id": "sess_123",
+                "ip": "[REDACTED]",
+                "tags": ["internal", "elevated"]
+            },
+            "timestamp_ms": 1700000000000_i64,
+            "flags": [true, false, null]
+        });
+        assert_eq!(entries[0].metadata, expected);
     });
 }
 
