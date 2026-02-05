@@ -77,7 +77,7 @@ conditions = { require_approval = true }
 // ═══════════════════════════════════
 
 #[test]
-fn from_toml_priority_defaults_to_100_when_omitted() {
+fn from_toml_priority_defaults_to_0_when_omitted() {
     let toml = r#"
 [[policies]]
 name = "No priority"
@@ -86,9 +86,9 @@ function_pattern = "f"
 policy_type = "Allow"
 "#;
     let config = PolicyConfig::from_toml(toml).unwrap();
-    // Priority should default to Some(100) or None — check to_policies output
+    // SECURITY (R19-CFG-1): Priority defaults to 0 (lowest priority)
     let policies = config.to_policies();
-    assert_eq!(policies[0].priority, 100, "Default priority should be 100");
+    assert_eq!(policies[0].priority, 0, "Default priority should be 0");
 }
 
 #[test]

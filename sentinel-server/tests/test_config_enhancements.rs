@@ -65,7 +65,9 @@ conditions = { require_approval = true }
 // ════════════════════════════
 
 #[test]
-fn priority_defaults_to_100_when_omitted() {
+fn priority_defaults_to_zero_when_omitted() {
+    // SECURITY (R19-CFG-1): Default priority is 0 (lowest) so that
+    // omitting priority makes policies match last.
     let toml_str = r#"
 [[policies]]
 name = "no priority"
@@ -77,8 +79,8 @@ policy_type = "Allow"
     let rule = &config.policies[0];
     assert_eq!(
         rule.effective_priority(),
-        100,
-        "Default priority should be 100"
+        0,
+        "Default priority should be 0 (lowest)"
     );
 }
 
@@ -162,6 +164,7 @@ fn to_policies_produces_correct_policy_structs() {
 
 #[test]
 fn to_policies_uses_default_priority_when_none() {
+    // SECURITY (R19-CFG-1): Default priority is 0 (lowest)
     let config = PolicyConfig {
         policies: vec![PolicyRule {
             name: "test".to_string(),
@@ -187,8 +190,8 @@ fn to_policies_uses_default_priority_when_none() {
     };
     let policies = config.to_policies();
     assert_eq!(
-        policies[0].priority, 100,
-        "None priority should default to 100"
+        policies[0].priority, 0,
+        "None priority should default to 0 (lowest)"
     );
 }
 

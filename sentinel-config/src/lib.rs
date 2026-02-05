@@ -1,8 +1,12 @@
 use sentinel_types::{NetworkRules, PathRules, Policy, PolicyType};
 use serde::{Deserialize, Serialize};
 
+/// Default priority for policies when not explicitly specified.
+/// SECURITY (R19-CFG-1): Default to 0 (lowest priority) so that policies
+/// without explicit priority match last. This prevents accidentally creating
+/// high-priority broad Allow rules that gut deny rules.
 fn default_priority() -> Option<i32> {
-    Some(100)
+    Some(0)
 }
 
 /// Configuration for the prompt injection detection scanner.
@@ -78,9 +82,9 @@ pub struct PolicyRule {
 }
 
 impl PolicyRule {
-    /// Effective priority (defaults to 100).
+    /// Effective priority (defaults to 0 — lowest priority).
     pub fn effective_priority(&self) -> i32 {
-        self.priority.unwrap_or(100)
+        self.priority.unwrap_or(0)
     }
 
     /// Effective ID (defaults to "tool_pattern:function_pattern").
@@ -1063,7 +1067,8 @@ impl PolicyConfig {
                     .id
                     .clone()
                     .unwrap_or_else(|| format!("{}:{}", rule.tool_pattern, rule.function_pattern));
-                let priority = rule.priority.unwrap_or(100);
+                // SECURITY (R19-CFG-1): Default to 0, not 100
+                let priority = rule.priority.unwrap_or(0);
                 Policy {
                     id,
                     name: rule.name.clone(),
@@ -1106,7 +1111,10 @@ policy_type = "Allow"
     }
 
     #[test]
-    fn test_priority_defaults_to_100() {
+    fn test_priority_defaults_to_zero() {
+        // SECURITY (R19-CFG-1): Priority defaults to 0 (lowest) so that
+        // omitting priority makes policies match last, preventing accidental
+        // high-priority Allow rules from gutting deny rules.
         let toml = r#"
 [[policies]]
 name = "no priority"
@@ -1115,9 +1123,9 @@ function_pattern = "f"
 policy_type = "Deny"
 "#;
         let config = PolicyConfig::from_toml(toml).unwrap();
-        assert_eq!(config.policies[0].priority, Some(100));
+        assert_eq!(config.policies[0].priority, Some(0));
         let policies = config.to_policies();
-        assert_eq!(policies[0].priority, 100);
+        assert_eq!(policies[0].priority, 0);
     }
 
     #[test]

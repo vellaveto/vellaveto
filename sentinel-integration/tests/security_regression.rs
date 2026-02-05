@@ -1200,3 +1200,344 @@ async fn finding_12_approval_creation_failure_denies_request() {
         "approval_id must be null when creation fails"
     );
 }
+
+// ═══════════════════════════════════════════════════
+// R19 SECURITY FIXES — Path Normalization Strictness
+// ═══════════════════════════════════════════════════
+
+/// R19-PATH-1: Null bytes in paths must be denied, not normalized to "/"
+#[test]
+fn r19_path_null_bytes_denied() {
+    use sentinel_engine::PolicyEngine;
+
+    let result = PolicyEngine::normalize_path_bounded("/etc/\x00passwd", 20);
+    assert!(
+        result.is_err(),
+        "Null bytes in path must return error, not normalize to '/'"
+    );
+
+    let err = result.unwrap_err();
+    let err_str = err.to_string();
+    assert!(
+        err_str.contains("null byte"),
+        "Error message should mention null byte: {}",
+        err_str
+    );
+}
+
+/// R19-PATH-2: Percent-decode iteration exhaustion must be denied
+#[test]
+fn r19_path_iteration_exhaustion_denied() {
+    use sentinel_engine::PolicyEngine;
+
+    // Create a deeply nested percent-encoded path that requires many iterations.
+    // Each layer of %25 adds one decode iteration:
+    // %252565 → %2565 → %65 → 'e' (3 iterations)
+    // %25252565 → %252565 → %2565 → %65 → 'e' (4 iterations)
+    // We need to exceed max_iterations (e.g., 5) to trigger the error.
+    //
+    // Build: start with 'e' (%65), then wrap with %25 repeatedly
+    // 6 wraps = %25252525252565 requires 6 decode iterations
+    let mut encoded = String::from("%65"); // 'e'
+    for _ in 0..6 {
+        // Each wrap: %XX becomes %25XX
+        encoded = encoded.replace('%', "%25");
+    }
+    let deeply_encoded = format!("/etc/passwd{}", encoded);
+
+    // With max_iterations=5, this should fail
+    let result = PolicyEngine::normalize_path_bounded(&deeply_encoded, 5);
+    assert!(
+        result.is_err(),
+        "Iteration exhaustion must return error, not normalize to '/'. Got: {:?}",
+        result
+    );
+
+    let err = result.unwrap_err();
+    let err_str = err.to_string();
+    assert!(
+        err_str.contains("iteration") || err_str.contains("limit"),
+        "Error message should mention iteration limit: {}",
+        err_str
+    );
+}
+
+/// R19-PATH-3: Invalid percent sequences must be denied
+#[test]
+fn r19_path_invalid_percent_sequence_denied() {
+    use sentinel_engine::PolicyEngine;
+
+    // %ZZ is not a valid hex sequence
+    let result = PolicyEngine::normalize_path_bounded("/etc/%ZZpasswd", 20);
+
+    // This may either:
+    // 1. Return an error (strictest)
+    // 2. Leave the %ZZ intact but still normalize the path
+    // Either way, it must NOT collapse to "/" or bypass path matching
+
+    match result {
+        Ok(normalized) => {
+            // If it doesn't error, it should preserve the invalid sequence
+            // and NOT collapse to "/"
+            assert_ne!(
+                normalized, "/",
+                "Invalid percent sequence must not collapse to '/'"
+            );
+            assert!(
+                normalized.contains("etc"),
+                "Path should still contain meaningful components"
+            );
+        }
+        Err(_) => {
+            // Erroring is also acceptable (stricter behavior)
+        }
+    }
+}
+
+/// R19-PATH-4: Empty path after normalization must be denied
+#[test]
+fn r19_path_empty_after_normalization_denied() {
+    use sentinel_engine::PolicyEngine;
+
+    // Paths that might normalize to empty string
+    let test_cases = ["", ".", "..", "../..", "/..", "/./.."];
+
+    for path in test_cases {
+        let result = PolicyEngine::normalize_path_bounded(path, 20);
+        match result {
+            Ok(normalized) => {
+                // If it succeeds, the result must be "/" or a meaningful path, not empty
+                assert!(
+                    !normalized.is_empty(),
+                    "Path '{}' normalized to empty string, which is invalid",
+                    path
+                );
+            }
+            Err(_) => {
+                // Erroring is acceptable for pathological inputs
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════
+// R19 SECURITY FIXES — Audit Rotation Strictness
+// ═══════════════════════════════════════════════════
+
+/// R19-AUDIT-1: Audit rotation with corrupted log must skip (not write empty manifest)
+#[tokio::test]
+async fn r19_audit_rotation_corrupted_log_skipped() {
+    let tmp = TempDir::new().unwrap();
+    let log_path = tmp.path().join("audit.log");
+
+    // Create a corrupted log file (invalid JSON)
+    tokio::fs::write(&log_path, "this is not valid JSON\n{also broken}\n")
+        .await
+        .unwrap();
+
+    // Create logger with small max size to trigger rotation attempt
+    let logger = AuditLogger::new(log_path.clone()).with_max_file_size(10); // 10 bytes = force rotation
+
+    // Log an entry — this should try to rotate but fail to parse existing log
+    let action = Action::new(
+        "test".to_string(),
+        "test".to_string(),
+        json!({"test": true}),
+    );
+    let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
+
+    // The log entry itself should succeed (we don't fail the whole operation)
+    // But rotation should have been skipped
+
+    // Check that no manifest was created with empty/incorrect data
+    let manifest_path = tmp.path().join("audit.rotation_manifest.jsonl");
+    if manifest_path.exists() {
+        let manifest_content = tokio::fs::read_to_string(&manifest_path).await.unwrap();
+        // If a manifest entry exists, it must have a valid tail_hash (not empty)
+        for line in manifest_content.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let entry: serde_json::Value = serde_json::from_str(line).unwrap();
+            let tail_hash = entry.get("tail_hash").and_then(|v| v.as_str());
+            // First rotation with corrupted log should have been skipped entirely
+            // So either: no manifest, or manifest has valid hashes from other rotations
+            if let Some(hash) = tail_hash {
+                // Empty string would indicate the bug
+                assert!(
+                    !hash.is_empty() || entry.get("entry_count") == Some(&json!(0)),
+                    "Manifest entry has empty tail_hash but non-zero entry count: {}",
+                    line
+                );
+            }
+        }
+    }
+    // Test passes if no corrupt manifest was created
+}
+
+/// R19-AUDIT-2: Audit rotation when last entry has no hash must skip
+#[tokio::test]
+async fn r19_audit_rotation_missing_hash_skipped() {
+    let tmp = TempDir::new().unwrap();
+    let log_path = tmp.path().join("audit.log");
+
+    // Create a log with an entry that has no entry_hash (simulating corruption)
+    let corrupt_entry = json!({
+        "id": "no-hash-entry",
+        "action": {"tool": "test", "function": "test", "parameters": {}},
+        "verdict": "Allow",
+        "timestamp": "2026-01-01T00:00:00Z",
+        "metadata": {}
+        // Deliberately missing entry_hash and prev_hash
+    });
+    let mut content = serde_json::to_string(&corrupt_entry).unwrap();
+    content.push('\n');
+    tokio::fs::write(&log_path, &content).await.unwrap();
+
+    // Create logger with small max size
+    let logger = AuditLogger::new(log_path.clone()).with_max_file_size(10);
+
+    // Try to log — should attempt rotation but skip due to missing hash
+    let action = Action::new("x".to_string(), "x".to_string(), json!({}));
+    let _ = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
+
+    // Check manifest wasn't created with empty tail_hash
+    let manifest_path = tmp.path().join("audit.rotation_manifest.jsonl");
+    if manifest_path.exists() {
+        let manifest_content = tokio::fs::read_to_string(&manifest_path).await.unwrap();
+        for line in manifest_content.lines().filter(|l| !l.trim().is_empty()) {
+            let entry: serde_json::Value = serde_json::from_str(line).unwrap();
+            if let Some(count) = entry.get("entry_count").and_then(|v| v.as_u64()) {
+                if count > 0 {
+                    let tail_hash = entry
+                        .get("tail_hash")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    assert!(
+                        !tail_hash.is_empty(),
+                        "Manifest has entry_count={} but empty tail_hash",
+                        count
+                    );
+                }
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════
+// R19 SECURITY FIXES — Policy Mutation Atomicity
+// ═══════════════════════════════════════════════════
+
+/// R19-MCP-1: add_policy with invalid policy must return error and not change state
+#[tokio::test]
+async fn r19_add_policy_compile_failure_no_state_change() {
+    use sentinel_mcp::McpServer;
+
+    // Create a server
+    let server = McpServer::new(false); // strict_mode = false
+
+    // First add a valid policy
+    // Note: McpRequest.id is a String, so JSON-RPC id must be a string
+    let valid_add = r#"{
+        "jsonrpc": "2.0",
+        "id": "1",
+        "method": "add_policy",
+        "params": {
+            "id": "initial",
+            "name": "Initial Policy",
+            "policy_type": "Allow",
+            "priority": 10
+        }
+    }"#;
+    let result = server.handle_request(valid_add).await.unwrap();
+    let response: serde_json::Value = serde_json::from_str(&result).unwrap();
+    // Check error is absent or null
+    let has_error = response.get("error").map(|e| !e.is_null()).unwrap_or(false);
+    assert!(
+        !has_error,
+        "Valid policy add should succeed: {}",
+        result
+    );
+
+    // List policies to verify one exists
+    let list_req = r#"{"jsonrpc": "2.0", "id": "2", "method": "list_policies", "params": {}}"#;
+    let result = server.handle_request(list_req).await.unwrap();
+    let response: serde_json::Value = serde_json::from_str(&result).unwrap();
+    let policies_before: Vec<serde_json::Value> = serde_json::from_value(
+        response.get("result").cloned().unwrap_or(json!([]))
+    ).unwrap_or_default();
+    assert_eq!(policies_before.len(), 1, "Should have 1 policy before invalid add");
+
+    // Try to add an invalid policy (invalid regex pattern)
+    let invalid_add = r#"{
+        "jsonrpc": "2.0",
+        "id": "3",
+        "method": "add_policy",
+        "params": {
+            "id": "invalid",
+            "name": "Invalid Policy",
+            "policy_type": {
+                "Conditional": {
+                    "conditions": {
+                        "parameter_constraints": [{
+                            "param": "test",
+                            "op": "regex",
+                            "pattern": "(((unclosed"
+                        }]
+                    }
+                }
+            },
+            "priority": 100
+        }
+    }"#;
+
+    let result = server.handle_request(invalid_add).await.unwrap();
+    let response: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+    // The response should contain a non-null error
+    let has_error = response.get("error").map(|e| !e.is_null()).unwrap_or(false);
+    assert!(
+        has_error,
+        "Invalid policy add should return error response: {}",
+        result
+    );
+
+    // List policies again - should still have only 1
+    let result = server.handle_request(list_req).await.unwrap();
+    let response: serde_json::Value = serde_json::from_str(&result).unwrap();
+    let policies_after: Vec<serde_json::Value> = serde_json::from_value(
+        response.get("result").cloned().unwrap_or(json!([]))
+    ).unwrap_or_default();
+
+    assert_eq!(
+        policies_after.len(),
+        policies_before.len(),
+        "Policy count should not change after failed add"
+    );
+}
+
+// ═══════════════════════════════════════════════════
+// R19 SECURITY FIXES — Config Priority Safety
+// ═══════════════════════════════════════════════════
+
+/// R19-CFG-1: Default priority is 0 (lowest), not 100
+#[test]
+fn r19_config_priority_defaults_to_zero() {
+    use sentinel_config::PolicyConfig;
+
+    let toml = r#"
+[[policies]]
+name = "No explicit priority"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#;
+
+    let config = PolicyConfig::from_toml(toml).unwrap();
+    let policies = config.to_policies();
+
+    assert_eq!(
+        policies[0].priority, 0,
+        "Default priority should be 0 (lowest), not 100"
+    );
+}

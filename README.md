@@ -100,28 +100,33 @@ Sentinel enforces security policies on every tool call before it reaches the too
 # Build
 cargo build --release
 
-# Create a policy config
+# Create a policy config (deny-by-default baseline)
 cat > policy.toml << 'EOF'
-[[policies]]
-name = "Allow file reads"
-tool_pattern = "file"
-function_pattern = "read"
-policy_type = "Allow"
-priority = 10
+# SECURITY: Deny-by-default. Only explicitly allowed tools are permitted.
+# Higher priority = matched first. Deny rules should have highest priority.
 
 [[policies]]
-name = "Block bash"
+name = "Block dangerous tools"
 tool_pattern = "bash"
 function_pattern = "*"
 policy_type = "Deny"
-priority = 100
+priority = 1000  # High priority — always checked first
 
 [[policies]]
-name = "Default allow"
+name = "Allow file reads in /tmp"
+tool_pattern = "file"
+function_pattern = "read"
+policy_type = "Allow"
+priority = 100
+[policies.path_rules]
+allowed_globs = ["/tmp/**"]
+
+[[policies]]
+name = "Default deny"
 tool_pattern = "*"
 function_pattern = "*"
-policy_type = "Allow"
-priority = 1
+policy_type = "Deny"
+priority = 0  # Lowest priority — catches everything not explicitly allowed
 EOF
 
 # Start the server
@@ -132,13 +137,19 @@ curl -s http://localhost:8080/api/evaluate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-secret" \
   -d '{"tool":"file","function":"read","parameters":{"path":"/tmp/test"}}' | jq .
-# -> {"verdict":"Allow", ...}
+# -> {"verdict":"Allow", ...}  (allowed by "Allow file reads in /tmp")
+
+curl -s http://localhost:8080/api/evaluate \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-secret" \
+  -d '{"tool":"file","function":"read","parameters":{"path":"/etc/passwd"}}' | jq .
+# -> {"verdict":{"Deny":{"reason":"..."}}, ...}  (denied — path not in /tmp)
 
 curl -s http://localhost:8080/api/evaluate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-secret" \
   -d '{"tool":"bash","function":"exec","parameters":{"cmd":"ls"}}' | jq .
-# -> {"verdict":{"Deny":{"reason":"Denied by policy 'Block bash'"}}, ...}
+# -> {"verdict":{"Deny":{"reason":"Denied by policy 'Block dangerous tools'"}}, ...}
 ```
 
 ## ⚙️ How It Works

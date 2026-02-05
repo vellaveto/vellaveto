@@ -82,7 +82,7 @@ conditions = { forbidden_parameters = ["secret", "password", "token"] }
 // ════════════════════════════════
 
 #[test]
-fn priority_defaults_to_100_when_omitted() {
+fn priority_defaults_to_0_when_omitted() {
     let toml = r#"
 [[policies]]
 name = "No priority field"
@@ -91,10 +91,10 @@ function_pattern = "f"
 policy_type = "Allow"
 "#;
     let config = PolicyConfig::from_toml(toml).unwrap();
-    // Serde default should give Some(100)
-    assert_eq!(config.policies[0].priority, Some(100));
+    // SECURITY (R19-CFG-1): Priority defaults to 0 (lowest priority)
+    assert_eq!(config.policies[0].priority, Some(0));
     let policies = config.to_policies();
-    assert_eq!(policies[0].priority, 100);
+    assert_eq!(policies[0].priority, 0);
 }
 
 #[test]

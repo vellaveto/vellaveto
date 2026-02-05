@@ -916,10 +916,26 @@ impl AuditLogger {
                 return Ok(false);
             }
         };
-        let tail_hash = entries
-            .last()
-            .and_then(|e| e.entry_hash.clone())
-            .unwrap_or_default();
+        // SECURITY (R19-AUDIT-1): Strict tail hash computation.
+        // - If entries is empty (first rotation), use empty string (valid first rotation).
+        // - If entries exist but last entry has no hash, this is a data integrity error.
+        //   Skip rotation to avoid creating a manifest with incorrect/missing tail_hash.
+        let tail_hash = if entries.is_empty() {
+            // First rotation — no previous entries, empty tail hash is valid
+            String::new()
+        } else {
+            match entries.last().and_then(|e| e.entry_hash.clone()) {
+                Some(hash) => hash,
+                None => {
+                    tracing::error!(
+                        path = %self.log_path.display(),
+                        entry_count = entries.len(),
+                        "Last audit entry has no hash — skipping rotation to preserve chain integrity"
+                    );
+                    return Ok(false);
+                }
+            }
+        };
         // Use loaded entry count (file is source of truth; in-memory counter is for optimization)
         let entry_count = entries.len();
 

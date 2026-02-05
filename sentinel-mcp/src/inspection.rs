@@ -544,12 +544,12 @@ fn scan_value_for_secrets(
 
 /// Maximum time budget for multi-layer DLP decoding per string value.
 /// If decoding takes longer than this, remaining layers are skipped.
-/// Debug builds use a generous budget (50ms) because unoptimized regex
+/// Debug builds use a generous budget (200ms) because unoptimized regex
 /// matching is ~10-50x slower than release and parallel test threads
-/// cause contention. Release builds use 5ms which is ample for the
+/// cause heavy CPU contention. Release builds use 5ms which is ample for the
 /// 5-layer decode pipeline (typically <1ms).
 #[cfg(debug_assertions)]
-const DLP_DECODE_BUDGET: std::time::Duration = std::time::Duration::from_millis(50);
+const DLP_DECODE_BUDGET: std::time::Duration = std::time::Duration::from_millis(200);
 #[cfg(not(debug_assertions))]
 const DLP_DECODE_BUDGET: std::time::Duration = std::time::Duration::from_millis(5);
 
