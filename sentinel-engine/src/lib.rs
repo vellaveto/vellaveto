@@ -3419,14 +3419,19 @@ impl PolicyEngine {
 
     /// Match a domain against a pattern like `*.example.com` or `example.com`.
     ///
-    /// Both domain and pattern are lowercased for case-insensitive comparison.
-    /// When called from `extract_domain` (already lowercased), the domain
-    /// lowercasing is a no-op. Trailing dots are stripped from both.
+    /// Both domain and pattern are normalized (lowercase, IDNA, strip trailing dots).
+    /// Returns `false` (fail-closed) if either domain or pattern fails IDNA normalization.
     pub fn match_domain_pattern(domain: &str, pattern: &str) -> bool {
-        // Normalize domain: lowercase + strip trailing dots.
-        // Use Cow to avoid allocation when already lowercase with no trailing dots.
-        let dom = Self::normalize_domain_for_match(domain);
-        let pat = Self::normalize_domain_for_match(pattern);
+        // Normalize domain and pattern with IDNA.
+        // Fail-closed: if normalization fails, treat as non-matching.
+        let dom = match Self::normalize_domain_for_match(domain) {
+            Some(d) => d,
+            None => return false,
+        };
+        let pat = match Self::normalize_domain_for_match(pattern) {
+            Some(p) => p,
+            None => return false,
+        };
 
         if let Some(suffix) = pat.strip_prefix("*.") {
             // Wildcard: domain must end with .suffix or be exactly suffix.
@@ -3440,23 +3445,44 @@ impl PolicyEngine {
         }
     }
 
-    /// Lowercase and strip trailing dots from a domain/pattern string.
-    /// Returns a Cow::Borrowed when no changes are needed.
-    fn normalize_domain_for_match(s: &str) -> std::borrow::Cow<'_, str> {
-        let needs_lower = s.bytes().any(|b| b.is_ascii_uppercase());
-        let has_trailing_dot = s.ends_with('.');
-        if !needs_lower && !has_trailing_dot {
-            return std::borrow::Cow::Borrowed(s);
+    /// Normalize a domain for matching: lowercase, strip trailing dots, apply IDNA.
+    ///
+    /// SECURITY (R18-DOMAIN-1): Applies IDNA (Internationalized Domain Names in
+    /// Applications) normalization to convert Unicode domains to ASCII Punycode.
+    /// This prevents bypass attacks using internationalized domain names that
+    /// visually resemble blocked domains but differ in encoding.
+    ///
+    /// Returns `None` if IDNA conversion fails (invalid domain) — callers should
+    /// treat this as fail-closed (non-matching).
+    fn normalize_domain_for_match(s: &str) -> Option<std::borrow::Cow<'_, str>> {
+        // Strip trailing dots first
+        let stripped = s.trim_end_matches('.');
+
+        // Check if the domain is already pure ASCII lowercase
+        let is_ascii_lower = stripped
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-' || b == b'*');
+
+        if is_ascii_lower && stripped == s {
+            // Already normalized, no IDNA needed
+            return Some(std::borrow::Cow::Borrowed(s));
         }
-        let mut result = if needs_lower {
-            s.to_lowercase()
-        } else {
-            s.to_string()
-        };
-        while result.ends_with('.') {
-            result.pop();
+
+        if is_ascii_lower {
+            // Just needed trailing dot removal
+            return Some(std::borrow::Cow::Owned(stripped.to_string()));
         }
-        std::borrow::Cow::Owned(result)
+
+        // Apply IDNA normalization for internationalized domains
+        // This converts Unicode to Punycode (e.g., "münchen.de" -> "xn--mnchen-3ya.de")
+        match idna::domain_to_ascii(stripped) {
+            Ok(ascii) => Some(std::borrow::Cow::Owned(ascii)),
+            Err(_) => {
+                // Invalid domain name — fail-closed by returning None
+                tracing::debug!(domain = s, "IDNA normalization failed for domain");
+                None
+            }
+        }
     }
 
     /// Maximum regex pattern length to prevent ReDoS via overlength patterns.
@@ -4320,6 +4346,8 @@ impl PolicyEngine {
 /// Check whether an IP address is private/reserved (RFC 1918, loopback, link-local, etc.).
 ///
 /// Used by [`PolicyEngine::check_ip_rules`] when `block_private` is enabled.
+///
+/// SECURITY (R18-IPV6-1): Comprehensive IPv6 special-purpose address coverage.
 fn is_private_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => {
@@ -4332,12 +4360,108 @@ fn is_private_ip(ip: IpAddr) -> bool {
         IpAddr::V6(v6) => {
             v6.is_loopback()       // ::1
             || v6.is_unspecified() // ::
-            // IPv4-mapped IPv6 (::ffff:x.x.x.x) — check inner IPv4
-            || v6.to_ipv4_mapped().is_some_and(|v4| {
-                v4.is_loopback() || v4.is_private() || v4.is_link_local()
-            })
+            || is_ipv6_unique_local(&v6)   // fc00::/7 (ULA)
+            || is_ipv6_link_local(&v6)     // fe80::/10
+            || is_ipv6_multicast(&v6)      // ff00::/8
+            || is_ipv6_documentation(&v6)  // 2001:db8::/32
+            || is_ipv6_discard(&v6)        // 100::/64
+            // Transition mechanisms with embedded IPv4
+            || is_ipv4_mapped_private(&v6) // ::ffff:x.x.x.x
+            || is_6to4_private(&v6)        // 2002::/16
+            || is_teredo_private(&v6)      // 2001::/32
+            || is_nat64_private(&v6)       // 64:ff9b::/96
         }
     }
+}
+
+/// fc00::/7 — Unique Local Address (RFC 4193)
+fn is_ipv6_unique_local(v6: &std::net::Ipv6Addr) -> bool {
+    (v6.segments()[0] & 0xfe00) == 0xfc00
+}
+
+/// fe80::/10 — Link-Local (RFC 4291)
+fn is_ipv6_link_local(v6: &std::net::Ipv6Addr) -> bool {
+    (v6.segments()[0] & 0xffc0) == 0xfe80
+}
+
+/// ff00::/8 — Multicast (RFC 4291)
+fn is_ipv6_multicast(v6: &std::net::Ipv6Addr) -> bool {
+    (v6.segments()[0] & 0xff00) == 0xff00
+}
+
+/// 2001:db8::/32 — Documentation (RFC 3849)
+fn is_ipv6_documentation(v6: &std::net::Ipv6Addr) -> bool {
+    v6.segments()[0] == 0x2001 && v6.segments()[1] == 0x0db8
+}
+
+/// 100::/64 — Discard-Only (RFC 6666)
+fn is_ipv6_discard(v6: &std::net::Ipv6Addr) -> bool {
+    v6.segments()[0] == 0x0100
+        && v6.segments()[1] == 0
+        && v6.segments()[2] == 0
+        && v6.segments()[3] == 0
+}
+
+/// ::ffff:x.x.x.x — IPv4-mapped IPv6 (check embedded IPv4)
+fn is_ipv4_mapped_private(v6: &std::net::Ipv6Addr) -> bool {
+    v6.to_ipv4_mapped().is_some_and(|v4| {
+        v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified()
+    })
+}
+
+/// 2002::/16 — 6to4 (RFC 3056) — extract embedded IPv4 from bits 16-47
+fn is_6to4_private(v6: &std::net::Ipv6Addr) -> bool {
+    if v6.segments()[0] != 0x2002 {
+        return false;
+    }
+    // Embedded IPv4 is in segments 1 and 2 (bits 16-47)
+    let octets = [
+        (v6.segments()[1] >> 8) as u8,
+        (v6.segments()[1] & 0xff) as u8,
+        (v6.segments()[2] >> 8) as u8,
+        (v6.segments()[2] & 0xff) as u8,
+    ];
+    let embedded = std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], octets[3]);
+    embedded.is_loopback() || embedded.is_private() || embedded.is_link_local()
+}
+
+/// 2001::/32 — Teredo (RFC 4380) — extract embedded IPv4 from last 32 bits (XORed)
+fn is_teredo_private(v6: &std::net::Ipv6Addr) -> bool {
+    if v6.segments()[0] != 0x2001 || v6.segments()[1] != 0 {
+        return false;
+    }
+    // Teredo client IPv4 is in segments 6-7, XORed with 0xFFFF
+    let octets = [
+        ((v6.segments()[6] >> 8) ^ 0xff) as u8,
+        ((v6.segments()[6] & 0xff) ^ 0xff) as u8,
+        ((v6.segments()[7] >> 8) ^ 0xff) as u8,
+        ((v6.segments()[7] & 0xff) ^ 0xff) as u8,
+    ];
+    let embedded = std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], octets[3]);
+    embedded.is_loopback() || embedded.is_private() || embedded.is_link_local()
+}
+
+/// 64:ff9b::/96 — NAT64 well-known prefix (RFC 6052) — extract embedded IPv4 from last 32 bits
+fn is_nat64_private(v6: &std::net::Ipv6Addr) -> bool {
+    // Check prefix 64:ff9b::/96 (segments 0-5 must be 0x0064, 0xff9b, 0, 0, 0, 0)
+    if v6.segments()[0] != 0x0064
+        || v6.segments()[1] != 0xff9b
+        || v6.segments()[2] != 0
+        || v6.segments()[3] != 0
+        || v6.segments()[4] != 0
+        || v6.segments()[5] != 0
+    {
+        return false;
+    }
+    // Embedded IPv4 is in segments 6-7
+    let octets = [
+        (v6.segments()[6] >> 8) as u8,
+        (v6.segments()[6] & 0xff) as u8,
+        (v6.segments()[7] >> 8) as u8,
+        (v6.segments()[7] & 0xff) as u8,
+    ];
+    let embedded = std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], octets[3]);
+    embedded.is_loopback() || embedded.is_private() || embedded.is_link_local()
 }
 
 #[cfg(test)]
@@ -8574,6 +8698,127 @@ mod tests {
         assert!(
             matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
             "IPv4-mapped v6 ::ffff:127.0.0.1 should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_private_ipv6_ula() {
+        // fc00::/7 — Unique Local Address (RFC 4193)
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["fc00::1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "ULA fc00::1 should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_private_ipv6_link_local() {
+        // fe80::/10 — Link-Local
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["fe80::1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "Link-local fe80::1 should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_private_ipv6_multicast() {
+        // ff00::/8 — Multicast
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["ff02::1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "Multicast ff02::1 should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_private_ipv6_documentation() {
+        // 2001:db8::/32 — Documentation
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["2001:db8::1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "Documentation 2001:db8::1 should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_private_6to4_embedded() {
+        // 2002:c0a8:0101:: embeds 192.168.1.1 (private)
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["2002:c0a8:0101::1"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "6to4 with embedded private IP should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_private_teredo_embedded() {
+        // 2001:0000:... with embedded private IPv4 in last 32 bits (XORed)
+        // Embedded 192.168.1.1 → XOR 0xFFFF → 3f:57:fe:fe at positions 6-7
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        // Teredo encoding: 192.168.1.1 XOR 0xFFFF each byte → 63.87.254.254
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["2001:0000:0000:0000:0000:0000:3f57:fefe"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "Teredo with embedded private IP should be blocked, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_ip_rules_block_private_nat64_embedded() {
+        // 64:ff9b::192.168.1.1 — NAT64 with embedded private IPv4
+        let policies = vec![policy_with_ip_rules(sentinel_types::IpRules {
+            block_private: true,
+            ..Default::default()
+        })];
+        let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["64:ff9b::c0a8:0101"]);
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
+            "NAT64 with embedded private IP should be blocked, got: {:?}",
             verdict
         );
     }

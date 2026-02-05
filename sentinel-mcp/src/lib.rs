@@ -76,25 +76,6 @@ impl McpServer {
         self.max_path_decode_iterations = Some(max);
     }
 
-    /// Recompile the engine from current policies.
-    /// On failure, keeps the previous engine and logs errors.
-    async fn recompile_engine(&self, policies: &[Policy]) {
-        match PolicyEngine::with_policies(self.strict_mode, policies) {
-            Ok(mut compiled) => {
-                if let Some(max_iter) = self.max_path_decode_iterations {
-                    compiled.set_max_path_decode_iterations(max_iter);
-                }
-                *self.engine.write().await = compiled;
-            }
-            Err(errors) => {
-                for e in &errors {
-                    tracing::warn!("McpServer policy compilation error: {}", e);
-                }
-                tracing::warn!("McpServer: keeping previous engine due to compilation errors");
-            }
-        }
-    }
-
     pub async fn handle_request(&self, request_data: &str) -> Result<String, McpError> {
         // Size protection
         if request_data.len() > self.max_request_size {
@@ -148,11 +129,37 @@ impl McpServer {
         params: serde_json::Value,
     ) -> Result<serde_json::Value, McpError> {
         let policy: Policy = serde_json::from_value(params)?;
+
+        // SECURITY (R18-MCP-1): Compile-first pattern.
+        // Build candidate policy list and try to compile BEFORE committing.
+        // This prevents leaving the policy list in an inconsistent state
+        // if compilation fails.
         let mut policies = self.policies.write().await;
-        policies.push(policy);
-        PolicyEngine::sort_policies(&mut policies);
-        // Recompile engine to use compiled path (R13-LEG-5)
-        self.recompile_engine(&policies).await;
+        let mut candidate = policies.clone();
+        candidate.push(policy);
+        PolicyEngine::sort_policies(&mut candidate);
+
+        // Try to compile the candidate list
+        let mut new_engine = match PolicyEngine::with_policies(self.strict_mode, &candidate) {
+            Ok(engine) => engine,
+            Err(errors) => {
+                for e in &errors {
+                    tracing::warn!("Policy compilation error: {}", e);
+                }
+                return Err(McpError::InvalidRequest(format!(
+                    "Policy compilation failed: {}",
+                    errors.first().map(|e| e.to_string()).unwrap_or_default()
+                )));
+            }
+        };
+
+        // Compilation succeeded — commit changes
+        if let Some(max_iter) = self.max_path_decode_iterations {
+            new_engine.set_max_path_decode_iterations(max_iter);
+        }
+        *policies = candidate;
+        *self.engine.write().await = new_engine;
+
         Ok(serde_json::Value::Bool(true))
     }
 
@@ -166,15 +173,40 @@ impl McpServer {
         params: serde_json::Value,
     ) -> Result<serde_json::Value, McpError> {
         let policy_id: String = serde_json::from_value(params)?;
+
+        // SECURITY (R18-MCP-1): Compile-first pattern.
+        // Build candidate policy list and compile BEFORE committing.
         let mut policies = self.policies.write().await;
         let initial_len = policies.len();
-        policies.retain(|p| p.id != policy_id);
-        let changed = policies.len() < initial_len;
-        if changed {
-            // Recompile engine after policy removal (R13-LEG-5)
-            self.recompile_engine(&policies).await;
+        let candidate: Vec<Policy> = policies.iter().filter(|p| p.id != policy_id).cloned().collect();
+        let changed = candidate.len() < initial_len;
+
+        if !changed {
+            return Ok(serde_json::Value::Bool(false));
         }
-        Ok(serde_json::Value::Bool(changed))
+
+        // Try to compile the candidate list
+        let mut new_engine = match PolicyEngine::with_policies(self.strict_mode, &candidate) {
+            Ok(engine) => engine,
+            Err(errors) => {
+                for e in &errors {
+                    tracing::warn!("Policy compilation error: {}", e);
+                }
+                return Err(McpError::InvalidRequest(format!(
+                    "Policy compilation failed after removal: {}",
+                    errors.first().map(|e| e.to_string()).unwrap_or_default()
+                )));
+            }
+        };
+
+        // Compilation succeeded — commit changes
+        if let Some(max_iter) = self.max_path_decode_iterations {
+            new_engine.set_max_path_decode_iterations(max_iter);
+        }
+        *policies = candidate;
+        *self.engine.write().await = new_engine;
+
+        Ok(serde_json::Value::Bool(true))
     }
 
     fn error_code(&self, error: &McpError) -> i32 {
