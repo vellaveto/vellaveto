@@ -1317,11 +1317,11 @@ pub async fn handle_mcp_post(
                 tracing::warn!("Failed to audit pass-through request: {}", e);
             }
 
-            // SECURITY (R18-NOTIF-DLP): Scan notification params for secrets.
-            // Notifications bypass tool-call DLP because they are PassThrough.
-            // An agent could exfiltrate secrets via notification params.
-            if state.response_dlp_enabled && msg.get("method").is_some() && msg.get("id").is_none()
-            {
+            // SECURITY (R18-NOTIF-DLP, R29-PROXY-3): Scan ALL PassThrough
+            // params for secrets, not just notifications. An agent could
+            // exfiltrate secrets via prompts/get, completion/complete, or any
+            // PassThrough method's parameters.
+            if state.response_dlp_enabled && msg.get("method").is_some() {
                 let dlp_findings = scan_notification_for_secrets(&msg);
                 if !dlp_findings.is_empty() {
                     let patterns: Vec<String> = dlp_findings
@@ -2790,6 +2790,14 @@ async fn forward_to_upstream(
                                                 json!({"source": "http_proxy", "event": "output_schema_violation"}),
                                             ).await {
                                                 tracing::warn!("Failed to audit output schema violation: {}", e);
+                                            }
+                                            // SECURITY (R29-PROXY-2): Actually block the
+                                            // response — previously only logged Deny but
+                                            // forwarded the invalid structuredContent.
+                                            if blocked_by_injection.is_none() {
+                                                blocked_by_injection = Some(
+                                                    "Response blocked: output schema validation failed".to_string(),
+                                                );
                                             }
                                         }
                                         ValidationResult::Valid => {

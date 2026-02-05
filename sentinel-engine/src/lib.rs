@@ -2309,13 +2309,14 @@ impl PolicyEngine {
                 }
             };
 
-            // SECURITY (R24-ENG-1): Canonicalize IPv4-mapped IPv6 addresses
-            // (e.g., ::ffff:10.0.0.1) to their IPv4 form so that IPv4 CIDRs
-            // like 10.0.0.0/8 correctly match. Without this, an attacker can
-            // bypass CIDR blocklists by using the mapped form.
+            // SECURITY (R24-ENG-1, R29-ENG-1): Canonicalize IPv6 transition
+            // mechanism addresses to their embedded IPv4 form so that IPv4
+            // CIDRs correctly match. This covers: mapped (::ffff:), compatible
+            // (::x.x.x.x), 6to4 (2002::), Teredo (2001:0000::), NAT64
+            // (64:ff9b::), and NAT64 local-use (64:ff9b:1::).
             let ip = match raw_ip {
-                IpAddr::V6(v6) => {
-                    if let Some(v4) = v6.to_ipv4_mapped() {
+                IpAddr::V6(ref v6) => {
+                    if let Some(v4) = extract_embedded_ipv4(v6) {
                         IpAddr::V4(v4)
                     } else {
                         raw_ip
@@ -4849,6 +4850,67 @@ fn is_ipv4_mapped_private(v6: &std::net::Ipv6Addr) -> bool {
 /// Segments 0-4 are zero, segment 5 is NOT 0xffff (that would be IPv4-mapped).
 /// The embedded IPv4 is in segments 6-7. Many OS kernels route these to the
 /// embedded IPv4 address, enabling DNS rebinding if not blocked.
+/// SECURITY (R29-ENG-1): Extract the embedded IPv4 address from any IPv6
+/// transition mechanism. Returns `Some(v4)` for mapped, compatible, 6to4,
+/// Teredo, NAT64 (well-known + local-use). Returns `None` if the address
+/// does not embed an IPv4 address. Used by CIDR matching to canonicalize
+/// IPv6 transition addresses before comparing against IPv4 CIDRs.
+fn extract_embedded_ipv4(v6: &std::net::Ipv6Addr) -> Option<std::net::Ipv4Addr> {
+    // 1. IPv4-mapped: ::ffff:x.x.x.x
+    if let Some(v4) = v6.to_ipv4_mapped() {
+        return Some(v4);
+    }
+
+    let segs = v6.segments();
+
+    // 2. IPv4-compatible: ::x.x.x.x (deprecated but still routable on some systems)
+    if segs[0] == 0 && segs[1] == 0 && segs[2] == 0
+        && segs[3] == 0 && segs[4] == 0 && segs[5] == 0
+        && !(segs[6] == 0 && segs[7] <= 1)
+    {
+        return Some(std::net::Ipv4Addr::new(
+            (segs[6] >> 8) as u8, (segs[6] & 0xff) as u8,
+            (segs[7] >> 8) as u8, (segs[7] & 0xff) as u8,
+        ));
+    }
+
+    // 3. 6to4: 2002::/16 — embedded IPv4 in segments 1-2
+    if segs[0] == 0x2002 {
+        return Some(std::net::Ipv4Addr::new(
+            (segs[1] >> 8) as u8, (segs[1] & 0xff) as u8,
+            (segs[2] >> 8) as u8, (segs[2] & 0xff) as u8,
+        ));
+    }
+
+    // 4. Teredo: 2001:0000::/32 — embedded client IPv4 in segments 6-7, XORed
+    if segs[0] == 0x2001 && segs[1] == 0 {
+        return Some(std::net::Ipv4Addr::new(
+            ((segs[6] >> 8) ^ 0xff) as u8, ((segs[6] & 0xff) ^ 0xff) as u8,
+            ((segs[7] >> 8) ^ 0xff) as u8, ((segs[7] & 0xff) ^ 0xff) as u8,
+        ));
+    }
+
+    // 5. NAT64 well-known: 64:ff9b::/96 — embedded IPv4 in segments 6-7
+    if segs[0] == 0x0064 && segs[1] == 0xff9b
+        && segs[2] == 0 && segs[3] == 0 && segs[4] == 0 && segs[5] == 0
+    {
+        return Some(std::net::Ipv4Addr::new(
+            (segs[6] >> 8) as u8, (segs[6] & 0xff) as u8,
+            (segs[7] >> 8) as u8, (segs[7] & 0xff) as u8,
+        ));
+    }
+
+    // 6. NAT64 local-use: 64:ff9b:0001::/48 — embedded IPv4 in segments 6-7
+    if segs[0] == 0x0064 && segs[1] == 0xff9b && segs[2] == 0x0001 {
+        return Some(std::net::Ipv4Addr::new(
+            (segs[6] >> 8) as u8, (segs[6] & 0xff) as u8,
+            (segs[7] >> 8) as u8, (segs[7] & 0xff) as u8,
+        ));
+    }
+
+    None
+}
+
 fn is_ipv4_compatible_private(v6: &std::net::Ipv6Addr) -> bool {
     let segs = v6.segments();
     if segs[0] == 0 && segs[1] == 0 && segs[2] == 0

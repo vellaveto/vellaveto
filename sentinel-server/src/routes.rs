@@ -321,7 +321,11 @@ fn scan_params_for_targets_inner(
                 // Strip query strings and fragments
                 let file_path = strip_query_and_fragment(path_original);
                 if !file_path.is_empty() {
-                    paths.push(file_path.to_string());
+                    // SECURITY (R29-SRV-2): Percent-decode file:// paths to prevent
+                    // bypass via encoding (e.g., file:///etc/%70asswd → /etc/passwd).
+                    let decoded = percent_encoding::percent_decode_str(file_path)
+                        .decode_utf8_lossy();
+                    paths.push(decoded.into_owned());
                 }
             } else if let Some(scheme_end) = s.find("://") {
                 // SECURITY (R15-EVAL-15): Extract domains from all schemes
@@ -1506,7 +1510,7 @@ async fn approve_approval(
         }
     }
 
-    let value = serde_json::to_value(approval).map_err(|e| {
+    let mut value = serde_json::to_value(approval).map_err(|e| {
         tracing::error!("Approval serialization error: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1515,6 +1519,13 @@ async fn approve_approval(
             }),
         )
     })?;
+    // SECURITY (R29-SRV-1): Redact parameters before returning (same as get_approval)
+    if let Some(action) = value.get_mut("action") {
+        if let Some(params) = action.get("parameters") {
+            let redacted = sentinel_audit::redact_keys_and_patterns(params);
+            action["parameters"] = redacted;
+        }
+    }
     Ok(Json(value))
 }
 
@@ -1598,7 +1609,7 @@ async fn deny_approval(
         }
     }
 
-    let value = serde_json::to_value(approval).map_err(|e| {
+    let mut value = serde_json::to_value(approval).map_err(|e| {
         tracing::error!("Approval serialization error: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1607,6 +1618,13 @@ async fn deny_approval(
             }),
         )
     })?;
+    // SECURITY (R29-SRV-1): Redact parameters before returning (same as get_approval)
+    if let Some(action) = value.get_mut("action") {
+        if let Some(params) = action.get("parameters") {
+            let redacted = sentinel_audit::redact_keys_and_patterns(params);
+            action["parameters"] = redacted;
+        }
+    }
     Ok(Json(value))
 }
 

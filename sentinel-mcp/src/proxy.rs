@@ -1146,14 +1146,18 @@ impl ProxyBridge {
                                             pending_requests.insert(id_key.clone(), Instant::now());
 
                                             let method = msg.get("method").and_then(|m| m.as_str());
+                                            // SECURITY (R29-MCP-1): Normalize method before
+                                            // tracking to prevent bypass via case/trailing
+                                            // slash/invisible chars (e.g., "Tools/List/").
+                                            let normalized_method = method.map(crate::extractor::normalize_method);
 
                                             // C-8.2: Track tools/list requests for annotation extraction
-                                            if method == Some("tools/list") {
+                                            if normalized_method.as_deref() == Some("tools/list") {
                                                 tools_list_request_ids.insert(id_key.clone());
                                             }
 
                                             // C-8.4: Track initialize requests for protocol version
-                                            if method == Some("initialize") {
+                                            if normalized_method.as_deref() == Some("initialize") {
                                                 initialize_request_ids.insert(id_key);
                                                 // Log the client's requested protocol version
                                                 if let Some(ver) = msg.get("params")
@@ -1404,6 +1408,11 @@ impl ProxyBridge {
                                                 ).await {
                                                     tracing::warn!("Failed to audit tool description injection: {}", e);
                                                 }
+                                                // SECURITY (R29-MCP-2): Flag tools with
+                                                // injection in descriptions so future calls
+                                                // to them are blocked, not just logged.
+                                                flagged_tools.insert(finding.tool_name.clone());
+                                                self.persist_flagged_tool(&finding.tool_name, "description_injection").await;
                                             }
                                         }
 

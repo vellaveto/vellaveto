@@ -89,6 +89,11 @@ fn cef_escape(s: &str) -> String {
         .replace('\r', "\\r")
         // SECURITY (R15-SIEM-2): Unicode line separators can inject fake CEF entries
         .replace(['\u{2028}', '\u{2029}'], "\\n")
+        // SECURITY (R29-SUP-2): Control chars that break SIEM parsers
+        .replace('\0', "\\0")
+        .replace('\x0B', "\\v")
+        .replace('\x0C', "\\f")
+        .replace('\u{0085}', "\\n")
 }
 
 /// Escape special characters for CEF extension values (key=value pairs).
@@ -109,6 +114,11 @@ fn cef_escape_ext(s: &str) -> String {
         .replace('\r', "\\r")
         // SECURITY (R15-SIEM-2): Unicode line separators can inject fake CEF entries
         .replace(['\u{2028}', '\u{2029}'], "\\n")
+        // SECURITY (R29-SUP-2): Control chars that break SIEM parsers
+        .replace('\0', "\\0")
+        .replace('\x0B', "\\v")
+        .replace('\x0C', "\\f")
+        .replace('\u{0085}', "\\n")
 }
 
 /// Convert an AuditEntry to JSON Lines format (one JSON object per line).

@@ -136,6 +136,9 @@ impl ToolEntry {
                     "Tool '{}' first_seen is in the future — possible tampering",
                     self.tool_id,
                 );
+                // SECURITY (R29-MCP-5): Penalize to minimum trust when tampering
+                // detected — the entire persistence entry is untrustworthy.
+                score = 0.0;
             } else {
                 if age > Duration::days(7) {
                     score += 0.1;

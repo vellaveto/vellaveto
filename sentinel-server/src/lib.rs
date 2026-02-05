@@ -506,8 +506,10 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
 
     let config_path = state.config_path.as_str();
 
+    // SECURITY (R29-SRV-4): Do not include config_path in error messages
+    // to prevent filesystem layout leakage if the error is surfaced.
     let policy_config = PolicyConfig::load_file(config_path)
-        .map_err(|e| format!("Failed to load config from {}: {}", config_path, e))?;
+        .map_err(|e| format!("Failed to load config: {}", e))?;
 
     // SECURITY (R12-RELOAD-1): Warn if non-policy config sections have
     // non-default values, since only policies are hot-reloaded. Operators
