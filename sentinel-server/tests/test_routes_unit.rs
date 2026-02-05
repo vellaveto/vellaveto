@@ -6,7 +6,7 @@ use axum::http::{Request, StatusCode};
 use sentinel_approval::ApprovalStore;
 use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
-use sentinel_server::{routes, AppState, Metrics, RateLimits};
+use sentinel_server::{routes, AppState, Metrics, PolicySnapshot, RateLimits};
 use sentinel_types::{Policy, PolicyType};
 use serde_json::json;
 use std::sync::Arc;
@@ -16,25 +16,27 @@ use tower::ServiceExt;
 fn test_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![
-            Policy {
-                id: "file:read".to_string(),
-                name: "Allow file reads".to_string(),
-                policy_type: PolicyType::Allow,
-                priority: 10,
-                path_rules: None,
-                network_rules: None,
-            },
-            Policy {
-                id: "bash:*".to_string(),
-                name: "Block bash".to_string(),
-                policy_type: PolicyType::Deny,
-                priority: 100,
-                path_rules: None,
-                network_rules: None,
-            },
-        ])),
+        policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![
+                Policy {
+                    id: "file:read".to_string(),
+                    name: "Allow file reads".to_string(),
+                    policy_type: PolicyType::Allow,
+                    priority: 10,
+                    path_rules: None,
+                    network_rules: None,
+                },
+                Policy {
+                    id: "bash:*".to_string(),
+                    name: "Block bash".to_string(),
+                    policy_type: PolicyType::Deny,
+                    priority: 100,
+                    path_rules: None,
+                    network_rules: None,
+                },
+            ],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test-config.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -48,6 +50,7 @@ fn test_state() -> (AppState, TempDir) {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
     (state, tmp)
 }
@@ -198,8 +201,8 @@ async fn add_policy_increases_count() {
     );
 
     // Verify count increased
-    let policies = state.policies.load();
-    assert_eq!(policies.len(), 3);
+    let snapshot = state.policy_state.load();
+    assert_eq!(snapshot.policies.len(), 3);
 }
 
 #[tokio::test]
@@ -376,8 +379,10 @@ async fn responses_include_security_headers() {
 async fn health_not_rate_limited() {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![])),
+        policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -392,6 +397,7 @@ async fn health_not_rate_limited() {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
 
     // Rapid /health requests must all succeed despite strict rate limit
@@ -413,15 +419,17 @@ async fn health_not_rate_limited() {
 async fn rate_limit_429_includes_retry_after() {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
-            id: "file:read".to_string(),
-            name: "Allow".to_string(),
-            policy_type: PolicyType::Allow,
-            priority: 10,
-            path_rules: None,
-            network_rules: None,
-        }])),
+        policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![Policy {
+                id: "file:read".to_string(),
+                name: "Allow".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+                path_rules: None,
+                network_rules: None,
+            }],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -435,6 +443,7 @@ async fn rate_limit_429_includes_retry_after() {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -548,15 +557,17 @@ async fn per_ip_rate_limit_throttles_single_ip() {
     // Trust 127.0.0.1 as a proxy so XFF headers are honored in tests.
     // Without this, all requests use the connection IP and XFF is ignored.
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
-            id: "file:read".to_string(),
-            name: "Allow".to_string(),
-            policy_type: PolicyType::Allow,
-            priority: 10,
-            path_rules: None,
-            network_rules: None,
-        }])),
+        policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![Policy {
+                id: "file:read".to_string(),
+                name: "Allow".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+                path_rules: None,
+                network_rules: None,
+            }],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -572,6 +583,7 @@ async fn per_ip_rate_limit_throttles_single_ip() {
         trusted_proxies: Arc::new(vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -633,15 +645,17 @@ async fn per_ip_rate_limit_throttles_single_ip() {
 async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
-            id: "file:read".to_string(),
-            name: "Allow".to_string(),
-            policy_type: PolicyType::Allow,
-            priority: 10,
-            path_rules: None,
-            network_rules: None,
-        }])),
+        policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![Policy {
+                id: "file:read".to_string(),
+                name: "Allow".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+                path_rules: None,
+                network_rules: None,
+            }],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -657,6 +671,7 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -698,8 +713,10 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
 async fn per_ip_health_exempt_from_rate_limit() {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![])),
+        policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -715,6 +732,7 @@ async fn per_ip_health_exempt_from_rate_limit() {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
 
     // Multiple health checks from same IP should all succeed
@@ -741,15 +759,17 @@ async fn per_ip_rate_limit_ipv6_addresses() {
     let tmp = TempDir::new().unwrap();
     // Trust 127.0.0.1 as a proxy so XFF headers are honored in tests.
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
-            id: "file:read".to_string(),
-            name: "Allow".to_string(),
-            policy_type: PolicyType::Allow,
-            priority: 10,
-            path_rules: None,
-            network_rules: None,
-        }])),
+        policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![Policy {
+                id: "file:read".to_string(),
+                name: "Allow".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+                path_rules: None,
+                network_rules: None,
+            }],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -765,6 +785,7 @@ async fn per_ip_rate_limit_ipv6_addresses() {
         trusted_proxies: Arc::new(vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -826,15 +847,17 @@ async fn per_ip_rate_limit_ipv6_addresses() {
 async fn per_ip_rate_limit_malformed_xff_falls_back() {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
-            id: "file:read".to_string(),
-            name: "Allow".to_string(),
-            policy_type: PolicyType::Allow,
-            priority: 10,
-            path_rules: None,
-            network_rules: None,
-        }])),
+        policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![Policy {
+                id: "file:read".to_string(),
+                name: "Allow".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+                path_rules: None,
+                network_rules: None,
+            }],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -850,6 +873,7 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -895,15 +919,17 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
 async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
-            id: "file:read".to_string(),
-            name: "Allow".to_string(),
-            policy_type: PolicyType::Allow,
-            priority: 10,
-            path_rules: None,
-            network_rules: None,
-        }])),
+        policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![Policy {
+                id: "file:read".to_string(),
+                name: "Allow".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+                path_rules: None,
+                network_rules: None,
+            }],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -919,6 +945,7 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -963,15 +990,17 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
 async fn per_ip_rate_limit_no_headers_uses_localhost() {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
-            id: "file:read".to_string(),
-            name: "Allow".to_string(),
-            policy_type: PolicyType::Allow,
-            priority: 10,
-            path_rules: None,
-            network_rules: None,
-        }])),
+        policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![Policy {
+                id: "file:read".to_string(),
+                name: "Allow".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+                path_rules: None,
+                network_rules: None,
+            }],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -987,6 +1016,7 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1029,15 +1059,17 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
 async fn per_ip_rate_limit_429_response_body_format() {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
-            id: "file:read".to_string(),
-            name: "Allow".to_string(),
-            policy_type: PolicyType::Allow,
-            priority: 10,
-            path_rules: None,
-            network_rules: None,
-        }])),
+        policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![Policy {
+                id: "file:read".to_string(),
+                name: "Allow".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+                path_rules: None,
+                network_rules: None,
+            }],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -1053,6 +1085,7 @@ async fn per_ip_rate_limit_429_response_body_format() {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

@@ -18,25 +18,27 @@ use tower::ServiceExt;
 fn make_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![
-            Policy {
-                id: "file:read".to_string(),
-                name: "Allow file reads".to_string(),
-                policy_type: PolicyType::Allow,
-                priority: 10,
-                path_rules: None,
-                network_rules: None,
-            },
-            Policy {
-                id: "bash:*".to_string(),
-                name: "Block bash".to_string(),
-                policy_type: PolicyType::Deny,
-                priority: 100,
-                path_rules: None,
-                network_rules: None,
-            },
-        ])),
+        policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![
+                Policy {
+                    id: "file:read".to_string(),
+                    name: "Allow file reads".to_string(),
+                    policy_type: PolicyType::Allow,
+                    priority: 10,
+                    path_rules: None,
+                    network_rules: None,
+                },
+                Policy {
+                    id: "bash:*".to_string(),
+                    name: "Block bash".to_string(),
+                    policy_type: PolicyType::Deny,
+                    priority: 100,
+                    path_rules: None,
+                    network_rules: None,
+                },
+            ],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -50,6 +52,7 @@ fn make_state() -> (AppState, TempDir) {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
     (state, tmp)
 }
@@ -57,8 +60,10 @@ fn make_state() -> (AppState, TempDir) {
 fn make_empty_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![])),
+        policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -72,6 +77,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
     (state, tmp)
 }
@@ -370,7 +376,7 @@ async fn add_policy_increases_policy_count() {
     );
 
     // Verify count increased
-    let count = state.policies.load().len();
+    let count = state.policy_state.load().policies.len();
     assert_eq!(count, 3, "Should have 3 policies after adding one");
 }
 
@@ -390,7 +396,7 @@ async fn delete_policy_removes_it() {
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
-    let count = state.policies.load().len();
+    let count = state.policy_state.load().policies.len();
     assert_eq!(count, 1, "Should have 1 policy after deleting one");
 }
 
@@ -414,7 +420,7 @@ async fn delete_nonexistent_policy_returns_ok_but_no_change() {
         StatusCode::INTERNAL_SERVER_ERROR,
         "Deleting nonexistent policy should not be a server error"
     );
-    let count = state.policies.load().len();
+    let count = state.policy_state.load().policies.len();
     assert_eq!(count, 2, "Count unchanged when deleting nonexistent policy");
 }
 
@@ -901,8 +907,10 @@ priority = 1
     .unwrap();
 
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![])),
+        policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new(config_path.to_str().unwrap().to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -916,6 +924,7 @@ priority = 1
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
     let app = routes::build_router(state.clone());
 
@@ -929,7 +938,7 @@ priority = 1
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
-    let count = state.policies.load().len();
+    let count = state.policy_state.load().policies.len();
     assert_eq!(count, 1, "After reload, should have 1 policy from config");
 }
 
@@ -955,7 +964,8 @@ async fn delete_policy_with_url_encoded_colon() {
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
-    let remaining = state.policies.load();
+    let snapshot = state.policy_state.load();
+    let remaining = &snapshot.policies;
     // "bash:*" should have been removed, leaving only "file:read"
     assert_eq!(remaining.len(), 1, "bash:* should be removed");
     assert_eq!(remaining[0].id, "file:read");
@@ -968,27 +978,29 @@ async fn delete_policy_with_url_encoded_colon() {
 fn make_approval_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![
-            Policy {
-                id: "sensitive:*".to_string(),
-                name: "Require approval for sensitive ops".to_string(),
-                policy_type: PolicyType::Conditional {
-                    conditions: json!({"require_approval": true}),
+        policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![
+                Policy {
+                    id: "sensitive:*".to_string(),
+                    name: "Require approval for sensitive ops".to_string(),
+                    policy_type: PolicyType::Conditional {
+                        conditions: json!({"require_approval": true}),
+                    },
+                    priority: 100,
+                    path_rules: None,
+                    network_rules: None,
                 },
-                priority: 100,
-                path_rules: None,
-                network_rules: None,
-            },
-            Policy {
-                id: "file:read".to_string(),
-                name: "Allow file reads".to_string(),
-                policy_type: PolicyType::Allow,
-                priority: 10,
-                path_rules: None,
-                network_rules: None,
-            },
-        ])),
+                Policy {
+                    id: "file:read".to_string(),
+                    name: "Allow file reads".to_string(),
+                    policy_type: PolicyType::Allow,
+                    priority: 10,
+                    path_rules: None,
+                    network_rules: None,
+                },
+            ],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -1002,6 +1014,7 @@ fn make_approval_state() -> (AppState, TempDir) {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
     (state, tmp)
 }
@@ -1428,15 +1441,17 @@ async fn security_headers_present_on_post() {
 fn make_authed_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
-            id: "file:read".to_string(),
-            name: "Allow file reads".to_string(),
-            policy_type: PolicyType::Allow,
-            priority: 10,
-            path_rules: None,
-            network_rules: None,
-        }])),
+        policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![Policy {
+                id: "file:read".to_string(),
+                name: "Allow file reads".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+                path_rules: None,
+                network_rules: None,
+            }],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -1450,6 +1465,7 @@ fn make_authed_state() -> (AppState, TempDir) {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
     (state, tmp)
 }
@@ -1899,15 +1915,17 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let signing_key = AuditLogger::generate_signing_key();
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
-            id: "file:read".to_string(),
-            name: "Allow file reads".to_string(),
-            policy_type: PolicyType::Allow,
-            priority: 10,
-            path_rules: None,
-            network_rules: None,
-        }])),
+        policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![Policy {
+                id: "file:read".to_string(),
+                name: "Allow file reads".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+                path_rules: None,
+                network_rules: None,
+            }],
+        })),
         audit: Arc::new(
             AuditLogger::new(tmp.path().join("audit.log")).with_signing_key(signing_key),
         ),
@@ -1923,6 +1941,7 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
     (state, tmp)
 }
@@ -2548,15 +2567,17 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
     let rate_limits =
         RateLimits::disabled().with_per_principal(std::num::NonZeroU32::new(rps).unwrap());
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
-            id: "file:read".to_string(),
-            name: "Allow file reads".to_string(),
-            policy_type: PolicyType::Allow,
-            priority: 10,
-            path_rules: None,
-            network_rules: None,
-        }])),
+        policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![Policy {
+                id: "file:read".to_string(),
+                name: "Allow file reads".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+                path_rules: None,
+                network_rules: None,
+            }],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -2570,6 +2591,7 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
     (state, tmp)
 }
@@ -2778,7 +2800,7 @@ async fn per_principal_x_principal_takes_precedence_over_bearer() {
 #[tokio::test]
 async fn add_policy_with_invalid_glob_is_rejected_and_state_unchanged() {
     let (state, _tmp) = make_state();
-    let policies_before = state.policies.load().len();
+    let policies_before = state.policy_state.load().policies.len();
 
     let app = routes::build_router(state.clone());
 
@@ -2810,7 +2832,7 @@ async fn add_policy_with_invalid_glob_is_rejected_and_state_unchanged() {
     );
 
     // Verify policy list is unchanged
-    let policies_after = state.policies.load().len();
+    let policies_after = state.policy_state.load().policies.len();
     assert_eq!(
         policies_before, policies_after,
         "Policy list must not change on failed compilation"
@@ -2824,9 +2846,14 @@ async fn remove_policy_atomic_store_updates_both() {
     let (state, _tmp) = make_state();
 
     // Start with compiled engine so remove can also compile
-    let policies = state.policies.load();
-    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
-    state.engine.store(Arc::new(engine));
+    {
+        let snapshot = state.policy_state.load();
+        let engine = PolicyEngine::with_policies(false, &snapshot.policies).unwrap();
+        state.policy_state.store(Arc::new(sentinel_server::PolicySnapshot {
+            engine,
+            policies: snapshot.policies.clone(),
+        }));
+    }
 
     let app = routes::build_router(state.clone());
 
@@ -2842,7 +2869,8 @@ async fn remove_policy_atomic_store_updates_both() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     // Verify the policy was actually removed from the stored list
-    let remaining = state.policies.load();
+    let snapshot = state.policy_state.load();
+    let remaining = &snapshot.policies;
     assert!(
         !remaining.iter().any(|p| p.id == "file:read"),
         "file:read should have been removed"

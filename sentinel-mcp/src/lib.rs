@@ -6,6 +6,7 @@ pub mod memory_tracking;
 pub mod output_validation;
 pub mod proxy;
 pub mod rug_pull;
+pub mod tool_registry;
 
 use sentinel_engine::PolicyEngine;
 use sentinel_types::{Action, Policy};

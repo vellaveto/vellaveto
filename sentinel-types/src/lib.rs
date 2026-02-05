@@ -345,6 +345,76 @@ pub struct ConstraintResult {
     pub passed: bool,
 }
 
+/// Cryptographically attested agent identity from a signed JWT.
+///
+/// This type represents a validated identity extracted from the `X-Agent-Identity`
+/// header. Unlike the simple `agent_id` string, this provides cryptographic
+/// attestation of the agent's identity via JWT signature verification.
+///
+/// # Security (OWASP ASI07 - Agent Identity Attestation)
+///
+/// - All claims are extracted from a signature-verified JWT
+/// - The proxy validates the JWT before populating this struct
+/// - Policies can match on issuer, subject, and custom claims
+/// - This provides stronger identity guarantees than the legacy `agent_id` field
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct AgentIdentity {
+    /// JWT issuer (`iss` claim). Identifies the identity provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issuer: Option<String>,
+    /// JWT subject (`sub` claim). Identifies the specific agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
+    /// JWT audience (`aud` claim). May be a single string or array.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audience: Vec<String>,
+    /// Additional custom claims from the JWT payload.
+    /// Common claims: `role`, `team`, `environment`, `permissions`.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub claims: HashMap<String, serde_json::Value>,
+}
+
+impl AgentIdentity {
+    /// Returns true if this identity has any populated fields.
+    pub fn is_populated(&self) -> bool {
+        self.issuer.is_some()
+            || self.subject.is_some()
+            || !self.audience.is_empty()
+            || !self.claims.is_empty()
+    }
+
+    /// Get a claim value as a string, if present and is a string.
+    pub fn claim_str(&self, key: &str) -> Option<&str> {
+        self.claims.get(key).and_then(|v| v.as_str())
+    }
+
+    /// Get a claim value as an array of strings, if present and is an array.
+    pub fn claim_str_array(&self, key: &str) -> Option<Vec<&str>> {
+        self.claims.get(key).and_then(|v| {
+            v.as_array().map(|arr| {
+                arr.iter().filter_map(|item| item.as_str()).collect()
+            })
+        })
+    }
+}
+
+/// An entry in a multi-agent call chain, tracking the path of a request
+/// through multiple agents in a multi-hop MCP scenario.
+///
+/// OWASP ASI08: Multi-agent communication monitoring requires tracking
+/// the full chain of tool calls to detect privilege escalation patterns.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CallChainEntry {
+    /// The agent that made this call (from X-Upstream-Agent header or OAuth subject).
+    pub agent_id: String,
+    /// The tool being called.
+    pub tool: String,
+    /// The function being called.
+    pub function: String,
+    /// ISO 8601 timestamp when the call was made.
+    pub timestamp: String,
+}
+
 /// Session-level context for policy evaluation.
 ///
 /// Separate from [`Action`] because Action = "what to do" (from the agent),
@@ -358,14 +428,28 @@ pub struct EvaluationContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<String>,
     /// Identity of the agent making the request (e.g., OAuth subject, API key hash).
+    /// This is the legacy identity field — prefer `agent_identity` for stronger guarantees.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
+    /// Cryptographically attested agent identity from a signed JWT (OWASP ASI07).
+    ///
+    /// When present, this provides stronger identity guarantees than `agent_id`.
+    /// Populated from the `X-Agent-Identity` header after JWT signature verification.
+    /// Policies can use `agent_identity` context conditions to match on claims.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_identity: Option<AgentIdentity>,
     /// Per-tool call counts for the current session (tool_name → count).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub call_counts: HashMap<String, u64>,
     /// History of tool names called in this session (most recent last).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_actions: Vec<String>,
+    /// OWASP ASI08: Call chain for multi-agent communication monitoring.
+    /// Records the path of the current request through multiple agents.
+    /// The first entry is the originating agent, subsequent entries are
+    /// intermediary agents in multi-hop scenarios.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub call_chain: Vec<CallChainEntry>,
 }
 
 impl EvaluationContext {
@@ -378,8 +462,23 @@ impl EvaluationContext {
     pub fn has_any_meaningful_fields(&self) -> bool {
         self.timestamp.is_some()
             || self.agent_id.is_some()
+            || self.agent_identity.as_ref().is_some_and(|id| id.is_populated())
             || !self.call_counts.is_empty()
             || !self.previous_actions.is_empty()
+            || !self.call_chain.is_empty()
+    }
+
+    /// Returns the depth of the current call chain (number of agents in the chain).
+    /// A depth of 0 means no multi-hop scenario (direct call).
+    /// A depth of 1 means there is one upstream agent.
+    pub fn call_chain_depth(&self) -> usize {
+        self.call_chain.len()
+    }
+
+    /// Returns the originating agent ID if this is a multi-hop request.
+    /// This is the first agent in the call chain (the one that initiated the request).
+    pub fn originating_agent(&self) -> Option<&str> {
+        self.call_chain.first().map(|e| e.agent_id.as_str())
     }
 }
 
@@ -797,6 +896,217 @@ mod tests {
         assert!(
             !ctx.has_any_meaningful_fields(),
             "Default context should not be meaningful"
+        );
+    }
+
+    // --- Call chain tests (OWASP ASI08) ---
+
+    #[test]
+    fn test_call_chain_entry_serialization() {
+        let entry = CallChainEntry {
+            agent_id: "agent-a".to_string(),
+            tool: "read_file".to_string(),
+            function: "execute".to_string(),
+            timestamp: "2026-01-01T12:00:00Z".to_string(),
+        };
+        let json_str = serde_json::to_string(&entry).unwrap();
+        let deserialized: CallChainEntry = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(entry, deserialized);
+    }
+
+    #[test]
+    fn test_context_call_chain_is_meaningful() {
+        let ctx = EvaluationContext {
+            call_chain: vec![CallChainEntry {
+                agent_id: "agent-a".to_string(),
+                tool: "read_file".to_string(),
+                function: "execute".to_string(),
+                timestamp: "2026-01-01T12:00:00Z".to_string(),
+            }],
+            ..Default::default()
+        };
+        assert!(
+            ctx.has_any_meaningful_fields(),
+            "Context with call_chain should be meaningful"
+        );
+    }
+
+    #[test]
+    fn test_call_chain_depth() {
+        let empty_ctx = EvaluationContext::default();
+        assert_eq!(empty_ctx.call_chain_depth(), 0);
+
+        let single_hop_ctx = EvaluationContext {
+            call_chain: vec![CallChainEntry {
+                agent_id: "agent-a".to_string(),
+                tool: "tool1".to_string(),
+                function: "func1".to_string(),
+                timestamp: "2026-01-01T12:00:00Z".to_string(),
+            }],
+            ..Default::default()
+        };
+        assert_eq!(single_hop_ctx.call_chain_depth(), 1);
+
+        let multi_hop_ctx = EvaluationContext {
+            call_chain: vec![
+                CallChainEntry {
+                    agent_id: "agent-a".to_string(),
+                    tool: "tool1".to_string(),
+                    function: "func1".to_string(),
+                    timestamp: "2026-01-01T12:00:00Z".to_string(),
+                },
+                CallChainEntry {
+                    agent_id: "agent-b".to_string(),
+                    tool: "tool2".to_string(),
+                    function: "func2".to_string(),
+                    timestamp: "2026-01-01T12:00:01Z".to_string(),
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(multi_hop_ctx.call_chain_depth(), 2);
+    }
+
+    #[test]
+    fn test_originating_agent() {
+        let empty_ctx = EvaluationContext::default();
+        assert!(empty_ctx.originating_agent().is_none());
+
+        let ctx = EvaluationContext {
+            call_chain: vec![
+                CallChainEntry {
+                    agent_id: "origin-agent".to_string(),
+                    tool: "tool1".to_string(),
+                    function: "func1".to_string(),
+                    timestamp: "2026-01-01T12:00:00Z".to_string(),
+                },
+                CallChainEntry {
+                    agent_id: "proxy-agent".to_string(),
+                    tool: "tool2".to_string(),
+                    function: "func2".to_string(),
+                    timestamp: "2026-01-01T12:00:01Z".to_string(),
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(ctx.originating_agent(), Some("origin-agent"));
+    }
+
+    // --- AgentIdentity tests (OWASP ASI07) ---
+
+    #[test]
+    fn test_agent_identity_serialization_roundtrip() {
+        let mut claims = HashMap::new();
+        claims.insert("role".to_string(), json!("admin"));
+        claims.insert("permissions".to_string(), json!(["read", "write"]));
+
+        let identity = AgentIdentity {
+            issuer: Some("https://auth.example.com".to_string()),
+            subject: Some("agent-123".to_string()),
+            audience: vec!["mcp-server".to_string()],
+            claims,
+        };
+
+        let json_str = serde_json::to_string(&identity).unwrap();
+        let deserialized: AgentIdentity = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(identity, deserialized);
+    }
+
+    #[test]
+    fn test_agent_identity_is_populated() {
+        let empty = AgentIdentity::default();
+        assert!(!empty.is_populated());
+
+        let with_issuer = AgentIdentity {
+            issuer: Some("https://auth.example.com".to_string()),
+            ..Default::default()
+        };
+        assert!(with_issuer.is_populated());
+
+        let with_subject = AgentIdentity {
+            subject: Some("agent-123".to_string()),
+            ..Default::default()
+        };
+        assert!(with_subject.is_populated());
+
+        let with_audience = AgentIdentity {
+            audience: vec!["server".to_string()],
+            ..Default::default()
+        };
+        assert!(with_audience.is_populated());
+
+        let mut claims = HashMap::new();
+        claims.insert("role".to_string(), json!("admin"));
+        let with_claims = AgentIdentity {
+            claims,
+            ..Default::default()
+        };
+        assert!(with_claims.is_populated());
+    }
+
+    #[test]
+    fn test_agent_identity_claim_str() {
+        let mut claims = HashMap::new();
+        claims.insert("role".to_string(), json!("admin"));
+        claims.insert("count".to_string(), json!(42));
+
+        let identity = AgentIdentity {
+            claims,
+            ..Default::default()
+        };
+
+        assert_eq!(identity.claim_str("role"), Some("admin"));
+        assert_eq!(identity.claim_str("count"), None); // Not a string
+        assert_eq!(identity.claim_str("missing"), None);
+    }
+
+    #[test]
+    fn test_agent_identity_claim_str_array() {
+        let mut claims = HashMap::new();
+        claims.insert("permissions".to_string(), json!(["read", "write"]));
+        claims.insert("role".to_string(), json!("admin")); // Not an array
+        claims.insert("mixed".to_string(), json!(["str", 42])); // Mixed types
+
+        let identity = AgentIdentity {
+            claims,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            identity.claim_str_array("permissions"),
+            Some(vec!["read", "write"])
+        );
+        assert_eq!(identity.claim_str_array("role"), None); // Not an array
+        // Mixed array should only contain strings
+        assert_eq!(identity.claim_str_array("mixed"), Some(vec!["str"]));
+        assert_eq!(identity.claim_str_array("missing"), None);
+    }
+
+    #[test]
+    fn test_context_with_agent_identity_is_meaningful() {
+        let identity = AgentIdentity {
+            subject: Some("agent-123".to_string()),
+            ..Default::default()
+        };
+        let ctx = EvaluationContext {
+            agent_identity: Some(identity),
+            ..Default::default()
+        };
+        assert!(
+            ctx.has_any_meaningful_fields(),
+            "Context with agent_identity should be meaningful"
+        );
+    }
+
+    #[test]
+    fn test_context_with_empty_agent_identity_is_not_meaningful() {
+        let ctx = EvaluationContext {
+            agent_identity: Some(AgentIdentity::default()),
+            ..Default::default()
+        };
+        assert!(
+            !ctx.has_any_meaningful_fields(),
+            "Context with empty agent_identity should not be meaningful"
         );
     }
 }

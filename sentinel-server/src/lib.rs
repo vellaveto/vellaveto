@@ -437,11 +437,24 @@ impl Metrics {
     }
 }
 
+/// Atomic snapshot of engine + policies for lock-free reads.
+///
+/// SECURITY (R15-CFG-2): Previously `engine` and `policies` were stored in
+/// separate `ArcSwap` fields. Between the two stores a concurrent read could
+/// see the new engine with the old policies (or vice versa). Bundling them
+/// into a single `ArcSwap<PolicySnapshot>` eliminates this microsecond-wide
+/// race: every reader sees a consistent (engine, policies) pair.
+pub struct PolicySnapshot {
+    pub engine: PolicyEngine,
+    pub policies: Vec<Policy>,
+}
+
 /// Shared application state for axum handlers.
 #[derive(Clone)]
 pub struct AppState {
-    pub engine: Arc<ArcSwap<PolicyEngine>>,
-    pub policies: Arc<ArcSwap<Vec<Policy>>>,
+    /// Atomic snapshot of engine + policies. Readers get a consistent pair
+    /// via a single `policy_state.load()` call.
+    pub policy_state: Arc<ArcSwap<PolicySnapshot>>,
     pub audit: Arc<AuditLogger>,
     pub config_path: Arc<String>,
     pub approvals: Arc<ApprovalStore>,
@@ -468,6 +481,9 @@ pub struct AppState {
     /// Prometheus metrics handle for rendering `/metrics` endpoint.
     /// None when Prometheus is not initialized (e.g., recorder already installed).
     pub prometheus_handle: Option<metrics_exporter_prometheus::PrometheusHandle>,
+    /// Tool registry for tracking tool trust scores (P2.1).
+    /// None when tool registry is disabled.
+    pub tool_registry: Option<Arc<sentinel_mcp::tool_registry::ToolRegistry>>,
 }
 
 /// Reload policies from the config file and recompile the engine.
@@ -502,6 +518,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             audit_export: Default::default(),
             max_path_decode_iterations: None,
             known_tool_names: Default::default(),
+            tool_registry: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {
@@ -553,15 +570,14 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
         new_engine.set_max_path_decode_iterations(max_iter);
     }
 
-    // Both compiled successfully — swap in engine-first order.
-    // SECURITY (R12-INT-2): Store the engine before the policy list.
-    // Between the two stores a concurrent request might see the new
-    // (potentially stricter) engine with the old policy list, which is
-    // safe. The reverse order (policies first, engine second) would
-    // briefly expose new policies evaluated by the old engine, which
-    // could miss newly-compiled constraints.
-    state.engine.store(Arc::new(new_engine));
-    state.policies.store(Arc::new(new_policies));
+    // SECURITY (R15-CFG-2): Single atomic swap of engine + policies.
+    // Previously two separate ArcSwap stores had a microsecond-wide race
+    // where a reader could see mismatched engine/policies. Now both are
+    // bundled in a single PolicySnapshot and swapped atomically.
+    state.policy_state.store(Arc::new(PolicySnapshot {
+        engine: new_engine,
+        policies: new_policies,
+    }));
 
     tracing::info!(
         "Reloaded {} policies from {} (source: {})",

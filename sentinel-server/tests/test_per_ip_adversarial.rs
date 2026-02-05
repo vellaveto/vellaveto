@@ -27,15 +27,17 @@ use tower::ServiceExt;
 fn per_ip_state(rps: u32) -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
-            id: "file:read".to_string(),
-            name: "Allow".to_string(),
-            policy_type: PolicyType::Allow,
-            priority: 10,
-            path_rules: None,
-            network_rules: None,
-        }])),
+        policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![Policy {
+                id: "file:read".to_string(),
+                name: "Allow".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+                path_rules: None,
+                network_rules: None,
+            }],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -51,6 +53,7 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
     (state, tmp)
 }
@@ -360,15 +363,17 @@ async fn regression_23_xff_ignored_without_trusted_proxies() {
 async fn regression_24_error_message_does_not_leak_architecture() {
     let tmp = TempDir::new().unwrap();
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
-            id: "file:read".to_string(),
-            name: "Allow".to_string(),
-            policy_type: PolicyType::Allow,
-            priority: 10,
-            path_rules: None,
-            network_rules: None,
-        }])),
+        policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![Policy {
+                id: "file:read".to_string(),
+                name: "Allow".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+                path_rules: None,
+                network_rules: None,
+            }],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -385,6 +390,7 @@ async fn regression_24_error_message_does_not_leak_architecture() {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

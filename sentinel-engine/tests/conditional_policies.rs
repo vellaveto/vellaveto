@@ -1,7 +1,7 @@
 //! Integration tests for conditional policy evaluation.
 
 use sentinel_engine::PolicyEngine;
-use sentinel_types::{Action, Policy, PolicyType, Verdict};
+use sentinel_types::{Action, CallChainEntry, EvaluationContext, Policy, PolicyType, Verdict};
 use serde_json::json;
 
 fn conditional_policy(
@@ -203,4 +203,168 @@ fn conditional_allows_when_no_conditions_triggered() {
         Verdict::Allow => {}
         other => panic!("No forbidden params present, should allow, got {:?}", other),
     }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// OWASP ASI08: Multi-Agent Call Chain Depth Tests
+// ══════════════════════════════════════════════════════════════════════════════
+
+fn make_call_chain_entry(agent_id: &str, tool: &str) -> CallChainEntry {
+    CallChainEntry {
+        agent_id: agent_id.to_string(),
+        tool: tool.to_string(),
+        function: "execute".to_string(),
+        timestamp: "2026-01-01T12:00:00Z".to_string(),
+    }
+}
+
+#[test]
+fn max_chain_depth_zero_allows_direct_calls() {
+    // max_depth: 0 means no multi-hop allowed (direct calls only)
+    let policies = vec![conditional_policy(
+        "*",
+        "no-multi-hop",
+        100,
+        json!({
+            "context_conditions": [
+                {"type": "max_chain_depth", "max_depth": 0}
+            ]
+        }),
+    )];
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+    let action = Action::new("read_file", "execute", json!({}));
+
+    // Empty call chain (depth 0) should be allowed
+    let ctx = EvaluationContext {
+        call_chain: Vec::new(),
+        ..Default::default()
+    };
+    let result = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(result, Verdict::Allow), "Empty chain should be allowed");
+}
+
+#[test]
+fn max_chain_depth_zero_denies_single_hop() {
+    // max_depth: 0 means no multi-hop allowed
+    let policies = vec![conditional_policy(
+        "*",
+        "no-multi-hop",
+        100,
+        json!({
+            "context_conditions": [
+                {"type": "max_chain_depth", "max_depth": 0}
+            ]
+        }),
+    )];
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+    let action = Action::new("read_file", "execute", json!({}));
+
+    // Single entry in call chain (depth 1) should be denied
+    let ctx = EvaluationContext {
+        call_chain: vec![make_call_chain_entry("agent-a", "tool1")],
+        ..Default::default()
+    };
+    let result = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    match result {
+        Verdict::Deny { reason } => {
+            assert!(
+                reason.contains("chain depth"),
+                "Deny reason should mention chain depth: {}",
+                reason
+            );
+        }
+        other => panic!("Expected Deny for chain depth > 0, got {:?}", other),
+    }
+}
+
+#[test]
+fn max_chain_depth_one_allows_single_hop() {
+    // max_depth: 1 means one upstream agent allowed
+    let policies = vec![conditional_policy(
+        "*",
+        "allow-one-hop",
+        100,
+        json!({
+            "context_conditions": [
+                {"type": "max_chain_depth", "max_depth": 1}
+            ]
+        }),
+    )];
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+    let action = Action::new("read_file", "execute", json!({}));
+
+    // Single entry in call chain should be allowed
+    let ctx = EvaluationContext {
+        call_chain: vec![make_call_chain_entry("agent-a", "tool1")],
+        ..Default::default()
+    };
+    let result = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    assert!(matches!(result, Verdict::Allow), "Single hop should be allowed");
+}
+
+#[test]
+fn max_chain_depth_one_denies_double_hop() {
+    // max_depth: 1 means only one upstream agent allowed
+    let policies = vec![conditional_policy(
+        "*",
+        "allow-one-hop",
+        100,
+        json!({
+            "context_conditions": [
+                {"type": "max_chain_depth", "max_depth": 1}
+            ]
+        }),
+    )];
+    let engine = PolicyEngine::with_policies(false, &policies).unwrap();
+    let action = Action::new("read_file", "execute", json!({}));
+
+    // Two entries in call chain should be denied
+    let ctx = EvaluationContext {
+        call_chain: vec![
+            make_call_chain_entry("agent-a", "tool1"),
+            make_call_chain_entry("agent-b", "tool2"),
+        ],
+        ..Default::default()
+    };
+    let result = engine
+        .evaluate_action_with_context(&action, &[], Some(&ctx))
+        .unwrap();
+    match result {
+        Verdict::Deny { reason } => {
+            assert!(
+                reason.contains("chain depth"),
+                "Deny reason should mention chain depth: {}",
+                reason
+            );
+        }
+        other => panic!("Expected Deny for chain depth > 1, got {:?}", other),
+    }
+}
+
+#[test]
+fn max_chain_depth_compilation_error_on_missing_max_depth() {
+    // max_chain_depth without max_depth field should fail to compile
+    let policies = vec![conditional_policy(
+        "*",
+        "bad-config",
+        100,
+        json!({
+            "context_conditions": [
+                {"type": "max_chain_depth"}  // Missing max_depth
+            ]
+        }),
+    )];
+    let result = PolicyEngine::with_policies(false, &policies);
+    assert!(result.is_err(), "Should fail to compile without max_depth");
+    let errors = result.unwrap_err();
+    assert!(
+        errors.iter().any(|e| e.reason.contains("max_depth")),
+        "Error should mention missing max_depth"
+    );
 }

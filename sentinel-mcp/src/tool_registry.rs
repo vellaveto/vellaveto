@@ -1,0 +1,816 @@
+//! Tool Registry with Trust Scoring (P2.1).
+//!
+//! Implements a local tool registry that tracks tool definitions, their hashes,
+//! and computes a trust score based on age, stability, and admin approval.
+//! Tools below a configurable trust threshold require human approval regardless
+//! of policy verdict.
+//!
+//! # Trust Score Calculation
+//!
+//! - Base: 0.5
+//! - +0.1 for age > 7 days
+//! - +0.1 for age > 30 days
+//! - +0.2 for admin_approved = true
+//! - -0.3 for each schema change (rug-pull)
+//! - -0.2 if flagged for squatting
+//! - Clamped to [0.0, 1.0]
+//!
+//! # Persistence
+//!
+//! The registry is persisted to a JSONL file (one entry per tool). On startup,
+//! existing entries are loaded and trust scores recomputed from current timestamps.
+
+use chrono::{DateTime, Duration, Utc};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use thiserror::Error;
+use tokio::fs::OpenOptions;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::sync::RwLock;
+
+/// Errors that can occur in registry operations.
+#[derive(Error, Debug)]
+pub enum RegistryError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+    #[error("Tool not found: {0}")]
+    NotFound(String),
+    #[error("Invalid timestamp: {0}")]
+    InvalidTimestamp(String),
+}
+
+/// Default trust threshold below which tools require approval.
+pub const DEFAULT_TRUST_THRESHOLD: f32 = 0.3;
+
+/// Result of checking a tool's trust level in the registry.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TrustLevel {
+    /// Tool is not in the registry at all.
+    Unknown,
+    /// Tool is in the registry but below the trust threshold.
+    Untrusted { score: f32 },
+    /// Tool is in the registry and at or above the trust threshold.
+    Trusted,
+}
+
+/// A single tool entry in the registry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ToolEntry {
+    /// Tool name (identifier).
+    pub tool_id: String,
+    /// SHA-256 hash of the tool's inputSchema (canonical JSON).
+    pub schema_hash: String,
+    /// When this tool was first seen.
+    pub first_seen: String,
+    /// When this tool was last seen in a tools/list response.
+    pub last_seen: String,
+    /// Number of times this tool has been called.
+    pub call_count: u64,
+    /// Number of times the schema has changed (rug-pull detection).
+    pub schema_change_count: u64,
+    /// Whether an admin has explicitly approved this tool.
+    pub admin_approved: bool,
+    /// Whether this tool has been flagged for squatting.
+    #[serde(default)]
+    pub flagged_for_squatting: bool,
+    /// Computed trust score (0.0 to 1.0). Recomputed on load.
+    #[serde(default = "default_trust_score")]
+    pub trust_score: f32,
+}
+
+fn default_trust_score() -> f32 {
+    0.5
+}
+
+impl ToolEntry {
+    /// Create a new tool entry with default values.
+    pub fn new(tool_id: String, schema_hash: String) -> Self {
+        let now = Utc::now().to_rfc3339();
+        Self {
+            tool_id,
+            schema_hash,
+            first_seen: now.clone(),
+            last_seen: now,
+            call_count: 0,
+            schema_change_count: 0,
+            admin_approved: false,
+            flagged_for_squatting: false,
+            trust_score: 0.5, // Will be recomputed
+        }
+    }
+
+    /// Compute the trust score based on current state and timestamps.
+    ///
+    /// # Trust Score Formula
+    ///
+    /// - Base: 0.5
+    /// - +0.1 for age > 7 days
+    /// - +0.1 for age > 30 days
+    /// - +0.2 for admin_approved = true
+    /// - -0.3 for each schema change (rug-pull)
+    /// - -0.2 if flagged for squatting
+    /// - Clamped to [0.0, 1.0]
+    pub fn compute_trust_score(&mut self) {
+        let mut score: f32 = 0.5;
+
+        // Age bonuses
+        if let Ok(first_seen) = DateTime::parse_from_rfc3339(&self.first_seen) {
+            let age = Utc::now().signed_duration_since(first_seen);
+            if age > Duration::days(7) {
+                score += 0.1;
+            }
+            if age > Duration::days(30) {
+                score += 0.1;
+            }
+        }
+
+        // Admin approval bonus
+        if self.admin_approved {
+            score += 0.2;
+        }
+
+        // Schema change penalty (-0.3 per change)
+        score -= 0.3 * self.schema_change_count as f32;
+
+        // Squatting penalty
+        if self.flagged_for_squatting {
+            score -= 0.2;
+        }
+
+        // Clamp to [0.0, 1.0]
+        self.trust_score = score.clamp(0.0, 1.0);
+    }
+
+    /// Update the last_seen timestamp to now.
+    pub fn touch(&mut self) {
+        self.last_seen = Utc::now().to_rfc3339();
+    }
+
+    /// Increment the call count.
+    pub fn record_call(&mut self) {
+        self.call_count = self.call_count.saturating_add(1);
+    }
+
+    /// Record a schema change (rug-pull detected).
+    pub fn record_schema_change(&mut self, new_hash: String) {
+        self.schema_hash = new_hash;
+        self.schema_change_count = self.schema_change_count.saturating_add(1);
+        self.compute_trust_score();
+    }
+}
+
+/// Thread-safe tool registry with persistence.
+pub struct ToolRegistry {
+    /// In-memory tool entries (tool_id -> entry).
+    entries: RwLock<HashMap<String, ToolEntry>>,
+    /// Path to the persistence file.
+    persistence_path: PathBuf,
+    /// Trust threshold below which tools require approval.
+    trust_threshold: f32,
+}
+
+impl ToolRegistry {
+    /// Create a new registry with the given persistence path.
+    pub fn new(persistence_path: impl AsRef<Path>) -> Self {
+        Self {
+            entries: RwLock::new(HashMap::new()),
+            persistence_path: persistence_path.as_ref().to_path_buf(),
+            trust_threshold: DEFAULT_TRUST_THRESHOLD,
+        }
+    }
+
+    /// Create a new registry with a custom trust threshold.
+    pub fn with_threshold(persistence_path: impl AsRef<Path>, threshold: f32) -> Self {
+        Self {
+            entries: RwLock::new(HashMap::new()),
+            persistence_path: persistence_path.as_ref().to_path_buf(),
+            trust_threshold: threshold.clamp(0.0, 1.0),
+        }
+    }
+
+    /// Get the configured trust threshold.
+    pub fn trust_threshold(&self) -> f32 {
+        self.trust_threshold
+    }
+
+    /// Load entries from the persistence file.
+    ///
+    /// Existing in-memory entries are replaced. Trust scores are recomputed
+    /// on load to account for elapsed time since last persistence.
+    pub async fn load(&self) -> Result<usize, RegistryError> {
+        let path = &self.persistence_path;
+        if !path.exists() {
+            tracing::debug!("Registry file does not exist, starting fresh: {:?}", path);
+            return Ok(0);
+        }
+
+        let file = tokio::fs::File::open(path).await?;
+        let reader = BufReader::new(file);
+        let mut lines = reader.lines();
+        let mut loaded = HashMap::new();
+
+        while let Some(line) = lines.next_line().await? {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            match serde_json::from_str::<ToolEntry>(line) {
+                Ok(mut entry) => {
+                    entry.compute_trust_score();
+                    loaded.insert(entry.tool_id.clone(), entry);
+                }
+                Err(e) => {
+                    tracing::warn!("Skipping malformed registry entry: {}", e);
+                }
+            }
+        }
+
+        let count = loaded.len();
+        *self.entries.write().await = loaded;
+        tracing::info!("Loaded {} tool registry entries from {:?}", count, path);
+        Ok(count)
+    }
+
+    /// Persist all entries to the persistence file.
+    ///
+    /// Overwrites the file with current state (full rewrite, not append).
+    pub async fn persist(&self) -> Result<(), RegistryError> {
+        let entries = self.entries.read().await;
+        let path = &self.persistence_path;
+
+        // Write to a temp file and rename for atomicity
+        let temp_path = path.with_extension("tmp");
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&temp_path)
+            .await?;
+
+        for entry in entries.values() {
+            let line = serde_json::to_string(entry)?;
+            file.write_all(line.as_bytes()).await?;
+            file.write_all(b"\n").await?;
+        }
+        file.flush().await?;
+        drop(file);
+
+        tokio::fs::rename(&temp_path, path).await?;
+        Ok(())
+    }
+
+    /// Get a tool entry by ID.
+    pub async fn get(&self, tool_id: &str) -> Option<ToolEntry> {
+        self.entries.read().await.get(tool_id).cloned()
+    }
+
+    /// Get all tool entries.
+    pub async fn list(&self) -> Vec<ToolEntry> {
+        self.entries.read().await.values().cloned().collect()
+    }
+
+    /// Register or update a tool from a tools/list response.
+    ///
+    /// If the tool already exists and the schema hash changed, records a
+    /// schema change (rug-pull). Returns true if this is a new tool.
+    pub async fn register_tool(
+        &self,
+        tool_id: &str,
+        schema: &serde_json::Value,
+        flagged_for_squatting: bool,
+    ) -> bool {
+        let schema_hash = compute_schema_hash(schema);
+        let mut entries = self.entries.write().await;
+
+        if let Some(entry) = entries.get_mut(tool_id) {
+            // Existing tool — check for schema change
+            if entry.schema_hash != schema_hash {
+                tracing::warn!(
+                    "Tool '{}' schema changed (rug-pull): {} -> {}",
+                    tool_id,
+                    entry.schema_hash,
+                    schema_hash
+                );
+                entry.record_schema_change(schema_hash);
+            }
+            entry.touch();
+            if flagged_for_squatting && !entry.flagged_for_squatting {
+                entry.flagged_for_squatting = true;
+                entry.compute_trust_score();
+            }
+            false
+        } else {
+            // New tool
+            let mut entry = ToolEntry::new(tool_id.to_string(), schema_hash);
+            entry.flagged_for_squatting = flagged_for_squatting;
+            entry.compute_trust_score();
+            entries.insert(tool_id.to_string(), entry);
+            true
+        }
+    }
+
+    /// Record a tool call (increment call_count).
+    pub async fn record_call(&self, tool_id: &str) {
+        let mut entries = self.entries.write().await;
+        if let Some(entry) = entries.get_mut(tool_id) {
+            entry.record_call();
+        }
+    }
+
+    /// Set admin_approved = true for a tool.
+    pub async fn approve(&self, tool_id: &str) -> Result<ToolEntry, RegistryError> {
+        let mut entries = self.entries.write().await;
+        let entry = entries
+            .get_mut(tool_id)
+            .ok_or_else(|| RegistryError::NotFound(tool_id.to_string()))?;
+        entry.admin_approved = true;
+        entry.compute_trust_score();
+        Ok(entry.clone())
+    }
+
+    /// Set admin_approved = false for a tool.
+    pub async fn revoke(&self, tool_id: &str) -> Result<ToolEntry, RegistryError> {
+        let mut entries = self.entries.write().await;
+        let entry = entries
+            .get_mut(tool_id)
+            .ok_or_else(|| RegistryError::NotFound(tool_id.to_string()))?;
+        entry.admin_approved = false;
+        entry.compute_trust_score();
+        Ok(entry.clone())
+    }
+
+    /// Check if a tool is below the trust threshold.
+    ///
+    /// Returns `Some(trust_score)` if the tool exists and is below threshold,
+    /// `None` if the tool is trusted or not in the registry.
+    pub async fn check_trust(&self, tool_id: &str) -> Option<f32> {
+        let entries = self.entries.read().await;
+        entries.get(tool_id).and_then(|e| {
+            if e.trust_score < self.trust_threshold {
+                Some(e.trust_score)
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Check if a tool requires approval due to low trust score.
+    ///
+    /// Returns true if the tool exists and has trust_score < threshold.
+    /// Returns false if the tool doesn't exist (fail-open for unknown tools,
+    /// which should be registered first via register_tool).
+    pub async fn requires_approval(&self, tool_id: &str) -> bool {
+        self.check_trust(tool_id).await.is_some()
+    }
+
+    /// Check a tool's trust level in the registry.
+    ///
+    /// Returns:
+    /// - `TrustLevel::Unknown` if the tool is not in the registry
+    /// - `TrustLevel::Untrusted { score }` if the tool exists but is below threshold
+    /// - `TrustLevel::Trusted` if the tool exists and is at or above threshold
+    pub async fn check_trust_level(&self, tool_id: &str) -> TrustLevel {
+        let entries = self.entries.read().await;
+        match entries.get(tool_id) {
+            None => TrustLevel::Unknown,
+            Some(entry) => {
+                if entry.trust_score < self.trust_threshold {
+                    TrustLevel::Untrusted {
+                        score: entry.trust_score,
+                    }
+                } else {
+                    TrustLevel::Trusted
+                }
+            }
+        }
+    }
+
+    /// Register an unknown tool with an empty schema hash.
+    ///
+    /// Used when a tool call arrives for a tool not in the registry.
+    /// The tool gets a base trust score of 0.5 and requires approval
+    /// if that's below the threshold.
+    pub async fn register_unknown(&self, tool_id: &str) {
+        let mut entries = self.entries.write().await;
+        if entries.contains_key(tool_id) {
+            return; // Already registered (possible race)
+        }
+        let mut entry = ToolEntry::new(tool_id.to_string(), String::new());
+        entry.compute_trust_score();
+        entries.insert(tool_id.to_string(), entry);
+    }
+}
+
+/// Compute a SHA-256 hash of a JSON value using canonical serialization.
+pub fn compute_schema_hash(schema: &serde_json::Value) -> String {
+    if schema.is_null() {
+        // Hash of empty string for null schemas
+        let mut hasher = Sha256::new();
+        hasher.update(b"");
+        return format!("{:x}", hasher.finalize());
+    }
+
+    // Use canonical JSON serialization (RFC 8785)
+    let canonical = serde_json_canonicalizer::to_string(schema).unwrap_or_else(|_| {
+        // Fallback to regular serialization if canonicalization fails
+        serde_json::to_string(schema).unwrap_or_default()
+    });
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    fn new_entry(tool_id: &str) -> ToolEntry {
+        ToolEntry::new(tool_id.to_string(), "abc123".to_string())
+    }
+
+    // --- Trust Score Calculation Tests ---
+
+    #[test]
+    fn test_trust_score_base() {
+        let mut entry = new_entry("test_tool");
+        entry.compute_trust_score();
+        assert!((entry.trust_score - 0.5).abs() < 0.01, "Base score should be 0.5");
+    }
+
+    #[test]
+    fn test_trust_score_admin_approved() {
+        let mut entry = new_entry("test_tool");
+        entry.admin_approved = true;
+        entry.compute_trust_score();
+        assert!(
+            (entry.trust_score - 0.7).abs() < 0.01,
+            "Admin approved adds 0.2: expected 0.7, got {}",
+            entry.trust_score
+        );
+    }
+
+    #[test]
+    fn test_trust_score_schema_change_penalty() {
+        let mut entry = new_entry("test_tool");
+        entry.schema_change_count = 1;
+        entry.compute_trust_score();
+        assert!(
+            (entry.trust_score - 0.2).abs() < 0.01,
+            "One schema change: expected 0.2, got {}",
+            entry.trust_score
+        );
+
+        entry.schema_change_count = 2;
+        entry.compute_trust_score();
+        assert!(
+            entry.trust_score < 0.01,
+            "Two schema changes: expected 0.0 (clamped), got {}",
+            entry.trust_score
+        );
+    }
+
+    #[test]
+    fn test_trust_score_squatting_penalty() {
+        let mut entry = new_entry("test_tool");
+        entry.flagged_for_squatting = true;
+        entry.compute_trust_score();
+        assert!(
+            (entry.trust_score - 0.3).abs() < 0.01,
+            "Squatting penalty: expected 0.3, got {}",
+            entry.trust_score
+        );
+    }
+
+    #[test]
+    fn test_trust_score_age_bonus_7_days() {
+        let mut entry = new_entry("test_tool");
+        // Set first_seen to 8 days ago
+        let eight_days_ago = (Utc::now() - Duration::days(8)).to_rfc3339();
+        entry.first_seen = eight_days_ago;
+        entry.compute_trust_score();
+        assert!(
+            (entry.trust_score - 0.6).abs() < 0.01,
+            "7-day age bonus: expected 0.6, got {}",
+            entry.trust_score
+        );
+    }
+
+    #[test]
+    fn test_trust_score_age_bonus_30_days() {
+        let mut entry = new_entry("test_tool");
+        // Set first_seen to 31 days ago
+        let thirty_one_days_ago = (Utc::now() - Duration::days(31)).to_rfc3339();
+        entry.first_seen = thirty_one_days_ago;
+        entry.compute_trust_score();
+        assert!(
+            (entry.trust_score - 0.7).abs() < 0.01,
+            "30-day age bonus: expected 0.7 (0.5 + 0.1 + 0.1), got {}",
+            entry.trust_score
+        );
+    }
+
+    #[test]
+    fn test_trust_score_combined() {
+        let mut entry = new_entry("test_tool");
+        // 30+ days old (+0.2), admin approved (+0.2), but 1 schema change (-0.3)
+        let old_date = (Utc::now() - Duration::days(35)).to_rfc3339();
+        entry.first_seen = old_date;
+        entry.admin_approved = true;
+        entry.schema_change_count = 1;
+        entry.compute_trust_score();
+        // 0.5 + 0.1 + 0.1 + 0.2 - 0.3 = 0.6
+        assert!(
+            (entry.trust_score - 0.6).abs() < 0.01,
+            "Combined score: expected 0.6, got {}",
+            entry.trust_score
+        );
+    }
+
+    #[test]
+    fn test_trust_score_clamp_max() {
+        let mut entry = new_entry("test_tool");
+        let old_date = (Utc::now() - Duration::days(365)).to_rfc3339();
+        entry.first_seen = old_date;
+        entry.admin_approved = true;
+        entry.compute_trust_score();
+        // 0.5 + 0.1 + 0.1 + 0.2 = 0.9, still under 1.0
+        assert!(
+            entry.trust_score <= 1.0,
+            "Score should be clamped to 1.0 max"
+        );
+    }
+
+    #[test]
+    fn test_trust_score_clamp_min() {
+        let mut entry = new_entry("test_tool");
+        entry.schema_change_count = 10; // -3.0
+        entry.flagged_for_squatting = true; // -0.2
+        entry.compute_trust_score();
+        assert!(
+            entry.trust_score >= 0.0,
+            "Score should be clamped to 0.0 min"
+        );
+    }
+
+    // --- Schema Hash Tests ---
+
+    #[test]
+    fn test_compute_schema_hash_null() {
+        let hash = compute_schema_hash(&serde_json::Value::Null);
+        assert_eq!(hash.len(), 64, "SHA-256 hex should be 64 chars");
+    }
+
+    #[test]
+    fn test_compute_schema_hash_deterministic() {
+        let schema = json!({"type": "object", "properties": {"x": {"type": "string"}}});
+        let h1 = compute_schema_hash(&schema);
+        let h2 = compute_schema_hash(&schema);
+        assert_eq!(h1, h2, "Hash should be deterministic");
+    }
+
+    #[test]
+    fn test_compute_schema_hash_canonical_key_order() {
+        // Different key order should produce the same hash (canonical JSON)
+        let schema1 = json!({"type": "object", "properties": {"a": 1, "b": 2}});
+        let schema2: serde_json::Value =
+            serde_json::from_str(r#"{"properties": {"b": 2, "a": 1}, "type": "object"}"#).unwrap();
+        let h1 = compute_schema_hash(&schema1);
+        let h2 = compute_schema_hash(&schema2);
+        assert_eq!(h1, h2, "Canonical hash should be key-order independent");
+    }
+
+    // --- Registry Persistence Tests ---
+
+    #[tokio::test]
+    async fn test_registry_persist_and_load() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+
+        // Create and populate registry
+        let registry = ToolRegistry::new(&path);
+        registry
+            .register_tool("tool_a", &json!({"type": "object"}), false)
+            .await;
+        registry
+            .register_tool("tool_b", &json!({"type": "string"}), true)
+            .await;
+        registry.approve("tool_a").await.unwrap();
+
+        // Persist
+        registry.persist().await.unwrap();
+
+        // Load into new registry
+        let registry2 = ToolRegistry::new(&path);
+        let count = registry2.load().await.unwrap();
+        assert_eq!(count, 2);
+
+        let tool_a = registry2.get("tool_a").await.unwrap();
+        assert!(tool_a.admin_approved);
+
+        let tool_b = registry2.get("tool_b").await.unwrap();
+        assert!(tool_b.flagged_for_squatting);
+    }
+
+    #[tokio::test]
+    async fn test_registry_load_nonexistent_file() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("nonexistent.jsonl");
+        let registry = ToolRegistry::new(&path);
+        let count = registry.load().await.unwrap();
+        assert_eq!(count, 0, "Loading nonexistent file should return 0");
+    }
+
+    // --- Registry Operations Tests ---
+
+    #[tokio::test]
+    async fn test_registry_register_new_tool() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let registry = ToolRegistry::new(&path);
+
+        let is_new = registry
+            .register_tool("new_tool", &json!({"type": "object"}), false)
+            .await;
+        assert!(is_new, "Should report new tool");
+
+        let entry = registry.get("new_tool").await.unwrap();
+        assert_eq!(entry.tool_id, "new_tool");
+        assert_eq!(entry.call_count, 0);
+        assert!(!entry.admin_approved);
+    }
+
+    #[tokio::test]
+    async fn test_registry_register_existing_tool_same_schema() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let registry = ToolRegistry::new(&path);
+
+        registry
+            .register_tool("tool", &json!({"type": "object"}), false)
+            .await;
+        let is_new = registry
+            .register_tool("tool", &json!({"type": "object"}), false)
+            .await;
+        assert!(!is_new, "Should not be new");
+
+        let entry = registry.get("tool").await.unwrap();
+        assert_eq!(entry.schema_change_count, 0, "No schema change");
+    }
+
+    #[tokio::test]
+    async fn test_registry_register_existing_tool_changed_schema() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let registry = ToolRegistry::new(&path);
+
+        registry
+            .register_tool("tool", &json!({"type": "object"}), false)
+            .await;
+        registry
+            .register_tool("tool", &json!({"type": "string"}), false)
+            .await;
+
+        let entry = registry.get("tool").await.unwrap();
+        assert_eq!(entry.schema_change_count, 1, "Should record schema change");
+        assert!(
+            entry.trust_score < 0.5,
+            "Trust score should decrease on schema change"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_registry_record_call() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let registry = ToolRegistry::new(&path);
+
+        registry
+            .register_tool("tool", &json!({"type": "object"}), false)
+            .await;
+        registry.record_call("tool").await;
+        registry.record_call("tool").await;
+
+        let entry = registry.get("tool").await.unwrap();
+        assert_eq!(entry.call_count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_registry_approve_revoke() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let registry = ToolRegistry::new(&path);
+
+        registry
+            .register_tool("tool", &json!({"type": "object"}), false)
+            .await;
+
+        let entry = registry.approve("tool").await.unwrap();
+        assert!(entry.admin_approved);
+        assert!(entry.trust_score > 0.5, "Approval should boost trust");
+
+        let entry = registry.revoke("tool").await.unwrap();
+        assert!(!entry.admin_approved);
+    }
+
+    #[tokio::test]
+    async fn test_registry_approve_not_found() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let registry = ToolRegistry::new(&path);
+
+        let result = registry.approve("nonexistent").await;
+        assert!(matches!(result, Err(RegistryError::NotFound(_))));
+    }
+
+    // --- Threshold Tests ---
+
+    #[tokio::test]
+    async fn test_registry_check_trust_below_threshold() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let registry = ToolRegistry::with_threshold(&path, 0.5);
+
+        // New tool has base score 0.5, so at threshold (not below)
+        registry
+            .register_tool("tool", &json!({"type": "object"}), false)
+            .await;
+        assert!(
+            registry.check_trust("tool").await.is_none(),
+            "At threshold should pass"
+        );
+
+        // Add squatting flag to drop below threshold
+        registry
+            .register_tool("tool2", &json!({"type": "object"}), true)
+            .await;
+        assert!(
+            registry.check_trust("tool2").await.is_some(),
+            "Below threshold should fail"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_registry_requires_approval() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let registry = ToolRegistry::with_threshold(&path, 0.4);
+
+        registry
+            .register_tool("trusted", &json!({"type": "object"}), false)
+            .await;
+        assert!(
+            !registry.requires_approval("trusted").await,
+            "0.5 >= 0.4 threshold"
+        );
+
+        registry
+            .register_tool("untrusted", &json!({"type": "object"}), true)
+            .await;
+        assert!(
+            registry.requires_approval("untrusted").await,
+            "0.3 < 0.4 threshold (squatting penalty)"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_registry_list() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("registry.jsonl");
+        let registry = ToolRegistry::new(&path);
+
+        registry
+            .register_tool("tool_a", &json!({}), false)
+            .await;
+        registry
+            .register_tool("tool_b", &json!({}), false)
+            .await;
+
+        let list = registry.list().await;
+        assert_eq!(list.len(), 2);
+    }
+
+    #[test]
+    fn test_tool_entry_serialization_roundtrip() {
+        let entry = ToolEntry {
+            tool_id: "test".to_string(),
+            schema_hash: "abc123".to_string(),
+            first_seen: "2026-01-01T00:00:00Z".to_string(),
+            last_seen: "2026-02-01T00:00:00Z".to_string(),
+            call_count: 42,
+            schema_change_count: 1,
+            admin_approved: true,
+            flagged_for_squatting: false,
+            trust_score: 0.75,
+        };
+
+        let json = serde_json::to_string(&entry).unwrap();
+        let parsed: ToolEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(entry, parsed);
+    }
+}

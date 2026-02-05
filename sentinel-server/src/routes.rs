@@ -46,6 +46,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/approvals/{id}/approve", post(approve_approval))
         .route("/api/approvals/{id}/deny", post(deny_approval))
         .route("/api/metrics", get(metrics_json))
+        // Tool registry endpoints (P2.1)
+        .route("/api/registry/tools", get(list_registry_tools))
+        .route("/api/registry/tools/{name}/approve", post(approve_registry_tool))
+        .route("/api/registry/tools/{name}/revoke", post(revoke_registry_tool))
         .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -224,7 +228,7 @@ struct HealthResponse {
 }
 
 async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
-    let count = state.policies.load().len();
+    let count = state.policy_state.load().policies.len();
     Json(HealthResponse {
         status: "ok".to_string(),
         policies_loaded: count,
@@ -482,14 +486,22 @@ fn sanitize_context(
             client_agent_id
         };
 
+        // OWASP ASI07: For the stateless server API, agent_identity must be
+        // pre-validated by an upstream proxy (e.g., sentinel-http-proxy).
+        // We pass through the context's agent_identity if present, but this
+        // endpoint cannot validate JWTs directly — it has no JWKS configuration.
+        // In production, the HTTP proxy should be the entry point, which does
+        // validate X-Agent-Identity JWTs before populating agent_identity.
         EvaluationContext {
             // Override timestamp with server time — never trust client clocks
             timestamp: None,
             agent_id,
+            agent_identity: ctx.agent_identity,
             // Strip session-state fields: the stateless server API has no session
             // tracking, so these must not be client-controlled
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
+            call_chain: Vec::new(),
         }
     })
 }
@@ -526,12 +538,177 @@ async fn evaluate(
     action.target_domains.clear();
     auto_extract_targets(&mut action);
 
-    let policies = state.policies.load();
+    // SECURITY (R15-CFG-2): Single atomic load of engine + policies.
+    // Previously two separate loads had a microsecond-wide race.
+    let snap = state.policy_state.load();
 
-    let verdict = state
+    // Tool registry check: if enabled, unknown or untrusted tools require approval.
+    // This runs BEFORE engine evaluation so that completely unknown tools are caught
+    // even if no policy explicitly covers them (fail-closed).
+    if let Some(ref registry) = state.tool_registry {
+        let tool_name = &action.tool;
+        let trust = registry.check_trust_level(tool_name).await;
+        match trust {
+            sentinel_mcp::tool_registry::TrustLevel::Unknown => {
+                // Unknown tool: register it and require approval
+                registry.register_unknown(tool_name).await;
+                let reason = format!(
+                    "Tool '{}' is not in the registry — requires approval before use",
+                    tool_name
+                );
+                let verdict = Verdict::RequireApproval {
+                    reason: reason.clone(),
+                };
+                state.metrics.record_evaluation(&verdict);
+                crate::metrics::record_evaluation_verdict("require_approval");
+                crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
+
+                // Create pending approval if store available
+                let requester = derive_resolver_identity(&headers, "anonymous");
+                let requested_by = if requester != "anonymous" {
+                    Some(requester)
+                } else {
+                    None
+                };
+                let approval_id = match state
+                    .approvals
+                    .create(action.clone(), reason, requested_by)
+                    .await
+                {
+                    Ok(id) => Some(id),
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to create approval for unknown tool (fail-closed → Deny): {}",
+                            e
+                        );
+                        let deny = Verdict::Deny {
+                            reason: "Unknown tool requires approval but could not be created"
+                                .to_string(),
+                        };
+                        state.metrics.record_evaluation(&deny);
+                        if let Err(e) = state
+                            .audit
+                            .log_entry(
+                                &action,
+                                &deny,
+                                json!({"source": "http", "registry": "unknown_tool"}),
+                            )
+                            .await
+                        {
+                            tracing::error!("AUDIT FAILURE: {}", e);
+                        } else {
+                            crate::metrics::increment_audit_entries();
+                        }
+                        return Ok(Json(EvaluateResponse {
+                            verdict: deny,
+                            action,
+                            approval_id: None,
+                        }));
+                    }
+                };
+
+                if let Err(e) = state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({"source": "http", "registry": "unknown_tool", "approval_id": approval_id}),
+                    )
+                    .await
+                {
+                    tracing::error!("AUDIT FAILURE: {}", e);
+                } else {
+                    crate::metrics::increment_audit_entries();
+                }
+                return Ok(Json(EvaluateResponse {
+                    verdict,
+                    action,
+                    approval_id,
+                }));
+            }
+            sentinel_mcp::tool_registry::TrustLevel::Untrusted { score } => {
+                let reason = format!(
+                    "Tool '{}' trust score ({:.2}) is below threshold — requires approval",
+                    tool_name, score
+                );
+                let verdict = Verdict::RequireApproval {
+                    reason: reason.clone(),
+                };
+                state.metrics.record_evaluation(&verdict);
+                crate::metrics::record_evaluation_verdict("require_approval");
+                crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
+
+                let requester = derive_resolver_identity(&headers, "anonymous");
+                let requested_by = if requester != "anonymous" {
+                    Some(requester)
+                } else {
+                    None
+                };
+                let approval_id = match state
+                    .approvals
+                    .create(action.clone(), reason, requested_by)
+                    .await
+                {
+                    Ok(id) => Some(id),
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to create approval for untrusted tool (fail-closed → Deny): {}",
+                            e
+                        );
+                        let deny = Verdict::Deny {
+                            reason: "Untrusted tool requires approval but could not be created"
+                                .to_string(),
+                        };
+                        state.metrics.record_evaluation(&deny);
+                        if let Err(e) = state
+                            .audit
+                            .log_entry(
+                                &action,
+                                &deny,
+                                json!({"source": "http", "registry": "untrusted_tool"}),
+                            )
+                            .await
+                        {
+                            tracing::error!("AUDIT FAILURE: {}", e);
+                        } else {
+                            crate::metrics::increment_audit_entries();
+                        }
+                        return Ok(Json(EvaluateResponse {
+                            verdict: deny,
+                            action,
+                            approval_id: None,
+                        }));
+                    }
+                };
+
+                if let Err(e) = state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({"source": "http", "registry": "untrusted_tool", "approval_id": approval_id}),
+                    )
+                    .await
+                {
+                    tracing::error!("AUDIT FAILURE: {}", e);
+                } else {
+                    crate::metrics::increment_audit_entries();
+                }
+                return Ok(Json(EvaluateResponse {
+                    verdict,
+                    action,
+                    approval_id,
+                }));
+            }
+            sentinel_mcp::tool_registry::TrustLevel::Trusted => {
+                // Trusted — proceed to engine evaluation
+            }
+        }
+    }
+
+    let verdict = snap
         .engine
-        .load()
-        .evaluate_action_with_context(&action, &policies, context.as_ref())
+        .evaluate_action_with_context(&action, &snap.policies, context.as_ref())
         .map_err(|e| {
             tracing::error!("Engine evaluation error: {}", e);
             state.metrics.record_error();
@@ -589,6 +766,13 @@ async fn evaluate(
     crate::metrics::record_evaluation_verdict(verdict_label);
     crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
 
+    // Record tool call in registry on Allow (for trust score tracking)
+    if matches!(verdict, Verdict::Allow) {
+        if let Some(ref registry) = state.tool_registry {
+            registry.record_call(&action.tool).await;
+        }
+    }
+
     // Log to audit — fire-and-forget on error (don't fail the request).
     // SECURITY (R16-AUDIT-3): Log at error level (not warn) because a silent
     // audit failure means security decisions proceed without an audit trail.
@@ -616,8 +800,8 @@ async fn evaluate(
 }
 
 async fn list_policies(State(state): State<AppState>) -> Json<Vec<Policy>> {
-    let policies = state.policies.load();
-    Json(policies.as_ref().clone())
+    let snap = state.policy_state.load();
+    Json(snap.policies.clone())
 }
 
 async fn add_policy(
@@ -689,8 +873,8 @@ async fn add_policy(
     let _guard = state.policy_write_lock.lock().await;
 
     // 4. Reject duplicate policy IDs
-    let existing = state.policies.load();
-    if existing.iter().any(|p| p.id == policy.id) {
+    let existing = state.policy_state.load();
+    if existing.policies.iter().any(|p| p.id == policy.id) {
         return (
             StatusCode::CONFLICT,
             Json(json!({"error": format!("Policy with id '{}' already exists", policy.id)})),
@@ -698,7 +882,7 @@ async fn add_policy(
     }
 
     // 5. Enforce max policy count (prevent resource exhaustion)
-    if existing.len() >= 10_000 {
+    if existing.policies.len() >= 10_000 {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "Maximum policy count (10000) reached"})),
@@ -707,16 +891,18 @@ async fn add_policy(
 
     // Build candidate policy list
     let id = policy.id.clone();
-    let mut candidate = existing.as_ref().clone();
+    let mut candidate = existing.policies.clone();
     candidate.push(policy.clone());
     PolicyEngine::sort_policies(&mut candidate);
 
     // Compile-first: verify the new policy set compiles before storing
     match PolicyEngine::with_policies(false, &candidate) {
         Ok(compiled_engine) => {
-            // Store engine first (stricter), then policies (R12-INT-2)
-            state.engine.store(Arc::new(compiled_engine));
-            state.policies.store(Arc::new(candidate));
+            // SECURITY (R15-CFG-2): Single atomic swap of engine + policies.
+            state.policy_state.store(Arc::new(crate::PolicySnapshot {
+                engine: compiled_engine,
+                policies: candidate,
+            }));
             tracing::info!("Added policy: {}", id);
         }
         Err(errors) => {
@@ -744,6 +930,8 @@ async fn add_policy(
         .await
     {
         tracing::warn!("Failed to audit add_policy: {}", e);
+    } else {
+        crate::metrics::increment_audit_entries();
     }
 
     (StatusCode::CREATED, Json(json!({"added": id})))
@@ -756,9 +944,9 @@ async fn remove_policy(
     // SECURITY (R15-RACE-*): Serialize with other policy mutations.
     let _guard = state.policy_write_lock.lock().await;
 
-    let existing = state.policies.load();
-    let candidate: Vec<Policy> = existing.iter().filter(|p| p.id != id).cloned().collect();
-    let removed = existing.len().saturating_sub(candidate.len());
+    let existing = state.policy_state.load();
+    let candidate: Vec<Policy> = existing.policies.iter().filter(|p| p.id != id).cloned().collect();
+    let removed = existing.policies.len().saturating_sub(candidate.len());
 
     if removed == 0 {
         return (
@@ -770,8 +958,11 @@ async fn remove_policy(
     // Compile-first: verify the remaining set compiles before storing
     match PolicyEngine::with_policies(false, &candidate) {
         Ok(compiled_engine) => {
-            state.engine.store(Arc::new(compiled_engine));
-            state.policies.store(Arc::new(candidate));
+            // SECURITY (R15-CFG-2): Single atomic swap of engine + policies.
+            state.policy_state.store(Arc::new(crate::PolicySnapshot {
+                engine: compiled_engine,
+                policies: candidate,
+            }));
             tracing::info!("Removed {} policy(ies) with id: {}", removed, id);
         }
         Err(errors) => {
@@ -805,6 +996,8 @@ async fn remove_policy(
         .await
     {
         tracing::warn!("Failed to audit remove_policy: {}", e);
+    } else {
+        crate::metrics::increment_audit_entries();
     }
 
     (StatusCode::OK, Json(json!({"removed": removed, "id": id})))
@@ -1068,9 +1261,11 @@ async fn prometheus_metrics(State(state): State<AppState>) -> Response {
     match &state.prometheus_handle {
         Some(handle) => {
             // Update dynamic gauges before rendering
-            let policy_count = state.policies.load().len();
+            let policy_count = state.policy_state.load().policies.len();
             crate::metrics::set_policies_loaded(policy_count as f64);
             crate::metrics::set_uptime_seconds(state.metrics.start_time.elapsed().as_secs_f64());
+            let pending_count = state.approvals.list_pending().await.len();
+            crate::metrics::set_active_sessions(pending_count as f64);
 
             let body = handle.render();
             ([(header::CONTENT_TYPE, "text/plain; version=0.0.4")], body).into_response()
@@ -1086,7 +1281,7 @@ async fn metrics_json(State(state): State<AppState>) -> Json<serde_json::Value> 
     let uptime = m.start_time.elapsed();
     Json(json!({
         "uptime_seconds": uptime.as_secs(),
-        "policies_loaded": state.policies.load().len(),
+        "policies_loaded": state.policy_state.load().policies.len(),
         "evaluations": {
             "total": m.evaluations_total.load(Ordering::Relaxed),
             "allow": m.evaluations_allow.load(Ordering::Relaxed),
@@ -1291,6 +1486,8 @@ async fn approve_approval(
             .await
         {
             tracing::warn!("Failed to audit approval resolution for {}: {}", id, e);
+        } else {
+            crate::metrics::increment_audit_entries();
         }
     }
 
@@ -1381,11 +1578,229 @@ async fn deny_approval(
             .await
         {
             tracing::warn!("Failed to audit approval denial for {}: {}", id, e);
+        } else {
+            crate::metrics::increment_audit_entries();
         }
     }
 
     let value = serde_json::to_value(approval).map_err(|e| {
         tracing::error!("Approval serialization error: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Internal server error".to_string(),
+            }),
+        )
+    })?;
+    Ok(Json(value))
+}
+
+// === Tool Registry Endpoints (P2.1) ===
+
+/// Maximum length for tool names in registry operations.
+const MAX_TOOL_NAME_LEN: usize = 256;
+
+/// Validate a tool name from a URL path parameter.
+fn validate_tool_name(name: &str) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    if name.is_empty() || name.len() > MAX_TOOL_NAME_LEN {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("Tool name must be 1-{} characters", MAX_TOOL_NAME_LEN),
+            }),
+        ));
+    }
+    if name.chars().any(|c| c.is_control()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Tool name contains invalid characters".to_string(),
+            }),
+        ));
+    }
+    Ok(())
+}
+
+/// List all tools in the registry with their trust scores.
+///
+/// GET /api/registry/tools
+///
+/// Returns a JSON object with:
+/// - `count`: number of registered tools
+/// - `trust_threshold`: the configured trust threshold
+/// - `tools`: array of tool entries with trust scores
+async fn list_registry_tools(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let registry = state.tool_registry.as_ref().ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Tool registry is not enabled".to_string(),
+            }),
+        )
+    })?;
+
+    let tools = registry.list().await;
+    let threshold = registry.trust_threshold();
+
+    Ok(Json(json!({
+        "count": tools.len(),
+        "trust_threshold": threshold,
+        "tools": tools,
+    })))
+}
+
+/// Approve a tool in the registry (set admin_approved = true).
+///
+/// POST /api/registry/tools/{name}/approve
+///
+/// Returns the updated tool entry on success.
+async fn approve_registry_tool(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    validate_tool_name(&name)?;
+
+    let registry = state.tool_registry.as_ref().ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Tool registry is not enabled".to_string(),
+            }),
+        )
+    })?;
+
+    let entry = registry.approve(&name).await.map_err(|e| {
+        match e {
+            sentinel_mcp::tool_registry::RegistryError::NotFound(_) => (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("Tool '{}' not found in registry", name),
+                }),
+            ),
+            _ => {
+                tracing::error!("Registry approve error for '{}': {}", name, e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "Failed to approve tool".to_string(),
+                    }),
+                )
+            }
+        }
+    })?;
+
+    // Persist the change
+    if let Err(e) = registry.persist().await {
+        tracing::warn!("Failed to persist registry after approving '{}': {}", name, e);
+    }
+
+    // Audit trail
+    let action = Action::new(
+        "sentinel",
+        "registry_tool_approved",
+        json!({
+            "tool_id": &name,
+            "trust_score": entry.trust_score,
+        }),
+    );
+    if let Err(e) = state
+        .audit
+        .log_entry(
+            &action,
+            &Verdict::Allow,
+            json!({"source": "api", "event": "registry_tool_approved"}),
+        )
+        .await
+    {
+        tracing::warn!("Failed to audit registry approval for {}: {}", name, e);
+    } else {
+        crate::metrics::increment_audit_entries();
+    }
+
+    let value = serde_json::to_value(&entry).map_err(|e| {
+        tracing::error!("Registry entry serialization error: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Internal server error".to_string(),
+            }),
+        )
+    })?;
+    Ok(Json(value))
+}
+
+/// Revoke admin approval for a tool in the registry (set admin_approved = false).
+///
+/// POST /api/registry/tools/{name}/revoke
+///
+/// Returns the updated tool entry on success.
+async fn revoke_registry_tool(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    validate_tool_name(&name)?;
+
+    let registry = state.tool_registry.as_ref().ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Tool registry is not enabled".to_string(),
+            }),
+        )
+    })?;
+
+    let entry = registry.revoke(&name).await.map_err(|e| {
+        match e {
+            sentinel_mcp::tool_registry::RegistryError::NotFound(_) => (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("Tool '{}' not found in registry", name),
+                }),
+            ),
+            _ => {
+                tracing::error!("Registry revoke error for '{}': {}", name, e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "Failed to revoke tool approval".to_string(),
+                    }),
+                )
+            }
+        }
+    })?;
+
+    // Persist the change
+    if let Err(e) = registry.persist().await {
+        tracing::warn!("Failed to persist registry after revoking '{}': {}", name, e);
+    }
+
+    // Audit trail
+    let action = Action::new(
+        "sentinel",
+        "registry_tool_revoked",
+        json!({
+            "tool_id": &name,
+            "trust_score": entry.trust_score,
+        }),
+    );
+    if let Err(e) = state
+        .audit
+        .log_entry(
+            &action,
+            &Verdict::Allow,
+            json!({"source": "api", "event": "registry_tool_revoked"}),
+        )
+        .await
+    {
+        tracing::warn!("Failed to audit registry revocation for {}: {}", name, e);
+    } else {
+        crate::metrics::increment_audit_entries();
+    }
+
+    let value = serde_json::to_value(&entry).map_err(|e| {
+        tracing::error!("Registry entry serialization error: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -1417,6 +1832,7 @@ async fn rate_limit(State(state): State<AppState>, request: Request, next: Next)
     if let Some(ref per_ip) = state.rate_limits.per_ip {
         let client_ip = extract_client_ip(&request, &state.trusted_proxies);
         if let Some(retry_after) = per_ip.check(client_ip) {
+            crate::metrics::increment_rate_limit_rejections();
             return (
                 StatusCode::TOO_MANY_REQUESTS,
                 [(header::RETRY_AFTER, retry_after.to_string())],
@@ -1430,6 +1846,7 @@ async fn rate_limit(State(state): State<AppState>, request: Request, next: Next)
     if let Some(ref per_principal) = state.rate_limits.per_principal {
         let principal_key = extract_principal_key(&request, &state.trusted_proxies);
         if let Some(retry_after) = per_principal.check(principal_key) {
+            crate::metrics::increment_rate_limit_rejections();
             return (
                 StatusCode::TOO_MANY_REQUESTS,
                 [(header::RETRY_AFTER, retry_after.to_string())],
@@ -1446,6 +1863,7 @@ async fn rate_limit(State(state): State<AppState>, request: Request, next: Next)
         if let Err(not_until) = limiter.check() {
             let wait = not_until.wait_time_from(governor::clock::DefaultClock::default().now());
             let retry_after = wait.as_secs().max(1);
+            crate::metrics::increment_rate_limit_rejections();
             return (
                 StatusCode::TOO_MANY_REQUESTS,
                 [(header::RETRY_AFTER, retry_after.to_string())],
@@ -1704,8 +2122,10 @@ mod tests {
         let spoofed = EvaluationContext {
             timestamp: Some("2026-01-01T00:00:00Z".to_string()),
             agent_id: Some("agent-a".to_string()),
+            agent_identity: None,
             call_counts,
             previous_actions: vec!["login".to_string(), "auth".to_string()],
+            call_chain: Vec::new(),
         };
         let sanitized = sanitize_context(Some(spoofed), &headers).unwrap();
         // agent_id preserved (no auth header)
@@ -1723,8 +2143,10 @@ mod tests {
         let ctx = EvaluationContext {
             timestamp: None,
             agent_id: Some("my-agent".to_string()),
+            agent_identity: None,
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
+            call_chain: Vec::new(),
         };
         let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
         assert_eq!(sanitized.agent_id, Some("my-agent".to_string()));
@@ -1742,8 +2164,10 @@ mod tests {
         let ctx = EvaluationContext {
             timestamp: None,
             agent_id: Some("spoofed-agent".to_string()),
+            agent_identity: None,
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
+            call_chain: Vec::new(),
         };
         let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
         let agent_id = sanitized.agent_id.unwrap();
@@ -1770,8 +2194,10 @@ mod tests {
         let ctx = EvaluationContext {
             timestamp: None,
             agent_id: None,
+            agent_identity: None,
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
+            call_chain: Vec::new(),
         };
         let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
         let agent_id = sanitized.agent_id.unwrap();
@@ -1793,8 +2219,10 @@ mod tests {
         let ctx = EvaluationContext {
             timestamp: None,
             agent_id: Some(oversized_id),
+            agent_identity: None,
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
+            call_chain: Vec::new(),
         };
         let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
         assert!(
@@ -1810,8 +2238,10 @@ mod tests {
         let ctx = EvaluationContext {
             timestamp: None,
             agent_id: Some(max_id.clone()),
+            agent_identity: None,
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
+            call_chain: Vec::new(),
         };
         let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
         assert_eq!(sanitized.agent_id, Some(max_id));
@@ -1823,8 +2253,10 @@ mod tests {
         let ctx = EvaluationContext {
             timestamp: None,
             agent_id: Some("".to_string()),
+            agent_identity: None,
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
+            call_chain: Vec::new(),
         };
         let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
         assert!(

@@ -11,6 +11,7 @@
 //! - `sentinel_audit_entries_total` (counter)
 //! - `sentinel_active_sessions` (gauge)
 //! - `sentinel_uptime_seconds` (gauge)
+//! - `sentinel_rate_limit_rejections_total` (counter)
 
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 
@@ -50,6 +51,10 @@ pub fn init_prometheus() -> Option<PrometheusHandle> {
                 "Number of currently active sessions"
             );
             metrics::describe_gauge!("sentinel_uptime_seconds", "Server uptime in seconds");
+            metrics::describe_counter!(
+                "sentinel_rate_limit_rejections_total",
+                "Total number of requests rejected by rate limiting"
+            );
 
             tracing::info!("Prometheus metrics recorder installed");
             Some(handle)
@@ -80,6 +85,21 @@ pub fn set_policies_loaded(count: f64) {
 /// Increment the audit entries counter.
 pub fn increment_audit_entries() {
     metrics::counter!("sentinel_audit_entries_total").increment(1);
+}
+
+/// Increment the DLP findings counter by the given count.
+pub fn increment_dlp_findings(count: u64) {
+    metrics::counter!("sentinel_dlp_findings_total").increment(count);
+}
+
+/// Update the active sessions gauge.
+pub fn set_active_sessions(count: f64) {
+    metrics::gauge!("sentinel_active_sessions").set(count);
+}
+
+/// Increment the rate-limit rejections counter.
+pub fn increment_rate_limit_rejections() {
+    metrics::counter!("sentinel_rate_limit_rejections_total").increment(1);
 }
 
 /// Update the uptime gauge.
@@ -128,5 +148,22 @@ mod tests {
     fn test_set_uptime_seconds_does_not_panic() {
         set_uptime_seconds(0.0);
         set_uptime_seconds(3600.0);
+    }
+
+    #[test]
+    fn test_increment_dlp_findings_does_not_panic() {
+        increment_dlp_findings(0);
+        increment_dlp_findings(3);
+    }
+
+    #[test]
+    fn test_set_active_sessions_does_not_panic() {
+        set_active_sessions(0.0);
+        set_active_sessions(10.0);
+    }
+
+    #[test]
+    fn test_increment_rate_limit_rejections_does_not_panic() {
+        increment_rate_limit_rejections();
     }
 }

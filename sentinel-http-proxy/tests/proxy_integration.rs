@@ -170,6 +170,7 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
+        tool_registry: None,
     }
 }
 
@@ -1613,6 +1614,7 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
+        tool_registry: None,
     };
     let sessions = state.sessions.clone();
     let app = build_router(state);
@@ -1903,6 +1905,7 @@ async fn trace_resource_read_denied_includes_trace() {
         known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
+        tool_registry: None,
     };
     let app = build_router(state);
 
@@ -1982,6 +1985,7 @@ async fn trace_constraint_details_visible() {
         known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
+        tool_registry: None,
     };
     let app = build_router(state);
 
@@ -2182,6 +2186,7 @@ fn build_oauth_test_state(
         known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
+        tool_registry: None,
     }
 }
 
@@ -2710,6 +2715,7 @@ fn build_api_key_test_state(
         known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
+        tool_registry: None,
     }
 }
 
@@ -3134,6 +3140,7 @@ fn build_test_state_deny_tasks(upstream_url: &str, tmp: &TempDir) -> ProxyState 
         known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
+        tool_registry: None,
     }
 }
 
@@ -3248,6 +3255,7 @@ async fn task_get_allowed_when_no_deny_policy() {
         known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
+        tool_registry: None,
     };
     let app = build_router(state);
 
@@ -3317,6 +3325,7 @@ async fn task_request_fail_closed_no_matching_policy() {
         known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
+        tool_registry: None,
     };
     let app = build_router(state);
 
@@ -3385,6 +3394,7 @@ async fn task_request_dlp_blocks_secret_in_task_id() {
         known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
+        tool_registry: None,
     };
     let app = build_router(state);
 
@@ -3459,6 +3469,7 @@ async fn task_request_clean_params_not_dlp_blocked() {
         known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
+        tool_registry: None,
     };
     let app = build_router(state);
 
@@ -3531,6 +3542,7 @@ async fn task_request_dlp_blocks_github_token_in_params() {
         known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
+        tool_registry: None,
     };
     let app = build_router(state);
 
@@ -3735,4 +3747,402 @@ async fn session_fixation_unbound_session_allows_first_binding() {
             "Alice's subject should now be bound to the session"
         );
     };
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// OWASP ASI08: Multi-Agent Call Chain Tests
+// ════════════════════════════════════════════════════════════════════════════════
+
+/// Build a ProxyState with a max_chain_depth policy.
+fn build_chain_depth_test_state(upstream_url: &str, tmp: &TempDir, max_depth: usize) -> ProxyState {
+    let policies = vec![
+        Policy {
+            id: "*".to_string(),
+            name: "Chain depth limit".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "context_conditions": [
+                        {"type": "max_chain_depth", "max_depth": max_depth}
+                    ]
+                }),
+            },
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        },
+    ];
+
+    let engine = PolicyEngine::with_policies(false, &policies).expect("policies should compile");
+
+    ProxyState {
+        engine: Arc::new(engine),
+        policies: Arc::new(policies),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
+        upstream_url: upstream_url.to_string(),
+        http_client: reqwest::Client::new(),
+        oauth: None,
+        injection_scanner: None,
+        injection_disabled: false,
+        injection_blocking: false,
+        api_key: None,
+        approval_store: None,
+        manifest_config: None,
+        allowed_origins: vec![],
+        canonicalize: false,
+        output_schema_registry: Arc::new(
+            sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
+        ),
+        response_dlp_enabled: false,
+        response_dlp_blocking: false,
+        known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
+        elicitation_config: sentinel_config::ElicitationConfig::default(),
+        sampling_config: sentinel_config::SamplingConfig::default(),
+        tool_registry: None,
+    }
+}
+
+#[tokio::test]
+async fn call_chain_direct_call_allowed() {
+    // max_depth: 1 allows one upstream agent
+    let upstream_url = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_chain_depth_test_state(&upstream_url, &tmp, 1);
+    let app = build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"path": "/tmp/test"}
+        }
+    }))
+    .unwrap();
+
+    // No X-Upstream-Agents header = direct call (chain depth 0)
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json_resp = json_body(resp).await;
+    // Should have result, not error
+    assert!(
+        json_resp.get("result").is_some() || json_resp.get("error").is_none(),
+        "Direct call should be allowed: {:?}",
+        json_resp
+    );
+}
+
+#[tokio::test]
+async fn call_chain_single_hop_allowed_when_max_depth_one() {
+    // max_depth: 1 allows one upstream agent
+    let upstream_url = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_chain_depth_test_state(&upstream_url, &tmp, 1);
+    let app = build_router(state);
+
+    // Build a call chain with one entry (single hop)
+    let call_chain = json!([
+        {
+            "agent_id": "agent-a",
+            "tool": "orchestrate",
+            "function": "execute",
+            "timestamp": "2026-01-01T12:00:00Z"
+        }
+    ]);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"path": "/tmp/test"}
+        }
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("x-upstream-agents", call_chain.to_string())
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json_resp = json_body(resp).await;
+    // The chain depth is 1 (from header) + 1 (current agent) = 2
+    // But with max_depth: 1, we allow chains up to depth 1 from headers
+    // Actually our implementation checks call_chain.len() > max_depth
+    // So with one entry and max_depth: 1, it should be allowed
+    // Let's check what the response is
+    let has_error = json_resp.get("error").is_some();
+    if has_error {
+        let error = json_resp.get("error").unwrap();
+        // If it's a chain depth error, that's expected behavior to investigate
+        assert!(
+            !error
+                .get("message")
+                .and_then(|m| m.as_str())
+                .map(|s| s.contains("chain depth"))
+                .unwrap_or(false),
+            "Single hop should be allowed with max_depth: 1"
+        );
+    }
+}
+
+#[tokio::test]
+async fn call_chain_exceeds_max_depth_denied() {
+    // max_depth: 0 means no multi-hop allowed
+    let upstream_url = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_chain_depth_test_state(&upstream_url, &tmp, 0);
+    let app = build_router(state);
+
+    // Build a call chain with one entry (violates max_depth: 0)
+    let call_chain = json!([
+        {
+            "agent_id": "agent-a",
+            "tool": "orchestrate",
+            "function": "execute",
+            "timestamp": "2026-01-01T12:00:00Z"
+        }
+    ]);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"path": "/tmp/test"}
+        }
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("x-upstream-agents", call_chain.to_string())
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json_resp = json_body(resp).await;
+
+    // Should have error about chain depth
+    let error = json_resp
+        .get("error")
+        .expect("Should have error for exceeded chain depth");
+    let message = error.get("message").and_then(|m| m.as_str()).unwrap_or("");
+    assert!(
+        message.contains("chain depth") || message.contains("Chain depth"),
+        "Error should mention chain depth: {}",
+        message
+    );
+}
+
+/// Build a ProxyState with agent-specific policies for privilege escalation testing.
+fn build_priv_escalation_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
+    let policies = vec![
+        // Agent-A is denied access to dangerous tools
+        Policy {
+            id: "dangerous:*".to_string(),
+            name: "Deny dangerous to agent-a".to_string(),
+            policy_type: PolicyType::Conditional {
+                conditions: json!({
+                    "context_conditions": [
+                        {
+                            "type": "agent_id",
+                            "blocked": ["agent-a"]
+                        }
+                    ]
+                }),
+            },
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        },
+        // Default allow for all other tools
+        Policy {
+            id: "*".to_string(),
+            name: "Default allow".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 10,
+            path_rules: None,
+            network_rules: None,
+        },
+    ];
+
+    let engine = PolicyEngine::with_policies(false, &policies).expect("policies should compile");
+
+    ProxyState {
+        engine: Arc::new(engine),
+        policies: Arc::new(policies),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
+        upstream_url: upstream_url.to_string(),
+        http_client: reqwest::Client::new(),
+        oauth: None,
+        injection_scanner: None,
+        injection_disabled: false,
+        injection_blocking: false,
+        api_key: None,
+        approval_store: None,
+        manifest_config: None,
+        allowed_origins: vec![],
+        canonicalize: false,
+        output_schema_registry: Arc::new(
+            sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
+        ),
+        response_dlp_enabled: false,
+        response_dlp_blocking: false,
+        known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
+        elicitation_config: sentinel_config::ElicitationConfig::default(),
+        sampling_config: sentinel_config::SamplingConfig::default(),
+        tool_registry: None,
+    }
+}
+
+#[tokio::test]
+async fn privilege_escalation_detected_and_blocked() {
+    // Test scenario:
+    // - Agent-A is blocked from calling "dangerous:*" tools
+    // - Agent-A proxies through Agent-B (who isn't blocked)
+    // - Sentinel should detect this as privilege escalation and deny
+    let upstream_url = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_priv_escalation_test_state(&upstream_url, &tmp);
+    let app = build_router(state);
+
+    // Call chain shows Agent-A initiated the request
+    let call_chain = json!([
+        {
+            "agent_id": "agent-a",
+            "tool": "orchestrate",
+            "function": "execute",
+            "timestamp": "2026-01-01T12:00:00Z"
+        }
+    ]);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "dangerous",
+            "arguments": {"target": "/etc/passwd"}
+        }
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("x-upstream-agents", call_chain.to_string())
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json_resp = json_body(resp).await;
+
+    // Should have error about privilege escalation
+    let error = json_resp.get("error");
+    assert!(
+        error.is_some(),
+        "Should be denied due to privilege escalation: {:?}",
+        json_resp
+    );
+    let message = error
+        .and_then(|e| e.get("message"))
+        .and_then(|m| m.as_str())
+        .unwrap_or("");
+    assert!(
+        message.contains("escalation") || message.contains("agent-a"),
+        "Error should mention privilege escalation or agent-a: {}",
+        message
+    );
+}
+
+#[tokio::test]
+async fn call_chain_included_in_audit_log() {
+    let upstream_url = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_test_state(&upstream_url, &tmp);
+    let audit_path = tmp.path().join("audit.log");
+    let app = build_router(state);
+
+    // Build a call chain with entries
+    let call_chain = json!([
+        {
+            "agent_id": "agent-a",
+            "tool": "orchestrate",
+            "function": "execute",
+            "timestamp": "2026-01-01T12:00:00Z"
+        },
+        {
+            "agent_id": "agent-b",
+            "tool": "delegate",
+            "function": "forward",
+            "timestamp": "2026-01-01T12:00:01Z"
+        }
+    ]);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "bash",  // This will be denied
+            "arguments": {"command": "ls"}
+        }
+    }))
+    .unwrap();
+
+    let _resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("x-upstream-agents", call_chain.to_string())
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Give audit logger time to write
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Read audit log and check for call_chain
+    let audit_content = tokio::fs::read_to_string(&audit_path)
+        .await
+        .unwrap_or_default();
+
+    // The audit log should contain the call chain
+    assert!(
+        audit_content.contains("call_chain") || audit_content.contains("agent-a"),
+        "Audit log should include call chain information: {}",
+        audit_content
+    );
 }

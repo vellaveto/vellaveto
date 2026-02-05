@@ -86,6 +86,9 @@ pub struct ProxyBridge {
     /// Sampling request policy configuration.
     /// Controls whether `sampling/createMessage` requests are allowed or blocked.
     sampling_config: sentinel_config::SamplingConfig,
+    /// Tool registry for tracking tool trust scores (P2.1).
+    /// None when tool registry is disabled.
+    tool_registry: Option<Arc<crate::tool_registry::ToolRegistry>>,
 }
 
 impl ProxyBridge {
@@ -109,6 +112,7 @@ impl ProxyBridge {
             known_tools: crate::rug_pull::build_known_tools(&[]),
             elicitation_config: sentinel_config::ElicitationConfig::default(),
             sampling_config: sentinel_config::SamplingConfig::default(),
+            tool_registry: None,
         }
     }
 
@@ -199,6 +203,13 @@ impl ProxyBridge {
     /// When `enabled: false` (default), all sampling requests are blocked.
     pub fn with_sampling_config(mut self, config: sentinel_config::SamplingConfig) -> Self {
         self.sampling_config = config;
+        self
+    }
+
+    /// Set the tool registry for trust score tracking (P2.1).
+    /// When set, unknown or untrusted tools require approval before forwarding.
+    pub fn with_tool_registry(mut self, registry: Arc<crate::tool_registry::ToolRegistry>) -> Self {
+        self.tool_registry = Some(registry);
         self
     }
 
@@ -643,16 +654,84 @@ impl ProxyBridge {
                                         ).await;
                                     }
 
+                                    // Tool registry check: if enabled, unknown or untrusted tools
+                                    // require approval before engine evaluation.
+                                    if let Some(ref registry) = self.tool_registry {
+                                        let trust = registry.check_trust_level(&tool_name).await;
+                                        match trust {
+                                            crate::tool_registry::TrustLevel::Unknown => {
+                                                registry.register_unknown(&tool_name).await;
+                                                let action = extract_action(&tool_name, &arguments);
+                                                let reason = format!(
+                                                    "Tool '{}' is not in the registry — requires approval before use",
+                                                    tool_name
+                                                );
+                                                let verdict = Verdict::RequireApproval { reason: reason.clone() };
+                                                if let Err(e) = self.audit.log_entry(
+                                                    &action,
+                                                    &verdict,
+                                                    json!({"source": "proxy", "registry": "unknown_tool", "tool": tool_name}),
+                                                ).await {
+                                                    tracing::error!("AUDIT FAILURE: {}", e);
+                                                }
+                                                let approval_id = if let Some(ref store) = self.approval_store {
+                                                    store.create(action, reason.clone(), None).await.ok()
+                                                } else {
+                                                    None
+                                                };
+                                                let error_data = json!({"verdict": "require_approval", "reason": reason, "approval_id": approval_id});
+                                                let response = make_denial_response(&id, &error_data.to_string());
+                                                write_message(&mut agent_writer, &response).await
+                                                    .map_err(ProxyError::Framing)?;
+                                                continue;
+                                            }
+                                            crate::tool_registry::TrustLevel::Untrusted { score } => {
+                                                let action = extract_action(&tool_name, &arguments);
+                                                let reason = format!(
+                                                    "Tool '{}' trust score ({:.2}) is below threshold — requires approval",
+                                                    tool_name, score
+                                                );
+                                                let verdict = Verdict::RequireApproval { reason: reason.clone() };
+                                                if let Err(e) = self.audit.log_entry(
+                                                    &action,
+                                                    &verdict,
+                                                    json!({"source": "proxy", "registry": "untrusted_tool", "tool": tool_name}),
+                                                ).await {
+                                                    tracing::error!("AUDIT FAILURE: {}", e);
+                                                }
+                                                let approval_id = if let Some(ref store) = self.approval_store {
+                                                    store.create(action, reason.clone(), None).await.ok()
+                                                } else {
+                                                    None
+                                                };
+                                                let error_data = json!({"verdict": "require_approval", "reason": reason, "approval_id": approval_id});
+                                                let response = make_denial_response(&id, &error_data.to_string());
+                                                write_message(&mut agent_writer, &response).await
+                                                    .map_err(ProxyError::Framing)?;
+                                                continue;
+                                            }
+                                            crate::tool_registry::TrustLevel::Trusted => {
+                                                // Trusted — proceed to engine evaluation
+                                            }
+                                        }
+                                    }
+
                                     let ann = known_tool_annotations.get(&tool_name);
                                     // Build evaluation context from session tracking
                                     let eval_ctx = EvaluationContext {
                                         timestamp: None,
                                         agent_id: None,
+                                        agent_identity: None,
                                         call_counts: call_counts.clone(),
                                         previous_actions: action_history.clone(),
+                                        call_chain: Vec::new(),
                                     };
                                     match self.evaluate_tool_call(&id, &tool_name, &arguments, ann, Some(&eval_ctx)) {
                                         ProxyDecision::Forward => {
+                                            // Record tool call in registry on Allow
+                                            if let Some(ref registry) = self.tool_registry {
+                                                registry.record_call(&tool_name).await;
+                                            }
                                             // Update session tracking after allowed tool call
                                             *call_counts.entry(tool_name.clone()).or_insert(0) += 1;
                                             if action_history.len() >= MAX_ACTION_HISTORY {
@@ -761,8 +840,10 @@ impl ProxyBridge {
                                     let eval_ctx = EvaluationContext {
                                         timestamp: None,
                                         agent_id: None,
+                                        agent_identity: None,
                                         call_counts: call_counts.clone(),
                                         previous_actions: action_history.clone(),
+                                        call_chain: Vec::new(),
                                     };
                                     match self.evaluate_resource_read(&id, &uri, Some(&eval_ctx)) {
                                         ProxyDecision::Forward => {
@@ -936,8 +1017,10 @@ impl ProxyBridge {
                                     let eval_ctx = EvaluationContext {
                                         timestamp: None,
                                         agent_id: None,
+                                        agent_identity: None,
                                         call_counts: call_counts.clone(),
                                         previous_actions: action_history.clone(),
+                                        call_chain: Vec::new(),
                                     };
                                     match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
                                         Ok((Verdict::Allow, _trace)) => {
@@ -2913,8 +2996,10 @@ mod tests {
         let ctx = EvaluationContext {
             timestamp: None,
             agent_id: Some("agent-007".to_string()),
+            agent_identity: None,
             call_counts: HashMap::new(),
             previous_actions: vec!["read_file".to_string()],
+            call_chain: Vec::new(),
         };
         let result = bridge.evaluate_action_inner(&action, Some(&ctx));
         assert!(

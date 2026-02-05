@@ -10,6 +10,7 @@ use dashmap::DashMap;
 use sentinel_config::ToolManifest;
 use sentinel_mcp::memory_tracking::MemoryTracker;
 use sentinel_mcp::rug_pull::ToolAnnotations;
+use sentinel_types::AgentIdentity;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -53,6 +54,14 @@ pub struct SessionState {
     pub elicitation_count: u32,
     /// SECURITY (R15-OAUTH-4): Token expiry timestamp (Unix seconds).
     pub token_expires_at: Option<u64>,
+    /// OWASP ASI08: Call chain for multi-agent communication monitoring.
+    /// Tracks the sequence of agent hops for the current request.
+    /// Cleared at the start of each new request, then rebuilt from headers.
+    pub current_call_chain: Vec<sentinel_types::CallChainEntry>,
+    /// OWASP ASI07: Cryptographically attested agent identity from X-Agent-Identity JWT.
+    /// Populated when the header is present and valid, provides stronger identity
+    /// guarantees than the legacy oauth_subject field.
+    pub agent_identity: Option<AgentIdentity>,
 }
 
 impl SessionState {
@@ -74,6 +83,8 @@ impl SessionState {
             memory_tracker: MemoryTracker::new(),
             elicitation_count: 0,
             token_expires_at: None,
+            current_call_chain: Vec::new(),
+            agent_identity: None,
         }
     }
 

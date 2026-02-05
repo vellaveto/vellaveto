@@ -354,6 +354,7 @@ async fn main() -> Result<()> {
         known_tools: sentinel_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: policy_config.elicitation.clone(),
         sampling_config: policy_config.sampling.clone(),
+        tool_registry: None,
     };
 
     if state.canonicalize {

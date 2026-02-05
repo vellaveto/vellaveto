@@ -349,15 +349,17 @@ mod server_auth {
     fn make_authed_state(api_key: &str) -> (AppState, TempDir) {
         let tmp = TempDir::new().unwrap();
         let state = AppState {
-            engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-            policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
-                id: "file:read".to_string(),
-                name: "Allow file reads".to_string(),
-                policy_type: PolicyType::Allow,
-                priority: 10,
-                path_rules: None,
-                network_rules: None,
-            }])),
+            policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
+                engine: PolicyEngine::new(false),
+                policies: vec![Policy {
+                    id: "file:read".to_string(),
+                    name: "Allow file reads".to_string(),
+                    policy_type: PolicyType::Allow,
+                    priority: 10,
+                    path_rules: None,
+                    network_rules: None,
+                }],
+            })),
             audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
             config_path: Arc::new("test.toml".to_string()),
             approvals: Arc::new(ApprovalStore::new(
@@ -371,6 +373,7 @@ mod server_auth {
             trusted_proxies: Arc::new(vec![]),
             policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
             prometheus_handle: None,
+            tool_registry: None,
         };
         (state, tmp)
     }
@@ -472,8 +475,10 @@ mod server_auth {
     async fn no_api_key_configured_allows_all() {
         let tmp = TempDir::new().unwrap();
         let state = AppState {
-            engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-            policies: Arc::new(ArcSwap::from_pointee(vec![])),
+            policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
+                engine: PolicyEngine::new(false),
+                policies: vec![],
+            })),
             audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
             config_path: Arc::new("test.toml".to_string()),
             approvals: Arc::new(ApprovalStore::new(
@@ -487,6 +492,7 @@ mod server_auth {
             trusted_proxies: Arc::new(vec![]),
             policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
             prometheus_handle: None,
+            tool_registry: None,
         };
         let app = routes::build_router(state);
 
@@ -1045,15 +1051,17 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
     }
 
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
-            id: "file:read".to_string(),
-            name: "Allow reads".to_string(),
-            policy_type: PolicyType::Allow,
-            priority: 10,
-            path_rules: None,
-            network_rules: None,
-        }])),
+        policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![Policy {
+                id: "file:read".to_string(),
+                name: "Allow reads".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+                path_rules: None,
+                network_rules: None,
+            }],
+        })),
         audit: logger,
         config_path: Arc::new("test.toml".to_string()),
         approvals: Arc::new(ApprovalStore::new(
@@ -1067,6 +1075,7 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
 
     let app = routes::build_router(state);
@@ -1126,19 +1135,21 @@ async fn finding_12_approval_creation_failure_denies_request() {
     ));
 
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(PolicyEngine::new(false))),
-        policies: Arc::new(ArcSwap::from_pointee(vec![Policy {
-            id: "network:*".to_string(),
-            name: "Network requires approval".to_string(),
-            policy_type: PolicyType::Conditional {
-                conditions: json!({
-                    "require_approval": true
-                }),
-            },
-            priority: 100,
-            path_rules: None,
-            network_rules: None,
-        }])),
+        policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![Policy {
+                id: "network:*".to_string(),
+                name: "Network requires approval".to_string(),
+                policy_type: PolicyType::Conditional {
+                    conditions: json!({
+                        "require_approval": true
+                    }),
+                },
+                priority: 100,
+                path_rules: None,
+                network_rules: None,
+            }],
+        })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
         approvals,
@@ -1149,6 +1160,7 @@ async fn finding_12_approval_creation_failure_denies_request() {
         trusted_proxies: Arc::new(vec![]),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
+        tool_registry: None,
     };
 
     let app = routes::build_router(state);
@@ -1344,7 +1356,7 @@ async fn r19_audit_rotation_corrupted_log_skipped() {
         "test".to_string(),
         json!({"test": true}),
     );
-    let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
+    let _result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
 
     // The log entry itself should succeed (we don't fail the whole operation)
     // But rotation should have been skipped

@@ -475,9 +475,55 @@ async fn cmd_serve(
     // Set initial gauge values
     sentinel_server::metrics::set_policies_loaded(policies.len() as f64);
 
+    // Initialize tool registry if enabled (P2.1)
+    let tool_registry: Option<Arc<sentinel_mcp::tool_registry::ToolRegistry>> =
+        if policy_config.tool_registry.enabled {
+            let registry_path = if policy_config.tool_registry.persistence_path.is_empty() {
+                config_dir.join("tool_registry.jsonl")
+            } else {
+                std::path::PathBuf::from(&policy_config.tool_registry.persistence_path)
+            };
+            let registry = sentinel_mcp::tool_registry::ToolRegistry::with_threshold(
+                &registry_path,
+                policy_config.tool_registry.trust_threshold,
+            );
+            // Load existing entries
+            match registry.load().await {
+                Ok(count) if count > 0 => {
+                    tracing::info!(
+                        "Loaded {} tool registry entries from {}",
+                        count,
+                        registry_path.display()
+                    );
+                }
+                Ok(_) => {
+                    tracing::info!(
+                        "Tool registry initialized (empty) at {}",
+                        registry_path.display()
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to load tool registry from {}: {}",
+                        registry_path.display(),
+                        e
+                    );
+                }
+            }
+            tracing::info!(
+                "Tool registry enabled with trust threshold {}",
+                policy_config.tool_registry.trust_threshold
+            );
+            Some(Arc::new(registry))
+        } else {
+            None
+        };
+
     let state = AppState {
-        engine: Arc::new(ArcSwap::from_pointee(engine)),
-        policies: Arc::new(ArcSwap::from_pointee(policies)),
+        policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
+            engine,
+            policies,
+        })),
         audit,
         config_path: Arc::new(config),
         approvals: approvals.clone(),
@@ -488,6 +534,7 @@ async fn cmd_serve(
         trusted_proxies: Arc::new(trusted_proxies),
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle,
+        tool_registry,
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -774,6 +821,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         audit_export: Default::default(),
         max_path_decode_iterations: None,
         known_tool_names: Default::default(),
+        tool_registry: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

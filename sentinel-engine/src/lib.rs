@@ -308,6 +308,46 @@ pub enum CompiledContextCondition {
         window: usize,
         deny_reason: String,
     },
+    /// OWASP ASI08: Limit the depth of multi-agent call chains.
+    ///
+    /// In multi-hop MCP scenarios, an agent can request another agent to perform
+    /// actions on its behalf. This condition limits how deep such chains can go
+    /// to prevent privilege escalation through agent chaining.
+    MaxChainDepth {
+        /// Maximum allowed chain depth. A value of 0 means no multi-hop is allowed
+        /// (direct calls only). A value of 1 allows one upstream agent, etc.
+        max_depth: usize,
+        deny_reason: String,
+    },
+    /// OWASP ASI07: Match on cryptographically attested agent identity claims.
+    ///
+    /// Requires a valid `X-Agent-Identity` JWT header. Policies can match on:
+    /// - `issuer`: Required JWT issuer (`iss` claim)
+    /// - `subject`: Required JWT subject (`sub` claim)
+    /// - `audience`: Required audience (`aud` claim must contain this value)
+    /// - `claims.<key>`: Custom claim matching (e.g., `claims.role == "admin"`)
+    ///
+    /// Unlike `AgentId` which matches on a simple string, this condition provides
+    /// cryptographic attestation of the agent's identity via JWT signature verification.
+    AgentIdentityMatch {
+        /// Required JWT issuer. If set, the identity's `iss` claim must match.
+        required_issuer: Option<String>,
+        /// Required JWT subject. If set, the identity's `sub` claim must match.
+        required_subject: Option<String>,
+        /// Required audience. If set, the identity's `aud` claim must contain this value.
+        required_audience: Option<String>,
+        /// Required custom claims. All specified claims must match.
+        /// Keys are claim names, values are expected string values.
+        required_claims: std::collections::HashMap<String, String>,
+        /// Blocked issuers. If the identity's `iss` matches any, deny.
+        blocked_issuers: Vec<String>,
+        /// Blocked subjects. If the identity's `sub` matches any, deny.
+        blocked_subjects: Vec<String>,
+        /// When true, fail-closed if no agent_identity is present.
+        /// When false, fall back to legacy agent_id matching.
+        require_attestation: bool,
+        deny_reason: String,
+    },
 }
 
 /// A policy with all patterns pre-compiled for zero-lock evaluation.
@@ -1360,6 +1400,94 @@ impl PolicyEngine {
                     deny_reason,
                 })
             }
+            "max_chain_depth" => {
+                // OWASP ASI08: Multi-agent communication monitoring
+                let max_depth = obj
+                    .get("max_depth")
+                    .and_then(|v| v.as_u64())
+                    .ok_or_else(|| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "max_chain_depth missing 'max_depth' integer".to_string(),
+                    })? as usize;
+                let deny_reason = format!(
+                    "Call chain depth exceeds maximum of {} (policy '{}')",
+                    max_depth, policy.name
+                );
+                Ok(CompiledContextCondition::MaxChainDepth {
+                    max_depth,
+                    deny_reason,
+                })
+            }
+            "agent_identity" => {
+                // OWASP ASI07: Agent identity attestation via signed JWT
+                let required_issuer = obj
+                    .get("issuer")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let required_subject = obj
+                    .get("subject")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let required_audience = obj
+                    .get("audience")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                // Parse required_claims as a map of string -> string
+                let required_claims = obj
+                    .get("claims")
+                    .and_then(|v| v.as_object())
+                    .map(|m| {
+                        m.iter()
+                            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                            .collect::<std::collections::HashMap<String, String>>()
+                    })
+                    .unwrap_or_default();
+
+                // SECURITY: Normalize blocked lists to lowercase for case-insensitive matching
+                let blocked_issuers = obj
+                    .get("blocked_issuers")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+                            .collect::<Vec<String>>()
+                    })
+                    .unwrap_or_default();
+
+                let blocked_subjects = obj
+                    .get("blocked_subjects")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+                            .collect::<Vec<String>>()
+                    })
+                    .unwrap_or_default();
+
+                // When true, fail if no agent_identity is present (require JWT attestation)
+                let require_attestation = obj
+                    .get("require_attestation")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true); // Default to true for security
+
+                let deny_reason = format!(
+                    "Agent identity attestation failed for policy '{}'",
+                    policy.name
+                );
+
+                Ok(CompiledContextCondition::AgentIdentityMatch {
+                    required_issuer,
+                    required_subject,
+                    required_audience,
+                    required_claims,
+                    blocked_issuers,
+                    blocked_subjects,
+                    require_attestation,
+                    deny_reason,
+                })
+            }
             _ => Err(PolicyValidationError {
                 policy_id: policy.id.clone(),
                 policy_name: policy.name.clone(),
@@ -1762,6 +1890,21 @@ impl PolicyEngine {
                     max,
                     deny_reason,
                 } => {
+                    // SECURITY (R15-ENG-1): Fail-closed when call_counts is empty.
+                    // If a policy declares MaxCalls but the caller provides no
+                    // call_counts (e.g., stateless API), we deny rather than
+                    // silently allowing unlimited calls. An empty map means the
+                    // caller cannot track session state, so the rate limit cannot
+                    // be enforced — deny to be safe.
+                    if context.call_counts.is_empty() {
+                        return Some(Verdict::Deny {
+                            reason: format!(
+                                "{} (no session call counts available — fail-closed)",
+                                deny_reason
+                            ),
+                        });
+                    }
+
                     // SECURITY (R8-6): Use saturating_add to prevent u64 overflow
                     // which could wrap to 0, bypassing rate limits.
                     let count = if matches!(tool_pattern, PatternMatcher::Any) {
@@ -1843,6 +1986,19 @@ impl PolicyEngine {
                     window,
                     deny_reason,
                 } => {
+                    // SECURITY (R15-ENG-1): Fail-closed when previous_actions
+                    // is empty and call_counts is also empty. This means the
+                    // caller has no session history, so windowed rate limits
+                    // cannot be enforced — deny to be safe.
+                    if context.previous_actions.is_empty() && context.call_counts.is_empty() {
+                        return Some(Verdict::Deny {
+                            reason: format!(
+                                "{} (no session history available — fail-closed)",
+                                deny_reason
+                            ),
+                        });
+                    }
+
                     let history = if *window > 0 {
                         let start = context.previous_actions.len().saturating_sub(*window);
                         &context.previous_actions[start..]
@@ -1854,6 +2010,133 @@ impl PolicyEngine {
                         return Some(Verdict::Deny {
                             reason: deny_reason.clone(),
                         });
+                    }
+                }
+                CompiledContextCondition::MaxChainDepth {
+                    max_depth,
+                    deny_reason,
+                } => {
+                    // OWASP ASI08: Check call chain depth for multi-agent scenarios
+                    if context.call_chain.len() > *max_depth {
+                        return Some(Verdict::Deny {
+                            reason: deny_reason.clone(),
+                        });
+                    }
+                }
+                CompiledContextCondition::AgentIdentityMatch {
+                    required_issuer,
+                    required_subject,
+                    required_audience,
+                    required_claims,
+                    blocked_issuers,
+                    blocked_subjects,
+                    require_attestation,
+                    deny_reason,
+                } => {
+                    // OWASP ASI07: Agent identity attestation via signed JWT
+                    match &context.agent_identity {
+                        Some(identity) => {
+                            // Check blocked issuers first (case-insensitive)
+                            if let Some(ref iss) = identity.issuer {
+                                if blocked_issuers.contains(&iss.to_lowercase()) {
+                                    return Some(Verdict::Deny {
+                                        reason: format!(
+                                            "{} (blocked issuer: {})",
+                                            deny_reason, iss
+                                        ),
+                                    });
+                                }
+                            }
+
+                            // Check blocked subjects (case-insensitive)
+                            if let Some(ref sub) = identity.subject {
+                                if blocked_subjects.contains(&sub.to_lowercase()) {
+                                    return Some(Verdict::Deny {
+                                        reason: format!(
+                                            "{} (blocked subject: {})",
+                                            deny_reason, sub
+                                        ),
+                                    });
+                                }
+                            }
+
+                            // Check required issuer (case-sensitive for standards compliance)
+                            if let Some(ref req_iss) = required_issuer {
+                                match &identity.issuer {
+                                    Some(iss) if iss == req_iss => {}
+                                    _ => {
+                                        return Some(Verdict::Deny {
+                                            reason: format!(
+                                                "{} (issuer mismatch: expected '{}', got '{}')",
+                                                deny_reason,
+                                                req_iss,
+                                                identity.issuer.as_deref().unwrap_or("<none>")
+                                            ),
+                                        });
+                                    }
+                                }
+                            }
+
+                            // Check required subject (case-sensitive)
+                            if let Some(ref req_sub) = required_subject {
+                                match &identity.subject {
+                                    Some(sub) if sub == req_sub => {}
+                                    _ => {
+                                        return Some(Verdict::Deny {
+                                            reason: format!(
+                                                "{} (subject mismatch: expected '{}', got '{}')",
+                                                deny_reason,
+                                                req_sub,
+                                                identity.subject.as_deref().unwrap_or("<none>")
+                                            ),
+                                        });
+                                    }
+                                }
+                            }
+
+                            // Check required audience
+                            if let Some(ref req_aud) = required_audience {
+                                if !identity.audience.contains(req_aud) {
+                                    return Some(Verdict::Deny {
+                                        reason: format!(
+                                            "{} (audience mismatch: '{}' not in {:?})",
+                                            deny_reason, req_aud, identity.audience
+                                        ),
+                                    });
+                                }
+                            }
+
+                            // Check required custom claims
+                            for (claim_key, expected_value) in required_claims {
+                                match identity.claim_str(claim_key) {
+                                    Some(actual) if actual == expected_value => {}
+                                    actual => {
+                                        return Some(Verdict::Deny {
+                                            reason: format!(
+                                                "{} (claim '{}' mismatch: expected '{}', got '{}')",
+                                                deny_reason,
+                                                claim_key,
+                                                expected_value,
+                                                actual.unwrap_or("<none>")
+                                            ),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        None => {
+                            // No agent_identity present
+                            if *require_attestation {
+                                // Fail-closed: attestation required but not provided
+                                return Some(Verdict::Deny {
+                                    reason: format!(
+                                        "{} (X-Agent-Identity header required but not provided)",
+                                        deny_reason
+                                    ),
+                                });
+                            }
+                            // Fall back to legacy agent_id matching is handled by AgentId condition
+                        }
                     }
                 }
             }
@@ -9914,6 +10197,103 @@ mod tests {
         assert!(matches!(v, Verdict::Deny { .. }));
     }
 
+    // === R15-ENG-1 regression: MaxCalls/MaxCallsInWindow must fail-closed
+    // when session state is unavailable (empty call_counts/previous_actions).
+
+    #[test]
+    fn test_context_max_calls_empty_counts_denies_fail_closed() {
+        // SECURITY (R15-ENG-1): If a policy declares MaxCalls but the caller
+        // provides empty call_counts (e.g., stateless API), deny rather than
+        // silently allowing unlimited calls.
+        let policy = make_context_policy(json!([
+            {"type": "max_calls", "tool_pattern": "read_file", "max": 5}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            call_counts: HashMap::new(), // empty — no session tracking
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "MaxCalls with empty call_counts must deny (fail-closed), got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_context_max_calls_wildcard_empty_counts_denies() {
+        let policy = make_context_policy(json!([
+            {"type": "max_calls", "tool_pattern": "*", "max": 10}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("any_tool", "execute", json!({}));
+        let ctx = EvaluationContext {
+            call_counts: HashMap::new(),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "MaxCalls wildcard with empty call_counts must deny, got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_context_max_calls_in_window_empty_history_denies() {
+        // SECURITY (R15-ENG-1): MaxCallsInWindow with empty previous_actions
+        // and empty call_counts must deny (no session history available).
+        let policy = make_context_policy(json!([
+            {"type": "max_calls_in_window", "tool_pattern": "write_file", "max": 3, "window": 10}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("write_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            previous_actions: Vec::new(),
+            call_counts: HashMap::new(),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "MaxCallsInWindow with empty history must deny (fail-closed), got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_context_max_calls_with_zero_count_allows() {
+        // When call_counts is non-empty but the specific tool has count 0,
+        // the rate limit is not yet reached — this should Allow.
+        let policy = make_context_policy(json!([
+            {"type": "max_calls", "tool_pattern": "read_file", "max": 5}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let mut counts = HashMap::new();
+        counts.insert("other_tool".to_string(), 1u64); // non-empty map, but read_file count is 0
+        let ctx = EvaluationContext {
+            call_counts: counts,
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "MaxCalls with non-empty counts and tool count 0 should allow, got: {:?}",
+            v
+        );
+    }
+
     #[test]
     fn test_context_agent_id_allowed() {
         let policy = make_context_policy(json!([
@@ -10425,5 +10805,418 @@ mod tests {
         ]));
         let result = PolicyEngine::with_policies(false, &[policy]);
         assert!(result.is_err(), "Missing max should fail compilation");
+    }
+
+    // ═══════════════════════════════════════════════════
+    // AGENT IDENTITY ATTESTATION TESTS (OWASP ASI07)
+    // ═══════════════════════════════════════════════════
+
+    use sentinel_types::AgentIdentity;
+
+    fn make_test_identity(issuer: &str, subject: &str, role: &str) -> AgentIdentity {
+        let mut claims = std::collections::HashMap::new();
+        claims.insert("role".to_string(), serde_json::json!(role));
+        AgentIdentity {
+            issuer: Some(issuer.to_string()),
+            subject: Some(subject.to_string()),
+            audience: vec!["mcp-server".to_string()],
+            claims,
+        }
+    }
+
+    #[test]
+    fn test_agent_identity_required_issuer_match() {
+        let policy = make_context_policy(json!([
+            {"type": "agent_identity", "issuer": "https://auth.example.com"}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_identity: Some(make_test_identity(
+                "https://auth.example.com",
+                "agent-123",
+                "admin",
+            )),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Allow), "Matching issuer should allow");
+    }
+
+    #[test]
+    fn test_agent_identity_required_issuer_mismatch() {
+        let policy = make_context_policy(json!([
+            {"type": "agent_identity", "issuer": "https://auth.example.com"}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_identity: Some(make_test_identity(
+                "https://evil.example.com",
+                "agent-123",
+                "admin",
+            )),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "Mismatched issuer should deny"
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_required_subject_match() {
+        let policy = make_context_policy(json!([
+            {"type": "agent_identity", "subject": "agent-123"}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_identity: Some(make_test_identity(
+                "https://auth.example.com",
+                "agent-123",
+                "admin",
+            )),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Allow), "Matching subject should allow");
+    }
+
+    #[test]
+    fn test_agent_identity_required_subject_mismatch() {
+        let policy = make_context_policy(json!([
+            {"type": "agent_identity", "subject": "agent-123"}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_identity: Some(make_test_identity(
+                "https://auth.example.com",
+                "agent-456",
+                "admin",
+            )),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "Mismatched subject should deny"
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_required_audience() {
+        let policy = make_context_policy(json!([
+            {"type": "agent_identity", "audience": "mcp-server"}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_identity: Some(make_test_identity(
+                "https://auth.example.com",
+                "agent-123",
+                "admin",
+            )),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "Matching audience should allow"
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_required_audience_mismatch() {
+        let policy = make_context_policy(json!([
+            {"type": "agent_identity", "audience": "other-server"}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_identity: Some(make_test_identity(
+                "https://auth.example.com",
+                "agent-123",
+                "admin",
+            )),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "Audience not in list should deny"
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_required_claim_match() {
+        let policy = make_context_policy(json!([
+            {"type": "agent_identity", "claims": {"role": "admin"}}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_identity: Some(make_test_identity(
+                "https://auth.example.com",
+                "agent-123",
+                "admin",
+            )),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(matches!(v, Verdict::Allow), "Matching claim should allow");
+    }
+
+    #[test]
+    fn test_agent_identity_required_claim_mismatch() {
+        let policy = make_context_policy(json!([
+            {"type": "agent_identity", "claims": {"role": "admin"}}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_identity: Some(make_test_identity(
+                "https://auth.example.com",
+                "agent-123",
+                "user", // Not "admin"
+            )),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "Mismatched claim should deny"
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_blocked_issuer() {
+        let policy = make_context_policy(json!([
+            {"type": "agent_identity", "blocked_issuers": ["https://evil.example.com"]}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_identity: Some(make_test_identity(
+                "https://evil.example.com",
+                "agent-123",
+                "admin",
+            )),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "Blocked issuer should deny"
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_blocked_issuer_case_insensitive() {
+        // SECURITY: Blocked issuers should be case-insensitive
+        let policy = make_context_policy(json!([
+            {"type": "agent_identity", "blocked_issuers": ["HTTPS://EVIL.EXAMPLE.COM"]}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_identity: Some(make_test_identity(
+                "https://evil.example.com",
+                "agent-123",
+                "admin",
+            )),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "Blocked issuer should be case-insensitive"
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_blocked_subject() {
+        let policy = make_context_policy(json!([
+            {"type": "agent_identity", "blocked_subjects": ["malicious-agent"]}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_identity: Some(make_test_identity(
+                "https://auth.example.com",
+                "malicious-agent",
+                "admin",
+            )),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "Blocked subject should deny"
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_missing_fails_closed() {
+        // SECURITY: When require_attestation=true (default), missing identity should deny
+        let policy = make_context_policy(json!([
+            {"type": "agent_identity", "issuer": "https://auth.example.com"}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            // No agent_identity
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "Missing identity with require_attestation=true should deny"
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_missing_with_require_attestation_false() {
+        // When require_attestation=false, missing identity allows (falls back to agent_id)
+        let policy = make_context_policy(json!([
+            {
+                "type": "agent_identity",
+                "issuer": "https://auth.example.com",
+                "require_attestation": false
+            }
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            // No agent_identity, but require_attestation=false
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "Missing identity with require_attestation=false should allow"
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_combined_conditions() {
+        // Test multiple conditions: issuer + subject + claim
+        let policy = make_context_policy(json!([
+            {
+                "type": "agent_identity",
+                "issuer": "https://auth.example.com",
+                "subject": "agent-123",
+                "claims": {"role": "admin"}
+            }
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+
+        // All match - should allow
+        let ctx = EvaluationContext {
+            agent_identity: Some(make_test_identity(
+                "https://auth.example.com",
+                "agent-123",
+                "admin",
+            )),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "All conditions match should allow"
+        );
+
+        // Wrong role - should deny
+        let ctx_wrong_role = EvaluationContext {
+            agent_identity: Some(make_test_identity(
+                "https://auth.example.com",
+                "agent-123",
+                "user",
+            )),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx_wrong_role))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "Wrong role should deny"
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_fallback_to_agent_id() {
+        // Combine agent_identity with agent_id for backwards compatibility
+        let policy = make_context_policy(json!([
+            {
+                "type": "agent_identity",
+                "issuer": "https://auth.example.com",
+                "require_attestation": false
+            },
+            {"type": "agent_id", "allowed": ["legacy-agent"]}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+
+        // With agent_identity - should be checked
+        let ctx = EvaluationContext {
+            agent_identity: Some(make_test_identity(
+                "https://auth.example.com",
+                "agent-123",
+                "admin",
+            )),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "Must also pass agent_id check if no identity passed"
+        );
+
+        // With only legacy agent_id - should also be allowed to pass first check
+        let ctx_legacy = EvaluationContext {
+            agent_id: Some("legacy-agent".to_string()),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx_legacy))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "Legacy agent_id should work when require_attestation=false"
+        );
     }
 }
