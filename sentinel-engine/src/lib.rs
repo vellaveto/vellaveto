@@ -1,3 +1,5 @@
+pub mod behavioral;
+
 use sentinel_types::{
     Action, ActionSummary, ConstraintResult, EvaluationContext, EvaluationTrace, Policy,
     PolicyMatch, PolicyType, Verdict,
