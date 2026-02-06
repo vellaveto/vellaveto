@@ -3424,9 +3424,10 @@ async fn task_request_dlp_blocks_secret_in_task_id() {
         result
     );
     let msg = result["error"]["message"].as_str().unwrap_or("");
+    // SECURITY (R37-PROXY-3): Client gets generic message, not DLP details
     assert!(
-        msg.contains("DLP"),
-        "Error message should mention DLP, got: {}",
+        msg.contains("security policy violation"),
+        "Error message should be generic, got: {}",
         msg
     );
 }
@@ -3575,9 +3576,10 @@ async fn task_request_dlp_blocks_github_token_in_params() {
         result
     );
     let msg = result["error"]["message"].as_str().unwrap_or("");
+    // SECURITY (R37-PROXY-3): Client gets generic message, not DLP details
     assert!(
-        msg.contains("DLP"),
-        "Error message should mention DLP, got: {}",
+        msg.contains("security policy violation"),
+        "Error message should be generic, got: {}",
         msg
     );
 }

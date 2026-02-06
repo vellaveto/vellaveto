@@ -586,13 +586,14 @@ pub async fn handle_mcp_post(
                     .iter()
                     .map(|f| format!("{} at {}", f.pattern_name, f.location))
                     .collect();
-                let deny_reason =
+                // SECURITY (R37-PROXY-3): Keep detailed reason for audit, generic for client
+                let audit_reason =
                     format!("DLP: secrets detected in tool parameters: {:?}", patterns);
                 tracing::warn!(
                     "SECURITY: DLP blocking tool '{}' in session {}: {}",
                     tool_name,
                     session_id,
-                    deny_reason
+                    audit_reason
                 );
                 let dlp_action = extractor::extract_action(&tool_name, &arguments);
                 if let Err(e) = state
@@ -600,7 +601,7 @@ pub async fn handle_mcp_post(
                     .log_entry(
                         &dlp_action,
                         &Verdict::Deny {
-                            reason: deny_reason.clone(),
+                            reason: audit_reason.clone(),
                         },
                         build_audit_context(
                             &session_id,
@@ -621,7 +622,7 @@ pub async fn handle_mcp_post(
                     "id": id,
                     "error": {
                         "code": -32001,
-                        "message": deny_reason,
+                        "message": "Request blocked: security policy violation",
                     }
                 });
                 return attach_session_header(
@@ -1597,13 +1598,14 @@ pub async fn handle_mcp_post(
                     .iter()
                     .map(|f| format!("{} at {}", f.pattern_name, f.location))
                     .collect();
-                let deny_reason = format!("DLP: secrets detected in task request: {:?}", patterns);
+                // SECURITY (R37-PROXY-3): Keep detailed reason for audit, generic for client
+                let audit_reason = format!("DLP: secrets detected in task request: {:?}", patterns);
                 if let Err(e) = state
                     .audit
                     .log_entry(
                         &dlp_action,
                         &Verdict::Deny {
-                            reason: deny_reason.clone(),
+                            reason: audit_reason.clone(),
                         },
                         build_audit_context(
                             &session_id,
@@ -1624,7 +1626,7 @@ pub async fn handle_mcp_post(
                     "id": id,
                     "error": {
                         "code": -32001,
-                        "message": deny_reason
+                        "message": "Request blocked: security policy violation",
                     }
                 });
                 return attach_session_header(
@@ -3236,7 +3238,7 @@ async fn scan_sse_events_for_injection(
             }
         }
 
-        // SECURITY (R34-PROXY-7): Scan SSE event: and id: fields for injection.
+        // SECURITY (R34-PROXY-7, R37-PROXY-4): Scan SSE event:, id:, and retry: fields for injection.
         // These fields are forwarded verbatim to the client and could carry
         // injection payloads that bypass data-only scanning.
         for line in event.lines() {
@@ -3244,6 +3246,7 @@ async fn scan_sse_events_for_injection(
             if let Some(value) = trimmed
                 .strip_prefix("event:")
                 .or_else(|| trimmed.strip_prefix("id:"))
+                .or_else(|| trimmed.strip_prefix("retry:"))
             {
                 let value = value.trim();
                 if !value.is_empty() {
@@ -3453,7 +3456,7 @@ async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &Pro
             }
         }
 
-        // SECURITY (R34-PROXY-7): Scan SSE event: and id: fields for DLP secrets.
+        // SECURITY (R34-PROXY-7, R37-PROXY-4): Scan SSE event:, id:, and retry: fields for DLP secrets.
         // These fields are forwarded verbatim to the client and could carry
         // secret data that bypasses data-only DLP scanning.
         for line in event.lines() {
@@ -3461,10 +3464,11 @@ async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &Pro
             if let Some(value) = trimmed
                 .strip_prefix("event:")
                 .or_else(|| trimmed.strip_prefix("id:"))
+                .or_else(|| trimmed.strip_prefix("retry:"))
             {
                 let value = value.trim();
                 if !value.is_empty() {
-                    let field_dlp = scan_text_for_secrets(value, "sse_field(event/id)");
+                    let field_dlp = scan_text_for_secrets(value, "sse_field(event/id/retry)");
                     if !field_dlp.is_empty() {
                         secrets_found = true;
                         let patterns: Vec<String> = field_dlp
@@ -3472,7 +3476,7 @@ async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &Pro
                             .map(|f| format!("{}:{}", f.pattern_name, f.location))
                             .collect();
                         tracing::warn!(
-                            "SECURITY: Secrets detected in SSE event:/id: field! \
+                            "SECURITY: Secrets detected in SSE event:/id:/retry: field! \
                              Session: {}, Findings: {:?}",
                             session_id,
                             patterns,
