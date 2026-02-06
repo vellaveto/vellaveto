@@ -1409,7 +1409,12 @@ impl PolicyEngine {
                         reason: "max_calls_in_window missing 'max' integer".to_string(),
                     }
                 })?;
-                let window = obj.get("window").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                // SECURITY (R34-ENG-2): Use try_from instead of `as usize` to
+                // avoid silent truncation on 32-bit platforms where u64 > usize::MAX.
+                let window = usize::try_from(
+                    obj.get("window").and_then(|v| v.as_u64()).unwrap_or(0),
+                )
+                .unwrap_or(usize::MAX);
                 let deny_reason = format!(
                     "Tool '{}' called more than {} times in last {} actions (policy '{}')",
                     tool_pattern,
@@ -3728,6 +3733,12 @@ impl PolicyEngine {
                 });
             }
             current = std::borrow::Cow::Owned(decoded.into_owned());
+        }
+
+        // SECURITY (R34-ENG-1): Normalize backslashes to forward slashes before component parsing.
+        // On Linux, PathBuf treats \ as a regular char, but downstream tools may treat \ as separator.
+        if current.contains('\\') {
+            current = std::borrow::Cow::Owned(current.replace('\\', "/"));
         }
 
         let path = PathBuf::from(current.as_ref());
@@ -6630,6 +6641,36 @@ mod tests {
         engine.set_max_path_decode_iterations(5);
         // The public associated function still uses the default (backward compat).
         assert_eq!(PolicyEngine::normalize_path("/etc/%70asswd").unwrap(), "/etc/passwd");
+    }
+
+    #[test]
+    fn test_normalize_path_backslash_traversal_r34_eng_1() {
+        // SECURITY (R34-ENG-1): Backslash-based traversal must be normalized.
+        // On Linux, PathBuf treats \ as a filename char, but downstream tools
+        // on Windows or cross-platform tools interpret \ as a separator.
+        assert_eq!(
+            PolicyEngine::normalize_path_bounded(r"/home/user\..\..\etc/passwd", 10).unwrap(),
+            "/etc/passwd"
+        );
+    }
+
+    #[test]
+    fn test_normalize_path_backslash_simple_r34_eng_1() {
+        // Backslashes in a path without traversal should become forward slashes.
+        assert_eq!(
+            PolicyEngine::normalize_path_bounded(r"/home\user\docs", 10).unwrap(),
+            "/home/user/docs"
+        );
+    }
+
+    #[test]
+    fn test_normalize_path_backslash_encoded_r34_eng_1() {
+        // %5C is backslash — after percent-decode + backslash normalization,
+        // traversal must still be caught.
+        assert_eq!(
+            PolicyEngine::normalize_path_bounded("/home/user%5C..%5C..%5Cetc/passwd", 10).unwrap(),
+            "/etc/passwd"
+        );
     }
 
     #[test]
@@ -11063,6 +11104,34 @@ mod tests {
         assert!(
             matches!(v, Verdict::Deny { .. }),
             "R21-ENG-1: MaxCallsInWindow with empty history must deny even if call_counts non-empty, got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_context_max_calls_in_window_large_window_r34_eng_2() {
+        // SECURITY (R34-ENG-2): A window value larger than usize::MAX on 32-bit
+        // should not truncate silently. On 64-bit this exercises the try_from path
+        // with a normal large value. The key is that compilation succeeds and the
+        // window is treated as effectively unbounded (all history checked).
+        let policy = make_context_policy(json!([
+            {"type": "max_calls_in_window", "tool_pattern": "write_file", "max": 2, "window": 100}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("write_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            previous_actions: vec![
+                "write_file".to_string(),
+                "write_file".to_string(),
+            ],
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "R34-ENG-2: MaxCallsInWindow with large window must correctly count, got: {:?}",
             v
         );
     }

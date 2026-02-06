@@ -1320,7 +1320,14 @@ impl ProxyBridge {
                                 // for injection patterns. Notifications are forwarded
                                 // to the agent's LLM and can contain prompt injection.
                                 if !self.injection_disabled {
-                                    let injection_matches = scan_notification_for_injection(&msg);
+                                    // SECURITY (R34-MCP-1): Use custom InjectionScanner
+                                    // when configured, matching the pattern used for
+                                    // tool response scanning (line ~1529).
+                                    let injection_matches: Vec<String> = if let Some(ref scanner) = self.injection_scanner {
+                                        scanner.scan_notification(&msg).into_iter().map(|s| s.to_string()).collect()
+                                    } else {
+                                        scan_notification_for_injection(&msg).into_iter().map(|s| s.to_string()).collect()
+                                    };
                                     if !injection_matches.is_empty() {
                                         tracing::warn!(
                                             "SECURITY: Injection detected in server notification: {:?}",

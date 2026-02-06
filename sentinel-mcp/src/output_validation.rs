@@ -17,6 +17,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
+use crate::extractor::normalize_method;
+
 /// Registry mapping tool names to their declared output schemas.
 ///
 /// Populated from `tools/list` responses that pass through the proxy.
@@ -84,6 +86,11 @@ impl OutputSchemaRegistry {
 
             if let (Some(name), Some(schema)) = (name, schema) {
                 if schema.is_object() {
+                    // SECURITY (R34-MCP-4): Normalize tool name to match how the proxy
+                    // normalizes names in classify_message(). Without this, a tool
+                    // registered as "ReadFile" would not be found when looked up as
+                    // "readfile" after normalization, silently skipping validation.
+                    let normalized_name = normalize_method(name);
                     // SECURITY: Reject oversized schemas to prevent memory exhaustion
                     if let Ok(serialized) = serde_json::to_string(schema) {
                         if serialized.len() > MAX_SCHEMA_SIZE {
@@ -91,17 +98,23 @@ impl OutputSchemaRegistry {
                         }
                     }
                     // SECURITY: Cap total registry size
-                    if schemas.len() >= MAX_SCHEMA_ENTRIES && !schemas.contains_key(name) {
+                    if schemas.len() >= MAX_SCHEMA_ENTRIES
+                        && !schemas.contains_key(&normalized_name)
+                    {
                         continue;
                     }
-                    schemas.insert(name.to_string(), schema.clone());
+                    schemas.insert(normalized_name, schema.clone());
                 }
             }
         }
     }
 
     /// Register a single tool's output schema directly.
+    ///
+    /// The tool name is normalized (lowercased, invisible chars stripped) to match
+    /// how the proxy normalizes tool names during message classification (R34-MCP-4).
     pub fn register(&self, tool_name: &str, schema: Value) {
+        let normalized_name = normalize_method(tool_name);
         if let Ok(mut schemas) = self.schemas.write() {
             // SECURITY: Reject oversized schemas
             if let Ok(serialized) = serde_json::to_string(&schema) {
@@ -110,18 +123,21 @@ impl OutputSchemaRegistry {
                 }
             }
             // SECURITY: Cap total registry size
-            if schemas.len() >= MAX_SCHEMA_ENTRIES && !schemas.contains_key(tool_name) {
+            if schemas.len() >= MAX_SCHEMA_ENTRIES && !schemas.contains_key(&normalized_name) {
                 return;
             }
-            schemas.insert(tool_name.to_string(), schema);
+            schemas.insert(normalized_name, schema);
         }
     }
 
     /// Check if a schema is registered for the given tool.
+    ///
+    /// The tool name is normalized before lookup (R34-MCP-4).
     pub fn has_schema(&self, tool_name: &str) -> bool {
+        let normalized_name = normalize_method(tool_name);
         self.schemas
             .read()
-            .map(|s| s.contains_key(tool_name))
+            .map(|s| s.contains_key(&normalized_name))
             .unwrap_or(false)
     }
 
@@ -130,7 +146,10 @@ impl OutputSchemaRegistry {
     /// Returns `ValidationResult::NoSchema` if no schema is registered.
     /// Returns `ValidationResult::Valid` if the output matches.
     /// Returns `ValidationResult::Invalid` with violation descriptions otherwise.
+    ///
+    /// The tool name is normalized before lookup (R34-MCP-4).
     pub fn validate(&self, tool_name: &str, structured_content: &Value) -> ValidationResult {
+        let normalized_name = normalize_method(tool_name);
         let schemas = match self.schemas.read() {
             Ok(s) => s,
             // SECURITY (R30-MCP-2): Fail-closed on poisoned lock — report
@@ -143,7 +162,7 @@ impl OutputSchemaRegistry {
             }
         };
 
-        let schema = match schemas.get(tool_name) {
+        let schema = match schemas.get(&normalized_name) {
             Some(s) => s.clone(),
             None => return ValidationResult::NoSchema,
         };
@@ -677,5 +696,119 @@ mod tests {
         // But updating an existing entry should still work
         registry.register("tool_0", json!({"type": "string"}));
         assert!(registry.has_schema("tool_0"));
+    }
+
+    // --- R34-MCP-4: Tool name normalization in output schema registry ---
+
+    #[test]
+    fn test_register_and_validate_with_mixed_case_name() {
+        // SECURITY (R34-MCP-4): Tools registered with mixed-case names must be
+        // findable via normalized (lowercased) lookup, since the proxy normalizes
+        // tool names through normalize_method() before validation.
+        let registry = OutputSchemaRegistry::new();
+        registry.register(
+            "ReadFile",
+            json!({
+                "type": "object",
+                "required": ["content"],
+                "properties": {
+                    "content": {"type": "string"}
+                }
+            }),
+        );
+
+        // Lookup via normalized name should find the schema
+        assert!(registry.has_schema("readfile"));
+        assert!(registry.has_schema("ReadFile"));
+        assert!(registry.has_schema("READFILE"));
+
+        // Validation with the normalized name should succeed
+        let valid_output = json!({"content": "file contents here"});
+        assert_eq!(
+            registry.validate("readfile", &valid_output),
+            ValidationResult::Valid
+        );
+
+        // Validation with the original mixed-case name should also work
+        assert_eq!(
+            registry.validate("ReadFile", &valid_output),
+            ValidationResult::Valid
+        );
+
+        // Invalid output should still be caught
+        let invalid_output = json!({"content": 42});
+        match registry.validate("readfile", &invalid_output) {
+            ValidationResult::Invalid { violations } => {
+                assert!(violations.iter().any(|v| v.contains("string")));
+            }
+            other => panic!("Expected Invalid, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_register_from_tools_list_normalizes_names() {
+        // SECURITY (R34-MCP-4): register_from_tools_list must normalize tool names
+        // so that validation lookups with normalized names find the schema.
+        let registry = OutputSchemaRegistry::new();
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "tools": [
+                    {
+                        "name": "SearchWeb",
+                        "description": "Search the web",
+                        "outputSchema": {
+                            "type": "object",
+                            "required": ["results"],
+                            "properties": {
+                                "results": {"type": "array", "items": {"type": "string"}}
+                            }
+                        }
+                    }
+                ]
+            }
+        });
+
+        registry.register_from_tools_list(&response);
+
+        // Must find via normalized lowercase name
+        assert!(registry.has_schema("searchweb"));
+        // Must also find via original case (normalize_method lowercases)
+        assert!(registry.has_schema("SearchWeb"));
+
+        // Validate via normalized name
+        let valid_output = json!({"results": ["result1", "result2"]});
+        assert_eq!(
+            registry.validate("searchweb", &valid_output),
+            ValidationResult::Valid
+        );
+    }
+
+    #[test]
+    fn test_validate_with_invisible_chars_in_name() {
+        // SECURITY (R34-MCP-4): Tool names with invisible Unicode characters
+        // must normalize to the same key as the clean name.
+        let registry = OutputSchemaRegistry::new();
+        registry.register(
+            "get_weather",
+            json!({
+                "type": "object",
+                "properties": {
+                    "temp": {"type": "number"}
+                }
+            }),
+        );
+
+        // Lookup with zero-width space should still find the schema
+        assert!(registry.has_schema("get\u{200B}_weather"));
+        // Lookup with BOM prefix should still find the schema
+        assert!(registry.has_schema("\u{FEFF}get_weather"));
+
+        let valid = json!({"temp": 72.5});
+        assert_eq!(
+            registry.validate("get\u{200B}_weather", &valid),
+            ValidationResult::Valid
+        );
     }
 }
