@@ -584,15 +584,14 @@ async fn exploit_bonus_resolved_by_unbounded_length() {
         .await
         .unwrap();
 
-    // Approve with a ridiculously long resolved_by string
+    // SECURITY (R39-SUP-6): resolved_by length is now bounded at store level.
+    // A ridiculously long resolved_by string should be rejected.
     let huge_name = "A".repeat(100_000); // 100KB
     let result = store.approve(&id, &huge_name).await;
-    assert!(result.is_ok(), "No validation on resolved_by length");
+    assert!(result.is_err(), "Store should reject overly long resolved_by");
 
-    let approval = store.get(&id).await.unwrap();
-    assert_eq!(
-        approval.resolved_by.as_ref().map(|s| s.len()),
-        Some(100_000),
-        "100KB resolved_by stored without validation — memory + disk waste"
-    );
+    // Verify that a reasonable-length identity is accepted
+    let ok_name = "A".repeat(512); // At the limit
+    let result = store.approve(&id, &ok_name).await;
+    assert!(result.is_ok(), "512-byte identity should be accepted");
 }

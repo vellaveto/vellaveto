@@ -57,6 +57,13 @@ pub struct PendingApproval {
 /// Default maximum number of pending approvals before rejecting new ones.
 pub const DEFAULT_MAX_PENDING: usize = 10_000;
 
+/// Maximum length of identity strings (resolved_by, requested_by) at the store level.
+///
+/// SECURITY (R39-SUP-6): Prevents unbounded memory usage from arbitrarily long
+/// identity strings passed by direct consumers of the store API. The server layer
+/// adds its own check, but the store must be safe independently.
+pub const MAX_IDENTITY_LEN: usize = 512;
+
 /// Compute a deduplication key from an action and reason.
 ///
 /// The key is a SHA-256 hash of the canonical JSON representation of the
@@ -246,6 +253,16 @@ impl ApprovalStore {
         reason: String,
         requested_by: Option<String>,
     ) -> Result<String, ApprovalError> {
+        // SECURITY (R39-SUP-6): Validate requested_by identity length at the store level.
+        if let Some(ref rb) = requested_by {
+            if rb.len() > MAX_IDENTITY_LEN {
+                return Err(ApprovalError::Validation(format!(
+                    "requested_by exceeds maximum length of {} bytes",
+                    MAX_IDENTITY_LEN
+                )));
+            }
+        }
+
         let dedup_key = compute_dedup_key(&action, &reason, requested_by.as_deref())?;
 
         // Check dedup index: if an identical pending approval exists, return its ID
@@ -326,6 +343,16 @@ impl ApprovalStore {
     /// an agent from approving its own tool calls — a separation-of-privilege
     /// requirement for meaningful human-in-the-loop approval flows.
     pub async fn approve(&self, id: &str, by: &str) -> Result<PendingApproval, ApprovalError> {
+        // SECURITY (R39-SUP-6): Validate identity length at the store level.
+        // The server adds its own check, but direct API consumers must also
+        // be protected from arbitrarily long identity strings.
+        if by.len() > MAX_IDENTITY_LEN {
+            return Err(ApprovalError::Validation(format!(
+                "resolved_by exceeds maximum length of {} bytes",
+                MAX_IDENTITY_LEN
+            )));
+        }
+
         let mut pending = self.pending.write().await;
         let approval = pending
             .get_mut(id)
@@ -412,6 +439,14 @@ impl ApprovalStore {
 
     /// Deny a pending approval.
     pub async fn deny(&self, id: &str, by: &str) -> Result<PendingApproval, ApprovalError> {
+        // SECURITY (R39-SUP-6): Validate identity length at the store level.
+        if by.len() > MAX_IDENTITY_LEN {
+            return Err(ApprovalError::Validation(format!(
+                "resolved_by exceeds maximum length of {} bytes",
+                MAX_IDENTITY_LEN
+            )));
+        }
+
         let mut pending = self.pending.write().await;
         let approval = pending
             .get_mut(id)
@@ -1225,6 +1260,173 @@ mod tests {
         assert!(
             result.is_ok(),
             "Anonymous principal should be excluded from self-approval check: {:?}",
+            result.err()
+        );
+    }
+
+    // --- R39-SUP-6: Identity length validation tests ---
+
+    #[tokio::test]
+    async fn test_r39_sup_6_approve_rejects_long_identity() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let id = store
+            .create(test_action(), "needs review".to_string(), None)
+            .await
+            .unwrap();
+
+        // Identity exceeding MAX_IDENTITY_LEN should be rejected
+        let long_identity = "x".repeat(MAX_IDENTITY_LEN + 1);
+        let result = store.approve(&id, &long_identity).await;
+        assert!(result.is_err(), "Long identity in approve() should be rejected");
+        match result.unwrap_err() {
+            ApprovalError::Validation(msg) => {
+                assert!(
+                    msg.contains("resolved_by") && msg.contains("maximum length"),
+                    "Error message should mention resolved_by length, got: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected Validation error, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_r39_sup_6_approve_accepts_identity_at_limit() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let id = store
+            .create(test_action(), "needs review".to_string(), None)
+            .await
+            .unwrap();
+
+        // Identity exactly at MAX_IDENTITY_LEN should be accepted
+        let exact_identity = "x".repeat(MAX_IDENTITY_LEN);
+        let result = store.approve(&id, &exact_identity).await;
+        assert!(
+            result.is_ok(),
+            "Identity at exactly MAX_IDENTITY_LEN should be accepted: {:?}",
+            result.err()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_r39_sup_6_deny_rejects_long_identity() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let id = store
+            .create(test_action(), "needs review".to_string(), None)
+            .await
+            .unwrap();
+
+        let long_identity = "y".repeat(MAX_IDENTITY_LEN + 1);
+        let result = store.deny(&id, &long_identity).await;
+        assert!(result.is_err(), "Long identity in deny() should be rejected");
+        match result.unwrap_err() {
+            ApprovalError::Validation(msg) => {
+                assert!(
+                    msg.contains("resolved_by") && msg.contains("maximum length"),
+                    "Error message should mention resolved_by length, got: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected Validation error, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_r39_sup_6_deny_accepts_identity_at_limit() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let id = store
+            .create(test_action(), "needs review".to_string(), None)
+            .await
+            .unwrap();
+
+        let exact_identity = "y".repeat(MAX_IDENTITY_LEN);
+        let result = store.deny(&id, &exact_identity).await;
+        assert!(
+            result.is_ok(),
+            "Identity at exactly MAX_IDENTITY_LEN should be accepted: {:?}",
+            result.err()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_r39_sup_6_create_rejects_long_requested_by() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let long_requester = "z".repeat(MAX_IDENTITY_LEN + 1);
+        let result = store
+            .create(test_action(), "needs review".to_string(), Some(long_requester))
+            .await;
+        assert!(result.is_err(), "Long requested_by in create() should be rejected");
+        match result.unwrap_err() {
+            ApprovalError::Validation(msg) => {
+                assert!(
+                    msg.contains("requested_by") && msg.contains("maximum length"),
+                    "Error message should mention requested_by length, got: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected Validation error, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_r39_sup_6_create_accepts_requested_by_at_limit() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let exact_requester = "z".repeat(MAX_IDENTITY_LEN);
+        let result = store
+            .create(test_action(), "needs review".to_string(), Some(exact_requester))
+            .await;
+        assert!(
+            result.is_ok(),
+            "requested_by at exactly MAX_IDENTITY_LEN should be accepted: {:?}",
+            result.err()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_r39_sup_6_create_accepts_none_requested_by() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        // None requested_by should always pass the length check
+        let result = store
+            .create(test_action(), "needs review".to_string(), None)
+            .await;
+        assert!(
+            result.is_ok(),
+            "None requested_by should be accepted: {:?}",
             result.err()
         );
     }

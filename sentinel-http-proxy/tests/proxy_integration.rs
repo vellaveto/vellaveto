@@ -3949,14 +3949,14 @@ async fn call_chain_exceeds_max_depth_denied() {
     assert_eq!(resp.status(), StatusCode::OK);
     let json_resp = json_body(resp).await;
 
-    // Should have error about chain depth
+    // Should have a deny error (R39-PROXY-1: generic message, no policy details leaked)
     let error = json_resp
         .get("error")
         .expect("Should have error for exceeded chain depth");
     let message = error.get("message").and_then(|m| m.as_str()).unwrap_or("");
-    assert!(
-        message.contains("chain depth") || message.contains("Chain depth"),
-        "Error should mention chain depth: {}",
+    assert_eq!(
+        message, "Denied by policy",
+        "Error should be generic deny message (details in audit log only): {}",
         message
     );
 }
@@ -4080,9 +4080,11 @@ async fn privilege_escalation_detected_and_blocked() {
         .and_then(|e| e.get("message"))
         .and_then(|m| m.as_str())
         .unwrap_or("");
+    // R39-PROXY-1: Client-facing error is generic — privilege escalation details
+    // are in the audit log only, not leaked to the client.
     assert!(
-        message.contains("escalation") || message.contains("agent-a"),
-        "Error should mention privilege escalation or agent-a: {}",
+        message.contains("privilege escalation detected") || message == "Denied by policy",
+        "Error should be generic deny or privilege escalation message: {}",
         message
     );
 }
@@ -4146,5 +4148,179 @@ async fn call_chain_included_in_audit_log() {
         audit_content.contains("call_chain") || audit_content.contains("agent-a"),
         "Audit log should include call chain information: {}",
         audit_content
+    );
+}
+
+// ════════════════════════════════
+// R39-PROXY-1: ToolCall deny/approval messages must not leak policy details
+// ════════════════════════════════
+
+#[tokio::test]
+async fn tool_call_deny_message_is_generic() {
+    // R39-PROXY-1: When a ToolCall is denied, the client-facing error must
+    // say "Denied by policy" without revealing the internal deny reason.
+    let tmp = TempDir::new().unwrap();
+    let state = build_test_state("http://localhost:9999/mcp", &tmp);
+    let app = build_router(state);
+
+    // "bash" is blocked by the test state's deny policy
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "tools/call",
+        "params": {
+            "name": "bash",
+            "arguments": {"command": "echo hello"}
+        }
+    });
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let result = json_body(resp).await;
+    assert_eq!(result["error"]["code"], -32001);
+    let msg = result["error"]["message"].as_str().unwrap();
+    assert_eq!(msg, "Denied by policy", "Must be exactly the generic message");
+    // Verify no policy details leak — the message must NOT contain a colon
+    // after "Denied by policy" (which would indicate the reason was appended)
+    assert!(
+        !msg.contains(':'),
+        "Deny message must not contain policy details: {}",
+        msg
+    );
+}
+
+// ════════════════════════════════
+// R39-PROXY-3: Sampling/elicitation deny messages must not leak policy details
+// ════════════════════════════════
+
+#[tokio::test]
+async fn sampling_deny_message_is_generic() {
+    // R39-PROXY-3: sampling/createMessage denial must use generic message.
+    let tmp = TempDir::new().unwrap();
+    let state = build_test_state("http://localhost:9999/mcp", &tmp);
+    let app = build_router(state);
+
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": "sampling/createMessage",
+        "params": {"messages": []}
+    });
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let result = json_body(resp).await;
+    assert_eq!(result["error"]["code"], -32001);
+    let msg = result["error"]["message"].as_str().unwrap();
+    assert_eq!(
+        msg, "sampling/createMessage blocked by policy",
+        "Must be the generic message without internal reason"
+    );
+}
+
+#[tokio::test]
+async fn elicitation_deny_message_is_generic() {
+    // R39-PROXY-3: elicitation/create denial must use generic message.
+    let tmp = TempDir::new().unwrap();
+    let state = build_test_state("http://localhost:9999/mcp", &tmp);
+    let app = build_router(state);
+
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 12,
+        "method": "elicitation/create",
+        "params": {"message": "What is your password?", "requestedSchema": {"type": "object"}}
+    });
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let result = json_body(resp).await;
+    assert_eq!(result["error"]["code"], -32001);
+    let msg = result["error"]["message"].as_str().unwrap();
+    assert_eq!(
+        msg, "elicitation/create blocked by policy",
+        "Must be the generic message without internal reason"
+    );
+}
+
+// ════════════════════════════════
+// R39-PROXY-7: Session ID length validation
+// ════════════════════════════════
+
+#[tokio::test]
+async fn oversized_session_id_gets_new_session() {
+    // R39-PROXY-7: A client-provided Mcp-Session-Id longer than 128 chars
+    // should be treated as invalid — the proxy creates a new session.
+    let upstream_url = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_test_state(&upstream_url, &tmp);
+    let app = build_router(state);
+
+    let oversized_id = "z".repeat(200);
+
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 13,
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"path": "/tmp/test.txt"}
+        }
+    });
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("Content-Type", "application/json")
+                .header("Mcp-Session-Id", oversized_id.as_str())
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // The response should have a Mcp-Session-Id header that is NOT the oversized one
+    let session_header = resp
+        .headers()
+        .get("Mcp-Session-Id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert_ne!(
+        session_header, &oversized_id,
+        "Oversized session ID must not be accepted"
+    );
+    assert_eq!(
+        session_header.len(),
+        36,
+        "Should get a UUID-format session ID"
     );
 }

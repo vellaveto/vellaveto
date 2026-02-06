@@ -2210,18 +2210,21 @@ impl PolicyEngine {
                                     ),
                                 });
                             }
-                            // SECURITY (R38-ENG-1): Even without require_attestation, deny if
-                            // specific identity requirements are configured. Otherwise an attacker
-                            // can bypass issuer/subject/audience/claims checks by simply omitting
-                            // the X-Agent-Identity header.
+                            // SECURITY (R38-ENG-1, R39-ENG-1): Even without require_attestation,
+                            // deny if specific identity requirements or blocklists are configured.
+                            // Otherwise an attacker can bypass issuer/subject/audience/claims
+                            // checks — or blocklist enforcement — by simply omitting the
+                            // X-Agent-Identity header.
                             if required_issuer.is_some()
                                 || required_subject.is_some()
                                 || required_audience.is_some()
                                 || !required_claims.is_empty()
+                                || !blocked_issuers.is_empty()
+                                || !blocked_subjects.is_empty()
                             {
                                 return Some(Verdict::Deny {
                                     reason: format!(
-                                        "{} (identity requirements configured but no agent identity header provided)",
+                                        "{} (identity restrictions configured but no agent identity header provided)",
                                         deny_reason
                                     ),
                                 });
@@ -4003,6 +4006,21 @@ impl PolicyEngine {
             ("", stripped)
         };
 
+        // SECURITY (R39-ENG-3): Reject ASCII inputs with non-domain characters BEFORE
+        // IDNA processing. Some IDNA implementations accept whitespace, colons, slashes,
+        // null bytes, etc. without error, creating a fail-open path where malformed domains
+        // bypass blocklists. Valid domain characters: alphanumeric, hyphen, dot, underscore
+        // (underscore for SRV records), and non-ASCII (handled by IDNA normalization).
+        if idna_input.is_ascii()
+            && !idna_input.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.' || b == b'_')
+        {
+            tracing::debug!(
+                domain = s,
+                "Domain contains invalid ASCII characters"
+            );
+            return None;
+        }
+
         // Apply IDNA normalization for internationalized domains
         // This converts Unicode to Punycode (e.g., "münchen.de" -> "xn--mnchen-3ya.de")
         match idna::domain_to_ascii(idna_input) {
@@ -4020,12 +4038,24 @@ impl PolicyEngine {
                 // returns None → match_domain_pattern returns false → blocked patterns
                 // don't match → the domain passes through (fail-OPEN for blocking).
                 if idna_input.is_ascii() {
-                    let lowered = format!("{}{}", wildcard_prefix, idna_input.to_ascii_lowercase());
-                    tracing::debug!(
-                        domain = s,
-                        "IDNA normalization failed but domain is ASCII — using lowercase fallback"
-                    );
-                    Some(std::borrow::Cow::Owned(lowered))
+                    // SECURITY (R39-ENG-3): Only fall back for legitimate IDNA edge cases
+                    // (e.g., underscores in SRV records). Reject ASCII strings containing
+                    // whitespace, colons, or other non-domain characters to prevent
+                    // malformed domains from bypassing blocklists.
+                    if idna_input.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.' || b == b'_') {
+                        let lowered = format!("{}{}", wildcard_prefix, idna_input.to_ascii_lowercase());
+                        tracing::debug!(
+                            domain = s,
+                            "IDNA normalization failed but domain is ASCII — using lowercase fallback"
+                        );
+                        Some(std::borrow::Cow::Owned(lowered))
+                    } else {
+                        tracing::debug!(
+                            domain = s,
+                            "IDNA normalization failed: non-domain ASCII characters"
+                        );
+                        None
+                    }
                 } else {
                     // Non-ASCII domain that fails IDNA — truly invalid
                     tracing::debug!(domain = s, "IDNA normalization failed for non-ASCII domain");
@@ -12188,8 +12218,9 @@ mod tests {
             v
         );
 
-        // With only legacy agent_id (no identity header) - should pass identity check
-        // (no positive requirements configured) and pass agent_id check
+        // R39-ENG-1: With only legacy agent_id (no identity header) and blocked_issuers
+        // configured, this now correctly denies. Without the identity header, the
+        // blocked issuer check cannot be enforced, so fail-closed applies.
         let ctx_legacy = EvaluationContext {
             agent_id: Some("legacy-agent".to_string()),
             ..Default::default()
@@ -12198,8 +12229,9 @@ mod tests {
             .evaluate_action_with_context(&action, &[], Some(&ctx_legacy))
             .unwrap();
         assert!(
-            matches!(v, Verdict::Allow),
-            "Legacy agent_id should work when no positive identity requirements configured"
+            matches!(v, Verdict::Deny { .. }),
+            "R39-ENG-1: No identity + blocked_issuers should deny even with legacy agent_id, got: {:?}",
+            v
         );
 
         // With issuer requirement configured + no identity header - should deny (R38-ENG-1)
@@ -12378,8 +12410,8 @@ mod tests {
         );
         if let Verdict::Deny { reason } = &v {
             assert!(
-                reason.contains("identity requirements configured"),
-                "Deny reason should mention identity requirements, got: {}",
+                reason.contains("identity restrictions configured"),
+                "Deny reason should mention identity restrictions, got: {}",
                 reason
             );
         }
@@ -12461,9 +12493,11 @@ mod tests {
     }
 
     #[test]
-    fn test_agent_identity_match_no_attestation_no_requirements_allows() {
-        // R38-ENG-1: require_attestation=false with NO identity requirements
-        // should still allow (pure blocked_issuers/blocked_subjects only, no positive requirements).
+    fn test_agent_identity_match_no_attestation_blocked_only_denies_r39_eng_1() {
+        // R39-ENG-1: require_attestation=false with blocked_issuers configured
+        // must deny when no identity header is present. Without the header,
+        // blocked issuer checks cannot be enforced (bypass by omission).
+        // This supersedes the R38-ENG-1 behavior that allowed this case.
         let policy = make_context_policy(json!([
             {
                 "type": "agent_identity",
@@ -12480,8 +12514,8 @@ mod tests {
             .evaluate_action_with_context(&action, &[], Some(&ctx))
             .unwrap();
         assert!(
-            matches!(v, Verdict::Allow),
-            "R38-ENG-1: No identity + no positive requirements should allow, got: {:?}",
+            matches!(v, Verdict::Deny { .. }),
+            "R39-ENG-1: No identity + blocked_issuers should deny, got: {:?}",
             v
         );
     }
@@ -12519,6 +12553,187 @@ mod tests {
         assert_eq!(
             domain, "user%40host.com",
             "R38-ENG-2: Double-encoded @ should stay as %40 after single decode"
+        );
+    }
+
+    // ── R39-ENG-1: AgentIdentityMatch bypass via omitted header with blocklists ──
+
+    #[test]
+    fn test_agent_identity_blocked_issuers_only_no_header_denies_r39_eng_1() {
+        // R39-ENG-1: When only blocked_issuers is configured (no positive requirements)
+        // and require_attestation=false, omitting the X-Agent-Identity header must still
+        // produce Deny. Without this fix, the None arm only checked required_* fields,
+        // allowing blocklist bypass.
+        let policy = make_context_policy(json!([
+            {
+                "type": "agent_identity",
+                "blocked_issuers": ["https://evil.example.com"],
+                "require_attestation": false
+            }
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            // No agent_identity at all — attacker omits the header
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "R39-ENG-1: No identity + blocked_issuers should deny, got: {:?}",
+            v
+        );
+        if let Verdict::Deny { reason } = &v {
+            assert!(
+                reason.contains("identity restrictions configured"),
+                "Deny reason should mention identity restrictions, got: {}",
+                reason
+            );
+        }
+    }
+
+    #[test]
+    fn test_agent_identity_blocked_subjects_only_no_header_denies_r39_eng_1() {
+        // R39-ENG-1: Same as above but with blocked_subjects instead of blocked_issuers.
+        let policy = make_context_policy(json!([
+            {
+                "type": "agent_identity",
+                "blocked_subjects": ["rogue-agent"],
+                "require_attestation": false
+            }
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "R39-ENG-1: No identity + blocked_subjects should deny, got: {:?}",
+            v
+        );
+        if let Verdict::Deny { reason } = &v {
+            assert!(
+                reason.contains("identity restrictions configured"),
+                "Deny reason should mention identity restrictions, got: {}",
+                reason
+            );
+        }
+    }
+
+    #[test]
+    fn test_agent_identity_blocked_issuers_with_header_allows_non_blocked_r39_eng_1() {
+        // R39-ENG-1: When a non-blocked identity IS provided, it should still Allow.
+        let policy = make_context_policy(json!([
+            {
+                "type": "agent_identity",
+                "blocked_issuers": ["https://evil.example.com"],
+                "require_attestation": false
+            }
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let identity = make_test_identity("https://good.example.com", "agent-1", "worker");
+        let ctx = EvaluationContext {
+            agent_identity: Some(identity),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "R39-ENG-1: Non-blocked identity should allow, got: {:?}",
+            v
+        );
+    }
+
+    // ── R39-ENG-3: normalize_domain_for_match ASCII fallback validation ─────────
+
+    #[test]
+    fn test_normalize_domain_rejects_space_r39_eng_3() {
+        // R39-ENG-3: ASCII domain with trailing space should be rejected (not fall through
+        // to the ASCII fallback), since space is not a valid domain character.
+        let result = PolicyEngine::normalize_domain_for_match("evil.com ");
+        assert!(
+            result.is_none(),
+            "R39-ENG-3: Domain with space should return None, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_normalize_domain_rejects_colon_r39_eng_3() {
+        // R39-ENG-3: ASCII domain with colon (e.g., port number leaked in) should be rejected.
+        let result = PolicyEngine::normalize_domain_for_match("evil.com:8080");
+        assert!(
+            result.is_none(),
+            "R39-ENG-3: Domain with colon should return None, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_normalize_domain_rejects_at_sign_r39_eng_3() {
+        // R39-ENG-3: ASCII domain with @ (e.g., userinfo leaked) should be rejected.
+        let result = PolicyEngine::normalize_domain_for_match("user@evil.com");
+        assert!(
+            result.is_none(),
+            "R39-ENG-3: Domain with @ should return None, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_normalize_domain_rejects_slash_r39_eng_3() {
+        // R39-ENG-3: ASCII domain with slash should be rejected.
+        let result = PolicyEngine::normalize_domain_for_match("evil.com/path");
+        assert!(
+            result.is_none(),
+            "R39-ENG-3: Domain with slash should return None, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_normalize_domain_accepts_underscore_srv_r39_eng_3() {
+        // R39-ENG-3: SRV-style domains with underscores should still be accepted
+        // (this is the legitimate IDNA edge case the fallback exists for).
+        let result = PolicyEngine::normalize_domain_for_match("_srv.evil.com");
+        assert!(
+            result.is_some(),
+            "R39-ENG-3: SRV-style domain with underscore should be accepted"
+        );
+        assert_eq!(
+            result.unwrap().as_ref(),
+            "_srv.evil.com",
+            "R39-ENG-3: Should normalize to lowercase"
+        );
+    }
+
+    #[test]
+    fn test_normalize_domain_accepts_hyphen_r39_eng_3() {
+        // R39-ENG-3: Domains with hyphens are valid and should be accepted.
+        let result = PolicyEngine::normalize_domain_for_match("my-domain.example.com");
+        assert!(
+            result.is_some(),
+            "R39-ENG-3: Domain with hyphen should be accepted"
+        );
+    }
+
+    #[test]
+    fn test_normalize_domain_rejects_null_byte_r39_eng_3() {
+        // R39-ENG-3: Null byte in domain is never valid.
+        let result = PolicyEngine::normalize_domain_for_match("evil\0.com");
+        assert!(
+            result.is_none(),
+            "R39-ENG-3: Domain with null byte should return None, got: {:?}",
+            result
         );
     }
 }

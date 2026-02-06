@@ -121,6 +121,11 @@ impl SessionState {
     }
 }
 
+/// SECURITY (R39-PROXY-7): Maximum length for client-provided session IDs.
+/// Server-generated IDs are UUIDs (36 chars). Reject anything longer than
+/// this to prevent memory abuse via arbitrarily long session ID strings.
+const MAX_SESSION_ID_LEN: usize = 128;
+
 /// Thread-safe session store with automatic expiry cleanup.
 pub struct SessionStore {
     sessions: Arc<DashMap<String, SessionState>>,
@@ -155,6 +160,10 @@ impl SessionStore {
     /// Otherwise a new session is created. Session IDs are always server-generated
     /// to prevent session fixation attacks.
     pub fn get_or_create(&self, client_session_id: Option<&str>) -> String {
+        // SECURITY (R39-PROXY-7): Reject oversized session IDs — treat as invalid
+        // to prevent memory abuse. Server-generated IDs are UUIDs (36 chars).
+        let client_session_id = client_session_id.filter(|id| id.len() <= MAX_SESSION_ID_LEN);
+
         // Try to reuse existing session if client provided an ID
         if let Some(id) = client_session_id {
             if let Some(mut session) = self.sessions.get_mut(id) {
@@ -468,5 +477,67 @@ mod tests {
         // Can reuse the session (not expired)
         let id2 = store.get_or_create(Some(&id));
         assert_eq!(id, id2);
+    }
+
+    // --- R39-PROXY-7: Session ID length validation ---
+
+    #[test]
+    fn test_session_id_at_max_length_accepted() {
+        let store = SessionStore::new(Duration::from_secs(300), 100);
+        // Create a session with a 128-char ID first, then try to reuse it
+        let long_id = "a".repeat(MAX_SESSION_ID_LEN);
+        // Since the session doesn't exist, a new one is created
+        let id = store.get_or_create(Some(&long_id));
+        assert_ne!(id, long_id); // Server-generated, not client ID
+        assert_eq!(store.len(), 1);
+
+        // Now manually insert with the long ID and verify reuse works
+        store
+            .sessions
+            .insert(long_id.clone(), SessionState::new(long_id.clone()));
+        let reused = store.get_or_create(Some(&long_id));
+        assert_eq!(reused, long_id);
+    }
+
+    #[test]
+    fn test_session_id_exceeding_max_length_rejected() {
+        let store = SessionStore::new(Duration::from_secs(300), 100);
+        // Insert a session with a 129-char ID manually
+        let too_long = "b".repeat(MAX_SESSION_ID_LEN + 1);
+        store
+            .sessions
+            .insert(too_long.clone(), SessionState::new(too_long.clone()));
+
+        // Even though the session exists, the oversized ID should be rejected
+        // and a new server-generated session ID returned
+        let id = store.get_or_create(Some(&too_long));
+        assert_ne!(id, too_long, "Oversized session ID must not be reused");
+        assert_eq!(id.len(), 36, "Should return a UUID-format session ID");
+    }
+
+    #[test]
+    fn test_session_id_empty_string_accepted() {
+        let store = SessionStore::new(Duration::from_secs(300), 100);
+        // Empty string is within the length limit but won't match any session
+        let id = store.get_or_create(Some(""));
+        assert_eq!(id.len(), 36); // New UUID generated
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn test_session_id_exactly_128_chars_boundary() {
+        let store = SessionStore::new(Duration::from_secs(300), 100);
+        let exact = "x".repeat(128);
+        // Should be treated as valid (not rejected)
+        let id = store.get_or_create(Some(&exact));
+        // Session doesn't exist, so new one is created, but the ID was accepted
+        // for lookup (just not found)
+        assert_eq!(id.len(), 36);
+
+        let one_over = "x".repeat(129);
+        let id2 = store.get_or_create(Some(&one_over));
+        assert_eq!(id2.len(), 36);
+        // Both should have created new sessions
+        assert_eq!(store.len(), 2);
     }
 }

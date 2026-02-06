@@ -934,7 +934,9 @@ pub async fn handle_mcp_post(
                         "id": id,
                         "error": {
                             "code": -32001,
-                            "message": format!("Denied by policy: {}", reason)
+                            // SECURITY (R39-PROXY-1): Generic message — detailed reason
+                            // is in the audit log, not leaked to the client.
+                            "message": "Denied by policy"
                         }
                     });
                     if let Some(t) = &trace {
@@ -994,7 +996,9 @@ pub async fn handle_mcp_post(
                         "id": id,
                         "error": {
                             "code": -32002,
-                            "message": format!("Approval required: {}", reason),
+                            // SECURITY (R39-PROXY-1): Generic message — detailed reason
+                            // is in the data field for the approval flow, not leaked.
+                            "message": "Approval required",
                             "data": {
                                 "type": "approval_required",
                                 "reason": reason
@@ -1296,7 +1300,9 @@ pub async fn handle_mcp_post(
                         "id": id,
                         "error": {
                             "code": -32001,
-                            "message": format!("sampling/createMessage blocked: {}", reason)
+                            // SECURITY (R39-PROXY-3): Generic message — detailed reason
+                            // is in the audit log, not leaked to the client.
+                            "message": "sampling/createMessage blocked by policy"
                         }
                     });
                     attach_session_header(
@@ -1511,7 +1517,9 @@ pub async fn handle_mcp_post(
                         "id": id,
                         "error": {
                             "code": -32001,
-                            "message": format!("elicitation/create blocked: {}", reason)
+                            // SECURITY (R39-PROXY-3): Generic message — detailed reason
+                            // is in the audit log, not leaked to the client.
+                            "message": "elicitation/create blocked by policy"
                         }
                     });
                     attach_session_header(

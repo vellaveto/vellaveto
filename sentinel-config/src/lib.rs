@@ -188,6 +188,28 @@ pub struct AuditConfig {
     pub custom_pii_patterns: Vec<CustomPiiPattern>,
 }
 
+/// Constant-time comparison for hash strings to prevent timing side-channels.
+///
+/// SECURITY (R39-SUP-2): Standard `==` on strings uses early-exit comparison,
+/// leaking information about the position of the first differing byte. This
+/// function iterates all bytes unconditionally, XOR-folding differences into
+/// a single accumulator.
+///
+/// Note: The length check at the start is not constant-time, but for hash
+/// comparison this is acceptable because SHA-256 hex digests always have the
+/// same length (64 characters). A length mismatch indicates a programming
+/// error or corrupted data, not a valid comparison.
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.as_bytes().iter().zip(b.as_bytes().iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 /// Supply chain verification configuration.
 ///
 /// When enabled, the proxy verifies SHA-256 hashes of MCP server binaries
@@ -215,11 +237,29 @@ pub struct SupplyChainConfig {
     pub validate_paths_on_load: bool,
 }
 
+/// Maximum binary file size for supply chain hash computation (500 MB).
+///
+/// SECURITY (R39-SUP-3): Prevents OOM from unbounded file reads when
+/// computing SHA-256 hashes of MCP server binaries.
+pub const MAX_BINARY_SIZE: u64 = 500 * 1024 * 1024;
+
 impl SupplyChainConfig {
     /// Compute the SHA-256 hash of a file at the given path.
     ///
-    /// Returns the hex-encoded hash string, or an error if the file cannot be read.
+    /// Returns the hex-encoded hash string, or an error if the file cannot be read
+    /// or exceeds `MAX_BINARY_SIZE`.
+    ///
+    /// SECURITY (R39-SUP-3): Checks file metadata before reading to prevent
+    /// unbounded memory allocation from very large files.
     pub fn compute_hash(path: &str) -> Result<String, String> {
+        let meta = std::fs::metadata(path)
+            .map_err(|e| format!("Cannot read metadata for '{}': {}", path, e))?;
+        if meta.len() > MAX_BINARY_SIZE {
+            return Err(format!(
+                "Binary '{}' exceeds maximum size of {} bytes (actual: {})",
+                path, MAX_BINARY_SIZE, meta.len()
+            ));
+        }
         let data = std::fs::read(path).map_err(|e| format!("Failed to read '{}': {}", path, e))?;
 
         use sha2::{Digest, Sha256};
@@ -232,6 +272,9 @@ impl SupplyChainConfig {
     ///
     /// Returns `Ok(())` if verification passes or is disabled. Returns
     /// `Err(reason)` if the binary is unlisted, missing, or has a hash mismatch.
+    ///
+    /// SECURITY (R39-SUP-2): Uses constant-time comparison for hash strings
+    /// to prevent timing side-channel attacks.
     pub fn verify_binary(&self, path: &str) -> Result<(), String> {
         if !self.enabled {
             return Ok(());
@@ -244,7 +287,7 @@ impl SupplyChainConfig {
 
         let actual_hash = Self::compute_hash(path)?;
 
-        if actual_hash != *expected_hash {
+        if !constant_time_eq(&actual_hash, expected_hash) {
             return Err(format!(
                 "Hash mismatch for '{}': expected {}, got {}",
                 path, expected_hash, actual_hash
@@ -1016,6 +1059,12 @@ pub const MAX_TRUSTED_KEYS: usize = 50;
 /// Maximum number of known tool names for squatting detection.
 pub const MAX_KNOWN_TOOL_NAMES: usize = 1_000;
 
+/// Maximum number of allowed servers in supply chain configuration.
+///
+/// SECURITY (R39-SUP-4): Prevents memory exhaustion from excessively large
+/// allowed_servers maps in config files.
+pub const MAX_ALLOWED_SERVERS: usize = 1_000;
+
 impl PolicyConfig {
     /// Parse config from a JSON string.
     pub fn from_json(json_str: &str) -> Result<Self, serde_json::Error> {
@@ -1086,6 +1135,15 @@ impl PolicyConfig {
                 "sampling.allowed_models has {} entries, max is {}",
                 self.sampling.allowed_models.len(),
                 MAX_ALLOWED_MODELS
+            ));
+        }
+        // SECURITY (R39-SUP-4): Bound supply_chain.allowed_servers to prevent
+        // memory exhaustion from excessively large server maps in config files.
+        if self.supply_chain.allowed_servers.len() > MAX_ALLOWED_SERVERS {
+            return Err(format!(
+                "supply_chain.allowed_servers has {} entries, max is {}",
+                self.supply_chain.allowed_servers.len(),
+                MAX_ALLOWED_SERVERS
             ));
         }
 
@@ -1741,7 +1799,7 @@ per_ip_rps = 50
         };
         let result = config.verify_binary("/nonexistent/binary");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Failed to read"));
+        assert!(result.unwrap_err().contains("Cannot read metadata"));
     }
 
     // --- Manifest verification tests ---
@@ -2758,5 +2816,116 @@ policy_type = "Allow"
             "IPv6 link-local febf::1 should be rejected, got: {}",
             err
         );
+    }
+
+    // --- R39-SUP-2: Constant-time hash comparison tests ---
+
+    #[test]
+    fn test_r39_sup_2_constant_time_eq_equal_strings() {
+        assert!(constant_time_eq("abc", "abc"));
+    }
+
+    #[test]
+    fn test_r39_sup_2_constant_time_eq_different_strings() {
+        assert!(!constant_time_eq("abc", "abd"));
+    }
+
+    #[test]
+    fn test_r39_sup_2_constant_time_eq_different_lengths() {
+        assert!(!constant_time_eq("abc", "ab"));
+    }
+
+    #[test]
+    fn test_r39_sup_2_constant_time_eq_empty_strings() {
+        assert!(constant_time_eq("", ""));
+    }
+
+    #[test]
+    fn test_r39_sup_2_constant_time_eq_hex_hashes() {
+        // Simulate real SHA-256 hex comparison
+        let hash_a = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        let hash_b = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        assert!(constant_time_eq(hash_a, hash_b));
+
+        let hash_c = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b856";
+        assert!(!constant_time_eq(hash_a, hash_c));
+    }
+
+    #[test]
+    fn test_r39_sup_2_verify_binary_uses_constant_time_comparison() {
+        // Verify that verify_binary still works correctly with constant-time eq
+        let dir = tempfile::tempdir().unwrap();
+        let bin_path = dir.path().join("test-binary");
+        std::fs::write(&bin_path, b"test binary content").unwrap();
+
+        let actual_hash = SupplyChainConfig::compute_hash(&bin_path.to_string_lossy()).unwrap();
+
+        let mut allowed = std::collections::HashMap::new();
+        allowed.insert(bin_path.to_string_lossy().to_string(), actual_hash);
+
+        let config = SupplyChainConfig {
+            enabled: true,
+            allowed_servers: allowed,
+            ..Default::default()
+        };
+        assert!(config.verify_binary(&bin_path.to_string_lossy()).is_ok());
+    }
+
+    // --- R39-SUP-3: compute_hash file size bound tests ---
+
+    #[test]
+    fn test_r39_sup_3_compute_hash_works_for_normal_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("small-binary");
+        std::fs::write(&path, b"small file content").unwrap();
+
+        let result = SupplyChainConfig::compute_hash(&path.to_string_lossy());
+        assert!(result.is_ok());
+        // SHA-256 hex hash should be 64 chars
+        assert_eq!(result.unwrap().len(), 64);
+    }
+
+    #[test]
+    fn test_r39_sup_3_compute_hash_nonexistent_file_returns_error() {
+        let result = SupplyChainConfig::compute_hash("/nonexistent/path/binary");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Cannot read metadata"));
+    }
+
+    // --- R39-SUP-4: supply_chain.allowed_servers bound tests ---
+
+    #[test]
+    fn test_r39_sup_4_validate_rejects_too_many_allowed_servers() {
+        let mut config = minimal_config();
+        for i in 0..=MAX_ALLOWED_SERVERS {
+            config.supply_chain.allowed_servers.insert(
+                format!("/usr/local/bin/server-{}", i),
+                format!("{:064x}", i),
+            );
+        }
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("supply_chain.allowed_servers"),
+            "Expected supply_chain.allowed_servers error, got: {}",
+            err
+        );
+        assert!(
+            err.contains(&format!("{}", MAX_ALLOWED_SERVERS)),
+            "Error should mention the max limit, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_r39_sup_4_validate_accepts_allowed_servers_at_limit() {
+        let mut config = minimal_config();
+        for i in 0..MAX_ALLOWED_SERVERS {
+            config.supply_chain.allowed_servers.insert(
+                format!("/usr/local/bin/server-{}", i),
+                format!("{:064x}", i),
+            );
+        }
+        // Exactly at the limit should pass
+        assert!(config.validate().is_ok());
     }
 }

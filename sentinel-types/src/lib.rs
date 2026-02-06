@@ -176,8 +176,8 @@ impl Action {
         validate_name(&self.tool, "tool")?;
         validate_name(&self.function, "function")?;
 
-        // Check combined target count
-        let total_targets = self.target_paths.len() + self.target_domains.len();
+        // Check combined target count (R39-ENG-4: include resolved_ips)
+        let total_targets = self.target_paths.len() + self.target_domains.len() + self.resolved_ips.len();
         if total_targets > MAX_TARGETS {
             return Err(ValidationError::TooManyTargets {
                 count: total_targets,
@@ -735,6 +735,49 @@ mod tests {
         action.target_paths = (0..128).map(|i| format!("/path/{}", i)).collect();
         action.target_domains = (0..128).map(|i| format!("d{}.com", i)).collect();
         // 128 + 128 = 256 == MAX_TARGETS
+        assert!(action.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_too_many_resolved_ips_r39_eng_4() {
+        // R39-ENG-4: resolved_ips must be counted in total_targets.
+        // 300 resolved_ips alone should exceed MAX_TARGETS=256.
+        let mut action = Action::new("tool", "func", json!({}));
+        action.resolved_ips = (0..300).map(|i| format!("10.0.{}.{}", i / 256, i % 256)).collect();
+        assert!(matches!(
+            action.validate(),
+            Err(ValidationError::TooManyTargets {
+                count: 300,
+                max: 256
+            })
+        ));
+    }
+
+    #[test]
+    fn test_validate_resolved_ips_combined_with_paths_domains_r39_eng_4() {
+        // R39-ENG-4: Combination of paths + domains + IPs exceeding MAX_TARGETS
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_paths = (0..100).map(|i| format!("/path/{}", i)).collect();
+        action.target_domains = (0..100).map(|i| format!("d{}.com", i)).collect();
+        action.resolved_ips = (0..57).map(|i| format!("10.0.0.{}", i)).collect();
+        // 100 + 100 + 57 = 257 > 256
+        assert!(matches!(
+            action.validate(),
+            Err(ValidationError::TooManyTargets {
+                count: 257,
+                max: 256
+            })
+        ));
+    }
+
+    #[test]
+    fn test_validate_resolved_ips_at_boundary_r39_eng_4() {
+        // R39-ENG-4: paths + domains + IPs exactly at MAX_TARGETS should pass
+        let mut action = Action::new("tool", "func", json!({}));
+        action.target_paths = (0..85).map(|i| format!("/path/{}", i)).collect();
+        action.target_domains = (0..85).map(|i| format!("d{}.com", i)).collect();
+        action.resolved_ips = (0..86).map(|i| format!("10.0.0.{}", i)).collect();
+        // 85 + 85 + 86 = 256 == MAX_TARGETS
         assert!(action.validate().is_ok());
     }
 
