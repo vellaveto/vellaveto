@@ -1525,12 +1525,20 @@ impl AuditLogger {
                 } else {
                     redact_keys_and_patterns(&action.parameters)
                 };
-                // SECURITY (R33-SUP-2): Also scan target_paths and target_domains
-                // for PII patterns. Paths like /home/john.doe/ or domains with
-                // personal subdomains could leak PII into audit logs.
+                // SECURITY (R33-SUP-2): Also scan target_paths, target_domains,
+                // and resolved_ips for PII patterns. Paths like /home/john.doe/
+                // or domains with personal subdomains could leak PII into audit logs.
+                // SECURITY (R36-SUP-1): Use configured PiiScanner when available
+                // instead of legacy PII_REGEXES (which only detects email/SSN/phone).
+                // PiiScanner also detects credit cards, IPv4, JWT, and AWS keys.
+                // SECURITY (R36-SUP-3): Also redact resolved_ips which may contain
+                // internal network addresses or other PII-adjacent data.
+                let pii_scanner_ref = &self.pii_scanner;
                 let redact_strings = |strings: &[String]| -> Vec<String> {
                     strings.iter().map(|s| {
-                        if PII_REGEXES.iter().any(|re| re.is_match(s)) {
+                        if let Some(ref scanner) = pii_scanner_ref {
+                            if scanner.has_pii(s) { REDACTED.to_string() } else { s.clone() }
+                        } else if PII_REGEXES.iter().any(|re| re.is_match(s)) {
                             REDACTED.to_string()
                         } else {
                             s.clone()
@@ -1539,6 +1547,7 @@ impl AuditLogger {
                 };
                 a.target_paths = redact_strings(&action.target_paths);
                 a.target_domains = redact_strings(&action.target_domains);
+                a.resolved_ips = redact_strings(&action.resolved_ips);
                 a
             }
         };
@@ -2743,6 +2752,102 @@ mod tests {
         assert_eq!(meta["source"], "proxy");
         assert_eq!(meta["user_email"], "[REDACTED]");
         assert_eq!(meta["api_key_value"], "[REDACTED]");
+    }
+
+    // ── R36-SUP-1: PII redaction uses PiiScanner for target_paths/domains ──
+
+    #[tokio::test]
+    async fn test_r36_sup_1_target_paths_use_pii_scanner() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        // Default AuditLogger has PiiScanner that detects IPv4, JWT, AWS keys, etc.
+        let logger = AuditLogger::new(log_path.clone())
+            .with_redaction_level(RedactionLevel::KeysAndPatterns);
+
+        let mut action = Action::new(
+            "tool".to_string(),
+            "func".to_string(),
+            json!({}),
+        );
+        // IPv4 in target_paths — detected by PiiScanner but NOT by legacy PII_REGEXES
+        action.target_paths = vec!["192.168.1.100".to_string()];
+        // AWS key in target_domains — detected by PiiScanner but NOT by legacy PII_REGEXES
+        action.target_domains = vec!["AKIAIOSFODNN7EXAMPLE".to_string()];
+
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        assert_eq!(
+            entries[0].action.target_paths[0], "[REDACTED]",
+            "IPv4 in target_paths should be redacted by PiiScanner"
+        );
+        assert_eq!(
+            entries[0].action.target_domains[0], "[REDACTED]",
+            "AWS key in target_domains should be redacted by PiiScanner"
+        );
+    }
+
+    // ── R36-SUP-3: resolved_ips redacted in audit log entries ──
+
+    #[tokio::test]
+    async fn test_r36_sup_3_resolved_ips_redacted() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone())
+            .with_redaction_level(RedactionLevel::KeysAndPatterns);
+
+        let mut action = Action::new(
+            "tool".to_string(),
+            "func".to_string(),
+            json!({}),
+        );
+        action.resolved_ips = vec!["10.0.0.1".to_string(), "safe-value".to_string()];
+
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        // IP address should be redacted
+        assert_eq!(
+            entries[0].action.resolved_ips[0], "[REDACTED]",
+            "IP in resolved_ips should be redacted"
+        );
+        // Non-PII value should be preserved
+        assert_eq!(
+            entries[0].action.resolved_ips[1], "safe-value",
+            "Non-PII value in resolved_ips should be preserved"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_r36_sup_3_resolved_ips_not_redacted_when_off() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone())
+            .with_redaction_level(RedactionLevel::Off);
+
+        let mut action = Action::new(
+            "tool".to_string(),
+            "func".to_string(),
+            json!({}),
+        );
+        action.resolved_ips = vec!["10.0.0.1".to_string()];
+
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        assert_eq!(
+            entries[0].action.resolved_ips[0], "10.0.0.1",
+            "resolved_ips should not be redacted when redaction is off"
+        );
     }
 
     // === Log rotation tests (Fix #36) ===

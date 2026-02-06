@@ -53,11 +53,23 @@ pub fn to_cef(entry: &AuditEntry) -> String {
         Verdict::Deny { .. } => 8,
     };
 
-    let tool_function = format!(
+    let tool_function_raw = format!(
         "{}:{}",
         cef_escape(&entry.action.tool),
         cef_escape(&entry.action.function)
     );
+    // SECURITY (R36-SUP-5): CEF header name field (position 6) could exceed
+    // reasonable SIEM parser limits with very long tool/function names. Cap at
+    // 500 bytes with char-boundary-aware truncation.
+    let tool_function = if tool_function_raw.len() > 500 {
+        let mut end = 500;
+        while end > 0 && !tool_function_raw.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...", &tool_function_raw[..end])
+    } else {
+        tool_function_raw
+    };
 
     // SECURITY (R35-SUP-2): CEF spec limits extension values to 1023 bytes.
     // Truncate escaped values by byte count (not char count) to prevent
@@ -585,6 +597,76 @@ mod tests {
         assert!(
             std::str::from_utf8(cs2_value.as_bytes()).is_ok(),
             "Truncated CEF value must be valid UTF-8"
+        );
+    }
+
+    // ── R36-SUP-5: CEF header name field length-bounded ──
+
+    #[test]
+    fn test_r36_sup_5_cef_header_name_truncated() {
+        // Tool and function names that produce a name field > 500 bytes
+        let long_tool = "a".repeat(300);
+        let long_func = "b".repeat(300);
+        let entry = make_entry(&long_tool, &long_func, Verdict::Allow);
+        let cef = to_cef(&entry);
+
+        // Extract the name field (position 5, 0-indexed) from the CEF header.
+        // CEF:0|vendor|product|version|sigId|name|severity|extensions
+        // Split on unescaped pipes to find the name field.
+        let parts: Vec<&str> = cef.splitn(8, '|').collect();
+        assert!(
+            parts.len() >= 7,
+            "CEF should have at least 7 pipe-delimited fields"
+        );
+        let name_field = parts[5];
+        // The name field should be truncated to ~503 bytes (500 + "...")
+        assert!(
+            name_field.len() <= 503,
+            "CEF name field should be <= 503 bytes (500 + '...'), got {}",
+            name_field.len()
+        );
+        assert!(
+            name_field.ends_with("..."),
+            "Truncated CEF name field should end with '...', got: {}",
+            &name_field[name_field.len().saturating_sub(10)..]
+        );
+    }
+
+    #[test]
+    fn test_r36_sup_5_cef_header_name_short_not_truncated() {
+        // Normal-length tool/function names should not be truncated
+        let entry = make_entry("read_file", "execute", Verdict::Allow);
+        let cef = to_cef(&entry);
+        let parts: Vec<&str> = cef.splitn(8, '|').collect();
+        let name_field = parts[5];
+        assert_eq!(name_field, "read_file:execute");
+        assert!(
+            !name_field.ends_with("..."),
+            "Short name should not be truncated"
+        );
+    }
+
+    #[test]
+    fn test_r36_sup_5_cef_header_name_multibyte_boundary() {
+        // Tool name with multi-byte UTF-8 chars near the 500-byte boundary
+        // Each emoji is 4 bytes. 125 emoji = 500 bytes exactly for tool name alone.
+        let emoji_tool = "\u{1F600}".repeat(125); // 500 bytes
+        let entry = make_entry(&emoji_tool, "f", Verdict::Allow);
+        let cef = to_cef(&entry);
+        // The tool:function = 500+1+1 = 502 bytes, within 500 after escaping
+        // Actually the escaped form is the same since emoji don't need CEF escaping.
+        // tool_function = emoji(500 bytes) + ":" + "f" = 502 bytes > 500, so truncated
+        let parts: Vec<&str> = cef.splitn(8, '|').collect();
+        let name_field = parts[5];
+        assert!(
+            name_field.len() <= 503,
+            "Multi-byte name field should be <= 503 bytes, got {}",
+            name_field.len()
+        );
+        // Must be valid UTF-8
+        assert!(
+            std::str::from_utf8(name_field.as_bytes()).is_ok(),
+            "Truncated name field must be valid UTF-8"
         );
     }
 }

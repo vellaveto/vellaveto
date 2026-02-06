@@ -15,6 +15,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tokio = { version = "1.0", features = ["sync", "fs", "io-util", "rt", "macros", "time"] }
 sha2 = "0.10"
+unicode-normalization = "0.1"
 
 [dev-dependencies]
 tempfile = "3.0"

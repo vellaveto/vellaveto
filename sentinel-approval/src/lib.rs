@@ -8,6 +8,7 @@ use thiserror::Error;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
+use unicode_normalization::UnicodeNormalization;
 use uuid::Uuid;
 
 #[derive(Error, Debug)]
@@ -178,11 +179,19 @@ impl ApprovalStore {
                 Err(e) => {
                     // Fix #28: Log malformed lines instead of silently dropping them.
                     // This makes data corruption visible on restart.
+                    // SECURITY (R36-SUP-2): Use char-boundary-aware truncation to
+                    // prevent panic when byte position 200 falls mid-character in
+                    // multi-byte UTF-8 content.
+                    let max = 200.min(line.len());
+                    let mut end = max;
+                    while end > 0 && !line.is_char_boundary(end) {
+                        end -= 1;
+                    }
                     tracing::warn!(
                         "Skipping malformed approval entry at line {}: {} (content: {})",
                         line_num + 1,
                         e,
-                        &line[..line.len().min(200)]
+                        &line[..end]
                     );
                     skipped += 1;
                 }
@@ -335,9 +344,15 @@ impl ApprovalStore {
             // SECURITY (R28-SUP-10): Case-insensitive comparison to prevent
             // self-approval bypass via casing variations (e.g., "Admin@Corp.com"
             // vs "admin@corp.com").
-            if !requester_base.is_empty()
-                && !requester_base.eq_ignore_ascii_case("anonymous")
-                && requester_base.eq_ignore_ascii_case(approver_base)
+            // SECURITY (R36-SUP-4): Apply Unicode NFKC normalization before
+            // comparison to prevent bypass via confusable characters (e.g.,
+            // Cyrillic 'а' U+0430 vs Latin 'a' U+0061). NFKC maps compatibility
+            // equivalents to their canonical forms.
+            let requester_normalized: String = requester_base.nfkc().collect();
+            let approver_normalized: String = approver_base.nfkc().collect();
+            if !requester_normalized.is_empty()
+                && !requester_normalized.eq_ignore_ascii_case("anonymous")
+                && requester_normalized.eq_ignore_ascii_case(&approver_normalized)
             {
                 return Err(ApprovalError::Validation(format!(
                     "Self-approval denied: requester '{}' cannot approve their own request",
@@ -941,5 +956,138 @@ mod tests {
         // Only one pending approval should exist
         let pending = store.list_pending().await;
         assert_eq!(pending.len(), 1);
+    }
+
+    // ── R36-SUP-2: Multi-byte UTF-8 boundary safety in load logging ──
+
+    #[tokio::test]
+    async fn test_r36_sup_2_multibyte_utf8_truncation_no_panic() {
+        // Write a JSONL file with a malformed line containing multi-byte UTF-8
+        // characters. When truncated at byte 200, the boundary might fall
+        // mid-character. This must not panic.
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("approvals.jsonl");
+
+        // Create a line with emoji (4 bytes each) that exceeds 200 bytes
+        // 60 emoji = 240 bytes, so byte 200 falls inside an emoji
+        let emoji_line = "\u{1F600}".repeat(60); // 240 bytes, not valid JSON
+        tokio::fs::write(&log_path, format!("{}\n", emoji_line))
+            .await
+            .unwrap();
+
+        let store = ApprovalStore::new(log_path, std::time::Duration::from_secs(900));
+        // This must not panic despite the mid-character truncation
+        let result = store.load_from_file().await;
+        assert!(result.is_ok());
+        // The malformed line should be skipped (count = 0)
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_r36_sup_2_ascii_truncation_still_works() {
+        // Ensure normal ASCII lines longer than 200 bytes are still truncated
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("approvals.jsonl");
+
+        let long_ascii = "x".repeat(300); // 300 bytes, not valid JSON
+        tokio::fs::write(&log_path, format!("{}\n", long_ascii))
+            .await
+            .unwrap();
+
+        let store = ApprovalStore::new(log_path, std::time::Duration::from_secs(900));
+        let result = store.load_from_file().await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    // ── R36-SUP-4: Unicode confusable self-approval prevention ──
+
+    #[tokio::test]
+    async fn test_r36_sup_4_unicode_confusable_self_approval_blocked_fullwidth() {
+        // Fullwidth Latin 'Ａ' (U+FF21) is normalized to 'A' by NFKC.
+        // An attacker could use fullwidth characters to bypass case-insensitive
+        // comparison of the original strings.
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        // Requester uses normal Latin characters
+        let requester = "Admin@corp.com".to_string();
+        let id = store
+            .create(test_action(), "needs review".to_string(), Some(requester))
+            .await
+            .unwrap();
+
+        // Approver uses fullwidth Latin 'Ａ' (U+FF21) + normal "dmin@corp.com"
+        // NFKC normalizes U+FF21 to 'A', so this should match "Admin@corp.com"
+        let approver_fullwidth = "\u{FF21}dmin@corp.com";
+        let result = store.approve(&id, approver_fullwidth).await;
+        assert!(
+            result.is_err(),
+            "Fullwidth Unicode self-approval should be denied"
+        );
+        match result.unwrap_err() {
+            ApprovalError::Validation(msg) => {
+                assert!(
+                    msg.contains("Self-approval denied"),
+                    "Expected self-approval denial, got: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected Validation error, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_r36_sup_4_unicode_confusable_self_approval_blocked_roman_numeral() {
+        // Roman numeral 'Ⅰ' (U+2160) is NFKC-normalized to 'I'.
+        // Test that an identity containing compatibility characters is caught.
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let requester = "Id-1@corp.com".to_string();
+        let id = store
+            .create(test_action(), "needs review".to_string(), Some(requester))
+            .await
+            .unwrap();
+
+        // Approver uses Roman numeral Ⅰ (U+2160) which NFKC-normalizes to 'I'
+        let approver = "\u{2160}d-1@corp.com";
+        let result = store.approve(&id, approver).await;
+        assert!(
+            result.is_err(),
+            "Roman numeral confusable self-approval should be denied"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_r36_sup_4_legitimate_different_users_allowed() {
+        // Ensure NFKC normalization does not block legitimate different users
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let id = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some("alice@corp.com".to_string()),
+            )
+            .await
+            .unwrap();
+
+        let result = store.approve(&id, "bob@corp.com").await;
+        assert!(
+            result.is_ok(),
+            "Different users should be able to approve: {:?}",
+            result.err()
+        );
     }
 }

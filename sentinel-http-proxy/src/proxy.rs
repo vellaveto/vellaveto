@@ -381,6 +381,11 @@ pub async fn handle_mcp_post(
         Err(response) => return response,
     };
 
+    // SECURITY (R36-PROXY-2): Extract the authenticated principal for self-approval
+    // prevention. Without this, approval_store.create() receives None as requested_by,
+    // which bypasses the self-approval check.
+    let requested_by = oauth_claims.as_ref().map(|c| c.sub.clone());
+
     // Defense-in-depth: reject JSON with duplicate keys before parsing.
     // Prevents parser-disagreement attacks (CVE-2017-12635, CVE-2020-16250)
     // where the proxy evaluates one key value but upstream sees another.
@@ -706,7 +711,7 @@ pub async fn handle_mcp_post(
                         }
                         // Create pending approval if store is configured
                         let approval_id = if let Some(ref store) = state.approval_store {
-                            store.create(action.clone(), reason.clone(), None).await.ok()
+                            store.create(action.clone(), reason.clone(), requested_by.clone()).await.ok()
                         } else {
                             None
                         };
@@ -731,7 +736,7 @@ pub async fn handle_mcp_post(
                             tracing::error!("AUDIT FAILURE: {}", e);
                         }
                         let approval_id = if let Some(ref store) = state.approval_store {
-                            store.create(action.clone(), reason.clone(), None).await.ok()
+                            store.create(action.clone(), reason.clone(), requested_by.clone()).await.ok()
                         } else {
                             None
                         };
@@ -947,7 +952,7 @@ pub async fn handle_mcp_post(
 
                     // Create pending approval if store is configured
                     let approval_id = if let Some(ref store) = state.approval_store {
-                        match store.create(action.clone(), reason.clone(), None).await {
+                        match store.create(action.clone(), reason.clone(), requested_by.clone()).await {
                             Ok(id) => {
                                 tracing::info!(
                                     "Created pending approval {} for tool '{}'",
@@ -1139,7 +1144,7 @@ pub async fn handle_mcp_post(
                     // Create pending approval for RequireApproval verdicts
                     let approval_id = if matches!(&verdict, Verdict::RequireApproval { .. }) {
                         if let Some(ref store) = state.approval_store {
-                            match store.create(action.clone(), reason.clone(), None).await {
+                            match store.create(action.clone(), reason.clone(), requested_by.clone()).await {
                                 Ok(aid) => {
                                     tracing::info!(
                                         "Created pending approval {} for resource '{}'",
@@ -2618,6 +2623,11 @@ async fn forward_to_upstream(
                         // Try to parse and inspect the response
                         // Track whether injection blocking should prevent forwarding.
                         let mut blocked_by_injection: Option<String> = None;
+                        // SECURITY (R36-PROXY-1): Track detection state separately from
+                        // blocking state. In log-only mode, blocked_by_injection remains
+                        // None but injection_detected is true, preventing tainted responses
+                        // from being fingerprinted by the memory tracker.
+                        let mut injection_detected = false;
                         if let Ok(response_json) = serde_json::from_slice::<Value>(&body_bytes) {
                             // Inspect for injection patterns in tool results
                             if let Some(result) = response_json.get("result") {
@@ -2637,6 +2647,7 @@ async fn forward_to_upstream(
                                                 .collect()
                                         };
                                     if !matches.is_empty() {
+                                        injection_detected = true;
                                         tracing::warn!(
                                             "SECURITY: Potential prompt injection in upstream response! \
                                              Session: {}, Patterns: {:?}",
@@ -2712,6 +2723,7 @@ async fn forward_to_upstream(
                                         scan_tool_descriptions(&response_json)
                                     };
                                     for finding in &desc_findings {
+                                        injection_detected = true;
                                         tracing::warn!(
                                             "SECURITY: Injection in tool '{}' description! Session: {}, Patterns: {:?}",
                                             finding.tool_name, session_id, finding.matched_patterns
@@ -2794,6 +2806,7 @@ async fn forward_to_upstream(
                                         .validate(tool_name, structured)
                                     {
                                         ValidationResult::Invalid { violations } => {
+                                            injection_detected = true;
                                             tracing::warn!(
                                                 "SECURITY: structuredContent validation failed for tool '{}': {:?}",
                                                 tool_name, violations
@@ -2876,6 +2889,7 @@ async fn forward_to_upstream(
                                                     .collect()
                                             };
                                         if !matches.is_empty() {
+                                            injection_detected = true;
                                             tracing::warn!(
                                                 "SECURITY: Potential prompt injection in error response! \
                                                  Session: {}, Patterns: {:?}",
@@ -2936,11 +2950,16 @@ async fn forward_to_upstream(
 
                         // DLP response scanning: detect secrets in tool responses.
                         let mut blocked_by_dlp: Option<String> = None;
+                        // SECURITY (R36-PROXY-1): Track DLP detection separately from
+                        // blocking. Even in log-only mode, tainted responses must not
+                        // be fingerprinted by the memory tracker.
+                        let mut dlp_detected = false;
                         if state.response_dlp_enabled {
                             if let Ok(response_json) = serde_json::from_slice::<Value>(&body_bytes)
                             {
                                 let dlp_findings = scan_response_for_secrets(&response_json);
                                 if !dlp_findings.is_empty() {
+                                    dlp_detected = true;
                                     let patterns: Vec<String> = dlp_findings
                                         .iter()
                                         .map(|f| format!("{}:{}", f.pattern_name, f.location))
@@ -3037,13 +3056,17 @@ async fn forward_to_upstream(
                                 .into_response();
                         }
 
-                        // OWASP ASI06 (R26-MCP-1): Record response fingerprints for memory
-                        // poisoning detection ONLY if the response was not blocked by
-                        // injection detection or DLP. This prevents false positives from
-                        // data the agent never actually received.
-                        if let Ok(response_json) = serde_json::from_slice::<Value>(&body_bytes) {
-                            if let Some(mut session) = state.sessions.get_mut(session_id) {
-                                session.memory_tracker.record_response(&response_json);
+                        // OWASP ASI06 (R26-MCP-1, R36-PROXY-1): Record response fingerprints
+                        // for memory poisoning detection ONLY if injection and DLP scanning
+                        // found no issues. This uses detection flags (not blocking flags)
+                        // so that log-only mode also prevents tainted fingerprinting.
+                        // Previously, log-only mode left blocked_by_injection/blocked_by_dlp
+                        // as None, allowing tainted responses to be fingerprinted.
+                        if !injection_detected && !dlp_detected {
+                            if let Ok(response_json) = serde_json::from_slice::<Value>(&body_bytes) {
+                                if let Some(mut session) = state.sessions.get_mut(session_id) {
+                                    session.memory_tracker.record_response(&response_json);
+                                }
                             }
                         }
 

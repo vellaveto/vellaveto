@@ -128,11 +128,16 @@ pub struct RugPullResult {
 }
 
 impl RugPullResult {
-    /// Tools that should be flagged for blocking (changed + newly added + squatting).
+    /// Tools that should be flagged for blocking (changed + newly added + removed + squatting).
+    ///
+    /// SECURITY (R36-MCP-7): Removed tools are included because their removal
+    /// is a rug-pull indicator — a malicious server may remove a tool to force
+    /// the agent to use a squatted or replacement tool instead.
     pub fn flagged_tool_names(&self) -> Vec<&str> {
         self.changed_tools
             .iter()
             .chain(self.new_tools.iter())
+            .chain(self.removed_tools.iter())
             .map(|s| s.as_str())
             .chain(
                 self.squatting_alerts
@@ -785,8 +790,8 @@ mod tests {
         assert!(result.new_tools.is_empty());
         assert_eq!(result.removed_tools, vec!["write_file"]);
         assert!(result.has_detections());
-        // Removed tools are NOT flagged (they're gone), only changed/new are
-        assert!(result.flagged_tool_names().is_empty());
+        // SECURITY (R36-MCP-7): Removed tools ARE flagged — removal is a rug-pull indicator.
+        assert_eq!(result.flagged_tool_names(), vec!["write_file"]);
     }
 
     #[test]
@@ -829,7 +834,8 @@ mod tests {
         let flagged: Vec<&str> = result.flagged_tool_names();
         assert!(flagged.contains(&"safe_tool"));
         assert!(flagged.contains(&"new_evil_tool"));
-        assert!(!flagged.contains(&"vanishing_tool"));
+        // SECURITY (R36-MCP-7): Removed tools ARE now flagged
+        assert!(flagged.contains(&"vanishing_tool"));
     }
 
     // --- Phase 4C: Schema change detection tests ---
@@ -1337,6 +1343,46 @@ mod tests {
         assert!(
             compute_schema_hash(&null_schema).is_none(),
             "Null schema should return None"
+        );
+    }
+
+    // ── R36-MCP-7: Removed tools in flagged_tool_names ──
+
+    #[test]
+    fn test_removed_tools_in_flagged_tool_names() {
+        let mut result = RugPullResult::default();
+        result.removed_tools.push("vanished_tool".to_string());
+        let flagged = result.flagged_tool_names();
+        assert!(
+            flagged.contains(&"vanished_tool"),
+            "Removed tools must appear in flagged_tool_names, got: {:?}",
+            flagged
+        );
+    }
+
+    #[test]
+    fn test_removed_tool_detected_and_flagged_end_to_end() {
+        let mut known = HashMap::new();
+        known.insert("tool_a".to_string(), ToolAnnotations::default());
+        known.insert("tool_b".to_string(), ToolAnnotations::default());
+
+        // Only tool_a in the new response — tool_b is removed
+        let response = json!({
+            "result": {
+                "tools": [
+                    {"name": "tool_a"},
+                ]
+            }
+        });
+        let result = detect_rug_pull(&response, &known, false);
+
+        assert_eq!(result.removed_tools, vec!["tool_b"]);
+        assert!(result.has_detections());
+        let flagged = result.flagged_tool_names();
+        assert!(
+            flagged.contains(&"tool_b"),
+            "End-to-end: removed tool must be flagged, got: {:?}",
+            flagged
         );
     }
 }

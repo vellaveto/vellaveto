@@ -1305,11 +1305,14 @@ impl PolicyEngine {
                 })
             }
             "max_calls" => {
+                // R36-ENG-1: lowercase tool_pattern at compile time so
+                // PatternMatcher::matches() (case-sensitive) agrees with
+                // the lowercased call_count keys built at evaluation time.
                 let tool_pattern = obj
                     .get("tool_pattern")
                     .and_then(|v| v.as_str())
                     .unwrap_or("*")
-                    .to_string();
+                    .to_ascii_lowercase();
                 let max = obj.get("max").and_then(|v| v.as_u64()).ok_or_else(|| {
                     PolicyValidationError {
                         policy_id: policy.id.clone(),
@@ -1397,11 +1400,14 @@ impl PolicyEngine {
                 })
             }
             "max_calls_in_window" => {
+                // R36-ENG-1: lowercase tool_pattern at compile time so
+                // PatternMatcher::matches() (case-sensitive) agrees with
+                // the lowercased previous_actions built at evaluation time.
                 let tool_pattern = obj
                     .get("tool_pattern")
                     .and_then(|v| v.as_str())
                     .unwrap_or("*")
-                    .to_string();
+                    .to_ascii_lowercase();
                 let max = obj.get("max").and_then(|v| v.as_u64()).ok_or_else(|| {
                     PolicyValidationError {
                         policy_id: policy.id.clone(),
@@ -12199,6 +12205,77 @@ mod tests {
         assert!(
             matches!(v, Verdict::Deny { .. }),
             "R34-ENG-5: Case-varied previous actions should sum for window rate limit, got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_max_calls_mixed_case_tool_pattern_r36_eng_1() {
+        // R36-ENG-1: A mixed-case tool_pattern like "Read_File" must be
+        // lowercased at compile time so PatternMatcher::matches() agrees
+        // with the lowercased call_count keys built at evaluation time.
+        let policy = make_context_policy(json!([
+            {"type": "max_calls", "tool_pattern": "Read_File", "max": 3}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+
+        // Under the limit — should allow.
+        let mut counts = HashMap::new();
+        counts.insert("read_file".to_string(), 2u64);
+        let ctx = EvaluationContext {
+            call_counts: counts,
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "R36-ENG-1: Mixed-case pattern should match lowercased keys (under limit), got: {:?}",
+            v
+        );
+
+        // At the limit — should deny.
+        let mut counts = HashMap::new();
+        counts.insert("read_file".to_string(), 3u64);
+        let ctx = EvaluationContext {
+            call_counts: counts,
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "R36-ENG-1: Mixed-case pattern should match lowercased keys (at limit), got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_max_calls_in_window_mixed_case_tool_pattern_r36_eng_1() {
+        // R36-ENG-1: Same fix for max_calls_in_window — mixed-case tool_pattern
+        // must be lowercased at compile time.
+        let policy = make_context_policy(json!([
+            {"type": "max_calls_in_window", "tool_pattern": "Write_File", "max": 2, "window": 10}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            previous_actions: vec![
+                "write_file".to_string(),
+                "write_file".to_string(),
+                "write_file".to_string(),
+            ],
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "R36-ENG-1: Mixed-case window pattern should match lowercased actions, got: {:?}",
             v
         );
     }
