@@ -2030,7 +2030,12 @@ fn validate_api_key(state: &ProxyState, headers: &HeaderMap) -> Result<(), Respo
         // RFC 7235: Authorization scheme comparison is case-insensitive.
         Some(h) if h.len() > 7 && h[..7].eq_ignore_ascii_case("bearer ") => {
             let token = &h[7..];
-            if token.as_bytes().ct_eq(api_key.as_bytes()).into() {
+            // SECURITY (FIND-008): Hash before comparing to prevent length oracle.
+            // ct_eq short-circuits on length mismatch; hashing normalizes to 32 bytes.
+            use sha2::{Digest, Sha256};
+            let token_hash = Sha256::digest(token.as_bytes());
+            let key_hash = Sha256::digest(api_key.as_bytes());
+            if token_hash.ct_eq(&key_hash).into() {
                 Ok(())
             } else {
                 Err((
