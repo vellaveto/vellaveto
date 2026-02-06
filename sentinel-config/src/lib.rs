@@ -1010,6 +1010,14 @@ pub struct PolicyConfig {
     /// ```
     #[serde(default)]
     pub allowed_origins: Vec<String>,
+
+    /// Behavioral anomaly detection configuration (P4.1).
+    #[serde(default)]
+    pub behavioral: BehavioralDetectionConfig,
+
+    /// Cross-request data flow tracking configuration (P4.2).
+    #[serde(default)]
+    pub data_flow: DataFlowTrackingConfig,
 }
 
 /// Tool registry with trust scoring configuration (P2.1).
@@ -1056,6 +1064,152 @@ impl Default for ToolRegistryConfig {
         }
     }
 }
+
+/// Behavioral anomaly detection configuration (P4.1).
+///
+/// Tracks per-agent tool call frequency using exponential moving average (EMA)
+/// and flags deviations from established baselines. Deterministic and auditable.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [behavioral]
+/// enabled = true
+/// alpha = 0.2
+/// threshold = 10.0
+/// min_sessions = 3
+/// max_tools_per_agent = 500
+/// max_agents = 10000
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BehavioralDetectionConfig {
+    /// Enable behavioral anomaly detection. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// EMA smoothing factor in (0.0, 1.0]. Higher values weight recent data more.
+    /// Default: 0.2
+    #[serde(default = "default_behavioral_alpha")]
+    pub alpha: f64,
+
+    /// Deviation threshold multiplier. Anomaly flagged when
+    /// `current_count / baseline_ema >= threshold`.
+    /// Default: 10.0
+    #[serde(default = "default_behavioral_threshold")]
+    pub threshold: f64,
+
+    /// Minimum sessions before baselines are actionable (cold start protection).
+    /// Default: 3
+    #[serde(default = "default_behavioral_min_sessions")]
+    pub min_sessions: u32,
+
+    /// Maximum tool entries tracked per agent. Oldest (by last active use) evicted first.
+    /// Default: 500
+    #[serde(default = "default_behavioral_max_tools")]
+    pub max_tools_per_agent: usize,
+
+    /// Maximum agents tracked. Agent with fewest total sessions evicted first.
+    /// Default: 10_000
+    #[serde(default = "default_behavioral_max_agents")]
+    pub max_agents: usize,
+}
+
+fn default_behavioral_alpha() -> f64 {
+    0.2
+}
+fn default_behavioral_threshold() -> f64 {
+    10.0
+}
+fn default_behavioral_min_sessions() -> u32 {
+    3
+}
+fn default_behavioral_max_tools() -> usize {
+    500
+}
+fn default_behavioral_max_agents() -> usize {
+    10_000
+}
+
+impl Default for BehavioralDetectionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            alpha: default_behavioral_alpha(),
+            threshold: default_behavioral_threshold(),
+            min_sessions: default_behavioral_min_sessions(),
+            max_tools_per_agent: default_behavioral_max_tools(),
+            max_agents: default_behavioral_max_agents(),
+        }
+    }
+}
+
+/// Cross-request data flow tracking configuration (P4.2).
+///
+/// Tracks DLP findings from tool responses and correlates them with subsequent
+/// outbound requests to detect potential data exfiltration chains.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [data_flow]
+/// enabled = true
+/// max_findings = 500
+/// max_fingerprints_per_pattern = 100
+/// require_exact_match = false
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DataFlowTrackingConfig {
+    /// Enable cross-request data flow tracking. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Maximum number of response findings to retain per session.
+    /// Oldest findings are evicted when capacity is reached.
+    /// Default: 500
+    #[serde(default = "default_data_flow_max_findings")]
+    pub max_findings: usize,
+
+    /// Maximum number of fingerprints to retain per DLP pattern.
+    /// Default: 100
+    #[serde(default = "default_data_flow_max_fingerprints")]
+    pub max_fingerprints_per_pattern: usize,
+
+    /// When true, require exact fingerprint match (same secret value) in
+    /// addition to pattern-type match. When false, any matching DLP pattern
+    /// type triggers an alert. Default: false.
+    #[serde(default)]
+    pub require_exact_match: bool,
+}
+
+fn default_data_flow_max_findings() -> usize {
+    500
+}
+fn default_data_flow_max_fingerprints() -> usize {
+    100
+}
+
+impl Default for DataFlowTrackingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_findings: default_data_flow_max_findings(),
+            max_fingerprints_per_pattern: default_data_flow_max_fingerprints(),
+            require_exact_match: false,
+        }
+    }
+}
+
+/// Maximum number of agents for behavioral tracking.
+pub const MAX_BEHAVIORAL_AGENTS: usize = 100_000;
+
+/// Maximum number of tools per agent for behavioral tracking.
+pub const MAX_BEHAVIORAL_TOOLS_PER_AGENT: usize = 10_000;
+
+/// Maximum data flow findings.
+pub const MAX_DATA_FLOW_FINDINGS: usize = 50_000;
+
+/// Maximum fingerprints per DLP pattern.
+pub const MAX_DATA_FLOW_FINGERPRINTS: usize = 10_000;
 
 /// Maximum number of custom PII patterns allowed in config.
 /// Prevents memory exhaustion from excessively large pattern arrays.
@@ -1372,6 +1526,51 @@ impl PolicyConfig {
             return Err(format!(
                 "audit_export.batch_size must be <= 10000, got {}",
                 self.audit_export.batch_size
+            ));
+        }
+
+        // Validate behavioral detection config
+        if self.behavioral.enabled {
+            if !self.behavioral.alpha.is_finite()
+                || self.behavioral.alpha <= 0.0
+                || self.behavioral.alpha > 1.0
+            {
+                return Err(format!(
+                    "behavioral.alpha must be in (0.0, 1.0], got {}",
+                    self.behavioral.alpha
+                ));
+            }
+            if !self.behavioral.threshold.is_finite() || self.behavioral.threshold <= 0.0 {
+                return Err(format!(
+                    "behavioral.threshold must be finite and positive, got {}",
+                    self.behavioral.threshold
+                ));
+            }
+        }
+        if self.behavioral.max_agents > MAX_BEHAVIORAL_AGENTS {
+            return Err(format!(
+                "behavioral.max_agents must be <= {}, got {}",
+                MAX_BEHAVIORAL_AGENTS, self.behavioral.max_agents
+            ));
+        }
+        if self.behavioral.max_tools_per_agent > MAX_BEHAVIORAL_TOOLS_PER_AGENT {
+            return Err(format!(
+                "behavioral.max_tools_per_agent must be <= {}, got {}",
+                MAX_BEHAVIORAL_TOOLS_PER_AGENT, self.behavioral.max_tools_per_agent
+            ));
+        }
+
+        // Validate data flow tracking config
+        if self.data_flow.max_findings > MAX_DATA_FLOW_FINDINGS {
+            return Err(format!(
+                "data_flow.max_findings must be <= {}, got {}",
+                MAX_DATA_FLOW_FINDINGS, self.data_flow.max_findings
+            ));
+        }
+        if self.data_flow.max_fingerprints_per_pattern > MAX_DATA_FLOW_FINGERPRINTS {
+            return Err(format!(
+                "data_flow.max_fingerprints_per_pattern must be <= {}, got {}",
+                MAX_DATA_FLOW_FINGERPRINTS, self.data_flow.max_fingerprints_per_pattern
             ));
         }
 
@@ -2445,6 +2644,8 @@ policy_type = "Allow"
             known_tool_names: vec![],
             tool_registry: ToolRegistryConfig::default(),
             allowed_origins: vec![],
+            behavioral: BehavioralDetectionConfig::default(),
+            data_flow: DataFlowTrackingConfig::default(),
         };
         config.policies = (0..=MAX_POLICIES)
             .map(|i| PolicyRule {
@@ -3208,6 +3409,198 @@ policy_type = "Allow"
     fn test_r41_sup_7_persistence_path_accepts_relative_path() {
         let mut config = minimal_config();
         config.tool_registry.persistence_path = "registry/data.jsonl".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    // ── Behavioral detection config tests ────────────────────────
+
+    #[test]
+    fn test_behavioral_config_defaults() {
+        let config = BehavioralDetectionConfig::default();
+        assert!(!config.enabled);
+        assert!((config.alpha - 0.2).abs() < f64::EPSILON);
+        assert!((config.threshold - 10.0).abs() < f64::EPSILON);
+        assert_eq!(config.min_sessions, 3);
+        assert_eq!(config.max_tools_per_agent, 500);
+        assert_eq!(config.max_agents, 10_000);
+    }
+
+    #[test]
+    fn test_behavioral_config_from_toml() {
+        let toml = r#"
+[behavioral]
+enabled = true
+alpha = 0.3
+threshold = 5.0
+min_sessions = 5
+max_tools_per_agent = 200
+max_agents = 5000
+
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#;
+        let config = PolicyConfig::from_toml(toml).unwrap();
+        assert!(config.behavioral.enabled);
+        assert!((config.behavioral.alpha - 0.3).abs() < f64::EPSILON);
+        assert!((config.behavioral.threshold - 5.0).abs() < f64::EPSILON);
+        assert_eq!(config.behavioral.min_sessions, 5);
+        assert_eq!(config.behavioral.max_tools_per_agent, 200);
+        assert_eq!(config.behavioral.max_agents, 5000);
+    }
+
+    #[test]
+    fn test_behavioral_config_absent_uses_defaults() {
+        let config = minimal_config();
+        assert!(!config.behavioral.enabled);
+        assert!((config.behavioral.alpha - 0.2).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_validate_rejects_behavioral_alpha_zero() {
+        let mut config = minimal_config();
+        config.behavioral.enabled = true;
+        config.behavioral.alpha = 0.0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.alpha"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_rejects_behavioral_alpha_negative() {
+        let mut config = minimal_config();
+        config.behavioral.enabled = true;
+        config.behavioral.alpha = -0.1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.alpha"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_rejects_behavioral_alpha_above_one() {
+        let mut config = minimal_config();
+        config.behavioral.enabled = true;
+        config.behavioral.alpha = 1.01;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.alpha"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_rejects_behavioral_alpha_nan() {
+        let mut config = minimal_config();
+        config.behavioral.enabled = true;
+        config.behavioral.alpha = f64::NAN;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.alpha"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_rejects_behavioral_threshold_zero() {
+        let mut config = minimal_config();
+        config.behavioral.enabled = true;
+        config.behavioral.threshold = 0.0;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.threshold"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_rejects_behavioral_threshold_nan() {
+        let mut config = minimal_config();
+        config.behavioral.enabled = true;
+        config.behavioral.threshold = f64::NAN;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.threshold"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_rejects_behavioral_max_agents_too_large() {
+        let mut config = minimal_config();
+        config.behavioral.max_agents = MAX_BEHAVIORAL_AGENTS + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.max_agents"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_rejects_behavioral_max_tools_too_large() {
+        let mut config = minimal_config();
+        config.behavioral.max_tools_per_agent = MAX_BEHAVIORAL_TOOLS_PER_AGENT + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("behavioral.max_tools_per_agent"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_accepts_behavioral_alpha_one() {
+        let mut config = minimal_config();
+        config.behavioral.enabled = true;
+        config.behavioral.alpha = 1.0;
+        assert!(config.validate().is_ok());
+    }
+
+    // ── Data flow tracking config tests ──────────────────────────
+
+    #[test]
+    fn test_data_flow_config_defaults() {
+        let config = DataFlowTrackingConfig::default();
+        assert!(!config.enabled);
+        assert_eq!(config.max_findings, 500);
+        assert_eq!(config.max_fingerprints_per_pattern, 100);
+        assert!(!config.require_exact_match);
+    }
+
+    #[test]
+    fn test_data_flow_config_from_toml() {
+        let toml = r#"
+[data_flow]
+enabled = true
+max_findings = 1000
+max_fingerprints_per_pattern = 200
+require_exact_match = true
+
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#;
+        let config = PolicyConfig::from_toml(toml).unwrap();
+        assert!(config.data_flow.enabled);
+        assert_eq!(config.data_flow.max_findings, 1000);
+        assert_eq!(config.data_flow.max_fingerprints_per_pattern, 200);
+        assert!(config.data_flow.require_exact_match);
+    }
+
+    #[test]
+    fn test_data_flow_config_absent_uses_defaults() {
+        let config = minimal_config();
+        assert!(!config.data_flow.enabled);
+        assert_eq!(config.data_flow.max_findings, 500);
+    }
+
+    #[test]
+    fn test_validate_rejects_data_flow_max_findings_too_large() {
+        let mut config = minimal_config();
+        config.data_flow.max_findings = MAX_DATA_FLOW_FINDINGS + 1;
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("data_flow.max_findings"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_rejects_data_flow_max_fingerprints_too_large() {
+        let mut config = minimal_config();
+        config.data_flow.max_fingerprints_per_pattern = MAX_DATA_FLOW_FINGERPRINTS + 1;
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("data_flow.max_fingerprints_per_pattern"),
+            "got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_accepts_data_flow_at_max() {
+        let mut config = minimal_config();
+        config.data_flow.max_findings = MAX_DATA_FLOW_FINDINGS;
+        config.data_flow.max_fingerprints_per_pattern = MAX_DATA_FLOW_FINGERPRINTS;
         assert!(config.validate().is_ok());
     }
 }

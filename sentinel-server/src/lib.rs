@@ -532,6 +532,8 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             known_tool_names: Default::default(),
             tool_registry: Default::default(),
             allowed_origins: Default::default(),
+            behavioral: Default::default(),
+            data_flow: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

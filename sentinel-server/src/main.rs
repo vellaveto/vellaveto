@@ -823,6 +823,8 @@ fn cmd_policies(preset: String) -> Result<()> {
         known_tool_names: Default::default(),
         tool_registry: Default::default(),
         allowed_origins: Default::default(),
+        behavioral: Default::default(),
+        data_flow: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;
