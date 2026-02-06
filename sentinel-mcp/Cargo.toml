@@ -5,6 +5,10 @@ edition = "2021"
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+semantic-detection = []
+
 [dependencies]
 sentinel-types = { path = "../sentinel-types" }
 sentinel-engine = { path = "../sentinel-engine" }
@@ -36,3 +40,8 @@ criterion = { version = "0.8", features = ["html_reports"] }
 [[bench]]
 name = "inspection"
 harness = false
+
+[[bench]]
+name = "semantic"
+harness = false
+required-features = ["semantic-detection"]

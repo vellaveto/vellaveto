@@ -7,6 +7,8 @@ pub mod memory_tracking;
 pub mod output_validation;
 pub mod proxy;
 pub mod rug_pull;
+#[cfg(feature = "semantic-detection")]
+pub mod semantic_detection;
 pub mod tool_registry;
 
 use sentinel_engine::PolicyEngine;
