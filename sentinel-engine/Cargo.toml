@@ -10,7 +10,6 @@ sentinel-types = { path = "../sentinel-types" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-anyhow = { workspace = true }
 globset = "0.4"
 ipnet = "2"
 regex = "1"
