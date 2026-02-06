@@ -73,7 +73,11 @@ pub const DEFAULT_MAX_PENDING: usize = 10_000;
 /// principals cannot piggyback on each other's pending approvals. Without
 /// this, principal A could create an approval and principal B could resolve
 /// it, effectively approving on behalf of A.
-fn compute_dedup_key(action: &Action, reason: &str, requested_by: Option<&str>) -> String {
+fn compute_dedup_key(
+    action: &Action,
+    reason: &str,
+    requested_by: Option<&str>,
+) -> Result<String, ApprovalError> {
     // SECURITY (R33-SUP-4): Include resolved_ips in the dedup key. Without this,
     // two actions targeting the same domain but resolving to different IPs (e.g.,
     // due to DNS rebinding) would incorrectly deduplicate, and approving one
@@ -86,14 +90,19 @@ fn compute_dedup_key(action: &Action, reason: &str, requested_by: Option<&str>) 
         "target_domains": action.target_domains,
         "resolved_ips": action.resolved_ips,
     });
+    // SECURITY (R37-SUP-6): Fail-closed on serialization failure instead of
+    // falling back to empty string. With unwrap_or_default(), all actions
+    // that fail serialization would hash to the same dedup key, causing
+    // unrelated approval requests to collide.
+    let canonical_str = serde_json::to_string(&canonical)?;
     let input = format!(
         "{}||{}||{}",
-        serde_json::to_string(&canonical).unwrap_or_default(),
+        canonical_str,
         reason,
         requested_by.unwrap_or(""),
     );
     let hash = Sha256::digest(input.as_bytes());
-    format!("{:x}", hash)
+    Ok(format!("{:x}", hash))
 }
 
 /// In-memory approval store with file-based persistence.
@@ -211,7 +220,11 @@ impl ApprovalStore {
         dedup.clear();
         for approval in pending.values() {
             if approval.status == ApprovalStatus::Pending {
-                let key = compute_dedup_key(&approval.action, &approval.reason, approval.requested_by.as_deref());
+                let key = compute_dedup_key(
+                    &approval.action,
+                    &approval.reason,
+                    approval.requested_by.as_deref(),
+                )?;
                 dedup.insert(key, approval.id.clone());
             }
         }
@@ -233,7 +246,7 @@ impl ApprovalStore {
         reason: String,
         requested_by: Option<String>,
     ) -> Result<String, ApprovalError> {
-        let dedup_key = compute_dedup_key(&action, &reason, requested_by.as_deref());
+        let dedup_key = compute_dedup_key(&action, &reason, requested_by.as_deref())?;
 
         // Check dedup index: if an identical pending approval exists, return its ID
         {
@@ -346,7 +359,7 @@ impl ApprovalStore {
             // vs "admin@corp.com").
             // SECURITY (R36-SUP-4): Apply Unicode NFKC normalization before
             // comparison to prevent bypass via confusable characters (e.g.,
-            // Cyrillic 'а' U+0430 vs Latin 'a' U+0061). NFKC maps compatibility
+            // Cyrillic 'a' U+0430 vs Latin 'a' U+0061). NFKC maps compatibility
             // equivalents to their canonical forms.
             let requester_normalized: String = requester_base.nfkc().collect();
             let approver_normalized: String = approver_base.nfkc().collect();
@@ -362,7 +375,11 @@ impl ApprovalStore {
         }
 
         // Compute dedup key before mutating the approval
-        let dedup_key = compute_dedup_key(&approval.action, &approval.reason, approval.requested_by.as_deref());
+        let dedup_key = compute_dedup_key(
+            &approval.action,
+            &approval.reason,
+            approval.requested_by.as_deref(),
+        )?;
 
         if Utc::now() > approval.expires_at {
             approval.status = ApprovalStatus::Expired;
@@ -400,7 +417,11 @@ impl ApprovalStore {
         }
 
         // Compute dedup key before mutating the approval
-        let dedup_key = compute_dedup_key(&approval.action, &approval.reason, approval.requested_by.as_deref());
+        let dedup_key = compute_dedup_key(
+            &approval.action,
+            &approval.reason,
+            approval.requested_by.as_deref(),
+        )?;
 
         if Utc::now() > approval.expires_at {
             approval.status = ApprovalStatus::Expired;
@@ -473,8 +494,20 @@ impl ApprovalStore {
         for approval in pending.values_mut() {
             if approval.status == ApprovalStatus::Pending && now > approval.expires_at {
                 // Remove dedup key atomically while both locks are held
-                let dedup_key = compute_dedup_key(&approval.action, &approval.reason, approval.requested_by.as_deref());
-                dedup.remove(&dedup_key);
+                // SECURITY (R37-SUP-6): Handle serialization failure gracefully
+                // in non-Result context — log warning but still expire the approval.
+                match compute_dedup_key(
+                    &approval.action,
+                    &approval.reason,
+                    approval.requested_by.as_deref(),
+                ) {
+                    Ok(dedup_key) => {
+                        dedup.remove(&dedup_key);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to compute dedup key during expiry: {}", e);
+                    }
+                }
                 approval.status = ApprovalStatus::Expired;
                 expired_count += 1;
                 to_persist.push(approval.clone());
@@ -958,7 +991,7 @@ mod tests {
         assert_eq!(pending.len(), 1);
     }
 
-    // ── R36-SUP-2: Multi-byte UTF-8 boundary safety in load logging ──
+    // -- R36-SUP-2: Multi-byte UTF-8 boundary safety in load logging --
 
     #[tokio::test]
     async fn test_r36_sup_2_multibyte_utf8_truncation_no_panic() {
@@ -1000,11 +1033,11 @@ mod tests {
         assert_eq!(result.unwrap(), 0);
     }
 
-    // ── R36-SUP-4: Unicode confusable self-approval prevention ──
+    // -- R36-SUP-4: Unicode confusable self-approval prevention --
 
     #[tokio::test]
     async fn test_r36_sup_4_unicode_confusable_self_approval_blocked_fullwidth() {
-        // Fullwidth Latin 'Ａ' (U+FF21) is normalized to 'A' by NFKC.
+        // Fullwidth Latin 'A' (U+FF21) is normalized to 'A' by NFKC.
         // An attacker could use fullwidth characters to bypass case-insensitive
         // comparison of the original strings.
         let dir = TempDir::new().unwrap();
@@ -1020,7 +1053,7 @@ mod tests {
             .await
             .unwrap();
 
-        // Approver uses fullwidth Latin 'Ａ' (U+FF21) + normal "dmin@corp.com"
+        // Approver uses fullwidth Latin 'A' (U+FF21) + normal "dmin@corp.com"
         // NFKC normalizes U+FF21 to 'A', so this should match "Admin@corp.com"
         let approver_fullwidth = "\u{FF21}dmin@corp.com";
         let result = store.approve(&id, approver_fullwidth).await;
@@ -1042,7 +1075,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_r36_sup_4_unicode_confusable_self_approval_blocked_roman_numeral() {
-        // Roman numeral 'Ⅰ' (U+2160) is NFKC-normalized to 'I'.
+        // Roman numeral 'I' (U+2160) is NFKC-normalized to 'I'.
         // Test that an identity containing compatibility characters is caught.
         let dir = TempDir::new().unwrap();
         let store = ApprovalStore::new(
@@ -1056,7 +1089,7 @@ mod tests {
             .await
             .unwrap();
 
-        // Approver uses Roman numeral Ⅰ (U+2160) which NFKC-normalizes to 'I'
+        // Approver uses Roman numeral I (U+2160) which NFKC-normalizes to 'I'
         let approver = "\u{2160}d-1@corp.com";
         let result = store.approve(&id, approver).await;
         assert!(

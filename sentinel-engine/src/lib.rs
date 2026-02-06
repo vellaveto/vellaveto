@@ -3865,23 +3865,25 @@ impl PolicyEngine {
         // host="blocked.com", so we must decode before splitting on '@'.
         let decoded_authority =
             percent_encoding::percent_decode_str(authority_raw).decode_utf8_lossy();
-        // SECURITY (R26-ENG-4): Apply backslash normalization AGAIN after percent-decode.
-        // Input like "http://evil.com%5C@legit.com" has %5C decoded to '\' here.
-        // After normalization, the decoded backslash becomes '/', which is a path
-        // separator per WHATWG — so "evil.com/@legit.com" means authority="evil.com",
-        // path="@legit.com". We re-split on '/' to get the true authority.
-        let decoded_normalized = decoded_authority.replace('\\', "/");
-        let authority = decoded_normalized
+        // SECURITY (R37-ENG-1): Strip userinfo FIRST on the decoded authority,
+        // BEFORE backslash normalization. A %2F in userinfo (e.g., "evil.com%2F@legit.com")
+        // decodes to '/' which would cause a wrong split if we split on '/' first.
+        // Per RFC 3986, only unencoded '/' terminates the authority; the '@' delimiter
+        // takes precedence for separating userinfo from host.
+        let without_userinfo = if let Some(at_pos) = decoded_authority.rfind('@') {
+            &decoded_authority[at_pos + 1..]
+        } else {
+            &*decoded_authority
+        };
+        // SECURITY (R26-ENG-4): Apply backslash normalization on the host portion only.
+        // Input like "http://evil.com%5C@legit.com" has the host portion as "legit.com"
+        // (after userinfo stripping). For host-only cases like "http://host%5Cpath",
+        // the decoded backslash becomes '/' per WHATWG, splitting host from path.
+        let host_normalized = without_userinfo.replace('\\', "/");
+        let without_userinfo = host_normalized
             .split('/')
             .next()
-            .unwrap_or(&decoded_normalized);
-
-        // Strip userinfo (user:pass@) — only within the authority portion
-        let without_userinfo = if let Some(pos) = authority.rfind('@') {
-            &authority[pos + 1..]
-        } else {
-            authority
-        };
+            .unwrap_or(&host_normalized);
 
         // Strip query and fragment (shouldn't normally be in authority, but defensive)
         let host_port = without_userinfo;
@@ -6793,16 +6795,35 @@ mod tests {
 
     #[test]
     fn test_extract_domain_percent_encoded_backslash_before_at() {
-        // SECURITY (R26-ENG-4): %5C is a percent-encoded backslash.
-        // "http://evil.com%5C@legit.com/path" should extract "evil.com" (backslash
-        // becomes path separator after decode), NOT "legit.com" (@ as userinfo).
-        // After decoding, "evil.com\@legit.com" → backslash normalized to "/" →
-        // "evil.com/@legit.com" → split on '/' → authority is "evil.com"
+        // SECURITY (R37-ENG-1): Per WHATWG URL Standard, %5C in the raw URL is part
+        // of the authority (not a path separator). The @ delimiter is processed first
+        // on the raw authority, so userinfo="evil.com%5C", host="legit.com".
+        // Browsers connect to legit.com, so we must extract legit.com.
         let domain = PolicyEngine::extract_domain("http://evil.com%5C@legit.com/path");
         assert_eq!(
-            domain, "evil.com",
-            "R26-ENG-4: %5C before @ must not bypass domain extraction"
+            domain, "legit.com",
+            "R37-ENG-1: %5C before @ — browser connects to legit.com"
         );
+    }
+
+    #[test]
+    fn test_extract_domain_percent_encoded_slash_in_userinfo_r37_eng_1() {
+        // SECURITY (R37-ENG-1): %2F decodes to '/' but is in the userinfo portion.
+        // Per RFC 3986, @ separates userinfo from host. The browser connects to legit.com.
+        let domain = PolicyEngine::extract_domain("http://evil.com%2F@legit.com/path");
+        assert_eq!(domain, "legit.com", "R37-ENG-1: %2F in userinfo must not bypass @");
+
+        // Normal userinfo still works
+        let domain = PolicyEngine::extract_domain("http://user:pass@example.com/path");
+        assert_eq!(domain, "example.com");
+
+        // Normal URLs still work
+        let domain = PolicyEngine::extract_domain("http://example.com/path");
+        assert_eq!(domain, "example.com");
+
+        // %2F without @ acts as path separator after decode
+        let domain = PolicyEngine::extract_domain("http://host%2Fpath.com/real");
+        assert_eq!(domain, "host", "decoded / without @ acts as path separator");
     }
 
     #[test]

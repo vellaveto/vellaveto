@@ -259,6 +259,14 @@ impl InjectionScanner {
     pub fn scan_notification(&self, notification: &serde_json::Value) -> Vec<&str> {
         let mut all_matches = Vec::new();
 
+        // SECURITY (R37-MCP-5): Also scan the method field for injection patterns.
+        // A malicious server could craft a method name containing injection payloads
+        // that the agent's LLM processes. The DLP scanner already covers method;
+        // injection scanning must match.
+        if let Some(method) = notification.get("method").and_then(|m| m.as_str()) {
+            all_matches.extend(self.inspect(method));
+        }
+
         if let Some(params) = notification.get("params") {
             self.scan_json_value(params, &mut all_matches, 0);
         }
@@ -492,6 +500,14 @@ pub fn scan_response_for_injection(response: &serde_json::Value) -> Vec<&'static
 /// as [`inspect_for_injection`].
 pub fn scan_notification_for_injection(notification: &serde_json::Value) -> Vec<&'static str> {
     let mut all_matches = Vec::new();
+
+    // SECURITY (R37-MCP-5): Also scan the method field for injection patterns.
+    // A malicious server could craft a method name containing injection payloads
+    // that the agent's LLM processes. The DLP scanner (scan_notification_for_secrets)
+    // already covers method; injection scanning must match.
+    if let Some(method) = notification.get("method").and_then(|m| m.as_str()) {
+        all_matches.extend(inspect_for_injection(method));
+    }
 
     // Scan params — notifications carry data in params
     if let Some(params) = notification.get("params") {

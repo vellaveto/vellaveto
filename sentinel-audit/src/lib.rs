@@ -1564,6 +1564,42 @@ impl AuditLogger {
             }
         };
 
+        // SECURITY (R37-SUP-1): Redact PII in verdict deny/approval reasons.
+        // Deny reasons can contain user-controlled data (paths, domains, JWT claims)
+        // that would be caught by PII scanning in action fields but were not being
+        // redacted in the verdict. This closes that gap.
+        let logged_verdict = match self.redaction_level {
+            RedactionLevel::Off => verdict.clone(),
+            RedactionLevel::KeysOnly => verdict.clone(),
+            RedactionLevel::KeysAndPatterns => match verdict {
+                Verdict::Deny { reason } => {
+                    let redacted_reason = if let Some(ref scanner) = self.pii_scanner {
+                        scanner.redact_string(reason)
+                    } else {
+                        let mut r = reason.clone();
+                        for re in PII_REGEXES.iter() {
+                            r = re.replace_all(&r, REDACTED).to_string();
+                        }
+                        r
+                    };
+                    Verdict::Deny { reason: redacted_reason }
+                }
+                Verdict::RequireApproval { reason } => {
+                    let redacted_reason = if let Some(ref scanner) = self.pii_scanner {
+                        scanner.redact_string(reason)
+                    } else {
+                        let mut r = reason.clone();
+                        for re in PII_REGEXES.iter() {
+                            r = re.replace_all(&r, REDACTED).to_string();
+                        }
+                        r
+                    };
+                    Verdict::RequireApproval { reason: redacted_reason }
+                }
+                other => other.clone(),
+            },
+        };
+
         let mut last_hash_guard = self.last_hash.lock().await;
 
         // Rotate if the current log exceeds max_file_size.
@@ -1576,7 +1612,7 @@ impl AuditLogger {
         let mut entry = AuditEntry {
             id: Uuid::new_v4().to_string(),
             action: logged_action,
-            verdict: verdict.clone(),
+            verdict: logged_verdict,
             timestamp: Utc::now().to_rfc3339(),
             metadata: logged_metadata,
             entry_hash: None,

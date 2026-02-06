@@ -860,6 +860,51 @@ impl ProxyBridge {
                                             .map_err(ProxyError::Framing)?;
                                         continue;
                                     }
+                                    // SECURITY (R37-MCP-1): Memory poisoning check for ResourceRead.
+                                    // ResourceRead URIs can contain replayed response data just
+                                    // like tool call parameters. Without this check, a malicious
+                                    // tool response could plant data that gets replayed in a
+                                    // subsequent resources/read request.
+                                    let uri_params = json!({"uri": &uri});
+                                    let poisoning_matches = memory_tracker.check_parameters(&uri_params);
+                                    if !poisoning_matches.is_empty() {
+                                        for m in &poisoning_matches {
+                                            tracing::warn!(
+                                                "SECURITY: Memory poisoning detected in resource read '{}': \
+                                                 param '{}' contains replayed data (fingerprint: {})",
+                                                uri, m.param_location, m.fingerprint
+                                            );
+                                        }
+                                        let action = extract_resource_action(&uri);
+                                        let deny_reason = format!(
+                                            "Memory poisoning detected: {} replayed data fragment(s) in resource read '{}'",
+                                            poisoning_matches.len(),
+                                            uri
+                                        );
+                                        let _ = self.audit.log_entry(
+                                            &action,
+                                            &Verdict::Deny {
+                                                reason: deny_reason.clone(),
+                                            },
+                                            json!({
+                                                "source": "proxy",
+                                                "event": "memory_poisoning_detected",
+                                                "matches": poisoning_matches.len(),
+                                                "uri": uri,
+                                            }),
+                                        ).await;
+                                        let response = json!({
+                                            "jsonrpc": "2.0",
+                                            "id": id,
+                                            "error": {
+                                                "code": -32001,
+                                                "message": "Request blocked: security policy violation",
+                                            }
+                                        });
+                                        write_message(&mut agent_writer, &response).await
+                                            .map_err(ProxyError::Framing)?;
+                                        continue;
+                                    }
                                     let eval_ctx = EvaluationContext {
                                         timestamp: None,
                                         agent_id: None,
@@ -1023,6 +1068,50 @@ impl ProxyBridge {
                                             tracing::warn!("Failed to audit DLP finding: {}", e);
                                         }
                                         // SECURITY (R28-MCP-5): Generic error to agent.
+                                        let response = json!({
+                                            "jsonrpc": "2.0",
+                                            "id": id,
+                                            "error": {
+                                                "code": -32001,
+                                                "message": "Request blocked: security policy violation",
+                                            }
+                                        });
+                                        write_message(&mut agent_writer, &response).await
+                                            .map_err(ProxyError::Framing)?;
+                                        continue;
+                                    }
+                                    // SECURITY (R37-MCP-1): Memory poisoning check for TaskRequest.
+                                    // Task request parameters can contain replayed response data
+                                    // just like tool call parameters. Without this check, a
+                                    // malicious tool response could plant data that gets replayed
+                                    // in a subsequent tasks/* request.
+                                    let poisoning_matches = memory_tracker.check_parameters(&task_params);
+                                    if !poisoning_matches.is_empty() {
+                                        for m in &poisoning_matches {
+                                            tracing::warn!(
+                                                "SECURITY: Memory poisoning detected in task request '{}': \
+                                                 param '{}' contains replayed data (fingerprint: {})",
+                                                task_method, m.param_location, m.fingerprint
+                                            );
+                                        }
+                                        let action = extract_task_action(&task_method, task_id.as_deref());
+                                        let deny_reason = format!(
+                                            "Memory poisoning detected: {} replayed data fragment(s) in task '{}'",
+                                            poisoning_matches.len(),
+                                            task_method
+                                        );
+                                        let _ = self.audit.log_entry(
+                                            &action,
+                                            &Verdict::Deny {
+                                                reason: deny_reason.clone(),
+                                            },
+                                            json!({
+                                                "source": "proxy",
+                                                "event": "memory_poisoning_detected",
+                                                "matches": poisoning_matches.len(),
+                                                "task_method": task_method,
+                                            }),
+                                        ).await;
                                         let response = json!({
                                             "jsonrpc": "2.0",
                                             "id": id,

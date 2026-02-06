@@ -387,7 +387,18 @@ fn scan_params_for_targets_inner(
                     // Since scheme is validated as all-ASCII, the byte offset is
                     // identical in both `s` and `lower`. Use `get()` for safety.
                     if let Some(authority) = s.get(lower_scheme_end + 3..) {
-                        let host_raw = authority.split('/').next().unwrap_or(authority);
+                        // SECURITY (R37-SRV-1): Normalize backslashes to forward slashes
+                        // before splitting authority. Per the WHATWG URL Standard, `\` is
+                        // treated as a path separator in special schemes (http, https, etc.).
+                        // Without this, `http://evil.com\@allowed.com/path` would yield
+                        // "evil.com\@allowed.com" as authority, and rfind('@') would then
+                        // extract "allowed.com" — but the actual HTTP connection goes to
+                        // evil.com.
+                        let authority_normalized = authority.replace('\\', "/");
+                        let host_raw = authority_normalized
+                            .split('/')
+                            .next()
+                            .unwrap_or(&authority_normalized);
                         // SECURITY (R12-EXT-2): Percent-decode authority before splitting on '@'.
                         // Without this, http://evil.com%40blocked.com bypasses domain matching.
                         let decoded =
@@ -2575,5 +2586,44 @@ mod tests {
         use subtle::ConstantTimeEq;
         assert!(bool::from(key_hash.ct_eq(&good_hash)));
         assert!(!bool::from(key_hash.ct_eq(&bad_hash)));
+    }
+
+    // --- R37-SRV-1: Backslash as path separator in domain extraction ---
+
+    #[test]
+    fn test_scan_params_backslash_authority_bypass() {
+        // SECURITY (R37-SRV-1): Backslash in URL authority must be treated as
+        // path separator per WHATWG URL Standard. Without normalization,
+        // http://evil.com\@allowed.com/path would extract "allowed.com"
+        // instead of "evil.com".
+        let mut paths = Vec::new();
+        let mut domains = Vec::new();
+        let value = serde_json::json!("http://evil.com\\@allowed.com/path");
+        scan_params_for_targets_inner(&value, &mut paths, &mut domains, 0);
+        assert!(
+            domains.contains(&"evil.com".to_string()),
+            "Should extract evil.com as the domain, got: {:?}",
+            domains
+        );
+        assert!(
+            !domains.contains(&"allowed.com".to_string()),
+            "Should NOT extract allowed.com (it is after the backslash-path), got: {:?}",
+            domains
+        );
+    }
+
+    #[test]
+    fn test_scan_params_backslash_no_at_sign() {
+        // Backslash without @ — the backslash is a path separator, so only
+        // the part before it is the authority host.
+        let mut paths = Vec::new();
+        let mut domains = Vec::new();
+        let value = serde_json::json!("https://example.com\\malicious-path");
+        scan_params_for_targets_inner(&value, &mut paths, &mut domains, 0);
+        assert!(
+            domains.contains(&"example.com".to_string()),
+            "Should extract example.com, got: {:?}",
+            domains
+        );
     }
 }
