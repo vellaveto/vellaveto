@@ -1033,6 +1033,31 @@ impl AuditLogger {
     /// Detects missing files, tampered files, and manifest forgery.
     pub async fn verify_across_rotations(&self) -> Result<RotationVerification, AuditError> {
         let manifest_path = self.rotation_manifest_path();
+        // SECURITY (R33-SUP-5): Check manifest file size before reading to prevent
+        // OOM from a corrupted or adversarially large manifest file.
+        const MAX_MANIFEST_SIZE: u64 = 10 * 1024 * 1024; // 10MB
+        match tokio::fs::metadata(&manifest_path).await {
+            Ok(meta) => {
+                if meta.len() > MAX_MANIFEST_SIZE {
+                    return Err(AuditError::Io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!(
+                            "Rotation manifest file exceeds maximum size ({} > {})",
+                            meta.len(),
+                            MAX_MANIFEST_SIZE
+                        ),
+                    )));
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(RotationVerification {
+                    valid: true,
+                    files_checked: 0,
+                    first_failure: None,
+                });
+            }
+            Err(e) => return Err(AuditError::Io(e)),
+        }
         let manifest_content = match tokio::fs::read_to_string(&manifest_path).await {
             Ok(c) => c,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -1083,32 +1108,94 @@ impl AuditLogger {
                     obj.remove("signature");
                     obj.remove("verifying_key");
                 }
-                if let (Ok(canonical), Ok(vk_bytes), Ok(sig_bytes)) = (
-                    Self::canonical_json(&unsigned),
-                    hex::decode(vk_hex),
-                    hex::decode(sig_hex),
-                ) {
-                    let mut hasher = Sha256::new();
-                    hasher.update(&canonical);
-                    let digest = hasher.finalize();
-                    if let (Ok(vk_arr), Ok(sig_arr)) = (
-                        <[u8; 32]>::try_from(vk_bytes.as_slice()),
-                        <[u8; 64]>::try_from(sig_bytes.as_slice()),
-                    ) {
-                        if let Ok(vk) = VerifyingKey::from_bytes(&vk_arr) {
-                            let sig = ed25519_dalek::Signature::from_bytes(&sig_arr);
-                            if vk.verify(&digest, &sig).is_err() {
-                                return Ok(RotationVerification {
-                                    valid: false,
-                                    files_checked: i,
-                                    first_failure: Some(format!(
-                                        "Manifest entry {} signature invalid",
-                                        i
-                                    )),
-                                });
-                            }
-                        }
+                // SECURITY (R33-SUP-1): Fail-closed on malformed signatures.
+                // Previously, failures in canonical_json, hex::decode, try_from,
+                // or VerifyingKey::from_bytes silently fell through, allowing
+                // entries with corrupted/truncated signatures to pass verification.
+                let canonical = match Self::canonical_json(&unsigned) {
+                    Ok(c) => c,
+                    Err(_) => {
+                        return Ok(RotationVerification {
+                            valid: false,
+                            files_checked: i,
+                            first_failure: Some(format!(
+                                "Manifest entry {} failed to canonicalize", i
+                            )),
+                        });
                     }
+                };
+                let vk_bytes = match hex::decode(vk_hex) {
+                    Ok(b) => b,
+                    Err(_) => {
+                        return Ok(RotationVerification {
+                            valid: false,
+                            files_checked: i,
+                            first_failure: Some(format!(
+                                "Manifest entry {} has invalid verifying key hex", i
+                            )),
+                        });
+                    }
+                };
+                let sig_bytes = match hex::decode(sig_hex) {
+                    Ok(b) => b,
+                    Err(_) => {
+                        return Ok(RotationVerification {
+                            valid: false,
+                            files_checked: i,
+                            first_failure: Some(format!(
+                                "Manifest entry {} has invalid signature hex", i
+                            )),
+                        });
+                    }
+                };
+                let mut hasher = Sha256::new();
+                hasher.update(&canonical);
+                let digest = hasher.finalize();
+                let vk_arr: [u8; 32] = match vk_bytes.as_slice().try_into() {
+                    Ok(a) => a,
+                    Err(_) => {
+                        return Ok(RotationVerification {
+                            valid: false,
+                            files_checked: i,
+                            first_failure: Some(format!(
+                                "Manifest entry {} verifying key wrong length", i
+                            )),
+                        });
+                    }
+                };
+                let sig_arr: [u8; 64] = match sig_bytes.as_slice().try_into() {
+                    Ok(a) => a,
+                    Err(_) => {
+                        return Ok(RotationVerification {
+                            valid: false,
+                            files_checked: i,
+                            first_failure: Some(format!(
+                                "Manifest entry {} signature wrong length", i
+                            )),
+                        });
+                    }
+                };
+                let vk = match VerifyingKey::from_bytes(&vk_arr) {
+                    Ok(k) => k,
+                    Err(_) => {
+                        return Ok(RotationVerification {
+                            valid: false,
+                            files_checked: i,
+                            first_failure: Some(format!(
+                                "Manifest entry {} has invalid verifying key", i
+                            )),
+                        });
+                    }
+                };
+                let sig = ed25519_dalek::Signature::from_bytes(&sig_arr);
+                if vk.verify(&digest, &sig).is_err() {
+                    return Ok(RotationVerification {
+                        valid: false,
+                        files_checked: i,
+                        first_failure: Some(format!(
+                            "Manifest entry {} signature invalid", i
+                        )),
+                    });
                 }
             } else if self.trusted_verifying_key.is_some() {
                 // Trusted key is configured but manifest entry is unsigned
@@ -1438,6 +1525,20 @@ impl AuditLogger {
                 } else {
                     redact_keys_and_patterns(&action.parameters)
                 };
+                // SECURITY (R33-SUP-2): Also scan target_paths and target_domains
+                // for PII patterns. Paths like /home/john.doe/ or domains with
+                // personal subdomains could leak PII into audit logs.
+                let redact_strings = |strings: &[String]| -> Vec<String> {
+                    strings.iter().map(|s| {
+                        if PII_REGEXES.iter().any(|re| re.is_match(s)) {
+                            REDACTED.to_string()
+                        } else {
+                            s.clone()
+                        }
+                    }).collect()
+                };
+                a.target_paths = redact_strings(&action.target_paths);
+                a.target_domains = redact_strings(&action.target_domains);
                 a
             }
         };

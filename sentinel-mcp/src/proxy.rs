@@ -1142,6 +1142,20 @@ impl ProxyBridge {
                                     // Track passthrough requests that have an id
                                     if let Some(id) = msg.get("id") {
                                         if !id.is_null() {
+                                            // SECURITY (R33-MCP-1): Enforce MAX_PENDING_REQUESTS on
+                                            // PassThrough just like other message types. Without this
+                                            // guard, an attacker could exhaust memory by sending many
+                                            // PassThrough requests with unique ids.
+                                            if pending_requests.len() >= MAX_PENDING_REQUESTS {
+                                                let response = make_invalid_response(
+                                                    id,
+                                                    "Too many pending requests",
+                                                );
+                                                tracing::warn!("PassThrough request rejected: pending request limit reached");
+                                                write_message(&mut agent_writer, &response).await
+                                                    .map_err(ProxyError::Framing)?;
+                                                continue;
+                                            }
                                             let id_key = id.to_string();
                                             pending_requests.insert(id_key.clone(), Instant::now());
 

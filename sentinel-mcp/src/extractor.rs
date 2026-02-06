@@ -71,14 +71,28 @@ pub enum MessageType {
 /// bypass via `"tools/call/"`, `"tools/call\0"`, or `"tools/call "`.
 /// Returns the normalized lowercase form for case-insensitive comparison.
 pub(crate) fn normalize_method(method: &str) -> String {
+    // SECURITY (R33-MCP-6): Strip ALL invisible/format Unicode characters that the
+    // injection scanner also strips, not just a subset. A mismatch allows bypass:
+    // e.g. "tools/\u{202A}call" passes method matching (→ "tools/call") but the
+    // original string with the bidi override might evade injection scanning.
     method
         .trim()
-        .replace(
-            [
-                '\0', '\u{200B}', '\u{200C}', '\u{200D}', '\u{200E}', '\u{200F}', '\u{FEFF}',
-            ],
-            "",
-        ) // byte order mark / zero-width no-break space
+        .chars()
+        .filter(|c| {
+            let cp = *c as u32;
+            !(cp == 0
+                || (0x200B..=0x200F).contains(&cp)     // zero-width chars
+                || (0x202A..=0x202E).contains(&cp)     // bidi overrides
+                || (0xFE00..=0xFE0F).contains(&cp)     // variation selectors
+                || cp == 0xFEFF                          // BOM / ZWNBSP
+                || (0x2060..=0x2064).contains(&cp)      // word joiners / invisible operators
+                || (0xFFF9..=0xFFFB).contains(&cp)      // interlinear annotation
+                || cp == 0x180E                          // Mongolian vowel separator
+                || cp == 0x00AD                          // soft hyphen
+                || (0x2066..=0x2069).contains(&cp)      // bidi isolate (LRI, RLI, FSI, PDI)
+                || (0xE0000..=0xE007F).contains(&cp))   // tag characters
+        })
+        .collect::<String>()
         .trim_end_matches('/')
         .to_lowercase()
 }

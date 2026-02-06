@@ -73,12 +73,17 @@ pub const DEFAULT_MAX_PENDING: usize = 10_000;
 /// this, principal A could create an approval and principal B could resolve
 /// it, effectively approving on behalf of A.
 fn compute_dedup_key(action: &Action, reason: &str, requested_by: Option<&str>) -> String {
+    // SECURITY (R33-SUP-4): Include resolved_ips in the dedup key. Without this,
+    // two actions targeting the same domain but resolving to different IPs (e.g.,
+    // due to DNS rebinding) would incorrectly deduplicate, and approving one
+    // would effectively approve the other.
     let canonical = serde_json::json!({
         "tool": action.tool,
         "function": action.function,
         "parameters": action.parameters,
         "target_paths": action.target_paths,
         "target_domains": action.target_domains,
+        "resolved_ips": action.resolved_ips,
     });
     let input = format!(
         "{}||{}||{}",

@@ -95,6 +95,25 @@ impl MemoryTracker {
             }
         }
 
+        // SECURITY (R33-MCP-5): Extract from instructionsForUser — this field is
+        // displayed to the user and can carry poisoned data that gets replayed.
+        if let Some(instructions) = response
+            .get("result")
+            .and_then(|r| r.get("instructionsForUser"))
+            .and_then(|i| i.as_str())
+        {
+            self.extract_and_store(instructions);
+        }
+
+        // SECURITY (R33-MCP-5): Extract from _meta — server metadata that may
+        // contain data the agent processes in subsequent requests.
+        if let Some(meta) = response
+            .get("result")
+            .and_then(|r| r.get("_meta"))
+        {
+            self.extract_from_value(meta);
+        }
+
         // Extract from structuredContent
         if let Some(structured) = response
             .get("result")

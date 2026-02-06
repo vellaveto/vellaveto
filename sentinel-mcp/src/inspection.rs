@@ -947,6 +947,16 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
         scan_string_for_secrets(instructions, "result.instructionsForUser", regexes, &mut findings);
     }
 
+    // SECURITY (R33-MCP-2): Scan result._meta for secrets — this field can contain
+    // arbitrary server metadata that could embed exfiltrated secrets. The injection
+    // scanner already covers _meta but DLP scanning was missing.
+    if let Some(meta) = response
+        .get("result")
+        .and_then(|r| r.get("_meta"))
+    {
+        scan_value_for_secrets(meta, "result._meta", regexes, &mut findings, 0);
+    }
+
     // Scan result.structuredContent recursively
     if let Some(structured) = response
         .get("result")

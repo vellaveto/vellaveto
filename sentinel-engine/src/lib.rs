@@ -1430,14 +1430,21 @@ impl PolicyEngine {
             }
             "max_chain_depth" => {
                 // OWASP ASI08: Multi-agent communication monitoring
-                let max_depth = obj
+                // SECURITY (R33-ENG-3): Use try_from instead of `as usize` to
+                // avoid silent truncation on 32-bit platforms where u64 > usize::MAX.
+                let raw_depth = obj
                     .get("max_depth")
                     .and_then(|v| v.as_u64())
                     .ok_or_else(|| PolicyValidationError {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
                         reason: "max_chain_depth missing 'max_depth' integer".to_string(),
-                    })? as usize;
+                    })?;
+                let max_depth = usize::try_from(raw_depth).map_err(|_| PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!("max_chain_depth value {} exceeds platform maximum", raw_depth),
+                })?;
                 let deny_reason = format!(
                     "Call chain depth exceeds maximum of {} (policy '{}')",
                     max_depth, policy.name

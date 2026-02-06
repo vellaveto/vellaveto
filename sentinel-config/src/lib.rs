@@ -1209,10 +1209,14 @@ impl PolicyConfig {
                             ));
                         }
                     }
+                    // SECURITY (R33-SUP-3): Use proper bitmask for fe80::/10 — the
+                    // prefix is 10 bits, not 16. Previous check (segs[0] == 0xfe80)
+                    // missed fe80::1 through febf::ffff (all link-local addresses
+                    // with non-zero bits in positions 11-16).
                     let is_private = ip6.is_loopback()
                         || ip6.is_unspecified()
                         || (segs[0] & 0xfe00) == 0xfc00  // fc00::/7 (ULA)
-                        || (segs[0] == 0xfe80);           // fe80::/10 (link-local)
+                        || (segs[0] & 0xffc0) == 0xfe80;  // fe80::/10 (link-local)
                     if is_private {
                         return Err(format!(
                             "audit_export.webhook_url must not target private/internal IPv6 ranges, got '{}'",
@@ -2723,6 +2727,35 @@ policy_type = "Allow"
         assert!(
             err.contains("private") || err.contains("internal"),
             "IPv4-mapped IPv6 RFC 1918 address should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_webhook_ipv6_link_local_non_zero_bits() {
+        // R33-SUP-3: fe80::/10 covers fe80:: through febf::ffff.
+        // Previously only fe80::X was blocked; fea0::1 should also be rejected.
+        let mut config = minimal_config();
+        config.audit_export.webhook_url =
+            Some("https://[fea0::1]:8080/webhook".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("private") || err.contains("internal"),
+            "IPv6 link-local fea0::1 should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_webhook_ipv6_link_local_febf() {
+        // R33-SUP-3: febf:: is the last address in fe80::/10 range
+        let mut config = minimal_config();
+        config.audit_export.webhook_url =
+            Some("https://[febf::1]:8080/webhook".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("private") || err.contains("internal"),
+            "IPv6 link-local febf::1 should be rejected, got: {}",
             err
         );
     }

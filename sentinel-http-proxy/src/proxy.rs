@@ -823,16 +823,19 @@ pub async fn handle_mcp_post(
                     );
 
                     if priv_check.escalation_detected {
-                        let deny_reason = format!(
+                        // SECURITY (R33-PROXY-1): Internal deny reason contains policy details
+                        // (upstream agent name + deny reason). Log the full details in the
+                        // audit trail but return a generic message to the client.
+                        let internal_reason = format!(
                             "Privilege escalation detected: agent '{}' would be denied ({})",
                             priv_check.escalating_from_agent.as_deref().unwrap_or("unknown"),
                             priv_check.upstream_deny_reason.as_deref().unwrap_or("unknown reason")
                         );
                         let verdict = Verdict::Deny {
-                            reason: deny_reason.clone(),
+                            reason: internal_reason.clone(),
                         };
 
-                        // Audit the privilege escalation
+                        // Audit the privilege escalation with full details
                         if let Err(e) = state
                             .audit
                             .log_entry(
@@ -855,12 +858,13 @@ pub async fn handle_mcp_post(
                             tracing::warn!("Failed to audit privilege escalation: {}", e);
                         }
 
+                        // Return generic message to client — no policy details leaked
                         let response = json!({
                             "jsonrpc": "2.0",
                             "id": id,
                             "error": {
                                 "code": -32001,
-                                "message": format!("Denied by policy: {}", deny_reason)
+                                "message": "Denied by policy: privilege escalation detected"
                             }
                         });
                         return attach_session_header(
@@ -2458,9 +2462,22 @@ async fn forward_to_upstream(
                 };
 
             let headers = upstream_resp.headers().clone();
-            let content_type = headers
+            // SECURITY (R33-PROXY-2): Non-UTF-8 Content-Type header previously
+            // fell through to empty string, bypassing all scanning branches.
+            // Now we reject non-UTF-8 Content-Type as suspicious — a legitimate
+            // MCP server should never send non-UTF-8 content types.
+            let content_type_result = headers
                 .get("content-type")
-                .and_then(|v| v.to_str().ok())
+                .map(|v| v.to_str());
+            if let Some(Err(_)) = content_type_result {
+                tracing::warn!("Upstream returned non-UTF-8 Content-Type header — blocking response");
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    "Upstream returned invalid Content-Type header",
+                ).into_response();
+            }
+            let content_type = content_type_result
+                .and_then(|r| r.ok())
                 .unwrap_or("");
 
             // Check if upstream is returning SSE

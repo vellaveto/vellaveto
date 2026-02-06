@@ -329,6 +329,10 @@ fn scan_params_for_targets_inner(
                 // SECURITY (R32-SRV-3): Boundary check after "localhost" — must be
                 // followed by '/' or end-of-string. Without this, file://localhost.evil.com
                 // incorrectly strips "localhost" and extracts ".evil.com/path".
+                // SECURITY (R33-SRV-2): Only extract paths from file://localhost/...
+                // or file:///... (empty host). A file://remote-host/path reference
+                // would silently discard the remote hostname and extract the path,
+                // allowing policy bypass if the path matches an allowed pattern.
                 let path_original = if lower_after_scheme == "localhost"
                     || lower_after_scheme.starts_with("localhost/")
                 {
@@ -336,10 +340,15 @@ fn scan_params_for_targets_inner(
                 } else if after_scheme.starts_with('/') {
                     after_scheme
                 } else {
-                    after_scheme
-                        .find('/')
-                        .map(|i| &after_scheme[i..])
-                        .unwrap_or("")
+                    // Non-localhost, non-empty host — this is a remote file reference.
+                    // Extract the hostname as a domain target instead of a path.
+                    if let Some(slash_idx) = after_scheme.find('/') {
+                        let host_part = &after_scheme[..slash_idx];
+                        if !host_part.is_empty() {
+                            domains.push(host_part.to_lowercase());
+                        }
+                    }
+                    ""
                 };
                 // Strip query strings and fragments
                 let file_path = strip_query_and_fragment(path_original);
@@ -517,9 +526,17 @@ fn sanitize_context(
                     let hash = Sha256::digest(token.as_bytes());
                     let principal = format!("bearer:{}", hex::encode(&hash[..8]));
                     // Append client-supplied agent_id as a note (not authoritative)
+                    // SECURITY (R33-SRV-3): Strip control characters from client_id
+                    // before embedding in agent_id string. Control chars could break
+                    // log parsing or inject ANSI escape sequences.
                     Some(match client_agent_id {
                         Some(ref client_id) => {
-                            format!("{} (note: {})", principal, client_id)
+                            let sanitized: String = client_id
+                                .chars()
+                                .filter(|c| !c.is_control())
+                                .take(256)
+                                .collect();
+                            format!("{} (note: {})", principal, sanitized)
                         }
                         None => principal,
                     })
@@ -1989,16 +2006,24 @@ fn extract_client_ip(request: &Request, trusted_proxies: &[std::net::IpAddr]) ->
         return connection_ip;
     }
 
-    // Trusted proxy path: parse X-Forwarded-For and find the rightmost
-    // entry that is NOT a trusted proxy. This is the real client IP.
-    if let Some(xff) = request.headers().get("x-forwarded-for") {
-        if let Ok(val) = xff.to_str() {
-            // Walk from right to left, skipping trusted proxy IPs.
-            for entry in val.rsplit(',') {
-                if let Ok(ip) = entry.trim().parse::<std::net::IpAddr>() {
-                    if !trusted_proxies.contains(&ip) {
-                        return ip;
-                    }
+    // SECURITY (R33-SRV-1): Use get_all() to collect ALL X-Forwarded-For headers,
+    // not just the first. An attacker behind a trusted proxy can send multiple XFF
+    // headers; .get() only reads the first, allowing the attacker to inject a spoofed
+    // IP in a second header that the proxy appended to the first.
+    // Combine all headers into a single comma-separated string before parsing.
+    let xff_values: Vec<&str> = request
+        .headers()
+        .get_all("x-forwarded-for")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .collect();
+    if !xff_values.is_empty() {
+        let combined = xff_values.join(",");
+        // Walk from right to left, skipping trusted proxy IPs.
+        for entry in combined.rsplit(',') {
+            if let Ok(ip) = entry.trim().parse::<std::net::IpAddr>() {
+                if !trusted_proxies.contains(&ip) {
+                    return ip;
                 }
             }
         }
