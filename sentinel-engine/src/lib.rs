@@ -1959,6 +1959,8 @@ impl PolicyEngine {
 
                     // SECURITY (R8-6): Use saturating_add to prevent u64 overflow
                     // which could wrap to 0, bypassing rate limits.
+                    // SECURITY (R34-ENG-5): Case-insensitive matching for consistency
+                    // with ForbiddenPreviousAction/RequirePreviousAction (R31-ENG-7).
                     let count = if matches!(tool_pattern, PatternMatcher::Any) {
                         context
                             .call_counts
@@ -1968,7 +1970,7 @@ impl PolicyEngine {
                         context
                             .call_counts
                             .iter()
-                            .filter(|(name, _)| tool_pattern.matches(name))
+                            .filter(|(name, _)| tool_pattern.matches(&name.to_ascii_lowercase()))
                             .map(|(_, count)| count)
                             .fold(0u64, |acc, v| acc.saturating_add(*v))
                     };
@@ -2069,7 +2071,9 @@ impl PolicyEngine {
                         &context.previous_actions[..]
                     };
                     // SECURITY (R26-ENG-3): Fail-closed on count overflow.
-                    let count_usize = history.iter().filter(|a| tool_pattern.matches(a)).count();
+                    // SECURITY (R34-ENG-5): Case-insensitive matching for consistency
+                    // with ForbiddenPreviousAction/RequirePreviousAction (R31-ENG-7).
+                    let count_usize = history.iter().filter(|a| tool_pattern.matches(&a.to_ascii_lowercase())).count();
                     let count = u64::try_from(count_usize).unwrap_or(u64::MAX);
                     if count >= *max {
                         return Some(Verdict::Deny {
@@ -3088,11 +3092,13 @@ impl PolicyEngine {
 
         // In strict mode, reject unrecognized condition keys
         if self.strict_mode {
+            // SECURITY (R34-ENG-7): Include "context_conditions" to match compiled path.
             let known_keys = [
                 "require_approval",
                 "forbidden_parameters",
                 "required_parameters",
                 "parameter_constraints",
+                "context_conditions",
                 "on_no_match",
             ];
             if let Some(obj) = conditions.as_object() {
@@ -3431,6 +3437,17 @@ impl PolicyEngine {
 
         let domain = Self::extract_domain(raw);
 
+        // SECURITY (R34-ENG-3): IDNA fail-closed guard matching compiled path (R31-ENG-1).
+        if !domain.is_ascii() && Self::normalize_domain_for_match(&domain).is_none() {
+            return Ok(Some(Self::make_constraint_verdict(
+                "deny",
+                &format!(
+                    "Parameter '{}' domain '{}' cannot be normalized (IDNA failure) (policy '{}')",
+                    param_name, domain, policy.name
+                ),
+            )?));
+        }
+
         if Self::match_domain_pattern(&domain, pattern) {
             Ok(Some(Self::make_constraint_verdict(
                 on_match,
@@ -3484,6 +3501,17 @@ impl PolicyEngine {
             })?;
 
         let domain = Self::extract_domain(raw);
+
+        // SECURITY (R34-ENG-3): IDNA fail-closed guard matching compiled path (R31-ENG-1).
+        if !domain.is_ascii() && Self::normalize_domain_for_match(&domain).is_none() {
+            return Ok(Some(Self::make_constraint_verdict(
+                "deny",
+                &format!(
+                    "Parameter '{}' domain '{}' cannot be normalized (IDNA failure) (policy '{}')",
+                    param_name, domain, policy.name
+                ),
+            )?));
+        }
 
         for pat_val in patterns {
             let pat_str = pat_val
@@ -4717,14 +4745,30 @@ impl PolicyEngine {
             CompiledConstraint::DomainMatch { pattern, .. } => {
                 if let Some(s) = value.as_str() {
                     let domain = Self::extract_domain(s);
+                    // SECURITY (R34-ENG-1): IDNA fail-closed guard matching compiled path.
+                    // If domain contains non-ASCII and cannot be normalized, treat as match
+                    // (fail-closed: deny) to prevent bypass via unnormalizable domains.
+                    if !domain.is_ascii()
+                        && Self::normalize_domain_for_match(&domain).is_none()
+                    {
+                        return true;
+                    }
                     Self::match_domain_pattern(&domain, pattern)
                 } else {
-                    true
+                    true // non-string → fail-closed
                 }
             }
             CompiledConstraint::DomainNotIn { patterns, .. } => {
                 if let Some(s) = value.as_str() {
                     let domain = Self::extract_domain(s);
+                    // SECURITY (R34-ENG-1): IDNA fail-closed for DomainNotIn.
+                    // If domain contains non-ASCII and cannot be normalized, it cannot
+                    // be in the allowlist — constraint fires (fail-closed).
+                    if !domain.is_ascii()
+                        && Self::normalize_domain_for_match(&domain).is_none()
+                    {
+                        return true;
+                    }
                     !patterns
                         .iter()
                         .any(|p| Self::match_domain_pattern(&domain, p))
@@ -12104,6 +12148,58 @@ mod tests {
         assert!(
             matches!(v, Verdict::Allow),
             "Legacy agent_id should work when require_attestation=false"
+        );
+    }
+
+    // ── R34-ENG-5: MaxCalls case-insensitive matching ──────────────────────
+
+    #[test]
+    fn test_r34_eng_5_max_calls_case_insensitive() {
+        let policy = make_context_policy(json!([
+            {"type": "max_calls", "tool_pattern": "read_file", "max": 3}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let mut counts = HashMap::new();
+        // Split across two case variants — total is 4, exceeds max of 3.
+        counts.insert("Read_File".to_string(), 2u64);
+        counts.insert("READ_FILE".to_string(), 2u64);
+        let ctx = EvaluationContext {
+            call_counts: counts,
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "R34-ENG-5: Case-varied call counts should sum for rate limit, got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_r34_eng_5_max_calls_in_window_case_insensitive() {
+        let policy = make_context_policy(json!([
+            {"type": "max_calls_in_window", "tool_pattern": "write_file", "max": 2, "window": 10}
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            previous_actions: vec![
+                "Write_File".to_string(),
+                "WRITE_FILE".to_string(),
+                "write_file".to_string(),
+            ],
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "R34-ENG-5: Case-varied previous actions should sum for window rate limit, got: {:?}",
+            v
         );
     }
 }
