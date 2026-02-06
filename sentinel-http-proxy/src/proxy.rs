@@ -1405,24 +1405,21 @@ pub async fn handle_mcp_post(
             attach_session_header(response, &session_id)
         }
         MessageType::ElicitationRequest { id } => {
-            // SECURITY (R21-PROXY-1): Hold the DashMap shard lock across read,
-            // inspect, and increment to prevent concurrent requests from all
-            // reading the same count and bypassing the rate limit.
+            // SECURITY (R21-PROXY-1): Hold the DashMap shard lock across read
+            // and inspect to prevent concurrent requests from all reading the
+            // same count and bypassing the rate limit.
+            // SECURITY (R35-PROXY-4): Count is incremented AFTER upstream accepts
+            // the request, not before. Pre-increment allowed attackers to exhaust
+            // the elicitation budget with invalid requests that fail upstream.
             let params = msg.get("params").cloned().unwrap_or(json!({}));
             let elicitation_verdict = {
-                let mut session_ref = state.sessions.get_mut(&session_id);
+                let session_ref = state.sessions.get_mut(&session_id);
                 let current_count = session_ref.as_ref().map(|s| s.elicitation_count).unwrap_or(0);
-                let verdict = sentinel_mcp::elicitation::inspect_elicitation(
+                sentinel_mcp::elicitation::inspect_elicitation(
                     &params,
                     &state.elicitation_config,
                     current_count,
-                );
-                if matches!(verdict, sentinel_mcp::elicitation::ElicitationVerdict::Allow) {
-                    if let Some(ref mut s) = session_ref {
-                        s.elicitation_count += 1;
-                    }
-                }
-                verdict
+                )
             };
             match elicitation_verdict {
                 sentinel_mcp::elicitation::ElicitationVerdict::Allow => {
@@ -1447,6 +1444,16 @@ pub async fn handle_mcp_post(
                         auth_header_for_upstream.as_deref(),
                     )
                     .await;
+
+                    // SECURITY (R35-PROXY-4): Only increment elicitation count after
+                    // upstream accepts the request. Pre-increment allowed attackers to
+                    // exhaust the budget with invalid requests that fail upstream.
+                    if response.status().is_success() {
+                        if let Some(mut s) = state.sessions.get_mut(&session_id) {
+                            s.elicitation_count += 1;
+                        }
+                    }
+
                     attach_session_header(response, &session_id)
                 }
                 sentinel_mcp::elicitation::ElicitationVerdict::Deny { reason } => {

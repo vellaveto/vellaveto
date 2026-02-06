@@ -3717,6 +3717,16 @@ impl PolicyEngine {
                     reason: "decoded path contains null byte".to_string(),
                 });
             }
+            // SECURITY (R35-ENG-1): Normalize backslashes INSIDE the decode loop
+            // to prevent multi-stage encoded backslash traversals (%255C → %5C → \ → /).
+            // Previously (R34-ENG-1) this was done after the loop, which meant
+            // backslashes produced by intermediate decode steps were not converted
+            // before the stability check, allowing %255C-based traversal.
+            let decoded = if decoded.contains('\\') {
+                std::borrow::Cow::Owned(decoded.replace('\\', "/"))
+            } else {
+                decoded
+            };
             if decoded.as_ref() == current.as_ref() {
                 break; // Stable — no more percent sequences to decode
             }
@@ -3733,12 +3743,6 @@ impl PolicyEngine {
                 });
             }
             current = std::borrow::Cow::Owned(decoded.into_owned());
-        }
-
-        // SECURITY (R34-ENG-1): Normalize backslashes to forward slashes before component parsing.
-        // On Linux, PathBuf treats \ as a regular char, but downstream tools may treat \ as separator.
-        if current.contains('\\') {
-            current = std::borrow::Cow::Owned(current.replace('\\', "/"));
         }
 
         let path = PathBuf::from(current.as_ref());
@@ -6671,6 +6675,22 @@ mod tests {
             PolicyEngine::normalize_path_bounded("/home/user%5C..%5C..%5Cetc/passwd", 10).unwrap(),
             "/etc/passwd"
         );
+    }
+
+    #[test]
+    fn test_r35_eng_1_multistage_encoded_backslash() {
+        // Multi-stage: %255C decodes to %5C, then to \ which becomes /
+        // Without R35-ENG-1 fix, the backslash from intermediate decode step
+        // would not be normalized, allowing traversal.
+        let result = PolicyEngine::normalize_path_bounded("/home/user%255C..%255C..%255Cetc%255Cpasswd", 20).unwrap();
+        assert_eq!(result, "/etc/passwd");
+    }
+
+    #[test]
+    fn test_r35_eng_1_triple_encoded_backslash() {
+        // Triple: %25255C → %255C → %5C → \ → /
+        let result = PolicyEngine::normalize_path_bounded("/a%25255C..%25255Cb", 20).unwrap();
+        assert_eq!(result, "/b");
     }
 
     #[test]

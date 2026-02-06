@@ -59,21 +59,40 @@ pub fn to_cef(entry: &AuditEntry) -> String {
         cef_escape(&entry.action.function)
     );
 
+    // SECURITY (R35-SUP-2): CEF spec limits extension values to 1023 bytes.
+    // Truncate escaped values by byte count (not char count) to prevent
+    // multi-byte UTF-8 strings from exceeding the limit. Cap at 1000 bytes
+    // to leave headroom for the key= prefix.
+    const CEF_EXT_MAX_BYTES: usize = 1000;
+
     // SECURITY (R24-SUP-3): Include deny reason in CEF output for SIEM
     // analysts to understand why a tool call was blocked.
     let reason_ext = match &entry.verdict {
-        Verdict::Deny { reason } => format!(" cs2={} cs2Label=denyReason", cef_escape_ext(reason)),
-        Verdict::RequireApproval { reason, .. } => format!(" cs2={} cs2Label=approvalReason", cef_escape_ext(reason)),
+        Verdict::Deny { reason } => {
+            let escaped = cef_escape_ext(reason);
+            let truncated = truncate_bytes(&escaped, CEF_EXT_MAX_BYTES);
+            format!(" cs2={} cs2Label=denyReason", truncated)
+        }
+        Verdict::RequireApproval { reason, .. } => {
+            let escaped = cef_escape_ext(reason);
+            let truncated = truncate_bytes(&escaped, CEF_EXT_MAX_BYTES);
+            format!(" cs2={} cs2Label=approvalReason", truncated)
+        }
         Verdict::Allow => String::new(),
     };
+
+    let rt_escaped = cef_escape_ext(&entry.timestamp);
+    let rt_val = truncate_bytes(&rt_escaped, CEF_EXT_MAX_BYTES);
+    let cs1_escaped = cef_escape_ext(&entry.id);
+    let cs1_val = truncate_bytes(&cs1_escaped, CEF_EXT_MAX_BYTES);
 
     format!(
         "CEF:0|Sentinel|MCP Firewall|1.0|{}|{}|{}|rt={} cs1={} cs1Label=entryId{}",
         cef_escape(verdict_str),
         tool_function,
         severity,
-        cef_escape_ext(&entry.timestamp),
-        cef_escape_ext(&entry.id),
+        rt_val,
+        cs1_val,
         reason_ext,
     )
 }
@@ -94,6 +113,23 @@ fn cef_escape(s: &str) -> String {
         .replace('\x0B', "\\v")
         .replace('\x0C', "\\f")
         .replace('\u{0085}', "\\n")
+}
+
+/// Truncate a string to at most `max_bytes` bytes, respecting UTF-8 character boundaries.
+///
+/// SECURITY (R35-SUP-2): The CEF spec limits extension values to 1023 bytes. Truncating
+/// by character count is incorrect for multi-byte UTF-8 strings (e.g., 200 emoji characters
+/// = 800 bytes, but 300 emoji = 1200 bytes which exceeds the CEF limit). This function
+/// finds the last valid UTF-8 character boundary at or before `max_bytes`.
+fn truncate_bytes(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 /// Escape special characters for CEF extension values (key=value pairs).
@@ -453,6 +489,102 @@ mod tests {
             cef.contains("cs1=entry\\=id\\=test"),
             "Equals signs in extension values must be escaped: {}",
             cef
+        );
+    }
+
+    // ── R35-SUP-2: Byte-aware CEF extension truncation ──
+
+    #[test]
+    fn test_r35_sup_2_truncate_bytes_ascii() {
+        // ASCII: 1 byte per character, straightforward truncation
+        let s = "a".repeat(1500);
+        let t = truncate_bytes(&s, 1000);
+        assert_eq!(t.len(), 1000);
+        assert!(std::str::from_utf8(t.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn test_r35_sup_2_cef_multibyte_truncation() {
+        // 300 emoji characters = 1200 bytes in UTF-8, should be truncated
+        let emoji_str = "\u{1F600}".repeat(300); // U+1F600 = 4 bytes each
+        assert_eq!(emoji_str.len(), 1200);
+        let truncated = truncate_bytes(&emoji_str, 1000);
+        assert!(truncated.len() <= 1000);
+        // Must be on a valid UTF-8 boundary (250 * 4 = 1000)
+        assert_eq!(truncated.len(), 1000);
+        assert!(std::str::from_utf8(truncated.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn test_r35_sup_2_truncate_bytes_boundary() {
+        // 2-byte chars: truncation at an odd byte must back up
+        let s = "\u{00E9}".repeat(600); // e-acute = 2 bytes each, total 1200
+        let t = truncate_bytes(&s, 1001); // 1001 is mid-character
+        assert!(t.len() <= 1001);
+        assert!(t.len() == 1000); // backs up to 500 * 2
+        assert!(std::str::from_utf8(t.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn test_r35_sup_2_truncate_bytes_no_truncation_needed() {
+        let s = "short";
+        let t = truncate_bytes(s, 1000);
+        assert_eq!(t, "short");
+    }
+
+    #[test]
+    fn test_r35_sup_2_cef_deny_reason_truncated() {
+        // A very long deny reason should be truncated in the CEF output
+        let long_reason = "x".repeat(2000);
+        let entry = make_entry(
+            "tool",
+            "func",
+            Verdict::Deny {
+                reason: long_reason,
+            },
+        );
+        let cef = to_cef(&entry);
+        // The cs2= value should be present but truncated
+        assert!(cef.contains("cs2="));
+        assert!(cef.contains("cs2Label=denyReason"));
+        // The full CEF line should be reasonable size (well under 4K)
+        // Each extension value capped at 1000 bytes
+        let cs2_start = cef.find("cs2=").unwrap() + 4;
+        let cs2_end = cef[cs2_start..].find(" cs2Label").unwrap();
+        let cs2_value = &cef[cs2_start..cs2_start + cs2_end];
+        assert!(
+            cs2_value.len() <= 1000,
+            "CEF extension value should be <= 1000 bytes, got {}",
+            cs2_value.len()
+        );
+    }
+
+    #[test]
+    fn test_r35_sup_2_cef_multibyte_deny_reason_truncated() {
+        // Deny reason with 4-byte emoji chars that exceeds CEF limit
+        let long_reason = "\u{1F600}".repeat(300); // 1200 bytes
+        let entry = make_entry(
+            "tool",
+            "func",
+            Verdict::Deny {
+                reason: long_reason,
+            },
+        );
+        let cef = to_cef(&entry);
+        assert!(cef.contains("cs2="));
+        // Extract the cs2 value and verify it's valid UTF-8 and within limit
+        let cs2_start = cef.find("cs2=").unwrap() + 4;
+        let cs2_end = cef[cs2_start..].find(" cs2Label").unwrap();
+        let cs2_value = &cef[cs2_start..cs2_start + cs2_end];
+        assert!(
+            cs2_value.len() <= 1000,
+            "Multi-byte CEF extension value should be <= 1000 bytes, got {}",
+            cs2_value.len()
+        );
+        // Must be valid UTF-8 (no mid-character truncation)
+        assert!(
+            std::str::from_utf8(cs2_value.as_bytes()).is_ok(),
+            "Truncated CEF value must be valid UTF-8"
         );
     }
 }
