@@ -433,6 +433,18 @@ pub struct CallChainEntry {
     pub function: String,
     /// ISO 8601 timestamp when the call was made.
     pub timestamp: String,
+    /// HMAC-SHA256 signature over the entry content (FIND-015).
+    /// Present when the entry was signed by a Sentinel instance with a configured HMAC key.
+    /// Hex-encoded. Omitted from serialization when `None` for backward compatibility.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hmac: Option<String>,
+    /// Whether the HMAC on this entry has been verified (FIND-015).
+    /// `None` = not checked (no key configured or entry has no HMAC).
+    /// `Some(true)` = HMAC verified successfully.
+    /// `Some(false)` = HMAC verification failed (entry marked as unverified).
+    /// Excluded from serialization — this is local verification state only.
+    #[serde(skip)]
+    pub verified: Option<bool>,
 }
 
 /// Session-level context for policy evaluation.
@@ -1030,6 +1042,8 @@ mod tests {
             tool: "read_file".to_string(),
             function: "execute".to_string(),
             timestamp: "2026-01-01T12:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
         };
         let json_str = serde_json::to_string(&entry).unwrap();
         let deserialized: CallChainEntry = serde_json::from_str(&json_str).unwrap();
@@ -1044,6 +1058,8 @@ mod tests {
                 tool: "read_file".to_string(),
                 function: "execute".to_string(),
                 timestamp: "2026-01-01T12:00:00Z".to_string(),
+                hmac: None,
+                verified: None,
             }],
             ..Default::default()
         };
@@ -1064,6 +1080,8 @@ mod tests {
                 tool: "tool1".to_string(),
                 function: "func1".to_string(),
                 timestamp: "2026-01-01T12:00:00Z".to_string(),
+                hmac: None,
+                verified: None,
             }],
             ..Default::default()
         };
@@ -1076,12 +1094,16 @@ mod tests {
                     tool: "tool1".to_string(),
                     function: "func1".to_string(),
                     timestamp: "2026-01-01T12:00:00Z".to_string(),
+                    hmac: None,
+                    verified: None,
                 },
                 CallChainEntry {
                     agent_id: "agent-b".to_string(),
                     tool: "tool2".to_string(),
                     function: "func2".to_string(),
                     timestamp: "2026-01-01T12:00:01Z".to_string(),
+                    hmac: None,
+                    verified: None,
                 },
             ],
             ..Default::default()
@@ -1101,12 +1123,16 @@ mod tests {
                     tool: "tool1".to_string(),
                     function: "func1".to_string(),
                     timestamp: "2026-01-01T12:00:00Z".to_string(),
+                    hmac: None,
+                    verified: None,
                 },
                 CallChainEntry {
                     agent_id: "proxy-agent".to_string(),
                     tool: "tool2".to_string(),
                     function: "func2".to_string(),
                     timestamp: "2026-01-01T12:00:01Z".to_string(),
+                    hmac: None,
+                    verified: None,
                 },
             ],
             ..Default::default()

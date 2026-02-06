@@ -215,6 +215,8 @@ fn make_call_chain_entry(agent_id: &str, tool: &str) -> CallChainEntry {
         tool: tool.to_string(),
         function: "execute".to_string(),
         timestamp: "2026-01-01T12:00:00Z".to_string(),
+        hmac: None,
+        verified: None,
     }
 }
 

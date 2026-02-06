@@ -184,6 +184,37 @@ async fn main() -> Result<()> {
         );
     }
 
+    // FIND-015: Load HMAC key for call chain signing/verification.
+    // Read from SENTINEL_CHAIN_HMAC_KEY env var (hex-encoded 32-byte key).
+    // When set, Sentinel signs its own call chain entries and verifies incoming ones.
+    let call_chain_hmac_key: Option<[u8; 32]> = std::env::var("SENTINEL_CHAIN_HMAC_KEY")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .and_then(|hex_str| {
+            match hex::decode(&hex_str) {
+                Ok(bytes) if bytes.len() == 32 => {
+                    let mut key = [0u8; 32];
+                    key.copy_from_slice(&bytes);
+                    tracing::info!("FIND-015: Call chain HMAC signing/verification enabled");
+                    Some(key)
+                }
+                Ok(bytes) => {
+                    tracing::warn!(
+                        "SENTINEL_CHAIN_HMAC_KEY must be exactly 32 bytes (64 hex chars), got {} bytes — chain signing disabled",
+                        bytes.len()
+                    );
+                    None
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "SENTINEL_CHAIN_HMAC_KEY is not valid hex — chain signing disabled: {}",
+                        e
+                    );
+                    None
+                }
+            }
+        });
+
     // Initialize audit logger
     let audit_path = PathBuf::from(&args.audit_log);
     let mut audit_logger = AuditLogger::new(audit_path.clone());
@@ -322,6 +353,13 @@ async fn main() -> Result<()> {
     // Keep a reference for post-shutdown audit flush (Challenge 15 fix)
     let shutdown_audit = audit.clone();
 
+    // Parse bind address for DNS rebinding defense (TASK-015).
+    // validate_origin uses this to automatically restrict origins on loopback binds.
+    let bind_addr: std::net::SocketAddr = args
+        .listen
+        .parse()
+        .context(format!("Invalid listen address: {}", args.listen))?;
+
     // Build shared state
     let state = ProxyState {
         engine: Arc::new(engine),
@@ -337,7 +375,8 @@ async fn main() -> Result<()> {
         api_key,
         approval_store: None,
         manifest_config: None,
-        allowed_origins: vec![],
+        allowed_origins: policy_config.allowed_origins.clone(),
+        bind_addr,
         // SECURITY (R10-FRAME-2): Default to canonicalize=true (safe mode).
         // The env var SENTINEL_NO_CANONICALIZE=true or --no-canonicalize opt out.
         canonicalize: !args.no_canonicalize
@@ -355,10 +394,31 @@ async fn main() -> Result<()> {
         elicitation_config: policy_config.elicitation.clone(),
         sampling_config: policy_config.sampling.clone(),
         tool_registry: None,
+        call_chain_hmac_key,
     };
 
     if state.canonicalize {
         tracing::info!("TOCTOU canonicalization enabled — forwarding re-serialized JSON");
+    }
+
+    // TASK-015: Log DNS rebinding defense configuration
+    if state.allowed_origins.is_empty() {
+        if bind_addr.ip().is_loopback() {
+            tracing::info!(
+                bind_addr = %bind_addr,
+                "DNS rebinding defense: auto-restricting origins to localhost variants"
+            );
+        } else {
+            tracing::info!(
+                bind_addr = %bind_addr,
+                "Origin validation: same-origin check (non-loopback bind)"
+            );
+        }
+    } else {
+        tracing::info!(
+            allowed_origins = ?state.allowed_origins,
+            "Origin validation: using explicit allowlist"
+        );
     }
 
     // Build rate limiter (global, token-bucket)
@@ -408,9 +468,9 @@ async fn main() -> Result<()> {
     });
 
     // Start server
-    let listener = tokio::net::TcpListener::bind(&args.listen)
+    let listener = tokio::net::TcpListener::bind(bind_addr)
         .await
-        .context(format!("Failed to bind to {}", args.listen))?;
+        .context(format!("Failed to bind to {}", bind_addr))?;
 
     tracing::info!(
         "Sentinel HTTP proxy listening on {} → upstream {}",

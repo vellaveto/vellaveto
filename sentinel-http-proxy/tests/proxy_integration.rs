@@ -161,6 +161,7 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        bind_addr: "127.0.0.1:3001".parse().unwrap(),
         canonicalize: false,
         output_schema_registry: Arc::new(
             sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
@@ -171,6 +172,7 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
+        call_chain_hmac_key: None,
     }
 }
 
@@ -1605,6 +1607,7 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        bind_addr: "127.0.0.1:3001".parse().unwrap(),
         canonicalize: false,
         output_schema_registry: Arc::new(
             sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
@@ -1615,6 +1618,7 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
+        call_chain_hmac_key: None,
     };
     let sessions = state.sessions.clone();
     let app = build_router(state);
@@ -1896,6 +1900,7 @@ async fn trace_resource_read_denied_includes_trace() {
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        bind_addr: "127.0.0.1:3001".parse().unwrap(),
         canonicalize: false,
         output_schema_registry: Arc::new(
             sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
@@ -1906,6 +1911,7 @@ async fn trace_resource_read_denied_includes_trace() {
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
+        call_chain_hmac_key: None,
     };
     let app = build_router(state);
 
@@ -1976,6 +1982,7 @@ async fn trace_constraint_details_visible() {
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        bind_addr: "127.0.0.1:3001".parse().unwrap(),
         canonicalize: false,
         output_schema_registry: Arc::new(
             sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
@@ -1986,6 +1993,7 @@ async fn trace_constraint_details_visible() {
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
+        call_chain_hmac_key: None,
     };
     let app = build_router(state);
 
@@ -2177,6 +2185,7 @@ fn build_oauth_test_state(
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        bind_addr: "127.0.0.1:3001".parse().unwrap(),
         canonicalize: false,
         output_schema_registry: Arc::new(
             sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
@@ -2187,6 +2196,7 @@ fn build_oauth_test_state(
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
+        call_chain_hmac_key: None,
     }
 }
 
@@ -2706,6 +2716,7 @@ fn build_api_key_test_state(
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        bind_addr: "127.0.0.1:3001".parse().unwrap(),
         canonicalize: false,
         output_schema_registry: Arc::new(
             sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
@@ -2716,6 +2727,7 @@ fn build_api_key_test_state(
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
+        call_chain_hmac_key: None,
     }
 }
 
@@ -3131,6 +3143,7 @@ fn build_test_state_deny_tasks(upstream_url: &str, tmp: &TempDir) -> ProxyState 
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        bind_addr: "127.0.0.1:3001".parse().unwrap(),
         canonicalize: false,
         output_schema_registry: Arc::new(
             sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
@@ -3141,6 +3154,7 @@ fn build_test_state_deny_tasks(upstream_url: &str, tmp: &TempDir) -> ProxyState 
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
+        call_chain_hmac_key: None,
     }
 }
 
@@ -3246,6 +3260,7 @@ async fn task_get_allowed_when_no_deny_policy() {
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        bind_addr: "127.0.0.1:3001".parse().unwrap(),
         canonicalize: false,
         output_schema_registry: Arc::new(
             sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
@@ -3256,6 +3271,7 @@ async fn task_get_allowed_when_no_deny_policy() {
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
+        call_chain_hmac_key: None,
     };
     let app = build_router(state);
 
@@ -3316,6 +3332,7 @@ async fn task_request_fail_closed_no_matching_policy() {
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        bind_addr: "127.0.0.1:3001".parse().unwrap(),
         canonicalize: false,
         output_schema_registry: Arc::new(
             sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
@@ -3326,6 +3343,7 @@ async fn task_request_fail_closed_no_matching_policy() {
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
+        call_chain_hmac_key: None,
     };
     let app = build_router(state);
 
@@ -3385,6 +3403,7 @@ async fn task_request_dlp_blocks_secret_in_task_id() {
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        bind_addr: "127.0.0.1:3001".parse().unwrap(),
         canonicalize: false,
         output_schema_registry: Arc::new(
             sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
@@ -3395,6 +3414,7 @@ async fn task_request_dlp_blocks_secret_in_task_id() {
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
+        call_chain_hmac_key: None,
     };
     let app = build_router(state);
 
@@ -3461,6 +3481,7 @@ async fn task_request_clean_params_not_dlp_blocked() {
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        bind_addr: "127.0.0.1:3001".parse().unwrap(),
         canonicalize: false,
         output_schema_registry: Arc::new(
             sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
@@ -3471,6 +3492,7 @@ async fn task_request_clean_params_not_dlp_blocked() {
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
+        call_chain_hmac_key: None,
     };
     let app = build_router(state);
 
@@ -3534,6 +3556,7 @@ async fn task_request_dlp_blocks_github_token_in_params() {
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        bind_addr: "127.0.0.1:3001".parse().unwrap(),
         canonicalize: false,
         output_schema_registry: Arc::new(
             sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
@@ -3544,6 +3567,7 @@ async fn task_request_dlp_blocks_github_token_in_params() {
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
+        call_chain_hmac_key: None,
     };
     let app = build_router(state);
 
@@ -3791,6 +3815,7 @@ fn build_chain_depth_test_state(upstream_url: &str, tmp: &TempDir, max_depth: us
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        bind_addr: "127.0.0.1:3001".parse().unwrap(),
         canonicalize: false,
         output_schema_registry: Arc::new(
             sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
@@ -3801,6 +3826,7 @@ fn build_chain_depth_test_state(upstream_url: &str, tmp: &TempDir, max_depth: us
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
+        call_chain_hmac_key: None,
     }
 }
 
@@ -4010,6 +4036,7 @@ fn build_priv_escalation_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyS
         approval_store: None,
         manifest_config: None,
         allowed_origins: vec![],
+        bind_addr: "127.0.0.1:3001".parse().unwrap(),
         canonicalize: false,
         output_schema_registry: Arc::new(
             sentinel_mcp::output_validation::OutputSchemaRegistry::new(),
@@ -4020,6 +4047,7 @@ fn build_priv_escalation_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyS
         elicitation_config: sentinel_config::ElicitationConfig::default(),
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
+        call_chain_hmac_key: None,
     }
 }
 

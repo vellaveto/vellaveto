@@ -2339,6 +2339,8 @@ dependencies = [
  "dashmap",
  "futures-util",
  "governor",
+ "hex",
+ "hmac",
  "http",
  "jsonwebtoken",
  "reqwest",
