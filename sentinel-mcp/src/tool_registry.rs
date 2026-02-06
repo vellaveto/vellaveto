@@ -533,11 +533,27 @@ pub fn compute_schema_hash(schema: &serde_json::Value) -> String {
         return format!("{:x}", hasher.finalize());
     }
 
-    // Use canonical JSON serialization (RFC 8785)
-    let canonical = serde_json_canonicalizer::to_string(schema).unwrap_or_else(|_| {
-        // Fallback to regular serialization if canonicalization fails
-        serde_json::to_string(schema).unwrap_or_default()
-    });
+    // Use canonical JSON serialization (RFC 8785).
+    // SECURITY (R30-MCP-3): If both canonicalization and regular serialization
+    // fail, return a deterministic sentinel hash rather than hashing an empty
+    // string. An empty string hash is identical across all failing schemas,
+    // masking rug-pull mutations (attacker mutates schema, both old and new
+    // fail serialization, producing the same hash → no rug-pull detected).
+    let canonical = match serde_json_canonicalizer::to_string(schema) {
+        Ok(s) => s,
+        Err(_) => match serde_json::to_string(schema) {
+            Ok(s) => s,
+            Err(_) => {
+                // Fail-closed: return a unique hash based on schema debug repr
+                // so that any schema that can't be serialized gets a distinct hash.
+                let debug_repr = format!("{:?}", schema);
+                let mut hasher = Sha256::new();
+                hasher.update(b"__SERIALIZATION_FAILED__");
+                hasher.update(debug_repr.as_bytes());
+                return format!("{:x}", hasher.finalize());
+            }
+        },
+    };
     let mut hasher = Sha256::new();
     hasher.update(canonical.as_bytes());
     format!("{:x}", hasher.finalize())

@@ -70,7 +70,12 @@ impl OutputSchemaRegistry {
 
         let mut schemas = match self.schemas.write() {
             Ok(s) => s,
-            Err(_) => return, // Poisoned lock — fail open (don't crash)
+            // SECURITY (R30-MCP-2): Log poisoned lock but don't crash.
+            // Registration is best-effort — the fail-closed behavior is in validate().
+            Err(poisoned) => {
+                tracing::error!("OutputSchemaRegistry write lock poisoned — clearing and recovering");
+                poisoned.into_inner()
+            }
         };
 
         for tool in tools {
@@ -128,7 +133,14 @@ impl OutputSchemaRegistry {
     pub fn validate(&self, tool_name: &str, structured_content: &Value) -> ValidationResult {
         let schemas = match self.schemas.read() {
             Ok(s) => s,
-            Err(_) => return ValidationResult::NoSchema,
+            // SECURITY (R30-MCP-2): Fail-closed on poisoned lock — report
+            // as invalid rather than silently passing through (NoSchema).
+            Err(_) => {
+                tracing::error!("OutputSchemaRegistry read lock poisoned — failing closed");
+                return ValidationResult::Invalid {
+                    violations: vec!["Schema registry lock poisoned — cannot validate".to_string()],
+                };
+            }
         };
 
         let schema = match schemas.get(tool_name) {

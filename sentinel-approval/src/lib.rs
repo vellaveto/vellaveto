@@ -67,7 +67,12 @@ pub const DEFAULT_MAX_PENDING: usize = 10_000;
 /// SECURITY (R28-SUP-1): target_paths and target_domains are included to
 /// prevent dedup collision between semantically different actions (e.g.,
 /// same tool/function/params but different file paths).
-fn compute_dedup_key(action: &Action, reason: &str) -> String {
+///
+/// SECURITY (R30-SUP-5): `requested_by` is included so that different
+/// principals cannot piggyback on each other's pending approvals. Without
+/// this, principal A could create an approval and principal B could resolve
+/// it, effectively approving on behalf of A.
+fn compute_dedup_key(action: &Action, reason: &str, requested_by: Option<&str>) -> String {
     let canonical = serde_json::json!({
         "tool": action.tool,
         "function": action.function,
@@ -76,9 +81,10 @@ fn compute_dedup_key(action: &Action, reason: &str) -> String {
         "target_domains": action.target_domains,
     });
     let input = format!(
-        "{}||{}",
+        "{}||{}||{}",
         serde_json::to_string(&canonical).unwrap_or_default(),
-        reason
+        reason,
+        requested_by.unwrap_or(""),
     );
     let hash = Sha256::digest(input.as_bytes());
     format!("{:x}", hash)
@@ -191,7 +197,7 @@ impl ApprovalStore {
         dedup.clear();
         for approval in pending.values() {
             if approval.status == ApprovalStatus::Pending {
-                let key = compute_dedup_key(&approval.action, &approval.reason);
+                let key = compute_dedup_key(&approval.action, &approval.reason, approval.requested_by.as_deref());
                 dedup.insert(key, approval.id.clone());
             }
         }
@@ -213,7 +219,7 @@ impl ApprovalStore {
         reason: String,
         requested_by: Option<String>,
     ) -> Result<String, ApprovalError> {
-        let dedup_key = compute_dedup_key(&action, &reason);
+        let dedup_key = compute_dedup_key(&action, &reason, requested_by.as_deref());
 
         // Check dedup index: if an identical pending approval exists, return its ID
         {
@@ -336,7 +342,7 @@ impl ApprovalStore {
         }
 
         // Compute dedup key before mutating the approval
-        let dedup_key = compute_dedup_key(&approval.action, &approval.reason);
+        let dedup_key = compute_dedup_key(&approval.action, &approval.reason, approval.requested_by.as_deref());
 
         if Utc::now() > approval.expires_at {
             approval.status = ApprovalStatus::Expired;
@@ -374,7 +380,7 @@ impl ApprovalStore {
         }
 
         // Compute dedup key before mutating the approval
-        let dedup_key = compute_dedup_key(&approval.action, &approval.reason);
+        let dedup_key = compute_dedup_key(&approval.action, &approval.reason, approval.requested_by.as_deref());
 
         if Utc::now() > approval.expires_at {
             approval.status = ApprovalStatus::Expired;
@@ -438,7 +444,7 @@ impl ApprovalStore {
         for approval in pending.values_mut() {
             if approval.status == ApprovalStatus::Pending && now > approval.expires_at {
                 // Remove dedup key atomically while both locks are held
-                let dedup_key = compute_dedup_key(&approval.action, &approval.reason);
+                let dedup_key = compute_dedup_key(&approval.action, &approval.reason, approval.requested_by.as_deref());
                 dedup.remove(&dedup_key);
                 approval.status = ApprovalStatus::Expired;
                 expired_count += 1;

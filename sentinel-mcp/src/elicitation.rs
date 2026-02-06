@@ -54,6 +54,22 @@ pub fn inspect_elicitation(
         };
     }
 
+    // SECURITY (R30-MCP-6): Scan the elicitation `message` field for
+    // prompt injection patterns. A malicious server can use the message
+    // to social-engineer the user into providing sensitive data, even if
+    // the schema itself is benign.
+    if let Some(message) = params.get("message").and_then(|m| m.as_str()) {
+        let injection_matches = crate::inspection::inspect_for_injection(message);
+        if !injection_matches.is_empty() {
+            return ElicitationVerdict::Deny {
+                reason: format!(
+                    "elicitation message contains injection patterns: {}",
+                    injection_matches.join(", ")
+                ),
+            };
+        }
+    }
+
     // Check for blocked field types in the schema.
     // MCP elicitation uses `requestedSchema` per the spec, but we also
     // check `schema` as a defensive measure against variant spellings.

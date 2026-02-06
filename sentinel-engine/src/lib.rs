@@ -67,9 +67,37 @@ impl PatternMatcher {
         if pattern == "*" {
             PatternMatcher::Any
         } else if let Some(suffix) = pattern.strip_prefix('*') {
-            PatternMatcher::Suffix(suffix.to_string())
+            // SECURITY (R30-ENG-5): Validate that the suffix doesn't contain
+            // another wildcard. Patterns like "*read*" would produce a suffix
+            // match for the literal string "read*", which is almost certainly
+            // not what the admin intended. Fail-closed: treat as Any (matches
+            // all) with a warning — over-matching is safer than under-matching.
+            if suffix.contains('*') {
+                tracing::warn!(
+                    pattern = pattern,
+                    "Unsupported infix/double wildcard pattern — treating as match-all (fail-closed)"
+                );
+                PatternMatcher::Any
+            } else {
+                PatternMatcher::Suffix(suffix.to_string())
+            }
         } else if let Some(prefix) = pattern.strip_suffix('*') {
-            PatternMatcher::Prefix(prefix.to_string())
+            if prefix.contains('*') {
+                tracing::warn!(
+                    pattern = pattern,
+                    "Unsupported infix/double wildcard pattern — treating as match-all (fail-closed)"
+                );
+                PatternMatcher::Any
+            } else {
+                PatternMatcher::Prefix(prefix.to_string())
+            }
+        } else if pattern.contains('*') {
+            // Infix wildcard like "file_*_system" — not supported
+            tracing::warn!(
+                pattern = pattern,
+                "Unsupported infix wildcard pattern — treating as match-all (fail-closed)"
+            );
+            PatternMatcher::Any
         } else {
             PatternMatcher::Exact(pattern.to_string())
         }
@@ -2246,6 +2274,20 @@ impl PolicyEngine {
 
         for raw_domain in &action.target_domains {
             let domain = raw_domain.to_lowercase();
+
+            // SECURITY (R30-ENG-2): Fail-closed for non-ASCII domains that fail
+            // IDNA normalization. Without this, match_domain_pattern returns false
+            // for both allowed and blocked patterns → the domain bypasses blocklists.
+            // If IDNA normalization fails for the domain and there are any network
+            // rules configured, deny it rather than letting it through unchecked.
+            if Self::normalize_domain_for_match(&domain).is_none() {
+                return Some(Verdict::Deny {
+                    reason: format!(
+                        "Domain '{}' cannot be normalized (IDNA failure) — blocked by policy '{}'",
+                        domain, cp.policy.name
+                    ),
+                });
+            }
 
             // Check blocked domains first
             for pattern in &rules.blocked_domains {

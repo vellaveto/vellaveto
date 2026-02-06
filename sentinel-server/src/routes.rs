@@ -179,8 +179,10 @@ async fn request_id(request: Request, next: Next) -> Response {
 ///
 /// If no API key is configured, all requests are allowed (development mode).
 async fn require_api_key(State(state): State<AppState>, request: Request, next: Next) -> Response {
-    // Always skip auth for preflight and HEAD
-    if request.method() == Method::OPTIONS || request.method() == Method::HEAD {
+    // SECURITY: Only skip auth for CORS preflight (OPTIONS).
+    // HEAD requests MUST go through auth — they can reveal endpoint existence,
+    // response sizes, and header values (R30-SRV-1).
+    if request.method() == Method::OPTIONS {
         return next.run(request).await;
     }
 
@@ -362,7 +364,12 @@ fn scan_params_for_targets_inner(
                 // Strip query/fragments from raw paths
                 let clean = strip_query_and_fragment(s);
                 if !clean.is_empty() {
-                    paths.push(clean.to_string());
+                    // SECURITY (R30-SRV-6): Percent-decode absolute paths for
+                    // consistency with file:// URL handling (R29-SRV-2). Without
+                    // this, /etc/%70asswd bypasses path policy checks.
+                    let decoded =
+                        percent_encoding::percent_decode_str(clean).decode_utf8_lossy();
+                    paths.push(decoded.into_owned());
                 }
             } else if looks_like_relative_path(s) {
                 // SECURITY (R11-PATH-3): Catch relative paths containing ..
@@ -370,8 +377,10 @@ fn scan_params_for_targets_inner(
                 // so they are visible to path policy checks.
                 let clean = strip_query_and_fragment(s);
                 if !clean.is_empty() {
-                    // Convert to absolute for policy checking
-                    paths.push(format!("/{}", clean));
+                    // SECURITY (R30-SRV-6): Percent-decode relative paths too.
+                    let decoded =
+                        percent_encoding::percent_decode_str(clean).decode_utf8_lossy();
+                    paths.push(format!("/{}", decoded));
                 }
             }
         }
@@ -568,9 +577,9 @@ async fn evaluate(
                 let verdict = Verdict::RequireApproval {
                     reason: reason.clone(),
                 };
-                state.metrics.record_evaluation(&verdict);
-                crate::metrics::record_evaluation_verdict("require_approval");
-                crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
+                // SECURITY (R30-SRV-3): Defer metrics recording until after
+                // approval creation — if creation fails, the final verdict is
+                // Deny, not RequireApproval. Recording both double-counts.
 
                 // Create pending approval if store available
                 let requester = derive_resolver_identity(&headers, "anonymous");
@@ -616,6 +625,11 @@ async fn evaluate(
                     }
                 };
 
+                // Record RequireApproval metrics only on success path
+                state.metrics.record_evaluation(&verdict);
+                crate::metrics::record_evaluation_verdict("require_approval");
+                crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
+
                 if let Err(e) = state
                     .audit
                     .log_entry(
@@ -643,9 +657,7 @@ async fn evaluate(
                 let verdict = Verdict::RequireApproval {
                     reason: reason.clone(),
                 };
-                state.metrics.record_evaluation(&verdict);
-                crate::metrics::record_evaluation_verdict("require_approval");
-                crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
+                // SECURITY (R30-SRV-3): Defer metrics until after approval creation
 
                 let requester = derive_resolver_identity(&headers, "anonymous");
                 let requested_by = if requester != "anonymous" {
@@ -689,6 +701,11 @@ async fn evaluate(
                         }));
                     }
                 };
+
+                // Record RequireApproval metrics only on success path
+                state.metrics.record_evaluation(&verdict);
+                crate::metrics::record_evaluation_verdict("require_approval");
+                crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
 
                 if let Err(e) = state
                     .audit

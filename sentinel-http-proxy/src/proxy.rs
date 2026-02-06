@@ -3083,6 +3083,22 @@ fn extract_text_from_result(result: &Value) -> String {
             {
                 text_parts.push(text.to_string());
             }
+            // SECURITY (R30-PROXY-5): Scan resource.blob — base64-encoded content
+            // that could contain injection payloads. Decode and scan the raw bytes
+            // as UTF-8 lossy to catch text-based attacks embedded in binary data.
+            if let Some(blob) = item
+                .get("resource")
+                .and_then(|r| r.get("blob"))
+                .and_then(|b| b.as_str())
+            {
+                use base64::Engine as _;
+                if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(blob) {
+                    let text = String::from_utf8_lossy(&decoded);
+                    if !text.is_empty() {
+                        text_parts.push(text.into_owned());
+                    }
+                }
+            }
             // Scan annotations text
             if let Some(text) = item
                 .get("annotations")
@@ -3097,6 +3113,15 @@ fn extract_text_from_result(result: &Value) -> String {
     // Also check structuredContent
     if let Some(structured) = result.get("structuredContent") {
         text_parts.push(structured.to_string());
+    }
+
+    // SECURITY (R30-PROXY-3): Scan _meta field — MCP tool results may include
+    // a _meta object with arbitrary string values that could carry injection
+    // payloads. Serialize the entire _meta object to catch any nested strings.
+    if let Some(meta) = result.get("_meta") {
+        if meta.is_object() {
+            text_parts.push(meta.to_string());
+        }
     }
 
     text_parts.join("\n")

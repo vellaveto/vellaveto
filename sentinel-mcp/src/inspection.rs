@@ -473,23 +473,45 @@ fn scan_tool_descriptions_inner(
             None => continue,
         };
 
-        let matches: Vec<String> = if let Some(scanner) = scanner {
-            scanner
-                .inspect(description)
-                .into_iter()
-                .map(|s| s.to_string())
-                .collect()
-        } else {
-            inspect_for_injection(description)
-                .into_iter()
-                .map(|s| s.to_string())
-                .collect()
-        };
+        // Collect all text to scan: top-level description + property descriptions
+        let mut texts_to_scan = vec![description.to_string()];
 
-        if !matches.is_empty() {
+        // SECURITY (R30-MCP-5): Also scan inputSchema property-level descriptions.
+        // A malicious server can hide injection payloads in individual property
+        // descriptions rather than the top-level tool description.
+        if let Some(props) = tool
+            .get("inputSchema")
+            .and_then(|s| s.get("properties"))
+            .and_then(|p| p.as_object())
+        {
+            for prop_schema in props.values() {
+                if let Some(desc) = prop_schema.get("description").and_then(|d| d.as_str()) {
+                    texts_to_scan.push(desc.to_string());
+                }
+            }
+        }
+
+        let mut all_matches: Vec<String> = Vec::new();
+        for text in &texts_to_scan {
+            let matches: Vec<String> = if let Some(scanner) = scanner {
+                scanner
+                    .inspect(text)
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            } else {
+                inspect_for_injection(text)
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            };
+            all_matches.extend(matches);
+        }
+
+        if !all_matches.is_empty() {
             findings.push(ToolDescriptionFinding {
                 tool_name: name.to_string(),
-                matched_patterns: matches,
+                matched_patterns: all_matches,
             });
         }
     }
