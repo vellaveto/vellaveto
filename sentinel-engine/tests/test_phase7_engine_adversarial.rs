@@ -224,10 +224,10 @@ fn exploit_32_unicode_homoglyph_in_tool_name() {
 fn domain_extraction_ipv6_with_zone_id() {
     // IPv6 with zone ID — some implementations include %25 for literal %
     let domain = PolicyEngine::extract_domain("http://[fe80::1%25eth0]:8080/path");
-    // Should extract the bracketed IPv6 address
+    // SECURITY (R31-ENG-5): Brackets stripped for consistent domain matching
     assert!(
-        domain.starts_with("[fe80::"),
-        "IPv6 with zone ID should be extracted: got '{}'",
+        domain.starts_with("fe80::"),
+        "IPv6 with zone ID should be extracted without brackets: got '{}'",
         domain
     );
 }

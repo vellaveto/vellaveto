@@ -1160,6 +1160,40 @@ impl PolicyConfig {
                         host
                     ));
                 }
+                // SECURITY (R31-SUP-1): Reject private/cloud-metadata IP ranges to prevent
+                // SSRF attacks that target internal infrastructure. The loopback check above
+                // only catches 127.0.0.1 and localhost, but an attacker could use 10.x.x.x,
+                // 172.16.x.x, 192.168.x.x, or 169.254.169.254 (cloud metadata endpoint).
+                if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+                    let is_private = ip.is_loopback()
+                        || ip.octets()[0] == 10                          // 10.0.0.0/8
+                        || (ip.octets()[0] == 172 && (ip.octets()[1] & 0xf0) == 16) // 172.16.0.0/12
+                        || (ip.octets()[0] == 192 && ip.octets()[1] == 168)         // 192.168.0.0/16
+                        || (ip.octets()[0] == 169 && ip.octets()[1] == 254)         // 169.254.0.0/16 (link-local/metadata)
+                        || (ip.octets()[0] == 100 && (ip.octets()[1] & 0xc0) == 64) // 100.64.0.0/10 (CGNAT)
+                        || ip.octets()[0] == 0                           // 0.0.0.0/8
+                        || ip.is_broadcast();                            // 255.255.255.255
+                    if is_private {
+                        return Err(format!(
+                            "audit_export.webhook_url must not target private/internal IP ranges, got '{}'",
+                            host
+                        ));
+                    }
+                }
+                // Also check IPv6 private ranges (stripped brackets already handled above)
+                let ipv6_host = host.trim_start_matches('[').trim_end_matches(']');
+                if let Ok(ip6) = ipv6_host.parse::<std::net::Ipv6Addr>() {
+                    let is_private = ip6.is_loopback()
+                        || ip6.is_unspecified()
+                        || (ip6.segments()[0] & 0xfe00) == 0xfc00  // fc00::/7 (ULA)
+                        || (ip6.segments()[0] == 0xfe80);          // fe80::/10 (link-local)
+                    if is_private {
+                        return Err(format!(
+                            "audit_export.webhook_url must not target private/internal IPv6 ranges, got '{}'",
+                            host
+                        ));
+                    }
+                }
             }
         }
 

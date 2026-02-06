@@ -3091,8 +3091,13 @@ fn extract_text_from_result(result: &Value) -> String {
                 .and_then(|r| r.get("blob"))
                 .and_then(|b| b.as_str())
             {
+                // SECURITY (R31-PROXY-4): Try both STANDARD and URL_SAFE alphabets.
+                // MCP resource blobs may use either encoding variant.
                 use base64::Engine as _;
-                if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(blob) {
+                if let Ok(decoded) = base64::engine::general_purpose::STANDARD
+                    .decode(blob)
+                    .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(blob))
+                {
                     let text = String::from_utf8_lossy(&decoded);
                     if !text.is_empty() {
                         text_parts.push(text.into_owned());
@@ -3108,6 +3113,16 @@ fn extract_text_from_result(result: &Value) -> String {
                 text_parts.push(text.to_string());
             }
         }
+    }
+
+    // SECURITY (R31-MCP-5): Scan instructionsForUser — this field contains text
+    // shown directly to the user and is a prime vector for social engineering
+    // injection attacks where the server tries to manipulate user decisions.
+    if let Some(instructions) = result
+        .get("instructionsForUser")
+        .and_then(|i| i.as_str())
+    {
+        text_parts.push(instructions.to_string());
     }
 
     // Also check structuredContent
@@ -3161,9 +3176,10 @@ async fn scan_sse_events_for_injection(
         // an injection payload across data: lines to evade per-line scanning.
         let mut data_parts: Vec<&str> = Vec::new();
         for line in event.lines() {
-            // SECURITY (R26-PROXY-3): Trim ASCII whitespace before prefix check.
-            // Unicode whitespace (e.g. U+00A0 NBSP) before "data:" would bypass scanning.
-            let trimmed = line.trim_start_matches([' ', '\t']);
+            // SECURITY (R26-PROXY-3, R31-PROXY-5): Trim ASCII whitespace AND Unicode NBSP
+            // before prefix check. Without NBSP handling, a malicious server can prefix
+            // "data:" lines with U+00A0 to bypass SSE injection scanning.
+            let trimmed = line.trim_start_matches([' ', '\t', '\u{00A0}']);
             if let Some(rest) = trimmed.strip_prefix("data:") {
                 data_parts.push(rest.trim_start());
             }
@@ -3325,9 +3341,10 @@ async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &Pro
     for event in normalized.split("\n\n") {
         let mut data_parts: Vec<&str> = Vec::new();
         for line in event.lines() {
-            // SECURITY (R26-PROXY-3): Trim ASCII whitespace before prefix check.
-            // Unicode whitespace (e.g. U+00A0 NBSP) before "data:" would bypass scanning.
-            let trimmed = line.trim_start_matches([' ', '\t']);
+            // SECURITY (R26-PROXY-3, R31-PROXY-5): Trim ASCII whitespace AND Unicode NBSP
+            // before prefix check. Without NBSP handling, a malicious server can prefix
+            // "data:" lines with U+00A0 to bypass SSE injection scanning.
+            let trimmed = line.trim_start_matches([' ', '\t', '\u{00A0}']);
             if let Some(rest) = trimmed.strip_prefix("data:") {
                 data_parts.push(rest.trim_start());
             }
@@ -3440,9 +3457,10 @@ async fn check_sse_for_rug_pull_and_manifest(
     for event in normalized.split("\n\n") {
         let mut data_parts: Vec<&str> = Vec::new();
         for line in event.lines() {
-            // SECURITY (R26-PROXY-3): Trim ASCII whitespace before prefix check.
-            // Unicode whitespace (e.g. U+00A0 NBSP) before "data:" would bypass scanning.
-            let trimmed = line.trim_start_matches([' ', '\t']);
+            // SECURITY (R26-PROXY-3, R31-PROXY-5): Trim ASCII whitespace AND Unicode NBSP
+            // before prefix check. Without NBSP handling, a malicious server can prefix
+            // "data:" lines with U+00A0 to bypass SSE injection scanning.
+            let trimmed = line.trim_start_matches([' ', '\t', '\u{00A0}']);
             if let Some(rest) = trimmed.strip_prefix("data:") {
                 data_parts.push(rest.trim_start());
             }
@@ -3516,9 +3534,10 @@ fn register_schemas_from_sse(sse_bytes: &[u8], state: &ProxyState) {
     for event in normalized.split("\n\n") {
         let mut data_parts: Vec<&str> = Vec::new();
         for line in event.lines() {
-            // SECURITY (R26-PROXY-3): Trim ASCII whitespace before prefix check.
-            // Unicode whitespace (e.g. U+00A0 NBSP) before "data:" would bypass scanning.
-            let trimmed = line.trim_start_matches([' ', '\t']);
+            // SECURITY (R26-PROXY-3, R31-PROXY-5): Trim ASCII whitespace AND Unicode NBSP
+            // before prefix check. Without NBSP handling, a malicious server can prefix
+            // "data:" lines with U+00A0 to bypass SSE injection scanning.
+            let trimmed = line.trim_start_matches([' ', '\t', '\u{00A0}']);
             if let Some(rest) = trimmed.strip_prefix("data:") {
                 data_parts.push(rest.trim_start());
             }

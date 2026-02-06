@@ -154,7 +154,9 @@ async fn request_id(request: Request, next: Next) -> Response {
         .headers()
         .get("x-request-id")
         .and_then(|v| v.to_str().ok())
-        .filter(|s| s.len() <= 128)
+        // SECURITY (R31-SRV-6): Reject control characters (including TAB) in
+        // client-supplied request IDs to prevent log injection attacks.
+        .filter(|s| s.len() <= 128 && !s.chars().any(|c| c.is_control()))
         .map(|s| s.to_string());
 
     let mut response = next.run(request).await;
@@ -260,6 +262,15 @@ struct EvaluateResponse {
     approval_id: Option<String>,
 }
 
+/// SECURITY (R31-SRV-1): Redact action parameters before returning in the evaluate
+/// response. Parameters may contain secrets (API keys, credentials) that should not
+/// be echoed back over the wire where intermediary proxies/logs could capture them.
+/// The caller already knows the parameters they submitted.
+fn redact_response_action(mut action: Action) -> Action {
+    action.parameters = serde_json::Value::Object(Default::default());
+    action
+}
+
 #[derive(Serialize)]
 struct ErrorResponse {
     error: String,
@@ -336,9 +347,13 @@ fn scan_params_for_targets_inner(
                 // network rules that block evil.com.
                 let scheme = &lower[..scheme_end];
                 // Only process if scheme looks valid (alphabetic, 1-10 chars)
+                // SECURITY (R31-SRV-3): Skip data: URIs — they are inline content,
+                // not network addresses. Extracting a "domain" from data: URIs
+                // produces bogus entries (e.g., "text" from "data:text/plain,...").
                 if !scheme.is_empty()
                     && scheme.len() <= 10
                     && scheme.chars().all(|c| c.is_ascii_alphabetic())
+                    && scheme != "data"
                 {
                     if let Some(authority) = s.find("://").map(|i| &s[i + 3..]) {
                         let host_raw = authority.split('/').next().unwrap_or(authority);
@@ -619,7 +634,7 @@ async fn evaluate(
                         }
                         return Ok(Json(EvaluateResponse {
                             verdict: deny,
-                            action,
+                            action: redact_response_action(action),
                             approval_id: None,
                         }));
                     }
@@ -645,7 +660,7 @@ async fn evaluate(
                 }
                 return Ok(Json(EvaluateResponse {
                     verdict,
-                    action,
+                    action: redact_response_action(action),
                     approval_id,
                 }));
             }
@@ -696,7 +711,7 @@ async fn evaluate(
                         }
                         return Ok(Json(EvaluateResponse {
                             verdict: deny,
-                            action,
+                            action: redact_response_action(action),
                             approval_id: None,
                         }));
                     }
@@ -722,7 +737,7 @@ async fn evaluate(
                 }
                 return Ok(Json(EvaluateResponse {
                     verdict,
-                    action,
+                    action: redact_response_action(action),
                     approval_id,
                 }));
             }
@@ -820,7 +835,7 @@ async fn evaluate(
 
     Ok(Json(EvaluateResponse {
         verdict,
-        action,
+        action: redact_response_action(action),
         approval_id,
     }))
 }

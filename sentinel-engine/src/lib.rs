@@ -2004,7 +2004,13 @@ impl PolicyEngine {
                     required_tool,
                     deny_reason,
                 } => {
-                    if !context.previous_actions.iter().any(|a| a == required_tool) {
+                    // SECURITY (R31-ENG-7): Case-insensitive comparison to prevent
+                    // bypass via tool name casing variations (e.g., "Read_File" vs "read_file").
+                    if !context
+                        .previous_actions
+                        .iter()
+                        .any(|a| a.eq_ignore_ascii_case(required_tool))
+                    {
                         return Some(Verdict::Deny {
                             reason: deny_reason.clone(),
                         });
@@ -2014,7 +2020,12 @@ impl PolicyEngine {
                     forbidden_tool,
                     deny_reason,
                 } => {
-                    if context.previous_actions.iter().any(|a| a == forbidden_tool) {
+                    // SECURITY (R31-ENG-7): Case-insensitive comparison.
+                    if context
+                        .previous_actions
+                        .iter()
+                        .any(|a| a.eq_ignore_ascii_case(forbidden_tool))
+                    {
                         return Some(Verdict::Deny {
                             reason: deny_reason.clone(),
                         });
@@ -2777,6 +2788,21 @@ impl PolicyEngine {
                     }
                 };
                 let domain = Self::extract_domain(raw);
+                // SECURITY (R31-ENG-1): Fail-closed on non-ASCII domains that fail IDNA
+                // normalization. Without this, homoglyph domains (e.g., Cyrillic 'a') bypass
+                // DomainMatch blocklists because the punycode form doesn't match the pattern.
+                // This mirrors the guard in check_network_rules (R30-ENG-2).
+                if !domain.is_ascii()
+                    && Self::normalize_domain_for_match(&domain).is_none()
+                {
+                    return Ok(Some(Self::make_constraint_verdict(
+                        "deny",
+                        &format!(
+                            "Parameter '{}' domain '{}' cannot be normalized (IDNA failure) (policy '{}')",
+                            param_name, domain, policy.name
+                        ),
+                    )?));
+                }
                 if Self::match_domain_pattern(&domain, pattern) {
                     Ok(Some(Self::make_constraint_verdict(
                         on_match,
@@ -2812,6 +2838,18 @@ impl PolicyEngine {
                     }
                 };
                 let domain = Self::extract_domain(raw);
+                // SECURITY (R31-ENG-1): Same IDNA fail-closed guard as DomainMatch above.
+                if !domain.is_ascii()
+                    && Self::normalize_domain_for_match(&domain).is_none()
+                {
+                    return Ok(Some(Self::make_constraint_verdict(
+                        "deny",
+                        &format!(
+                            "Parameter '{}' domain '{}' cannot be normalized (IDNA failure) (policy '{}')",
+                            param_name, domain, policy.name
+                        ),
+                    )?));
+                }
                 for pat_str in patterns {
                     if Self::match_domain_pattern(&domain, pat_str) {
                         return Ok(None); // Matched allowlist
@@ -3796,8 +3834,11 @@ impl PolicyEngine {
 
         // Strip port
         let host = if let Some(bracket_end) = host_port.find(']') {
-            // IPv6: [::1]:port
-            &host_port[..bracket_end + 1]
+            // SECURITY (R31-ENG-5): Strip IPv6 brackets for consistent domain matching.
+            // Without this, extract_domain("http://[::1]:8080/path") returns "[::1]",
+            // which doesn't match a blocked domain pattern "::1".
+            let start = if host_port.starts_with('[') { 1 } else { 0 };
+            &host_port[start..bracket_end]
         } else if let Some(pos) = host_port.rfind(':') {
             // Only strip if what follows looks like a port number
             if host_port[pos + 1..].chars().all(|c| c.is_ascii_digit()) {

@@ -447,6 +447,43 @@ pub fn scan_tool_descriptions_with_scanner(
     scan_tool_descriptions_inner(response, Some(scanner))
 }
 
+/// SECURITY (R31-MCP-1): Recursively collect description strings from JSON Schema
+/// at all nesting levels. Prevents attackers from hiding injection payloads in
+/// deeply nested property descriptions that shallow scanning would miss.
+const MAX_SCHEMA_DESC_DEPTH: usize = 8;
+
+fn collect_schema_descriptions(
+    schema: &serde_json::Value,
+    texts: &mut Vec<String>,
+    depth: usize,
+) {
+    if depth > MAX_SCHEMA_DESC_DEPTH {
+        return;
+    }
+    // Collect description at this level (skip top-level, already handled by caller)
+    if depth > 0 {
+        if let Some(desc) = schema.get("description").and_then(|d| d.as_str()) {
+            texts.push(desc.to_string());
+        }
+    }
+    // Recurse into properties
+    if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
+        for prop_schema in props.values() {
+            collect_schema_descriptions(prop_schema, texts, depth + 1);
+        }
+    }
+    // Recurse into items (array schemas)
+    if let Some(items) = schema.get("items") {
+        collect_schema_descriptions(items, texts, depth + 1);
+    }
+    // Recurse into additionalProperties if it's a schema object
+    if let Some(additional) = schema.get("additionalProperties") {
+        if additional.is_object() {
+            collect_schema_descriptions(additional, texts, depth + 1);
+        }
+    }
+}
+
 fn scan_tool_descriptions_inner(
     response: &serde_json::Value,
     scanner: Option<&InjectionScanner>,
@@ -468,27 +505,19 @@ fn scan_tool_descriptions_inner(
             None => continue,
         };
 
-        let description = match tool.get("description").and_then(|d| d.as_str()) {
-            Some(d) => d,
-            None => continue,
-        };
+        // Collect all text to scan: top-level description + nested property descriptions
+        let mut texts_to_scan = Vec::new();
 
-        // Collect all text to scan: top-level description + property descriptions
-        let mut texts_to_scan = vec![description.to_string()];
+        // Top-level description (optional — R31-MCP-2: don't skip tools without it)
+        if let Some(d) = tool.get("description").and_then(|d| d.as_str()) {
+            texts_to_scan.push(d.to_string());
+        }
 
-        // SECURITY (R30-MCP-5): Also scan inputSchema property-level descriptions.
-        // A malicious server can hide injection payloads in individual property
-        // descriptions rather than the top-level tool description.
-        if let Some(props) = tool
-            .get("inputSchema")
-            .and_then(|s| s.get("properties"))
-            .and_then(|p| p.as_object())
-        {
-            for prop_schema in props.values() {
-                if let Some(desc) = prop_schema.get("description").and_then(|d| d.as_str()) {
-                    texts_to_scan.push(desc.to_string());
-                }
-            }
+        // SECURITY (R30-MCP-5, R31-MCP-1): Recursively scan inputSchema descriptions
+        // at all nesting levels. A malicious server can hide injection payloads in
+        // deeply nested property descriptions.
+        if let Some(schema) = tool.get("inputSchema") {
+            collect_schema_descriptions(schema, &mut texts_to_scan, 0);
         }
 
         let mut all_matches: Vec<String> = Vec::new();
