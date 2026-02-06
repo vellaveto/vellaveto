@@ -1183,10 +1183,36 @@ impl PolicyConfig {
                 // Also check IPv6 private ranges (stripped brackets already handled above)
                 let ipv6_host = host.trim_start_matches('[').trim_end_matches(']');
                 if let Ok(ip6) = ipv6_host.parse::<std::net::Ipv6Addr>() {
+                    // SECURITY (R32-SSRF-1): Check IPv4-mapped IPv6 (::ffff:x.x.x.x)
+                    // against IPv4 private ranges. Without this, ::ffff:169.254.169.254
+                    // bypasses the IPv4 cloud metadata SSRF check above.
+                    let segs = ip6.segments();
+                    let is_ipv4_mapped = segs[0] == 0 && segs[1] == 0 && segs[2] == 0
+                        && segs[3] == 0 && segs[4] == 0 && segs[5] == 0xffff;
+                    if is_ipv4_mapped {
+                        let mapped_ip = std::net::Ipv4Addr::new(
+                            (segs[6] >> 8) as u8, segs[6] as u8,
+                            (segs[7] >> 8) as u8, segs[7] as u8,
+                        );
+                        let is_private_v4 = mapped_ip.is_loopback()
+                            || mapped_ip.octets()[0] == 10
+                            || (mapped_ip.octets()[0] == 172 && (mapped_ip.octets()[1] & 0xf0) == 16)
+                            || (mapped_ip.octets()[0] == 192 && mapped_ip.octets()[1] == 168)
+                            || (mapped_ip.octets()[0] == 169 && mapped_ip.octets()[1] == 254)
+                            || (mapped_ip.octets()[0] == 100 && (mapped_ip.octets()[1] & 0xc0) == 64)
+                            || mapped_ip.octets()[0] == 0
+                            || mapped_ip.is_broadcast();
+                        if is_private_v4 {
+                            return Err(format!(
+                                "audit_export.webhook_url must not target private/internal IP ranges (IPv4-mapped IPv6), got '{}'",
+                                host
+                            ));
+                        }
+                    }
                     let is_private = ip6.is_loopback()
                         || ip6.is_unspecified()
-                        || (ip6.segments()[0] & 0xfe00) == 0xfc00  // fc00::/7 (ULA)
-                        || (ip6.segments()[0] == 0xfe80);          // fe80::/10 (link-local)
+                        || (segs[0] & 0xfe00) == 0xfc00  // fc00::/7 (ULA)
+                        || (segs[0] == 0xfe80);           // fe80::/10 (link-local)
                     if is_private {
                         return Err(format!(
                             "audit_export.webhook_url must not target private/internal IPv6 ranges, got '{}'",
@@ -2670,5 +2696,34 @@ policy_type = "Allow"
         let json = r#"{"policies":[{"name":"test","tool_pattern":"*","function_pattern":"*","policy_type":"Allow"}],"max_path_decode_iterations":10}"#;
         let config = PolicyConfig::from_json(json).unwrap();
         assert_eq!(config.max_path_decode_iterations, Some(10));
+    }
+
+    // R32-SSRF-1: IPv4-mapped IPv6 webhook URL must be rejected
+    #[test]
+    fn test_validate_rejects_webhook_ipv4_mapped_ipv6() {
+        let mut config = minimal_config();
+        // ::ffff:169.254.169.254 is the cloud metadata endpoint as IPv4-mapped IPv6
+        config.audit_export.webhook_url =
+            Some("https://[::ffff:169.254.169.254]/latest/meta-data".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("private") || err.contains("internal"),
+            "IPv4-mapped IPv6 cloud metadata address should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_webhook_ipv4_mapped_ipv6_rfc1918() {
+        let mut config = minimal_config();
+        // ::ffff:10.0.0.1 is a private RFC 1918 address as IPv4-mapped IPv6
+        config.audit_export.webhook_url =
+            Some("https://[::ffff:10.0.0.1]:8080/webhook".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("private") || err.contains("internal"),
+            "IPv4-mapped IPv6 RFC 1918 address should be rejected, got: {}",
+            err
+        );
     }
 }

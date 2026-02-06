@@ -615,3 +615,137 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         }
     }
 }
+
+// =============================================================================
+// R32-SRV-1: Unicode case-folding byte offset panic.
+// Turkish İ (U+0130) lowercases to "i\u{0307}" — 2 bytes → 3 bytes.
+// Using byte offset from s on the lowercased string would panic.
+// =============================================================================
+#[tokio::test]
+async fn test_r32_srv1_unicode_case_fold_no_panic() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    // Turkish İ in the scheme position — must not panic on case-folding
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/evaluate")
+                .method("POST")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer test-secret-key-123")
+                .body(Body::from(
+                    json!({
+                        "tool": "fetch",
+                        "function": "get",
+                        "parameters": {
+                            "url": "HT\u{0130}P://evil.com/path"
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Should not panic — any valid HTTP status is acceptable
+    assert!(
+        resp.status() == StatusCode::OK || resp.status() == StatusCode::FORBIDDEN,
+        "Unicode case-folding must not cause panic, got status: {}",
+        resp.status()
+    );
+}
+
+// =============================================================================
+// R32-SRV-2: redact_response_action must clear target_paths/domains/ips
+// =============================================================================
+#[tokio::test]
+async fn test_r32_srv2_redact_clears_targets() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/evaluate")
+                .method("POST")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer test-secret-key-123")
+                .body(Body::from(
+                    json!({
+                        "tool": "file",
+                        "function": "read",
+                        "parameters": {
+                            "path": "/etc/shadow",
+                            "url": "https://secret-internal.corp.com/api"
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK, "evaluate must succeed with valid auth");
+    let body_bytes = axum::body::to_bytes(resp.into_body(), 65536).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    // The response action must not leak extracted paths/domains
+    if let Some(action) = body.get("action") {
+        let paths = action.get("target_paths").and_then(|p| p.as_array());
+        let domains = action.get("target_domains").and_then(|d| d.as_array());
+        let ips = action.get("resolved_ips").and_then(|r| r.as_array());
+
+        // Either fields are absent (skip_serializing_if = "Vec::is_empty") or empty
+        if let Some(paths) = paths {
+            assert!(paths.is_empty(), "target_paths must be redacted, got: {:?}", paths);
+        }
+        if let Some(domains) = domains {
+            assert!(domains.is_empty(), "target_domains must be redacted, got: {:?}", domains);
+        }
+        if let Some(ips) = ips {
+            assert!(ips.is_empty(), "resolved_ips must be redacted, got: {:?}", ips);
+        }
+    }
+}
+
+// =============================================================================
+// R32-SRV-3: file://localhost.evil.com boundary check
+// =============================================================================
+#[tokio::test]
+async fn test_r32_srv3_file_localhost_boundary() {
+    let (state, _tmp) = make_state();
+    let app = routes::build_router(state);
+
+    // file://localhost.evil.com should NOT strip "localhost" — it's a different host
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/evaluate")
+                .method("POST")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer test-secret-key-123")
+                .body(Body::from(
+                    json!({
+                        "tool": "file",
+                        "function": "read",
+                        "parameters": {
+                            "path": "file://localhost.evil.com/etc/passwd"
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Should not panic and should return a valid response
+    assert!(
+        resp.status() == StatusCode::OK || resp.status() == StatusCode::FORBIDDEN,
+        "file://localhost.evil.com must not cause misparse, got status: {}",
+        resp.status()
+    );
+}

@@ -268,6 +268,11 @@ struct EvaluateResponse {
 /// The caller already knows the parameters they submitted.
 fn redact_response_action(mut action: Action) -> Action {
     action.parameters = serde_json::Value::Object(Default::default());
+    // SECURITY (R32-SRV-2): Also clear extracted targets — they contain
+    // file paths and domains derived from parameters, leaking the same info.
+    action.target_paths.clear();
+    action.target_domains.clear();
+    action.resolved_ips.clear();
     action
 }
 
@@ -321,7 +326,12 @@ fn scan_params_for_targets_inner(
             if let Some(lower_after_scheme) = lower.strip_prefix("file://") {
                 // Preserve original path case for case-sensitive filesystems
                 let after_scheme = &s[7..]; // skip "file://"
-                let path_original = if lower_after_scheme.starts_with("localhost") {
+                // SECURITY (R32-SRV-3): Boundary check after "localhost" — must be
+                // followed by '/' or end-of-string. Without this, file://localhost.evil.com
+                // incorrectly strips "localhost" and extracts ".evil.com/path".
+                let path_original = if lower_after_scheme == "localhost"
+                    || lower_after_scheme.starts_with("localhost/")
+                {
                     &after_scheme["localhost".len()..]
                 } else if after_scheme.starts_with('/') {
                     after_scheme
@@ -340,12 +350,16 @@ fn scan_params_for_targets_inner(
                         .decode_utf8_lossy();
                     paths.push(decoded.into_owned());
                 }
-            } else if let Some(scheme_end) = s.find("://") {
+            } else if let Some(lower_scheme_end) = lower.find("://") {
                 // SECURITY (R15-EVAL-15): Extract domains from all schemes
                 // with authority (http, https, ftp, ssh, wss, ldap, etc.),
                 // not just http/https. Otherwise ftp://evil.com/file bypasses
                 // network rules that block evil.com.
-                let scheme = &lower[..scheme_end];
+                // SECURITY (R32-SRV-1): Use lower.find("://") instead of s.find("://")
+                // for indexing into `lower`. Unicode case-folding can change byte length
+                // (e.g., Turkish İ U+0130 → "i\u{0307}" changes from 2 to 3 bytes),
+                // so byte offsets from `s` are invalid for `lower`.
+                let scheme = &lower[..lower_scheme_end];
                 // Only process if scheme looks valid (alphabetic, 1-10 chars)
                 // SECURITY (R31-SRV-3): Skip data: URIs — they are inline content,
                 // not network addresses. Extracting a "domain" from data: URIs
@@ -355,7 +369,10 @@ fn scan_params_for_targets_inner(
                     && scheme.chars().all(|c| c.is_ascii_alphabetic())
                     && scheme != "data"
                 {
-                    if let Some(authority) = s.find("://").map(|i| &s[i + 3..]) {
+                    // SECURITY (R32-SRV-1): Use lower_scheme_end consistently.
+                    // Since scheme is validated as all-ASCII, the byte offset is
+                    // identical in both `s` and `lower`. Use `get()` for safety.
+                    if let Some(authority) = s.get(lower_scheme_end + 3..) {
                         let host_raw = authority.split('/').next().unwrap_or(authority);
                         // SECURITY (R12-EXT-2): Percent-decode authority before splitting on '@'.
                         // Without this, http://evil.com%40blocked.com bypasses domain matching.

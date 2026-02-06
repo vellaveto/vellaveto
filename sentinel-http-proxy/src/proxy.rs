@@ -2493,8 +2493,11 @@ async fn forward_to_upstream(
                         }
 
                         // DLP + OutputSchemaRegistry scanning for SSE events.
+                        // SECURITY (R32-PROXY-2): Track dlp_found outside the
+                        // if-block so it can be passed to check_sse_for_rug_pull_and_manifest.
+                        let mut dlp_found = false;
                         if state.response_dlp_enabled {
-                            let dlp_found =
+                            dlp_found =
                                 scan_sse_events_for_dlp(&sse_bytes, session_id, state).await;
                             // SECURITY (R18-DLP-BLOCK): Block SSE stream if secrets detected
                             // and response_dlp_blocking is enabled.
@@ -2518,13 +2521,14 @@ async fn forward_to_upstream(
                         // SECURITY (R18-SSE-RUG): Rug-pull detection and manifest
                         // verification for SSE responses. Without this, a server
                         // returning tools/list via SSE would bypass both checks.
-                        // SECURITY (R27-PROXY-1): Pass injection/DLP flags so that
-                        // record_response is skipped for tainted SSE events.
+                        // SECURITY (R27-PROXY-1, R32-PROXY-2): Pass injection AND DLP
+                        // flags so record_response is skipped for tainted SSE events.
                         check_sse_for_rug_pull_and_manifest(
                             &sse_bytes,
                             session_id,
                             state,
                             injection_found,
+                            dlp_found,
                         )
                         .await;
 
@@ -3450,6 +3454,9 @@ async fn check_sse_for_rug_pull_and_manifest(
     session_id: &str,
     state: &ProxyState,
     injection_found: bool,
+    // SECURITY (R32-PROXY-2): Also skip recording when DLP found secrets,
+    // not just when injection was detected.
+    dlp_found: bool,
 ) {
     let sse_text = String::from_utf8_lossy(sse_bytes);
     let normalized = sse_text.replace("\r\n", "\n").replace('\r', "\n");
@@ -3510,7 +3517,9 @@ async fn check_sse_for_rug_pull_and_manifest(
             // log-only mode). Recording fingerprints from known-malicious responses would
             // cause false-positive poisoning blocks when the agent later uses legitimate
             // parameter values that happened to appear in the injection-laced response.
-            if !injection_found {
+            // SECURITY (R32-PROXY-2): Also skip when DLP found secrets — recording
+            // fingerprints from secret-containing responses would poison the tracker.
+            if !injection_found && !dlp_found {
                 if let Some(mut session) = state.sessions.get_mut(session_id) {
                     session.memory_tracker.record_response(&json_val);
                 }
