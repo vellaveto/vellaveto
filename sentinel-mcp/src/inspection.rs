@@ -767,6 +767,38 @@ pub const DLP_PATTERNS: &[(&str, &str)] = &[
         // JWTs can be large (especially with many claims) but >8KB per segment is abnormal.
         r"eyJ[A-Za-z0-9_-]{1,8192}\.eyJ[A-Za-z0-9_-]{1,8192}\.[A-Za-z0-9_-]{1,8192}",
     ),
+    // Stripe API keys (secret, publishable, restricted)
+    ("stripe_key", r"(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{20,255}"),
+    // Google Cloud Platform API key
+    ("gcp_api_key", r"AIza[A-Za-z0-9_\-]{35}"),
+    // Azure storage/service bus connection string key component
+    (
+        "azure_connection_string",
+        r"(?i)(?:AccountKey|SharedAccessKey)\s*=\s*[A-Za-z0-9+/=]{40,88}",
+    ),
+    // Discord bot token (starts with M or N, base64-encoded user ID.timestamp.hmac)
+    (
+        "discord_token",
+        r"[MN][A-Za-z0-9]{23,27}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,40}",
+    ),
+    // Twilio API key (starts with SK, 32 hex chars)
+    ("twilio_api_key", r"SK[a-f0-9]{32}"),
+    // SendGrid API key
+    (
+        "sendgrid_api_key",
+        r"SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}",
+    ),
+    // npm access token
+    ("npm_token", r"npm_[A-Za-z0-9]{36}"),
+    // PyPI API token (bounded lower: real tokens are ~150+ chars)
+    ("pypi_token", r"pypi-[A-Za-z0-9_-]{100,250}"),
+    // Mailchimp API key (32 hex chars followed by datacenter suffix)
+    ("mailchimp_api_key", r"[a-f0-9]{32}-us[0-9]{1,2}"),
+    // Database connection URI (MongoDB, PostgreSQL, MySQL, Redis)
+    (
+        "database_uri",
+        r"(?:mongodb|postgres|mysql|redis)://[^\s]{10,512}",
+    ),
 ];
 
 /// A finding from DLP scanning of tool call parameters.
@@ -1895,6 +1927,194 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect Slack token");
         assert!(findings.iter().any(|f| f.pattern_name == "slack_token"));
+    }
+
+    #[test]
+    fn test_dlp_detects_stripe_live_secret_key() {
+        let params = json!({
+            "payment": "sk_live_4eC39HqLyjWDarjtT1zdp7dc"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(!findings.is_empty(), "Should detect Stripe live secret key");
+        assert!(findings.iter().any(|f| f.pattern_name == "stripe_key"));
+    }
+
+    #[test]
+    fn test_dlp_detects_stripe_test_publishable_key() {
+        let params = json!({
+            "config": "pk_test_TYooMQauvdEDq54NiTphI7jx"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            !findings.is_empty(),
+            "Should detect Stripe test publishable key"
+        );
+        assert!(findings.iter().any(|f| f.pattern_name == "stripe_key"));
+    }
+
+    #[test]
+    fn test_dlp_detects_stripe_restricted_key() {
+        let params = json!({
+            "key": "rk_live_abcdefghijklmnopqrstuv"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            !findings.is_empty(),
+            "Should detect Stripe restricted key"
+        );
+        assert!(findings.iter().any(|f| f.pattern_name == "stripe_key"));
+    }
+
+    #[test]
+    fn test_dlp_detects_gcp_api_key() {
+        let params = json!({
+            "api_config": "AIzaSyDaGmWKa4JsXZ-HjGw7ISLn_3namBGewQe"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(!findings.is_empty(), "Should detect GCP API key");
+        assert!(findings.iter().any(|f| f.pattern_name == "gcp_api_key"));
+    }
+
+    #[test]
+    fn test_dlp_detects_azure_connection_string() {
+        let params = json!({
+            "connection": "AccountKey=lJzRc1YdHaAA2KCNJJ1tkYwF/+mKK6Ygw0NGe170Mc6MHMiGWBDAfwLkCz45TFnBLlOWUIlIHSln+AStoHIYXQ=="
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            !findings.is_empty(),
+            "Should detect Azure connection string key"
+        );
+        assert!(findings
+            .iter()
+            .any(|f| f.pattern_name == "azure_connection_string"));
+    }
+
+    #[test]
+    fn test_dlp_detects_azure_shared_access_key() {
+        let params = json!({
+            "config": "SharedAccessKey=aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV1wX2yZ3aB4="
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            !findings.is_empty(),
+            "Should detect Azure SharedAccessKey"
+        );
+        assert!(findings
+            .iter()
+            .any(|f| f.pattern_name == "azure_connection_string"));
+    }
+
+    #[test]
+    fn test_dlp_detects_discord_bot_token() {
+        let params = json!({
+            "bot_token": "MTAxNTYxMjE2MjI4MDI5NDkz.G0WFAR.xhGA5hGqLdFi3E6MRm0xN5W3sfwjde6AqfVabc"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(!findings.is_empty(), "Should detect Discord bot token");
+        assert!(findings.iter().any(|f| f.pattern_name == "discord_token"));
+    }
+
+    #[test]
+    fn test_dlp_detects_twilio_api_key() {
+        let params = json!({
+            "twilio_key": "SK1234567890abcdef1234567890abcdef"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(!findings.is_empty(), "Should detect Twilio API key");
+        assert!(findings
+            .iter()
+            .any(|f| f.pattern_name == "twilio_api_key"));
+    }
+
+    #[test]
+    fn test_dlp_detects_sendgrid_api_key() {
+        let params = json!({
+            "mail_key": "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"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(!findings.is_empty(), "Should detect SendGrid API key");
+        assert!(findings
+            .iter()
+            .any(|f| f.pattern_name == "sendgrid_api_key"));
+    }
+
+    #[test]
+    fn test_dlp_detects_npm_token() {
+        let params = json!({
+            "registry_auth": "npm_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(!findings.is_empty(), "Should detect npm token");
+        assert!(findings.iter().any(|f| f.pattern_name == "npm_token"));
+    }
+
+    #[test]
+    fn test_dlp_detects_pypi_token() {
+        let params = json!({
+            "upload_token": "pypi-AgEIcHlwaS5vcmcCJGY1YTUzMjMwLWRkMzQtNGVhOC1iMGU1LWUzMDJhZjE0YTdiOAACKlszLCJjMGU3OTk1NS01MjBhLTQ3ZmMtOGFmMS1hODkyOWY3MDJiMTki"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(!findings.is_empty(), "Should detect PyPI token");
+        assert!(findings.iter().any(|f| f.pattern_name == "pypi_token"));
+    }
+
+    #[test]
+    fn test_dlp_detects_mailchimp_api_key() {
+        let params = json!({
+            "mc_key": "6dc7e3ef710b40e8889e959f9ad9a171-us21"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(!findings.is_empty(), "Should detect Mailchimp API key");
+        assert!(findings
+            .iter()
+            .any(|f| f.pattern_name == "mailchimp_api_key"));
+    }
+
+    #[test]
+    fn test_dlp_detects_database_uri_postgres() {
+        let params = json!({
+            "db_url": "postgres://user:password@host.example.com:5432/mydb"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            !findings.is_empty(),
+            "Should detect PostgreSQL connection URI"
+        );
+        assert!(findings.iter().any(|f| f.pattern_name == "database_uri"));
+    }
+
+    #[test]
+    fn test_dlp_detects_database_uri_mongodb() {
+        let params = json!({
+            "connection_string": "mongodb://admin:s3cret@cluster0.mongodb.net:27017/prod?retryWrites=true"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            !findings.is_empty(),
+            "Should detect MongoDB connection URI"
+        );
+        assert!(findings.iter().any(|f| f.pattern_name == "database_uri"));
+    }
+
+    #[test]
+    fn test_dlp_detects_database_uri_mysql() {
+        let params = json!({
+            "dsn": "mysql://root:password@localhost:3306/appdb"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(!findings.is_empty(), "Should detect MySQL connection URI");
+        assert!(findings.iter().any(|f| f.pattern_name == "database_uri"));
+    }
+
+    #[test]
+    fn test_dlp_detects_database_uri_redis() {
+        let params = json!({
+            "cache_url": "redis://default:mypassword@redis.example.com:6379/0"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(!findings.is_empty(), "Should detect Redis connection URI");
+        assert!(findings.iter().any(|f| f.pattern_name == "database_uri"));
     }
 
     // DLP response scanning tests

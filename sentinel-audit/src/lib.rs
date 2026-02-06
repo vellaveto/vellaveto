@@ -180,6 +180,14 @@ const SENSITIVE_VALUE_PREFIXES: &[&str] = &[
     "xoxp-",       // Slack user token
     "Bearer ",     // Authorization header value
     "Basic ",      // Authorization header value
+    "sk_live_",    // Stripe live secret key
+    "sk_test_",    // Stripe test secret key
+    "pk_live_",    // Stripe live publishable key
+    "rk_live_",    // Stripe live restricted key
+    "AIza",        // Google Cloud Platform API key
+    "SG.",         // SendGrid API key
+    "npm_",        // npm access token
+    "pypi-",       // PyPI API token
 ];
 
 const REDACTED: &str = "[REDACTED]";
