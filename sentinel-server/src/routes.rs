@@ -50,6 +50,16 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/registry/tools", get(list_registry_tools))
         .route("/api/registry/tools/{name}/approve", post(approve_registry_tool))
         .route("/api/registry/tools/{name}/revoke", post(revoke_registry_tool))
+        // Admin dashboard (P3.2)
+        .route("/dashboard", get(crate::dashboard::dashboard_page))
+        .route(
+            "/dashboard/approvals/{id}/approve",
+            post(crate::dashboard::dashboard_approve),
+        )
+        .route(
+            "/dashboard/approvals/{id}/deny",
+            post(crate::dashboard::dashboard_deny),
+        )
         // SECURITY (R38-SRV-1): /metrics inside auth — exposes policy count
         // and pending approval count, which are security-sensitive (see R26-SRV-6).
         // SECURITY (R38-SRV-2): /metrics inside rate_limit — prevents scraper DoS.

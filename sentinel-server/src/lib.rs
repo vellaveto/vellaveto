@@ -1,3 +1,4 @@
+pub mod dashboard;
 pub mod metrics;
 pub mod routes;
 
