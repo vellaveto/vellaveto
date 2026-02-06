@@ -9,7 +9,7 @@ pub mod rug_pull;
 pub mod tool_registry;
 
 use sentinel_engine::PolicyEngine;
-use sentinel_types::{Action, Policy};
+use sentinel_types::{Action, Policy, ValidationError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::RwLock;
@@ -26,6 +26,8 @@ pub enum McpError {
     Serialization(#[from] serde_json::Error),
     #[error("Request too large: {0} bytes")]
     RequestTooLarge(usize),
+    #[error("Validation error: {0}")]
+    Validation(#[from] ValidationError),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,6 +121,12 @@ impl McpServer {
         params: serde_json::Value,
     ) -> Result<serde_json::Value, McpError> {
         let action: Action = serde_json::from_value(params)?;
+
+        // SECURITY (FIND-012): Validate deserialized action to reject null bytes,
+        // control characters, and oversized fields before policy evaluation.
+        // Matches the validation done in sentinel-server/src/routes.rs.
+        action.validate()?;
+
         let policies = self.policies.read().await;
         let engine = self.engine.read().await;
         let verdict = engine.evaluate_action(&action, &policies)?;
@@ -214,6 +222,7 @@ impl McpServer {
         match error {
             McpError::InvalidRequest(_) => -32600,
             McpError::MethodNotFound(_) => -32601,
+            McpError::Validation(_) => -32602,
             McpError::RequestTooLarge(_) => -32000,
             _ => -32603,
         }
