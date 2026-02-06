@@ -210,7 +210,12 @@ async fn require_api_key(State(state): State<AppState>, request: Request, next: 
         // RFC 7235: Authorization scheme comparison is case-insensitive.
         Some(ref h) if h.len() > 7 && h[..7].eq_ignore_ascii_case("bearer ") => {
             let token = &h[7..];
-            if token.as_bytes().ct_eq(api_key.as_bytes()).into() {
+            // SECURITY (R34-SRV-8): Hash before comparing to prevent length oracle.
+            // ct_eq short-circuits on length mismatch; hashing normalizes to 32 bytes.
+            use sha2::{Digest, Sha256};
+            let token_hash = Sha256::digest(token.as_bytes());
+            let key_hash = Sha256::digest(api_key.as_bytes());
+            if token_hash.ct_eq(&key_hash).into() {
                 next.run(request).await
             } else {
                 (
@@ -454,12 +459,18 @@ fn looks_like_relative_path(s: &str) -> bool {
     if s.contains(' ') {
         return false; // Likely not a path
     }
-    s.starts_with("../")
-        || s.starts_with("./")
-        || s.starts_with("~/")
-        || s.contains("/../")
-        || s == ".."
-        || s == "~"
+    // SECURITY (R34-SRV-6): Percent-decode before checking to catch ..%2F evasion.
+    let decoded = percent_encoding::percent_decode_str(s).decode_utf8_lossy();
+    let d = decoded.as_ref();
+    // Also normalize backslashes for Windows-style traversals.
+    let d_normalized = d.replace('\\', "/");
+    let d = &d_normalized;
+    d.starts_with("../")
+        || d.starts_with("./")
+        || d.starts_with("~/")
+        || d.contains("/../")
+        || d == ".."
+        || d == "~"
 }
 
 /// Derive the resolver identity from the authenticated principal.
@@ -479,9 +490,16 @@ fn derive_resolver_identity(headers: &HeaderMap, client_value: &str) -> String {
             if !token.is_empty() {
                 use sha2::{Digest, Sha256};
                 let hash = Sha256::digest(token.as_bytes());
-                let principal = format!("bearer:{}", hex::encode(&hash[..8]));
+                let principal = format!("bearer:{}", hex::encode(&hash[..16]));
                 if client_value != "anonymous" {
-                    return format!("{} (note: {})", principal, client_value);
+                    // SECURITY (R34-SRV-7): Strip control characters from client value
+                    // to prevent log injection via approval requested_by field.
+                    let sanitized: String = client_value
+                        .chars()
+                        .filter(|c| !c.is_control())
+                        .take(256)
+                        .collect();
+                    return format!("{} (note: {})", principal, sanitized);
                 }
                 return principal;
             }
@@ -524,7 +542,7 @@ fn sanitize_context(
                 if !token.is_empty() {
                     use sha2::{Digest, Sha256};
                     let hash = Sha256::digest(token.as_bytes());
-                    let principal = format!("bearer:{}", hex::encode(&hash[..8]));
+                    let principal = format!("bearer:{}", hex::encode(&hash[..16]));
                     // Append client-supplied agent_id as a note (not authoritative)
                     // SECURITY (R33-SRV-3): Strip control characters from client_id
                     // before embedding in agent_id string. Control chars could break
@@ -1349,7 +1367,7 @@ async fn prometheus_metrics(State(state): State<AppState>) -> Response {
             let policy_count = state.policy_state.load().policies.len();
             crate::metrics::set_policies_loaded(policy_count as f64);
             crate::metrics::set_uptime_seconds(state.metrics.start_time.elapsed().as_secs_f64());
-            let pending_count = state.approvals.list_pending().await.len();
+            let pending_count = state.approvals.pending_count().await;
             crate::metrics::set_active_sessions(pending_count as f64);
 
             let body = handle.render();
@@ -1758,8 +1776,12 @@ async fn list_registry_tools(
 async fn approve_registry_tool(
     State(state): State<AppState>,
     Path(name): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     validate_tool_name(&name)?;
+
+    // SECURITY (R34-SRV-3): Record the authenticated principal in audit trail.
+    let approved_by = derive_resolver_identity(&headers, "anonymous");
 
     let registry = state.tool_registry.as_ref().ok_or_else(|| {
         (
@@ -1809,7 +1831,7 @@ async fn approve_registry_tool(
         .log_entry(
             &action,
             &Verdict::Allow,
-            json!({"source": "api", "event": "registry_tool_approved"}),
+            json!({"source": "api", "event": "registry_tool_approved", "approved_by": &approved_by}),
         )
         .await
     {
@@ -1838,8 +1860,12 @@ async fn approve_registry_tool(
 async fn revoke_registry_tool(
     State(state): State<AppState>,
     Path(name): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     validate_tool_name(&name)?;
+
+    // SECURITY (R34-SRV-3): Record the authenticated principal in audit trail.
+    let revoked_by = derive_resolver_identity(&headers, "anonymous");
 
     let registry = state.tool_registry.as_ref().ok_or_else(|| {
         (
@@ -1889,7 +1915,7 @@ async fn revoke_registry_tool(
         .log_entry(
             &action,
             &Verdict::Allow,
-            json!({"source": "api", "event": "registry_tool_revoked"}),
+            json!({"source": "api", "event": "registry_tool_revoked", "revoked_by": &revoked_by}),
         )
         .await
     {
@@ -2478,5 +2504,76 @@ mod tests {
         headers.insert(header::AUTHORIZATION, "Basic dXNlcjpwYXNz".parse().unwrap());
         let result = derive_resolver_identity(&headers, "some-user");
         assert_eq!(result, "some-user");
+    }
+
+    // --- R34-SRV-4: Token hash uses 16 bytes (128-bit) ---
+
+    #[test]
+    fn test_derive_resolver_identity_uses_128bit_hash() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            "Bearer test-token-123".parse().unwrap(),
+        );
+        let identity = derive_resolver_identity(&headers, "anonymous");
+        // Should be "bearer:" + 32 hex chars (16 bytes = 128 bits)
+        assert!(identity.starts_with("bearer:"));
+        let hex_part = &identity[7..];
+        assert_eq!(hex_part.len(), 32, "hash truncation should be 16 bytes (32 hex chars)");
+    }
+
+    // --- R34-SRV-6: Percent-encoded relative path detection ---
+
+    #[test]
+    fn test_looks_like_relative_path_percent_encoded() {
+        // Percent-encoded ../ should be detected
+        assert!(looks_like_relative_path("..%2F..%2Fetc%2Fpasswd"));
+        assert!(looks_like_relative_path("..%2fetc%2fpasswd"));
+        assert!(looks_like_relative_path(".%2Fconfig.json"));
+        assert!(looks_like_relative_path("~%2Fsecret.txt"));
+        assert!(looks_like_relative_path("foo%2F..%2Fbar"));
+    }
+
+    #[test]
+    fn test_looks_like_relative_path_backslash() {
+        assert!(looks_like_relative_path("..\\etc\\passwd"));
+        assert!(looks_like_relative_path(".\\config.json"));
+        assert!(looks_like_relative_path("foo\\..\\bar"));
+    }
+
+    // --- R34-SRV-7: Control char sanitization in derive_resolver_identity ---
+
+    #[test]
+    fn test_derive_resolver_identity_strips_control_chars() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            "Bearer mytoken".parse().unwrap(),
+        );
+        let identity = derive_resolver_identity(&headers, "user\x00\x0a\x0dname");
+        assert!(!identity.contains('\x00'));
+        assert!(!identity.contains('\x0a'));
+        assert!(!identity.contains('\x0d'));
+        assert!(identity.contains("(note: username)"));
+    }
+
+    // --- R34-SRV-8: Hash-based auth comparison ---
+
+    #[test]
+    fn test_auth_comparison_constant_time_hash() {
+        // This is a unit test verifying the hash-comparison approach works.
+        // We can't easily test timing, but verify correct accept/reject.
+        use sha2::{Digest, Sha256};
+        let key = "correct-api-key";
+        let good_token = "correct-api-key";
+        let bad_token = "wrong-api-key";
+
+        let key_hash = Sha256::digest(key.as_bytes());
+        let good_hash = Sha256::digest(good_token.as_bytes());
+        let bad_hash = Sha256::digest(bad_token.as_bytes());
+
+        use subtle::ConstantTimeEq;
+        assert!(bool::from(key_hash.ct_eq(&good_hash)));
+        assert!(!bool::from(key_hash.ct_eq(&bad_hash)));
     }
 }

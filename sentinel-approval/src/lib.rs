@@ -430,6 +430,15 @@ impl ApprovalStore {
             .collect()
     }
 
+    /// Count pending (not yet resolved) approvals without cloning.
+    ///
+    /// SECURITY (R34-SRV-1): Avoids expensive full-clone of all pending approvals
+    /// on every Prometheus scrape request.
+    pub async fn pending_count(&self) -> usize {
+        let pending = self.pending.read().await;
+        pending.values().filter(|a| a.status == ApprovalStatus::Pending).count()
+    }
+
     /// Expire all stale approvals that have passed their TTL.
     ///
     /// Persists the expired status to the JSONL file so restarts don't
