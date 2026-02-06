@@ -3213,6 +3213,37 @@ async fn scan_sse_events_for_injection(
             }
         }
 
+        // SECURITY (R34-PROXY-7): Scan SSE event: and id: fields for injection.
+        // These fields are forwarded verbatim to the client and could carry
+        // injection payloads that bypass data-only scanning.
+        for line in event.lines() {
+            let trimmed = line.trim_start_matches([' ', '\t', '\u{00A0}']);
+            if let Some(value) = trimmed
+                .strip_prefix("event:")
+                .or_else(|| trimmed.strip_prefix("id:"))
+            {
+                let value = value.trim();
+                if !value.is_empty() {
+                    let field_matches: Vec<String> =
+                        if let Some(ref scanner) = state.injection_scanner {
+                            scanner
+                                .inspect(value)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        } else {
+                            inspect_for_injection(value)
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                        };
+                    if !field_matches.is_empty() {
+                        all_matches.extend(field_matches);
+                    }
+                }
+            }
+        }
+
         if data_parts.is_empty() {
             continue;
         }
@@ -3254,6 +3285,27 @@ async fn scan_sse_events_for_injection(
                             .collect()
                     };
                     all_matches.extend(matches);
+                }
+
+                // SECURITY (R34-PROXY-1): SSE tools/list responses must also be scanned
+                // for injection in tool descriptions, matching the JSON response path.
+                // Without this, a malicious server can embed injection payloads in tool
+                // description or inputSchema fields and deliver them via SSE to bypass
+                // the injection scanner that only checks content[].text fields.
+                if result.get("tools").and_then(|t| t.as_array()).is_some() {
+                    let desc_findings = if let Some(ref scanner) = state.injection_scanner {
+                        scan_tool_descriptions_with_scanner(&json_val, scanner)
+                    } else {
+                        scan_tool_descriptions(&json_val)
+                    };
+                    for finding in &desc_findings {
+                        all_matches.extend(
+                            finding
+                                .matched_patterns
+                                .iter()
+                                .map(|p| format!("tool_desc({}): {}", finding.tool_name, p)),
+                        );
+                    }
                 }
             }
 
@@ -3377,6 +3429,36 @@ async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &Pro
                 data_parts.push(rest.trim_start());
             }
         }
+
+        // SECURITY (R34-PROXY-7): Scan SSE event: and id: fields for DLP secrets.
+        // These fields are forwarded verbatim to the client and could carry
+        // secret data that bypasses data-only DLP scanning.
+        for line in event.lines() {
+            let trimmed = line.trim_start_matches([' ', '\t', '\u{00A0}']);
+            if let Some(value) = trimmed
+                .strip_prefix("event:")
+                .or_else(|| trimmed.strip_prefix("id:"))
+            {
+                let value = value.trim();
+                if !value.is_empty() {
+                    let field_dlp = scan_text_for_secrets(value, "sse_field(event/id)");
+                    if !field_dlp.is_empty() {
+                        secrets_found = true;
+                        let patterns: Vec<String> = field_dlp
+                            .iter()
+                            .map(|f| format!("{}:{}", f.pattern_name, f.location))
+                            .collect();
+                        tracing::warn!(
+                            "SECURITY: Secrets detected in SSE event:/id: field! \
+                             Session: {}, Findings: {:?}",
+                            session_id,
+                            patterns,
+                        );
+                    }
+                }
+            }
+        }
+
         if data_parts.is_empty() {
             continue;
         }
