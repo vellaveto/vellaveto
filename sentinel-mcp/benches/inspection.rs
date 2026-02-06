@@ -280,4 +280,111 @@ criterion_group!(
     bench_framing,
 );
 
-criterion_main!(inspection_benches);
+// ---------------------------------------------------------------------------
+// Benchmarks: DataFlowTracker (P4.2)
+// ---------------------------------------------------------------------------
+
+fn bench_data_flow_tracking(c: &mut Criterion) {
+    use sentinel_mcp::data_flow::{DataFlowConfig, DataFlowTracker, DlpFindingWithFingerprint};
+    use sentinel_mcp::inspection::DlpFinding;
+
+    let mut group = c.benchmark_group("data_flow");
+
+    // Benchmark recording response findings
+    group.bench_function("record_10_findings", |b| {
+        let config = DataFlowConfig::default();
+        let mut tracker = DataFlowTracker::new(config).unwrap();
+
+        let findings: Vec<DlpFindingWithFingerprint> = (0..10)
+            .map(|i| {
+                DlpFindingWithFingerprint::from_finding(
+                    DlpFinding {
+                        pattern_name: format!("pattern_{}", i % 5),
+                        location: format!("result.content[{}].text", i),
+                    },
+                    Some(&format!("secret_value_{}", i)),
+                )
+            })
+            .collect();
+
+        b.iter(|| {
+            tracker.record_response_findings(black_box("tool"), black_box(&findings));
+        })
+    });
+
+    // Benchmark checking requests (no match)
+    group.bench_function("check_request_no_match", |b| {
+        let config = DataFlowConfig::default();
+        let mut tracker = DataFlowTracker::new(config).unwrap();
+
+        // Pre-populate with response findings
+        for i in 0..50 {
+            let findings = vec![DlpFindingWithFingerprint::from_finding(
+                DlpFinding {
+                    pattern_name: format!("resp_pattern_{}", i),
+                    location: "text".to_string(),
+                },
+                Some(&format!("resp_secret_{}", i)),
+            )];
+            tracker.record_response_findings(&format!("tool_{}", i), &findings);
+        }
+
+        let req_findings = vec![DlpFindingWithFingerprint::from_finding(
+            DlpFinding {
+                pattern_name: "no_match_pattern".to_string(),
+                location: "$.body".to_string(),
+            },
+            Some("no_match_secret"),
+        )];
+        let domains = vec!["evil.com".to_string()];
+
+        b.iter(|| {
+            black_box(tracker.check_request(
+                black_box("send"),
+                black_box(&req_findings),
+                black_box(&domains),
+            ));
+        })
+    });
+
+    // Benchmark checking requests (with match)
+    group.bench_function("check_request_with_match", |b| {
+        let config = DataFlowConfig::default();
+        let mut tracker = DataFlowTracker::new(config).unwrap();
+
+        let resp_findings = vec![DlpFindingWithFingerprint::from_finding(
+            DlpFinding {
+                pattern_name: "aws_access_key".to_string(),
+                location: "text".to_string(),
+            },
+            Some("AKIAIOSFODNN7EXAMPLE"),
+        )];
+        tracker.record_response_findings("read_secrets", &resp_findings);
+
+        let req_findings = vec![DlpFindingWithFingerprint::from_finding(
+            DlpFinding {
+                pattern_name: "aws_access_key".to_string(),
+                location: "$.body".to_string(),
+            },
+            Some("AKIAIOSFODNN7EXAMPLE"),
+        )];
+        let domains = vec!["evil.com".to_string()];
+
+        b.iter(|| {
+            black_box(tracker.check_request(
+                black_box("send"),
+                black_box(&req_findings),
+                black_box(&domains),
+            ));
+        })
+    });
+
+    group.finish();
+}
+
+criterion_group!(
+    data_flow_benches,
+    bench_data_flow_tracking,
+);
+
+criterion_main!(inspection_benches, data_flow_benches);

@@ -1110,6 +1110,103 @@ criterion_group!(
     bench_context_max_calls_in_window,
 );
 
+// ---------------------------------------------------------------------------
+// Benchmarks: Behavioral anomaly detection (P4.1)
+// ---------------------------------------------------------------------------
+
+fn bench_behavioral_record_session(c: &mut Criterion) {
+    use sentinel_engine::behavioral::{BehavioralConfig, BehavioralTracker};
+    use std::collections::HashMap;
+
+    let config = BehavioralConfig::default();
+    let mut tracker = BehavioralTracker::new(config).unwrap();
+
+    let mut call_counts: HashMap<String, u64> = HashMap::new();
+    for i in 0..20 {
+        call_counts.insert(format!("tool_{}", i), (i + 1) as u64);
+    }
+
+    c.bench_function("behavioral/record_session_20_tools", |b| {
+        b.iter(|| {
+            tracker.record_session(black_box("agent-bench"), black_box(&call_counts));
+        })
+    });
+}
+
+fn bench_behavioral_check_session(c: &mut Criterion) {
+    use sentinel_engine::behavioral::{BehavioralConfig, BehavioralTracker};
+    use std::collections::HashMap;
+
+    let config = BehavioralConfig {
+        min_sessions: 3,
+        threshold: 10.0,
+        alpha: 0.2,
+        ..Default::default()
+    };
+    let mut tracker = BehavioralTracker::new(config).unwrap();
+
+    // Establish baseline with 10 sessions
+    let mut baseline: HashMap<String, u64> = HashMap::new();
+    for i in 0..20 {
+        baseline.insert(format!("tool_{}", i), 5);
+    }
+    for _ in 0..10 {
+        tracker.record_session("agent-bench", &baseline);
+    }
+
+    // Check with slightly varied counts
+    let mut check_counts: HashMap<String, u64> = HashMap::new();
+    for i in 0..20 {
+        check_counts.insert(format!("tool_{}", i), 7);
+    }
+
+    c.bench_function("behavioral/check_session_20_tools", |b| {
+        b.iter(|| {
+            black_box(tracker.check_session(black_box("agent-bench"), black_box(&check_counts)));
+        })
+    });
+}
+
+fn bench_behavioral_check_anomalous(c: &mut Criterion) {
+    use sentinel_engine::behavioral::{BehavioralConfig, BehavioralTracker};
+    use std::collections::HashMap;
+
+    let config = BehavioralConfig {
+        min_sessions: 3,
+        threshold: 10.0,
+        alpha: 0.2,
+        ..Default::default()
+    };
+    let mut tracker = BehavioralTracker::new(config).unwrap();
+
+    let mut baseline: HashMap<String, u64> = HashMap::new();
+    for i in 0..20 {
+        baseline.insert(format!("tool_{}", i), 5);
+    }
+    for _ in 0..10 {
+        tracker.record_session("agent-bench", &baseline);
+    }
+
+    // Anomalous: all tools at 500x baseline
+    let mut anomalous: HashMap<String, u64> = HashMap::new();
+    for i in 0..20 {
+        anomalous.insert(format!("tool_{}", i), 500);
+    }
+
+    c.bench_function("behavioral/check_session_20_tools_anomalous", |b| {
+        b.iter(|| {
+            black_box(tracker.check_session(black_box("agent-bench"), black_box(&anomalous)));
+        })
+    });
+}
+
+criterion_group!(
+    behavioral_benches,
+    bench_behavioral_record_session,
+    bench_behavioral_check_session,
+    bench_behavioral_check_anomalous,
+);
+
 criterion_main!(
     eval_benches,
     path_benches,
@@ -1117,5 +1214,6 @@ criterion_main!(
     compiled_benches,
     rules_benches,
     compile_benches,
-    context_benches
+    context_benches,
+    behavioral_benches
 );
