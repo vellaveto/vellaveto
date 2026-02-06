@@ -154,6 +154,7 @@ fn to_policies_produces_correct_policy_structs() {
         max_path_decode_iterations: None,
         known_tool_names: vec![],
         tool_registry: Default::default(),
+        allowed_origins: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(policies.len(), 1);
@@ -189,6 +190,7 @@ fn to_policies_uses_default_priority_when_none() {
         max_path_decode_iterations: None,
         known_tool_names: vec![],
         tool_registry: Default::default(),
+        allowed_origins: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(
@@ -330,6 +332,7 @@ fn policy_config_toml_roundtrip() {
         max_path_decode_iterations: None,
         known_tool_names: vec![],
         tool_registry: Default::default(),
+        allowed_origins: Default::default(),
     };
     let toml_str = toml::to_string(&original).unwrap();
     let parsed = PolicyConfig::from_toml(&toml_str).unwrap();

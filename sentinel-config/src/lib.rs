@@ -993,6 +993,23 @@ pub struct PolicyConfig {
     /// Tool registry configuration.
     #[serde(default)]
     pub tool_registry: ToolRegistryConfig,
+
+    /// Allowed origins for CSRF / DNS rebinding protection.
+    ///
+    /// When non-empty, the HTTP proxy validates that the `Origin` header (if present)
+    /// matches one of these values. When empty, the proxy uses automatic localhost
+    /// detection based on the bind address: if bound to `127.0.0.1`, `localhost`,
+    /// or `[::1]`, only localhost origins are accepted.
+    ///
+    /// Requests without an `Origin` header are always allowed (non-browser clients).
+    ///
+    /// # TOML Example
+    ///
+    /// ```toml
+    /// allowed_origins = ["http://localhost:3001", "http://127.0.0.1:3001"]
+    /// ```
+    #[serde(default)]
+    pub allowed_origins: Vec<String>,
 }
 
 /// Tool registry with trust scoring configuration (P2.1).
@@ -2427,6 +2444,7 @@ policy_type = "Allow"
             max_path_decode_iterations: None,
             known_tool_names: vec![],
             tool_registry: ToolRegistryConfig::default(),
+            allowed_origins: vec![],
         };
         config.policies = (0..=MAX_POLICIES)
             .map(|i| PolicyRule {
