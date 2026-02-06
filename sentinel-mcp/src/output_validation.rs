@@ -72,11 +72,15 @@ impl OutputSchemaRegistry {
 
         let mut schemas = match self.schemas.write() {
             Ok(s) => s,
-            // SECURITY (R30-MCP-2): Log poisoned lock but don't crash.
-            // Registration is best-effort — the fail-closed behavior is in validate().
-            Err(poisoned) => {
-                tracing::error!("OutputSchemaRegistry write lock poisoned — clearing and recovering");
-                poisoned.into_inner()
+            // SECURITY (FIND-001): Fail-closed on poisoned lock — do NOT recover
+            // via into_inner() as the HashMap may be in an inconsistent state.
+            // The validate() method also fails closed on poisoned read lock,
+            // so the system remains protected end-to-end.
+            Err(_) => {
+                tracing::error!(
+                    "OutputSchemaRegistry write lock poisoned — refusing to register schemas (fail-closed)"
+                );
+                return;
             }
         };
 
@@ -115,19 +119,28 @@ impl OutputSchemaRegistry {
     /// how the proxy normalizes tool names during message classification (R34-MCP-4).
     pub fn register(&self, tool_name: &str, schema: Value) {
         let normalized_name = normalize_method(tool_name);
-        if let Ok(mut schemas) = self.schemas.write() {
-            // SECURITY: Reject oversized schemas
-            if let Ok(serialized) = serde_json::to_string(&schema) {
-                if serialized.len() > MAX_SCHEMA_SIZE {
-                    return;
-                }
-            }
-            // SECURITY: Cap total registry size
-            if schemas.len() >= MAX_SCHEMA_ENTRIES && !schemas.contains_key(&normalized_name) {
+        let mut schemas = match self.schemas.write() {
+            Ok(s) => s,
+            // SECURITY (FIND-001): Fail-closed on poisoned lock — log and return.
+            Err(_) => {
+                tracing::error!(
+                    tool = tool_name,
+                    "OutputSchemaRegistry write lock poisoned — refusing to register schema (fail-closed)"
+                );
                 return;
             }
-            schemas.insert(normalized_name, schema);
+        };
+        // SECURITY: Reject oversized schemas
+        if let Ok(serialized) = serde_json::to_string(&schema) {
+            if serialized.len() > MAX_SCHEMA_SIZE {
+                return;
+            }
         }
+        // SECURITY: Cap total registry size
+        if schemas.len() >= MAX_SCHEMA_ENTRIES && !schemas.contains_key(&normalized_name) {
+            return;
+        }
+        schemas.insert(normalized_name, schema);
     }
 
     /// Check if a schema is registered for the given tool.
