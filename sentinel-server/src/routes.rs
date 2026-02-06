@@ -2143,7 +2143,11 @@ fn categorize_rate_limit<'a>(
     method: &Method,
     path: &str,
 ) -> Option<&'a governor::DefaultDirectRateLimiter> {
-    if path == "/api/evaluate" && method == Method::POST {
+    // SECURITY (R41-SRV-4): Match any method for /api/evaluate, not just POST.
+    // The rate limit middleware runs before routing, so a PUT /api/evaluate
+    // would be categorized as "admin" instead of "evaluate", bypassing
+    // tighter evaluate limits when admin_rps > evaluate_rps.
+    if path == "/api/evaluate" {
         limits.evaluate.as_ref()
     } else if method != Method::GET && method != Method::OPTIONS && method != Method::HEAD {
         limits.admin.as_ref()
@@ -2629,5 +2633,57 @@ mod tests {
             "Should extract example.com, got: {:?}",
             domains
         );
+    }
+
+    // --- R41-SRV-4: Rate limit category bypass via method override ---
+
+    #[test]
+    fn test_categorize_rate_limit_put_evaluate_uses_evaluate_bucket() {
+        // SECURITY (R41-SRV-4): A PUT /api/evaluate must use the evaluate
+        // rate limit bucket, not fall through to admin. The rate limit
+        // middleware runs before routing, so non-POST methods to /api/evaluate
+        // would consume the wrong bucket if we only match POST.
+        use governor::{Quota, RateLimiter};
+        use std::num::NonZeroU32;
+
+        let limits = crate::RateLimits {
+            evaluate: Some(RateLimiter::direct(Quota::per_second(
+                NonZeroU32::new(10).unwrap(),
+            ))),
+            admin: Some(RateLimiter::direct(Quota::per_second(
+                NonZeroU32::new(100).unwrap(),
+            ))),
+            readonly: None,
+            per_ip: None,
+            per_principal: None,
+        };
+
+        // POST should use evaluate bucket
+        let limiter_post = categorize_rate_limit(&limits, &Method::POST, "/api/evaluate");
+        assert!(limiter_post.is_some(), "POST /api/evaluate must match evaluate bucket");
+
+        // PUT should also use evaluate bucket, not admin
+        let limiter_put = categorize_rate_limit(&limits, &Method::PUT, "/api/evaluate");
+        assert!(limiter_put.is_some(), "PUT /api/evaluate must match evaluate bucket");
+
+        // Verify both return the same limiter (evaluate, not admin)
+        // by checking they are the same pointer
+        let ptr_post = limiter_post.unwrap() as *const _;
+        let ptr_put = limiter_put.unwrap() as *const _;
+        assert_eq!(
+            ptr_post, ptr_put,
+            "PUT /api/evaluate must use the same (evaluate) rate limiter as POST"
+        );
+
+        // Also verify DELETE, PATCH, GET all use evaluate bucket for this path
+        for method in &[Method::DELETE, Method::PATCH, Method::GET, Method::HEAD] {
+            let limiter = categorize_rate_limit(&limits, method, "/api/evaluate");
+            let ptr = limiter.unwrap() as *const _;
+            assert_eq!(
+                ptr, ptr_post,
+                "{:?} /api/evaluate must use evaluate bucket, not admin or readonly",
+                method
+            );
+        }
     }
 }

@@ -1186,6 +1186,14 @@ impl PolicyConfig {
                     Some(at) => &after_scheme[at + 1..],
                     None => after_scheme,
                 };
+                // SECURITY (R41-SUP-3): Percent-decode brackets in authority before
+                // IPv6 detection. An attacker can use %5B and %5D (percent-encoded
+                // '[' and ']') to bypass the bracket check below, e.g.,
+                // "https://%5Bfe80::1%5D/webhook" would not be recognized as IPv6.
+                let host_portion_decoded = host_portion
+                    .replace("%5B", "[").replace("%5b", "[")
+                    .replace("%5D", "]").replace("%5d", "]");
+                let host_portion = host_portion_decoded.as_str();
                 // SECURITY (R26-SUP-4): Handle bracketed IPv6 addresses.
                 // For "[::1]:8080/path", the host is "[::1]", not "[" (which
                 // naive find(':') would produce by splitting on the first colon).
@@ -1300,9 +1308,17 @@ impl PolicyConfig {
         // SECURITY (R25-SUP-7, R26-SUP-1): Reject path traversal in persistence_path.
         // Uses Path::components() to detect ParentDir (..) components, which is more
         // robust than simple .contains("..") — handles "foo/./bar/../../../etc" etc.
+        // SECURITY (R41-SUP-7): Also reject absolute paths to prevent writing to
+        // arbitrary system locations (e.g., /etc/cron.d/backdoor).
         {
             use std::path::{Component, Path};
             let p = Path::new(&self.tool_registry.persistence_path);
+            if p.is_absolute() {
+                return Err(format!(
+                    "tool_registry.persistence_path must be a relative path, got '{}'",
+                    self.tool_registry.persistence_path
+                ));
+            }
             if p.components().any(|c| matches!(c, Component::ParentDir)) {
                 return Err(format!(
                     "tool_registry.persistence_path must not contain '..' components, got '{}'",
@@ -2587,7 +2603,8 @@ policy_type = "Allow"
     #[test]
     fn test_validate_accepts_valid_persistence_path() {
         let mut config = minimal_config();
-        config.tool_registry.persistence_path = "/var/lib/sentinel/registry.jsonl".to_string();
+        // R41-SUP-7: Only relative paths are accepted now
+        config.tool_registry.persistence_path = "data/registry.jsonl".to_string();
         assert!(config.validate().is_ok());
     }
 
@@ -3002,6 +3019,96 @@ policy_type = "Allow"
             );
         }
         // Exactly at the limit should pass
+        assert!(config.validate().is_ok());
+    }
+
+    // --- R41-SUP-3: Percent-encoded IPv6 bracket SSRF tests ---
+
+    #[test]
+    fn test_r41_sup_3_webhook_rejects_percent_encoded_ipv6_link_local() {
+        // R41-SUP-3: %5B and %5D encode '[' and ']'; fe80::1 is link-local
+        let mut config = minimal_config();
+        config.audit_export.webhook_url =
+            Some("https://%5Bfe80::1%5D/webhook".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("private") || err.contains("internal") || err.contains("IPv6"),
+            "Percent-encoded IPv6 link-local should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_r41_sup_3_webhook_rejects_percent_encoded_ipv6_loopback() {
+        // R41-SUP-3: %5B::1%5D is [::1] (loopback)
+        let mut config = minimal_config();
+        config.audit_export.webhook_url =
+            Some("https://%5B::1%5D:8080/webhook".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("localhost") || err.contains("loopback") || err.contains("private"),
+            "Percent-encoded IPv6 loopback should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_r41_sup_3_webhook_rejects_lowercase_percent_encoded_brackets() {
+        // R41-SUP-3: lowercase %5b/%5d should also be decoded
+        let mut config = minimal_config();
+        config.audit_export.webhook_url =
+            Some("https://%5bfe80::1%5d/webhook".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("private") || err.contains("internal") || err.contains("IPv6"),
+            "Lowercase percent-encoded IPv6 link-local should be rejected, got: {}",
+            err
+        );
+    }
+
+    // --- R41-SUP-7: Absolute persistence_path rejection tests ---
+
+    #[test]
+    fn test_r41_sup_7_persistence_path_rejects_absolute_etc_passwd() {
+        // R41-SUP-7: Absolute paths allow writing to arbitrary system locations
+        let mut config = minimal_config();
+        config.tool_registry.persistence_path = "/etc/passwd".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("relative path"),
+            "Absolute path /etc/passwd should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_r41_sup_7_persistence_path_rejects_absolute_tmp() {
+        let mut config = minimal_config();
+        config.tool_registry.persistence_path = "/tmp/file".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("relative path"),
+            "Absolute path /tmp/file should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_r41_sup_7_persistence_path_rejects_absolute_cron() {
+        let mut config = minimal_config();
+        config.tool_registry.persistence_path = "/etc/cron.d/backdoor".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("relative path"),
+            "Absolute path /etc/cron.d/backdoor should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_r41_sup_7_persistence_path_accepts_relative_path() {
+        let mut config = minimal_config();
+        config.tool_registry.persistence_path = "registry/data.jsonl".to_string();
         assert!(config.validate().is_ok());
     }
 }

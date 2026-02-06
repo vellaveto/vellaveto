@@ -572,7 +572,14 @@ fn normalize_homoglyphs(s: &str) -> String {
 /// Exact matches are NOT flagged (the tool IS the known tool).
 pub fn detect_squatting(tool_name: &str, known_tools: &HashSet<String>) -> Vec<SquattingAlert> {
     let mut alerts = Vec::new();
-    let normalized = crate::extractor::normalize_method(tool_name);
+    let stripped = crate::extractor::normalize_method(tool_name);
+    // SECURITY (R41-MCP-1): Apply NFKC normalization to convert Mathematical
+    // Alphanumeric Symbols (U+1D400-U+1D7FF) and other compatibility characters
+    // to their ASCII equivalents. Without this, "𝐫𝐞𝐚𝐝_𝐟𝐢𝐥𝐞" (Mathematical Bold)
+    // evades both homoglyph detection and Levenshtein distance checks because the
+    // multi-byte characters inflate edit distance beyond the threshold.
+    let normalized: String =
+        unicode_normalization::UnicodeNormalization::nfkc(stripped.as_str()).collect();
 
     // Skip if the tool IS a known tool (exact match after normalization)
     if known_tools.contains(&normalized) {
@@ -1266,14 +1273,16 @@ mod tests {
     #[test]
     fn test_squatting_fullwidth_tool_name() {
         let known = build_known_tools(&[]);
-        // "bash" in fullwidth Latin (U+FF42, U+FF41, U+FF53, U+FF48) -> normalizes to "bash"
+        // "bash" in fullwidth Latin (U+FF42, U+FF41, U+FF53, U+FF48)
         let fullwidth_bash = "\u{FF42}\u{FF41}\u{FF53}\u{FF48}";
         let alerts = detect_squatting(fullwidth_bash, &known);
-        // After homoglyph normalization, this becomes "bash" which is an exact match
-        // But the original string isn't "bash", so it should be flagged as homoglyph
+        // R41-MCP-1: NFKC normalization converts fullwidth to ASCII before
+        // homoglyph/Levenshtein checks, so fullwidth "bash" becomes "bash"
+        // which is an exact match. This is correct: the tool IS "bash",
+        // not squatting on it.
         assert!(
-            !alerts.is_empty(),
-            "Fullwidth Latin 'bash' should be flagged as squatting"
+            alerts.is_empty(),
+            "Fullwidth Latin 'bash' should NFKC-normalize to exact match 'bash', not flagged"
         );
     }
 
@@ -1468,6 +1477,49 @@ mod tests {
         assert!(
             alerts.iter().any(|a| a.kind == SquattingKind::Homoglyph),
             "Alert kind must be Homoglyph, got: {:?}",
+            alerts
+        );
+    }
+
+    #[test]
+    fn test_squatting_math_bold_nfkc_exact_match_not_flagged() {
+        // R41-MCP-1: Full Mathematical Bold "read_file" normalizes to "read_file"
+        // via NFKC, so it's an exact match and should NOT be flagged.
+        let mut known = HashSet::new();
+        known.insert("read_file".to_string());
+
+        // Mathematical Bold lowercase: r=U+1D42B e=U+1D41E a=U+1D41A d=U+1D41D
+        // _=underscore f=U+1D41F i=U+1D422 l=U+1D425 e=U+1D41E
+        let math_bold_read_file =
+            "\u{1d42b}\u{1d41e}\u{1d41a}\u{1d41d}_\u{1d41f}\u{1d422}\u{1d425}\u{1d41e}";
+        let alerts = detect_squatting(math_bold_read_file, &known);
+        assert!(
+            alerts.is_empty(),
+            "Full Mathematical Bold 'read_file' should NFKC-normalize to exact match, got: {:?}",
+            alerts
+        );
+    }
+
+    #[test]
+    fn test_squatting_math_bold_partial_with_typo_detected() {
+        // R41-MCP-1: Mathematical Bold 'r' + normal "ead_flie" (typo).
+        // Without NFKC: multi-byte U+1D42B inflates Levenshtein → NOT detected.
+        // With NFKC: normalizes to "read_flie" → Levenshtein 2 from "read_file" → DETECTED.
+        let mut known = HashSet::new();
+        known.insert("read_file".to_string());
+
+        // Math Bold r (U+1D42B) + normal "ead_flie" (transposed 'l' and 'e')
+        let spoofed = "\u{1d42b}ead_flie";
+        let alerts = detect_squatting(spoofed, &known);
+        assert!(
+            !alerts.is_empty(),
+            "Mathematical Bold partial + typo must be detected as squatting after NFKC normalization"
+        );
+        assert!(
+            alerts
+                .iter()
+                .any(|a| a.similar_to == "read_file" && a.kind == SquattingKind::Levenshtein),
+            "Expected Levenshtein alert against 'read_file', got: {:?}",
             alerts
         );
     }

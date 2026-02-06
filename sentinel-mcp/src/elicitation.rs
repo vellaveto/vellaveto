@@ -225,6 +225,67 @@ fn schema_contains_field_type_inner(schema: &Value, field_type: &str, depth: usi
         }
     }
 
+    // SECURITY (R41-MCP-2): Scan patternProperties — like properties but with
+    // regex keys. An attacker can hide sensitive field types under pattern-matched
+    // property schemas that are invisible to the regular "properties" scan.
+    if let Some(pattern_props) = schema.get("patternProperties").and_then(|v| v.as_object()) {
+        for (_pattern, prop_schema) in pattern_props {
+            if schema_contains_field_type_inner(prop_schema, field_type, depth + 1) {
+                return true;
+            }
+        }
+    }
+
+    // SECURITY (R41-MCP-3): Scan dependentSchemas — conditional schemas activated
+    // when a property is present. An attacker can hide sensitive field types in
+    // a dependent schema that only applies when a benign property is present.
+    if let Some(dep_schemas) = schema.get("dependentSchemas").and_then(|v| v.as_object()) {
+        for (_property, dep_schema) in dep_schemas {
+            if schema_contains_field_type_inner(dep_schema, field_type, depth + 1) {
+                return true;
+            }
+        }
+    }
+
+    // SECURITY (R41-MCP-4): Scan if/then/else — conditional schema application.
+    // An attacker can hide sensitive field types in conditional branches that
+    // only apply when specific conditions are met.
+    for keyword in &["if", "then", "else"] {
+        if let Some(conditional) = schema.get(*keyword) {
+            if schema_contains_field_type_inner(conditional, field_type, depth + 1) {
+                return true;
+            }
+        }
+    }
+
+    // SECURITY (R41-MCP-5): Scan not — schema negation (defense-in-depth).
+    // While "not" inverts validation, a "not" schema can still contain type/format
+    // declarations that reveal the attacker's intent to collect sensitive data.
+    if let Some(not_schema) = schema.get("not") {
+        if schema_contains_field_type_inner(not_schema, field_type, depth + 1) {
+            return true;
+        }
+    }
+
+    // SECURITY (R41-MCP-6): Scan prefixItems — JSON Schema 2020-12 tuple validation.
+    // An attacker can hide sensitive field types in positional array element schemas.
+    if let Some(prefix_items) = schema.get("prefixItems").and_then(|v| v.as_array()) {
+        for item_schema in prefix_items {
+            if schema_contains_field_type_inner(item_schema, field_type, depth + 1) {
+                return true;
+            }
+        }
+    }
+
+    // SECURITY (R41-MCP-7): Scan contains — array element constraint.
+    // An attacker can hide sensitive field types in a "contains" schema that
+    // specifies what at least one array element must match.
+    if let Some(contains_schema) = schema.get("contains") {
+        if schema_contains_field_type_inner(contains_schema, field_type, depth + 1) {
+            return true;
+        }
+    }
+
     false
 }
 
@@ -853,6 +914,196 @@ mod tests {
         assert!(
             matches!(verdict, SamplingVerdict::Allow),
             "Expected Allow when block_if_contains_tool_output is false, got: {:?}",
+            verdict
+        );
+    }
+
+    // ═══════════════════════════════════════════════════
+    // R41-MCP-2..7: SCHEMA KEYWORD GAP TESTS
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_schema_pattern_properties_hidden_password() {
+        // R41-MCP-2: Attacker hides "password" type inside patternProperties
+        let config = ElicitationConfig {
+            enabled: true,
+            blocked_field_types: vec!["password".to_string()],
+            max_per_session: 10,
+        };
+
+        let params = json!({
+            "message": "Enter info",
+            "requestedSchema": {
+                "type": "object",
+                "patternProperties": {
+                    "^secret_.*$": {"type": "string", "format": "password"}
+                }
+            }
+        });
+
+        let verdict = inspect_elicitation(&params, &config, 0);
+        assert!(
+            matches!(verdict, ElicitationVerdict::Deny { .. }),
+            "Expected Deny for password hidden in patternProperties, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_schema_dependent_schemas_hidden_password() {
+        // R41-MCP-3: Attacker hides "password" type inside dependentSchemas
+        let config = ElicitationConfig {
+            enabled: true,
+            blocked_field_types: vec!["password".to_string()],
+            max_per_session: 10,
+        };
+
+        let params = json!({
+            "message": "Enter info",
+            "requestedSchema": {
+                "type": "object",
+                "properties": {
+                    "use_auth": {"type": "boolean"}
+                },
+                "dependentSchemas": {
+                    "use_auth": {
+                        "properties": {
+                            "credential": {"type": "string", "format": "password"}
+                        }
+                    }
+                }
+            }
+        });
+
+        let verdict = inspect_elicitation(&params, &config, 0);
+        assert!(
+            matches!(verdict, ElicitationVerdict::Deny { .. }),
+            "Expected Deny for password hidden in dependentSchemas, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_schema_if_then_else_hidden_password() {
+        // R41-MCP-4: Attacker hides "password" type inside if/then/else
+        let config = ElicitationConfig {
+            enabled: true,
+            blocked_field_types: vec!["password".to_string()],
+            max_per_session: 10,
+        };
+
+        // Password hidden in "then" branch
+        let params = json!({
+            "message": "Enter info",
+            "requestedSchema": {
+                "type": "object",
+                "if": {
+                    "properties": {"auth_type": {"const": "password"}}
+                },
+                "then": {
+                    "properties": {
+                        "secret": {"type": "string", "format": "password"}
+                    }
+                },
+                "else": {
+                    "properties": {
+                        "token": {"type": "string"}
+                    }
+                }
+            }
+        });
+
+        let verdict = inspect_elicitation(&params, &config, 0);
+        assert!(
+            matches!(verdict, ElicitationVerdict::Deny { .. }),
+            "Expected Deny for password hidden in if/then/else, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_schema_not_hidden_password() {
+        // R41-MCP-5: Defense-in-depth — even "not" schemas reveal attacker intent
+        let config = ElicitationConfig {
+            enabled: true,
+            blocked_field_types: vec!["password".to_string()],
+            max_per_session: 10,
+        };
+
+        let params = json!({
+            "message": "Enter info",
+            "requestedSchema": {
+                "type": "object",
+                "not": {
+                    "properties": {
+                        "pw": {"format": "password"}
+                    }
+                }
+            }
+        });
+
+        let verdict = inspect_elicitation(&params, &config, 0);
+        assert!(
+            matches!(verdict, ElicitationVerdict::Deny { .. }),
+            "Expected Deny for password hidden in 'not' schema, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_schema_prefix_items_hidden_password() {
+        // R41-MCP-6: Attacker hides "password" type in prefixItems (tuple validation)
+        let config = ElicitationConfig {
+            enabled: true,
+            blocked_field_types: vec!["password".to_string()],
+            max_per_session: 10,
+        };
+
+        let params = json!({
+            "message": "Enter credentials",
+            "requestedSchema": {
+                "type": "array",
+                "prefixItems": [
+                    {"type": "string"},
+                    {"type": "string", "format": "password"}
+                ]
+            }
+        });
+
+        let verdict = inspect_elicitation(&params, &config, 0);
+        assert!(
+            matches!(verdict, ElicitationVerdict::Deny { .. }),
+            "Expected Deny for password hidden in prefixItems, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_schema_contains_hidden_password() {
+        // R41-MCP-7: Attacker hides "password" type in contains keyword
+        let config = ElicitationConfig {
+            enabled: true,
+            blocked_field_types: vec!["password".to_string()],
+            max_per_session: 10,
+        };
+
+        let params = json!({
+            "message": "Enter items",
+            "requestedSchema": {
+                "type": "array",
+                "contains": {
+                    "type": "object",
+                    "properties": {
+                        "secret": {"format": "password"}
+                    }
+                }
+            }
+        });
+
+        let verdict = inspect_elicitation(&params, &config, 0);
+        assert!(
+            matches!(verdict, ElicitationVerdict::Deny { .. }),
+            "Expected Deny for password hidden in contains, got: {:?}",
             verdict
         );
     }

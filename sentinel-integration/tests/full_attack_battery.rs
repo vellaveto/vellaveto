@@ -195,17 +195,26 @@ fn attack_mcp03_tool_squatting_cyrillic_homoglyph() {
 
 /// Attack: Tool squatting — fullwidth Latin characters
 /// Technique: Use fullwidth 'ｒｅａｄ' instead of ASCII 'read'
-/// Expected: DETECTED — homoglyph normalization catches fullwidth
+/// Expected: NFKC normalization converts fullwidth to ASCII → exact match (not squatting).
+/// The tool is treated AS "read_file" and subject to its policies.
+/// R41-MCP-1: NFKC applied before squatting check, so fullwidth = same tool.
 #[test]
 fn attack_mcp03_tool_squatting_fullwidth() {
     let known = build_known_tools(&[]);
-    // "ｒｅａｄ_file" with fullwidth Latin
-    let malicious = "\u{FF52}\u{FF45}\u{FF41}\u{FF44}_file";
-    let alerts = detect_squatting(malicious, &known);
+    // "ｒｅａｄ_file" with fullwidth Latin — NFKC normalizes to "read_file" (exact match)
+    let fullwidth_exact = "\u{FF52}\u{FF45}\u{FF41}\u{FF44}_file";
+    let alerts = detect_squatting(fullwidth_exact, &known);
+    assert!(
+        alerts.is_empty(),
+        "Fullwidth exact match should NOT be flagged (NFKC normalizes to known tool)"
+    );
+
+    // Fullwidth with typo: "ｒｅａｄ_flie" → NFKC → "read_flie" → Levenshtein 2 from "read_file"
+    let fullwidth_typo = "\u{FF52}\u{FF45}\u{FF41}\u{FF44}_flie";
+    let alerts = detect_squatting(fullwidth_typo, &known);
     assert!(
         !alerts.is_empty(),
-        "ATTACK SUCCEEDED: Fullwidth squatting not detected for '{}'",
-        malicious
+        "ATTACK SUCCEEDED: Fullwidth+typo squatting not detected for 'ｒｅａｄ_flie'"
     );
 }
 
