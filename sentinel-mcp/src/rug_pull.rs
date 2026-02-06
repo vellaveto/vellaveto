@@ -515,9 +515,11 @@ fn normalize_homoglyphs(s: &str) -> String {
             '\u{0420}' => 'p', // Cyrillic Er -> p
             '\u{0421}' => 'c', // Cyrillic Es -> c
             '\u{0422}' => 't', // Cyrillic Te -> t
+            '\u{0423}' => 'y', // Cyrillic U -> y
             '\u{0425}' => 'x', // Cyrillic Ha -> x
             '\u{0405}' => 's', // Cyrillic Dze -> s
             '\u{0406}' => 'i', // Cyrillic I -> i
+            '\u{0408}' => 'j', // Cyrillic Je -> j
             // Greek lowercase confusables
             '\u{03B1}' => 'a', // alpha -> a
             '\u{03B5}' => 'e', // epsilon -> e
@@ -1383,6 +1385,90 @@ mod tests {
             flagged.contains(&"tool_b"),
             "End-to-end: removed tool must be flagged, got: {:?}",
             flagged
+        );
+    }
+
+    // ---- R40-MCP-5: Cyrillic homoglyph normalization completeness ----
+
+    #[test]
+    fn test_normalize_homoglyphs_cyrillic_a_produces_latin() {
+        // R40-MCP-5: Cyrillic 'а' (U+0430) at position 2 in "reаd_file" must
+        // normalize to Latin 'a', producing "read_file".
+        let input = "re\u{0430}d_file"; // Cyrillic а
+        let result = normalize_homoglyphs(input);
+        assert_eq!(
+            result, "read_file",
+            "Cyrillic lowercase а (U+0430) must normalize to Latin 'a'"
+        );
+    }
+
+    #[test]
+    fn test_normalize_homoglyphs_cyrillic_uppercase_u_mapped() {
+        // R40-MCP-5: Cyrillic uppercase У (U+0423) must map to 'y'.
+        let input = "m\u{0423}_tool"; // Cyrillic У
+        let result = normalize_homoglyphs(input);
+        assert_eq!(
+            result, "my_tool",
+            "Cyrillic uppercase У (U+0423) must normalize to Latin 'y'"
+        );
+    }
+
+    #[test]
+    fn test_normalize_homoglyphs_cyrillic_uppercase_je_mapped() {
+        // R40-MCP-5: Cyrillic uppercase Ј (U+0408) must map to 'j'.
+        let input = "\u{0408}son_parse"; // Cyrillic Ј
+        let result = normalize_homoglyphs(input);
+        assert_eq!(
+            result, "json_parse",
+            "Cyrillic uppercase Ј (U+0408) must normalize to Latin 'j'"
+        );
+    }
+
+    #[test]
+    fn test_normalize_homoglyphs_full_cyrillic_spoofed_tool_name() {
+        // R40-MCP-5: A fully Cyrillic-spoofed tool name must normalize to ASCII.
+        // "rеаd_fіlе" using Cyrillic е(U+0435), а(U+0430), і(U+0456), е(U+0435)
+        let input = "r\u{0435}\u{0430}d_f\u{0456}l\u{0435}";
+        let result = normalize_homoglyphs(input);
+        assert_eq!(
+            result, "read_file",
+            "Fully Cyrillic-spoofed 'read_file' must normalize to ASCII equivalent"
+        );
+    }
+
+    #[test]
+    fn test_normalize_homoglyphs_all_new_cyrillic_uppercase_mappings() {
+        // R40-MCP-5: Verify all Cyrillic uppercase mappings that were added.
+        // У (U+0423) -> y, Ј (U+0408) -> j
+        assert_eq!(
+            normalize_homoglyphs("\u{0423}"),
+            "y",
+            "Cyrillic У must map to y"
+        );
+        assert_eq!(
+            normalize_homoglyphs("\u{0408}"),
+            "j",
+            "Cyrillic Ј must map to j"
+        );
+    }
+
+    #[test]
+    fn test_squatting_detection_cyrillic_homoglyph_attack() {
+        // R40-MCP-5: End-to-end test — a tool named with Cyrillic confusables
+        // must be detected as squatting on a known tool.
+        let mut known = HashSet::new();
+        known.insert("read_file".to_string());
+
+        // "reаd_file" with Cyrillic а (U+0430) — visually identical
+        let alerts = detect_squatting("re\u{0430}d_file", &known);
+        assert!(
+            !alerts.is_empty(),
+            "Cyrillic homoglyph 'reаd_file' must be detected as squatting on 'read_file'"
+        );
+        assert!(
+            alerts.iter().any(|a| a.kind == SquattingKind::Homoglyph),
+            "Alert kind must be Homoglyph, got: {:?}",
+            alerts
         );
     }
 }

@@ -1192,7 +1192,19 @@ impl PolicyConfig {
                 let host = if host_portion.starts_with('[') {
                     // IPv6: extract up to and including the closing bracket
                     if let Some(bracket_end) = host_portion.find(']') {
-                        host_portion[..bracket_end + 1].to_lowercase()
+                        let mut addr = host_portion[..bracket_end + 1].to_lowercase();
+                        // SECURITY (R40-SUP-2): Strip IPv6 zone identifier (RFC 4007 §11).
+                        // Zone IDs like %eth0 or %25eth0 cause IP parsing failures that
+                        // bypass private IP checks. E.g., [fe80::1%eth0] fails to parse
+                        // as Ipv6Addr, skipping the link-local rejection below.
+                        if let Some(zone_start) = addr.find('%') {
+                            if let Some(bracket_pos) = addr.rfind(']') {
+                                if zone_start < bracket_pos {
+                                    addr = format!("{}]", &addr[..zone_start]);
+                                }
+                            }
+                        }
+                        addr
                     } else {
                         // Malformed IPv6 — no closing bracket
                         return Err(
@@ -2814,6 +2826,70 @@ policy_type = "Allow"
         assert!(
             err.contains("private") || err.contains("internal"),
             "IPv6 link-local febf::1 should be rejected, got: {}",
+            err
+        );
+    }
+
+    // --- R40-SUP-2: IPv6 zone identifier bypass tests ---
+
+    #[test]
+    fn test_r40_sup_2_webhook_rejects_ipv6_zone_id_link_local() {
+        // fe80::1%eth0 is link-local; the zone ID must be stripped so the
+        // address parses correctly and hits the private IP rejection.
+        let mut config = minimal_config();
+        config.audit_export.webhook_url =
+            Some("https://[fe80::1%eth0]:8080/webhook".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("private") || err.contains("internal"),
+            "IPv6 zone-id link-local fe80::1%eth0 should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_r40_sup_2_webhook_rejects_ipv6_zone_id_loopback() {
+        // ::1%lo is loopback; the zone ID must be stripped before parsing.
+        let mut config = minimal_config();
+        config.audit_export.webhook_url =
+            Some("https://[::1%lo]:8080/webhook".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("localhost") || err.contains("loopback")
+                || err.contains("private") || err.contains("internal"),
+            "IPv6 zone-id loopback ::1%lo should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_r40_sup_2_webhook_rejects_ipv6_percent_encoded_zone_id() {
+        // 2001:db8::1%25eth0 uses percent-encoded zone ID (%25 = '%').
+        // 2001:db8::/32 is documentation prefix, should be rejected if
+        // the address parses at all (it doesn't match any private range
+        // in the current checks, but let's verify zone stripping works
+        // by testing with a known-private address).
+        let mut config = minimal_config();
+        config.audit_export.webhook_url =
+            Some("https://[fe80::1%25eth0]:8080/webhook".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("private") || err.contains("internal"),
+            "IPv6 percent-encoded zone-id fe80::1%%25eth0 should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_r40_sup_2_webhook_rejects_ipv6_zone_id_ula() {
+        // fc00::1%eth0 is ULA (Unique Local Address); zone ID stripped, rejected.
+        let mut config = minimal_config();
+        config.audit_export.webhook_url =
+            Some("https://[fc00::1%eth0]:8080/webhook".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("private") || err.contains("internal"),
+            "IPv6 zone-id ULA fc00::1%eth0 should be rejected, got: {}",
             err
         );
     }

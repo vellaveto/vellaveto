@@ -827,18 +827,30 @@ const DLP_DECODE_BUDGET: std::time::Duration = std::time::Duration::from_millis(
 
 /// Attempt base64 decoding across standard and URL-safe variants (with and without padding).
 /// Returns `Some(decoded_string)` on success, `None` if no variant produces valid UTF-8.
+///
+/// SECURITY (R40-MCP-1): Each variant is tried independently with its own UTF-8 check.
+/// Previously an `or_else` chain meant a STANDARD decode that succeeded but produced
+/// non-UTF-8 bytes would prevent URL_SAFE from being attempted, allowing attackers to
+/// evade DLP by encoding secrets with base64url (RFC 4648 §5).
 fn try_base64_decode(s: &str) -> Option<String> {
     if s.len() <= 16 || s.contains(' ') {
         return None;
     }
     use base64::Engine;
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(s)
-        .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(s))
-        .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(s))
-        .or_else(|_| base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(s))
-        .ok()?;
-    std::str::from_utf8(&bytes).ok().map(|s| s.to_string())
+    let engines = [
+        &base64::engine::general_purpose::STANDARD,
+        &base64::engine::general_purpose::URL_SAFE,
+        &base64::engine::general_purpose::STANDARD_NO_PAD,
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+    ];
+    for engine in engines {
+        if let Ok(bytes) = engine.decode(s) {
+            if let Ok(decoded) = std::str::from_utf8(&bytes) {
+                return Some(decoded.to_string());
+            }
+        }
+    }
+    None
 }
 
 /// Attempt percent-decoding. Returns `Some(decoded_string)` if decoding changed the input,
@@ -2865,5 +2877,97 @@ mod tests {
             matches.is_empty(),
             "Non-UTF8 binary blob should not produce false positive injection findings"
         );
+    }
+
+    // ---- R40-MCP-1: Base64 URL-safe variant DLP detection ----
+
+    #[test]
+    fn test_dlp_base64url_encoded_aws_key_detected_in_params() {
+        // R40-MCP-1: An AWS key encoded with URL-safe base64 (RFC 4648 §5) must be
+        // detected by DLP scanning. The URL-safe variant uses '-' and '_' instead
+        // of '+' and '/', which could previously evade detection if the or_else
+        // chain returned non-UTF8 garbage from STANDARD before trying URL_SAFE.
+        use base64::Engine;
+        let aws_key = "AKIAIOSFODNN7EXAMPLE";
+        let encoded = base64::engine::general_purpose::URL_SAFE.encode(aws_key);
+        let params = json!({"payload": encoded});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "aws_access_key"),
+            "DLP must detect AWS key encoded with base64url (URL_SAFE with padding), got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_base64url_no_pad_encoded_aws_key_detected_in_params() {
+        // R40-MCP-1: URL-safe base64 WITHOUT padding (common in JWTs and web APIs).
+        use base64::Engine;
+        let aws_key = "AKIAIOSFODNN7EXAMPLE";
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(aws_key);
+        let params = json!({"token": encoded});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "aws_access_key"),
+            "DLP must detect AWS key encoded with base64url-nopad (URL_SAFE_NO_PAD), got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_base64url_encoded_secret_detected_in_response() {
+        // R40-MCP-1: URL-safe base64-encoded secrets must be detected in tool responses too.
+        use base64::Engine;
+        let aws_key = "AKIAIOSFODNN7EXAMPLE";
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(aws_key);
+        let response = json!({
+            "result": {
+                "content": [{
+                    "type": "text",
+                    "text": encoded,
+                }]
+            }
+        });
+        let findings = scan_response_for_secrets(&response);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "aws_access_key"),
+            "DLP must detect base64url-encoded AWS key in response, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_try_base64_decode_url_safe_variant() {
+        // R40-MCP-1: Directly test that try_base64_decode handles URL-safe input.
+        use base64::Engine;
+        let original = "Hello+World/Test==";
+        // URL-safe encoding converts +->-, /->_
+        let url_safe_encoded = base64::engine::general_purpose::URL_SAFE.encode(original);
+        let result = try_base64_decode(&url_safe_encoded);
+        assert_eq!(result, Some(original.to_string()),
+            "try_base64_decode must handle URL-safe base64 encoding");
+    }
+
+    #[test]
+    fn test_try_base64_decode_all_variants_produce_valid_result() {
+        // R40-MCP-1: Verify all 4 engine variants work independently.
+        use base64::Engine;
+        let original = "AKIAIOSFODNN7EXAMPLE_secret_data";
+        let engines: &[(&str, &base64::engine::GeneralPurpose)] = &[
+            ("STANDARD", &base64::engine::general_purpose::STANDARD),
+            ("URL_SAFE", &base64::engine::general_purpose::URL_SAFE),
+            ("STANDARD_NO_PAD", &base64::engine::general_purpose::STANDARD_NO_PAD),
+            ("URL_SAFE_NO_PAD", &base64::engine::general_purpose::URL_SAFE_NO_PAD),
+        ];
+        for (name, engine) in engines {
+            let encoded = engine.encode(original);
+            let decoded = try_base64_decode(&encoded);
+            assert_eq!(
+                decoded,
+                Some(original.to_string()),
+                "try_base64_decode must decode {} variant correctly",
+                name
+            );
+        }
     }
 }

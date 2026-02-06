@@ -1467,18 +1467,20 @@ impl PolicyEngine {
             }
             "agent_identity" => {
                 // OWASP ASI07: Agent identity attestation via signed JWT
+                // SECURITY: Normalize required fields to lowercase for case-insensitive
+                // matching, consistent with blocked_issuers/blocked_subjects (R40-ENG-2)
                 let required_issuer = obj
                     .get("issuer")
                     .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                    .map(|s| s.to_lowercase());
                 let required_subject = obj
                     .get("subject")
                     .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                    .map(|s| s.to_lowercase());
                 let required_audience = obj
                     .get("audience")
                     .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                    .map(|s| s.to_lowercase());
 
                 // Parse required_claims as a map of string -> string
                 let required_claims = obj
@@ -2135,10 +2137,10 @@ impl PolicyEngine {
                                 }
                             }
 
-                            // Check required issuer (case-sensitive for standards compliance)
+                            // Check required issuer (case-insensitive, R40-ENG-2)
                             if let Some(ref req_iss) = required_issuer {
                                 match &identity.issuer {
-                                    Some(iss) if iss == req_iss => {}
+                                    Some(iss) if iss.to_lowercase() == *req_iss => {}
                                     _ => {
                                         return Some(Verdict::Deny {
                                             reason: format!(
@@ -2152,10 +2154,10 @@ impl PolicyEngine {
                                 }
                             }
 
-                            // Check required subject (case-sensitive)
+                            // Check required subject (case-insensitive, R40-ENG-2)
                             if let Some(ref req_sub) = required_subject {
                                 match &identity.subject {
-                                    Some(sub) if sub == req_sub => {}
+                                    Some(sub) if sub.to_lowercase() == *req_sub => {}
                                     _ => {
                                         return Some(Verdict::Deny {
                                             reason: format!(
@@ -2169,9 +2171,9 @@ impl PolicyEngine {
                                 }
                             }
 
-                            // Check required audience
+                            // Check required audience (case-insensitive, R40-ENG-2)
                             if let Some(ref req_aud) = required_audience {
-                                if !identity.audience.contains(req_aud) {
+                                if !identity.audience.iter().any(|a| a.to_lowercase() == *req_aud) {
                                     return Some(Verdict::Deny {
                                         reason: format!(
                                             "{} (audience mismatch: '{}' not in {:?})",
@@ -12734,6 +12736,197 @@ mod tests {
             result.is_none(),
             "R39-ENG-3: Domain with null byte should return None, got: {:?}",
             result
+        );
+    }
+
+    // ── R40-ENG-2: AgentIdentityMatch case-sensitivity inconsistency ─────────
+
+    #[test]
+    fn test_agent_identity_required_issuer_case_insensitive_r40_eng_2() {
+        // R40-ENG-2: A policy with mixed-case required_issuer must match a JWT
+        // whose issuer is all-lowercase.
+        let policy = make_context_policy(json!([
+            {
+                "type": "agent_identity",
+                "issuer": "https://Auth.Example.COM"
+            }
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_identity: Some(AgentIdentity {
+                issuer: Some("https://auth.example.com".to_string()),
+                subject: None,
+                audience: vec![],
+                claims: Default::default(),
+            }),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "R40-ENG-2: Mixed-case required_issuer should match lowercase JWT issuer, got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_required_issuer_lowercase_matches_uppercase_jwt_r40_eng_2() {
+        // R40-ENG-2: A policy with lowercase required_issuer must match a JWT
+        // whose issuer is uppercase.
+        let policy = make_context_policy(json!([
+            {
+                "type": "agent_identity",
+                "issuer": "https://auth.example.com"
+            }
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_identity: Some(AgentIdentity {
+                issuer: Some("https://AUTH.EXAMPLE.COM".to_string()),
+                subject: None,
+                audience: vec![],
+                claims: Default::default(),
+            }),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "R40-ENG-2: Lowercase required_issuer should match uppercase JWT issuer, got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_required_subject_case_insensitive_r40_eng_2() {
+        // R40-ENG-2: A policy with mixed-case required_subject must match a JWT
+        // whose subject has different casing.
+        let policy = make_context_policy(json!([
+            {
+                "type": "agent_identity",
+                "subject": "Agent-ALPHA"
+            }
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_identity: Some(AgentIdentity {
+                issuer: None,
+                subject: Some("agent-alpha".to_string()),
+                audience: vec![],
+                claims: Default::default(),
+            }),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "R40-ENG-2: Mixed-case required_subject should match lowercase JWT subject, got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_required_audience_case_insensitive_r40_eng_2() {
+        // R40-ENG-2: A policy with uppercase required_audience must match a JWT
+        // whose audience is lowercase.
+        let policy = make_context_policy(json!([
+            {
+                "type": "agent_identity",
+                "audience": "SENTINEL-API"
+            }
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_identity: Some(AgentIdentity {
+                issuer: None,
+                subject: None,
+                audience: vec!["sentinel-api".to_string()],
+                claims: Default::default(),
+            }),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "R40-ENG-2: Uppercase required_audience should match lowercase JWT audience, got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_audience_mixed_case_in_jwt_array_r40_eng_2() {
+        // R40-ENG-2: When JWT has multiple audiences with mixed casing,
+        // a lowercase required_audience should match any of them.
+        let policy = make_context_policy(json!([
+            {
+                "type": "agent_identity",
+                "audience": "my-service"
+            }
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_identity: Some(AgentIdentity {
+                issuer: None,
+                subject: None,
+                audience: vec![
+                    "other-service".to_string(),
+                    "MY-SERVICE".to_string(),
+                ],
+                claims: Default::default(),
+            }),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "R40-ENG-2: Audience in JWT array with different case should still match, got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_required_issuer_mismatch_still_denies_r40_eng_2() {
+        // R40-ENG-2: Verify that case-insensitive matching doesn't weaken
+        // actual mismatches — different issuers should still deny.
+        let policy = make_context_policy(json!([
+            {
+                "type": "agent_identity",
+                "issuer": "https://trusted.example.com"
+            }
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            agent_identity: Some(AgentIdentity {
+                issuer: Some("https://evil.example.com".to_string()),
+                subject: None,
+                audience: vec![],
+                claims: Default::default(),
+            }),
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "R40-ENG-2: Different issuer should still deny even with case-insensitive matching, got: {:?}",
+            v
         );
     }
 }

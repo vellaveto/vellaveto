@@ -89,13 +89,24 @@ fn compute_dedup_key(
     // two actions targeting the same domain but resolving to different IPs (e.g.,
     // due to DNS rebinding) would incorrectly deduplicate, and approving one
     // would effectively approve the other.
+    //
+    // SECURITY (R40-SUP-4): Sort resolved_ips, target_paths, and target_domains
+    // before hashing. Without sorting, identical actions whose Vec fields arrive
+    // in different order (e.g., DNS round-robin) produce different hashes,
+    // bypassing deduplication.
+    let mut sorted_ips = action.resolved_ips.clone();
+    sorted_ips.sort();
+    let mut sorted_paths = action.target_paths.clone();
+    sorted_paths.sort();
+    let mut sorted_domains = action.target_domains.clone();
+    sorted_domains.sort();
     let canonical = serde_json::json!({
         "tool": action.tool,
         "function": action.function,
         "parameters": action.parameters,
-        "target_paths": action.target_paths,
-        "target_domains": action.target_domains,
-        "resolved_ips": action.resolved_ips,
+        "target_paths": sorted_paths,
+        "target_domains": sorted_domains,
+        "resolved_ips": sorted_ips,
     });
     // SECURITY (R37-SUP-6): Fail-closed on serialization failure instead of
     // falling back to empty string. With unwrap_or_default(), all actions
@@ -1428,6 +1439,110 @@ mod tests {
             result.is_ok(),
             "None requested_by should be accepted: {:?}",
             result.err()
+        );
+    }
+
+    // -- R40-SUP-4: Dedup key ordering invariance tests --
+
+    #[tokio::test]
+    async fn test_r40_sup_4_dedup_key_same_ips_different_order() {
+        // Two actions with the same resolved_ips in different orders must
+        // produce the same dedup key (i.e., deduplicate correctly).
+        let mut action_a = test_action();
+        action_a.resolved_ips = vec!["10.0.0.1".to_string(), "10.0.0.2".to_string()];
+
+        let mut action_b = test_action();
+        action_b.resolved_ips = vec!["10.0.0.2".to_string(), "10.0.0.1".to_string()];
+
+        let key_a = compute_dedup_key(&action_a, "test reason", Some("user@corp.com")).unwrap();
+        let key_b = compute_dedup_key(&action_b, "test reason", Some("user@corp.com")).unwrap();
+        assert_eq!(
+            key_a, key_b,
+            "Dedup keys should match regardless of resolved_ips order"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_r40_sup_4_dedup_key_same_paths_different_order() {
+        // Two actions with the same target_paths in different orders must
+        // produce the same dedup key.
+        let mut action_a = test_action();
+        action_a.target_paths = vec!["/etc/passwd".to_string(), "/etc/shadow".to_string()];
+
+        let mut action_b = test_action();
+        action_b.target_paths = vec!["/etc/shadow".to_string(), "/etc/passwd".to_string()];
+
+        let key_a = compute_dedup_key(&action_a, "test reason", Some("user@corp.com")).unwrap();
+        let key_b = compute_dedup_key(&action_b, "test reason", Some("user@corp.com")).unwrap();
+        assert_eq!(
+            key_a, key_b,
+            "Dedup keys should match regardless of target_paths order"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_r40_sup_4_dedup_key_same_domains_different_order() {
+        // Two actions with the same target_domains in different orders must
+        // produce the same dedup key.
+        let mut action_a = test_action();
+        action_a.target_domains = vec!["evil.com".to_string(), "bad.com".to_string()];
+
+        let mut action_b = test_action();
+        action_b.target_domains = vec!["bad.com".to_string(), "evil.com".to_string()];
+
+        let key_a = compute_dedup_key(&action_a, "test reason", Some("user@corp.com")).unwrap();
+        let key_b = compute_dedup_key(&action_b, "test reason", Some("user@corp.com")).unwrap();
+        assert_eq!(
+            key_a, key_b,
+            "Dedup keys should match regardless of target_domains order"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_r40_sup_4_dedup_key_different_ips_still_differ() {
+        // Actions with genuinely different resolved_ips must NOT deduplicate.
+        let mut action_a = test_action();
+        action_a.resolved_ips = vec!["10.0.0.1".to_string()];
+
+        let mut action_b = test_action();
+        action_b.resolved_ips = vec!["10.0.0.2".to_string()];
+
+        let key_a = compute_dedup_key(&action_a, "test reason", Some("user@corp.com")).unwrap();
+        let key_b = compute_dedup_key(&action_b, "test reason", Some("user@corp.com")).unwrap();
+        assert_ne!(
+            key_a, key_b,
+            "Dedup keys should differ when resolved_ips are actually different"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_r40_sup_4_dedup_integration_same_ips_different_order() {
+        // End-to-end: creating two approvals with same IPs in different order
+        // should return the same approval ID (deduplication).
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let mut action_a = test_action();
+        action_a.resolved_ips = vec!["10.0.0.1".to_string(), "10.0.0.2".to_string()];
+
+        let mut action_b = test_action();
+        action_b.resolved_ips = vec!["10.0.0.2".to_string(), "10.0.0.1".to_string()];
+
+        let id_a = store
+            .create(action_a, "needs review".to_string(), Some("user@corp.com".to_string()))
+            .await
+            .unwrap();
+        let id_b = store
+            .create(action_b, "needs review".to_string(), Some("user@corp.com".to_string()))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            id_a, id_b,
+            "Same action with reordered IPs should deduplicate to same approval ID"
         );
     }
 }
