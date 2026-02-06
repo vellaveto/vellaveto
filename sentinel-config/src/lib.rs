@@ -1230,9 +1230,32 @@ impl PolicyConfig {
                         "audit_export.webhook_url has no host".to_string()
                     );
                 }
+                // SECURITY (R42-CFG-1): Percent-decode host before localhost/loopback comparison.
+                // An attacker can use %6c%6f%63%61%6c%68%6f%73%74 to encode "localhost"
+                // which bypasses string comparison but HTTP clients will decode.
+                let host_for_check = {
+                    let mut decoded = String::with_capacity(host.len());
+                    let bytes = host.as_bytes();
+                    let mut i = 0;
+                    while i < bytes.len() {
+                        if bytes[i] == b'%' && i + 2 < bytes.len() {
+                            if let (Some(hi), Some(lo)) = (
+                                (bytes[i + 1] as char).to_digit(16),
+                                (bytes[i + 2] as char).to_digit(16),
+                            ) {
+                                decoded.push((hi * 16 + lo) as u8 as char);
+                                i += 3;
+                                continue;
+                            }
+                        }
+                        decoded.push(bytes[i] as char);
+                        i += 1;
+                    }
+                    decoded.to_lowercase()
+                };
                 // Reject localhost/loopback to prevent SSRF to internal services
                 let loopbacks = ["localhost", "127.0.0.1", "[::1]", "0.0.0.0"];
-                if loopbacks.iter().any(|lb| host == *lb) {
+                if loopbacks.iter().any(|lb| host_for_check == *lb) {
                     return Err(format!(
                         "audit_export.webhook_url must not target localhost/loopback, got '{}'",
                         host
@@ -1242,7 +1265,7 @@ impl PolicyConfig {
                 // SSRF attacks that target internal infrastructure. The loopback check above
                 // only catches 127.0.0.1 and localhost, but an attacker could use 10.x.x.x,
                 // 172.16.x.x, 192.168.x.x, or 169.254.169.254 (cloud metadata endpoint).
-                if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+                if let Ok(ip) = host_for_check.parse::<std::net::Ipv4Addr>() {
                     let is_private = ip.is_loopback()
                         || ip.octets()[0] == 10                          // 10.0.0.0/8
                         || (ip.octets()[0] == 172 && (ip.octets()[1] & 0xf0) == 16) // 172.16.0.0/12
@@ -1259,7 +1282,7 @@ impl PolicyConfig {
                     }
                 }
                 // Also check IPv6 private ranges (stripped brackets already handled above)
-                let ipv6_host = host.trim_start_matches('[').trim_end_matches(']');
+                let ipv6_host = host_for_check.trim_start_matches('[').trim_end_matches(']');
                 if let Ok(ip6) = ipv6_host.parse::<std::net::Ipv6Addr>() {
                     // SECURITY (R32-SSRF-1): Check IPv4-mapped IPv6 (::ffff:x.x.x.x)
                     // against IPv4 private ranges. Without this, ::ffff:169.254.169.254
@@ -3062,6 +3085,64 @@ policy_type = "Allow"
         assert!(
             err.contains("private") || err.contains("internal") || err.contains("IPv6"),
             "Lowercase percent-encoded IPv6 link-local should be rejected, got: {}",
+            err
+        );
+    }
+
+    // --- R42-CFG-1: Percent-encoded localhost SSRF bypass tests ---
+
+    #[test]
+    fn test_r42_cfg_1_webhook_rejects_percent_encoded_localhost() {
+        // R42-CFG-1: %6c%6f%63%61%6c%68%6f%73%74 = "localhost"
+        let mut config = minimal_config();
+        config.audit_export.webhook_url =
+            Some("https://%6c%6f%63%61%6c%68%6f%73%74/webhook".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("localhost") || err.contains("loopback"),
+            "Percent-encoded 'localhost' should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_r42_cfg_1_webhook_rejects_percent_encoded_127_0_0_1() {
+        // R42-CFG-1: %31%32%37%2e%30%2e%30%2e%31 = "127.0.0.1"
+        let mut config = minimal_config();
+        config.audit_export.webhook_url =
+            Some("https://%31%32%37%2e%30%2e%30%2e%31/webhook".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("localhost") || err.contains("loopback") || err.contains("private"),
+            "Percent-encoded '127.0.0.1' should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_r42_cfg_1_webhook_rejects_mixed_case_percent_encoded_localhost() {
+        // R42-CFG-1: Mixed-case percent encoding (%6C vs %6c)
+        let mut config = minimal_config();
+        config.audit_export.webhook_url =
+            Some("https://%4C%4F%43%41%4C%48%4F%53%54/webhook".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("localhost") || err.contains("loopback"),
+            "Mixed-case percent-encoded 'LOCALHOST' should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_r42_cfg_1_webhook_rejects_percent_encoded_private_ip() {
+        // R42-CFG-1: %31%36%39%2e%32%35%34%2e%31%36%39%2e%32%35%34 = "169.254.169.254"
+        let mut config = minimal_config();
+        config.audit_export.webhook_url =
+            Some("https://%31%36%39%2e%32%35%34%2e%31%36%39%2e%32%35%34/webhook".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("private") || err.contains("internal"),
+            "Percent-encoded cloud metadata IP should be rejected, got: {}",
             err
         );
     }

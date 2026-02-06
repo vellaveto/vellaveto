@@ -221,6 +221,26 @@ impl Action {
             }
         }
 
+        // SECURITY (R42-TYPES-1): Validate resolved_ips contents (null bytes, length).
+        // Previously only counted toward MAX_TARGETS but contents were not checked,
+        // unlike target_paths and target_domains which validate null bytes and length.
+        for (i, ip) in self.resolved_ips.iter().enumerate() {
+            if ip.contains('\0') {
+                return Err(ValidationError::TargetNullByte {
+                    field: "resolved_ips",
+                    index: i,
+                });
+            }
+            if ip.len() > MAX_TARGET_LEN {
+                return Err(ValidationError::TargetTooLong {
+                    field: "resolved_ips",
+                    index: i,
+                    len: ip.len(),
+                    max: MAX_TARGET_LEN,
+                });
+            }
+        }
+
         Ok(())
     }
 }
@@ -779,6 +799,65 @@ mod tests {
         action.resolved_ips = (0..86).map(|i| format!("10.0.0.{}", i)).collect();
         // 85 + 85 + 86 = 256 == MAX_TARGETS
         assert!(action.validate().is_ok());
+    }
+
+    // --- R42-TYPES-1: resolved_ips content validation tests ---
+
+    #[test]
+    fn test_r42_types_1_resolved_ips_null_byte_rejected() {
+        // R42-TYPES-1: resolved_ips with null byte must be rejected
+        let mut action = Action::new("tool", "func", json!({}));
+        action.resolved_ips = vec!["10.0.0.1".to_string(), "10.0.\0.2".to_string()];
+        assert!(matches!(
+            action.validate(),
+            Err(ValidationError::TargetNullByte {
+                field: "resolved_ips",
+                index: 1
+            })
+        ));
+    }
+
+    #[test]
+    fn test_r42_types_1_resolved_ips_oversized_rejected() {
+        // R42-TYPES-1: resolved_ips with oversized string must be rejected
+        let mut action = Action::new("tool", "func", json!({}));
+        let oversized = "A".repeat(4097); // MAX_TARGET_LEN is 4096
+        action.resolved_ips = vec![oversized];
+        assert!(matches!(
+            action.validate(),
+            Err(ValidationError::TargetTooLong {
+                field: "resolved_ips",
+                index: 0,
+                len: 4097,
+                max: 4096
+            })
+        ));
+    }
+
+    #[test]
+    fn test_r42_types_1_resolved_ips_valid_entries_pass() {
+        // R42-TYPES-1: Valid resolved_ips should pass validation
+        let mut action = Action::new("tool", "func", json!({}));
+        action.resolved_ips = vec![
+            "10.0.0.1".to_string(),
+            "192.168.1.1".to_string(),
+            "::1".to_string(),
+        ];
+        assert!(action.validate().is_ok());
+    }
+
+    #[test]
+    fn test_r42_types_1_resolved_ips_null_byte_first_entry() {
+        // R42-TYPES-1: null byte at index 0
+        let mut action = Action::new("tool", "func", json!({}));
+        action.resolved_ips = vec!["\0".to_string()];
+        assert!(matches!(
+            action.validate(),
+            Err(ValidationError::TargetNullByte {
+                field: "resolved_ips",
+                index: 0
+            })
+        ));
     }
 
     #[test]
