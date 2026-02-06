@@ -2210,6 +2210,22 @@ impl PolicyEngine {
                                     ),
                                 });
                             }
+                            // SECURITY (R38-ENG-1): Even without require_attestation, deny if
+                            // specific identity requirements are configured. Otherwise an attacker
+                            // can bypass issuer/subject/audience/claims checks by simply omitting
+                            // the X-Agent-Identity header.
+                            if required_issuer.is_some()
+                                || required_subject.is_some()
+                                || required_audience.is_some()
+                                || !required_claims.is_empty()
+                            {
+                                return Some(Verdict::Deny {
+                                    reason: format!(
+                                        "{} (identity requirements configured but no agent identity header provided)",
+                                        deny_reason
+                                    ),
+                                });
+                            }
                             // Fall back to legacy agent_id matching is handled by AgentId condition
                         }
                     }
@@ -3908,13 +3924,13 @@ impl PolicyEngine {
             host_port
         };
 
-        // Phase 4.2: Percent-decode the host to prevent bypass via encoded characters
-        // (e.g., evil%2ecom → evil.com bypassing domain patterns).
-        let decoded_host = percent_encoding::percent_decode_str(host).decode_utf8_lossy();
+        // SECURITY (R38-ENG-2): The host is already a substring of decoded_authority
+        // (which was percent-decoded at line 3866-3867). A second percent-decode here
+        // would cause double-decode: %2525 → %25 → %, enabling domain mismatch bypass.
         // Fix #33: Strip trailing dot (DNS FQDN notation) to prevent bypass.
         // "evil.com." and "evil.com" must resolve to the same domain.
         // Single allocation: lowercase first, then strip trailing dots in-place.
-        let mut result = decoded_host.to_lowercase();
+        let mut result = host.to_lowercase();
         while result.ends_with('.') {
             result.pop();
         }
@@ -12061,7 +12077,9 @@ mod tests {
 
     #[test]
     fn test_agent_identity_missing_with_require_attestation_false() {
-        // When require_attestation=false, missing identity allows (falls back to agent_id)
+        // SECURITY (R38-ENG-1): When require_attestation=false but identity requirements
+        // (issuer, subject, audience, claims) are configured, missing identity must still deny.
+        // Otherwise an attacker can bypass all identity checks by omitting the header.
         let policy = make_context_policy(json!([
             {
                 "type": "agent_identity",
@@ -12072,15 +12090,16 @@ mod tests {
         let engine = make_context_engine(policy);
         let action = Action::new("read_file", "execute", json!({}));
         let ctx = EvaluationContext {
-            // No agent_identity, but require_attestation=false
+            // No agent_identity, but issuer requirement is configured
             ..Default::default()
         };
         let v = engine
             .evaluate_action_with_context(&action, &[], Some(&ctx))
             .unwrap();
         assert!(
-            matches!(v, Verdict::Allow),
-            "Missing identity with require_attestation=false should allow"
+            matches!(v, Verdict::Deny { .. }),
+            "R38-ENG-1: Missing identity with issuer requirement should deny, got: {:?}",
+            v
         );
     }
 
@@ -12135,11 +12154,14 @@ mod tests {
 
     #[test]
     fn test_agent_identity_fallback_to_agent_id() {
-        // Combine agent_identity with agent_id for backwards compatibility
+        // SECURITY (R38-ENG-1): Combine agent_identity (no positive requirements, only
+        // blocked_issuers) with agent_id for backwards compatibility. The identity check
+        // passes when no positive requirements are configured (even without identity header),
+        // and the agent_id check handles legacy identification.
         let policy = make_context_policy(json!([
             {
                 "type": "agent_identity",
-                "issuer": "https://auth.example.com",
+                "blocked_issuers": ["evil-corp"],
                 "require_attestation": false
             },
             {"type": "agent_id", "allowed": ["legacy-agent"]}
@@ -12147,24 +12169,27 @@ mod tests {
         let engine = make_context_engine(policy);
         let action = Action::new("read_file", "execute", json!({}));
 
-        // With agent_identity - should be checked
+        // With agent_identity from a valid issuer + matching agent_id - should allow
         let ctx = EvaluationContext {
             agent_identity: Some(make_test_identity(
                 "https://auth.example.com",
                 "agent-123",
                 "admin",
             )),
+            agent_id: Some("legacy-agent".to_string()),
             ..Default::default()
         };
         let v = engine
             .evaluate_action_with_context(&action, &[], Some(&ctx))
             .unwrap();
         assert!(
-            matches!(v, Verdict::Deny { .. }),
-            "Must also pass agent_id check if no identity passed"
+            matches!(v, Verdict::Allow),
+            "Valid identity + matching agent_id should allow, got: {:?}",
+            v
         );
 
-        // With only legacy agent_id - should also be allowed to pass first check
+        // With only legacy agent_id (no identity header) - should pass identity check
+        // (no positive requirements configured) and pass agent_id check
         let ctx_legacy = EvaluationContext {
             agent_id: Some("legacy-agent".to_string()),
             ..Default::default()
@@ -12174,7 +12199,30 @@ mod tests {
             .unwrap();
         assert!(
             matches!(v, Verdict::Allow),
-            "Legacy agent_id should work when require_attestation=false"
+            "Legacy agent_id should work when no positive identity requirements configured"
+        );
+
+        // With issuer requirement configured + no identity header - should deny (R38-ENG-1)
+        let policy_with_issuer = make_context_policy(json!([
+            {
+                "type": "agent_identity",
+                "issuer": "https://auth.example.com",
+                "require_attestation": false
+            },
+            {"type": "agent_id", "allowed": ["legacy-agent"]}
+        ]));
+        let engine_with_issuer = make_context_engine(policy_with_issuer);
+        let ctx_legacy_no_identity = EvaluationContext {
+            agent_id: Some("legacy-agent".to_string()),
+            ..Default::default()
+        };
+        let v = engine_with_issuer
+            .evaluate_action_with_context(&action, &[], Some(&ctx_legacy_no_identity))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "R38-ENG-1: Issuer requirement + no identity header must deny, got: {:?}",
+            v
         );
     }
 
@@ -12298,6 +12346,179 @@ mod tests {
             matches!(v, Verdict::Deny { .. }),
             "R36-ENG-1: Mixed-case window pattern should match lowercased actions, got: {:?}",
             v
+        );
+    }
+
+    // ── R38-ENG-1: AgentIdentityMatch bypass when JWT omitted ──────────────
+
+    #[test]
+    fn test_agent_identity_match_no_attestation_but_identity_required_denies() {
+        // R38-ENG-1: require_attestation=false with required_issuer configured
+        // must still deny when no agent_identity header is present.
+        let policy = make_context_policy(json!([
+            {
+                "type": "agent_identity",
+                "issuer": "corp",
+                "require_attestation": false
+            }
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            // No agent_identity at all
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "R38-ENG-1: No identity + required_issuer should deny, got: {:?}",
+            v
+        );
+        if let Verdict::Deny { reason } = &v {
+            assert!(
+                reason.contains("identity requirements configured"),
+                "Deny reason should mention identity requirements, got: {}",
+                reason
+            );
+        }
+    }
+
+    #[test]
+    fn test_agent_identity_match_no_attestation_subject_required_denies() {
+        // R38-ENG-1: require_attestation=false with required_subject configured
+        let policy = make_context_policy(json!([
+            {
+                "type": "agent_identity",
+                "subject": "agent-007",
+                "require_attestation": false
+            }
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "R38-ENG-1: No identity + required_subject should deny, got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_match_no_attestation_audience_required_denies() {
+        // R38-ENG-1: require_attestation=false with required_audience configured
+        let policy = make_context_policy(json!([
+            {
+                "type": "agent_identity",
+                "audience": "sentinel-api",
+                "require_attestation": false
+            }
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "R38-ENG-1: No identity + required_audience should deny, got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_match_no_attestation_claims_required_denies() {
+        // R38-ENG-1: require_attestation=false with required_claims configured
+        let policy = make_context_policy(json!([
+            {
+                "type": "agent_identity",
+                "claims": {"role": "admin"},
+                "require_attestation": false
+            }
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Deny { .. }),
+            "R38-ENG-1: No identity + required_claims should deny, got: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn test_agent_identity_match_no_attestation_no_requirements_allows() {
+        // R38-ENG-1: require_attestation=false with NO identity requirements
+        // should still allow (pure blocked_issuers/blocked_subjects only, no positive requirements).
+        let policy = make_context_policy(json!([
+            {
+                "type": "agent_identity",
+                "blocked_issuers": ["evil-corp"],
+                "require_attestation": false
+            }
+        ]));
+        let engine = make_context_engine(policy);
+        let action = Action::new("read_file", "execute", json!({}));
+        let ctx = EvaluationContext {
+            ..Default::default()
+        };
+        let v = engine
+            .evaluate_action_with_context(&action, &[], Some(&ctx))
+            .unwrap();
+        assert!(
+            matches!(v, Verdict::Allow),
+            "R38-ENG-1: No identity + no positive requirements should allow, got: {:?}",
+            v
+        );
+    }
+
+    // ── R38-ENG-2: Double percent-decode in extract_domain ─────────────────
+
+    #[test]
+    fn test_extract_domain_no_double_decode_r38_eng_2() {
+        // R38-ENG-2: %2525 should decode to %25 (single decode), NOT to % (double decode).
+        // "safe%252Eexample%252Ecom" → single decode → "safe%2eexample%2ecom"
+        // A double decode would produce "safe.example.com" which is wrong.
+        let domain = PolicyEngine::extract_domain("http://safe%252Eexample%252Ecom/path");
+        assert_eq!(
+            domain, "safe%2eexample%2ecom",
+            "R38-ENG-2: Should single-decode only, not double-decode"
+        );
+    }
+
+    #[test]
+    fn test_extract_domain_single_decode_still_works_r38_eng_2() {
+        // Verify that normal single-encoded domains still decode correctly.
+        // "evil%2Ecom" → single decode → "evil.com"
+        let domain = PolicyEngine::extract_domain("http://evil%2Ecom/path");
+        assert_eq!(
+            domain, "evil.com",
+            "R38-ENG-2: Single-encoded dots should still decode"
+        );
+    }
+
+    #[test]
+    fn test_extract_domain_double_encoded_at_sign_r38_eng_2() {
+        // %2540 = double-encoded @. Single decode → %40 (literal, not @).
+        // Should NOT be treated as userinfo separator.
+        let domain = PolicyEngine::extract_domain("http://user%2540host.com/path");
+        assert_eq!(
+            domain, "user%40host.com",
+            "R38-ENG-2: Double-encoded @ should stay as %40 after single decode"
         );
     }
 }

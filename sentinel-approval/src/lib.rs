@@ -361,11 +361,16 @@ impl ApprovalStore {
             // comparison to prevent bypass via confusable characters (e.g.,
             // Cyrillic 'a' U+0430 vs Latin 'a' U+0061). NFKC maps compatibility
             // equivalents to their canonical forms.
+            // SECURITY (R38-SUP-3): Use full Unicode case folding instead of
+            // ASCII-only `eq_ignore_ascii_case`. Non-ASCII letters like Turkish
+            // İ (U+0130) must case-fold correctly to detect self-approval.
             let requester_normalized: String = requester_base.nfkc().collect();
             let approver_normalized: String = approver_base.nfkc().collect();
-            if !requester_normalized.is_empty()
-                && !requester_normalized.eq_ignore_ascii_case("anonymous")
-                && requester_normalized.eq_ignore_ascii_case(&approver_normalized)
+            let req_lower: String = requester_normalized.chars().flat_map(char::to_lowercase).collect();
+            let app_lower: String = approver_normalized.chars().flat_map(char::to_lowercase).collect();
+            if !req_lower.is_empty()
+                && req_lower != "anonymous"
+                && req_lower == app_lower
             {
                 return Err(ApprovalError::Validation(format!(
                     "Self-approval denied: requester '{}' cannot approve their own request",
@@ -1120,6 +1125,106 @@ mod tests {
         assert!(
             result.is_ok(),
             "Different users should be able to approve: {:?}",
+            result.err()
+        );
+    }
+
+    // SECURITY (R38-SUP-3): Non-ASCII case folding for self-approval check.
+    // Greek Sigma (U+03A3) uppercase vs sigma (U+03C3) lowercase are the same
+    // principal. ASCII-only eq_ignore_ascii_case misses this because it only
+    // folds A-Z. Full Unicode to_lowercase catches it.
+    #[tokio::test]
+    async fn test_r38_sup_3_greek_sigma_self_approval_blocked() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        // Requester uses uppercase Greek Sigma
+        let requester = "\u{03A3}igma@corp.com".to_string();
+        let id = store
+            .create(test_action(), "needs review".to_string(), Some(requester))
+            .await
+            .unwrap();
+
+        // Approver uses lowercase Greek sigma — same principal
+        let result = store.approve(&id, "\u{03C3}igma@corp.com").await;
+        assert!(
+            result.is_err(),
+            "Greek Sigma uppercase vs lowercase should be caught as self-approval \
+             under Unicode case folding (was missed by ASCII-only folding)"
+        );
+        match result.unwrap_err() {
+            ApprovalError::Validation(msg) => {
+                assert!(
+                    msg.contains("Self-approval denied"),
+                    "Expected self-approval denial, got: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected Validation error, got: {:?}", other),
+        }
+    }
+
+    // Regression: ASCII case folding must still work after the Unicode change
+    #[tokio::test]
+    async fn test_r38_sup_3_ascii_case_folding_still_works() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let id = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some("Admin@Corp.com".to_string()),
+            )
+            .await
+            .unwrap();
+
+        let result = store.approve(&id, "admin@corp.com").await;
+        assert!(
+            result.is_err(),
+            "ASCII case-insensitive self-approval should still be caught"
+        );
+        match result.unwrap_err() {
+            ApprovalError::Validation(msg) => {
+                assert!(
+                    msg.contains("Self-approval denied"),
+                    "Expected self-approval denial, got: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected Validation error, got: {:?}", other),
+        }
+    }
+
+    // The "anonymous" exclusion must still work with Unicode folding
+    #[tokio::test]
+    async fn test_r38_sup_3_anonymous_exclusion_preserved() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let id = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some("Anonymous".to_string()),
+            )
+            .await
+            .unwrap();
+
+        // "Anonymous" requester should NOT be blocked from approval by "anonymous"
+        let result = store.approve(&id, "anonymous").await;
+        assert!(
+            result.is_ok(),
+            "Anonymous principal should be excluded from self-approval check: {:?}",
             result.err()
         );
     }

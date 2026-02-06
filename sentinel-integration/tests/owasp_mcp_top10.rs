@@ -843,8 +843,8 @@ fn test_owasp_mcp06_audit_preserves_hash_chain_after_injection() {
 // Risk: Unauthenticated access to management endpoints allows
 //       attackers to read policies, audit logs, approve actions, etc.
 // Sentinel coverage: Bearer token auth middleware on ALL endpoints
-//       except /health and /api/metrics. Sensitive GET endpoints
-//       (policies, audit, approvals) require auth when configured.
+//       except /health. All other endpoints (including /api/metrics
+//       and /metrics) require auth when configured (R38-SRV-1).
 // ═══════════════════════════════════════════════════════════════
 
 mod owasp_mcp07_auth {
@@ -1019,11 +1019,15 @@ mod owasp_mcp07_auth {
         let resp = app.oneshot(req).await.unwrap();
         assert!(resp.status().is_success(), "GET /health must be open");
 
-        // Metrics endpoint — always public
+        // R38-SRV-1: /api/metrics now requires auth (exposes policy count)
         let app = routes::build_router(state.clone());
         let req = Request::get("/api/metrics").body(Body::empty()).unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        assert!(resp.status().is_success(), "GET /api/metrics must be open");
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "GET /api/metrics must require auth (R38-SRV-1)"
+        );
     }
 
     #[tokio::test]

@@ -50,6 +50,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/registry/tools", get(list_registry_tools))
         .route("/api/registry/tools/{name}/approve", post(approve_registry_tool))
         .route("/api/registry/tools/{name}/revoke", post(revoke_registry_tool))
+        // SECURITY (R38-SRV-1): /metrics inside auth — exposes policy count
+        // and pending approval count, which are security-sensitive (see R26-SRV-6).
+        // SECURITY (R38-SRV-2): /metrics inside rate_limit — prevents scraper DoS.
+        .route("/metrics", get(prometheus_metrics))
         // SECURITY (R27-SRV-8): rate_limit MUST be outermost (applied last)
         // so it runs BEFORE auth. Previously auth was outermost, meaning
         // unauthenticated flood requests bypassed rate limiting entirely.
@@ -59,11 +63,7 @@ pub fn build_router(state: AppState) -> Router {
         ))
         .route_layer(middleware::from_fn_with_state(state.clone(), rate_limit));
 
-    // Merge the /metrics Prometheus endpoint OUTSIDE auth middleware so
-    // Prometheus scrapers do not need an API key. This endpoint only
-    // exposes operational counters, not security-sensitive data.
     Router::new()
-        .route("/metrics", get(prometheus_metrics))
         .merge(authenticated)
         .layer(middleware::from_fn(request_id))
         .layer(middleware::from_fn(security_headers))
@@ -188,9 +188,12 @@ async fn require_api_key(State(state): State<AppState>, request: Request, next: 
         return next.run(request).await;
     }
 
-    // Public endpoints: always accessible without auth
+    // Public endpoints: always accessible without auth.
+    // SECURITY (R38-SRV-1): /api/metrics removed — exposes policy count and
+    // pending approval count (sensitive, per R26-SRV-6). /metrics (Prometheus)
+    // is also now behind auth for the same reason.
     let path = request.uri().path();
-    if path == "/health" || path == "/api/metrics" {
+    if path == "/health" {
         return next.run(request).await;
     }
 
@@ -1368,9 +1371,10 @@ async fn create_checkpoint(
 
 /// Serve Prometheus text exposition format metrics.
 ///
-/// This endpoint is intentionally outside the auth middleware so that
-/// Prometheus scrapers can access it without an API key. It only exposes
-/// operational counters and gauges, not security-sensitive data.
+/// SECURITY (R38-SRV-1/R38-SRV-2): This endpoint is behind auth and rate
+/// limiting because it exposes `sentinel_policies_loaded` and pending approval
+/// counts, which are security-sensitive (see R26-SRV-6). Prometheus scrapers
+/// must provide a valid API key via Bearer token.
 async fn prometheus_metrics(State(state): State<AppState>) -> Response {
     match &state.prometheus_handle {
         Some(handle) => {

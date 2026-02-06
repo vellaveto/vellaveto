@@ -915,6 +915,14 @@ impl ProxyBridge {
                                     };
                                     match self.evaluate_resource_read(&id, &uri, Some(&eval_ctx)) {
                                         ProxyDecision::Forward => {
+                                            // SECURITY (R38-MCP-2): Update call_counts and
+                                            // action_history for ResourceRead so that
+                                            // MaxCalls/MaxCallsInWindow constraints apply.
+                                            *call_counts.entry("resources/read".to_string()).or_insert(0) += 1;
+                                            if action_history.len() >= MAX_ACTION_HISTORY {
+                                                action_history.remove(0);
+                                            }
+                                            action_history.push("resources/read".to_string());
                                             if !id.is_null() {
                                                 let id_key = id.to_string();
                                                 if pending_requests.len() < MAX_PENDING_REQUESTS {
@@ -1152,6 +1160,14 @@ impl ProxyBridge {
                                             ).await {
                                                 tracing::warn!("Audit log failed: {}", e);
                                             }
+                                            // SECURITY (R38-MCP-2): Update call_counts and
+                                            // action_history for TaskRequest so that
+                                            // MaxCalls/MaxCallsInWindow constraints apply.
+                                            *call_counts.entry(task_method.to_string()).or_insert(0) += 1;
+                                            if action_history.len() >= MAX_ACTION_HISTORY {
+                                                action_history.remove(0);
+                                            }
+                                            action_history.push(task_method.to_string());
                                             if !id.is_null() {
                                                 let id_key = id.to_string();
                                                 if pending_requests.len() < MAX_PENDING_REQUESTS {
@@ -1457,6 +1473,15 @@ impl ProxyBridge {
                                             continue;
                                         }
                                     }
+                                }
+
+                                // SECURITY (R38-MCP-1): Fingerprint notification params
+                                // for memory poisoning detection. Server notifications
+                                // carry data in `params` (not `result`), so
+                                // `record_response()` never sees it. Without this,
+                                // replayed notification data bypasses poisoning checks.
+                                if let Some(params) = msg.get("params") {
+                                    memory_tracker.extract_from_value(params);
                                 }
                             }
 

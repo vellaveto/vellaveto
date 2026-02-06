@@ -204,8 +204,12 @@ impl MemoryTracker {
     /// Maximum recursion depth for JSON traversal to prevent stack overflow.
     const MAX_RECURSION_DEPTH: usize = 64;
 
-    /// Extract strings from arbitrary JSON values.
-    fn extract_from_value(&mut self, value: &serde_json::Value) {
+    /// Extract and fingerprint strings from arbitrary JSON values.
+    ///
+    /// This is used internally by `record_response()` for structured fields,
+    /// and publicly by proxy code to fingerprint notification params
+    /// (SECURITY R38-MCP-1).
+    pub fn extract_from_value(&mut self, value: &serde_json::Value) {
         self.extract_from_value_inner(value, 0);
     }
 
@@ -745,5 +749,67 @@ mod tests {
         // Should not panic — non-UTF-8 blobs are binary data, not trackable
         tracker.record_response(&response);
         assert_eq!(tracker.fingerprint_count(), 0);
+    }
+
+    // SECURITY (R38-MCP-1): Notification params must be fingerprinted.
+    // `record_response()` only extracts from `result`/`error`, missing
+    // notification `params`. The public `extract_from_value()` method
+    // allows proxy code to fingerprint notification params directly.
+    #[test]
+    fn test_r38_mcp_1_notification_params_fingerprinted_via_extract_from_value() {
+        let mut tracker = MemoryTracker::new();
+
+        // Simulate a notification with data in params (not result).
+        // extract_from_value stores hashes of string values as-is,
+        // so the tool call param must match the exact stored string.
+        let malicious_url = "https://evil.example.com/exfil/long-enough-path";
+        let notification_params = json!({
+            "uri": malicious_url,
+            "content": "some short text"
+        });
+        tracker.extract_from_value(&notification_params);
+        assert!(
+            tracker.fingerprint_count() > 0,
+            "Notification params should produce fingerprints"
+        );
+
+        // If the agent later replays that exact URL, it should be detected
+        let tool_params = json!({
+            "url": malicious_url
+        });
+        let matches = tracker.check_parameters(&tool_params);
+        assert!(
+            !matches.is_empty(),
+            "Replayed notification data should be detected as memory poisoning"
+        );
+    }
+
+    #[test]
+    fn test_r38_mcp_1_notification_params_not_fingerprinted_by_record_response() {
+        let mut tracker = MemoryTracker::new();
+
+        let malicious_url = "https://evil.example.com/exfil/long-enough-path";
+
+        // A notification message has `params` but no `result`/`error`.
+        // record_response() should NOT fingerprint it (it only handles result/error).
+        let notification = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/resources/updated",
+            "params": {
+                "uri": malicious_url,
+            }
+        });
+        tracker.record_response(&notification);
+
+        // record_response sees no result/error, so no fingerprints stored
+        let tool_params = json!({
+            "url": malicious_url
+        });
+        let matches = tracker.check_parameters(&tool_params);
+        assert!(
+            matches.is_empty(),
+            "record_response should not fingerprint notification params — \
+             this is the gap R38-MCP-1 addresses via extract_from_value()"
+        );
     }
 }

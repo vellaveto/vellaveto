@@ -61,7 +61,8 @@ fn state_with_api_key(tmp: &TempDir) -> AppState {
 // authentication.
 //
 // FIXED: All sensitive GET endpoints now require auth when an API key is
-// configured. Only /health and /api/metrics remain public.
+// configured. Only /health remains public. /api/metrics and /metrics were
+// moved behind auth in R38-SRV-1.
 // =============================================================================
 
 #[tokio::test]
@@ -179,12 +180,14 @@ async fn regression_25_pending_approvals_not_readable_without_auth() {
     );
 }
 
+/// R38-SRV-1: /api/metrics now requires auth because it exposes policy count
+/// and pending approval count (security-sensitive per R26-SRV-6).
 #[tokio::test]
-async fn regression_25_metrics_still_readable_without_auth() {
+async fn regression_38_metrics_requires_auth() {
     let tmp = TempDir::new().unwrap();
     let state = state_with_api_key(&tmp);
 
-    // /api/metrics is intentionally public — operational monitoring endpoint
+    // /api/metrics is now protected — must return 401 without API key
     let app = routes::build_router(state.clone());
     let resp = app
         .oneshot(Request::get("/api/metrics").body(Body::empty()).unwrap())
@@ -192,8 +195,121 @@ async fn regression_25_metrics_still_readable_without_auth() {
         .unwrap();
     assert_eq!(
         resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "GET /api/metrics must require auth (R38-SRV-1)"
+    );
+
+    // With valid API key, /api/metrics should return 200
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::get("/api/metrics")
+                .header("authorization", "Bearer secret-api-key-12345")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
         StatusCode::OK,
-        "GET /api/metrics should still be public (intentionally unauthenticated)"
+        "GET /api/metrics should succeed with valid auth"
+    );
+}
+
+/// R38-SRV-1: /metrics (Prometheus) also requires auth — exposes
+/// sentinel_policies_loaded and sentinel_active_sessions gauges.
+#[tokio::test]
+async fn regression_38_prometheus_metrics_requires_auth() {
+    let tmp = TempDir::new().unwrap();
+    let state = state_with_api_key(&tmp);
+
+    // /metrics without API key must return 401
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(Request::get("/metrics").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "GET /metrics must require auth (R38-SRV-1)"
+    );
+}
+
+/// R38-SRV-2: /metrics (Prometheus) is rate-limited — prevents scraper DoS.
+#[tokio::test]
+async fn regression_38_prometheus_metrics_rate_limited() {
+    let tmp = TempDir::new().unwrap();
+    // Create state with API key and tight rate limits to test rate limiting
+    let state = AppState {
+        policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![Policy {
+                id: "file:read".to_string(),
+                name: "Allow".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+                path_rules: None,
+                network_rules: None,
+            }],
+        })),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("test.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: Some(Arc::new("secret-api-key-12345".to_string())),
+        // Very tight rate limit: 1 request per second on readonly (GET) endpoints
+        rate_limits: Arc::new(RateLimits::new(None, None, Some(1))),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
+        tool_registry: None,
+    };
+
+    // First request should succeed
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::get("/metrics")
+                .header("authorization", "Bearer secret-api-key-12345")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    // May be 404 (no prometheus_handle) or 200 — but NOT 429 on first request
+    assert_ne!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "First /metrics request should not be rate-limited"
+    );
+
+    // Rapid subsequent requests should eventually hit rate limit
+    let mut hit_rate_limit = false;
+    for _ in 0..20 {
+        let app = routes::build_router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::get("/metrics")
+                    .header("authorization", "Bearer secret-api-key-12345")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        if resp.status() == StatusCode::TOO_MANY_REQUESTS {
+            hit_rate_limit = true;
+            break;
+        }
+    }
+    assert!(
+        hit_rate_limit,
+        "/metrics must be rate-limited (R38-SRV-2)"
     );
 }
 

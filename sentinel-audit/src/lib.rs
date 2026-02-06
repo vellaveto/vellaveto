@@ -1264,6 +1264,22 @@ impl AuditLogger {
                 });
             }
 
+            // SECURITY (R38-SUP-1): Check rotated file size before reading
+            // to prevent OOM from an adversarially large replacement file.
+            let rotated_meta = tokio::fs::metadata(&rotated_path).await?;
+            if rotated_meta.len() > Self::MAX_AUDIT_LOG_SIZE {
+                return Ok(RotationVerification {
+                    valid: false,
+                    files_checked: i,
+                    first_failure: Some(format!(
+                        "Rotated file exceeds size limit ({} bytes, max {} bytes): {}",
+                        rotated_meta.len(),
+                        Self::MAX_AUDIT_LOG_SIZE,
+                        rotated_path.display()
+                    )),
+                });
+            }
+
             // Load and verify the rotated file's chain
             let content = tokio::fs::read_to_string(&rotated_path).await?;
             let mut entries = Vec::new();
@@ -4363,6 +4379,59 @@ mod tests {
             result.valid,
             "Sanitized rotation should pass verification: {:?}",
             result.first_failure
+        );
+    }
+
+    // SECURITY (R38-SUP-1): Rotated file size check prevents OOM.
+    // An attacker with write access to the audit directory can replace a rotated
+    // file with a multi-GB file, causing OOM when verify_across_rotations reads it.
+    #[tokio::test]
+    async fn test_r38_sup_1_oversized_rotated_file_rejected() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
+
+        // Write enough entries to trigger at least one rotation
+        for i in 0..10 {
+            let action = Action::new("tool", format!("func_{}", i), json!({}));
+            logger
+                .log_entry(&action, &Verdict::Allow, json!({"i": i}))
+                .await
+                .unwrap();
+        }
+
+        // Verify rotation worked
+        let result = logger.verify_across_rotations().await.unwrap();
+        assert!(result.valid, "Pre-tamper rotation should be valid");
+
+        // Find the manifest and extract the rotated file name
+        let manifest_path = dir.path().join("audit.rotation-manifest.jsonl");
+        let manifest_content = std::fs::read_to_string(&manifest_path).unwrap();
+        let first_line = manifest_content.lines().next().unwrap();
+        let entry: serde_json::Value = serde_json::from_str(first_line).unwrap();
+        let rotated_file = entry.get("rotated_file").unwrap().as_str().unwrap();
+        let rotated_path = dir.path().join(rotated_file);
+
+        // Replace the rotated file with a sparse file exceeding MAX_AUDIT_LOG_SIZE (100MB)
+        {
+            use std::io::{Seek, Write};
+            let mut f = std::fs::File::create(&rotated_path).unwrap();
+            // Seek to 100MB + 1 byte and write a byte to create a sparse file
+            f.seek(std::io::SeekFrom::Start(100 * 1024 * 1024 + 1)).unwrap();
+            f.write_all(b"\n").unwrap();
+        }
+
+        // verify_across_rotations should detect the oversized file and fail gracefully
+        let result = logger.verify_across_rotations().await.unwrap();
+        assert!(
+            !result.valid,
+            "Oversized rotated file should be rejected, not cause OOM"
+        );
+        let failure = result.first_failure.as_ref().unwrap();
+        assert!(
+            failure.contains("exceeds size limit"),
+            "Failure message should mention size limit, got: {}",
+            failure
         );
     }
 }
