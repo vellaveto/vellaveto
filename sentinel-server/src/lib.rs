@@ -2,6 +2,10 @@ pub mod dashboard;
 pub mod metrics;
 pub mod routes;
 
+/// Re-export for fuzz testing — not part of the public API.
+#[doc(hidden)]
+pub use routes::scan_params_for_targets;
+
 use arc_swap::ArcSwap;
 use governor::clock::Clock;
 use governor::{Quota, RateLimiter};

@@ -336,7 +336,7 @@ const MAX_PARAM_SCAN_DEPTH: usize = 32;
 /// Maximum number of extracted paths + domains to prevent OOM from large parameter arrays.
 const MAX_EXTRACTED_TARGETS: usize = 256;
 
-fn scan_params_for_targets(
+pub fn scan_params_for_targets(
     value: &serde_json::Value,
     paths: &mut Vec<String>,
     domains: &mut Vec<String>,
