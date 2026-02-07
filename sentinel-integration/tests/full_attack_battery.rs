@@ -28,7 +28,7 @@ use std::collections::HashMap;
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-fn make_action(tool: &str, function: &str, params: Value) -> Action {
+fn _make_action(tool: &str, function: &str, params: Value) -> Action {
     Action::new(tool.to_string(), function.to_string(), params)
 }
 
