@@ -158,6 +158,7 @@ fn to_policies_produces_correct_policy_structs() {
         behavioral: Default::default(),
         data_flow: Default::default(),
         semantic_detection: Default::default(),
+        cluster: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(policies.len(), 1);
@@ -197,6 +198,7 @@ fn to_policies_uses_default_priority_when_none() {
         behavioral: Default::default(),
         data_flow: Default::default(),
         semantic_detection: Default::default(),
+        cluster: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(
@@ -342,6 +344,7 @@ fn policy_config_toml_roundtrip() {
         behavioral: Default::default(),
         data_flow: Default::default(),
         semantic_detection: Default::default(),
+        cluster: Default::default(),
     };
     let toml_str = toml::to_string(&original).unwrap();
     let parsed = PolicyConfig::from_toml(&toml_str).unwrap();

@@ -519,6 +519,41 @@ async fn cmd_serve(
             None
         };
 
+    // Initialize cluster backend (P3.4) if enabled.
+    let cluster: Option<Arc<dyn sentinel_cluster::ClusterBackend>> =
+        if policy_config.cluster.enabled && policy_config.cluster.backend == "redis" {
+            #[cfg(feature = "redis-backend")]
+            {
+                let backend = sentinel_cluster::redis_backend::RedisBackend::new(
+                    &policy_config.cluster.redis_url,
+                    policy_config.cluster.redis_pool_size,
+                    &policy_config.cluster.key_prefix,
+                )
+                .map_err(|e| anyhow::anyhow!("Failed to initialize Redis cluster backend: {}", e))?;
+                tracing::info!(
+                    "Cluster backend: Redis (url={}, pool_size={}, prefix={})",
+                    policy_config.cluster.redis_url,
+                    policy_config.cluster.redis_pool_size,
+                    policy_config.cluster.key_prefix,
+                );
+                Some(Arc::new(backend))
+            }
+            #[cfg(not(feature = "redis-backend"))]
+            {
+                anyhow::bail!(
+                    "Cluster backend 'redis' requires the 'redis-backend' feature. \
+                     Build with: cargo build --features sentinel-cluster/redis-backend"
+                );
+            }
+        } else if policy_config.cluster.enabled {
+            // "local" backend with clustering enabled — use LocalBackend wrapper
+            let backend = sentinel_cluster::local::LocalBackend::new(approvals.clone());
+            tracing::info!("Cluster backend: local (single-instance mode)");
+            Some(Arc::new(backend))
+        } else {
+            None
+        };
+
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
             engine,
@@ -535,17 +570,27 @@ async fn cmd_serve(
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle,
         tool_registry,
+        cluster,
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
     tracing::info!("Approvals log: {}", approval_path.display());
 
-    // Spawn periodic approval expiry task
+    // Spawn periodic approval expiry task.
+    // When clustering is enabled, uses the cluster backend (e.g., Redis TTL-based expiry).
+    // Otherwise, uses the local ApprovalStore directly.
+    let expiry_state = state.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
         loop {
             interval.tick().await;
-            let expired = approvals.expire_stale().await;
+            let expired = match expiry_state.expire_stale_approvals().await {
+                Ok(count) => count,
+                Err(e) => {
+                    tracing::warn!("Failed to expire stale approvals: {:?}", e);
+                    0
+                }
+            };
             if expired > 0 {
                 tracing::info!("Expired {} stale approvals", expired);
             }
@@ -826,6 +871,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         behavioral: Default::default(),
         data_flow: Default::default(),
         semantic_detection: Default::default(),
+        cluster: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

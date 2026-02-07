@@ -1023,6 +1023,12 @@ pub struct PolicyConfig {
     /// Requires the `semantic-detection` feature flag on `sentinel-mcp`.
     #[serde(default)]
     pub semantic_detection: SemanticDetectionConfig,
+
+    /// Distributed clustering configuration (P3.4).
+    /// When enabled, Sentinel instances share approval and rate limit state
+    /// via Redis, enabling horizontal scaling behind a load balancer.
+    #[serde(default)]
+    pub cluster: ClusterConfig,
 }
 
 /// Tool registry with trust scoring configuration (P2.1).
@@ -1263,6 +1269,81 @@ impl Default for SemanticDetectionConfig {
         }
     }
 }
+
+/// Distributed clustering configuration (P3.4).
+///
+/// When enabled, multiple Sentinel instances share approval and rate limit
+/// state via Redis. When disabled (default), `LocalBackend` preserves
+/// single-instance behavior exactly.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [cluster]
+/// enabled = true
+/// backend = "redis"
+/// redis_url = "redis://sentinel-redis:6379"
+/// redis_pool_size = 8
+/// key_prefix = "sentinel:"
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ClusterConfig {
+    /// Enable clustering. When false (default), local in-process state is used.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Backend type: "local" or "redis". Default: "local".
+    #[serde(default = "default_cluster_backend")]
+    pub backend: String,
+
+    /// Redis connection URL. Only used when backend = "redis".
+    /// Default: "redis://127.0.0.1:6379"
+    #[serde(default = "default_cluster_redis_url")]
+    pub redis_url: String,
+
+    /// Redis connection pool size. Default: 8.
+    #[serde(default = "default_cluster_pool_size")]
+    pub redis_pool_size: usize,
+
+    /// Key prefix for Redis keys. Default: "sentinel:".
+    /// Allows multiple Sentinel deployments to share a Redis instance.
+    #[serde(default = "default_cluster_key_prefix")]
+    pub key_prefix: String,
+}
+
+fn default_cluster_backend() -> String {
+    "local".to_string()
+}
+
+fn default_cluster_redis_url() -> String {
+    "redis://127.0.0.1:6379".to_string()
+}
+
+fn default_cluster_pool_size() -> usize {
+    8
+}
+
+fn default_cluster_key_prefix() -> String {
+    "sentinel:".to_string()
+}
+
+impl Default for ClusterConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            backend: default_cluster_backend(),
+            redis_url: default_cluster_redis_url(),
+            redis_pool_size: default_cluster_pool_size(),
+            key_prefix: default_cluster_key_prefix(),
+        }
+    }
+}
+
+/// Maximum Redis pool size to prevent misconfigured resource exhaustion.
+pub const MAX_CLUSTER_REDIS_POOL_SIZE: usize = 128;
+
+/// Maximum key prefix length to prevent oversized Redis keys.
+pub const MAX_CLUSTER_KEY_PREFIX_LEN: usize = 64;
 
 /// Maximum number of extra semantic detection templates.
 pub const MAX_SEMANTIC_EXTRA_TEMPLATES: usize = 200;
@@ -1660,6 +1741,47 @@ impl PolicyConfig {
                 self.semantic_detection.extra_templates.len(),
                 MAX_SEMANTIC_EXTRA_TEMPLATES
             ));
+        }
+
+        // Validate cluster config
+        if self.cluster.enabled {
+            let valid_backends = ["local", "redis"];
+            if !valid_backends.contains(&self.cluster.backend.as_str()) {
+                return Err(format!(
+                    "cluster.backend must be one of {:?}, got '{}'",
+                    valid_backends, self.cluster.backend
+                ));
+            }
+            if self.cluster.backend == "redis" {
+                if self.cluster.redis_url.is_empty() {
+                    return Err(
+                        "cluster.redis_url must not be empty when backend is 'redis'".to_string(),
+                    );
+                }
+                if !self.cluster.redis_url.starts_with("redis://")
+                    && !self.cluster.redis_url.starts_with("rediss://")
+                {
+                    return Err(format!(
+                        "cluster.redis_url must start with redis:// or rediss://, got '{}'",
+                        self.cluster.redis_url
+                    ));
+                }
+            }
+            if self.cluster.redis_pool_size == 0
+                || self.cluster.redis_pool_size > MAX_CLUSTER_REDIS_POOL_SIZE
+            {
+                return Err(format!(
+                    "cluster.redis_pool_size must be in [1, {}], got {}",
+                    MAX_CLUSTER_REDIS_POOL_SIZE, self.cluster.redis_pool_size
+                ));
+            }
+            if self.cluster.key_prefix.len() > MAX_CLUSTER_KEY_PREFIX_LEN {
+                return Err(format!(
+                    "cluster.key_prefix must be at most {} characters, got {}",
+                    MAX_CLUSTER_KEY_PREFIX_LEN,
+                    self.cluster.key_prefix.len()
+                ));
+            }
         }
 
         Ok(())
@@ -2735,6 +2857,7 @@ policy_type = "Allow"
             behavioral: BehavioralDetectionConfig::default(),
             data_flow: DataFlowTrackingConfig::default(),
             semantic_detection: SemanticDetectionConfig::default(),
+            cluster: ClusterConfig::default(),
         };
         config.policies = (0..=MAX_POLICIES)
             .map(|i| PolicyRule {

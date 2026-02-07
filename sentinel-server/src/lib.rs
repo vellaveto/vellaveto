@@ -494,6 +494,151 @@ pub struct AppState {
     /// Tool registry for tracking tool trust scores (P2.1).
     /// None when tool registry is disabled.
     pub tool_registry: Option<Arc<sentinel_mcp::tool_registry::ToolRegistry>>,
+    /// Cluster backend for distributed state sharing (P3.4).
+    /// When clustering is enabled, approvals and rate limits are shared across
+    /// instances. When disabled, delegates to the local `ApprovalStore`.
+    pub cluster: Option<Arc<dyn sentinel_cluster::ClusterBackend>>,
+}
+
+/// Error type for cluster-dispatched approval operations.
+/// Unifies `ApprovalError` and `ClusterError` for routes.
+#[derive(Debug)]
+pub enum ApprovalOpError {
+    NotFound(String),
+    AlreadyResolved(String),
+    Expired(String),
+    CapacityExceeded(usize),
+    Validation(String),
+    Internal(String),
+}
+
+impl From<sentinel_approval::ApprovalError> for ApprovalOpError {
+    fn from(e: sentinel_approval::ApprovalError) -> Self {
+        match e {
+            sentinel_approval::ApprovalError::NotFound(id) => ApprovalOpError::NotFound(id),
+            sentinel_approval::ApprovalError::AlreadyResolved(id) => {
+                ApprovalOpError::AlreadyResolved(id)
+            }
+            sentinel_approval::ApprovalError::Expired(id) => ApprovalOpError::Expired(id),
+            sentinel_approval::ApprovalError::CapacityExceeded(max) => {
+                ApprovalOpError::CapacityExceeded(max)
+            }
+            sentinel_approval::ApprovalError::Validation(msg) => ApprovalOpError::Validation(msg),
+            other => ApprovalOpError::Internal(other.to_string()),
+        }
+    }
+}
+
+impl From<sentinel_cluster::ClusterError> for ApprovalOpError {
+    fn from(e: sentinel_cluster::ClusterError) -> Self {
+        match e {
+            sentinel_cluster::ClusterError::NotFound(id) => ApprovalOpError::NotFound(id),
+            sentinel_cluster::ClusterError::AlreadyResolved(id) => {
+                ApprovalOpError::AlreadyResolved(id)
+            }
+            sentinel_cluster::ClusterError::Expired(id) => ApprovalOpError::Expired(id),
+            sentinel_cluster::ClusterError::CapacityExceeded(max) => {
+                ApprovalOpError::CapacityExceeded(max)
+            }
+            sentinel_cluster::ClusterError::Validation(msg) => ApprovalOpError::Validation(msg),
+            other => ApprovalOpError::Internal(other.to_string()),
+        }
+    }
+}
+
+impl AppState {
+    /// Create an approval, dispatching to cluster backend if available.
+    pub async fn create_approval(
+        &self,
+        action: sentinel_types::Action,
+        reason: String,
+        requested_by: Option<String>,
+    ) -> Result<String, ApprovalOpError> {
+        if let Some(ref cluster) = self.cluster {
+            Ok(cluster.approval_create(action, reason, requested_by).await?)
+        } else {
+            Ok(self.approvals.create(action, reason, requested_by).await?)
+        }
+    }
+
+    /// Get an approval by ID, dispatching to cluster backend if available.
+    pub async fn get_approval(
+        &self,
+        id: &str,
+    ) -> Result<sentinel_approval::PendingApproval, ApprovalOpError> {
+        if let Some(ref cluster) = self.cluster {
+            Ok(cluster.approval_get(id).await?)
+        } else {
+            Ok(self.approvals.get(id).await?)
+        }
+    }
+
+    /// Approve an approval, dispatching to cluster backend if available.
+    pub async fn approve_approval(
+        &self,
+        id: &str,
+        by: &str,
+    ) -> Result<sentinel_approval::PendingApproval, ApprovalOpError> {
+        if let Some(ref cluster) = self.cluster {
+            Ok(cluster.approval_approve(id, by).await?)
+        } else {
+            Ok(self.approvals.approve(id, by).await?)
+        }
+    }
+
+    /// Deny an approval, dispatching to cluster backend if available.
+    pub async fn deny_approval(
+        &self,
+        id: &str,
+        by: &str,
+    ) -> Result<sentinel_approval::PendingApproval, ApprovalOpError> {
+        if let Some(ref cluster) = self.cluster {
+            Ok(cluster.approval_deny(id, by).await?)
+        } else {
+            Ok(self.approvals.deny(id, by).await?)
+        }
+    }
+
+    /// List pending approvals, dispatching to cluster backend if available.
+    pub async fn list_pending_approvals(
+        &self,
+    ) -> Result<Vec<sentinel_approval::PendingApproval>, ApprovalOpError> {
+        if let Some(ref cluster) = self.cluster {
+            Ok(cluster.approval_list_pending().await?)
+        } else {
+            Ok(self.approvals.list_pending().await)
+        }
+    }
+
+    /// Count pending approvals, dispatching to cluster backend if available.
+    pub async fn pending_approval_count(&self) -> Result<usize, ApprovalOpError> {
+        if let Some(ref cluster) = self.cluster {
+            Ok(cluster.approval_pending_count().await?)
+        } else {
+            Ok(self.approvals.pending_count().await)
+        }
+    }
+
+    /// Expire stale approvals, dispatching to cluster backend if available.
+    pub async fn expire_stale_approvals(&self) -> Result<usize, ApprovalOpError> {
+        if let Some(ref cluster) = self.cluster {
+            Ok(cluster.approval_expire_stale().await?)
+        } else {
+            Ok(self.approvals.expire_stale().await)
+        }
+    }
+
+    /// Check cluster backend health. Returns Ok if healthy or not configured.
+    pub async fn cluster_health(&self) -> Result<(), String> {
+        if let Some(ref cluster) = self.cluster {
+            cluster
+                .health_check()
+                .await
+                .map_err(|e| format!("Cluster backend unhealthy: {}", e))
+        } else {
+            Ok(())
+        }
+    }
 }
 
 /// Reload policies from the config file and recompile the engine.
@@ -535,6 +680,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             behavioral: Default::default(),
             data_flow: Default::default(),
             semantic_detection: Default::default(),
+            cluster: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

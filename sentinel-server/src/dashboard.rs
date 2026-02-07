@@ -126,7 +126,7 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
     let eval_approval = metrics
         .evaluations_require_approval
         .load(std::sync::atomic::Ordering::Relaxed);
-    let pending_count = state.approvals.pending_count().await;
+    let pending_count = state.pending_approval_count().await.unwrap_or(0);
 
     let _ = write!(
         html,
@@ -144,7 +144,7 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
     );
 
     // ── Pending approvals ─────────────────────────
-    let pending = state.approvals.list_pending().await;
+    let pending = state.list_pending_approvals().await.unwrap_or_default();
     let _ = write!(html, r#"<h2>Pending Approvals ({pending_count})</h2>"#);
 
     if pending.is_empty() {
@@ -340,10 +340,10 @@ pub async fn dashboard_approve(
         return (StatusCode::BAD_REQUEST, "Invalid approval ID").into_response();
     }
 
-    match state.approvals.approve(&id, "dashboard-admin").await {
+    match state.approve_approval(&id, "dashboard-admin").await {
         Ok(_) => Redirect::to("/dashboard").into_response(),
         Err(e) => {
-            let msg = format!("Failed to approve: {}", e);
+            let msg = format!("Failed to approve: {:?}", e);
             (StatusCode::BAD_REQUEST, msg).into_response()
         }
     }
@@ -358,10 +358,10 @@ pub async fn dashboard_deny(
         return (StatusCode::BAD_REQUEST, "Invalid approval ID").into_response();
     }
 
-    match state.approvals.deny(&id, "dashboard-admin").await {
+    match state.deny_approval(&id, "dashboard-admin").await {
         Ok(_) => Redirect::to("/dashboard").into_response(),
         Err(e) => {
-            let msg = format!("Failed to deny: {}", e);
+            let msg = format!("Failed to deny: {:?}", e);
             (StatusCode::BAD_REQUEST, msg).into_response()
         }
     }

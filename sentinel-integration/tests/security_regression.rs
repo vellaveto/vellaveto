@@ -374,6 +374,7 @@ mod server_auth {
             policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
             prometheus_handle: None,
             tool_registry: None,
+            cluster: None,
         };
         (state, tmp)
     }
@@ -493,6 +494,7 @@ mod server_auth {
             policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
             prometheus_handle: None,
             tool_registry: None,
+            cluster: None,
         };
         let app = routes::build_router(state);
 
@@ -1076,6 +1078,7 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     };
 
     let app = routes::build_router(state);
@@ -1161,6 +1164,7 @@ async fn finding_12_approval_creation_failure_denies_request() {
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     };
 
     let app = routes::build_router(state);

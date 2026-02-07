@@ -10,6 +10,10 @@ description = "Sentinel policy engine — CLI and HTTP server"
 name = "sentinel"
 path = "src/main.rs"
 
+[features]
+default = []
+redis-backend = ["sentinel-cluster/redis-backend"]
+
 [dependencies]
 sentinel-types = { path = "../sentinel-types" }
 sentinel-engine = { path = "../sentinel-engine" }
@@ -18,6 +22,7 @@ sentinel-mcp = { path = "../sentinel-mcp" }
 sentinel-canonical = { path = "../sentinel-canonical" }
 sentinel-config = { path = "../sentinel-config" }
 sentinel-approval = { path = "../sentinel-approval" }
+sentinel-cluster = { path = "../sentinel-cluster" }
 
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -53,6 +53,7 @@ fn state_with_api_key(tmp: &TempDir) -> AppState {
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     }
 }
 
@@ -269,6 +270,7 @@ async fn regression_38_prometheus_metrics_rate_limited() {
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     };
 
     // First request should succeed

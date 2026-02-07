@@ -52,6 +52,7 @@ fn make_state() -> (AppState, TempDir) {
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     };
     (state, tmp)
 }
@@ -77,6 +78,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     };
     (state, tmp)
 }
@@ -486,6 +488,7 @@ priority = 1
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     };
     let policy_state = state.policy_state.clone();
     let app = routes::build_router(state);
@@ -578,6 +581,7 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     };
     let app = routes::build_router(state);
 

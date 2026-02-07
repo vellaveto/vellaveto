@@ -51,6 +51,7 @@ fn test_state() -> (AppState, TempDir) {
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     };
     (state, tmp)
 }
@@ -396,6 +397,7 @@ async fn health_not_rate_limited() {
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     };
 
     // Rapid /health requests must all succeed despite strict rate limit
@@ -442,6 +444,7 @@ async fn rate_limit_429_includes_retry_after() {
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -582,6 +585,7 @@ async fn per_ip_rate_limit_throttles_single_ip() {
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -670,6 +674,7 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -731,6 +736,7 @@ async fn per_ip_health_exempt_from_rate_limit() {
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     };
 
     // Multiple health checks from same IP should all succeed
@@ -784,6 +790,7 @@ async fn per_ip_rate_limit_ipv6_addresses() {
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -872,6 +879,7 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -944,6 +952,7 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1015,6 +1024,7 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1084,6 +1094,7 @@ async fn per_ip_rate_limit_429_response_body_format() {
         policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         prometheus_handle: None,
         tool_registry: None,
+        cluster: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

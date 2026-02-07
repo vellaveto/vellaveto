@@ -252,11 +252,29 @@ async fn require_api_key(State(state): State<AppState>, request: Request, next: 
 #[derive(Serialize)]
 struct HealthResponse {
     status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cluster: Option<String>,
 }
 
-async fn health(State(_state): State<AppState>) -> Json<HealthResponse> {
+async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
+    // Check cluster backend health if configured
+    let cluster_status = match state.cluster_health().await {
+        Ok(()) => None,
+        Err(msg) => {
+            tracing::warn!("Cluster health check failed: {}", msg);
+            Some(msg)
+        }
+    };
+
+    let status = if cluster_status.is_some() {
+        "degraded".to_string()
+    } else {
+        "ok".to_string()
+    };
+
     Json(HealthResponse {
-        status: "ok".to_string(),
+        status,
+        cluster: cluster_status,
     })
 }
 
@@ -680,14 +698,13 @@ async fn evaluate(
                     None
                 };
                 let approval_id = match state
-                    .approvals
-                    .create(action.clone(), reason, requested_by)
+                    .create_approval(action.clone(), reason, requested_by)
                     .await
                 {
                     Ok(id) => Some(id),
                     Err(e) => {
                         tracing::error!(
-                            "Failed to create approval for unknown tool (fail-closed → Deny): {}",
+                            "Failed to create approval for unknown tool (fail-closed → Deny): {:?}",
                             e
                         );
                         let deny = Verdict::Deny {
@@ -757,14 +774,13 @@ async fn evaluate(
                     None
                 };
                 let approval_id = match state
-                    .approvals
-                    .create(action.clone(), reason, requested_by)
+                    .create_approval(action.clone(), reason, requested_by)
                     .await
                 {
                     Ok(id) => Some(id),
                     Err(e) => {
                         tracing::error!(
-                            "Failed to create approval for untrusted tool (fail-closed → Deny): {}",
+                            "Failed to create approval for untrusted tool (fail-closed → Deny): {:?}",
                             e
                         );
                         let deny = Verdict::Deny {
@@ -852,13 +868,12 @@ async fn evaluate(
             None
         };
         match state
-            .approvals
-            .create(action.clone(), reason.clone(), requested_by)
+            .create_approval(action.clone(), reason.clone(), requested_by)
             .await
         {
             Ok(id) => (verdict, Some(id)),
             Err(e) => {
-                tracing::error!("Failed to create approval (fail-closed → Deny): {}", e);
+                tracing::error!("Failed to create approval (fail-closed → Deny): {:?}", e);
                 let deny_reason = "Approval required but could not be created".to_string();
                 (
                     Verdict::Deny {
@@ -1392,7 +1407,7 @@ async fn prometheus_metrics(State(state): State<AppState>) -> Response {
             let policy_count = state.policy_state.load().policies.len();
             crate::metrics::set_policies_loaded(policy_count as f64);
             crate::metrics::set_uptime_seconds(state.metrics.start_time.elapsed().as_secs_f64());
-            let pending_count = state.approvals.pending_count().await;
+            let pending_count = state.pending_approval_count().await.unwrap_or(0);
             crate::metrics::set_active_sessions(pending_count as f64);
 
             let body = handle.render();
@@ -1423,7 +1438,13 @@ async fn metrics_json(State(state): State<AppState>) -> Json<serde_json::Value> 
 // === Approval Endpoints ===
 
 async fn list_pending_approvals(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let pending = state.approvals.list_pending().await;
+    let pending = match state.list_pending_approvals().await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!("Failed to list pending approvals: {:?}", e);
+            return Json(json!({"count": 0, "approvals": [], "error": "Backend unavailable"}));
+        }
+    };
     // SECURITY (R11-APPR-10): Redact sensitive parameters before returning.
     // The approval listing may contain API keys, credentials, or PII in the
     // action parameters. Apply the same redaction used by the audit logger.
@@ -1449,8 +1470,8 @@ async fn get_approval(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     validate_approval_id(&id)?;
 
-    let approval = state.approvals.get(&id).await.map_err(|e| {
-        tracing::debug!("Approval lookup failed for '{}': {}", id, e);
+    let approval = state.get_approval(&id).await.map_err(|e| {
+        tracing::debug!("Approval lookup failed for '{}': {:?}", id, e);
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
@@ -1557,27 +1578,26 @@ async fn approve_approval(
     }
 
     let approval = state
-        .approvals
-        .approve(&id, &resolved_by)
+        .approve_approval(&id, &resolved_by)
         .await
         .map_err(|e| {
             let (status, msg) = match &e {
-                sentinel_approval::ApprovalError::NotFound(_) => {
+                crate::ApprovalOpError::NotFound(_) => {
                     (StatusCode::NOT_FOUND, "Approval not found")
                 }
-                sentinel_approval::ApprovalError::AlreadyResolved(_) => {
+                crate::ApprovalOpError::AlreadyResolved(_) => {
                     (StatusCode::CONFLICT, "Approval already resolved")
                 }
-                sentinel_approval::ApprovalError::Expired(_) => {
+                crate::ApprovalOpError::Expired(_) => {
                     (StatusCode::GONE, "Approval expired")
                 }
-                sentinel_approval::ApprovalError::Validation(ref msg) => {
+                crate::ApprovalOpError::Validation(ref msg) => {
                     // SECURITY (R9-2): Self-approval attempts return 403 Forbidden
                     tracing::warn!("Approval validation failed for '{}': {}", id, msg);
                     (StatusCode::FORBIDDEN, "Self-approval denied")
                 }
                 _ => {
-                    tracing::error!("Approval approve error for '{}': {}", id, e);
+                    tracing::error!("Approval approve error for '{}': {:?}", id, e);
                     (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")
                 }
             };
@@ -1664,17 +1684,17 @@ async fn deny_approval(
         ));
     }
 
-    let approval = state.approvals.deny(&id, &resolved_by).await.map_err(|e| {
+    let approval = state.deny_approval(&id, &resolved_by).await.map_err(|e| {
         let (status, msg) = match &e {
-            sentinel_approval::ApprovalError::NotFound(_) => {
+            crate::ApprovalOpError::NotFound(_) => {
                 (StatusCode::NOT_FOUND, "Approval not found")
             }
-            sentinel_approval::ApprovalError::AlreadyResolved(_) => {
+            crate::ApprovalOpError::AlreadyResolved(_) => {
                 (StatusCode::CONFLICT, "Approval already resolved")
             }
-            sentinel_approval::ApprovalError::Expired(_) => (StatusCode::GONE, "Approval expired"),
+            crate::ApprovalOpError::Expired(_) => (StatusCode::GONE, "Approval expired"),
             _ => {
-                tracing::error!("Approval deny error for '{}': {}", id, e);
+                tracing::error!("Approval deny error for '{}': {:?}", id, e);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")
             }
         };
