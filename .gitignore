@@ -29,6 +29,7 @@ policies/
 .backups.log
 TASKS.md
 CLAUDE.md
+.claude/
 
 # OS
 .DS_Store

@@ -10,7 +10,7 @@
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-2%2C671_passing-brightgreen.svg" alt="Tests: 2,671 passing">
+    <img src="https://img.shields.io/badge/tests-3%2C029_passing-brightgreen.svg" alt="Tests: 2,671 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <img src="https://img.shields.io/badge/security_audit-32_rounds%2C_380%2B_findings-informational.svg" alt="Security Audit: 32 rounds, 380+ findings">
     <a href="https://modelcontextprotocol.io/specification/2025-06-18"><img src="https://img.shields.io/badge/MCP-2025--06--18-blueviolet.svg" alt="MCP 2025-06-18"></a>
@@ -32,7 +32,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 
 <table>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>2,671 tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>3,029 tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-06-18 (Streamable HTTP)</td></tr>
@@ -649,7 +649,7 @@ Sentinel has undergone 32 rounds of adversarial security audit covering 31+ atta
 | Total findings triaged | 380+ |
 | Findings fixed | 300+ |
 | Critical/HIGH findings fixed | 80+ |
-| Test count post-audit | 2,671 |
+| Test count post-audit | 3,029 |
 
 Key areas covered: tool poisoning, prompt injection, path traversal, SSRF/domain bypass, session fixation, JSON parsing, memory poisoning, elicitation social engineering, audit log tampering, OAuth/JWT validation, SIEM export injection, rug-pull detection, tool squatting, DLP bypass, SSE transport parity, config reload races, Unicode case-folding, IPv6 transition mechanisms, CEF/SIEM injection, and webhook SSRF.
 
@@ -663,7 +663,7 @@ Key areas covered: tool poisoning, prompt injection, path traversal, SSRF/domain
 
 - **No TLS termination.** Use a reverse proxy (nginx, Caddy) in front of Sentinel for HTTPS.
 
-- **Single-process deployment only.** Session state and audit logs are local to the process. Clustering support is planned.
+- **Distributed clustering is opt-in.** The `sentinel-cluster` crate supports Redis-backed state sharing (approvals, rate limits) across instances, but audit logs remain local to each process. Enable with the `redis` feature flag.
 
 - **Path normalization decode limit.** `normalize_path()` iteratively decodes up to 20 layers, then fails-closed to `"/"` to prevent CPU exhaustion.
 
@@ -687,6 +687,8 @@ sentinel- sentinel- sentinel-
 audit     approval  mcp        Audit logging, approval store, MCP protocol
   |        |        |
   +--------+--------+
+           |
+     sentinel-cluster          Distributed state sharing (local + Redis)
            |
   +--------+--------+
   |        |        |
@@ -793,7 +795,7 @@ CI runs 6 parallel jobs on every push and pull request:
 | 🧹 **Check & Lint** | `cargo fmt`, `cargo check`, `cargo clippy`, `unwrap()` hygiene scan |
 | 🧪 **Test Suite** | `cargo test --workspace`, doc build verification |
 | 🔐 **Security Audit** | `cargo audit` via `rustsec/audit-check` for dependency CVEs |
-| 🐛 **Fuzz Targets** | Compiles all 5 fuzz targets on nightly to catch build regressions |
+| 🐛 **Fuzz Targets** | Compiles all 6 fuzz targets on nightly to catch build regressions |
 | 📈 **Benchmarks** | Runs criterion benchmarks with cached baselines (main branch only) |
 | 📦 **Release Build** | Full LTO release build with 50MB binary size guard |
 
@@ -808,11 +810,12 @@ sentinel/
   sentinel-config/         TOML/JSON config parser
   sentinel-canonical/      Built-in policy presets
   sentinel-mcp/            MCP protocol, injection/DLP scanning, rug-pull detection
-  sentinel-server/         HTTP API server + Prometheus metrics
+  sentinel-cluster/        Distributed state sharing (local + Redis backends)
+  sentinel-server/         HTTP API server + Prometheus metrics + admin dashboard
   sentinel-proxy/          Stdio MCP proxy binary
   sentinel-http-proxy/     Streamable HTTP reverse proxy binary
   sentinel-integration/    Integration and E2E tests (~95 test files)
-  fuzz/                    Fuzz targets for parser boundary code
+  fuzz/                    6 fuzz targets for parser boundary code
   scripts/                 Benchmark regression scripts
 ```
 
