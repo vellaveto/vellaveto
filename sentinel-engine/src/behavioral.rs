@@ -548,6 +548,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn test_config_validate_invalid_alpha() {
         for bad in [0.0, -0.1, 1.1, f64::NAN] {
             let mut c = BehavioralConfig::default();
@@ -561,6 +562,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn test_config_validate_invalid_threshold() {
         for bad in [0.0, -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             let mut c = BehavioralConfig::default();
@@ -575,8 +577,10 @@ mod tests {
 
     #[test]
     fn test_config_validate_invalid_max_tools() {
-        let mut c = BehavioralConfig::default();
-        c.max_tools_per_agent = 0;
+        let c = BehavioralConfig {
+            max_tools_per_agent: 0,
+            ..Default::default()
+        };
         assert!(matches!(
             c.validate(),
             Err(BehavioralError::InvalidMaxTools)
@@ -585,8 +589,10 @@ mod tests {
 
     #[test]
     fn test_config_validate_invalid_max_agents() {
-        let mut c = BehavioralConfig::default();
-        c.max_agents = 0;
+        let c = BehavioralConfig {
+            max_agents: 0,
+            ..Default::default()
+        };
         assert!(matches!(
             c.validate(),
             Err(BehavioralError::InvalidMaxAgents)

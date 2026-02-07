@@ -68,7 +68,7 @@ async fn test_approve_approval() {
 
     assert!(matches!(
         approval.status,
-        sentinel_approval::ApprovalStatus::Approved { .. }
+        sentinel_approval::ApprovalStatus::Approved
     ));
 }
 
@@ -88,7 +88,7 @@ async fn test_deny_approval() {
 
     assert!(matches!(
         approval.status,
-        sentinel_approval::ApprovalStatus::Denied { .. }
+        sentinel_approval::ApprovalStatus::Denied
     ));
 }
 
@@ -257,7 +257,7 @@ async fn test_self_approval_prevention() {
         .expect("different user should be able to approve");
     assert!(matches!(
         approval.status,
-        sentinel_approval::ApprovalStatus::Approved { .. }
+        sentinel_approval::ApprovalStatus::Approved
     ));
 }
 

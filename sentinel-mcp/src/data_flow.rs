@@ -481,8 +481,10 @@ mod tests {
 
     #[test]
     fn test_config_invalid_max_findings() {
-        let mut c = DataFlowConfig::default();
-        c.max_findings = 0;
+        let c = DataFlowConfig {
+            max_findings: 0,
+            ..Default::default()
+        };
         assert!(matches!(
             c.validate(),
             Err(DataFlowError::InvalidMaxFindings)
@@ -491,8 +493,10 @@ mod tests {
 
     #[test]
     fn test_config_invalid_max_fingerprints() {
-        let mut c = DataFlowConfig::default();
-        c.max_fingerprints_per_pattern = 0;
+        let c = DataFlowConfig {
+            max_fingerprints_per_pattern: 0,
+            ..Default::default()
+        };
         assert!(matches!(
             c.validate(),
             Err(DataFlowError::InvalidMaxFingerprints)
