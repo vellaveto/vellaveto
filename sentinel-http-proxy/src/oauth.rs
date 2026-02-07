@@ -251,9 +251,7 @@ impl OAuthValidator {
     pub async fn validate_token(&self, auth_header: &str) -> Result<OAuthClaims, OAuthError> {
         // SECURITY (R28-PROXY-1): Per RFC 7235 §2.1, the authentication scheme
         // is case-insensitive. Accept "bearer", "Bearer", "BEARER", etc.
-        let token = if auth_header.len() > 7
-            && auth_header[..7].eq_ignore_ascii_case("bearer ")
-        {
+        let token = if auth_header.len() > 7 && auth_header[..7].eq_ignore_ascii_case("bearer ") {
             &auth_header[7..]
         } else {
             return Err(OAuthError::InvalidFormat);
@@ -475,8 +473,8 @@ fn find_key_in_jwks(jwks: &JwkSet, kid: &str, alg: &Algorithm) -> Option<Decodin
         if !kid.is_empty() {
             match &key.common.key_id {
                 Some(key_kid) if key_kid == kid => {} // exact match — continue
-                Some(_) => continue,                   // kid mismatch — skip
-                None => continue,                      // no kid on JWK — skip (R22-PROXY-2)
+                Some(_) => continue,                  // kid mismatch — skip
+                None => continue,                     // no kid on JWK — skip (R22-PROXY-2)
             }
         }
 

@@ -260,18 +260,14 @@ impl ToolRegistry {
             let json_part = if let Some(ref key) = self.hmac_key {
                 if let Some((json, hmac_hex)) = raw_line.rsplit_once('\t') {
                     if !Self::verify_hmac(key, json.as_bytes(), hmac_hex)? {
-                        tracing::warn!(
-                            "Rejecting tampered registry entry (HMAC mismatch)"
-                        );
+                        tracing::warn!("Rejecting tampered registry entry (HMAC mismatch)");
                         rejected += 1;
                         continue;
                     }
                     json
                 } else {
                     // HMAC key configured but line has no HMAC — reject (fail-closed)
-                    tracing::warn!(
-                        "Rejecting unsigned registry entry (HMAC key configured)"
-                    );
+                    tracing::warn!("Rejecting unsigned registry entry (HMAC key configured)");
                     rejected += 1;
                     continue;
                 }
@@ -478,8 +474,7 @@ impl ToolRegistry {
     /// Compute HMAC-SHA256 over data, returning lowercase hex string.
     /// SECURITY (R23-MCP-6): Fallible — no `expect()` in library code.
     fn compute_hmac(key: &[u8; 32], data: &[u8]) -> Result<String, RegistryError> {
-        let mut mac =
-            HmacSha256::new_from_slice(key).map_err(|_| RegistryError::HmacInit)?;
+        let mut mac = HmacSha256::new_from_slice(key).map_err(|_| RegistryError::HmacInit)?;
         mac.update(data);
         let result = mac.finalize();
         Ok(hex::encode(result.into_bytes()))
@@ -492,8 +487,7 @@ impl ToolRegistry {
             Ok(b) => b,
             Err(_) => return Ok(false),
         };
-        let mut mac =
-            HmacSha256::new_from_slice(key).map_err(|_| RegistryError::HmacInit)?;
+        let mut mac = HmacSha256::new_from_slice(key).map_err(|_| RegistryError::HmacInit)?;
         mac.update(data);
         Ok(mac.verify_slice(&expected_bytes).is_ok())
     }
@@ -575,7 +569,10 @@ mod tests {
     fn test_trust_score_base() {
         let mut entry = new_entry("test_tool");
         entry.compute_trust_score();
-        assert!((entry.trust_score - 0.5).abs() < 0.01, "Base score should be 0.5");
+        assert!(
+            (entry.trust_score - 0.5).abs() < 0.01,
+            "Base score should be 0.5"
+        );
     }
 
     #[test]
@@ -919,12 +916,8 @@ mod tests {
         let path = dir.path().join("registry.jsonl");
         let registry = ToolRegistry::new(&path);
 
-        registry
-            .register_tool("tool_a", &json!({}), false)
-            .await;
-        registry
-            .register_tool("tool_b", &json!({}), false)
-            .await;
+        registry.register_tool("tool_a", &json!({}), false).await;
+        registry.register_tool("tool_b", &json!({}), false).await;
 
         let list = registry.list().await;
         assert_eq!(list.len(), 2);
@@ -1009,7 +1002,10 @@ mod tests {
         let key = [0xFFu8; 32];
         let registry2 = ToolRegistry::new(&path).with_hmac_key(key);
         let count = registry2.load().await.unwrap();
-        assert_eq!(count, 0, "Unsigned entries should be rejected when HMAC key is set");
+        assert_eq!(
+            count, 0,
+            "Unsigned entries should be rejected when HMAC key is set"
+        );
     }
 
     #[tokio::test]

@@ -382,9 +382,6 @@ fn bench_data_flow_tracking(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    data_flow_benches,
-    bench_data_flow_tracking,
-);
+criterion_group!(data_flow_benches, bench_data_flow_tracking,);
 
 criterion_main!(inspection_benches, data_flow_benches);

@@ -1507,11 +1507,7 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
-            policies: vec![allow_policy(
-                "file:read",
-                "Allow reads",
-                10,
-            )],
+            policies: vec![allow_policy("file:read", "Allow reads", 10)],
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
@@ -1590,11 +1586,7 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
     let state = AppState {
         policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
-            policies: vec![allow_policy(
-                "file:read",
-                "Allow",
-                10,
-            )],
+            policies: vec![allow_policy("file:read", "Allow", 10)],
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),

@@ -177,7 +177,8 @@ impl Action {
         validate_name(&self.function, "function")?;
 
         // Check combined target count (R39-ENG-4: include resolved_ips)
-        let total_targets = self.target_paths.len() + self.target_domains.len() + self.resolved_ips.len();
+        let total_targets =
+            self.target_paths.len() + self.target_domains.len() + self.resolved_ips.len();
         if total_targets > MAX_TARGETS {
             return Err(ValidationError::TooManyTargets {
                 count: total_targets,
@@ -411,9 +412,8 @@ impl AgentIdentity {
     /// Get a claim value as an array of strings, if present and is an array.
     pub fn claim_str_array(&self, key: &str) -> Option<Vec<&str>> {
         self.claims.get(key).and_then(|v| {
-            v.as_array().map(|arr| {
-                arr.iter().filter_map(|item| item.as_str()).collect()
-            })
+            v.as_array()
+                .map(|arr| arr.iter().filter_map(|item| item.as_str()).collect())
         })
     }
 }
@@ -494,7 +494,10 @@ impl EvaluationContext {
     pub fn has_any_meaningful_fields(&self) -> bool {
         self.timestamp.is_some()
             || self.agent_id.is_some()
-            || self.agent_identity.as_ref().is_some_and(|id| id.is_populated())
+            || self
+                .agent_identity
+                .as_ref()
+                .is_some_and(|id| id.is_populated())
             || !self.call_counts.is_empty()
             || !self.previous_actions.is_empty()
             || !self.call_chain.is_empty()
@@ -775,7 +778,9 @@ mod tests {
         // R39-ENG-4: resolved_ips must be counted in total_targets.
         // 300 resolved_ips alone should exceed MAX_TARGETS=256.
         let mut action = Action::new("tool", "func", json!({}));
-        action.resolved_ips = (0..300).map(|i| format!("10.0.{}.{}", i / 256, i % 256)).collect();
+        action.resolved_ips = (0..300)
+            .map(|i| format!("10.0.{}.{}", i / 256, i % 256))
+            .collect();
         assert!(matches!(
             action.validate(),
             Err(ValidationError::TooManyTargets {
@@ -1225,7 +1230,7 @@ mod tests {
             Some(vec!["read", "write"])
         );
         assert_eq!(identity.claim_str_array("role"), None); // Not an array
-        // Mixed array should only contain strings
+                                                            // Mixed array should only contain strings
         assert_eq!(identity.claim_str_array("mixed"), Some(vec!["str"]));
         assert_eq!(identity.claim_str_array("missing"), None);
     }

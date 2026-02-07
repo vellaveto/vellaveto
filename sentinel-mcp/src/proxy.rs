@@ -24,10 +24,9 @@ use crate::extractor::{
 };
 use crate::framing::{read_message, write_message};
 use crate::inspection::{
-    scan_notification_for_injection, scan_notification_for_secrets,
-    scan_parameters_for_secrets, scan_response_for_injection,
-    scan_response_for_secrets, scan_tool_descriptions, scan_tool_descriptions_with_scanner,
-    InjectionScanner,
+    scan_notification_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
+    scan_response_for_injection, scan_response_for_secrets, scan_tool_descriptions,
+    scan_tool_descriptions_with_scanner, InjectionScanner,
 };
 use crate::output_validation::OutputSchemaRegistry;
 pub use crate::rug_pull::ToolAnnotations;

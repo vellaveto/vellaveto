@@ -120,9 +120,15 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
     let uptime_str = format_duration(uptime_secs);
     let snap = state.policy_state.load();
     let policy_count = snap.policies.len();
-    let eval_total = metrics.evaluations_total.load(std::sync::atomic::Ordering::Relaxed);
-    let eval_allow = metrics.evaluations_allow.load(std::sync::atomic::Ordering::Relaxed);
-    let eval_deny = metrics.evaluations_deny.load(std::sync::atomic::Ordering::Relaxed);
+    let eval_total = metrics
+        .evaluations_total
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let eval_allow = metrics
+        .evaluations_allow
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let eval_deny = metrics
+        .evaluations_deny
+        .load(std::sync::atomic::Ordering::Relaxed);
     let eval_approval = metrics
         .evaluations_require_approval
         .load(std::sync::atomic::Ordering::Relaxed);
@@ -331,10 +337,7 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
 }
 
 /// Handle approval form submission from dashboard.
-pub async fn dashboard_approve(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Response {
+pub async fn dashboard_approve(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     // Validate approval ID length (defense against oversized paths)
     if id.len() > 128 {
         return (StatusCode::BAD_REQUEST, "Invalid approval ID").into_response();
@@ -350,10 +353,7 @@ pub async fn dashboard_approve(
 }
 
 /// Handle denial form submission from dashboard.
-pub async fn dashboard_deny(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Response {
+pub async fn dashboard_deny(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     if id.len() > 128 {
         return (StatusCode::BAD_REQUEST, "Invalid approval ID").into_response();
     }

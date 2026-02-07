@@ -559,7 +559,9 @@ impl AppState {
         requested_by: Option<String>,
     ) -> Result<String, ApprovalOpError> {
         if let Some(ref cluster) = self.cluster {
-            Ok(cluster.approval_create(action, reason, requested_by).await?)
+            Ok(cluster
+                .approval_create(action, reason, requested_by)
+                .await?)
         } else {
             Ok(self.approvals.create(action, reason, requested_by).await?)
         }

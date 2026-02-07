@@ -668,7 +668,10 @@ fn finding_9_empty_path_normalizes_to_err() {
 
 #[test]
 fn finding_9_normal_paths_still_work() {
-    assert_eq!(PolicyEngine::normalize_path("/etc/passwd").unwrap(), "/etc/passwd");
+    assert_eq!(
+        PolicyEngine::normalize_path("/etc/passwd").unwrap(),
+        "/etc/passwd"
+    );
     assert_eq!(
         PolicyEngine::normalize_path("/a/../b").unwrap(),
         "/b",
@@ -1469,20 +1472,20 @@ async fn r19_add_policy_compile_failure_no_state_change() {
     let response: serde_json::Value = serde_json::from_str(&result).unwrap();
     // Check error is absent or null
     let has_error = response.get("error").map(|e| !e.is_null()).unwrap_or(false);
-    assert!(
-        !has_error,
-        "Valid policy add should succeed: {}",
-        result
-    );
+    assert!(!has_error, "Valid policy add should succeed: {}", result);
 
     // List policies to verify one exists
     let list_req = r#"{"jsonrpc": "2.0", "id": "2", "method": "list_policies", "params": {}}"#;
     let result = server.handle_request(list_req).await.unwrap();
     let response: serde_json::Value = serde_json::from_str(&result).unwrap();
-    let policies_before: Vec<serde_json::Value> = serde_json::from_value(
-        response.get("result").cloned().unwrap_or(json!([]))
-    ).unwrap_or_default();
-    assert_eq!(policies_before.len(), 1, "Should have 1 policy before invalid add");
+    let policies_before: Vec<serde_json::Value> =
+        serde_json::from_value(response.get("result").cloned().unwrap_or(json!([])))
+            .unwrap_or_default();
+    assert_eq!(
+        policies_before.len(),
+        1,
+        "Should have 1 policy before invalid add"
+    );
 
     // Try to add an invalid policy (invalid regex pattern)
     let invalid_add = r#"{
@@ -1521,9 +1524,9 @@ async fn r19_add_policy_compile_failure_no_state_change() {
     // List policies again - should still have only 1
     let result = server.handle_request(list_req).await.unwrap();
     let response: serde_json::Value = serde_json::from_str(&result).unwrap();
-    let policies_after: Vec<serde_json::Value> = serde_json::from_value(
-        response.get("result").cloned().unwrap_or(json!([]))
-    ).unwrap_or_default();
+    let policies_after: Vec<serde_json::Value> =
+        serde_json::from_value(response.get("result").cloned().unwrap_or(json!([])))
+            .unwrap_or_default();
 
     assert_eq!(
         policies_after.len(),

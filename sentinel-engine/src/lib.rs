@@ -1419,10 +1419,9 @@ impl PolicyEngine {
                 })?;
                 // SECURITY (R34-ENG-2): Use try_from instead of `as usize` to
                 // avoid silent truncation on 32-bit platforms where u64 > usize::MAX.
-                let window = usize::try_from(
-                    obj.get("window").and_then(|v| v.as_u64()).unwrap_or(0),
-                )
-                .unwrap_or(usize::MAX);
+                let window =
+                    usize::try_from(obj.get("window").and_then(|v| v.as_u64()).unwrap_or(0))
+                        .unwrap_or(usize::MAX);
                 let deny_reason = format!(
                     "Tool '{}' called more than {} times in last {} actions (policy '{}')",
                     tool_pattern,
@@ -1456,7 +1455,10 @@ impl PolicyEngine {
                 let max_depth = usize::try_from(raw_depth).map_err(|_| PolicyValidationError {
                     policy_id: policy.id.clone(),
                     policy_name: policy.name.clone(),
-                    reason: format!("max_chain_depth value {} exceeds platform maximum", raw_depth),
+                    reason: format!(
+                        "max_chain_depth value {} exceeds platform maximum",
+                        raw_depth
+                    ),
                 })?;
                 let deny_reason = format!(
                     "Call chain depth exceeds maximum of {} (policy '{}')",
@@ -2083,7 +2085,10 @@ impl PolicyEngine {
                     // SECURITY (R26-ENG-3): Fail-closed on count overflow.
                     // SECURITY (R34-ENG-5): Case-insensitive matching for consistency
                     // with ForbiddenPreviousAction/RequirePreviousAction (R31-ENG-7).
-                    let count_usize = history.iter().filter(|a| tool_pattern.matches(&a.to_ascii_lowercase())).count();
+                    let count_usize = history
+                        .iter()
+                        .filter(|a| tool_pattern.matches(&a.to_ascii_lowercase()))
+                        .count();
                     let count = u64::try_from(count_usize).unwrap_or(u64::MAX);
                     if count >= *max {
                         return Some(Verdict::Deny {
@@ -2175,7 +2180,11 @@ impl PolicyEngine {
 
                             // Check required audience (case-insensitive, R40-ENG-2)
                             if let Some(ref req_aud) = required_audience {
-                                if !identity.audience.iter().any(|a| a.to_lowercase() == *req_aud) {
+                                if !identity
+                                    .audience
+                                    .iter()
+                                    .any(|a| a.to_lowercase() == *req_aud)
+                                {
                                     return Some(Verdict::Deny {
                                         reason: format!(
                                             "{} (audience mismatch: '{}' not in {:?})",
@@ -2267,14 +2276,15 @@ impl PolicyEngine {
         }
 
         for raw_path in &action.target_paths {
-            let normalized = match Self::normalize_path_bounded(
-                raw_path, self.max_path_decode_iterations,
-            ) {
-                Ok(n) => n,
-                Err(e) => return Some(Verdict::Deny {
-                    reason: format!("Path normalization failed: {}", e),
-                }),
-            };
+            let normalized =
+                match Self::normalize_path_bounded(raw_path, self.max_path_decode_iterations) {
+                    Ok(n) => n,
+                    Err(e) => {
+                        return Some(Verdict::Deny {
+                            reason: format!("Path normalization failed: {}", e),
+                        })
+                    }
+                };
 
             // Check blocked patterns first (blocked takes precedence)
             for (pattern, matcher) in &rules.blocked {
@@ -2719,10 +2729,15 @@ impl PolicyEngine {
                         )?));
                     }
                 };
-                let normalized = match Self::normalize_path_bounded(raw, self.max_path_decode_iterations) {
-                    Ok(n) => n,
-                    Err(e) => return Ok(Some(Verdict::Deny { reason: format!("Path normalization failed: {}", e) })),
-                };
+                let normalized =
+                    match Self::normalize_path_bounded(raw, self.max_path_decode_iterations) {
+                        Ok(n) => n,
+                        Err(e) => {
+                            return Ok(Some(Verdict::Deny {
+                                reason: format!("Path normalization failed: {}", e),
+                            }))
+                        }
+                    };
                 if matcher.is_match(&normalized) {
                     Ok(Some(Self::make_constraint_verdict(
                         on_match,
@@ -2757,10 +2772,15 @@ impl PolicyEngine {
                         )?));
                     }
                 };
-                let normalized = match Self::normalize_path_bounded(raw, self.max_path_decode_iterations) {
-                    Ok(n) => n,
-                    Err(e) => return Ok(Some(Verdict::Deny { reason: format!("Path normalization failed: {}", e) })),
-                };
+                let normalized =
+                    match Self::normalize_path_bounded(raw, self.max_path_decode_iterations) {
+                        Ok(n) => n,
+                        Err(e) => {
+                            return Ok(Some(Verdict::Deny {
+                                reason: format!("Path normalization failed: {}", e),
+                            }))
+                        }
+                    };
                 for (_, m) in matchers {
                     if m.is_match(&normalized) {
                         return Ok(None); // Matched allowlist
@@ -2837,9 +2857,7 @@ impl PolicyEngine {
                 // normalization. Without this, homoglyph domains (e.g., Cyrillic 'a') bypass
                 // DomainMatch blocklists because the punycode form doesn't match the pattern.
                 // This mirrors the guard in check_network_rules (R30-ENG-2).
-                if !domain.is_ascii()
-                    && Self::normalize_domain_for_match(&domain).is_none()
-                {
+                if !domain.is_ascii() && Self::normalize_domain_for_match(&domain).is_none() {
                     return Ok(Some(Self::make_constraint_verdict(
                         "deny",
                         &format!(
@@ -2884,9 +2902,7 @@ impl PolicyEngine {
                 };
                 let domain = Self::extract_domain(raw);
                 // SECURITY (R31-ENG-1): Same IDNA fail-closed guard as DomainMatch above.
-                if !domain.is_ascii()
-                    && Self::normalize_domain_for_match(&domain).is_none()
-                {
+                if !domain.is_ascii() && Self::normalize_domain_for_match(&domain).is_none() {
                     return Ok(Some(Self::make_constraint_verdict(
                         "deny",
                         &format!(
@@ -3343,7 +3359,11 @@ impl PolicyEngine {
 
         let normalized = match Self::normalize_path_bounded(raw, self.max_path_decode_iterations) {
             Ok(n) => n,
-            Err(e) => return Ok(Some(Verdict::Deny { reason: format!("Path normalization failed: {}", e) })),
+            Err(e) => {
+                return Ok(Some(Verdict::Deny {
+                    reason: format!("Path normalization failed: {}", e),
+                }))
+            }
         };
 
         if self.glob_is_match(pattern_str, &normalized, &policy.id)? {
@@ -3400,7 +3420,11 @@ impl PolicyEngine {
 
         let normalized = match Self::normalize_path_bounded(raw, self.max_path_decode_iterations) {
             Ok(n) => n,
-            Err(e) => return Ok(Some(Verdict::Deny { reason: format!("Path normalization failed: {}", e) })),
+            Err(e) => {
+                return Ok(Some(Verdict::Deny {
+                    reason: format!("Path normalization failed: {}", e),
+                }))
+            }
         };
 
         for pat_val in patterns {
@@ -3986,9 +4010,9 @@ impl PolicyEngine {
         let stripped = s.trim_end_matches('.');
 
         // Check if the domain is already pure ASCII lowercase
-        let is_ascii_lower = stripped
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-' || b == b'*');
+        let is_ascii_lower = stripped.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-' || b == b'*'
+        });
 
         if is_ascii_lower && stripped == s {
             // Already normalized, no IDNA needed
@@ -4016,12 +4040,11 @@ impl PolicyEngine {
         // bypass blocklists. Valid domain characters: alphanumeric, hyphen, dot, underscore
         // (underscore for SRV records), and non-ASCII (handled by IDNA normalization).
         if idna_input.is_ascii()
-            && !idna_input.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.' || b == b'_')
+            && !idna_input
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.' || b == b'_')
         {
-            tracing::debug!(
-                domain = s,
-                "Domain contains invalid ASCII characters"
-            );
+            tracing::debug!(domain = s, "Domain contains invalid ASCII characters");
             return None;
         }
 
@@ -4032,7 +4055,10 @@ impl PolicyEngine {
                 if wildcard_prefix.is_empty() {
                     Some(std::borrow::Cow::Owned(ascii))
                 } else {
-                    Some(std::borrow::Cow::Owned(format!("{}{}", wildcard_prefix, ascii)))
+                    Some(std::borrow::Cow::Owned(format!(
+                        "{}{}",
+                        wildcard_prefix, ascii
+                    )))
                 }
             }
             Err(_) => {
@@ -4046,8 +4072,12 @@ impl PolicyEngine {
                     // (e.g., underscores in SRV records). Reject ASCII strings containing
                     // whitespace, colons, or other non-domain characters to prevent
                     // malformed domains from bypassing blocklists.
-                    if idna_input.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.' || b == b'_') {
-                        let lowered = format!("{}{}", wildcard_prefix, idna_input.to_ascii_lowercase());
+                    if idna_input
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.' || b == b'_')
+                    {
+                        let lowered =
+                            format!("{}{}", wildcard_prefix, idna_input.to_ascii_lowercase());
                         tracing::debug!(
                             domain = s,
                             "IDNA normalization failed but domain is ASCII — using lowercase fallback"
@@ -4806,9 +4836,7 @@ impl PolicyEngine {
                     // SECURITY (R34-ENG-1): IDNA fail-closed guard matching compiled path.
                     // If domain contains non-ASCII and cannot be normalized, treat as match
                     // (fail-closed: deny) to prevent bypass via unnormalizable domains.
-                    if !domain.is_ascii()
-                        && Self::normalize_domain_for_match(&domain).is_none()
-                    {
+                    if !domain.is_ascii() && Self::normalize_domain_for_match(&domain).is_none() {
                         return true;
                     }
                     Self::match_domain_pattern(&domain, pattern)
@@ -4822,9 +4850,7 @@ impl PolicyEngine {
                     // SECURITY (R34-ENG-1): IDNA fail-closed for DomainNotIn.
                     // If domain contains non-ASCII and cannot be normalized, it cannot
                     // be in the allowlist — constraint fires (fail-closed).
-                    if !domain.is_ascii()
-                        && Self::normalize_domain_for_match(&domain).is_none()
-                    {
+                    if !domain.is_ascii() && Self::normalize_domain_for_match(&domain).is_none() {
                         return true;
                     }
                     !patterns
@@ -4972,7 +4998,7 @@ fn is_private_ip(ip: IpAddr) -> bool {
             || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)  // 203.0.113.0/24 TEST-NET-3
             // SECURITY (R23-ENG-3): Additional IANA reserved ranges
             || (octets[0] == 192 && octets[1] == 88 && octets[2] == 99) // 192.88.99.0/24 deprecated 6to4 relay (RFC 7526)
-            || (octets[0] & 0xF0) == 240                               // 240.0.0.0/4 Reserved/Class E (RFC 1112)
+            || (octets[0] & 0xF0) == 240 // 240.0.0.0/4 Reserved/Class E (RFC 1112)
         }
         IpAddr::V6(v6) => {
             v6.is_loopback()       // ::1
@@ -4988,7 +5014,7 @@ fn is_private_ip(ip: IpAddr) -> bool {
             || is_6to4_private(&v6)              // 2002::/16
             || is_teredo_private(&v6)            // 2001::/32
             || is_nat64_private(&v6)             // 64:ff9b::/96
-            || is_nat64_local_private(&v6)       // 64:ff9b:1::/48 (RFC 8215)
+            || is_nat64_local_private(&v6) // 64:ff9b:1::/48 (RFC 8215)
         }
     }
 }
@@ -5043,7 +5069,7 @@ fn is_embedded_ipv4_reserved(v4: &std::net::Ipv4Addr) -> bool {
         || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)  // 203.0.113.0/24 TEST-NET-3
         // SECURITY (R23-ENG-3): Additional IANA reserved ranges
         || (octets[0] == 192 && octets[1] == 88 && octets[2] == 99) // 192.88.99.0/24 deprecated 6to4 relay (RFC 7526)
-        || (octets[0] & 0xF0) == 240                               // 240.0.0.0/4 Reserved/Class E (RFC 1112)
+        || (octets[0] & 0xF0) == 240 // 240.0.0.0/4 Reserved/Class E (RFC 1112)
 }
 
 /// ::ffff:x.x.x.x — IPv4-mapped IPv6 (check embedded IPv4)
@@ -5071,47 +5097,65 @@ fn extract_embedded_ipv4(v6: &std::net::Ipv6Addr) -> Option<std::net::Ipv4Addr> 
     let segs = v6.segments();
 
     // 2. IPv4-compatible: ::x.x.x.x (deprecated but still routable on some systems)
-    if segs[0] == 0 && segs[1] == 0 && segs[2] == 0
-        && segs[3] == 0 && segs[4] == 0 && segs[5] == 0
+    if segs[0] == 0
+        && segs[1] == 0
+        && segs[2] == 0
+        && segs[3] == 0
+        && segs[4] == 0
+        && segs[5] == 0
         && !(segs[6] == 0 && segs[7] <= 1)
     {
         return Some(std::net::Ipv4Addr::new(
-            (segs[6] >> 8) as u8, (segs[6] & 0xff) as u8,
-            (segs[7] >> 8) as u8, (segs[7] & 0xff) as u8,
+            (segs[6] >> 8) as u8,
+            (segs[6] & 0xff) as u8,
+            (segs[7] >> 8) as u8,
+            (segs[7] & 0xff) as u8,
         ));
     }
 
     // 3. 6to4: 2002::/16 — embedded IPv4 in segments 1-2
     if segs[0] == 0x2002 {
         return Some(std::net::Ipv4Addr::new(
-            (segs[1] >> 8) as u8, (segs[1] & 0xff) as u8,
-            (segs[2] >> 8) as u8, (segs[2] & 0xff) as u8,
+            (segs[1] >> 8) as u8,
+            (segs[1] & 0xff) as u8,
+            (segs[2] >> 8) as u8,
+            (segs[2] & 0xff) as u8,
         ));
     }
 
     // 4. Teredo: 2001:0000::/32 — embedded client IPv4 in segments 6-7, XORed
     if segs[0] == 0x2001 && segs[1] == 0 {
         return Some(std::net::Ipv4Addr::new(
-            ((segs[6] >> 8) ^ 0xff) as u8, ((segs[6] & 0xff) ^ 0xff) as u8,
-            ((segs[7] >> 8) ^ 0xff) as u8, ((segs[7] & 0xff) ^ 0xff) as u8,
+            ((segs[6] >> 8) ^ 0xff) as u8,
+            ((segs[6] & 0xff) ^ 0xff) as u8,
+            ((segs[7] >> 8) ^ 0xff) as u8,
+            ((segs[7] & 0xff) ^ 0xff) as u8,
         ));
     }
 
     // 5. NAT64 well-known: 64:ff9b::/96 — embedded IPv4 in segments 6-7
-    if segs[0] == 0x0064 && segs[1] == 0xff9b
-        && segs[2] == 0 && segs[3] == 0 && segs[4] == 0 && segs[5] == 0
+    if segs[0] == 0x0064
+        && segs[1] == 0xff9b
+        && segs[2] == 0
+        && segs[3] == 0
+        && segs[4] == 0
+        && segs[5] == 0
     {
         return Some(std::net::Ipv4Addr::new(
-            (segs[6] >> 8) as u8, (segs[6] & 0xff) as u8,
-            (segs[7] >> 8) as u8, (segs[7] & 0xff) as u8,
+            (segs[6] >> 8) as u8,
+            (segs[6] & 0xff) as u8,
+            (segs[7] >> 8) as u8,
+            (segs[7] & 0xff) as u8,
         ));
     }
 
     // 6. NAT64 local-use: 64:ff9b:0001::/48 — embedded IPv4 in segments 6-7
     if segs[0] == 0x0064 && segs[1] == 0xff9b && segs[2] == 0x0001 {
         return Some(std::net::Ipv4Addr::new(
-            (segs[6] >> 8) as u8, (segs[6] & 0xff) as u8,
-            (segs[7] >> 8) as u8, (segs[7] & 0xff) as u8,
+            (segs[6] >> 8) as u8,
+            (segs[6] & 0xff) as u8,
+            (segs[7] >> 8) as u8,
+            (segs[7] & 0xff) as u8,
         ));
     }
 
@@ -5120,8 +5164,7 @@ fn extract_embedded_ipv4(v6: &std::net::Ipv6Addr) -> Option<std::net::Ipv4Addr> 
 
 fn is_ipv4_compatible_private(v6: &std::net::Ipv6Addr) -> bool {
     let segs = v6.segments();
-    if segs[0] == 0 && segs[1] == 0 && segs[2] == 0
-        && segs[3] == 0 && segs[4] == 0 && segs[5] == 0
+    if segs[0] == 0 && segs[1] == 0 && segs[2] == 0 && segs[3] == 0 && segs[4] == 0 && segs[5] == 0
     {
         // Skip ::0.0.0.0 and ::0.0.0.1 (unspecified/loopback already covered)
         if segs[6] == 0 && segs[7] <= 1 {
@@ -5203,10 +5246,7 @@ fn is_nat64_private(v6: &std::net::Ipv6Addr) -> bool {
 fn is_nat64_local_private(v6: &std::net::Ipv6Addr) -> bool {
     // Check prefix 64:ff9b:0001::/48
     // Segment 0 = 0x0064, Segment 1 = 0xff9b, Segment 2 = 0x0001
-    if v6.segments()[0] != 0x0064
-        || v6.segments()[1] != 0xff9b
-        || v6.segments()[2] != 0x0001
-    {
+    if v6.segments()[0] != 0x0064 || v6.segments()[1] != 0xff9b || v6.segments()[2] != 0x0001 {
         return false;
     }
     // Embedded IPv4 is in segments 6-7 (last 32 bits)
@@ -6143,7 +6183,10 @@ mod tests {
 
     #[test]
     fn test_normalize_path_resolves_dot() {
-        assert_eq!(PolicyEngine::normalize_path("/a/./b/./c").unwrap(), "/a/b/c");
+        assert_eq!(
+            PolicyEngine::normalize_path("/a/./b/./c").unwrap(),
+            "/a/b/c"
+        );
     }
 
     #[test]
@@ -6314,18 +6357,12 @@ mod tests {
         // "*.münchen.de" should match "sub.münchen.de" after IDNA normalization.
         // Previously, the "*." prefix caused IDNA normalization to fail entirely.
         assert!(
-            PolicyEngine::match_domain_pattern(
-                "sub.xn--mnchen-3ya.de",
-                "*.münchen.de"
-            ),
+            PolicyEngine::match_domain_pattern("sub.xn--mnchen-3ya.de", "*.münchen.de"),
             "IDNA wildcard should match punycode subdomain"
         );
         // Also test that the bare domain matches
         assert!(
-            PolicyEngine::match_domain_pattern(
-                "xn--mnchen-3ya.de",
-                "*.münchen.de"
-            ),
+            PolicyEngine::match_domain_pattern("xn--mnchen-3ya.de", "*.münchen.de"),
             "IDNA wildcard should match bare punycode domain"
         );
     }
@@ -6622,7 +6659,10 @@ mod tests {
     #[test]
     fn test_normalize_path_percent_encoded_filename() {
         // %70 = 'p', so /etc/%70asswd → /etc/passwd
-        assert_eq!(PolicyEngine::normalize_path("/etc/%70asswd").unwrap(), "/etc/passwd");
+        assert_eq!(
+            PolicyEngine::normalize_path("/etc/%70asswd").unwrap(),
+            "/etc/passwd"
+        );
     }
 
     #[test]
@@ -6638,7 +6678,10 @@ mod tests {
     fn test_normalize_path_percent_encoded_slash() {
         // %2F = '/' — encoded slashes in a single component
         // After decoding, path should be normalized correctly
-        assert_eq!(PolicyEngine::normalize_path("/etc%2Fpasswd").unwrap(), "/etc/passwd");
+        assert_eq!(
+            PolicyEngine::normalize_path("/etc%2Fpasswd").unwrap(),
+            "/etc/passwd"
+        );
     }
 
     #[test]
@@ -6726,9 +6769,7 @@ mod tests {
     #[test]
     fn test_normalize_path_bounded_zero_limit() {
         // With limit=0, even a single percent-encoded char fails closed.
-        assert!(
-            PolicyEngine::normalize_path_bounded("/etc/%70asswd", 0).is_err()
-        );
+        assert!(PolicyEngine::normalize_path_bounded("/etc/%70asswd", 0).is_err());
         // Plain paths (no percent-encoding) still work fine.
         assert_eq!(
             PolicyEngine::normalize_path_bounded("/etc/passwd", 0).unwrap(),
@@ -6740,13 +6781,19 @@ mod tests {
     fn test_set_max_path_decode_iterations() {
         let mut engine = PolicyEngine::new(false);
         // Default is the constant.
-        assert_eq!(PolicyEngine::normalize_path("/etc/%70asswd").unwrap(), "/etc/passwd");
+        assert_eq!(
+            PolicyEngine::normalize_path("/etc/%70asswd").unwrap(),
+            "/etc/passwd"
+        );
 
         // After setting to 0, the engine's internal calls would use the
         // configured limit. Verify the setter doesn't panic.
         engine.set_max_path_decode_iterations(5);
         // The public associated function still uses the default (backward compat).
-        assert_eq!(PolicyEngine::normalize_path("/etc/%70asswd").unwrap(), "/etc/passwd");
+        assert_eq!(
+            PolicyEngine::normalize_path("/etc/%70asswd").unwrap(),
+            "/etc/passwd"
+        );
     }
 
     #[test]
@@ -6784,7 +6831,9 @@ mod tests {
         // Multi-stage: %255C decodes to %5C, then to \ which becomes /
         // Without R35-ENG-1 fix, the backslash from intermediate decode step
         // would not be normalized, allowing traversal.
-        let result = PolicyEngine::normalize_path_bounded("/home/user%255C..%255C..%255Cetc%255Cpasswd", 20).unwrap();
+        let result =
+            PolicyEngine::normalize_path_bounded("/home/user%255C..%255C..%255Cetc%255Cpasswd", 20)
+                .unwrap();
         assert_eq!(result, "/etc/passwd");
     }
 
@@ -6861,7 +6910,10 @@ mod tests {
         // SECURITY (R37-ENG-1): %2F decodes to '/' but is in the userinfo portion.
         // Per RFC 3986, @ separates userinfo from host. The browser connects to legit.com.
         let domain = PolicyEngine::extract_domain("http://evil.com%2F@legit.com/path");
-        assert_eq!(domain, "legit.com", "R37-ENG-1: %2F in userinfo must not bypass @");
+        assert_eq!(
+            domain, "legit.com",
+            "R37-ENG-1: %2F in userinfo must not bypass @"
+        );
 
         // Normal userinfo still works
         let domain = PolicyEngine::extract_domain("http://user:pass@example.com/path");
@@ -9750,7 +9802,10 @@ mod tests {
         })];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
         // Teredo encoding: 192.168.1.1 XOR 0xFFFF each byte → 63.87.254.254
-        let action = action_with_resolved_ips(vec!["example.com"], vec!["2001:0000:0000:0000:0000:0000:3f57:fefe"]);
+        let action = action_with_resolved_ips(
+            vec!["example.com"],
+            vec!["2001:0000:0000:0000:0000:0000:3f57:fefe"],
+        );
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
@@ -9857,10 +9912,8 @@ mod tests {
             ..Default::default()
         })];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
-        let action = action_with_resolved_ips(
-            vec!["example.com"],
-            vec!["64:ff9b:1:0:0:0:c0a8:0101"],
-        );
+        let action =
+            action_with_resolved_ips(vec!["example.com"], vec!["64:ff9b:1:0:0:0:c0a8:0101"]);
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
@@ -9899,7 +9952,10 @@ mod tests {
             ..Default::default()
         })];
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
-        let action = action_with_resolved_ips(vec!["example.com"], vec!["2001:0000:0000:0000:0000:0000:9b9b:fefe"]);
+        let action = action_with_resolved_ips(
+            vec!["example.com"],
+            vec!["2001:0000:0000:0000:0000:0000:9b9b:fefe"],
+        );
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
@@ -10170,8 +10226,7 @@ mod tests {
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
 
         // IPv4-mapped IPv6 form of CGNAT address -> should be denied
-        let action =
-            action_with_resolved_ips(vec!["example.com"], vec!["::ffff:100.100.1.1"]);
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["::ffff:100.100.1.1"]);
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { ref reason } if reason.contains("blocked CIDR")),
@@ -10200,8 +10255,7 @@ mod tests {
         let engine = PolicyEngine::with_policies(false, &policies).unwrap();
 
         // Mapped form of allowed IP -> should pass
-        let action =
-            action_with_resolved_ips(vec!["example.com"], vec!["::ffff:203.0.113.50"]);
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["::ffff:203.0.113.50"]);
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Allow),
@@ -10210,8 +10264,7 @@ mod tests {
         );
 
         // Mapped form of non-allowed IP -> denied
-        let action =
-            action_with_resolved_ips(vec!["example.com"], vec!["::ffff:8.8.8.8"]);
+        let action = action_with_resolved_ips(vec!["example.com"], vec!["::ffff:8.8.8.8"]);
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { ref reason } if reason.contains("not in allowed")),
@@ -11261,10 +11314,7 @@ mod tests {
         let engine = make_context_engine(policy);
         let action = Action::new("write_file", "execute", json!({}));
         let ctx = EvaluationContext {
-            previous_actions: vec![
-                "write_file".to_string(),
-                "write_file".to_string(),
-            ],
+            previous_actions: vec!["write_file".to_string(), "write_file".to_string()],
             ..Default::default()
         };
         let v = engine
@@ -12180,10 +12230,7 @@ mod tests {
         let v = engine
             .evaluate_action_with_context(&action, &[], Some(&ctx_wrong_role))
             .unwrap();
-        assert!(
-            matches!(v, Verdict::Deny { .. }),
-            "Wrong role should deny"
-        );
+        assert!(matches!(v, Verdict::Deny { .. }), "Wrong role should deny");
     }
 
     #[test]
@@ -12883,10 +12930,7 @@ mod tests {
             agent_identity: Some(AgentIdentity {
                 issuer: None,
                 subject: None,
-                audience: vec![
-                    "other-service".to_string(),
-                    "MY-SERVICE".to_string(),
-                ],
+                audience: vec!["other-service".to_string(), "MY-SERVICE".to_string()],
                 claims: Default::default(),
             }),
             ..Default::default()

@@ -257,7 +257,9 @@ impl SupplyChainConfig {
         if meta.len() > MAX_BINARY_SIZE {
             return Err(format!(
                 "Binary '{}' exceeds maximum size of {} bytes (actual: {})",
-                path, MAX_BINARY_SIZE, meta.len()
+                path,
+                MAX_BINARY_SIZE,
+                meta.len()
             ));
         }
         let data = std::fs::read(path).map_err(|e| format!("Failed to read '{}': {}", path, e))?;
@@ -1489,9 +1491,7 @@ impl PolicyConfig {
             let trimmed = wh_url.trim();
             if !trimmed.is_empty() {
                 if !trimmed.starts_with("https://") {
-                    return Err(
-                        "audit_export.webhook_url must use HTTPS scheme".to_string()
-                    );
+                    return Err("audit_export.webhook_url must use HTTPS scheme".to_string());
                 }
                 // Extract host portion (after "https://", before next "/" or ":")
                 let after_scheme = &trimmed["https://".len()..];
@@ -1511,8 +1511,10 @@ impl PolicyConfig {
                 // '[' and ']') to bypass the bracket check below, e.g.,
                 // "https://%5Bfe80::1%5D/webhook" would not be recognized as IPv6.
                 let host_portion_decoded = host_portion
-                    .replace("%5B", "[").replace("%5b", "[")
-                    .replace("%5D", "]").replace("%5d", "]");
+                    .replace("%5B", "[")
+                    .replace("%5b", "[")
+                    .replace("%5D", "]")
+                    .replace("%5d", "]");
                 let host_portion = host_portion_decoded.as_str();
                 // SECURITY (R26-SUP-4): Handle bracketed IPv6 addresses.
                 // For "[::1]:8080/path", the host is "[::1]", not "[" (which
@@ -1536,7 +1538,8 @@ impl PolicyConfig {
                     } else {
                         // Malformed IPv6 — no closing bracket
                         return Err(
-                            "audit_export.webhook_url has malformed IPv6 address (missing ']')".to_string()
+                            "audit_export.webhook_url has malformed IPv6 address (missing ']')"
+                                .to_string(),
                         );
                     }
                 } else {
@@ -1546,9 +1549,7 @@ impl PolicyConfig {
                     host_portion[..host_end].to_lowercase()
                 };
                 if host.is_empty() {
-                    return Err(
-                        "audit_export.webhook_url has no host".to_string()
-                    );
+                    return Err("audit_export.webhook_url has no host".to_string());
                 }
                 // SECURITY (R42-CFG-1): Percent-decode host before localhost/loopback comparison.
                 // An attacker can use %6c%6f%63%61%6c%68%6f%73%74 to encode "localhost"
@@ -1593,7 +1594,7 @@ impl PolicyConfig {
                         || (ip.octets()[0] == 169 && ip.octets()[1] == 254)         // 169.254.0.0/16 (link-local/metadata)
                         || (ip.octets()[0] == 100 && (ip.octets()[1] & 0xc0) == 64) // 100.64.0.0/10 (CGNAT)
                         || ip.octets()[0] == 0                           // 0.0.0.0/8
-                        || ip.is_broadcast();                            // 255.255.255.255
+                        || ip.is_broadcast(); // 255.255.255.255
                     if is_private {
                         return Err(format!(
                             "audit_export.webhook_url must not target private/internal IP ranges, got '{}'",
@@ -1608,19 +1609,27 @@ impl PolicyConfig {
                     // against IPv4 private ranges. Without this, ::ffff:169.254.169.254
                     // bypasses the IPv4 cloud metadata SSRF check above.
                     let segs = ip6.segments();
-                    let is_ipv4_mapped = segs[0] == 0 && segs[1] == 0 && segs[2] == 0
-                        && segs[3] == 0 && segs[4] == 0 && segs[5] == 0xffff;
+                    let is_ipv4_mapped = segs[0] == 0
+                        && segs[1] == 0
+                        && segs[2] == 0
+                        && segs[3] == 0
+                        && segs[4] == 0
+                        && segs[5] == 0xffff;
                     if is_ipv4_mapped {
                         let mapped_ip = std::net::Ipv4Addr::new(
-                            (segs[6] >> 8) as u8, segs[6] as u8,
-                            (segs[7] >> 8) as u8, segs[7] as u8,
+                            (segs[6] >> 8) as u8,
+                            segs[6] as u8,
+                            (segs[7] >> 8) as u8,
+                            segs[7] as u8,
                         );
                         let is_private_v4 = mapped_ip.is_loopback()
                             || mapped_ip.octets()[0] == 10
-                            || (mapped_ip.octets()[0] == 172 && (mapped_ip.octets()[1] & 0xf0) == 16)
+                            || (mapped_ip.octets()[0] == 172
+                                && (mapped_ip.octets()[1] & 0xf0) == 16)
                             || (mapped_ip.octets()[0] == 192 && mapped_ip.octets()[1] == 168)
                             || (mapped_ip.octets()[0] == 169 && mapped_ip.octets()[1] == 254)
-                            || (mapped_ip.octets()[0] == 100 && (mapped_ip.octets()[1] & 0xc0) == 64)
+                            || (mapped_ip.octets()[0] == 100
+                                && (mapped_ip.octets()[1] & 0xc0) == 64)
                             || mapped_ip.octets()[0] == 0
                             || mapped_ip.is_broadcast();
                         if is_private_v4 {
@@ -1637,7 +1646,7 @@ impl PolicyConfig {
                     let is_private = ip6.is_loopback()
                         || ip6.is_unspecified()
                         || (segs[0] & 0xfe00) == 0xfc00  // fc00::/7 (ULA)
-                        || (segs[0] & 0xffc0) == 0xfe80;  // fe80::/10 (link-local)
+                        || (segs[0] & 0xffc0) == 0xfe80; // fe80::/10 (link-local)
                     if is_private {
                         return Err(format!(
                             "audit_export.webhook_url must not target private/internal IPv6 ranges, got '{}'",
@@ -2924,13 +2933,16 @@ policy_type = "Allow"
     }
 
     fn minimal_config() -> PolicyConfig {
-        PolicyConfig::from_toml(r#"
+        PolicyConfig::from_toml(
+            r#"
 [[policies]]
 name = "t"
 tool_pattern = "*"
 function_pattern = "*"
 policy_type = "Allow"
-"#).unwrap()
+"#,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -3008,8 +3020,7 @@ policy_type = "Allow"
     #[test]
     fn test_validate_accepts_valid_webhook_url() {
         let mut config = minimal_config();
-        config.audit_export.webhook_url =
-            Some("https://siem.example.com/ingest".to_string());
+        config.audit_export.webhook_url = Some("https://siem.example.com/ingest".to_string());
         assert!(config.validate().is_ok());
     }
 
@@ -3017,8 +3028,7 @@ policy_type = "Allow"
     fn test_validate_rejects_webhook_url_userinfo_bypass() {
         // R25-SUP-2: "https://evil.com@localhost/path" has actual host=localhost
         let mut config = minimal_config();
-        config.audit_export.webhook_url =
-            Some("https://evil.com@localhost/ingest".to_string());
+        config.audit_export.webhook_url = Some("https://evil.com@localhost/ingest".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("localhost"),
@@ -3031,8 +3041,7 @@ policy_type = "Allow"
     fn test_validate_rejects_webhook_url_userinfo_127() {
         // R25-SUP-2: "https://user:pass@127.0.0.1/path"
         let mut config = minimal_config();
-        config.audit_export.webhook_url =
-            Some("https://user:pass@127.0.0.1/ingest".to_string());
+        config.audit_export.webhook_url = Some("https://user:pass@127.0.0.1/ingest".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("localhost"),
@@ -3066,8 +3075,7 @@ policy_type = "Allow"
     fn test_validate_rejects_webhook_ipv6_loopback() {
         // R26-SUP-4: IPv6 loopback [::1] must be rejected
         let mut config = minimal_config();
-        config.audit_export.webhook_url =
-            Some("https://[::1]:8080/webhook".to_string());
+        config.audit_export.webhook_url = Some("https://[::1]:8080/webhook".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("localhost") || err.contains("loopback"),
@@ -3080,8 +3088,7 @@ policy_type = "Allow"
     fn test_validate_rejects_webhook_ipv6_malformed() {
         // R26-SUP-4: Malformed IPv6 (missing closing bracket) must be rejected
         let mut config = minimal_config();
-        config.audit_export.webhook_url =
-            Some("https://[::1:8080/webhook".to_string());
+        config.audit_export.webhook_url = Some("https://[::1:8080/webhook".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("malformed IPv6"),
@@ -3277,8 +3284,7 @@ policy_type = "Allow"
         // R33-SUP-3: fe80::/10 covers fe80:: through febf::ffff.
         // Previously only fe80::X was blocked; fea0::1 should also be rejected.
         let mut config = minimal_config();
-        config.audit_export.webhook_url =
-            Some("https://[fea0::1]:8080/webhook".to_string());
+        config.audit_export.webhook_url = Some("https://[fea0::1]:8080/webhook".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("private") || err.contains("internal"),
@@ -3291,8 +3297,7 @@ policy_type = "Allow"
     fn test_validate_rejects_webhook_ipv6_link_local_febf() {
         // R33-SUP-3: febf:: is the last address in fe80::/10 range
         let mut config = minimal_config();
-        config.audit_export.webhook_url =
-            Some("https://[febf::1]:8080/webhook".to_string());
+        config.audit_export.webhook_url = Some("https://[febf::1]:8080/webhook".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("private") || err.contains("internal"),
@@ -3308,8 +3313,7 @@ policy_type = "Allow"
         // fe80::1%eth0 is link-local; the zone ID must be stripped so the
         // address parses correctly and hits the private IP rejection.
         let mut config = minimal_config();
-        config.audit_export.webhook_url =
-            Some("https://[fe80::1%eth0]:8080/webhook".to_string());
+        config.audit_export.webhook_url = Some("https://[fe80::1%eth0]:8080/webhook".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("private") || err.contains("internal"),
@@ -3322,12 +3326,13 @@ policy_type = "Allow"
     fn test_r40_sup_2_webhook_rejects_ipv6_zone_id_loopback() {
         // ::1%lo is loopback; the zone ID must be stripped before parsing.
         let mut config = minimal_config();
-        config.audit_export.webhook_url =
-            Some("https://[::1%lo]:8080/webhook".to_string());
+        config.audit_export.webhook_url = Some("https://[::1%lo]:8080/webhook".to_string());
         let err = config.validate().unwrap_err();
         assert!(
-            err.contains("localhost") || err.contains("loopback")
-                || err.contains("private") || err.contains("internal"),
+            err.contains("localhost")
+                || err.contains("loopback")
+                || err.contains("private")
+                || err.contains("internal"),
             "IPv6 zone-id loopback ::1%lo should be rejected, got: {}",
             err
         );
@@ -3341,8 +3346,7 @@ policy_type = "Allow"
         // in the current checks, but let's verify zone stripping works
         // by testing with a known-private address).
         let mut config = minimal_config();
-        config.audit_export.webhook_url =
-            Some("https://[fe80::1%25eth0]:8080/webhook".to_string());
+        config.audit_export.webhook_url = Some("https://[fe80::1%25eth0]:8080/webhook".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("private") || err.contains("internal"),
@@ -3355,8 +3359,7 @@ policy_type = "Allow"
     fn test_r40_sup_2_webhook_rejects_ipv6_zone_id_ula() {
         // fc00::1%eth0 is ULA (Unique Local Address); zone ID stripped, rejected.
         let mut config = minimal_config();
-        config.audit_export.webhook_url =
-            Some("https://[fc00::1%eth0]:8080/webhook".to_string());
+        config.audit_export.webhook_url = Some("https://[fc00::1%eth0]:8080/webhook".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("private") || err.contains("internal"),
@@ -3482,8 +3485,7 @@ policy_type = "Allow"
     fn test_r41_sup_3_webhook_rejects_percent_encoded_ipv6_link_local() {
         // R41-SUP-3: %5B and %5D encode '[' and ']'; fe80::1 is link-local
         let mut config = minimal_config();
-        config.audit_export.webhook_url =
-            Some("https://%5Bfe80::1%5D/webhook".to_string());
+        config.audit_export.webhook_url = Some("https://%5Bfe80::1%5D/webhook".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("private") || err.contains("internal") || err.contains("IPv6"),
@@ -3496,8 +3498,7 @@ policy_type = "Allow"
     fn test_r41_sup_3_webhook_rejects_percent_encoded_ipv6_loopback() {
         // R41-SUP-3: %5B::1%5D is [::1] (loopback)
         let mut config = minimal_config();
-        config.audit_export.webhook_url =
-            Some("https://%5B::1%5D:8080/webhook".to_string());
+        config.audit_export.webhook_url = Some("https://%5B::1%5D:8080/webhook".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("localhost") || err.contains("loopback") || err.contains("private"),
@@ -3510,8 +3511,7 @@ policy_type = "Allow"
     fn test_r41_sup_3_webhook_rejects_lowercase_percent_encoded_brackets() {
         // R41-SUP-3: lowercase %5b/%5d should also be decoded
         let mut config = minimal_config();
-        config.audit_export.webhook_url =
-            Some("https://%5bfe80::1%5d/webhook".to_string());
+        config.audit_export.webhook_url = Some("https://%5bfe80::1%5d/webhook".to_string());
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("private") || err.contains("internal") || err.contains("IPv6"),
@@ -3737,7 +3737,11 @@ policy_type = "Allow"
         let mut config = minimal_config();
         config.behavioral.max_tools_per_agent = MAX_BEHAVIORAL_TOOLS_PER_AGENT + 1;
         let err = config.validate().unwrap_err();
-        assert!(err.contains("behavioral.max_tools_per_agent"), "got: {}", err);
+        assert!(
+            err.contains("behavioral.max_tools_per_agent"),
+            "got: {}",
+            err
+        );
     }
 
     #[test]

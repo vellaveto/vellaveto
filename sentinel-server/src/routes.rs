@@ -48,8 +48,14 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/metrics", get(metrics_json))
         // Tool registry endpoints (P2.1)
         .route("/api/registry/tools", get(list_registry_tools))
-        .route("/api/registry/tools/{name}/approve", post(approve_registry_tool))
-        .route("/api/registry/tools/{name}/revoke", post(revoke_registry_tool))
+        .route(
+            "/api/registry/tools/{name}/approve",
+            post(approve_registry_tool),
+        )
+        .route(
+            "/api/registry/tools/{name}/revoke",
+            post(revoke_registry_tool),
+        )
         // Admin dashboard (P3.2)
         .route("/dashboard", get(crate::dashboard::dashboard_page))
         .route(
@@ -362,13 +368,13 @@ fn scan_params_for_targets_inner(
             if let Some(lower_after_scheme) = lower.strip_prefix("file://") {
                 // Preserve original path case for case-sensitive filesystems
                 let after_scheme = &s[7..]; // skip "file://"
-                // SECURITY (R32-SRV-3): Boundary check after "localhost" — must be
-                // followed by '/' or end-of-string. Without this, file://localhost.evil.com
-                // incorrectly strips "localhost" and extracts ".evil.com/path".
-                // SECURITY (R33-SRV-2): Only extract paths from file://localhost/...
-                // or file:///... (empty host). A file://remote-host/path reference
-                // would silently discard the remote hostname and extract the path,
-                // allowing policy bypass if the path matches an allowed pattern.
+                                            // SECURITY (R32-SRV-3): Boundary check after "localhost" — must be
+                                            // followed by '/' or end-of-string. Without this, file://localhost.evil.com
+                                            // incorrectly strips "localhost" and extracts ".evil.com/path".
+                                            // SECURITY (R33-SRV-2): Only extract paths from file://localhost/...
+                                            // or file:///... (empty host). A file://remote-host/path reference
+                                            // would silently discard the remote hostname and extract the path,
+                                            // allowing policy bypass if the path matches an allowed pattern.
                 let path_original = if lower_after_scheme == "localhost"
                     || lower_after_scheme.starts_with("localhost/")
                 {
@@ -391,8 +397,8 @@ fn scan_params_for_targets_inner(
                 if !file_path.is_empty() {
                     // SECURITY (R29-SRV-2): Percent-decode file:// paths to prevent
                     // bypass via encoding (e.g., file:///etc/%70asswd → /etc/passwd).
-                    let decoded = percent_encoding::percent_decode_str(file_path)
-                        .decode_utf8_lossy();
+                    let decoded =
+                        percent_encoding::percent_decode_str(file_path).decode_utf8_lossy();
                     paths.push(decoded.into_owned());
                 }
             } else if let Some(lower_scheme_end) = lower.find("://") {
@@ -455,8 +461,7 @@ fn scan_params_for_targets_inner(
                     // SECURITY (R30-SRV-6): Percent-decode absolute paths for
                     // consistency with file:// URL handling (R29-SRV-2). Without
                     // this, /etc/%70asswd bypasses path policy checks.
-                    let decoded =
-                        percent_encoding::percent_decode_str(clean).decode_utf8_lossy();
+                    let decoded = percent_encoding::percent_decode_str(clean).decode_utf8_lossy();
                     paths.push(decoded.into_owned());
                 }
             } else if looks_like_relative_path(s) {
@@ -466,8 +471,7 @@ fn scan_params_for_targets_inner(
                 let clean = strip_query_and_fragment(s);
                 if !clean.is_empty() {
                     // SECURITY (R30-SRV-6): Percent-decode relative paths too.
-                    let decoded =
-                        percent_encoding::percent_decode_str(clean).decode_utf8_lossy();
+                    let decoded = percent_encoding::percent_decode_str(clean).decode_utf8_lossy();
                     paths.push(format!("/{}", decoded));
                 }
             }
@@ -1088,7 +1092,12 @@ async fn remove_policy(
     let _guard = state.policy_write_lock.lock().await;
 
     let existing = state.policy_state.load();
-    let candidate: Vec<Policy> = existing.policies.iter().filter(|p| p.id != id).cloned().collect();
+    let candidate: Vec<Policy> = existing
+        .policies
+        .iter()
+        .filter(|p| p.id != id)
+        .cloned()
+        .collect();
     let removed = existing.policies.len().saturating_sub(candidate.len());
 
     if removed == 0 {
@@ -1588,9 +1597,7 @@ async fn approve_approval(
                 crate::ApprovalOpError::AlreadyResolved(_) => {
                     (StatusCode::CONFLICT, "Approval already resolved")
                 }
-                crate::ApprovalOpError::Expired(_) => {
-                    (StatusCode::GONE, "Approval expired")
-                }
+                crate::ApprovalOpError::Expired(_) => (StatusCode::GONE, "Approval expired"),
                 crate::ApprovalOpError::Validation(ref msg) => {
                     // SECURITY (R9-2): Self-approval attempts return 403 Forbidden
                     tracing::warn!("Approval validation failed for '{}': {}", id, msg);
@@ -1686,9 +1693,7 @@ async fn deny_approval(
 
     let approval = state.deny_approval(&id, &resolved_by).await.map_err(|e| {
         let (status, msg) = match &e {
-            crate::ApprovalOpError::NotFound(_) => {
-                (StatusCode::NOT_FOUND, "Approval not found")
-            }
+            crate::ApprovalOpError::NotFound(_) => (StatusCode::NOT_FOUND, "Approval not found"),
             crate::ApprovalOpError::AlreadyResolved(_) => {
                 (StatusCode::CONFLICT, "Approval already resolved")
             }
@@ -1837,29 +1842,31 @@ async fn approve_registry_tool(
         )
     })?;
 
-    let entry = registry.approve(&name).await.map_err(|e| {
-        match e {
-            sentinel_mcp::tool_registry::RegistryError::NotFound(_) => (
-                StatusCode::NOT_FOUND,
+    let entry = registry.approve(&name).await.map_err(|e| match e {
+        sentinel_mcp::tool_registry::RegistryError::NotFound(_) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Tool '{}' not found in registry", name),
+            }),
+        ),
+        _ => {
+            tracing::error!("Registry approve error for '{}': {}", name, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: format!("Tool '{}' not found in registry", name),
+                    error: "Failed to approve tool".to_string(),
                 }),
-            ),
-            _ => {
-                tracing::error!("Registry approve error for '{}': {}", name, e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: "Failed to approve tool".to_string(),
-                    }),
-                )
-            }
+            )
         }
     })?;
 
     // Persist the change
     if let Err(e) = registry.persist().await {
-        tracing::warn!("Failed to persist registry after approving '{}': {}", name, e);
+        tracing::warn!(
+            "Failed to persist registry after approving '{}': {}",
+            name,
+            e
+        );
     }
 
     // Audit trail
@@ -1921,29 +1928,31 @@ async fn revoke_registry_tool(
         )
     })?;
 
-    let entry = registry.revoke(&name).await.map_err(|e| {
-        match e {
-            sentinel_mcp::tool_registry::RegistryError::NotFound(_) => (
-                StatusCode::NOT_FOUND,
+    let entry = registry.revoke(&name).await.map_err(|e| match e {
+        sentinel_mcp::tool_registry::RegistryError::NotFound(_) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Tool '{}' not found in registry", name),
+            }),
+        ),
+        _ => {
+            tracing::error!("Registry revoke error for '{}': {}", name, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: format!("Tool '{}' not found in registry", name),
+                    error: "Failed to revoke tool approval".to_string(),
                 }),
-            ),
-            _ => {
-                tracing::error!("Registry revoke error for '{}': {}", name, e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: "Failed to revoke tool approval".to_string(),
-                    }),
-                )
-            }
+            )
         }
     })?;
 
     // Persist the change
     if let Err(e) = registry.persist().await {
-        tracing::warn!("Failed to persist registry after revoking '{}': {}", name, e);
+        tracing::warn!(
+            "Failed to persist registry after revoking '{}': {}",
+            name,
+            e
+        );
     }
 
     // Audit trail
@@ -2568,7 +2577,11 @@ mod tests {
         // Should be "bearer:" + 32 hex chars (16 bytes = 128 bits)
         assert!(identity.starts_with("bearer:"));
         let hex_part = &identity[7..];
-        assert_eq!(hex_part.len(), 32, "hash truncation should be 16 bytes (32 hex chars)");
+        assert_eq!(
+            hex_part.len(),
+            32,
+            "hash truncation should be 16 bytes (32 hex chars)"
+        );
     }
 
     // --- R34-SRV-6: Percent-encoded relative path detection ---
@@ -2595,10 +2608,7 @@ mod tests {
     #[test]
     fn test_derive_resolver_identity_strips_control_chars() {
         let mut headers = HeaderMap::new();
-        headers.insert(
-            header::AUTHORIZATION,
-            "Bearer mytoken".parse().unwrap(),
-        );
+        headers.insert(header::AUTHORIZATION, "Bearer mytoken".parse().unwrap());
         let identity = derive_resolver_identity(&headers, "user\x00\x0a\x0dname");
         assert!(!identity.contains('\x00'));
         assert!(!identity.contains('\x0a'));
@@ -2690,11 +2700,17 @@ mod tests {
 
         // POST should use evaluate bucket
         let limiter_post = categorize_rate_limit(&limits, &Method::POST, "/api/evaluate");
-        assert!(limiter_post.is_some(), "POST /api/evaluate must match evaluate bucket");
+        assert!(
+            limiter_post.is_some(),
+            "POST /api/evaluate must match evaluate bucket"
+        );
 
         // PUT should also use evaluate bucket, not admin
         let limiter_put = categorize_rate_limit(&limits, &Method::PUT, "/api/evaluate");
-        assert!(limiter_put.is_some(), "PUT /api/evaluate must match evaluate bucket");
+        assert!(
+            limiter_put.is_some(),
+            "PUT /api/evaluate must match evaluate bucket"
+        );
 
         // Verify both return the same limiter (evaluate, not admin)
         // by checking they are the same pointer

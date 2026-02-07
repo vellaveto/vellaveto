@@ -56,10 +56,7 @@ mod behavioral {
 
         // 4th session: same normal usage — no alert expected
         let alerts = tracker.check_session("agent-x", &normal);
-        assert!(
-            alerts.is_empty(),
-            "Continued normal usage should not alert"
-        );
+        assert!(alerts.is_empty(), "Continued normal usage should not alert");
     }
 
     #[test]
@@ -82,8 +79,7 @@ mod behavioral {
         assert!(
             alerts
                 .iter()
-                .any(|a| a.tool == "read_file"
-                    && matches!(a.severity, AnomalySeverity::Critical)),
+                .any(|a| a.tool == "read_file" && matches!(a.severity, AnomalySeverity::Critical)),
             "100x deviation should be High severity, got: {:?}",
             alerts
         );
@@ -172,10 +168,7 @@ mod behavioral {
         ]);
         let alerts = tracker.check_session("agent-c", &new_tool);
         // Filter for only write_file alerts (read_file should be fine)
-        let write_alerts: Vec<_> = alerts
-            .iter()
-            .filter(|a| a.tool == "write_file")
-            .collect();
+        let write_alerts: Vec<_> = alerts.iter().filter(|a| a.tool == "write_file").collect();
         assert!(
             write_alerts.is_empty(),
             "New tool with no baseline should not alert (cold start per-tool)"
@@ -195,7 +188,11 @@ mod data_flow {
         DataFlowTracker::new(DataFlowConfig::default()).expect("default config works")
     }
 
-    fn make_finding(pattern: &str, location: &str, value: Option<&str>) -> DlpFindingWithFingerprint {
+    fn make_finding(
+        pattern: &str,
+        location: &str,
+        value: Option<&str>,
+    ) -> DlpFindingWithFingerprint {
         DlpFindingWithFingerprint::from_finding(
             DlpFinding {
                 pattern_name: pattern.to_string(),
@@ -208,7 +205,11 @@ mod data_flow {
     #[test]
     fn no_alert_when_no_prior_response_findings() {
         let tracker = default_tracker();
-        let req_findings = vec![make_finding("aws_access_key", "$.body", Some("AKIAIOSFODNN7EXAMPLE"))];
+        let req_findings = vec![make_finding(
+            "aws_access_key",
+            "$.body",
+            Some("AKIAIOSFODNN7EXAMPLE"),
+        )];
         let domains = vec!["evil.com".to_string()];
 
         let alerts = tracker.check_request("send_email", &req_findings, &domains);
@@ -359,10 +360,7 @@ mod data_flow {
         let domains = vec!["attacker.com".to_string()];
 
         let alerts = tracker.check_request("http_post", &req_findings, &domains);
-        assert!(
-            !alerts.is_empty(),
-            "Multi-step chain should be detected"
-        );
+        assert!(!alerts.is_empty(), "Multi-step chain should be detected");
         assert!(
             alerts[0].source_tool == "read_env_vars",
             "Should trace back to the correct source tool"
@@ -396,14 +394,8 @@ mod data_flow {
         let req_new = vec![make_finding("pattern_9", "$.body", Some("secret_9"))];
         let alerts_new = tracker.check_request("send", &req_new, &domains);
 
-        assert!(
-            alerts_old.is_empty(),
-            "Evicted pattern should not alert"
-        );
-        assert!(
-            !alerts_new.is_empty(),
-            "Recent pattern should still alert"
-        );
+        assert!(alerts_old.is_empty(), "Evicted pattern should not alert");
+        assert!(!alerts_new.is_empty(), "Recent pattern should still alert");
     }
 }
 
@@ -434,8 +426,7 @@ mod p4_interaction {
         .expect("config works");
 
         // Set up data flow tracker
-        let mut data_flow =
-            DataFlowTracker::new(DataFlowConfig::default()).expect("config works");
+        let mut data_flow = DataFlowTracker::new(DataFlowConfig::default()).expect("config works");
 
         // Phase 1: Normal behavior for 5 sessions
         let normal = HashMap::from([

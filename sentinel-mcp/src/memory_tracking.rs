@@ -139,10 +139,7 @@ impl MemoryTracker {
 
         // SECURITY (R33-MCP-5): Extract from _meta — server metadata that may
         // contain data the agent processes in subsequent requests.
-        if let Some(meta) = response
-            .get("result")
-            .and_then(|r| r.get("_meta"))
-        {
+        if let Some(meta) = response.get("result").and_then(|r| r.get("_meta")) {
             self.extract_from_value(meta);
         }
 

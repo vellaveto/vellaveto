@@ -1127,7 +1127,8 @@ impl AuditLogger {
                             valid: false,
                             files_checked: i,
                             first_failure: Some(format!(
-                                "Manifest entry {} failed to canonicalize", i
+                                "Manifest entry {} failed to canonicalize",
+                                i
                             )),
                         });
                     }
@@ -1139,7 +1140,8 @@ impl AuditLogger {
                             valid: false,
                             files_checked: i,
                             first_failure: Some(format!(
-                                "Manifest entry {} has invalid verifying key hex", i
+                                "Manifest entry {} has invalid verifying key hex",
+                                i
                             )),
                         });
                     }
@@ -1151,7 +1153,8 @@ impl AuditLogger {
                             valid: false,
                             files_checked: i,
                             first_failure: Some(format!(
-                                "Manifest entry {} has invalid signature hex", i
+                                "Manifest entry {} has invalid signature hex",
+                                i
                             )),
                         });
                     }
@@ -1166,7 +1169,8 @@ impl AuditLogger {
                             valid: false,
                             files_checked: i,
                             first_failure: Some(format!(
-                                "Manifest entry {} verifying key wrong length", i
+                                "Manifest entry {} verifying key wrong length",
+                                i
                             )),
                         });
                     }
@@ -1178,7 +1182,8 @@ impl AuditLogger {
                             valid: false,
                             files_checked: i,
                             first_failure: Some(format!(
-                                "Manifest entry {} signature wrong length", i
+                                "Manifest entry {} signature wrong length",
+                                i
                             )),
                         });
                     }
@@ -1190,7 +1195,8 @@ impl AuditLogger {
                             valid: false,
                             files_checked: i,
                             first_failure: Some(format!(
-                                "Manifest entry {} has invalid verifying key", i
+                                "Manifest entry {} has invalid verifying key",
+                                i
                             )),
                         });
                     }
@@ -1200,9 +1206,7 @@ impl AuditLogger {
                     return Ok(RotationVerification {
                         valid: false,
                         files_checked: i,
-                        first_failure: Some(format!(
-                            "Manifest entry {} signature invalid", i
-                        )),
+                        first_failure: Some(format!("Manifest entry {} signature invalid", i)),
                     });
                 }
             } else if self.trusted_verifying_key.is_some() {
@@ -1559,15 +1563,22 @@ impl AuditLogger {
                 // internal network addresses or other PII-adjacent data.
                 let pii_scanner_ref = &self.pii_scanner;
                 let redact_strings = |strings: &[String]| -> Vec<String> {
-                    strings.iter().map(|s| {
-                        if let Some(ref scanner) = pii_scanner_ref {
-                            if scanner.has_pii(s) { REDACTED.to_string() } else { s.clone() }
-                        } else if PII_REGEXES.iter().any(|re| re.is_match(s)) {
-                            REDACTED.to_string()
-                        } else {
-                            s.clone()
-                        }
-                    }).collect()
+                    strings
+                        .iter()
+                        .map(|s| {
+                            if let Some(ref scanner) = pii_scanner_ref {
+                                if scanner.has_pii(s) {
+                                    REDACTED.to_string()
+                                } else {
+                                    s.clone()
+                                }
+                            } else if PII_REGEXES.iter().any(|re| re.is_match(s)) {
+                                REDACTED.to_string()
+                            } else {
+                                s.clone()
+                            }
+                        })
+                        .collect()
                 };
                 a.target_paths = redact_strings(&action.target_paths);
                 a.target_domains = redact_strings(&action.target_domains);
@@ -1606,7 +1617,9 @@ impl AuditLogger {
                         }
                         r
                     };
-                    Verdict::Deny { reason: redacted_reason }
+                    Verdict::Deny {
+                        reason: redacted_reason,
+                    }
                 }
                 Verdict::RequireApproval { reason } => {
                     let redacted_reason = if let Some(ref scanner) = self.pii_scanner {
@@ -1618,7 +1631,9 @@ impl AuditLogger {
                         }
                         r
                     };
-                    Verdict::RequireApproval { reason: redacted_reason }
+                    Verdict::RequireApproval {
+                        reason: redacted_reason,
+                    }
                 }
                 other => other.clone(),
             },
@@ -2824,11 +2839,7 @@ mod tests {
         let logger = AuditLogger::new(log_path.clone())
             .with_redaction_level(RedactionLevel::KeysAndPatterns);
 
-        let mut action = Action::new(
-            "tool".to_string(),
-            "func".to_string(),
-            json!({}),
-        );
+        let mut action = Action::new("tool".to_string(), "func".to_string(), json!({}));
         // IPv4 in target_paths — detected by PiiScanner but NOT by legacy PII_REGEXES
         action.target_paths = vec!["192.168.1.100".to_string()];
         // AWS key in target_domains — detected by PiiScanner but NOT by legacy PII_REGEXES
@@ -2859,11 +2870,7 @@ mod tests {
         let logger = AuditLogger::new(log_path.clone())
             .with_redaction_level(RedactionLevel::KeysAndPatterns);
 
-        let mut action = Action::new(
-            "tool".to_string(),
-            "func".to_string(),
-            json!({}),
-        );
+        let mut action = Action::new("tool".to_string(), "func".to_string(), json!({}));
         action.resolved_ips = vec!["10.0.0.1".to_string(), "safe-value".to_string()];
 
         logger
@@ -2888,14 +2895,9 @@ mod tests {
     async fn test_r36_sup_3_resolved_ips_not_redacted_when_off() {
         let dir = TempDir::new().unwrap();
         let log_path = dir.path().join("audit.jsonl");
-        let logger = AuditLogger::new(log_path.clone())
-            .with_redaction_level(RedactionLevel::Off);
+        let logger = AuditLogger::new(log_path.clone()).with_redaction_level(RedactionLevel::Off);
 
-        let mut action = Action::new(
-            "tool".to_string(),
-            "func".to_string(),
-            json!({}),
-        );
+        let mut action = Action::new("tool".to_string(), "func".to_string(), json!({}));
         action.resolved_ips = vec!["10.0.0.1".to_string()];
 
         logger
@@ -4425,7 +4427,8 @@ mod tests {
             use std::io::{Seek, Write};
             let mut f = std::fs::File::create(&rotated_path).unwrap();
             // Seek to 100MB + 1 byte and write a byte to create a sparse file
-            f.seek(std::io::SeekFrom::Start(100 * 1024 * 1024 + 1)).unwrap();
+            f.seek(std::io::SeekFrom::Start(100 * 1024 * 1024 + 1))
+                .unwrap();
             f.write_all(b"\n").unwrap();
         }
 

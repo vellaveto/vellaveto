@@ -1328,14 +1328,17 @@ mod tests {
         });
 
         // Same schema, different key order (if we build it differently)
-        let schema2: serde_json::Value = serde_json::from_str(r#"{
+        let schema2: serde_json::Value = serde_json::from_str(
+            r#"{
             "required": ["name", "age"],
             "type": "object",
             "properties": {
                 "age": {"type": "integer"},
                 "name": {"type": "string"}
             }
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
 
         let hash1 = compute_schema_hash(&schema1);
         let hash2 = compute_schema_hash(&schema2);

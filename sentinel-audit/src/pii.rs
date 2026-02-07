@@ -129,7 +129,11 @@ struct NamedPiiRegex {
 /// Default built-in PII detection patterns.
 fn default_patterns() -> Vec<NamedPiiRegex> {
     let patterns: &[(&str, &str, bool)] = &[
-        ("email", r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", false),
+        (
+            "email",
+            r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}",
+            false,
+        ),
         ("ssn", r"\b\d{3}-\d{2}-\d{4}\b", false),
         (
             "us_phone",
@@ -153,9 +157,11 @@ fn default_patterns() -> Vec<NamedPiiRegex> {
     patterns
         .iter()
         .filter_map(|(name, pat, luhn)| {
-            Regex::new(pat)
-                .ok()
-                .map(|regex| NamedPiiRegex { name, regex, luhn_postfilter: *luhn })
+            Regex::new(pat).ok().map(|regex| NamedPiiRegex {
+                name,
+                regex,
+                luhn_postfilter: *luhn,
+            })
         })
         .collect()
 }

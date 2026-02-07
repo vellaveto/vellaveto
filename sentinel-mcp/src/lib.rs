@@ -190,7 +190,11 @@ impl McpServer {
         // Build candidate policy list and compile BEFORE committing.
         let mut policies = self.policies.write().await;
         let initial_len = policies.len();
-        let candidate: Vec<Policy> = policies.iter().filter(|p| p.id != policy_id).cloned().collect();
+        let candidate: Vec<Policy> = policies
+            .iter()
+            .filter(|p| p.id != policy_id)
+            .cloned()
+            .collect();
         let changed = candidate.len() < initial_len;
 
         if !changed {

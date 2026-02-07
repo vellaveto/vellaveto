@@ -309,10 +309,7 @@ async fn regression_38_prometheus_metrics_rate_limited() {
             break;
         }
     }
-    assert!(
-        hit_rate_limit,
-        "/metrics must be rate-limited (R38-SRV-2)"
-    );
+    assert!(hit_rate_limit, "/metrics must be rate-limited (R38-SRV-2)");
 }
 
 // =============================================================================
@@ -590,7 +587,10 @@ async fn exploit_bonus_resolved_by_unbounded_length() {
     // A ridiculously long resolved_by string should be rejected.
     let huge_name = "A".repeat(100_000); // 100KB
     let result = store.approve(&id, &huge_name).await;
-    assert!(result.is_err(), "Store should reject overly long resolved_by");
+    assert!(
+        result.is_err(),
+        "Store should reject overly long resolved_by"
+    );
 
     // Verify that a reasonable-length identity is accepted
     let ok_name = "A".repeat(512); // At the limit

@@ -42,10 +42,7 @@ async fn test_create_and_get_approval() {
 
     assert!(!id.is_empty());
 
-    let approval = backend
-        .approval_get(&id)
-        .await
-        .expect("get should succeed");
+    let approval = backend.approval_get(&id).await.expect("get should succeed");
 
     assert_eq!(approval.id, id);
     assert_eq!(approval.reason, "needs review");
@@ -251,10 +248,7 @@ async fn test_self_approval_prevention() {
     let result = backend.approval_approve(&id, "alice").await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(
-        err,
-        sentinel_cluster::ClusterError::Validation(_)
-    ));
+    assert!(matches!(err, sentinel_cluster::ClusterError::Validation(_)));
 
     // A different person should be able to approve
     let approval = backend

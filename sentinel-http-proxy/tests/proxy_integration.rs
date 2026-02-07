@@ -3781,22 +3781,20 @@ async fn session_fixation_unbound_session_allows_first_binding() {
 
 /// Build a ProxyState with a max_chain_depth policy.
 fn build_chain_depth_test_state(upstream_url: &str, tmp: &TempDir, max_depth: usize) -> ProxyState {
-    let policies = vec![
-        Policy {
-            id: "*".to_string(),
-            name: "Chain depth limit".to_string(),
-            policy_type: PolicyType::Conditional {
-                conditions: json!({
-                    "context_conditions": [
-                        {"type": "max_chain_depth", "max_depth": max_depth}
-                    ]
-                }),
-            },
-            priority: 100,
-            path_rules: None,
-            network_rules: None,
+    let policies = vec![Policy {
+        id: "*".to_string(),
+        name: "Chain depth limit".to_string(),
+        policy_type: PolicyType::Conditional {
+            conditions: json!({
+                "context_conditions": [
+                    {"type": "max_chain_depth", "max_depth": max_depth}
+                ]
+            }),
         },
-    ];
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }];
 
     let engine = PolicyEngine::with_policies(false, &policies).expect("policies should compile");
 
@@ -4216,7 +4214,10 @@ async fn tool_call_deny_message_is_generic() {
     let result = json_body(resp).await;
     assert_eq!(result["error"]["code"], -32001);
     let msg = result["error"]["message"].as_str().unwrap();
-    assert_eq!(msg, "Denied by policy", "Must be exactly the generic message");
+    assert_eq!(
+        msg, "Denied by policy",
+        "Must be exactly the generic message"
+    );
     // Verify no policy details leak — the message must NOT contain a colon
     // after "Denied by policy" (which would indicate the reason was appended)
     assert!(

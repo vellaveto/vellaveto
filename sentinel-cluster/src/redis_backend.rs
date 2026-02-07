@@ -91,9 +91,10 @@ impl RedisBackend {
     }
 
     async fn get_conn(&self) -> Result<deadpool_redis::Connection, ClusterError> {
-        self.pool.get().await.map_err(|e| {
-            ClusterError::Connection(format!("Failed to get Redis connection: {}", e))
-        })
+        self.pool
+            .get()
+            .await
+            .map_err(|e| ClusterError::Connection(format!("Failed to get Redis connection: {}", e)))
     }
 
     /// Compute a dedup key from action + reason + requested_by.
@@ -211,9 +212,10 @@ impl ClusterBackend for RedisBackend {
 
         // First, check dedup without Lua for simplicity and correctness
         let dedup_redis_key = self.dedup_key(&dedup_hash);
-        let existing_id: Option<String> = conn.get(&dedup_redis_key).await.map_err(|e| {
-            ClusterError::Connection(format!("Redis GET dedup failed: {}", e))
-        })?;
+        let existing_id: Option<String> = conn
+            .get(&dedup_redis_key)
+            .await
+            .map_err(|e| ClusterError::Connection(format!("Redis GET dedup failed: {}", e)))?;
 
         if let Some(ref eid) = existing_id {
             // Verify the referenced approval is still pending
@@ -229,9 +231,10 @@ impl ClusterBackend for RedisBackend {
                 }
             }
             // Stale dedup — remove it and continue to create new
-            let _: () = conn.del(&dedup_redis_key).await.map_err(|e| {
-                ClusterError::Connection(format!("Redis DEL dedup failed: {}", e))
-            })?;
+            let _: () = conn
+                .del(&dedup_redis_key)
+                .await
+                .map_err(|e| ClusterError::Connection(format!("Redis DEL dedup failed: {}", e)))?;
         }
 
         // Check capacity
@@ -274,17 +277,14 @@ impl ClusterBackend for RedisBackend {
             .map_err(|e| ClusterError::Connection(format!("Redis GET failed: {}", e)))?;
 
         match json {
-            Some(j) => serde_json::from_str(&j)
-                .map_err(|e| ClusterError::Serialization(e.to_string())),
+            Some(j) => {
+                serde_json::from_str(&j).map_err(|e| ClusterError::Serialization(e.to_string()))
+            }
             None => Err(ClusterError::NotFound(id.to_string())),
         }
     }
 
-    async fn approval_approve(
-        &self,
-        id: &str,
-        by: &str,
-    ) -> Result<PendingApproval, ClusterError> {
+    async fn approval_approve(&self, id: &str, by: &str) -> Result<PendingApproval, ClusterError> {
         if by.len() > sentinel_approval::MAX_IDENTITY_LEN {
             return Err(ClusterError::Validation(format!(
                 "resolved_by exceeds maximum length of {} bytes",
@@ -299,8 +299,9 @@ impl ClusterBackend for RedisBackend {
             .map_err(|e| ClusterError::Connection(format!("Redis GET failed: {}", e)))?;
 
         let mut approval: PendingApproval = match json {
-            Some(j) => serde_json::from_str(&j)
-                .map_err(|e| ClusterError::Serialization(e.to_string()))?,
+            Some(j) => {
+                serde_json::from_str(&j).map_err(|e| ClusterError::Serialization(e.to_string()))?
+            }
             None => return Err(ClusterError::NotFound(id.to_string())),
         };
 
@@ -355,11 +356,7 @@ impl ClusterBackend for RedisBackend {
         Ok(approval)
     }
 
-    async fn approval_deny(
-        &self,
-        id: &str,
-        by: &str,
-    ) -> Result<PendingApproval, ClusterError> {
+    async fn approval_deny(&self, id: &str, by: &str) -> Result<PendingApproval, ClusterError> {
         if by.len() > sentinel_approval::MAX_IDENTITY_LEN {
             return Err(ClusterError::Validation(format!(
                 "resolved_by exceeds maximum length of {} bytes",
@@ -374,8 +371,9 @@ impl ClusterBackend for RedisBackend {
             .map_err(|e| ClusterError::Connection(format!("Redis GET failed: {}", e)))?;
 
         let mut approval: PendingApproval = match json {
-            Some(j) => serde_json::from_str(&j)
-                .map_err(|e| ClusterError::Serialization(e.to_string()))?,
+            Some(j) => {
+                serde_json::from_str(&j).map_err(|e| ClusterError::Serialization(e.to_string()))?
+            }
             None => return Err(ClusterError::NotFound(id.to_string())),
         };
 
@@ -459,12 +457,9 @@ impl ClusterBackend for RedisBackend {
                         expired_count += 1;
                     } else {
                         // Already resolved — just remove from pending set
-                        let _: () = conn
-                            .zrem(self.pending_set_key(), id)
-                            .await
-                            .map_err(|e| {
-                                ClusterError::Connection(format!("Redis ZREM failed: {}", e))
-                            })?;
+                        let _: () = conn.zrem(self.pending_set_key(), id).await.map_err(|e| {
+                            ClusterError::Connection(format!("Redis ZREM failed: {}", e))
+                        })?;
                     }
                 }
             } else {
@@ -472,9 +467,7 @@ impl ClusterBackend for RedisBackend {
                 let _: () = conn
                     .zrem(self.pending_set_key(), id)
                     .await
-                    .map_err(|e| {
-                        ClusterError::Connection(format!("Redis ZREM failed: {}", e))
-                    })?;
+                    .map_err(|e| ClusterError::Connection(format!("Redis ZREM failed: {}", e)))?;
             }
         }
 
@@ -509,7 +502,9 @@ impl ClusterBackend for RedisBackend {
             .arg(&request_id)
             .invoke_async(&mut *conn)
             .await
-            .map_err(|e| ClusterError::Connection(format!("Redis rate limit script failed: {}", e)))?;
+            .map_err(|e| {
+                ClusterError::Connection(format!("Redis rate limit script failed: {}", e))
+            })?;
 
         Ok(result == 1)
     }
@@ -559,19 +554,16 @@ impl RedisBackend {
                 &approval.reason,
                 approval.requested_by.as_deref(),
             ) {
-                let _: () = conn
-                    .del(self.dedup_key(&dedup_hash))
-                    .await
-                    .map_err(|e| ClusterError::Connection(format!("Redis DEL dedup failed: {}", e)))?;
+                let _: () = conn.del(self.dedup_key(&dedup_hash)).await.map_err(|e| {
+                    ClusterError::Connection(format!("Redis DEL dedup failed: {}", e))
+                })?;
             }
 
             // Set a TTL on the approval itself for eventual cleanup (1 hour)
             let _: () = conn
                 .expire(self.approval_key(&approval.id), 3600)
                 .await
-                .map_err(|e| {
-                    ClusterError::Connection(format!("Redis EXPIRE failed: {}", e))
-                })?;
+                .map_err(|e| ClusterError::Connection(format!("Redis EXPIRE failed: {}", e)))?;
         }
 
         Ok(())

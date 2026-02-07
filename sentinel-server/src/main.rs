@@ -529,7 +529,9 @@ async fn cmd_serve(
                     policy_config.cluster.redis_pool_size,
                     &policy_config.cluster.key_prefix,
                 )
-                .map_err(|e| anyhow::anyhow!("Failed to initialize Redis cluster backend: {}", e))?;
+                .map_err(|e| {
+                    anyhow::anyhow!("Failed to initialize Redis cluster backend: {}", e)
+                })?;
                 tracing::info!(
                     "Cluster backend: Redis (url={}, pool_size={}, prefix={})",
                     policy_config.cluster.redis_url,

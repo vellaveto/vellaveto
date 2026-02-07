@@ -2854,10 +2854,12 @@ async fn remove_policy_atomic_store_updates_both() {
     {
         let snapshot = state.policy_state.load();
         let engine = PolicyEngine::with_policies(false, &snapshot.policies).unwrap();
-        state.policy_state.store(Arc::new(sentinel_server::PolicySnapshot {
-            engine,
-            policies: snapshot.policies.clone(),
-        }));
+        state
+            .policy_state
+            .store(Arc::new(sentinel_server::PolicySnapshot {
+                engine,
+                policies: snapshot.policies.clone(),
+            }));
     }
 
     let app = routes::build_router(state.clone());

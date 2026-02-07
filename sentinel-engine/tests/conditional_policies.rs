@@ -244,7 +244,10 @@ fn max_chain_depth_zero_allows_direct_calls() {
     let result = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(result, Verdict::Allow), "Empty chain should be allowed");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Empty chain should be allowed"
+    );
 }
 
 #[test]
@@ -307,7 +310,10 @@ fn max_chain_depth_one_allows_single_hop() {
     let result = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(matches!(result, Verdict::Allow), "Single hop should be allowed");
+    assert!(
+        matches!(result, Verdict::Allow),
+        "Single hop should be allowed"
+    );
 }
 
 #[test]

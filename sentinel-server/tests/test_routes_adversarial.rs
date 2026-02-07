@@ -599,9 +599,7 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     let status = resp.status();
-    let body_bytes = axum::body::to_bytes(resp.into_body(), 65536)
-        .await
-        .unwrap();
+    let body_bytes = axum::body::to_bytes(resp.into_body(), 65536).await.unwrap();
     let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
 
     // The response should show the action with cleared resolved_ips
@@ -692,7 +690,11 @@ async fn test_r32_srv2_redact_clears_targets() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), StatusCode::OK, "evaluate must succeed with valid auth");
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "evaluate must succeed with valid auth"
+    );
     let body_bytes = axum::body::to_bytes(resp.into_body(), 65536).await.unwrap();
     let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
 
@@ -704,13 +706,25 @@ async fn test_r32_srv2_redact_clears_targets() {
 
         // Either fields are absent (skip_serializing_if = "Vec::is_empty") or empty
         if let Some(paths) = paths {
-            assert!(paths.is_empty(), "target_paths must be redacted, got: {:?}", paths);
+            assert!(
+                paths.is_empty(),
+                "target_paths must be redacted, got: {:?}",
+                paths
+            );
         }
         if let Some(domains) = domains {
-            assert!(domains.is_empty(), "target_domains must be redacted, got: {:?}", domains);
+            assert!(
+                domains.is_empty(),
+                "target_domains must be redacted, got: {:?}",
+                domains
+            );
         }
         if let Some(ips) = ips {
-            assert!(ips.is_empty(), "resolved_ips must be redacted, got: {:?}", ips);
+            assert!(
+                ips.is_empty(),
+                "resolved_ips must be redacted, got: {:?}",
+                ips
+            );
         }
     }
 }

@@ -404,12 +404,15 @@ impl ApprovalStore {
             // İ (U+0130) must case-fold correctly to detect self-approval.
             let requester_normalized: String = requester_base.nfkc().collect();
             let approver_normalized: String = approver_base.nfkc().collect();
-            let req_lower: String = requester_normalized.chars().flat_map(char::to_lowercase).collect();
-            let app_lower: String = approver_normalized.chars().flat_map(char::to_lowercase).collect();
-            if !req_lower.is_empty()
-                && req_lower != "anonymous"
-                && req_lower == app_lower
-            {
+            let req_lower: String = requester_normalized
+                .chars()
+                .flat_map(char::to_lowercase)
+                .collect();
+            let app_lower: String = approver_normalized
+                .chars()
+                .flat_map(char::to_lowercase)
+                .collect();
+            if !req_lower.is_empty() && req_lower != "anonymous" && req_lower == app_lower {
                 return Err(ApprovalError::Validation(format!(
                     "Self-approval denied: requester '{}' cannot approve their own request",
                     requester_base
@@ -523,7 +526,10 @@ impl ApprovalStore {
     /// on every Prometheus scrape request.
     pub async fn pending_count(&self) -> usize {
         let pending = self.pending.read().await;
-        pending.values().filter(|a| a.status == ApprovalStatus::Pending).count()
+        pending
+            .values()
+            .filter(|a| a.status == ApprovalStatus::Pending)
+            .count()
     }
 
     /// Expire all stale approvals that have passed their TTL.
@@ -1293,7 +1299,10 @@ mod tests {
         // Identity exceeding MAX_IDENTITY_LEN should be rejected
         let long_identity = "x".repeat(MAX_IDENTITY_LEN + 1);
         let result = store.approve(&id, &long_identity).await;
-        assert!(result.is_err(), "Long identity in approve() should be rejected");
+        assert!(
+            result.is_err(),
+            "Long identity in approve() should be rejected"
+        );
         match result.unwrap_err() {
             ApprovalError::Validation(msg) => {
                 assert!(
@@ -1344,7 +1353,10 @@ mod tests {
 
         let long_identity = "y".repeat(MAX_IDENTITY_LEN + 1);
         let result = store.deny(&id, &long_identity).await;
-        assert!(result.is_err(), "Long identity in deny() should be rejected");
+        assert!(
+            result.is_err(),
+            "Long identity in deny() should be rejected"
+        );
         match result.unwrap_err() {
             ApprovalError::Validation(msg) => {
                 assert!(
@@ -1389,9 +1401,16 @@ mod tests {
 
         let long_requester = "z".repeat(MAX_IDENTITY_LEN + 1);
         let result = store
-            .create(test_action(), "needs review".to_string(), Some(long_requester))
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some(long_requester),
+            )
             .await;
-        assert!(result.is_err(), "Long requested_by in create() should be rejected");
+        assert!(
+            result.is_err(),
+            "Long requested_by in create() should be rejected"
+        );
         match result.unwrap_err() {
             ApprovalError::Validation(msg) => {
                 assert!(
@@ -1414,7 +1433,11 @@ mod tests {
 
         let exact_requester = "z".repeat(MAX_IDENTITY_LEN);
         let result = store
-            .create(test_action(), "needs review".to_string(), Some(exact_requester))
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some(exact_requester),
+            )
             .await;
         assert!(
             result.is_ok(),
@@ -1532,11 +1555,19 @@ mod tests {
         action_b.resolved_ips = vec!["10.0.0.2".to_string(), "10.0.0.1".to_string()];
 
         let id_a = store
-            .create(action_a, "needs review".to_string(), Some("user@corp.com".to_string()))
+            .create(
+                action_a,
+                "needs review".to_string(),
+                Some("user@corp.com".to_string()),
+            )
             .await
             .unwrap();
         let id_b = store
-            .create(action_b, "needs review".to_string(), Some("user@corp.com".to_string()))
+            .create(
+                action_b,
+                "needs review".to_string(),
+                Some("user@corp.com".to_string()),
+            )
             .await
             .unwrap();
 

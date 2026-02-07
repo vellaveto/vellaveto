@@ -182,7 +182,11 @@ impl std::fmt::Display for AnomalyAlert {
         write!(
             f,
             "[{:?}] Agent '{}' tool '{}': {} calls (baseline {:.1}, ratio {:.1}x)",
-            self.severity, self.agent_id, self.tool, self.current_count, self.baseline_ema,
+            self.severity,
+            self.agent_id,
+            self.tool,
+            self.current_count,
+            self.baseline_ema,
             self.deviation_ratio,
         )
     }
@@ -356,15 +360,14 @@ impl BehavioralTracker {
                 Self::evict_tool(&mut agent.tools);
             }
 
-            let baseline =
-                agent
-                    .tools
-                    .entry(tool.clone())
-                    .or_insert_with(|| ToolBaseline {
-                        ema: 0.0,
-                        session_count: 0,
-                        last_active: 0,
-                    });
+            let baseline = agent
+                .tools
+                .entry(tool.clone())
+                .or_insert_with(|| ToolBaseline {
+                    ema: 0.0,
+                    session_count: 0,
+                    last_active: 0,
+                });
 
             // EMA update
             if baseline.session_count == 0 {
@@ -574,7 +577,10 @@ mod tests {
     fn test_config_validate_invalid_max_tools() {
         let mut c = BehavioralConfig::default();
         c.max_tools_per_agent = 0;
-        assert!(matches!(c.validate(), Err(BehavioralError::InvalidMaxTools)));
+        assert!(matches!(
+            c.validate(),
+            Err(BehavioralError::InvalidMaxTools)
+        ));
     }
 
     #[test]
@@ -698,7 +704,10 @@ mod tests {
         // write_file never seen — no baseline, no alert
         let new_tool = counts(&[("write_file", 1000)]);
         let alerts = tracker.check_session("agent-1", &new_tool);
-        assert!(alerts.is_empty(), "New tool with no baseline should not alert");
+        assert!(
+            alerts.is_empty(),
+            "New tool with no baseline should not alert"
+        );
     }
 
     // ── Severity ──────────────────────────────────
@@ -967,7 +976,8 @@ mod tests {
 
     #[test]
     fn test_empty_call_counts_no_panic() {
-        let mut tracker = BehavioralTracker::new(BehavioralConfig::default()).expect("valid config");
+        let mut tracker =
+            BehavioralTracker::new(BehavioralConfig::default()).expect("valid config");
         let empty = HashMap::new();
         tracker.record_session("agent-1", &empty);
         let alerts = tracker.check_session("agent-1", &empty);
@@ -1012,8 +1022,7 @@ mod tests {
 
         // Serialize and deserialize (simulating persistence)
         let json = serde_json::to_string(&snapshot).expect("serialize");
-        let restored_snap: BehavioralSnapshot =
-            serde_json::from_str(&json).expect("deserialize");
+        let restored_snap: BehavioralSnapshot = serde_json::from_str(&json).expect("deserialize");
 
         let restored =
             BehavioralTracker::from_snapshot(config, restored_snap).expect("valid snapshot");

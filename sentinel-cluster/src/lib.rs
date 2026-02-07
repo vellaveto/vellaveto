@@ -101,11 +101,7 @@ pub trait ClusterBackend: Send + Sync {
     async fn approval_get(&self, id: &str) -> Result<PendingApproval, ClusterError>;
 
     /// Approve a pending approval. Returns the updated approval.
-    async fn approval_approve(
-        &self,
-        id: &str,
-        by: &str,
-    ) -> Result<PendingApproval, ClusterError>;
+    async fn approval_approve(&self, id: &str, by: &str) -> Result<PendingApproval, ClusterError>;
 
     /// Deny a pending approval. Returns the updated approval.
     async fn approval_deny(&self, id: &str, by: &str) -> Result<PendingApproval, ClusterError>;
@@ -162,24 +158,20 @@ mod tests {
 
     #[test]
     fn test_cluster_error_from_approval_error() {
-        let err: ClusterError =
-            sentinel_approval::ApprovalError::NotFound("test-id".into()).into();
+        let err: ClusterError = sentinel_approval::ApprovalError::NotFound("test-id".into()).into();
         assert!(matches!(err, ClusterError::NotFound(_)));
 
         let err: ClusterError =
             sentinel_approval::ApprovalError::AlreadyResolved("test-id".into()).into();
         assert!(matches!(err, ClusterError::AlreadyResolved(_)));
 
-        let err: ClusterError =
-            sentinel_approval::ApprovalError::Expired("test-id".into()).into();
+        let err: ClusterError = sentinel_approval::ApprovalError::Expired("test-id".into()).into();
         assert!(matches!(err, ClusterError::Expired(_)));
 
-        let err: ClusterError =
-            sentinel_approval::ApprovalError::CapacityExceeded(100).into();
+        let err: ClusterError = sentinel_approval::ApprovalError::CapacityExceeded(100).into();
         assert!(matches!(err, ClusterError::CapacityExceeded(100)));
 
-        let err: ClusterError =
-            sentinel_approval::ApprovalError::Validation("bad".into()).into();
+        let err: ClusterError = sentinel_approval::ApprovalError::Validation("bad".into()).into();
         assert!(matches!(err, ClusterError::Validation(_)));
     }
 }

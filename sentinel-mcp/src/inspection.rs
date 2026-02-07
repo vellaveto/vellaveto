@@ -355,7 +355,8 @@ pub fn sanitize_for_injection_scan(text: &str) -> String {
                 || cp == 0x00AD                       // Soft Hyphen
                 // SECURITY (R25-MCP-5): Bidi Isolate characters can reorder
                 // displayed text to hide injected instructions visually.
-                || (0x2066..=0x2069).contains(&cp)   // LRI, RLI, FSI, PDI
+                || (0x2066..=0x2069).contains(&cp)
+            // LRI, RLI, FSI, PDI
             {
                 ' '
             } else {
@@ -768,7 +769,10 @@ pub const DLP_PATTERNS: &[(&str, &str)] = &[
         r"eyJ[A-Za-z0-9_-]{1,8192}\.eyJ[A-Za-z0-9_-]{1,8192}\.[A-Za-z0-9_-]{1,8192}",
     ),
     // Stripe API keys (secret, publishable, restricted)
-    ("stripe_key", r"(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{20,255}"),
+    (
+        "stripe_key",
+        r"(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{20,255}",
+    ),
     // Google Cloud Platform API key
     ("gcp_api_key", r"AIza[A-Za-z0-9_\-]{35}"),
     // Azure storage/service bus connection string key component
@@ -828,7 +832,8 @@ pub fn scan_parameters_for_secrets(parameters: &serde_json::Value) -> Vec<DlpFin
                     tracing::error!(
                         "CRITICAL: Failed to compile DLP pattern '{}': {}. \
                          This pattern will be SKIPPED.",
-                        name, e
+                        name,
+                        e
                     );
                     None
                 }
@@ -1060,7 +1065,8 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
                     tracing::error!(
                         "CRITICAL: Failed to compile DLP pattern '{}': {}. \
                          This pattern will be SKIPPED.",
-                        name, e
+                        name,
+                        e
                     );
                     None
                 }
@@ -1144,16 +1150,18 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
         .and_then(|r| r.get("instructionsForUser"))
         .and_then(|i| i.as_str())
     {
-        scan_string_for_secrets(instructions, "result.instructionsForUser", regexes, &mut findings);
+        scan_string_for_secrets(
+            instructions,
+            "result.instructionsForUser",
+            regexes,
+            &mut findings,
+        );
     }
 
     // SECURITY (R33-MCP-2): Scan result._meta for secrets — this field can contain
     // arbitrary server metadata that could embed exfiltrated secrets. The injection
     // scanner already covers _meta but DLP scanning was missing.
-    if let Some(meta) = response
-        .get("result")
-        .and_then(|r| r.get("_meta"))
-    {
+    if let Some(meta) = response.get("result").and_then(|r| r.get("_meta")) {
         scan_value_for_secrets(meta, "result._meta", regexes, &mut findings, 0);
     }
 
@@ -1207,7 +1215,8 @@ pub fn scan_notification_for_secrets(notification: &serde_json::Value) -> Vec<Dl
                     tracing::error!(
                         "CRITICAL: Failed to compile DLP pattern '{}': {}. \
                          This pattern will be SKIPPED.",
-                        name, e
+                        name,
+                        e
                     );
                     None
                 }
@@ -1249,7 +1258,8 @@ pub fn scan_text_for_secrets(text: &str, location: &str) -> Vec<DlpFinding> {
                     tracing::error!(
                         "CRITICAL: Failed to compile DLP pattern '{}': {}. \
                          This pattern will be SKIPPED.",
-                        name, e
+                        name,
+                        e
                     );
                     None
                 }
@@ -1958,10 +1968,7 @@ mod tests {
             "key": "rk_live_abcdefghijklmnopqrstuv"
         });
         let findings = scan_parameters_for_secrets(&params);
-        assert!(
-            !findings.is_empty(),
-            "Should detect Stripe restricted key"
-        );
+        assert!(!findings.is_empty(), "Should detect Stripe restricted key");
         assert!(findings.iter().any(|f| f.pattern_name == "stripe_key"));
     }
 
@@ -1996,10 +2003,7 @@ mod tests {
             "config": "SharedAccessKey=aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV1wX2yZ3aB4="
         });
         let findings = scan_parameters_for_secrets(&params);
-        assert!(
-            !findings.is_empty(),
-            "Should detect Azure SharedAccessKey"
-        );
+        assert!(!findings.is_empty(), "Should detect Azure SharedAccessKey");
         assert!(findings
             .iter()
             .any(|f| f.pattern_name == "azure_connection_string"));
@@ -2022,9 +2026,7 @@ mod tests {
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect Twilio API key");
-        assert!(findings
-            .iter()
-            .any(|f| f.pattern_name == "twilio_api_key"));
+        assert!(findings.iter().any(|f| f.pattern_name == "twilio_api_key"));
     }
 
     #[test]
@@ -2090,10 +2092,7 @@ mod tests {
             "connection_string": "mongodb://admin:s3cret@cluster0.mongodb.net:27017/prod?retryWrites=true"
         });
         let findings = scan_parameters_for_secrets(&params);
-        assert!(
-            !findings.is_empty(),
-            "Should detect MongoDB connection URI"
-        );
+        assert!(!findings.is_empty(), "Should detect MongoDB connection URI");
         assert!(findings.iter().any(|f| f.pattern_name == "database_uri"));
     }
 
@@ -2694,8 +2693,7 @@ mod tests {
     #[test]
     fn test_custom_scanner_scan_notification_still_detects_builtin_when_included() {
         // Build from config to include both default + custom patterns
-        let scanner =
-            InjectionScanner::from_config(&["transfer funds".to_string()], &[]).unwrap();
+        let scanner = InjectionScanner::from_config(&["transfer funds".to_string()], &[]).unwrap();
         let notification = json!({
             "jsonrpc": "2.0",
             "method": "notifications/progress",
@@ -2826,10 +2824,7 @@ mod tests {
             }
         });
         let matches = scan_response_for_injection(&response);
-        assert!(
-            !matches.is_empty(),
-            "Injection in _meta must be detected"
-        );
+        assert!(!matches.is_empty(), "Injection in _meta must be detected");
     }
 
     // R32-MCP-3: InjectionScanner::scan_response must scan resource.text
@@ -3032,7 +3027,10 @@ mod tests {
         assert!(
             findings.is_empty(),
             "Clean schema description should not produce findings, got: {:?}",
-            findings.iter().map(|f| &f.matched_patterns).collect::<Vec<_>>()
+            findings
+                .iter()
+                .map(|f| &f.matched_patterns)
+                .collect::<Vec<_>>()
         );
     }
 
@@ -3082,7 +3080,9 @@ mod tests {
             !matches.is_empty(),
             "Injection hidden in resource.blob should be detected by InjectionScanner"
         );
-        assert!(matches.iter().any(|m| m.contains("ignore all previous instructions")));
+        assert!(matches
+            .iter()
+            .any(|m| m.contains("ignore all previous instructions")));
     }
 
     #[test]
@@ -3193,8 +3193,11 @@ mod tests {
         // URL-safe encoding converts +->-, /->_
         let url_safe_encoded = base64::engine::general_purpose::URL_SAFE.encode(original);
         let result = try_base64_decode(&url_safe_encoded);
-        assert_eq!(result, Some(original.to_string()),
-            "try_base64_decode must handle URL-safe base64 encoding");
+        assert_eq!(
+            result,
+            Some(original.to_string()),
+            "try_base64_decode must handle URL-safe base64 encoding"
+        );
     }
 
     #[test]
@@ -3205,8 +3208,14 @@ mod tests {
         let engines: &[(&str, &base64::engine::GeneralPurpose)] = &[
             ("STANDARD", &base64::engine::general_purpose::STANDARD),
             ("URL_SAFE", &base64::engine::general_purpose::URL_SAFE),
-            ("STANDARD_NO_PAD", &base64::engine::general_purpose::STANDARD_NO_PAD),
-            ("URL_SAFE_NO_PAD", &base64::engine::general_purpose::URL_SAFE_NO_PAD),
+            (
+                "STANDARD_NO_PAD",
+                &base64::engine::general_purpose::STANDARD_NO_PAD,
+            ),
+            (
+                "URL_SAFE_NO_PAD",
+                &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            ),
         ];
         for (name, engine) in engines {
             let encoded = engine.encode(original);
@@ -3277,7 +3286,9 @@ mod tests {
         let mut texts = Vec::new();
         collect_schema_descriptions(&schema, &mut texts, 0);
         assert!(
-            texts.iter().any(|t| t == "ignore all previous instructions"),
+            texts
+                .iter()
+                .any(|t| t == "ignore all previous instructions"),
             "Property name 'ignore all previous instructions' should be collected; got: {:?}",
             texts
         );

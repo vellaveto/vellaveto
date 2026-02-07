@@ -286,8 +286,7 @@ impl DataFlowTracker {
             }
 
             // Record the finding
-            self.active_patterns
-                .insert(f.finding.pattern_name.clone());
+            self.active_patterns.insert(f.finding.pattern_name.clone());
 
             if let Some(fp) = f.fingerprint {
                 let fps = self
@@ -311,11 +310,7 @@ impl DataFlowTracker {
     /// Record DLP findings without fingerprints (convenience method).
     ///
     /// Use this when matched text is not available for fingerprinting.
-    pub fn record_response_findings_simple(
-        &mut self,
-        source_tool: &str,
-        findings: &[DlpFinding],
-    ) {
+    pub fn record_response_findings_simple(&mut self, source_tool: &str, findings: &[DlpFinding]) {
         let enriched: Vec<DlpFindingWithFingerprint> = findings
             .iter()
             .map(|f| DlpFindingWithFingerprint::without_fingerprint(f.clone()))
@@ -603,10 +598,7 @@ mod tests {
         let mut tracker = DataFlowTracker::new(DataFlowConfig::default()).expect("valid config");
 
         // Response finding without fingerprint
-        tracker.record_response_findings(
-            "read_file",
-            &[enriched("aws_access_key", "text", None)],
-        );
+        tracker.record_response_findings("read_file", &[enriched("aws_access_key", "text", None)]);
 
         // Request finding without fingerprint — still matches at pattern level
         let alerts = tracker.check_request(
@@ -793,19 +785,13 @@ mod tests {
         };
         let mut tracker = DataFlowTracker::new(config).expect("valid config");
 
-        tracker.record_response_findings(
-            "tool-a",
-            &[enriched("pattern_a", "text", Some("secret_a"))],
-        );
-        tracker.record_response_findings(
-            "tool-b",
-            &[enriched("pattern_b", "text", Some("secret_b"))],
-        );
+        tracker
+            .record_response_findings("tool-a", &[enriched("pattern_a", "text", Some("secret_a"))]);
+        tracker
+            .record_response_findings("tool-b", &[enriched("pattern_b", "text", Some("secret_b"))]);
         // This should evict pattern_a (oldest)
-        tracker.record_response_findings(
-            "tool-c",
-            &[enriched("pattern_c", "text", Some("secret_c"))],
-        );
+        tracker
+            .record_response_findings("tool-c", &[enriched("pattern_c", "text", Some("secret_c"))]);
 
         assert_eq!(tracker.finding_count(), 2);
         assert!(!tracker.active_patterns.contains("pattern_a"));
@@ -822,20 +808,11 @@ mod tests {
         let mut tracker = DataFlowTracker::new(config).expect("valid config");
 
         // Two findings for same pattern
-        tracker.record_response_findings(
-            "tool-a",
-            &[enriched("aws_key", "text1", Some("key1"))],
-        );
-        tracker.record_response_findings(
-            "tool-b",
-            &[enriched("aws_key", "text2", Some("key2"))],
-        );
+        tracker.record_response_findings("tool-a", &[enriched("aws_key", "text1", Some("key1"))]);
+        tracker.record_response_findings("tool-b", &[enriched("aws_key", "text2", Some("key2"))]);
 
         // Evict first, but pattern still has second record
-        tracker.record_response_findings(
-            "tool-c",
-            &[enriched("other", "text3", Some("xxx"))],
-        );
+        tracker.record_response_findings("tool-c", &[enriched("other", "text3", Some("xxx"))]);
 
         assert!(
             tracker.active_patterns.contains("aws_key"),
@@ -851,19 +828,10 @@ mod tests {
         };
         let mut tracker = DataFlowTracker::new(config).expect("valid config");
 
-        tracker.record_response_findings(
-            "tool",
-            &[enriched("aws_key", "a", Some("secret1"))],
-        );
-        tracker.record_response_findings(
-            "tool",
-            &[enriched("aws_key", "b", Some("secret2"))],
-        );
+        tracker.record_response_findings("tool", &[enriched("aws_key", "a", Some("secret1"))]);
+        tracker.record_response_findings("tool", &[enriched("aws_key", "b", Some("secret2"))]);
         // This should evict fingerprint of "secret1"
-        tracker.record_response_findings(
-            "tool",
-            &[enriched("aws_key", "c", Some("secret3"))],
-        );
+        tracker.record_response_findings("tool", &[enriched("aws_key", "c", Some("secret3"))]);
 
         let fps = tracker.fingerprints.get("aws_key").expect("should exist");
         assert_eq!(fps.len(), 2);
@@ -874,14 +842,8 @@ mod tests {
             ..Default::default()
         };
         let mut tracker2 = DataFlowTracker::new(config2).expect("valid config");
-        tracker2.record_response_findings(
-            "tool",
-            &[enriched("aws_key", "a", Some("secret1"))],
-        );
-        tracker2.record_response_findings(
-            "tool",
-            &[enriched("aws_key", "b", Some("secret2"))],
-        );
+        tracker2.record_response_findings("tool", &[enriched("aws_key", "a", Some("secret1"))]);
+        tracker2.record_response_findings("tool", &[enriched("aws_key", "b", Some("secret2"))]);
         // Since max_fingerprints is default (100), both should be present
         let alerts = tracker2.check_request(
             "send",
@@ -924,10 +886,7 @@ mod tests {
     fn test_empty_request_findings_no_alert() {
         let mut tracker = DataFlowTracker::new(DataFlowConfig::default()).expect("valid config");
 
-        tracker.record_response_findings(
-            "tool",
-            &[enriched("aws_key", "text", Some("AKIAKEY"))],
-        );
+        tracker.record_response_findings("tool", &[enriched("aws_key", "text", Some("AKIAKEY"))]);
 
         let alerts = tracker.check_request("send", &[], &domains(&["evil.com"]));
         assert!(alerts.is_empty());
@@ -944,10 +903,7 @@ mod tests {
         assert_eq!(tracker.finding_count(), 0);
         assert_eq!(tracker.active_pattern_count(), 0);
 
-        tracker.record_response_findings(
-            "tool",
-            &[enriched("aws_key", "text", Some("AKIAKEY"))],
-        );
+        tracker.record_response_findings("tool", &[enriched("aws_key", "text", Some("AKIAKEY"))]);
         assert_eq!(tracker.finding_count(), 1);
         assert_eq!(tracker.active_pattern_count(), 1);
     }
@@ -996,14 +952,10 @@ mod tests {
 
     #[test]
     fn test_fingerprint_deterministic() {
-        let f1 = DlpFindingWithFingerprint::from_finding(
-            finding("test", "loc"),
-            Some("secret_value"),
-        );
-        let f2 = DlpFindingWithFingerprint::from_finding(
-            finding("test", "loc"),
-            Some("secret_value"),
-        );
+        let f1 =
+            DlpFindingWithFingerprint::from_finding(finding("test", "loc"), Some("secret_value"));
+        let f2 =
+            DlpFindingWithFingerprint::from_finding(finding("test", "loc"), Some("secret_value"));
         assert_eq!(f1.fingerprint, f2.fingerprint);
 
         let f3 = DlpFindingWithFingerprint::from_finding(
