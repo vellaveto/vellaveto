@@ -380,6 +380,19 @@ pub enum CompiledContextCondition {
     },
 }
 
+/// Pre-parsed fields extracted from a policy's `conditions` JSON.
+///
+/// Returned by [`PolicyEngine::compile_conditions`] to avoid a complex tuple return type.
+#[derive(Debug, Clone)]
+struct CompiledConditions {
+    require_approval: bool,
+    forbidden_parameters: Vec<String>,
+    required_parameters: Vec<String>,
+    constraints: Vec<CompiledConstraint>,
+    on_no_match_continue: bool,
+    context_conditions: Vec<CompiledContextCondition>,
+}
+
 /// A policy with all patterns pre-compiled for zero-lock evaluation.
 ///
 /// Created by [`PolicyEngine::compile_policies`] or [`PolicyEngine::with_policies`].
@@ -651,17 +664,22 @@ impl PolicyEngine {
     ) -> Result<CompiledPolicy, PolicyValidationError> {
         let tool_matcher = CompiledToolMatcher::compile(&policy.id);
 
-        let (
+        let CompiledConditions {
             require_approval,
             forbidden_parameters,
             required_parameters,
             constraints,
             on_no_match_continue,
             context_conditions,
-        ) = match &policy.policy_type {
-            PolicyType::Allow | PolicyType::Deny => {
-                (false, Vec::new(), Vec::new(), Vec::new(), false, Vec::new())
-            }
+        } = match &policy.policy_type {
+            PolicyType::Allow | PolicyType::Deny => CompiledConditions {
+                require_approval: false,
+                forbidden_parameters: Vec::new(),
+                required_parameters: Vec::new(),
+                constraints: Vec::new(),
+                on_no_match_continue: false,
+                context_conditions: Vec::new(),
+            },
             PolicyType::Conditional { conditions } => {
                 Self::compile_conditions(policy, conditions, strict_mode)?
             }
@@ -786,24 +804,11 @@ impl PolicyEngine {
     }
 
     /// Compile condition JSON into pre-parsed fields and compiled constraints.
-    ///
-    /// Returns: (require_approval, forbidden_parameters, required_parameters, constraints, on_no_match_continue, context_conditions)
-    #[allow(clippy::type_complexity)]
     fn compile_conditions(
         policy: &Policy,
         conditions: &serde_json::Value,
         strict_mode: bool,
-    ) -> Result<
-        (
-            bool,
-            Vec<String>,
-            Vec<String>,
-            Vec<CompiledConstraint>,
-            bool,
-            Vec<CompiledContextCondition>,
-        ),
-        PolicyValidationError,
-    > {
+    ) -> Result<CompiledConditions, PolicyValidationError> {
         // Validate JSON depth
         if Self::json_depth(conditions) > 10 {
             return Err(PolicyValidationError {
@@ -906,14 +911,14 @@ impl PolicyEngine {
             }
         }
 
-        Ok((
+        Ok(CompiledConditions {
             require_approval,
             forbidden_parameters,
             required_parameters,
             constraints,
             on_no_match_continue,
             context_conditions,
-        ))
+        })
     }
 
     /// Compile a single constraint JSON object into a `CompiledConstraint`.

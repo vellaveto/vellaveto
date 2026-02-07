@@ -395,6 +395,14 @@ async fn main() -> Result<()> {
         sampling_config: policy_config.sampling.clone(),
         tool_registry: None,
         call_chain_hmac_key,
+        // SECURITY: Trace output is opt-in via env var. When disabled (default),
+        // the ?trace=true query parameter is silently ignored. This prevents
+        // leaking internal policy names, patterns, and constraint configurations
+        // to authenticated clients.
+        trace_enabled: std::env::var("SENTINEL_TRACE_ENABLED")
+            .ok()
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false),
     };
 
     if state.canonicalize {

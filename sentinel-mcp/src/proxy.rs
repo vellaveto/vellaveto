@@ -649,7 +649,7 @@ impl ProxyBridge {
                                             poisoning_matches.len(),
                                             tool_name
                                         );
-                                        let _ = self.audit.log_entry(
+                                        if let Err(e) = self.audit.log_entry(
                                             &action,
                                             &Verdict::Deny {
                                                 reason: deny_reason.clone(),
@@ -660,7 +660,13 @@ impl ProxyBridge {
                                                 "matches": poisoning_matches.len(),
                                                 "tool": tool_name,
                                             }),
-                                        ).await;
+                                        ).await {
+                                            tracing::error!(
+                                                error = %e,
+                                                tool = %tool_name,
+                                                "Failed to log audit entry for memory poisoning detection"
+                                            );
+                                        }
                                         // Block the tool call — send error back to agent.
                                         let response = json!({
                                             "jsonrpc": "2.0",
@@ -880,7 +886,7 @@ impl ProxyBridge {
                                             poisoning_matches.len(),
                                             uri
                                         );
-                                        let _ = self.audit.log_entry(
+                                        if let Err(e) = self.audit.log_entry(
                                             &action,
                                             &Verdict::Deny {
                                                 reason: deny_reason.clone(),
@@ -891,7 +897,13 @@ impl ProxyBridge {
                                                 "matches": poisoning_matches.len(),
                                                 "uri": uri,
                                             }),
-                                        ).await;
+                                        ).await {
+                                            tracing::error!(
+                                                error = %e,
+                                                uri = %uri,
+                                                "Failed to log audit entry for memory poisoning detection"
+                                            );
+                                        }
                                         let response = json!({
                                             "jsonrpc": "2.0",
                                             "id": id,
@@ -1107,7 +1119,7 @@ impl ProxyBridge {
                                             poisoning_matches.len(),
                                             task_method
                                         );
-                                        let _ = self.audit.log_entry(
+                                        if let Err(e) = self.audit.log_entry(
                                             &action,
                                             &Verdict::Deny {
                                                 reason: deny_reason.clone(),
@@ -1118,7 +1130,13 @@ impl ProxyBridge {
                                                 "matches": poisoning_matches.len(),
                                                 "task_method": task_method,
                                             }),
-                                        ).await;
+                                        ).await {
+                                            tracing::error!(
+                                                error = %e,
+                                                task_method = %task_method,
+                                                "Failed to log audit entry for memory poisoning detection"
+                                            );
+                                        }
                                         let response = json!({
                                             "jsonrpc": "2.0",
                                             "id": id,

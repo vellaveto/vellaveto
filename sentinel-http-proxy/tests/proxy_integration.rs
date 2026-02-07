@@ -173,6 +173,7 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
         call_chain_hmac_key: None,
+        trace_enabled: false,
     }
 }
 
@@ -1619,6 +1620,7 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
         call_chain_hmac_key: None,
+        trace_enabled: false,
     };
     let sessions = state.sessions.clone();
     let app = build_router(state);
@@ -1743,7 +1745,8 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
 async fn trace_denied_tool_call_includes_trace_in_response() {
     let tmp = TempDir::new().unwrap();
     let upstream_url = start_mock_upstream().await;
-    let state = build_test_state(&upstream_url, &tmp);
+    let mut state = build_test_state(&upstream_url, &tmp);
+    state.trace_enabled = true;
     let app = build_router(state);
 
     // bash is denied — request with ?trace=true
@@ -1799,7 +1802,8 @@ async fn trace_denied_tool_call_includes_trace_in_response() {
 async fn trace_allowed_tool_call_has_trace_header() {
     let tmp = TempDir::new().unwrap();
     let upstream_url = start_mock_upstream().await;
-    let state = build_test_state(&upstream_url, &tmp);
+    let mut state = build_test_state(&upstream_url, &tmp);
+    state.trace_enabled = true;
     let app = build_router(state);
 
     // read_file is allowed
@@ -1870,6 +1874,83 @@ async fn no_trace_without_query_param() {
     );
 }
 
+/// SECURITY: When `trace_enabled` is false in server config, the `?trace=true`
+/// query parameter must be silently ignored. This prevents authenticated clients
+/// from extracting internal policy names, patterns, and constraint configurations.
+#[tokio::test]
+async fn trace_query_param_ignored_when_trace_disabled_in_config() {
+    let tmp = TempDir::new().unwrap();
+    let upstream_url = start_mock_upstream().await;
+    let state = build_test_state(&upstream_url, &tmp);
+    // trace_enabled defaults to false from build_test_state — do NOT set it to true
+    assert!(!state.trace_enabled, "Precondition: trace_enabled must be false");
+    let app = build_router(state);
+
+    // Denied tool call with ?trace=true — should NOT include trace when config disables it
+    let body = serde_json::to_vec(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "bash", "arguments": {"command": "ls"}}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp?trace=true")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = json_body(resp).await;
+    assert!(
+        body.get("trace").is_none(),
+        "Trace must NOT appear when trace_enabled=false, even with ?trace=true"
+    );
+    // The response should still be a denial
+    assert!(body.get("error").is_some(), "Should still be denied");
+}
+
+/// SECURITY: Allowed requests must NOT have trace header when trace_enabled=false,
+/// even when ?trace=true is requested by the client.
+#[tokio::test]
+async fn trace_header_suppressed_on_allowed_request_when_trace_disabled() {
+    let tmp = TempDir::new().unwrap();
+    let upstream_url = start_mock_upstream().await;
+    let state = build_test_state(&upstream_url, &tmp);
+    assert!(!state.trace_enabled, "Precondition: trace_enabled must be false");
+    let app = build_router(state);
+
+    // read_file is allowed
+    let body = serde_json::to_vec(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "read_file", "arguments": {"path": "/tmp/test.txt"}}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp?trace=true")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert!(
+        resp.headers().get("x-sentinel-trace").is_none(),
+        "X-Sentinel-Trace header must NOT appear when trace_enabled=false"
+    );
+}
+
 #[tokio::test]
 async fn trace_resource_read_denied_includes_trace() {
     let tmp = TempDir::new().unwrap();
@@ -1912,6 +1993,7 @@ async fn trace_resource_read_denied_includes_trace() {
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
         call_chain_hmac_key: None,
+        trace_enabled: true,
     };
     let app = build_router(state);
 
@@ -1994,6 +2076,7 @@ async fn trace_constraint_details_visible() {
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
         call_chain_hmac_key: None,
+        trace_enabled: true,
     };
     let app = build_router(state);
 
@@ -2197,6 +2280,7 @@ fn build_oauth_test_state(
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
         call_chain_hmac_key: None,
+        trace_enabled: false,
     }
 }
 
@@ -2728,6 +2812,7 @@ fn build_api_key_test_state(
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
         call_chain_hmac_key: None,
+        trace_enabled: false,
     }
 }
 
@@ -3155,6 +3240,7 @@ fn build_test_state_deny_tasks(upstream_url: &str, tmp: &TempDir) -> ProxyState 
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
         call_chain_hmac_key: None,
+        trace_enabled: false,
     }
 }
 
@@ -3272,6 +3358,7 @@ async fn task_get_allowed_when_no_deny_policy() {
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
         call_chain_hmac_key: None,
+        trace_enabled: false,
     };
     let app = build_router(state);
 
@@ -3344,6 +3431,7 @@ async fn task_request_fail_closed_no_matching_policy() {
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
         call_chain_hmac_key: None,
+        trace_enabled: false,
     };
     let app = build_router(state);
 
@@ -3415,6 +3503,7 @@ async fn task_request_dlp_blocks_secret_in_task_id() {
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
         call_chain_hmac_key: None,
+        trace_enabled: false,
     };
     let app = build_router(state);
 
@@ -3493,6 +3582,7 @@ async fn task_request_clean_params_not_dlp_blocked() {
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
         call_chain_hmac_key: None,
+        trace_enabled: false,
     };
     let app = build_router(state);
 
@@ -3568,6 +3658,7 @@ async fn task_request_dlp_blocks_github_token_in_params() {
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
         call_chain_hmac_key: None,
+        trace_enabled: false,
     };
     let app = build_router(state);
 
@@ -3825,6 +3916,7 @@ fn build_chain_depth_test_state(upstream_url: &str, tmp: &TempDir, max_depth: us
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
         call_chain_hmac_key: None,
+        trace_enabled: false,
     }
 }
 
@@ -4046,6 +4138,7 @@ fn build_priv_escalation_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyS
         sampling_config: sentinel_config::SamplingConfig::default(),
         tool_registry: None,
         call_chain_hmac_key: None,
+        trace_enabled: false,
     }
 }
 

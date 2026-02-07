@@ -31,6 +31,23 @@ TASKS.md
 CLAUDE.md
 .claude/
 
+# Bottega multi-agent coordination
+coordination
+coordination-templates/
+scripts/bottega-*.sh
+scripts/agents.conf
+scripts/lib/
+scripts/run-approved.sh
+scripts/run-deepeval.sh
+scripts/run-quality-gates.sh
+
+# Fuzz artifacts
+fuzz/Cargo.lock
+fuzz/target/
+
+# Quality reports (session-local)
+quality/
+
 # OS
 .DS_Store
 Thumbs.db

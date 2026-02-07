@@ -132,6 +132,7 @@ async fn security_headers(request: Request, next: Next) -> Response {
             .and_then(|v| v.to_str().ok())
             .map(|s| s.eq_ignore_ascii_case("https"))
             .unwrap_or(false);
+    let is_dashboard = request.uri().path().starts_with("/dashboard");
 
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
@@ -143,10 +144,19 @@ async fn security_headers(request: Request, next: Next) -> Response {
         header::HeaderName::from_static("x-frame-options"),
         HeaderValue::from_static("DENY"),
     );
-    headers.insert(
-        header::HeaderName::from_static("content-security-policy"),
-        HeaderValue::from_static("default-src 'none'"),
-    );
+    // Dashboard serves inline <style> CSS, so it needs style-src 'unsafe-inline'.
+    // All other routes use the strictest CSP: default-src 'none'.
+    if is_dashboard {
+        headers.insert(
+            header::HeaderName::from_static("content-security-policy"),
+            HeaderValue::from_static("default-src 'none'; style-src 'unsafe-inline'"),
+        );
+    } else {
+        headers.insert(
+            header::HeaderName::from_static("content-security-policy"),
+            HeaderValue::from_static("default-src 'none'"),
+        );
+    }
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert(
         header::HeaderName::from_static("x-permitted-cross-domain-policies"),
