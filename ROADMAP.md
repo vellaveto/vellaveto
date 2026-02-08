@@ -379,70 +379,92 @@ Detect token-level attacks against LLM agents.
 
 ---
 
-## Phase 4.1: Standards Alignment (Weeks 12-14)
+## Phase 4.1: Standards Alignment (Weeks 12-14) ✅ COMPLETE
 
 *Focus: MITRE ATLAS, OWASP AIVSS, NIST alignment*
+
+> **Status:** Implemented in commit `8f6a78c`. All deliverables complete.
 
 ### 4.1.1 MITRE ATLAS Threat Mapping
 
 Map Sentinel detections to MITRE ATLAS techniques.
 
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Create ATLAS technique registry | P2 | 1 day | — |
-| Map existing detections to ATLAS IDs | P2 | 2 days | Registry |
-| Add ATLAS technique ID to audit events | P2 | 1 day | Mapping |
-| Generate ATLAS coverage report | P2 | 2 days | All above |
-| Document unmapped techniques as gaps | P2 | 1 day | Coverage |
+| Task | Priority | Status |
+|------|----------|--------|
+| Create ATLAS technique registry | P2 | ✅ Complete |
+| Map existing detections to ATLAS IDs | P2 | ✅ Complete |
+| Add ATLAS technique ID to audit events | P2 | ✅ Complete |
+| Generate ATLAS coverage report | P2 | ✅ Complete |
+| Document unmapped techniques as gaps | P2 | ✅ Complete |
 
-**ATLAS techniques to map:**
+**ATLAS techniques mapped:**
+- AML.T0051: Prompt Injection
+- AML.T0052: Indirect Prompt Injection
+- AML.T0053: Jailbreak
+- AML.T0054: Data Extraction
+- AML.T0055: Exfiltration via Tool Outputs
+- AML.T0056: Tool Manipulation
+- AML.T0057: Agent Hijacking
+- AML.T0058: Confused Deputy
+- AML.T0059: Shadow Agent
 - AML.T0060: Agent Manipulation
 - AML.T0061: Tool Poisoning
 - AML.T0062: Memory Injection
 - AML.T0063: Privilege Escalation (Agent)
 - AML.T0064: Data Exfiltration (Agent)
-- (14 new agentic AI techniques total)
+- AML.T0065: Cascading Agent Failure
 
 ### 4.1.2 OWASP AIVSS Integration
 
-Prepare for AI Vulnerability Scoring System (expected RSA 2026).
+| Task | Priority | Status |
+|------|----------|--------|
+| Design severity scoring framework | P2 | ✅ Complete |
+| Implement AIVSS score calculation | P2 | ✅ Complete |
+| Add severity to finding reports | P2 | ✅ Complete |
+| Create AIVSS-formatted exports | P2 | ✅ Complete |
 
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Design severity scoring framework | P2 | 2 days | — |
-| Implement AIVSS score calculation | P2 | 3 days | Framework |
-| Add severity to finding reports | P2 | 1 day | Calculation |
-| Create AIVSS-formatted exports | P2 | 2 days | — |
+**Features:**
+- CVSS-style base scoring (0.0-10.0)
+- AI-specific multipliers: AgentAutonomy, AttackPersistence, Reversibility
+- Severity levels: None, Low, Medium, High, Critical
+- Vector string generation and parsing
+- Predefined profiles for common detection types
 
 ### 4.1.3 NIST AI RMF Alignment
 
-Align with NIST AI Risk Management Framework.
+| Task | Priority | Status |
+|------|----------|--------|
+| Document NIST GOVERN function coverage | P2 | ✅ Complete |
+| Document NIST MAP function coverage | P2 | ✅ Complete |
+| Document NIST MEASURE function coverage | P2 | ✅ Complete |
+| Document NIST MANAGE function coverage | P2 | ✅ Complete |
+| Create NIST compliance report generator | P2 | ✅ Complete |
 
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Document NIST MAP function coverage | P2 | 2 days | — |
-| Document NIST MEASURE function coverage | P2 | 2 days | — |
-| Document NIST MANAGE function coverage | P2 | 2 days | — |
-| Create NIST compliance report generator | P2 | 3 days | All above |
+**Coverage:** 25+ subcategory mappings across all 4 RMF functions
 
 ### 4.1.4 ISO/IEC 27090 Preparation
 
-Prepare for AI security standard (expected mid-2026).
+| Task | Priority | Status |
+|------|----------|--------|
+| Review draft 27090 requirements | P3 | ✅ Complete |
+| Gap analysis against current implementation | P3 | ✅ Complete |
+| Document compliance mapping | P3 | ✅ Complete |
+| Create readiness assessment generator | P3 | ✅ Complete |
 
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Review draft 27090 requirements | P3 | 1 day | — |
-| Gap analysis against current implementation | P3 | 2 days | Review |
-| Document compliance mapping | P3 | 2 days | Gap analysis |
+**Control domains covered:**
+- Data Security (DLP, input validation, output sanitization)
+- Model Security (access control, schema integrity, anomaly detection)
+- Operational Security (audit logging, monitoring, incident response)
+- Supply Chain Security (tool attestation, rug pull detection)
+- Privacy & Ethics (human oversight, transparency)
 
-### Phase 3.3 Deliverables
-- [ ] MITRE ATLAS threat mapping
-- [ ] AIVSS severity scoring
-- [ ] NIST AI RMF compliance documentation
-- [ ] ISO 27090 readiness assessment
+### Phase 4.1 Deliverables
+- [x] MITRE ATLAS threat mapping (14 techniques, 30+ detection mappings)
+- [x] AIVSS severity scoring with AI multipliers
+- [x] NIST AI RMF compliance documentation and reports
+- [x] ISO 27090 readiness assessment with gap analysis
 
-**Estimated Duration:** 3 weeks
-**Risk:** Standards not finalized; may require updates post-release
+**Completed:** 2026-02-08
 
 ---
 
@@ -623,7 +645,7 @@ Weeks 1-4:   Phase 1 — MCP 2025-11-25 Compliance ✅
 Weeks 5-8:   Phase 2 — Advanced Threat Detection ✅
 Weeks 9-10:  Phase 3.1-3.2 — Runtime Integration & Cross-Agent Security ✅
 Week 11:     Phase 3.3 — Advanced Threat Detection ✅
-Weeks 12-14: Phase 4.1 — Standards Alignment
+Weeks 12-14: Phase 4.1 — Standards Alignment ✅
 Weeks 15-18: Phase 5 — Enterprise Hardening
 Weeks 19-20: Phase 6 — Observability & Tooling
 Weeks 21-22: Phase 7 — Documentation & Release

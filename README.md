@@ -11,7 +11,7 @@
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-3%2C378_passing-brightgreen.svg" alt="Tests: 3,378 passing">
+    <img src="https://img.shields.io/badge/tests-3%2C425_passing-brightgreen.svg" alt="Tests: 3,425 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <img src="https://img.shields.io/badge/security_audit-33_rounds%2C_380%2B_findings-informational.svg" alt="Security Audit: 33 rounds, 380+ findings">
     <a href="https://modelcontextprotocol.io/specification/2025-06-18"><img src="https://img.shields.io/badge/MCP-2025--06--18-blueviolet.svg" alt="MCP 2025-06-18"></a>
@@ -35,7 +35,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>1.0.0</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>3,378 tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>3,425 tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-06-18 (Streamable HTTP)</td></tr>
@@ -717,6 +717,34 @@ Sentinel has undergone 33 rounds of adversarial security audit covering 31+ atta
 | Test count post-audit | 3,167 |
 
 Key areas covered: tool poisoning, prompt injection, path traversal, SSRF/domain bypass, session fixation, JSON parsing, memory poisoning, elicitation social engineering, audit log tampering, OAuth/JWT validation, SIEM export injection, rug-pull detection, tool squatting, DLP bypass, SSE transport parity, config reload races, Unicode case-folding, IPv6 transition mechanisms, CEF/SIEM injection, and webhook SSRF.
+
+### 📋 Standards Compliance
+
+Sentinel provides built-in compliance mapping and reporting for major AI security standards:
+
+| Standard | Module | Coverage |
+|----------|--------|----------|
+| **MITRE ATLAS** | `sentinel-audit/src/atlas.rs` | 14 techniques (AML.T0051-T0065), 30+ detection mappings |
+| **OWASP AIVSS** | `sentinel-audit/src/aivss.rs` | Full severity scoring with AI-specific multipliers |
+| **NIST AI RMF** | `sentinel-audit/src/nist_rmf.rs` | All 4 functions (Govern, Map, Measure, Manage) |
+| **ISO/IEC 27090** | `sentinel-audit/src/iso27090.rs` | 5 control domains, readiness assessment |
+
+Generate compliance reports programmatically:
+```rust
+use sentinel_audit::{atlas::AtlasRegistry, nist_rmf::NistRmfRegistry, iso27090::Iso27090Registry};
+
+// MITRE ATLAS coverage
+let atlas = AtlasRegistry::new();
+let coverage = atlas.generate_coverage_report();
+
+// NIST AI RMF compliance
+let rmf = NistRmfRegistry::new();
+let report = rmf.generate_report();
+
+// ISO 27090 readiness
+let iso = Iso27090Registry::new();
+let assessment = iso.generate_assessment();
+```
 
 ### ⚠️ Known Limitations
 
