@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No unreleased changes.
+### Security
+
+- **R33-001**: Add monotonic sequence counter to audit hash chain to prevent collision attacks under high load
+- **R33-002**: Add per-line size limits (64KB checkpoints, 1MB audit entries) to prevent memory exhaustion attacks
+- **R33-003**: Use safe string slicing with char-based truncation to prevent UTF-8 boundary panics
+- **R33-004**: Increase injection detection depth from 10 to 32 levels for deeply nested payloads
+- **R33-005**: Add triple-encoding detection layers (6-8) to DLP for double-base64 and mixed encoding evasion
+- **R33-006**: Store actual schema content for real field-level diff detection in schema poisoning
+
+### Changed
+
+- Security audit rounds: 33 → 34
 
 ---
 
