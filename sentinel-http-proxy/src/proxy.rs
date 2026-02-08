@@ -812,6 +812,7 @@ pub async fn handle_mcp_post(
                     call_counts: session.call_counts.clone(),
                     previous_actions: session.action_history.clone(),
                     call_chain: session.current_call_chain.clone(),
+                    tenant_id: None,
                 };
 
                 let result = if params.trace && state.trace_enabled {
@@ -2384,6 +2385,7 @@ fn build_evaluation_context(
             call_counts: session.call_counts.clone(),
             previous_actions: session.action_history.clone(),
             call_chain: session.current_call_chain.clone(),
+            tenant_id: None,
         })
 }
 
@@ -2630,6 +2632,7 @@ fn check_privilege_escalation(
             call_counts: std::collections::HashMap::new(), // Fresh context for upstream check
             previous_actions: Vec::new(),
             call_chain: Vec::new(), // Don't recurse into chain for upstream check
+            tenant_id: None,
         };
 
         // Evaluate the action with the upstream agent's identity

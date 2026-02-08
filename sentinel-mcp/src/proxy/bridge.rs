@@ -744,6 +744,7 @@ impl ProxyBridge {
                                         call_counts: call_counts.clone(),
                                         previous_actions: action_history.clone(),
                                         call_chain: Vec::new(),
+                                        tenant_id: None,
                                     };
                                     match self.evaluate_tool_call(&id, &tool_name, &arguments, ann, Some(&eval_ctx)) {
                                         ProxyDecision::Forward => {
@@ -915,6 +916,7 @@ impl ProxyBridge {
                                         call_counts: call_counts.clone(),
                                         previous_actions: action_history.clone(),
                                         call_chain: Vec::new(),
+                                        tenant_id: None,
                                     };
                                     match self.evaluate_resource_read(&id, &uri, Some(&eval_ctx)) {
                                         ProxyDecision::Forward => {
@@ -1153,6 +1155,7 @@ impl ProxyBridge {
                                         call_counts: call_counts.clone(),
                                         previous_actions: action_history.clone(),
                                         call_chain: Vec::new(),
+                                        tenant_id: None,
                                     };
                                     match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
                                         Ok((Verdict::Allow, _trace)) => {
@@ -3223,6 +3226,7 @@ mod tests {
             call_counts: HashMap::new(),
             previous_actions: vec!["read_file".to_string()],
             call_chain: Vec::new(),
+            tenant_id: None,
         };
         let result = bridge.evaluate_action_inner(&action, Some(&ctx));
         assert!(

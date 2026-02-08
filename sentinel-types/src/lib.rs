@@ -482,6 +482,13 @@ pub struct EvaluationContext {
     /// intermediary agents in multi-hop scenarios.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub call_chain: Vec<CallChainEntry>,
+    /// Tenant identifier for multi-tenancy support.
+    /// When set, policies are scoped to this tenant. Extracted from:
+    /// 1. JWT claims (`tenant_id` or `org_id`)
+    /// 2. Request header (`X-Tenant-ID`)
+    /// 3. Subdomain (`{tenant}.sentinel.example.com`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
 }
 
 impl EvaluationContext {
@@ -501,6 +508,7 @@ impl EvaluationContext {
             || !self.call_counts.is_empty()
             || !self.previous_actions.is_empty()
             || !self.call_chain.is_empty()
+            || self.tenant_id.is_some()
     }
 
     /// Returns the depth of the current call chain (number of agents in the chain).

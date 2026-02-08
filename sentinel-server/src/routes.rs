@@ -649,6 +649,7 @@ fn sanitize_context(
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
             call_chain: Vec::new(),
+            tenant_id: None,
         }
     })
 }
@@ -2336,6 +2337,7 @@ mod tests {
             call_counts,
             previous_actions: vec!["login".to_string(), "auth".to_string()],
             call_chain: Vec::new(),
+            tenant_id: None,
         };
         let sanitized = sanitize_context(Some(spoofed), &headers).unwrap();
         // agent_id preserved (no auth header)
@@ -2357,6 +2359,7 @@ mod tests {
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
             call_chain: Vec::new(),
+            tenant_id: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
         assert_eq!(sanitized.agent_id, Some("my-agent".to_string()));
@@ -2378,6 +2381,7 @@ mod tests {
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
             call_chain: Vec::new(),
+            tenant_id: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
         let agent_id = sanitized.agent_id.unwrap();
@@ -2408,6 +2412,7 @@ mod tests {
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
             call_chain: Vec::new(),
+            tenant_id: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
         let agent_id = sanitized.agent_id.unwrap();
@@ -2433,6 +2438,7 @@ mod tests {
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
             call_chain: Vec::new(),
+            tenant_id: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
         assert!(
@@ -2452,6 +2458,7 @@ mod tests {
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
             call_chain: Vec::new(),
+            tenant_id: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
         assert_eq!(sanitized.agent_id, Some(max_id));
@@ -2467,6 +2474,7 @@ mod tests {
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
             call_chain: Vec::new(),
+            tenant_id: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
         assert!(

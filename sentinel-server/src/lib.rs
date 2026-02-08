@@ -2,6 +2,7 @@ pub mod dashboard;
 pub mod metrics;
 pub mod rbac;
 pub mod routes;
+pub mod tenant;
 
 /// Re-export for fuzz testing — not part of the public API.
 #[doc(hidden)]
