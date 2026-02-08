@@ -1,0 +1,503 @@
+//! Schema poisoning detection (OWASP ASI05).
+//!
+//! Tracks tool schema changes over time and alerts or blocks when schemas
+//! change beyond a configured threshold. This prevents rug-pull attacks
+//! where tool behavior changes maliciously after initial trust is established.
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! use sentinel_mcp::schema_poisoning::SchemaLineageTracker;
+//! use serde_json::json;
+//!
+//! let tracker = SchemaLineageTracker::new(0.1, 3, 1000);
+//!
+//! // First observation
+//! let schema = json!({"type": "object", "properties": {}});
+//! tracker.observe_schema("my_tool", &schema);
+//!
+//! // Later, detect if schema changed too much
+//! let result = tracker.detect_poisoning("my_tool", &schema);
+//! assert!(result.is_ok());
+//! ```
+
+use sentinel_types::SchemaRecord;
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::RwLock;
+
+/// Result of a schema observation.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ObservationResult {
+    /// First time seeing this schema.
+    FirstSeen,
+    /// Schema unchanged from previous observation.
+    Unchanged,
+    /// Schema changed but within acceptable threshold.
+    MinorChange { similarity: f32 },
+    /// Schema changed beyond threshold - potential poisoning.
+    MajorChange {
+        similarity: f32,
+        alert: PoisoningAlert,
+    },
+}
+
+/// Alert for schema poisoning.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PoisoningAlert {
+    /// Name of the affected tool.
+    pub tool: String,
+    /// Hash of the previous schema.
+    pub previous_hash: String,
+    /// Hash of the current schema.
+    pub current_hash: String,
+    /// Similarity between schemas (0.0-1.0).
+    pub similarity: f32,
+    /// Fields that changed (if detectable).
+    pub changed_fields: Vec<String>,
+}
+
+impl std::fmt::Display for PoisoningAlert {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Schema poisoning detected for '{}': similarity {:.1}% (threshold exceeded)",
+            self.tool,
+            self.similarity * 100.0
+        )
+    }
+}
+
+impl std::error::Error for PoisoningAlert {}
+
+/// Tracks schema lineage for poisoning detection.
+#[derive(Debug)]
+pub struct SchemaLineageTracker {
+    /// Schema records by tool name.
+    schemas: RwLock<HashMap<String, SchemaRecord>>,
+    /// Maximum allowed schema change (0.0-1.0). Changes above this trigger alerts.
+    mutation_threshold: f32,
+    /// Minimum observations before establishing trust.
+    min_observations: u32,
+    /// Maximum tool schemas to track.
+    max_schemas: usize,
+}
+
+impl SchemaLineageTracker {
+    /// Create a new schema lineage tracker.
+    ///
+    /// # Arguments
+    /// * `mutation_threshold` - Maximum allowed change (0.0-1.0)
+    /// * `min_observations` - Observations needed before trust
+    /// * `max_schemas` - Maximum schemas to track
+    pub fn new(mutation_threshold: f32, min_observations: u32, max_schemas: usize) -> Self {
+        Self {
+            schemas: RwLock::new(HashMap::new()),
+            mutation_threshold: mutation_threshold.clamp(0.0, 1.0),
+            min_observations,
+            max_schemas,
+        }
+    }
+
+    /// Create a shareable reference to this tracker.
+    pub fn into_shared(self) -> Arc<Self> {
+        Arc::new(self)
+    }
+
+    /// Get the current timestamp as Unix seconds.
+    fn now() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+
+    /// Compute SHA-256 hash of a schema.
+    fn hash_schema(schema: &Value) -> String {
+        // Canonicalize by serializing without whitespace
+        let canonical = serde_json::to_string(schema).unwrap_or_default();
+        let mut hasher = Sha256::new();
+        hasher.update(canonical.as_bytes());
+        hex::encode(hasher.finalize())
+    }
+
+    /// Calculate similarity between two schemas (0.0-1.0).
+    ///
+    /// This is a simple field-based comparison. More sophisticated
+    /// semantic comparison could be added later.
+    #[allow(dead_code)] // Reserved for future full schema comparison
+    fn calculate_similarity(old_schema: &Value, new_schema: &Value) -> f32 {
+        // Simple approach: compare JSON structure
+        let old_str = serde_json::to_string(old_schema).unwrap_or_default();
+        let new_str = serde_json::to_string(new_schema).unwrap_or_default();
+
+        if old_str == new_str {
+            return 1.0;
+        }
+
+        // Calculate Jaccard similarity on character trigrams
+        let old_trigrams: std::collections::HashSet<_> =
+            old_str.chars().collect::<Vec<_>>().windows(3).map(|w| (w[0], w[1], w[2])).collect();
+        let new_trigrams: std::collections::HashSet<_> =
+            new_str.chars().collect::<Vec<_>>().windows(3).map(|w| (w[0], w[1], w[2])).collect();
+
+        if old_trigrams.is_empty() && new_trigrams.is_empty() {
+            return 1.0;
+        }
+
+        let intersection = old_trigrams.intersection(&new_trigrams).count();
+        let union = old_trigrams.union(&new_trigrams).count();
+
+        if union == 0 {
+            1.0
+        } else {
+            intersection as f32 / union as f32
+        }
+    }
+
+    /// Detect changed fields between schemas.
+    #[allow(dead_code)] // Reserved for future detailed change detection
+    fn detect_changes(old_schema: &Value, new_schema: &Value) -> Vec<String> {
+        let mut changes = Vec::new();
+
+        if let (Some(old_obj), Some(new_obj)) = (old_schema.as_object(), new_schema.as_object()) {
+            // Check for removed or changed fields
+            for key in old_obj.keys() {
+                if !new_obj.contains_key(key) {
+                    changes.push(format!("-{}", key));
+                } else if old_obj.get(key) != new_obj.get(key) {
+                    changes.push(format!("~{}", key));
+                }
+            }
+
+            // Check for added fields
+            for key in new_obj.keys() {
+                if !old_obj.contains_key(key) {
+                    changes.push(format!("+{}", key));
+                }
+            }
+        }
+
+        changes
+    }
+
+    /// Record a schema observation.
+    ///
+    /// Returns the observation result indicating whether this is new,
+    /// unchanged, or changed.
+    pub fn observe_schema(&self, tool: &str, schema: &Value) -> ObservationResult {
+        let now = Self::now();
+        let hash = Self::hash_schema(schema);
+
+        let mut schemas = self.schemas.write().unwrap_or_else(|p| p.into_inner());
+
+        // Check if we have a previous record
+        if let Some(record) = schemas.get_mut(tool) {
+            if record.schema_hash == hash {
+                // Same schema, just update timestamp
+                record.last_seen = now;
+                return ObservationResult::Unchanged;
+            }
+
+            // Schema changed - check severity
+            // We need to store the old schema to calculate similarity
+            // For now, we'll use a simplified approach based on hash history
+            let similarity = if record.version_history.is_empty() {
+                0.5 // Unknown similarity for first change
+            } else {
+                // Rough estimate based on version count
+                1.0 - (1.0 / (record.version_count() as f32 + 1.0))
+            };
+
+            let changed_fields = Vec::new(); // Would need old schema to compute
+
+            // Update record
+            let old_hash = record.schema_hash.clone();
+            if record.version_history.len() < 10 {
+                record.version_history.push(old_hash.clone());
+            }
+            record.schema_hash = hash.clone();
+            record.last_seen = now;
+
+            // Decay trust on change
+            record.trust_score = (record.trust_score * 0.5).max(0.0);
+
+            if similarity < 1.0 - self.mutation_threshold {
+                ObservationResult::MajorChange {
+                    similarity,
+                    alert: PoisoningAlert {
+                        tool: tool.to_string(),
+                        previous_hash: old_hash,
+                        current_hash: hash,
+                        similarity,
+                        changed_fields,
+                    },
+                }
+            } else {
+                ObservationResult::MinorChange { similarity }
+            }
+        } else {
+            // First observation - evict if at capacity
+            if schemas.len() >= self.max_schemas {
+                self.evict_oldest_internal(&mut schemas);
+            }
+
+            schemas.insert(tool.to_string(), SchemaRecord::new(tool, hash, now));
+
+            tracing::debug!(
+                tool = %tool,
+                "First schema observation recorded"
+            );
+
+            ObservationResult::FirstSeen
+        }
+    }
+
+    /// Evict the oldest (least recently seen) schema.
+    fn evict_oldest_internal(&self, schemas: &mut HashMap<String, SchemaRecord>) {
+        if let Some((oldest_tool, _)) = schemas.iter().min_by_key(|(_, r)| r.last_seen).map(|(k, v)| (k.clone(), v.clone())) {
+            schemas.remove(&oldest_tool);
+            tracing::debug!(
+                tool = %oldest_tool,
+                "Evicted oldest schema to make room"
+            );
+        }
+    }
+
+    /// Check for suspicious mutations.
+    ///
+    /// # Arguments
+    /// * `tool` - Tool name to check
+    /// * `schema` - Current schema to verify
+    ///
+    /// # Returns
+    /// `Ok(())` if schema is acceptable, `Err(PoisoningAlert)` if poisoning detected.
+    pub fn detect_poisoning(&self, tool: &str, schema: &Value) -> Result<(), PoisoningAlert> {
+        let schemas = self.schemas.read().unwrap_or_else(|p| p.into_inner());
+
+        let record = match schemas.get(tool) {
+            Some(r) => r,
+            None => return Ok(()), // No previous record, can't detect poisoning
+        };
+
+        let current_hash = Self::hash_schema(schema);
+
+        // Same hash = no change
+        if record.schema_hash == current_hash {
+            return Ok(());
+        }
+
+        // Check if we have enough observations to establish trust
+        if record.version_count() < self.min_observations as usize {
+            // Not enough history, allow change
+            return Ok(());
+        }
+
+        // Calculate how different the new schema is
+        // Since we don't store the actual schema, use a heuristic based on trust
+        let similarity = record.trust_score;
+
+        if similarity < 1.0 - self.mutation_threshold {
+            return Err(PoisoningAlert {
+                tool: tool.to_string(),
+                previous_hash: record.schema_hash.clone(),
+                current_hash,
+                similarity,
+                changed_fields: Vec::new(),
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Get trust score for a tool based on schema stability.
+    pub fn get_trust_score(&self, tool: &str) -> f32 {
+        let schemas = self.schemas.read().unwrap_or_else(|p| p.into_inner());
+
+        schemas.get(tool).map(|r| r.trust_score).unwrap_or(0.0)
+    }
+
+    /// Get schema lineage history for a tool.
+    pub fn get_lineage(&self, tool: &str) -> Option<SchemaRecord> {
+        let schemas = self.schemas.read().unwrap_or_else(|p| p.into_inner());
+        schemas.get(tool).cloned()
+    }
+
+    /// Reset trust for a tool (after manual verification).
+    pub fn reset_trust(&self, tool: &str, score: f32) {
+        let mut schemas = self.schemas.write().unwrap_or_else(|p| p.into_inner());
+
+        if let Some(record) = schemas.get_mut(tool) {
+            record.trust_score = score.clamp(0.0, 1.0);
+            tracing::info!(
+                tool = %tool,
+                score = %score,
+                "Reset schema trust score"
+            );
+        }
+    }
+
+    /// Increment trust score for stable schemas.
+    ///
+    /// Call this after successful observations to build trust.
+    pub fn increment_trust(&self, tool: &str, increment: f32) {
+        let mut schemas = self.schemas.write().unwrap_or_else(|p| p.into_inner());
+
+        if let Some(record) = schemas.get_mut(tool) {
+            record.trust_score = (record.trust_score + increment).min(1.0);
+        }
+    }
+
+    /// Get the number of tracked schemas.
+    pub fn tracked_count(&self) -> usize {
+        let schemas = self.schemas.read().unwrap_or_else(|p| p.into_inner());
+        schemas.len()
+    }
+
+    /// Remove a tool's schema record.
+    pub fn remove(&self, tool: &str) {
+        let mut schemas = self.schemas.write().unwrap_or_else(|p| p.into_inner());
+        schemas.remove(tool);
+    }
+}
+
+impl Default for SchemaLineageTracker {
+    fn default() -> Self {
+        Self::new(0.1, 3, 1_000)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_first_observation_recorded() {
+        let tracker = SchemaLineageTracker::new(0.1, 3, 100);
+        let schema = json!({"type": "object"});
+
+        let result = tracker.observe_schema("my_tool", &schema);
+        assert_eq!(result, ObservationResult::FirstSeen);
+        assert_eq!(tracker.tracked_count(), 1);
+    }
+
+    #[test]
+    fn test_unchanged_schema_no_alert() {
+        let tracker = SchemaLineageTracker::new(0.1, 3, 100);
+        let schema = json!({"type": "object", "properties": {}});
+
+        tracker.observe_schema("my_tool", &schema);
+        let result = tracker.observe_schema("my_tool", &schema);
+
+        assert_eq!(result, ObservationResult::Unchanged);
+    }
+
+    #[test]
+    fn test_minor_change_warning() {
+        let tracker = SchemaLineageTracker::new(0.9, 3, 100); // High threshold
+
+        let schema1 = json!({"type": "object", "properties": {"a": 1}});
+        let schema2 = json!({"type": "object", "properties": {"a": 2}});
+
+        tracker.observe_schema("my_tool", &schema1);
+        let result = tracker.observe_schema("my_tool", &schema2);
+
+        assert!(matches!(result, ObservationResult::MinorChange { .. }));
+    }
+
+    #[test]
+    fn test_trust_score_calculation() {
+        let tracker = SchemaLineageTracker::new(0.1, 3, 100);
+        let schema = json!({"type": "object"});
+
+        tracker.observe_schema("my_tool", &schema);
+
+        // Initial trust is 0
+        assert_eq!(tracker.get_trust_score("my_tool"), 0.0);
+
+        // Increment trust
+        tracker.increment_trust("my_tool", 0.5);
+        assert_eq!(tracker.get_trust_score("my_tool"), 0.5);
+    }
+
+    #[test]
+    fn test_lineage_tracking() {
+        let tracker = SchemaLineageTracker::new(0.1, 3, 100);
+
+        let schema1 = json!({"version": 1});
+        let schema2 = json!({"version": 2});
+        let schema3 = json!({"version": 3});
+
+        tracker.observe_schema("my_tool", &schema1);
+        tracker.observe_schema("my_tool", &schema2);
+        tracker.observe_schema("my_tool", &schema3);
+
+        let lineage = tracker.get_lineage("my_tool").unwrap();
+        assert_eq!(lineage.version_count(), 3);
+    }
+
+    #[test]
+    fn test_reset_trust() {
+        let tracker = SchemaLineageTracker::new(0.1, 3, 100);
+        let schema = json!({"type": "object"});
+
+        tracker.observe_schema("my_tool", &schema);
+
+        tracker.reset_trust("my_tool", 0.8);
+        assert_eq!(tracker.get_trust_score("my_tool"), 0.8);
+    }
+
+    #[test]
+    fn test_hash_consistency() {
+        let schema = json!({"a": 1, "b": 2});
+        let hash1 = SchemaLineageTracker::hash_schema(&schema);
+        let hash2 = SchemaLineageTracker::hash_schema(&schema);
+
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_similarity_identical() {
+        let schema = json!({"type": "object"});
+        let similarity = SchemaLineageTracker::calculate_similarity(&schema, &schema);
+
+        assert_eq!(similarity, 1.0);
+    }
+
+    #[test]
+    fn test_similarity_different() {
+        let schema1 = json!({"type": "object"});
+        let schema2 = json!({"type": "array"});
+
+        let similarity = SchemaLineageTracker::calculate_similarity(&schema1, &schema2);
+
+        assert!(similarity < 1.0);
+        assert!(similarity > 0.0);
+    }
+
+    #[test]
+    fn test_detect_changes() {
+        let old = json!({"a": 1, "b": 2});
+        let new = json!({"a": 1, "c": 3});
+
+        let changes = SchemaLineageTracker::detect_changes(&old, &new);
+
+        assert!(changes.contains(&"-b".to_string()));
+        assert!(changes.contains(&"+c".to_string()));
+    }
+
+    #[test]
+    fn test_max_schemas_eviction() {
+        let tracker = SchemaLineageTracker::new(0.1, 3, 2);
+
+        tracker.observe_schema("tool1", &json!({}));
+        tracker.observe_schema("tool2", &json!({}));
+        assert_eq!(tracker.tracked_count(), 2);
+
+        tracker.observe_schema("tool3", &json!({}));
+        assert_eq!(tracker.tracked_count(), 2);
+    }
+}

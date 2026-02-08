@@ -63,3 +63,15 @@ name = "fuzz_async_tasks"
 path = "fuzz_targets/fuzz_async_tasks.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_circuit_breaker"
+path = "fuzz_targets/fuzz_circuit_breaker.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_schema_lineage"
+path = "fuzz_targets/fuzz_schema_lineage.rs"
+test = false
+doc = false

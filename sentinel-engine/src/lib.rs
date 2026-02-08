@@ -1,4 +1,6 @@
 pub mod behavioral;
+pub mod circuit_breaker;
+pub mod deputy;
 
 use sentinel_types::{
     Action, ActionSummary, ConstraintResult, EvaluationContext, EvaluationTrace, Policy,
@@ -438,6 +440,60 @@ pub enum CompiledContextCondition {
         /// Required authentication level (maps to AuthLevel enum).
         /// 0=None, 1=Basic, 2=OAuth, 3=OAuthMfa, 4=HardwareKey
         required_level: u8,
+        deny_reason: String,
+    },
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 2: ADVANCED THREAT DETECTION CONDITIONS
+    // ═══════════════════════════════════════════════════
+
+    /// Circuit breaker check (OWASP ASI08).
+    ///
+    /// Prevents cascading failures by temporarily blocking requests to
+    /// tools that have been failing. The circuit breaker pattern has
+    /// three states: Closed (normal), Open (blocking), HalfOpen (testing).
+    CircuitBreaker {
+        /// Pattern to match tool names for circuit breaker tracking.
+        tool_pattern: PatternMatcher,
+        deny_reason: String,
+    },
+
+    /// Confused deputy validation (OWASP ASI02).
+    ///
+    /// Validates that the current principal is authorized to perform
+    /// the requested action, preventing confused deputy attacks where
+    /// a privileged agent is tricked into acting on behalf of an
+    /// unprivileged attacker.
+    DeputyValidation {
+        /// When true, a principal must be identified in the context.
+        require_principal: bool,
+        /// Maximum allowed delegation depth. 0 = direct only.
+        max_delegation_depth: u8,
+        deny_reason: String,
+    },
+
+    /// Shadow agent detection.
+    ///
+    /// Detects when an unknown agent claims to be a known agent,
+    /// indicating potential impersonation or shadow agent attack.
+    /// Fingerprints agents based on JWT claims, client ID, and IP.
+    ShadowAgentCheck {
+        /// When true, require the fingerprint to match a known agent.
+        require_known_fingerprint: bool,
+        /// Minimum trust level required (0-4).
+        /// 0=Unknown, 1=Low, 2=Medium, 3=High, 4=Verified
+        min_trust_level: u8,
+        deny_reason: String,
+    },
+
+    /// Schema poisoning protection (OWASP ASI05).
+    ///
+    /// Tracks tool schema changes over time and alerts or blocks
+    /// when schemas change beyond the configured threshold.
+    /// Prevents rug-pull attacks where tool behavior changes maliciously.
+    SchemaPoisoningCheck {
+        /// Schema similarity threshold (0.0-1.0). Changes above this trigger denial.
+        mutation_threshold: f32,
         deny_reason: String,
     },
 }
@@ -1743,6 +1799,136 @@ impl PolicyEngine {
                 })
             }
 
+            // ═══════════════════════════════════════════════════
+            // PHASE 2: ADVANCED THREAT DETECTION CONDITIONS
+            // ═══════════════════════════════════════════════════
+
+            "circuit_breaker" => {
+                // OWASP ASI08: Cascading failure protection
+                let tool_pattern = obj
+                    .get("tool_pattern")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("*")
+                    .to_ascii_lowercase();
+
+                let deny_reason = format!(
+                    "Circuit breaker open for tool pattern '{}' (policy '{}')",
+                    tool_pattern, policy.name
+                );
+
+                Ok(CompiledContextCondition::CircuitBreaker {
+                    tool_pattern: PatternMatcher::compile(&tool_pattern),
+                    deny_reason,
+                })
+            }
+
+            "deputy_validation" => {
+                // OWASP ASI02: Confused deputy prevention
+                let require_principal = obj
+                    .get("require_principal")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+
+                let max_delegation_depth_u64 = obj
+                    .get("max_delegation_depth")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(3);
+
+                // Validate depth is reasonable
+                if max_delegation_depth_u64 > 255 {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "deputy_validation max_delegation_depth must be 0-255, got {}",
+                            max_delegation_depth_u64
+                        ),
+                    });
+                }
+
+                let max_delegation_depth = max_delegation_depth_u64 as u8;
+
+                let deny_reason = format!(
+                    "Deputy validation failed for policy '{}'",
+                    policy.name
+                );
+
+                Ok(CompiledContextCondition::DeputyValidation {
+                    require_principal,
+                    max_delegation_depth,
+                    deny_reason,
+                })
+            }
+
+            "shadow_agent_check" => {
+                // Shadow agent detection
+                let require_known_fingerprint = obj
+                    .get("require_known_fingerprint")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
+                let min_trust_level_u64 = obj
+                    .get("min_trust_level")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(1); // Default: Low trust
+
+                // Validate level is in valid range (0-4)
+                if min_trust_level_u64 > 4 {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "shadow_agent_check min_trust_level must be 0-4, got {}",
+                            min_trust_level_u64
+                        ),
+                    });
+                }
+
+                let min_trust_level = min_trust_level_u64 as u8;
+
+                let deny_reason = format!(
+                    "Shadow agent check failed for policy '{}'",
+                    policy.name
+                );
+
+                Ok(CompiledContextCondition::ShadowAgentCheck {
+                    require_known_fingerprint,
+                    min_trust_level,
+                    deny_reason,
+                })
+            }
+
+            "schema_poisoning_check" => {
+                // OWASP ASI05: Schema poisoning protection
+                let mutation_threshold = obj
+                    .get("mutation_threshold")
+                    .and_then(|v| v.as_f64())
+                    .map(|v| v as f32)
+                    .unwrap_or(0.1); // Default: 10% change triggers alert
+
+                // Validate threshold is in valid range
+                if !mutation_threshold.is_finite() || mutation_threshold < 0.0 || mutation_threshold > 1.0 {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "schema_poisoning_check mutation_threshold must be in [0.0, 1.0], got {}",
+                            mutation_threshold
+                        ),
+                    });
+                }
+
+                let deny_reason = format!(
+                    "Schema poisoning detected for policy '{}'",
+                    policy.name
+                );
+
+                Ok(CompiledContextCondition::SchemaPoisoningCheck {
+                    mutation_threshold,
+                    deny_reason,
+                })
+            }
+
             _ => Err(PolicyValidationError {
                 policy_id: policy.id.clone(),
                 policy_name: policy.name.clone(),
@@ -2589,6 +2775,100 @@ impl PolicyEngine {
                             ),
                         });
                     }
+                }
+
+                // ═══════════════════════════════════════════════════
+                // PHASE 2: ADVANCED THREAT DETECTION CONDITION CHECKS
+                // ═══════════════════════════════════════════════════
+
+                CompiledContextCondition::CircuitBreaker {
+                    tool_pattern: _,
+                    deny_reason: _,
+                } => {
+                    // OWASP ASI08: Circuit breaker check
+                    // Note: Actual circuit breaker state is maintained by CircuitBreakerManager
+                    // in sentinel-engine/src/circuit_breaker.rs. This condition is evaluated here
+                    // for policy matching, but actual enforcement happens at the integration layer.
+                    //
+                    // The proxy/server checks CircuitBreakerManager.can_proceed() before evaluation
+                    // and calls record_success/record_failure after the tool call completes.
+                    //
+                    // This condition acts as a marker to indicate circuit breaker applies to this policy.
+                    tracing::trace!(
+                        policy = %cp.policy.name,
+                        "circuit_breaker condition active"
+                    );
+                    // Continue to next condition - enforcement is in the manager
+                }
+
+                CompiledContextCondition::DeputyValidation {
+                    require_principal,
+                    max_delegation_depth,
+                    deny_reason,
+                } => {
+                    // OWASP ASI02: Confused deputy prevention
+                    // Check principal context if available
+                    // Principal context is stored in agent_identity claims
+                    let has_principal = context.agent_identity.is_some()
+                        || context.agent_id.is_some();
+
+                    if *require_principal && !has_principal {
+                        return Some(Verdict::Deny {
+                            reason: format!(
+                                "{} (principal required but not identified)",
+                                deny_reason
+                            ),
+                        });
+                    }
+
+                    // Check delegation depth from call chain
+                    // The call chain represents the delegation chain in multi-agent scenarios
+                    let delegation_depth = context.call_chain.len();
+                    if delegation_depth > *max_delegation_depth as usize {
+                        return Some(Verdict::Deny {
+                            reason: format!(
+                                "{} (delegation depth {} exceeds max {})",
+                                deny_reason, delegation_depth, max_delegation_depth
+                            ),
+                        });
+                    }
+                }
+
+                CompiledContextCondition::ShadowAgentCheck {
+                    require_known_fingerprint: _,
+                    min_trust_level: _,
+                    deny_reason: _,
+                } => {
+                    // Shadow agent detection
+                    // Note: Actual fingerprint matching is done by ShadowAgentDetector
+                    // in sentinel-mcp/src/shadow_agent.rs. This condition is evaluated here
+                    // for policy matching, but actual enforcement happens at the integration layer.
+                    //
+                    // The proxy extracts fingerprint from request context and checks against
+                    // known agents before policy evaluation.
+                    tracing::trace!(
+                        policy = %cp.policy.name,
+                        "shadow_agent_check condition active"
+                    );
+                    // Continue to next condition - enforcement is in the detector
+                }
+
+                CompiledContextCondition::SchemaPoisoningCheck {
+                    mutation_threshold: _,
+                    deny_reason: _,
+                } => {
+                    // OWASP ASI05: Schema poisoning protection
+                    // Note: Actual schema tracking is done by SchemaLineageTracker
+                    // in sentinel-mcp/src/schema_poisoning.rs. This condition is evaluated here
+                    // for policy matching, but actual enforcement happens at the integration layer.
+                    //
+                    // The proxy tracks schema observations and checks for mutations
+                    // when tools are registered or called.
+                    tracing::trace!(
+                        policy = %cp.policy.name,
+                        "schema_poisoning_check condition active"
+                    );
+                    // Continue to next condition - enforcement is in the tracker
                 }
             }
         }

@@ -163,6 +163,11 @@ fn to_policies_produces_correct_policy_structs() {
         resource_indicator: Default::default(),
         cimd: Default::default(),
         step_up_auth: Default::default(),
+        circuit_breaker: Default::default(),
+        deputy: Default::default(),
+        shadow_agent: Default::default(),
+        schema_poisoning: Default::default(),
+        sampling_detection: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(policies.len(), 1);
@@ -207,6 +212,11 @@ fn to_policies_uses_default_priority_when_none() {
         resource_indicator: Default::default(),
         cimd: Default::default(),
         step_up_auth: Default::default(),
+        circuit_breaker: Default::default(),
+        deputy: Default::default(),
+        shadow_agent: Default::default(),
+        schema_poisoning: Default::default(),
+        sampling_detection: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(
@@ -357,6 +367,11 @@ fn policy_config_toml_roundtrip() {
         resource_indicator: Default::default(),
         cimd: Default::default(),
         step_up_auth: Default::default(),
+        circuit_breaker: Default::default(),
+        deputy: Default::default(),
+        shadow_agent: Default::default(),
+        schema_poisoning: Default::default(),
+        sampling_detection: Default::default(),
     };
     let toml_str = toml::to_string(&original).unwrap();
     let parsed = PolicyConfig::from_toml(&toml_str).unwrap();

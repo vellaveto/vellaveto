@@ -9,8 +9,11 @@ pub mod memory_tracking;
 pub mod output_validation;
 pub mod proxy;
 pub mod rug_pull;
+pub mod sampling_detector;
+pub mod schema_poisoning;
 #[cfg(feature = "semantic-detection")]
 pub mod semantic_detection;
+pub mod shadow_agent;
 pub mod task_state;
 pub mod tool_registry;
 

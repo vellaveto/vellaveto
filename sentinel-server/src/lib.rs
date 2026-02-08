@@ -755,6 +755,11 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             resource_indicator: Default::default(),
             cimd: Default::default(),
             step_up_auth: Default::default(),
+            circuit_breaker: Default::default(),
+            deputy: Default::default(),
+            shadow_agent: Default::default(),
+            schema_poisoning: Default::default(),
+            sampling_detection: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

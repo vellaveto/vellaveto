@@ -1,0 +1,136 @@
+# Phase 2: Advanced Threat Detection Configuration
+#
+# This example demonstrates the Phase 2 security features aligned with
+# OWASP ASI Top 10, including circuit breakers, confused deputy prevention,
+# shadow agent detection, schema poisoning protection, and sampling attack defense.
+
+# ═══════════════════════════════════════════════════════════════════
+# CIRCUIT BREAKER (OWASP ASI08)
+# ═══════════════════════════════════════════════════════════════════
+#
+# Prevents cascading failures when tools become unreliable.
+# When a tool fails repeatedly, requests are blocked until recovery.
+#
+# States:
+#   - Closed: Normal operation, requests allowed
+#   - Open: Tool failing, requests blocked
+#   - HalfOpen: Testing recovery, limited requests allowed
+
+[circuit_breaker]
+enabled = true
+failure_threshold = 5           # Failures before opening circuit
+success_threshold = 3           # Successes to close circuit
+open_duration_secs = 30         # Time before attempting recovery
+half_open_max_requests = 1      # Max test requests in half-open state
+
+# ═══════════════════════════════════════════════════════════════════
+# CONFUSED DEPUTY PREVENTION (OWASP ASI02)
+# ═══════════════════════════════════════════════════════════════════
+#
+# Tracks principal delegation chains to prevent unauthorized tool access.
+# A confused deputy attack occurs when a privileged agent is tricked into
+# acting on behalf of an unprivileged attacker.
+
+[deputy]
+enabled = true
+max_delegation_depth = 3        # Maximum depth of delegation chain
+require_explicit_delegation = false  # Require explicit delegation for all actions
+
+# ═══════════════════════════════════════════════════════════════════
+# SHADOW AGENT DETECTION
+# ═══════════════════════════════════════════════════════════════════
+#
+# Detects when an unknown agent claims to be a known agent, indicating
+# potential impersonation. Fingerprints agents based on JWT claims,
+# client ID, and IP hash.
+
+[shadow_agent]
+enabled = true
+fingerprint_components = ["jwt_sub", "jwt_iss", "client_id", "ip_hash"]
+max_agents = 10000              # Maximum tracked agents
+trust_decay_hours = 168         # 1 week trust decay period
+
+# ═══════════════════════════════════════════════════════════════════
+# SCHEMA POISONING DETECTION (OWASP ASI05)
+# ═══════════════════════════════════════════════════════════════════
+#
+# Tracks tool schema changes over time and alerts when schemas change
+# beyond a threshold. Prevents rug-pull attacks where tool behavior
+# changes maliciously after initial trust is established.
+
+[schema_poisoning]
+enabled = true
+mutation_threshold = 0.1        # 10% change triggers alert
+min_observations = 3            # Observations before establishing trust
+max_schemas = 1000              # Maximum tracked schemas
+
+# ═══════════════════════════════════════════════════════════════════
+# SAMPLING ATTACK DETECTION
+# ═══════════════════════════════════════════════════════════════════
+#
+# Rate limits and inspects sampling/createMessage requests to prevent
+# abuse of LLM inference capabilities through MCP.
+
+[sampling_detection]
+enabled = true
+max_requests_per_window = 10    # Rate limit per session
+window_secs = 60                # Rate limit window
+max_prompt_length = 10000       # Maximum prompt size
+scan_sensitive = true           # Enable DLP scanning
+
+# ═══════════════════════════════════════════════════════════════════
+# POLICIES WITH PHASE 2 CONDITIONS
+# ═══════════════════════════════════════════════════════════════════
+#
+# Example policies using Phase 2 context conditions.
+
+[[policies]]
+name = "Circuit breaker for external APIs"
+tool_pattern = "api_*"
+function_pattern = "*"
+priority = 200
+policy_type = { Conditional = { conditions = {
+    context_conditions = [
+        { type = "circuit_breaker", tool_pattern = "api_*" }
+    ]
+} } }
+
+[[policies]]
+name = "Enforce delegation chain for admin tools"
+tool_pattern = "admin_*"
+function_pattern = "*"
+priority = 150
+policy_type = { Conditional = { conditions = {
+    context_conditions = [
+        { type = "deputy_validation", require_principal = true, max_delegation_depth = 2 }
+    ]
+} } }
+
+[[policies]]
+name = "Require verified agent for sensitive operations"
+tool_pattern = "sensitive_*"
+function_pattern = "*"
+priority = 175
+policy_type = { Conditional = { conditions = {
+    context_conditions = [
+        { type = "shadow_agent_check", require_known_fingerprint = true, min_trust_level = 3 }
+    ]
+} } }
+
+[[policies]]
+name = "Block tools with unstable schemas"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 50
+policy_type = { Conditional = { conditions = {
+    context_conditions = [
+        { type = "schema_poisoning_check", mutation_threshold = 0.2 }
+    ]
+} } }
+
+[[policies]]
+name = "Default allow"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 0
+policy_type = "Allow"

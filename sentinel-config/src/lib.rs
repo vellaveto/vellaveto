@@ -1229,6 +1229,30 @@ pub struct PolicyConfig {
     /// Step-up authentication configuration.
     #[serde(default)]
     pub step_up_auth: StepUpAuthConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 2: ADVANCED THREAT DETECTION CONFIGURATION
+    // ═══════════════════════════════════════════════════
+
+    /// Circuit breaker configuration for cascading failure protection.
+    #[serde(default)]
+    pub circuit_breaker: CircuitBreakerConfig,
+
+    /// Confused deputy prevention configuration.
+    #[serde(default)]
+    pub deputy: DeputyConfig,
+
+    /// Shadow agent detection configuration.
+    #[serde(default)]
+    pub shadow_agent: ShadowAgentConfig,
+
+    /// Schema poisoning detection configuration.
+    #[serde(default)]
+    pub schema_poisoning: SchemaPoisoningConfig,
+
+    /// Sampling attack detection configuration.
+    #[serde(default)]
+    pub sampling_detection: SamplingDetectionConfig,
 }
 
 /// Tool registry with trust scoring configuration (P2.1).
@@ -1538,6 +1562,349 @@ impl Default for ClusterConfig {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════
+// PHASE 2: ADVANCED THREAT DETECTION CONFIGURATION
+// ═══════════════════════════════════════════════════
+
+/// Default circuit breaker failure threshold.
+fn default_cb_failure_threshold() -> u32 {
+    5
+}
+
+/// Default circuit breaker success threshold.
+fn default_cb_success_threshold() -> u32 {
+    3
+}
+
+/// Default circuit breaker open duration in seconds.
+fn default_cb_open_duration_secs() -> u64 {
+    30
+}
+
+/// Default circuit breaker half-open max requests.
+fn default_cb_half_open_max_requests() -> u32 {
+    1
+}
+
+/// Circuit breaker configuration for cascading failure protection (OWASP ASI08).
+///
+/// Implements the circuit breaker pattern to prevent cascading failures when
+/// tools become unreliable. When a tool fails repeatedly, requests are blocked
+/// until the tool recovers.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [circuit_breaker]
+/// enabled = true
+/// failure_threshold = 5
+/// success_threshold = 3
+/// open_duration_secs = 30
+/// half_open_max_requests = 1
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CircuitBreakerConfig {
+    /// Enable circuit breaker protection. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Number of consecutive failures before opening the circuit. Default: 5.
+    #[serde(default = "default_cb_failure_threshold")]
+    pub failure_threshold: u32,
+
+    /// Number of consecutive successes in half-open state to close circuit. Default: 3.
+    #[serde(default = "default_cb_success_threshold")]
+    pub success_threshold: u32,
+
+    /// Duration in seconds the circuit stays open before half-open. Default: 30.
+    #[serde(default = "default_cb_open_duration_secs")]
+    pub open_duration_secs: u64,
+
+    /// Maximum requests allowed in half-open state. Default: 1.
+    #[serde(default = "default_cb_half_open_max_requests")]
+    pub half_open_max_requests: u32,
+}
+
+impl Default for CircuitBreakerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            failure_threshold: default_cb_failure_threshold(),
+            success_threshold: default_cb_success_threshold(),
+            open_duration_secs: default_cb_open_duration_secs(),
+            half_open_max_requests: default_cb_half_open_max_requests(),
+        }
+    }
+}
+
+/// Default maximum delegation depth.
+fn default_max_delegation_depth() -> u8 {
+    3
+}
+
+/// Confused deputy prevention configuration (OWASP ASI02).
+///
+/// Tracks principal delegation chains to prevent unauthorized tool access
+/// through confused deputy attacks.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [deputy]
+/// enabled = true
+/// max_delegation_depth = 3
+/// require_explicit_delegation = false
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DeputyConfig {
+    /// Enable confused deputy prevention. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Maximum depth of delegation chain allowed. Default: 3.
+    /// 0 = only direct requests allowed (no delegation).
+    #[serde(default = "default_max_delegation_depth")]
+    pub max_delegation_depth: u8,
+
+    /// When true, delegation must be explicitly registered.
+    /// When false, delegation is inferred from call context. Default: false.
+    #[serde(default)]
+    pub require_explicit_delegation: bool,
+
+    /// Tool patterns that cannot be delegated (glob patterns).
+    #[serde(default)]
+    pub non_delegatable_tools: Vec<String>,
+}
+
+impl Default for DeputyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_delegation_depth: default_max_delegation_depth(),
+            require_explicit_delegation: false,
+            non_delegatable_tools: Vec::new(),
+        }
+    }
+}
+
+/// Default trust decay period in hours.
+fn default_trust_decay_hours() -> u64 {
+    168 // 1 week
+}
+
+/// Shadow agent detection configuration.
+///
+/// Detects when an unknown agent claims to be a known agent,
+/// indicating potential impersonation or shadow agent attack.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [shadow_agent]
+/// enabled = true
+/// fingerprint_components = ["jwt_sub", "jwt_iss", "client_id"]
+/// trust_decay_hours = 168
+/// min_trust_level = 1
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ShadowAgentConfig {
+    /// Enable shadow agent detection. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Components to include in fingerprint. Default: ["jwt_sub", "jwt_iss", "client_id"].
+    /// Valid values: "jwt_sub", "jwt_iss", "client_id", "ip_hash".
+    #[serde(default = "default_fingerprint_components")]
+    pub fingerprint_components: Vec<String>,
+
+    /// Hours of inactivity before trust starts decaying. Default: 168 (1 week).
+    #[serde(default = "default_trust_decay_hours")]
+    pub trust_decay_hours: u64,
+
+    /// Minimum trust level required (0-4). Default: 1 (Low).
+    /// 0=Unknown, 1=Low, 2=Medium, 3=High, 4=Verified
+    #[serde(default = "default_min_trust_level")]
+    pub min_trust_level: u8,
+
+    /// Maximum known agents to track. Default: 10000.
+    #[serde(default = "default_max_known_agents")]
+    pub max_known_agents: usize,
+}
+
+fn default_fingerprint_components() -> Vec<String> {
+    vec![
+        "jwt_sub".to_string(),
+        "jwt_iss".to_string(),
+        "client_id".to_string(),
+    ]
+}
+
+fn default_min_trust_level() -> u8 {
+    1 // Low
+}
+
+fn default_max_known_agents() -> usize {
+    10_000
+}
+
+impl Default for ShadowAgentConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            fingerprint_components: default_fingerprint_components(),
+            trust_decay_hours: default_trust_decay_hours(),
+            min_trust_level: default_min_trust_level(),
+            max_known_agents: default_max_known_agents(),
+        }
+    }
+}
+
+/// Default schema mutation threshold.
+fn default_schema_mutation_threshold() -> f32 {
+    0.1 // 10% change triggers alert
+}
+
+/// Default minimum observations before trust.
+fn default_min_schema_observations() -> u32 {
+    3
+}
+
+/// Schema poisoning detection configuration (OWASP ASI05).
+///
+/// Tracks tool schema changes over time to detect malicious mutations.
+/// Alerts when schemas change beyond the threshold.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [schema_poisoning]
+/// enabled = true
+/// mutation_threshold = 0.1
+/// min_observations = 3
+/// max_tracked_schemas = 1000
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SchemaPoisoningConfig {
+    /// Enable schema poisoning detection. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Schema similarity threshold (0.0-1.0). Changes above this trigger alerts.
+    /// Default: 0.1 (10% change triggers alert).
+    #[serde(default = "default_schema_mutation_threshold")]
+    pub mutation_threshold: f32,
+
+    /// Minimum observations before establishing trust. Default: 3.
+    #[serde(default = "default_min_schema_observations")]
+    pub min_observations: u32,
+
+    /// Maximum tool schemas to track. Default: 1000.
+    #[serde(default = "default_max_tracked_schemas")]
+    pub max_tracked_schemas: usize,
+
+    /// When true, block tools with major schema changes. Default: false.
+    #[serde(default)]
+    pub block_on_major_change: bool,
+}
+
+fn default_max_tracked_schemas() -> usize {
+    1_000
+}
+
+impl Default for SchemaPoisoningConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mutation_threshold: default_schema_mutation_threshold(),
+            min_observations: default_min_schema_observations(),
+            max_tracked_schemas: default_max_tracked_schemas(),
+            block_on_major_change: false,
+        }
+    }
+}
+
+/// Default sampling rate limit.
+fn default_sampling_rate_limit() -> u32 {
+    10
+}
+
+/// Default sampling window in seconds.
+fn default_sampling_window_secs() -> u64 {
+    60
+}
+
+/// Default max prompt length.
+fn default_max_sampling_prompt_length() -> usize {
+    10_000
+}
+
+/// Sampling attack detection configuration.
+///
+/// Rate limits and inspects sampling/createMessage requests to prevent
+/// abuse of LLM inference capabilities.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [sampling_detection]
+/// enabled = true
+/// max_requests_per_window = 10
+/// window_secs = 60
+/// max_prompt_length = 10000
+/// block_sensitive_patterns = true
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SamplingDetectionConfig {
+    /// Enable sampling attack detection. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Maximum sampling requests per window. Default: 10.
+    #[serde(default = "default_sampling_rate_limit")]
+    pub max_requests_per_window: u32,
+
+    /// Rate limit window in seconds. Default: 60.
+    #[serde(default = "default_sampling_window_secs")]
+    pub window_secs: u64,
+
+    /// Maximum prompt length in characters. Default: 10000.
+    #[serde(default = "default_max_sampling_prompt_length")]
+    pub max_prompt_length: usize,
+
+    /// When true, scan prompts for sensitive patterns. Default: false.
+    #[serde(default)]
+    pub block_sensitive_patterns: bool,
+
+    /// Allowed model patterns (glob). Empty = all allowed.
+    #[serde(default)]
+    pub allowed_models: Vec<String>,
+}
+
+impl Default for SamplingDetectionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_requests_per_window: default_sampling_rate_limit(),
+            window_secs: default_sampling_window_secs(),
+            max_prompt_length: default_max_sampling_prompt_length(),
+            block_sensitive_patterns: false,
+            allowed_models: Vec::new(),
+        }
+    }
+}
+
+/// Maximum number of known agents for shadow agent tracking.
+pub const MAX_KNOWN_AGENTS: usize = 100_000;
+
+/// Maximum number of tracked schemas for poisoning detection.
+pub const MAX_TRACKED_SCHEMAS: usize = 10_000;
+
+/// Maximum number of non-delegatable tools.
+pub const MAX_NON_DELEGATABLE_TOOLS: usize = 1_000;
+
+/// Maximum number of allowed sampling models.
+pub const MAX_ALLOWED_SAMPLING_MODELS: usize = 100;
 
 /// Maximum Redis pool size to prevent misconfigured resource exhaustion.
 pub const MAX_CLUSTER_REDIS_POOL_SIZE: usize = 128;
@@ -1989,6 +2356,96 @@ impl PolicyConfig {
                     self.cluster.key_prefix.len()
                 ));
             }
+        }
+
+        // ═══════════════════════════════════════════════════
+        // PHASE 2: ADVANCED THREAT DETECTION VALIDATION
+        // ═══════════════════════════════════════════════════
+
+        // Validate circuit breaker config
+        if self.circuit_breaker.enabled {
+            if self.circuit_breaker.failure_threshold == 0 {
+                return Err(
+                    "circuit_breaker.failure_threshold must be > 0 when enabled".to_string(),
+                );
+            }
+            if self.circuit_breaker.success_threshold == 0 {
+                return Err(
+                    "circuit_breaker.success_threshold must be > 0 when enabled".to_string(),
+                );
+            }
+            if self.circuit_breaker.open_duration_secs == 0 {
+                return Err(
+                    "circuit_breaker.open_duration_secs must be > 0 when enabled".to_string(),
+                );
+            }
+        }
+
+        // Validate deputy config
+        if self.deputy.non_delegatable_tools.len() > MAX_NON_DELEGATABLE_TOOLS {
+            return Err(format!(
+                "deputy.non_delegatable_tools has {} entries, max is {}",
+                self.deputy.non_delegatable_tools.len(),
+                MAX_NON_DELEGATABLE_TOOLS
+            ));
+        }
+
+        // Validate shadow agent config
+        if self.shadow_agent.max_known_agents > MAX_KNOWN_AGENTS {
+            return Err(format!(
+                "shadow_agent.max_known_agents must be <= {}, got {}",
+                MAX_KNOWN_AGENTS, self.shadow_agent.max_known_agents
+            ));
+        }
+        if self.shadow_agent.enabled {
+            // Validate fingerprint components
+            let valid_components = ["jwt_sub", "jwt_iss", "client_id", "ip_hash"];
+            for comp in &self.shadow_agent.fingerprint_components {
+                if !valid_components.contains(&comp.as_str()) {
+                    return Err(format!(
+                        "shadow_agent.fingerprint_components has invalid component '{}', valid values are {:?}",
+                        comp, valid_components
+                    ));
+                }
+            }
+            if self.shadow_agent.fingerprint_components.is_empty() {
+                return Err(
+                    "shadow_agent.fingerprint_components must have at least one component when enabled".to_string()
+                );
+            }
+        }
+
+        // Validate schema poisoning config
+        if self.schema_poisoning.enabled {
+            if !self.schema_poisoning.mutation_threshold.is_finite()
+                || self.schema_poisoning.mutation_threshold < 0.0
+                || self.schema_poisoning.mutation_threshold > 1.0
+            {
+                return Err(format!(
+                    "schema_poisoning.mutation_threshold must be in [0.0, 1.0], got {}",
+                    self.schema_poisoning.mutation_threshold
+                ));
+            }
+        }
+        if self.schema_poisoning.max_tracked_schemas > MAX_TRACKED_SCHEMAS {
+            return Err(format!(
+                "schema_poisoning.max_tracked_schemas must be <= {}, got {}",
+                MAX_TRACKED_SCHEMAS, self.schema_poisoning.max_tracked_schemas
+            ));
+        }
+
+        // Validate sampling detection config
+        if self.sampling_detection.allowed_models.len() > MAX_ALLOWED_SAMPLING_MODELS {
+            return Err(format!(
+                "sampling_detection.allowed_models has {} entries, max is {}",
+                self.sampling_detection.allowed_models.len(),
+                MAX_ALLOWED_SAMPLING_MODELS
+            ));
+        }
+        if self.sampling_detection.enabled && self.sampling_detection.window_secs == 0 {
+            return Err(
+                "sampling_detection.window_secs must be > 0 when enabled".to_string(),
+            );
         }
 
         Ok(())
@@ -3069,6 +3526,11 @@ policy_type = "Allow"
             resource_indicator: ResourceIndicatorConfig::default(),
             cimd: CimdConfig::default(),
             step_up_auth: StepUpAuthConfig::default(),
+            circuit_breaker: CircuitBreakerConfig::default(),
+            deputy: DeputyConfig::default(),
+            shadow_agent: ShadowAgentConfig::default(),
+            schema_poisoning: SchemaPoisoningConfig::default(),
+            sampling_detection: SamplingDetectionConfig::default(),
         };
         config.policies = (0..=MAX_POLICIES)
             .map(|i| PolicyRule {

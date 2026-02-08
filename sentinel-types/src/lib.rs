@@ -180,6 +180,308 @@ impl McpCapability {
     }
 }
 
+// ═══════════════════════════════════════════════════
+// PHASE 2: ADVANCED THREAT DETECTION TYPES
+// ═══════════════════════════════════════════════════
+
+/// State of a circuit breaker for cascading failure protection.
+///
+/// Circuit breakers prevent cascading failures by temporarily blocking
+/// requests to failing tools. Aligned with OWASP ASI08.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CircuitState {
+    /// Circuit is operating normally, requests are allowed.
+    #[default]
+    Closed,
+    /// Circuit is tripped due to failures, requests are blocked.
+    Open,
+    /// Circuit is testing recovery, limited requests allowed.
+    HalfOpen,
+}
+
+impl fmt::Display for CircuitState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CircuitState::Closed => write!(f, "closed"),
+            CircuitState::Open => write!(f, "open"),
+            CircuitState::HalfOpen => write!(f, "half_open"),
+        }
+    }
+}
+
+/// Statistics for a circuit breaker instance.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CircuitStats {
+    /// Current state of the circuit.
+    pub state: CircuitState,
+    /// Number of consecutive failures.
+    pub failure_count: u32,
+    /// Number of consecutive successes (used in half-open state).
+    pub success_count: u32,
+    /// Unix timestamp of the last failure, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_failure: Option<u64>,
+    /// Unix timestamp of the last state change.
+    pub last_state_change: u64,
+}
+
+impl Default for CircuitStats {
+    fn default() -> Self {
+        Self {
+            state: CircuitState::Closed,
+            failure_count: 0,
+            success_count: 0,
+            last_failure: None,
+            last_state_change: 0,
+        }
+    }
+}
+
+/// Fingerprint for agent identity detection (shadow agent prevention).
+///
+/// Used to detect when an unknown agent claims to be a known agent,
+/// indicating potential shadow agent attack.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+pub struct AgentFingerprint {
+    /// JWT subject claim, if present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jwt_sub: Option<String>,
+    /// JWT issuer claim, if present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jwt_iss: Option<String>,
+    /// OAuth client ID, if present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
+    /// Hashed IP address for privacy-preserving fingerprinting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ip_hash: Option<String>,
+}
+
+impl AgentFingerprint {
+    /// Returns true if this fingerprint has any identifying information.
+    pub fn is_populated(&self) -> bool {
+        self.jwt_sub.is_some()
+            || self.jwt_iss.is_some()
+            || self.client_id.is_some()
+            || self.ip_hash.is_some()
+    }
+
+    /// Returns a summary string for logging (no sensitive data).
+    pub fn summary(&self) -> String {
+        let mut parts = Vec::new();
+        if let Some(sub) = &self.jwt_sub {
+            parts.push(format!("sub:{}", truncate_for_log(sub, 20)));
+        }
+        if let Some(iss) = &self.jwt_iss {
+            parts.push(format!("iss:{}", truncate_for_log(iss, 20)));
+        }
+        if let Some(cid) = &self.client_id {
+            parts.push(format!("cid:{}", truncate_for_log(cid, 20)));
+        }
+        if self.ip_hash.is_some() {
+            parts.push("ip:*".to_string());
+        }
+        if parts.is_empty() {
+            "empty".to_string()
+        } else {
+            parts.join(",")
+        }
+    }
+}
+
+/// Truncate a string for logging, adding "..." if truncated.
+fn truncate_for_log(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max_len.saturating_sub(3)])
+    }
+}
+
+/// Trust level for known agents (shadow agent detection).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TrustLevel {
+    /// Unknown agent, no trust established.
+    #[default]
+    Unknown = 0,
+    /// Low trust, recently seen but not verified.
+    Low = 1,
+    /// Medium trust, consistent behavior observed.
+    Medium = 2,
+    /// High trust, extended consistent behavior.
+    High = 3,
+    /// Verified trust, administratively confirmed.
+    Verified = 4,
+}
+
+impl fmt::Display for TrustLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TrustLevel::Unknown => write!(f, "unknown"),
+            TrustLevel::Low => write!(f, "low"),
+            TrustLevel::Medium => write!(f, "medium"),
+            TrustLevel::High => write!(f, "high"),
+            TrustLevel::Verified => write!(f, "verified"),
+        }
+    }
+}
+
+impl TrustLevel {
+    /// Convert from u8, defaulting to Unknown for invalid values.
+    pub fn from_u8(value: u8) -> Self {
+        match value {
+            0 => TrustLevel::Unknown,
+            1 => TrustLevel::Low,
+            2 => TrustLevel::Medium,
+            3 => TrustLevel::High,
+            4 => TrustLevel::Verified,
+            _ => TrustLevel::Unknown,
+        }
+    }
+}
+
+/// Record of a tool's schema for lineage tracking (schema poisoning detection).
+///
+/// Tracks schema changes over time to detect malicious mutations.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SchemaRecord {
+    /// Name of the tool this schema belongs to.
+    pub tool_name: String,
+    /// SHA-256 hash of the current schema.
+    pub schema_hash: String,
+    /// Unix timestamp when this schema was first seen.
+    pub first_seen: u64,
+    /// Unix timestamp when this schema was last seen.
+    pub last_seen: u64,
+    /// History of schema hashes (oldest first, max 10 entries).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub version_history: Vec<String>,
+    /// Trust score based on schema stability (0.0-1.0).
+    pub trust_score: f32,
+}
+
+impl SchemaRecord {
+    /// Create a new schema record with initial observation.
+    pub fn new(tool_name: impl Into<String>, schema_hash: impl Into<String>, now: u64) -> Self {
+        Self {
+            tool_name: tool_name.into(),
+            schema_hash: schema_hash.into(),
+            first_seen: now,
+            last_seen: now,
+            version_history: Vec::new(),
+            trust_score: 0.0, // Start with no trust
+        }
+    }
+
+    /// Returns the number of schema versions observed.
+    pub fn version_count(&self) -> usize {
+        self.version_history.len() + 1 // Current + history
+    }
+
+    /// Returns true if the schema has been stable (no changes in history).
+    pub fn is_stable(&self) -> bool {
+        self.version_history.is_empty()
+            || self.version_history.iter().all(|h| h == &self.schema_hash)
+    }
+}
+
+/// Principal context for confused deputy prevention.
+///
+/// Tracks the delegation chain to prevent unauthorized tool access
+/// via confused deputy attacks (OWASP ASI02).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PrincipalContext {
+    /// The original principal that initiated the request.
+    pub original_principal: String,
+    /// The principal the original delegated to, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegated_to: Option<String>,
+    /// Depth of the delegation chain (0 = direct, 1+ = delegated).
+    pub delegation_depth: u8,
+    /// Tools the delegate is allowed to access.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_tools: Vec<String>,
+    /// Unix timestamp when the delegation expires, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegation_expires: Option<u64>,
+}
+
+impl Default for PrincipalContext {
+    fn default() -> Self {
+        Self {
+            original_principal: String::new(),
+            delegated_to: None,
+            delegation_depth: 0,
+            allowed_tools: Vec::new(),
+            delegation_expires: None,
+        }
+    }
+}
+
+impl PrincipalContext {
+    /// Create a new context for a direct (non-delegated) principal.
+    pub fn direct(principal: impl Into<String>) -> Self {
+        Self {
+            original_principal: principal.into(),
+            delegated_to: None,
+            delegation_depth: 0,
+            allowed_tools: Vec::new(),
+            delegation_expires: None,
+        }
+    }
+
+    /// Returns true if this context represents a delegated request.
+    pub fn is_delegated(&self) -> bool {
+        self.delegated_to.is_some()
+    }
+
+    /// Returns true if the delegation has expired.
+    pub fn is_expired(&self, now: u64) -> bool {
+        self.delegation_expires.map_or(false, |exp| now >= exp)
+    }
+}
+
+/// Statistics for sampling request rate limiting.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct SamplingStats {
+    /// Number of sampling requests in the current window.
+    pub request_count: u32,
+    /// Unix timestamp of the last sampling request.
+    pub last_request: u64,
+    /// Unix timestamp when the current window started.
+    pub window_start: u64,
+    /// Patterns flagged in recent requests (for monitoring).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flagged_patterns: Vec<String>,
+}
+
+impl SamplingStats {
+    /// Create new stats starting now.
+    pub fn new(now: u64) -> Self {
+        Self {
+            request_count: 0,
+            last_request: now,
+            window_start: now,
+            flagged_patterns: Vec::new(),
+        }
+    }
+
+    /// Reset the window, keeping flagged patterns.
+    pub fn reset_window(&mut self, now: u64) {
+        self.request_count = 0;
+        self.window_start = now;
+    }
+
+    /// Record a request and return the new count.
+    pub fn record_request(&mut self, now: u64) -> u32 {
+        self.last_request = now;
+        self.request_count += 1;
+        self.request_count
+    }
+}
+
 /// Maximum length for tool and function names (bytes).
 const MAX_NAME_LEN: usize = 256;
 
@@ -1625,5 +1927,278 @@ mod tests {
         let json_str = serde_json::to_string(&cap).unwrap();
         let deserialized: McpCapability = serde_json::from_str(&json_str).unwrap();
         assert_eq!(cap, deserialized);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 2: ADVANCED THREAT DETECTION TYPES TESTS
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_circuit_state_display() {
+        assert_eq!(CircuitState::Closed.to_string(), "closed");
+        assert_eq!(CircuitState::Open.to_string(), "open");
+        assert_eq!(CircuitState::HalfOpen.to_string(), "half_open");
+    }
+
+    #[test]
+    fn test_circuit_state_serialization() {
+        let states = vec![CircuitState::Closed, CircuitState::Open, CircuitState::HalfOpen];
+        for state in states {
+            let json_str = serde_json::to_string(&state).unwrap();
+            let deserialized: CircuitState = serde_json::from_str(&json_str).unwrap();
+            assert_eq!(state, deserialized);
+        }
+    }
+
+    #[test]
+    fn test_circuit_stats_default() {
+        let stats = CircuitStats::default();
+        assert_eq!(stats.state, CircuitState::Closed);
+        assert_eq!(stats.failure_count, 0);
+        assert_eq!(stats.success_count, 0);
+        assert!(stats.last_failure.is_none());
+    }
+
+    #[test]
+    fn test_circuit_stats_serialization() {
+        let stats = CircuitStats {
+            state: CircuitState::Open,
+            failure_count: 5,
+            success_count: 0,
+            last_failure: Some(1704067200),
+            last_state_change: 1704067200,
+        };
+        let json_str = serde_json::to_string(&stats).unwrap();
+        let deserialized: CircuitStats = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(stats, deserialized);
+    }
+
+    #[test]
+    fn test_agent_fingerprint_is_populated() {
+        let empty = AgentFingerprint::default();
+        assert!(!empty.is_populated());
+
+        let with_sub = AgentFingerprint {
+            jwt_sub: Some("agent-123".to_string()),
+            ..Default::default()
+        };
+        assert!(with_sub.is_populated());
+
+        let with_iss = AgentFingerprint {
+            jwt_iss: Some("https://auth.example.com".to_string()),
+            ..Default::default()
+        };
+        assert!(with_iss.is_populated());
+    }
+
+    #[test]
+    fn test_agent_fingerprint_summary() {
+        let empty = AgentFingerprint::default();
+        assert_eq!(empty.summary(), "empty");
+
+        let fp = AgentFingerprint {
+            jwt_sub: Some("agent-123".to_string()),
+            jwt_iss: Some("https://auth.example.com".to_string()),
+            client_id: Some("client-456".to_string()),
+            ip_hash: Some("abc123".to_string()),
+        };
+        let summary = fp.summary();
+        assert!(summary.contains("sub:agent-123"));
+        assert!(summary.contains("iss:"));
+        assert!(summary.contains("cid:client-456"));
+        assert!(summary.contains("ip:*"));
+    }
+
+    #[test]
+    fn test_agent_fingerprint_serialization() {
+        let fp = AgentFingerprint {
+            jwt_sub: Some("sub".to_string()),
+            jwt_iss: Some("iss".to_string()),
+            client_id: Some("cid".to_string()),
+            ip_hash: Some("hash".to_string()),
+        };
+        let json_str = serde_json::to_string(&fp).unwrap();
+        let deserialized: AgentFingerprint = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(fp, deserialized);
+    }
+
+    #[test]
+    fn test_trust_level_ordering() {
+        assert!(TrustLevel::Unknown < TrustLevel::Low);
+        assert!(TrustLevel::Low < TrustLevel::Medium);
+        assert!(TrustLevel::Medium < TrustLevel::High);
+        assert!(TrustLevel::High < TrustLevel::Verified);
+    }
+
+    #[test]
+    fn test_trust_level_from_u8() {
+        assert_eq!(TrustLevel::from_u8(0), TrustLevel::Unknown);
+        assert_eq!(TrustLevel::from_u8(1), TrustLevel::Low);
+        assert_eq!(TrustLevel::from_u8(2), TrustLevel::Medium);
+        assert_eq!(TrustLevel::from_u8(3), TrustLevel::High);
+        assert_eq!(TrustLevel::from_u8(4), TrustLevel::Verified);
+        assert_eq!(TrustLevel::from_u8(255), TrustLevel::Unknown);
+    }
+
+    #[test]
+    fn test_trust_level_display() {
+        assert_eq!(TrustLevel::Unknown.to_string(), "unknown");
+        assert_eq!(TrustLevel::Low.to_string(), "low");
+        assert_eq!(TrustLevel::Medium.to_string(), "medium");
+        assert_eq!(TrustLevel::High.to_string(), "high");
+        assert_eq!(TrustLevel::Verified.to_string(), "verified");
+    }
+
+    #[test]
+    fn test_schema_record_new() {
+        let record = SchemaRecord::new("my_tool", "abc123", 1704067200);
+        assert_eq!(record.tool_name, "my_tool");
+        assert_eq!(record.schema_hash, "abc123");
+        assert_eq!(record.first_seen, 1704067200);
+        assert_eq!(record.last_seen, 1704067200);
+        assert!(record.version_history.is_empty());
+        assert_eq!(record.trust_score, 0.0);
+    }
+
+    #[test]
+    fn test_schema_record_version_count() {
+        let mut record = SchemaRecord::new("tool", "hash1", 1000);
+        assert_eq!(record.version_count(), 1);
+
+        record.version_history.push("hash0".to_string());
+        assert_eq!(record.version_count(), 2);
+
+        record.version_history.push("hash_prev".to_string());
+        assert_eq!(record.version_count(), 3);
+    }
+
+    #[test]
+    fn test_schema_record_is_stable() {
+        let record = SchemaRecord::new("tool", "hash", 1000);
+        assert!(record.is_stable()); // No history = stable
+
+        let mut record_same = record.clone();
+        record_same.version_history.push("hash".to_string());
+        assert!(record_same.is_stable()); // Same hash in history = stable
+
+        let mut record_diff = record.clone();
+        record_diff.version_history.push("different_hash".to_string());
+        assert!(!record_diff.is_stable()); // Different hash in history = unstable
+    }
+
+    #[test]
+    fn test_schema_record_serialization() {
+        let record = SchemaRecord {
+            tool_name: "my_tool".to_string(),
+            schema_hash: "hash123".to_string(),
+            first_seen: 1000,
+            last_seen: 2000,
+            version_history: vec!["hash0".to_string(), "hash1".to_string()],
+            trust_score: 0.75,
+        };
+        let json_str = serde_json::to_string(&record).unwrap();
+        let deserialized: SchemaRecord = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(record, deserialized);
+    }
+
+    #[test]
+    fn test_principal_context_direct() {
+        let ctx = PrincipalContext::direct("user-123");
+        assert_eq!(ctx.original_principal, "user-123");
+        assert!(!ctx.is_delegated());
+        assert_eq!(ctx.delegation_depth, 0);
+    }
+
+    #[test]
+    fn test_principal_context_is_delegated() {
+        let direct = PrincipalContext::direct("user");
+        assert!(!direct.is_delegated());
+
+        let delegated = PrincipalContext {
+            original_principal: "user".to_string(),
+            delegated_to: Some("agent".to_string()),
+            delegation_depth: 1,
+            allowed_tools: vec!["read_file".to_string()],
+            delegation_expires: None,
+        };
+        assert!(delegated.is_delegated());
+    }
+
+    #[test]
+    fn test_principal_context_is_expired() {
+        let no_expiry = PrincipalContext::direct("user");
+        assert!(!no_expiry.is_expired(1000));
+
+        let not_expired = PrincipalContext {
+            delegation_expires: Some(2000),
+            ..PrincipalContext::direct("user")
+        };
+        assert!(!not_expired.is_expired(1000));
+
+        let expired = PrincipalContext {
+            delegation_expires: Some(1000),
+            ..PrincipalContext::direct("user")
+        };
+        assert!(expired.is_expired(1000));
+        assert!(expired.is_expired(2000));
+    }
+
+    #[test]
+    fn test_principal_context_serialization() {
+        let ctx = PrincipalContext {
+            original_principal: "user".to_string(),
+            delegated_to: Some("agent".to_string()),
+            delegation_depth: 2,
+            allowed_tools: vec!["tool1".to_string(), "tool2".to_string()],
+            delegation_expires: Some(1704067200),
+        };
+        let json_str = serde_json::to_string(&ctx).unwrap();
+        let deserialized: PrincipalContext = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(ctx, deserialized);
+    }
+
+    #[test]
+    fn test_sampling_stats_new() {
+        let stats = SamplingStats::new(1000);
+        assert_eq!(stats.request_count, 0);
+        assert_eq!(stats.last_request, 1000);
+        assert_eq!(stats.window_start, 1000);
+        assert!(stats.flagged_patterns.is_empty());
+    }
+
+    #[test]
+    fn test_sampling_stats_record_request() {
+        let mut stats = SamplingStats::new(1000);
+        assert_eq!(stats.record_request(1001), 1);
+        assert_eq!(stats.record_request(1002), 2);
+        assert_eq!(stats.last_request, 1002);
+        assert_eq!(stats.request_count, 2);
+    }
+
+    #[test]
+    fn test_sampling_stats_reset_window() {
+        let mut stats = SamplingStats::new(1000);
+        stats.record_request(1001);
+        stats.record_request(1002);
+        stats.flagged_patterns.push("pattern1".to_string());
+
+        stats.reset_window(2000);
+        assert_eq!(stats.request_count, 0);
+        assert_eq!(stats.window_start, 2000);
+        // Flagged patterns are preserved
+        assert!(!stats.flagged_patterns.is_empty());
+    }
+
+    #[test]
+    fn test_sampling_stats_serialization() {
+        let stats = SamplingStats {
+            request_count: 5,
+            last_request: 1005,
+            window_start: 1000,
+            flagged_patterns: vec!["sensitive".to_string()],
+        };
+        let json_str = serde_json::to_string(&stats).unwrap();
+        let deserialized: SamplingStats = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(stats, deserialized);
     }
 }
