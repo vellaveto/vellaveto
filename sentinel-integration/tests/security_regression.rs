@@ -379,6 +379,13 @@ mod server_auth {
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
         idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
         };
         (state, tmp)
     }
@@ -503,6 +510,13 @@ mod server_auth {
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
         idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
         };
         let app = routes::build_router(state);
 
@@ -1094,6 +1108,13 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
         idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
     };
 
     let app = routes::build_router(state);
@@ -1184,6 +1205,13 @@ async fn finding_12_approval_creation_failure_denies_request() {
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
         idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
     };
 
     let app = routes::build_router(state);

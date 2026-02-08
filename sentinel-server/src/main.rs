@@ -585,6 +585,16 @@ async fn cmd_serve(
         idempotency: sentinel_server::idempotency::IdempotencyStore::new(
             sentinel_server::idempotency::IdempotencyConfig::default(),
         ),
+
+        // Phase 1 & 2 Security Managers — default: None (disabled)
+        // TODO: Initialize from PolicyConfig when enabled in configuration
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
     };
 
     tracing::info!("Audit log: {}", audit_path.display());

@@ -893,6 +893,13 @@ mod owasp_mcp07_auth {
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
         idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
         };
         (state, tmp)
     }
@@ -1289,6 +1296,13 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
         idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
         };
 
         let app = routes::build_router(state);
@@ -1536,6 +1550,13 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
         idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1619,6 +1640,13 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
         idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

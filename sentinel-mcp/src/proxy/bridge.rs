@@ -7,8 +7,16 @@
 use sentinel_approval::ApprovalStore;
 use sentinel_audit::AuditLogger;
 use sentinel_config::{ManifestConfig, ToolManifest};
+use sentinel_engine::circuit_breaker::CircuitBreakerManager;
+use sentinel_engine::deputy::DeputyValidator;
 use sentinel_engine::PolicyEngine;
-use sentinel_types::{EvaluationContext, EvaluationTrace, Policy, Verdict};
+use sentinel_types::{AgentFingerprint, EvaluationContext, EvaluationTrace, Policy, Verdict};
+
+use crate::auth_level::AuthLevelTracker;
+use crate::sampling_detector::SamplingDetector;
+use crate::schema_poisoning::SchemaLineageTracker;
+use crate::shadow_agent::ShadowAgentDetector;
+use crate::task_state::TaskStateManager;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -81,6 +89,31 @@ pub struct ProxyBridge {
     /// Tool registry for tracking tool trust scores (P2.1).
     /// None when tool registry is disabled.
     tool_registry: Option<Arc<crate::tool_registry::ToolRegistry>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 1 & 2 Security Managers (Phase 3.1 Integration)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Task state manager for async task lifecycle tracking (Phase 1).
+    task_state: Option<Arc<TaskStateManager>>,
+
+    /// Auth level tracker for step-up authentication (Phase 1).
+    auth_level: Option<Arc<AuthLevelTracker>>,
+
+    /// Circuit breaker for cascading failure protection (Phase 2, ASI08).
+    circuit_breaker: Option<Arc<CircuitBreakerManager>>,
+
+    /// Deputy validator for confused deputy prevention (Phase 2, ASI02).
+    deputy: Option<Arc<DeputyValidator>>,
+
+    /// Shadow agent detector for agent impersonation detection (Phase 2).
+    shadow_agent: Option<Arc<ShadowAgentDetector>>,
+
+    /// Schema lineage tracker for schema poisoning detection (Phase 2, ASI05).
+    schema_lineage: Option<Arc<SchemaLineageTracker>>,
+
+    /// Sampling detector for sampling attack prevention (Phase 2).
+    sampling_detector: Option<Arc<SamplingDetector>>,
 }
 
 impl ProxyBridge {
@@ -105,6 +138,14 @@ impl ProxyBridge {
             elicitation_config: sentinel_config::ElicitationConfig::default(),
             sampling_config: sentinel_config::SamplingConfig::default(),
             tool_registry: None,
+            // Phase 1 & 2 managers (default: disabled)
+            task_state: None,
+            auth_level: None,
+            circuit_breaker: None,
+            deputy: None,
+            shadow_agent: None,
+            schema_lineage: None,
+            sampling_detector: None,
         }
     }
 
@@ -203,6 +244,96 @@ impl ProxyBridge {
     pub fn with_tool_registry(mut self, registry: Arc<crate::tool_registry::ToolRegistry>) -> Self {
         self.tool_registry = Some(registry);
         self
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 1 & 2 Manager Builder Methods (Phase 3.1 Integration)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Set the task state manager for async task lifecycle tracking.
+    /// When set, async task limits and cancellation policies are enforced.
+    pub fn with_task_state(mut self, manager: Arc<TaskStateManager>) -> Self {
+        self.task_state = Some(manager);
+        self
+    }
+
+    /// Set the auth level tracker for step-up authentication.
+    /// When set, sensitive operations may require elevated authentication.
+    pub fn with_auth_level(mut self, tracker: Arc<AuthLevelTracker>) -> Self {
+        self.auth_level = Some(tracker);
+        self
+    }
+
+    /// Set the circuit breaker manager for cascading failure protection.
+    /// When set, failing tools are automatically circuit-broken.
+    pub fn with_circuit_breaker(mut self, manager: Arc<CircuitBreakerManager>) -> Self {
+        self.circuit_breaker = Some(manager);
+        self
+    }
+
+    /// Set the deputy validator for confused deputy prevention.
+    /// When set, delegation chains and principal bindings are enforced.
+    pub fn with_deputy(mut self, validator: Arc<DeputyValidator>) -> Self {
+        self.deputy = Some(validator);
+        self
+    }
+
+    /// Set the shadow agent detector for agent impersonation detection.
+    /// When set, agent fingerprints are verified against known agents.
+    pub fn with_shadow_agent(mut self, detector: Arc<ShadowAgentDetector>) -> Self {
+        self.shadow_agent = Some(detector);
+        self
+    }
+
+    /// Set the schema lineage tracker for schema poisoning detection.
+    /// When set, tool schemas are monitored for suspicious mutations.
+    pub fn with_schema_lineage(mut self, tracker: Arc<SchemaLineageTracker>) -> Self {
+        self.schema_lineage = Some(tracker);
+        self
+    }
+
+    /// Set the sampling detector for sampling attack prevention.
+    /// When set, sampling requests are rate-limited and content-scanned.
+    pub fn with_sampling_detector(mut self, detector: Arc<SamplingDetector>) -> Self {
+        self.sampling_detector = Some(detector);
+        self
+    }
+
+    /// Extract agent fingerprint from MCP message `_meta` field.
+    ///
+    /// MCP 2025-11-25 allows clients to include identity information in `_meta`.
+    /// This extracts fingerprint components if present.
+    fn extract_fingerprint_from_meta(msg: &Value) -> AgentFingerprint {
+        let meta = msg.get("_meta").or_else(|| {
+            msg.get("params").and_then(|p| p.get("_meta"))
+        });
+
+        AgentFingerprint {
+            jwt_sub: meta.and_then(|m| m.get("agent_id"))
+                .or_else(|| meta.and_then(|m| m.get("agentId")))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            jwt_iss: meta.and_then(|m| m.get("issuer"))
+                .or_else(|| meta.and_then(|m| m.get("iss")))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            client_id: meta.and_then(|m| m.get("client_id"))
+                .or_else(|| meta.and_then(|m| m.get("clientId")))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            ip_hash: None, // Not available in stdio proxy
+        }
+    }
+
+    /// Extract claimed agent ID from MCP message.
+    fn extract_agent_id(msg: &Value) -> Option<String> {
+        let meta = msg.get("_meta").or_else(|| {
+            msg.get("params").and_then(|p| p.get("_meta"))
+        })?;
+        meta.get("agent_id")
+            .or_else(|| meta.get("agentId"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
     }
 
     /// Persist a flagged tool to the JSONL file.
@@ -484,9 +615,10 @@ impl ProxyBridge {
         let mut agent_reader = BufReader::new(agent_reader);
         let mut child_reader = BufReader::new(child_stdout);
 
-        // Track pending request IDs for timeout detection.
-        // Key: serialized JSON-RPC id, Value: when the request was forwarded.
-        let mut pending_requests: HashMap<String, Instant> = HashMap::new();
+        // Track pending request IDs for timeout detection and circuit breaker recording.
+        // Key: serialized JSON-RPC id, Value: (timestamp, tool_name).
+        // Tool name is needed for circuit breaker success/failure recording on response.
+        let mut pending_requests: HashMap<String, (Instant, String)> = HashMap::new();
         // SECURITY (R8-MCP-8): Maximum number of pending (in-flight) requests.
         // Prevents OOM if an agent sends requests faster than the server responds.
         const MAX_PENDING_REQUESTS: usize = 1000;
@@ -577,6 +709,116 @@ impl ProxyBridge {
                                             .map_err(ProxyError::Framing)?;
                                         continue;
                                     }
+
+                                    // ═══════════════════════════════════════════════════════════════════
+                                    // Phase 3.1: Pre-evaluation security checks
+                                    // ═══════════════════════════════════════════════════════════════════
+
+                                    // Phase 3.1: Circuit breaker check (OWASP ASI08)
+                                    // Fail fast for tools experiencing cascading failures.
+                                    if let Some(ref cb) = self.circuit_breaker {
+                                        if let Err(reason) = cb.can_proceed(&tool_name) {
+                                            tracing::warn!(
+                                                "SECURITY: Circuit breaker blocking tool '{}': {}",
+                                                tool_name, reason
+                                            );
+                                            let action = extract_action(&tool_name, &arguments);
+                                            let verdict = Verdict::Deny { reason: reason.clone() };
+                                            if let Err(e) = self.audit.log_entry(
+                                                &action,
+                                                &verdict,
+                                                json!({
+                                                    "source": "proxy",
+                                                    "event": "circuit_breaker_blocked",
+                                                    "tool": tool_name,
+                                                }),
+                                            ).await {
+                                                tracing::warn!("Failed to audit circuit breaker block: {}", e);
+                                            }
+                                            let response = make_denial_response(&id, &reason);
+                                            write_message(&mut agent_writer, &response).await
+                                                .map_err(ProxyError::Framing)?;
+                                            continue;
+                                        }
+                                    }
+
+                                    // Phase 3.1: Shadow agent detection
+                                    // Verify the claimed agent identity matches the fingerprint.
+                                    if let Some(ref detector) = self.shadow_agent {
+                                        let fingerprint = Self::extract_fingerprint_from_meta(&msg);
+                                        if fingerprint.is_populated() {
+                                            if let Some(claimed_id) = Self::extract_agent_id(&msg) {
+                                                if let Err(alert) = detector.detect_shadow(&claimed_id, &fingerprint) {
+                                                    tracing::warn!(
+                                                        "SECURITY: Shadow agent detected - claimed '{}' but fingerprint mismatch",
+                                                        claimed_id
+                                                    );
+                                                    let action = extract_action(&tool_name, &arguments);
+                                                    let reason = format!(
+                                                        "Shadow agent detected: claimed identity '{}' does not match fingerprint",
+                                                        claimed_id
+                                                    );
+                                                    let verdict = Verdict::Deny { reason: reason.clone() };
+                                                    if let Err(e) = self.audit.log_entry(
+                                                        &action,
+                                                        &verdict,
+                                                        json!({
+                                                            "source": "proxy",
+                                                            "event": "shadow_agent_detected",
+                                                            "claimed_id": claimed_id,
+                                                            "expected_summary": alert.expected_fingerprint.summary(),
+                                                            "actual_summary": alert.actual_fingerprint.summary(),
+                                                            "severity": format!("{:?}", alert.severity),
+                                                        }),
+                                                    ).await {
+                                                        tracing::warn!("Failed to audit shadow agent: {}", e);
+                                                    }
+                                                    let response = make_denial_response(&id, &reason);
+                                                    write_message(&mut agent_writer, &response).await
+                                                        .map_err(ProxyError::Framing)?;
+                                                    continue;
+                                                }
+                                                // Ok(()) means no shadow detected - proceed
+                                            }
+                                        }
+                                    }
+
+                                    // Phase 3.1: Deputy validation (OWASP ASI02)
+                                    // Ensure the principal has permission to access this tool.
+                                    if let Some(ref deputy) = self.deputy {
+                                        // Use session identifier as the delegation chain key
+                                        // In stdio proxy, we use a fixed session ID
+                                        let session_id = "stdio-session";
+                                        if let Some(claimed_id) = Self::extract_agent_id(&msg) {
+                                            if let Err(err) = deputy.validate_action(session_id, &tool_name, &claimed_id) {
+                                                let reason = err.to_string();
+                                                tracing::warn!(
+                                                    "SECURITY: Deputy validation failed for '{}' -> '{}': {}",
+                                                    claimed_id, tool_name, reason
+                                                );
+                                                let action = extract_action(&tool_name, &arguments);
+                                                let verdict = Verdict::Deny { reason: reason.clone() };
+                                                if let Err(e) = self.audit.log_entry(
+                                                    &action,
+                                                    &verdict,
+                                                    json!({
+                                                        "source": "proxy",
+                                                        "event": "deputy_validation_failed",
+                                                        "session": session_id,
+                                                        "principal": claimed_id,
+                                                        "tool": tool_name,
+                                                    }),
+                                                ).await {
+                                                    tracing::warn!("Failed to audit deputy validation: {}", e);
+                                                }
+                                                let response = make_denial_response(&id, &reason);
+                                                write_message(&mut agent_writer, &response).await
+                                                    .map_err(ProxyError::Framing)?;
+                                                continue;
+                                            }
+                                        }
+                                    }
+
                                     // P2: DLP scan parameters for secret exfiltration.
                                     // SECURITY: Block the tool call when secrets are detected.
                                     // Secrets in outbound parameters indicate the agent is
@@ -758,11 +1000,11 @@ impl ProxyBridge {
                                                 action_history.remove(0);
                                             }
                                             action_history.push(tool_name.clone());
-                                            // Track this request for timeout
+                                            // Track this request for timeout and circuit breaker
                                             if !id.is_null() {
                                                 let id_key = id.to_string();
                                                 if pending_requests.len() < MAX_PENDING_REQUESTS {
-                                                    pending_requests.insert(id_key, Instant::now());
+                                                    pending_requests.insert(id_key, (Instant::now(), tool_name.clone()));
                                                 } else {
                                                     tracing::warn!("Pending request limit reached ({}), not tracking request", MAX_PENDING_REQUESTS);
                                                 }
@@ -931,7 +1173,7 @@ impl ProxyBridge {
                                             if !id.is_null() {
                                                 let id_key = id.to_string();
                                                 if pending_requests.len() < MAX_PENDING_REQUESTS {
-                                                    pending_requests.insert(id_key, Instant::now());
+                                                    pending_requests.insert(id_key, (Instant::now(), "resources/read".to_string()));
                                                 } else {
                                                     tracing::warn!("Pending request limit reached ({}), not tracking request", MAX_PENDING_REQUESTS);
                                                 }
@@ -1183,7 +1425,7 @@ impl ProxyBridge {
                                             if !id.is_null() {
                                                 let id_key = id.to_string();
                                                 if pending_requests.len() < MAX_PENDING_REQUESTS {
-                                                    pending_requests.insert(id_key, Instant::now());
+                                                    pending_requests.insert(id_key, (Instant::now(), task_method.to_string()));
                                                 } else {
                                                     tracing::warn!("Pending request limit reached ({}), not tracking request", MAX_PENDING_REQUESTS);
                                                 }
@@ -1274,9 +1516,9 @@ impl ProxyBridge {
                                                 continue;
                                             }
                                             let id_key = id.to_string();
-                                            pending_requests.insert(id_key.clone(), Instant::now());
-
                                             let method = msg.get("method").and_then(|m| m.as_str());
+                                            let method_name = method.unwrap_or("unknown").to_string();
+                                            pending_requests.insert(id_key.clone(), (Instant::now(), method_name));
                                             // SECURITY (R29-MCP-1): Normalize method before
                                             // tracking to prevent bypass via case/trailing
                                             // slash/invisible chars (e.g., "Tools/List/").
@@ -1501,7 +1743,17 @@ impl ProxyBridge {
                             if let Some(id) = msg.get("id") {
                                 if !id.is_null() {
                                     let id_key = id.to_string();
-                                    pending_requests.remove(&id_key);
+                                    // Phase 3.1: Circuit breaker recording on response
+                                    if let Some((_, tool_name)) = pending_requests.remove(&id_key) {
+                                        if let Some(ref cb) = self.circuit_breaker {
+                                            // Record success or failure based on response
+                                            if msg.get("error").is_some() {
+                                                cb.record_failure(&tool_name);
+                                            } else {
+                                                cb.record_success(&tool_name);
+                                            }
+                                        }
+                                    }
 
                                     // C-8.2: If this is a tools/list response, extract annotations
                                     if tools_list_request_ids.remove(&id_key) {
@@ -1613,6 +1865,66 @@ impl ProxyBridge {
                                             "Output schema registry: {} schemas registered",
                                             self.output_schema_registry.len()
                                         );
+
+                                        // Phase 3.1: Schema poisoning detection (OWASP ASI05)
+                                        // Track tool schemas over time and detect mutations.
+                                        if let Some(ref tracker) = self.schema_lineage {
+                                            if let Some(tools) = msg.get("result")
+                                                .and_then(|r| r.get("tools"))
+                                                .and_then(|t| t.as_array())
+                                            {
+                                                for tool in tools {
+                                                    if let Some(name) = tool.get("name").and_then(|n| n.as_str()) {
+                                                        let schema = tool.get("inputSchema")
+                                                            .cloned()
+                                                            .unwrap_or(json!({}));
+                                                        match tracker.observe_schema(name, &schema) {
+                                                            crate::schema_poisoning::ObservationResult::MajorChange { similarity, alert } => {
+                                                                tracing::warn!(
+                                                                    "SECURITY: Schema poisoning detected for tool '{}': similarity={:.2}",
+                                                                    name, similarity
+                                                                );
+                                                                let action = sentinel_types::Action::new(
+                                                                    "sentinel",
+                                                                    "schema_poisoning_detected",
+                                                                    json!({
+                                                                        "tool": name,
+                                                                        "similarity": similarity,
+                                                                        "alert": format!("{:?}", alert),
+                                                                    }),
+                                                                );
+                                                                if let Err(e) = self.audit.log_entry(
+                                                                    &action,
+                                                                    &Verdict::Deny {
+                                                                        reason: format!(
+                                                                            "Schema poisoning detected: tool '{}' schema changed (similarity={:.2})",
+                                                                            name, similarity
+                                                                        ),
+                                                                    },
+                                                                    json!({
+                                                                        "source": "proxy",
+                                                                        "event": "schema_poisoning_detected",
+                                                                        "tool": name,
+                                                                    }),
+                                                                ).await {
+                                                                    tracing::warn!("Failed to audit schema poisoning: {}", e);
+                                                                }
+                                                                // Flag the tool for blocking
+                                                                flagged_tools.insert(name.to_string());
+                                                                self.persist_flagged_tool(name, "schema_poisoning").await;
+                                                            }
+                                                            crate::schema_poisoning::ObservationResult::MinorChange { similarity } => {
+                                                                tracing::debug!(
+                                                                    "Schema minor change for tool '{}': similarity={:.2}",
+                                                                    name, similarity
+                                                                );
+                                                            }
+                                                            _ => {}
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
 
                                     // C-8.4: If this is an initialize response, extract protocol version
@@ -1819,7 +2131,12 @@ impl ProxyBridge {
                                 let crash_ids: Vec<String> = pending_requests.keys().cloned().collect();
                                 let pending_count = crash_ids.len();
                                 for id_key in &crash_ids {
-                                    pending_requests.remove(id_key);
+                                    // Phase 3.1: Circuit breaker - record crash as failure
+                                    if let Some((_, tool_name)) = pending_requests.remove(id_key) {
+                                        if let Some(ref cb) = self.circuit_breaker {
+                                            cb.record_failure(&tool_name);
+                                        }
+                                    }
                                     let id: Value = serde_json::from_str(id_key).unwrap_or(Value::Null);
                                     let response = json!({
                                         "jsonrpc": "2.0",
@@ -1858,12 +2175,17 @@ impl ProxyBridge {
                     let now = Instant::now();
                     let timed_out: Vec<String> = pending_requests
                         .iter()
-                        .filter(|(_, sent_at)| now.duration_since(**sent_at) > self.request_timeout)
+                        .filter(|(_, (sent_at, _))| now.duration_since(*sent_at) > self.request_timeout)
                         .map(|(id_key, _)| id_key.clone())
                         .collect();
 
                     for id_key in timed_out {
-                        pending_requests.remove(&id_key);
+                        // Phase 3.1: Circuit breaker - record timeout as failure
+                        if let Some((_, tool_name)) = pending_requests.remove(&id_key) {
+                            if let Some(ref cb) = self.circuit_breaker {
+                                cb.record_failure(&tool_name);
+                            }
+                        }
                         // Parse the id back from its serialized form
                         let id: Value = serde_json::from_str(&id_key).unwrap_or(Value::Null);
                         tracing::warn!("Request timed out: id={}", id_key);

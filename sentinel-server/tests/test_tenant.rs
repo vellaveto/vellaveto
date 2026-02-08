@@ -89,6 +89,13 @@ fn test_state_with_tenants(
         tenant_config,
         tenant_store,
         idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
     };
     (state, tmp)
 }

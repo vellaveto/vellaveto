@@ -59,6 +59,13 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
         idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
     };
     (state, tmp)
 }
@@ -401,6 +408,13 @@ async fn regression_24_error_message_does_not_leak_architecture() {
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
         idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

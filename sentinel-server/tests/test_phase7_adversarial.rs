@@ -58,6 +58,13 @@ fn state_with_api_key(tmp: &TempDir) -> AppState {
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
         idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
     }
 }
 
@@ -279,6 +286,13 @@ async fn regression_38_prometheus_metrics_rate_limited() {
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
         idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
     };
 
     // First request should succeed

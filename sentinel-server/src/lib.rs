@@ -23,6 +23,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
+// Phase 1 & 2 security managers
+use sentinel_engine::circuit_breaker::CircuitBreakerManager;
+use sentinel_engine::deputy::DeputyValidator;
+use sentinel_mcp::auth_level::AuthLevelTracker;
+use sentinel_mcp::sampling_detector::SamplingDetector;
+use sentinel_mcp::schema_poisoning::SchemaLineageTracker;
+use sentinel_mcp::shadow_agent::ShadowAgentDetector;
+use sentinel_mcp::task_state::TaskStateManager;
+
 /// Per-category rate limiters using governor.
 ///
 /// Each category can independently be enabled (Some) or disabled (None).
@@ -566,6 +575,38 @@ pub struct AppState {
     pub tenant_store: Option<Arc<dyn tenant::TenantStore>>,
     /// Idempotency key store for at-most-once request semantics (Phase 5).
     pub idempotency: idempotency::IdempotencyStore,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 1 & 2 Security Managers (Phase 3.1 Integration)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Task state manager for async task lifecycle tracking (Phase 1).
+    /// None when async task tracking is disabled.
+    pub task_state: Option<Arc<TaskStateManager>>,
+
+    /// Auth level tracker for step-up authentication (Phase 1).
+    /// None when step-up auth is disabled.
+    pub auth_level: Option<Arc<AuthLevelTracker>>,
+
+    /// Circuit breaker manager for cascading failure protection (Phase 2, ASI08).
+    /// None when circuit breaker is disabled.
+    pub circuit_breaker: Option<Arc<CircuitBreakerManager>>,
+
+    /// Deputy validator for confused deputy prevention (Phase 2, ASI02).
+    /// None when deputy validation is disabled.
+    pub deputy: Option<Arc<DeputyValidator>>,
+
+    /// Shadow agent detector for agent impersonation detection (Phase 2).
+    /// None when shadow agent detection is disabled.
+    pub shadow_agent: Option<Arc<ShadowAgentDetector>>,
+
+    /// Schema lineage tracker for schema poisoning detection (Phase 2, ASI05).
+    /// None when schema poisoning detection is disabled.
+    pub schema_lineage: Option<Arc<SchemaLineageTracker>>,
+
+    /// Sampling detector for sampling attack prevention (Phase 2).
+    /// None when sampling detection is disabled.
+    pub sampling_detector: Option<Arc<SamplingDetector>>,
 }
 
 /// Error type for cluster-dispatched approval operations.

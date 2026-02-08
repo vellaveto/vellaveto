@@ -61,6 +61,14 @@ fn make_test_state(tmp: &TempDir) -> AppState {
         idempotency: sentinel_server::idempotency::IdempotencyStore::new(
             sentinel_server::idempotency::IdempotencyConfig::default(),
         ),
+        // Phase 1 & 2 security managers — disabled in tests
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
     }
 }
 
