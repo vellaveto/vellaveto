@@ -1,0 +1,158 @@
+# Default values for Sentinel Helm chart
+# Override these in your own values file or via --set flags
+
+# Replica count for the Deployment
+replicaCount: 1
+
+# Container image configuration
+image:
+  repository: ghcr.io/paolovella/sentinel
+  pullPolicy: IfNotPresent
+  # Overrides the image tag (default: Chart appVersion)
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Service account configuration
+serviceAccount:
+  # Create a service account
+  create: true
+  # Annotations for the service account
+  annotations: {}
+  # Name of the service account (auto-generated if empty)
+  name: ""
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 1000
+
+# Container security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 3000
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: sentinel.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: sentinel-tls
+  #    hosts:
+  #      - sentinel.local
+
+# Resource limits and requests
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 100m
+    memory: 64Mi
+
+# Horizontal Pod Autoscaler
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity rules
+affinity: {}
+
+# Sentinel configuration
+sentinel:
+  # Logging level (trace, debug, info, warn, error)
+  logLevel: info
+
+  # Enable strict mode (unknown tools denied by default)
+  strictMode: true
+
+  # Injection scanning configuration
+  injection:
+    enabled: true
+    blocking: false
+    # Extra patterns to detect
+    extraPatterns: []
+    # Patterns to disable from defaults
+    disabledPatterns: []
+
+  # DLP (Data Loss Prevention) configuration
+  dlp:
+    enabled: true
+    blocking: false
+
+  # Audit logging configuration
+  audit:
+    # Redaction level: Off, Low, High
+    redactionLevel: "Low"
+    # Path for audit logs (relative to /var/lib/sentinel)
+    logPath: "audit.log"
+
+  # Policies to load (inline or from ConfigMap)
+  policies: []
+  # - id: "bash:*"
+  #   name: "Deny bash commands"
+  #   policy_type: "Deny"
+  #   priority: 100
+
+  # Extra environment variables
+  extraEnv: []
+  # - name: ANTHROPIC_API_KEY
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: anthropic-secrets
+  #       key: api-key
+
+# Prometheus metrics
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+
+# Health check probes
+probes:
+  liveness:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3

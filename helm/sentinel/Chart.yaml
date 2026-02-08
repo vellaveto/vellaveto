@@ -1,0 +1,25 @@
+apiVersion: v2
+name: sentinel
+description: MCP Tool Firewall - Runtime security engine for AI agent tool calls
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+keywords:
+  - mcp
+  - security
+  - firewall
+  - ai-agents
+  - tool-control
+
+home: https://github.com/paolovella/sentinel
+sources:
+  - https://github.com/paolovella/sentinel
+
+maintainers:
+  - name: Paolo Vella
+    email: paolo@example.com
+
+annotations:
+  artifacthub.io/license: MIT
+  artifacthub.io/category: security
