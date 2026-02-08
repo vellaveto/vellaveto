@@ -108,6 +108,11 @@ pub fn build_router(state: AppState) -> Router {
         .merge(authenticated)
         .layer(middleware::from_fn(request_id))
         .layer(middleware::from_fn(security_headers))
+        // SECURITY: CSRF defense-in-depth via Origin/Referer validation
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            csrf_referer_check,
+        ))
         .layer(DefaultBodyLimit::max(1_048_576)) // 1 MB max request body
         .layer(TraceLayer::new_for_http())
         .layer(cors)
@@ -218,6 +223,128 @@ async fn request_id(request: Request, next: Next) -> Response {
             .insert(HeaderName::from_static("x-request-id"), val);
     }
     response
+}
+
+/// Middleware that validates Origin/Referer headers on mutating requests.
+///
+/// This is a defense-in-depth CSRF protection layer. For state-changing requests
+/// (POST, PUT, DELETE), we validate that the Origin or Referer header is present
+/// and matches one of the allowed origins.
+///
+/// Validation rules:
+/// - OPTIONS requests: skip (CORS preflight)
+/// - GET/HEAD requests: skip (safe methods)
+/// - POST/PUT/DELETE: require valid Origin or Referer
+///
+/// Origin matching:
+/// - If `cors_origins` is empty: only localhost (127.0.0.1, ::1, localhost) allowed
+/// - If `cors_origins` contains "*": any origin allowed (not recommended)
+/// - Otherwise: origin must match one of the configured origins
+async fn csrf_referer_check(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    // Skip validation for safe methods and CORS preflight
+    let method = request.method().clone();
+    if method == Method::OPTIONS || method == Method::GET || method == Method::HEAD {
+        return next.run(request).await;
+    }
+
+    // For mutating methods, validate Origin or Referer
+    let headers = request.headers();
+    let origin = headers
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    let referer = headers
+        .get(header::REFERER)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    // Extract origin from either header (prefer Origin, fall back to Referer)
+    let request_origin = origin.or_else(|| {
+        referer.and_then(|r| {
+            // Extract origin from Referer URL (scheme + host + port)
+            url::Url::parse(&r).ok().map(|u| {
+                let port = u.port().map(|p| format!(":{}", p)).unwrap_or_default();
+                format!("{}://{}{}", u.scheme(), u.host_str().unwrap_or(""), port)
+            })
+        })
+    });
+
+    // Validate the origin
+    let is_valid = match &request_origin {
+        None => {
+            // No origin header - this could be a same-origin request from the browser
+            // or a direct API call. For defense-in-depth, we allow it but log.
+            // The main CSRF protection is the API key requirement.
+            tracing::debug!("CSRF check: no Origin/Referer header, allowing (API key required)");
+            true
+        }
+        Some(origin) => validate_origin(origin, &state.cors_origins),
+    };
+
+    if !is_valid {
+        tracing::warn!(
+            origin = ?request_origin,
+            method = %method,
+            path = %request.uri().path(),
+            "CSRF check failed: origin not allowed"
+        );
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": "Origin not allowed",
+                "code": "CSRF_ORIGIN_MISMATCH"
+            })),
+        )
+            .into_response();
+    }
+
+    next.run(request).await
+}
+
+/// Validate that an origin is in the allowed list.
+fn validate_origin(origin: &str, allowed_origins: &[String]) -> bool {
+    // Wildcard allows everything
+    if allowed_origins.iter().any(|o| o == "*") {
+        return true;
+    }
+
+    // Parse the origin to normalize it
+    let origin_lower = origin.to_lowercase();
+
+    // Check if it's localhost (always allowed for development)
+    let is_localhost = origin_lower.starts_with("http://localhost")
+        || origin_lower.starts_with("https://localhost")
+        || origin_lower.starts_with("http://127.0.0.1")
+        || origin_lower.starts_with("https://127.0.0.1")
+        || origin_lower.starts_with("http://[::1]")
+        || origin_lower.starts_with("https://[::1]");
+
+    // If no origins configured, only allow localhost (strict default)
+    if allowed_origins.is_empty() {
+        return is_localhost;
+    }
+
+    // Check against configured origins
+    for allowed in allowed_origins {
+        let allowed_lower = allowed.to_lowercase();
+        if origin_lower == allowed_lower {
+            return true;
+        }
+        // Also allow if the origin matches without port when allowed has no port
+        if !allowed_lower.contains(':') || allowed_lower.matches(':').count() == 1 {
+            // allowed is just a domain or has scheme:host, check prefix match
+            if origin_lower.starts_with(&allowed_lower) {
+                return true;
+            }
+        }
+    }
+
+    // Always allow localhost as fallback
+    is_localhost
 }
 
 /// Middleware that requires API key authentication.
@@ -3015,5 +3142,74 @@ mod tests {
                 method
             );
         }
+    }
+
+    // --- CSRF Referer/Origin Validation Tests (Phase 5) ---
+
+    #[test]
+    fn test_validate_origin_localhost_allowed_by_default() {
+        let origins: Vec<String> = vec![];
+
+        assert!(validate_origin("http://localhost", &origins));
+        assert!(validate_origin("http://localhost:3000", &origins));
+        assert!(validate_origin("https://localhost", &origins));
+        assert!(validate_origin("http://127.0.0.1", &origins));
+        assert!(validate_origin("http://127.0.0.1:8080", &origins));
+        assert!(validate_origin("http://[::1]", &origins));
+        assert!(validate_origin("https://[::1]:443", &origins));
+    }
+
+    #[test]
+    fn test_validate_origin_external_blocked_by_default() {
+        let origins: Vec<String> = vec![];
+
+        assert!(!validate_origin("http://example.com", &origins));
+        assert!(!validate_origin("https://attacker.com", &origins));
+        assert!(!validate_origin("http://192.168.1.1", &origins));
+    }
+
+    #[test]
+    fn test_validate_origin_wildcard_allows_all() {
+        let origins = vec!["*".to_string()];
+
+        assert!(validate_origin("http://example.com", &origins));
+        assert!(validate_origin("https://attacker.com", &origins));
+        assert!(validate_origin("http://localhost", &origins));
+    }
+
+    #[test]
+    fn test_validate_origin_configured_origins() {
+        let origins = vec![
+            "https://app.example.com".to_string(),
+            "https://admin.example.com".to_string(),
+        ];
+
+        assert!(validate_origin("https://app.example.com", &origins));
+        assert!(validate_origin("https://admin.example.com", &origins));
+        // localhost is always allowed as fallback
+        assert!(validate_origin("http://localhost", &origins));
+        // Other origins blocked
+        assert!(!validate_origin("https://attacker.com", &origins));
+        assert!(!validate_origin("https://example.com", &origins));
+    }
+
+    #[test]
+    fn test_validate_origin_case_insensitive() {
+        let origins = vec!["https://APP.Example.COM".to_string()];
+
+        assert!(validate_origin("https://app.example.com", &origins));
+        assert!(validate_origin("https://APP.EXAMPLE.COM", &origins));
+        assert!(validate_origin("https://App.Example.Com", &origins));
+    }
+
+    #[test]
+    fn test_validate_origin_with_port() {
+        let origins = vec!["https://app.example.com:8443".to_string()];
+
+        assert!(validate_origin("https://app.example.com:8443", &origins));
+        // Different port should not match exact origin
+        assert!(!validate_origin("https://app.example.com:9000", &origins));
+        // No port should not match origin with port
+        assert!(!validate_origin("https://app.example.com", &origins));
     }
 }
