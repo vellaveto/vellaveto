@@ -31,15 +31,7 @@ use crate::inspection::{
 use crate::output_validation::OutputSchemaRegistry;
 pub use crate::rug_pull::ToolAnnotations;
 
-/// Decision after evaluating a tool call.
-#[derive(Debug)]
-pub enum ProxyDecision {
-    /// Forward the message to the child MCP server.
-    Forward,
-    /// Block the message and return an error response to the agent.
-    /// Carries both the JSON-RPC error response and the actual verdict for audit logging.
-    Block(Value, Verdict),
-}
+use super::types::{ProxyDecision, ProxyError};
 
 /// Default request timeout: 30 seconds.
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -1891,14 +1883,6 @@ impl ProxyBridge {
         relay_handle.abort();
         Ok(())
     }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ProxyError {
-    #[error("Framing error: {0}")]
-    Framing(#[from] crate::framing::FramingError),
-    #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
 }
 
 #[cfg(test)]
