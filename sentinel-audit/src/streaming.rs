@@ -546,6 +546,434 @@ impl SiemExporter for WebhookExporter {
     }
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Datadog Exporter
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Datadog logs intake configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatadogConfig {
+    /// Datadog logs intake endpoint.
+    /// US: "https://http-intake.logs.datadoghq.com/api/v2/logs"
+    /// EU: "https://http-intake.logs.datadoghq.eu/api/v2/logs"
+    #[serde(default = "default_datadog_endpoint")]
+    pub endpoint: String,
+
+    /// Datadog API key (loaded from environment variable).
+    #[serde(default)]
+    pub api_key: Option<String>,
+
+    /// Environment variable containing the API key.
+    #[serde(default = "default_datadog_api_key_env")]
+    pub api_key_env: String,
+
+    /// Service name for log entries.
+    #[serde(default = "default_datadog_service")]
+    pub service: String,
+
+    /// Source identifier.
+    #[serde(default = "default_datadog_source")]
+    pub source: String,
+
+    /// Tags to attach to all logs (key:value format).
+    #[serde(default)]
+    pub tags: Vec<String>,
+
+    /// Common exporter configuration.
+    #[serde(flatten)]
+    pub common: ExporterConfig,
+}
+
+fn default_datadog_endpoint() -> String {
+    "https://http-intake.logs.datadoghq.com/api/v2/logs".to_string()
+}
+
+fn default_datadog_api_key_env() -> String {
+    "DD_API_KEY".to_string()
+}
+
+fn default_datadog_service() -> String {
+    "sentinel".to_string()
+}
+
+fn default_datadog_source() -> String {
+    "sentinel".to_string()
+}
+
+impl Default for DatadogConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: default_datadog_endpoint(),
+            api_key: None,
+            api_key_env: default_datadog_api_key_env(),
+            service: default_datadog_service(),
+            source: default_datadog_source(),
+            tags: vec![],
+            common: ExporterConfig::default(),
+        }
+    }
+}
+
+/// Datadog log entry format.
+#[cfg(feature = "siem-exporters")]
+#[derive(Serialize)]
+struct DatadogLogEntry<'a> {
+    /// Log message (JSON-serialized audit entry).
+    message: String,
+    /// Service name.
+    service: &'a str,
+    /// Source identifier.
+    ddsource: &'a str,
+    /// Tags in key:value format.
+    ddtags: String,
+    /// Hostname (optional).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hostname: Option<String>,
+    /// Timestamp in ISO 8601 format.
+    #[serde(rename = "@timestamp")]
+    timestamp: &'a str,
+}
+
+/// Datadog logs exporter.
+#[cfg(feature = "siem-exporters")]
+pub struct DatadogExporter {
+    config: DatadogConfig,
+    client: reqwest::Client,
+    api_key: String,
+}
+
+#[cfg(feature = "siem-exporters")]
+impl DatadogExporter {
+    /// Create a new Datadog exporter.
+    pub fn new(config: DatadogConfig) -> Result<Self, ExportError> {
+        let api_key = if let Some(ref k) = config.api_key {
+            k.clone()
+        } else {
+            std::env::var(&config.api_key_env).map_err(|_| {
+                ExportError::Configuration(format!(
+                    "Datadog API key environment variable '{}' not set",
+                    config.api_key_env
+                ))
+            })?
+        };
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(config.common.timeout_secs))
+            .build()
+            .map_err(|e| ExportError::Configuration(format!("Failed to create HTTP client: {}", e)))?;
+
+        Ok(Self {
+            config,
+            client,
+            api_key,
+        })
+    }
+}
+
+#[cfg(feature = "siem-exporters")]
+#[async_trait]
+impl SiemExporter for DatadogExporter {
+    fn name(&self) -> &str {
+        "datadog"
+    }
+
+    async fn export_batch(&self, entries: &[AuditEntry]) -> Result<(), ExportError> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+
+        let hostname = hostname::get()
+            .ok()
+            .and_then(|h: std::ffi::OsString| h.into_string().ok());
+
+        let ddtags = self.config.tags.join(",");
+
+        let logs: Vec<DatadogLogEntry> = entries
+            .iter()
+            .map(|entry| {
+                let message = serde_json::to_string(entry).unwrap_or_default();
+                DatadogLogEntry {
+                    message,
+                    service: &self.config.service,
+                    ddsource: &self.config.source,
+                    ddtags: ddtags.clone(),
+                    hostname: hostname.clone(),
+                    timestamp: &entry.timestamp,
+                }
+            })
+            .collect();
+
+        let body = serde_json::to_string(&logs)
+            .map_err(|e| ExportError::Serialization(e.to_string()))?;
+
+        let response = self
+            .client
+            .post(&self.config.endpoint)
+            .header("DD-API-KEY", &self.api_key)
+            .header("Content-Type", "application/json")
+            .body(body)
+            .send()
+            .await
+            .map_err(|e| ExportError::HttpError(e.to_string()))?;
+
+        if response.status().is_success() {
+            tracing::debug!(
+                exporter = "datadog",
+                entries = entries.len(),
+                "Successfully exported batch"
+            );
+            Ok(())
+        } else {
+            let status = response.status().as_u16();
+            let message = response.text().await.unwrap_or_default();
+            Err(ExportError::ServerError { status, message })
+        }
+    }
+
+    async fn health_check(&self) -> Result<(), ExportError> {
+        // Datadog validates API key on each request
+        // Send an empty batch to check connectivity
+        let response = self
+            .client
+            .post(&self.config.endpoint)
+            .header("DD-API-KEY", &self.api_key)
+            .header("Content-Type", "application/json")
+            .body("[]")
+            .send()
+            .await
+            .map_err(|e| ExportError::HttpError(e.to_string()))?;
+
+        if response.status() == reqwest::StatusCode::FORBIDDEN {
+            return Err(ExportError::AuthError("Invalid Datadog API key".to_string()));
+        }
+
+        Ok(())
+    }
+
+    fn config(&self) -> &ExporterConfig {
+        &self.config.common
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Elasticsearch Exporter
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Elasticsearch bulk index configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ElasticsearchConfig {
+    /// Elasticsearch endpoint (e.g., "https://elasticsearch:9200").
+    pub endpoint: String,
+
+    /// Index name or pattern (supports date variables like sentinel-%Y.%m.%d).
+    #[serde(default = "default_es_index")]
+    pub index: String,
+
+    /// Username for basic auth (optional).
+    #[serde(default)]
+    pub username: Option<String>,
+
+    /// Password for basic auth (loaded from environment).
+    #[serde(default)]
+    pub password_env: Option<String>,
+
+    /// API key for authentication (alternative to basic auth).
+    #[serde(default)]
+    pub api_key: Option<String>,
+
+    /// Environment variable for API key.
+    #[serde(default)]
+    pub api_key_env: Option<String>,
+
+    /// Common exporter configuration.
+    #[serde(flatten)]
+    pub common: ExporterConfig,
+}
+
+fn default_es_index() -> String {
+    "sentinel-audit".to_string()
+}
+
+impl Default for ElasticsearchConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: String::new(),
+            index: default_es_index(),
+            username: None,
+            password_env: None,
+            api_key: None,
+            api_key_env: None,
+            common: ExporterConfig::default(),
+        }
+    }
+}
+
+/// Elasticsearch exporter using bulk API.
+#[cfg(feature = "siem-exporters")]
+pub struct ElasticsearchExporter {
+    config: ElasticsearchConfig,
+    client: reqwest::Client,
+    auth_header: Option<String>,
+}
+
+#[cfg(feature = "siem-exporters")]
+impl ElasticsearchExporter {
+    /// Create a new Elasticsearch exporter.
+    pub fn new(config: ElasticsearchConfig) -> Result<Self, ExportError> {
+        if config.endpoint.is_empty() {
+            return Err(ExportError::Configuration(
+                "Elasticsearch endpoint not configured".to_string(),
+            ));
+        }
+
+        // Build auth header from config
+        let auth_header = if let Some(ref api_key) = config.api_key {
+            Some(format!("ApiKey {}", api_key))
+        } else if let Some(ref api_key_env) = config.api_key_env {
+            std::env::var(api_key_env)
+                .ok()
+                .map(|k| format!("ApiKey {}", k))
+        } else if let Some(ref username) = config.username {
+            let password = config
+                .password_env
+                .as_ref()
+                .and_then(|env| std::env::var(env).ok())
+                .unwrap_or_default();
+            let credentials = {
+                use base64::Engine;
+                base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", username, password))
+            };
+            Some(format!("Basic {}", credentials))
+        } else {
+            None
+        };
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(config.common.timeout_secs))
+            .build()
+            .map_err(|e| ExportError::Configuration(format!("Failed to create HTTP client: {}", e)))?;
+
+        Ok(Self {
+            config,
+            client,
+            auth_header,
+        })
+    }
+
+    /// Get the index name, expanding date variables if present.
+    fn get_index_name(&self) -> String {
+        let now = chrono::Utc::now();
+        now.format(&self.config.index).to_string()
+    }
+}
+
+#[cfg(feature = "siem-exporters")]
+#[async_trait]
+impl SiemExporter for ElasticsearchExporter {
+    fn name(&self) -> &str {
+        "elasticsearch"
+    }
+
+    async fn export_batch(&self, entries: &[AuditEntry]) -> Result<(), ExportError> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+
+        let index_name = self.get_index_name();
+        let bulk_url = format!("{}/_bulk", self.config.endpoint);
+
+        // Build NDJSON bulk request body
+        let mut body = String::new();
+        for entry in entries {
+            // Index action line
+            let action = serde_json::json!({
+                "index": {
+                    "_index": index_name,
+                    "_id": entry.id
+                }
+            });
+            body.push_str(&serde_json::to_string(&action).unwrap_or_default());
+            body.push('\n');
+
+            // Document line
+            body.push_str(&serde_json::to_string(entry).unwrap_or_default());
+            body.push('\n');
+        }
+
+        let mut request = self
+            .client
+            .post(&bulk_url)
+            .header("Content-Type", "application/x-ndjson");
+
+        if let Some(ref auth) = self.auth_header {
+            request = request.header("Authorization", auth);
+        }
+
+        let response = request
+            .body(body)
+            .send()
+            .await
+            .map_err(|e| ExportError::HttpError(e.to_string()))?;
+
+        if response.status().is_success() {
+            // Check for partial failures in bulk response
+            let body: serde_json::Value = response
+                .json()
+                .await
+                .map_err(|e| ExportError::Serialization(e.to_string()))?;
+
+            if body.get("errors").and_then(|v| v.as_bool()).unwrap_or(false) {
+                // Some items failed, log but don't fail the whole batch
+                tracing::warn!(
+                    exporter = "elasticsearch",
+                    "Bulk indexing had some failures"
+                );
+            }
+
+            tracing::debug!(
+                exporter = "elasticsearch",
+                entries = entries.len(),
+                index = %index_name,
+                "Successfully exported batch"
+            );
+            Ok(())
+        } else {
+            let status = response.status().as_u16();
+            let message = response.text().await.unwrap_or_default();
+            Err(ExportError::ServerError { status, message })
+        }
+    }
+
+    async fn health_check(&self) -> Result<(), ExportError> {
+        let mut request = self.client.get(&self.config.endpoint);
+
+        if let Some(ref auth) = self.auth_header {
+            request = request.header("Authorization", auth);
+        }
+
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ExportError::HttpError(e.to_string()))?;
+
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(ExportError::AuthError("Elasticsearch authentication failed".to_string()));
+        }
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let message = response.text().await.unwrap_or_default();
+            return Err(ExportError::ServerError { status, message });
+        }
+
+        Ok(())
+    }
+
+    fn config(&self) -> &ExporterConfig {
+        &self.config.common
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
