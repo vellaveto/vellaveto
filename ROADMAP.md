@@ -298,11 +298,92 @@ Detect second-order prompt injection and confused deputy attacks.
 
 ---
 
-## Phase 3.3: Standards Alignment (Weeks 11-13)
+## Phase 3.3: Advanced Threat Detection (Week 11) ✅ COMPLETE
+
+*Focus: Goal tracking, workflow monitoring, namespace security, covert channel detection*
+
+> **Status:** Implemented in commit `7cc3232`. All deliverables complete.
+
+### 3.3.1 Goal State Tracking (ASI01)
+
+Detect when agent objectives change unexpectedly mid-session.
+
+| Task | Priority | Status |
+|------|----------|--------|
+| Implement GoalTracker with session goals | P0 | ✅ Complete |
+| Add manipulation keyword detection | P0 | ✅ Complete |
+| Implement similarity-based alignment checks | P0 | ✅ Complete |
+| Add goal drift alerting | P0 | ✅ Complete |
+
+### 3.3.2 Workflow Intent Tracking
+
+Detect long-horizon attacks that span multiple steps.
+
+| Task | Priority | Status |
+|------|----------|--------|
+| Implement WorkflowTracker with step budgets | P0 | ✅ Complete |
+| Add cumulative effect analysis | P0 | ✅ Complete |
+| Implement suspicious pattern detection | P0 | ✅ Complete |
+| Add exfiltration chain detection | P0 | ✅ Complete |
+
+### 3.3.3 Tool Namespace Security (ASI03)
+
+Prevent tool shadowing and namespace collision attacks.
+
+| Task | Priority | Status |
+|------|----------|--------|
+| Implement ToolNamespaceRegistry | P0 | ✅ Complete |
+| Add Levenshtein typosquatting detection | P0 | ✅ Complete |
+| Implement protected name patterns | P0 | ✅ Complete |
+| Add collision detection (exact, similar, version, trust) | P0 | ✅ Complete |
+
+### 3.3.4 Output Security Analysis (ASI07)
+
+Detect covert channel exfiltration in tool outputs.
+
+| Task | Priority | Status |
+|------|----------|--------|
+| Implement steganography detection | P0 | ✅ Complete |
+| Add zero-width and homoglyph detection | P0 | ✅ Complete |
+| Implement Shannon entropy analysis | P0 | ✅ Complete |
+| Add output normalization | P0 | ✅ Complete |
+
+### 3.3.5 Token Security Analysis
+
+Detect token-level attacks against LLM agents.
+
+| Task | Priority | Status |
+|------|----------|--------|
+| Implement special token injection detection | P0 | ✅ Complete |
+| Add context flooding/budget tracking | P0 | ✅ Complete |
+| Implement glitch token detection | P0 | ✅ Complete |
+| Add Unicode normalization attack detection | P0 | ✅ Complete |
+
+### 3.3.6 Configuration
+
+| Task | Priority | Status |
+|------|----------|--------|
+| Create AdvancedThreatConfig struct | P0 | ✅ Complete |
+| Add validation for all config parameters | P0 | ✅ Complete |
+| Integrate into PolicyConfig | P0 | ✅ Complete |
+
+### Phase 3.3 Deliverables
+- [x] Goal state tracking with drift detection
+- [x] Workflow intent tracking with step budgets
+- [x] Tool namespace security with collision detection
+- [x] Output security with steganography and entropy analysis
+- [x] Token security with smuggling and flooding detection
+- [x] AdvancedThreatConfig with full validation
+
+**Completed:** 2026-02-08
+
+---
+
+## Phase 4.1: Standards Alignment (Weeks 12-14)
 
 *Focus: MITRE ATLAS, OWASP AIVSS, NIST alignment*
 
-### 3.3.1 MITRE ATLAS Threat Mapping
+### 4.1.1 MITRE ATLAS Threat Mapping
 
 Map Sentinel detections to MITRE ATLAS techniques.
 
@@ -322,7 +403,7 @@ Map Sentinel detections to MITRE ATLAS techniques.
 - AML.T0064: Data Exfiltration (Agent)
 - (14 new agentic AI techniques total)
 
-### 3.3.2 OWASP AIVSS Integration
+### 4.1.2 OWASP AIVSS Integration
 
 Prepare for AI Vulnerability Scoring System (expected RSA 2026).
 
@@ -333,7 +414,7 @@ Prepare for AI Vulnerability Scoring System (expected RSA 2026).
 | Add severity to finding reports | P2 | 1 day | Calculation |
 | Create AIVSS-formatted exports | P2 | 2 days | — |
 
-### 3.3.3 NIST AI RMF Alignment
+### 4.1.3 NIST AI RMF Alignment
 
 Align with NIST AI Risk Management Framework.
 
@@ -344,7 +425,7 @@ Align with NIST AI Risk Management Framework.
 | Document NIST MANAGE function coverage | P2 | 2 days | — |
 | Create NIST compliance report generator | P2 | 3 days | All above |
 
-### 3.3.4 ISO/IEC 27090 Preparation
+### 4.1.4 ISO/IEC 27090 Preparation
 
 Prepare for AI security standard (expected mid-2026).
 
@@ -365,11 +446,11 @@ Prepare for AI security standard (expected mid-2026).
 
 ---
 
-## Phase 4: Enterprise Hardening (Weeks 13-16)
+## Phase 5: Enterprise Hardening (Weeks 15-18)
 
 *Focus: mTLS, OPA, threat intelligence, JIT access*
 
-### 4.1 mTLS / SPIFFE-SPIRE Integration
+### 5.1 mTLS / SPIFFE-SPIRE Integration
 
 Zero-trust workload identity.
 
@@ -394,7 +475,7 @@ trust_domain = "example.org"
 workload_socket = "unix:///var/run/spire/agent.sock"
 ```
 
-### 4.2 OPA / Rego Policy Integration
+### 5.2 OPA / Rego Policy Integration
 
 External policy evaluation for complex rules.
 
@@ -417,7 +498,7 @@ cache_ttl = "60s"
 timeout = "100ms"
 ```
 
-### 4.3 Threat Intelligence Integration
+### 5.3 Threat Intelligence Integration
 
 Enrich decisions with external threat feeds.
 
@@ -429,7 +510,7 @@ Enrich decisions with external threat feeds.
 | Add IOC matching to network rules | P2 | 2 days | Provider |
 | Cache threat data with TTL | P2 | 1 day | — |
 
-### 4.4 Just-In-Time Access
+### 5.4 Just-In-Time Access
 
 Temporary elevated permissions with auto-expiry.
 
@@ -441,7 +522,7 @@ Temporary elevated permissions with auto-expiry.
 | Implement automatic access revocation | P2 | 2 days | — |
 | Add JIT access audit trail | P2 | 1 day | All above |
 
-### 4.5 FIPS 140-2 Compliance Mode
+### 5.5 FIPS 140-2 Compliance Mode
 
 For regulated environments.
 
@@ -464,11 +545,11 @@ For regulated environments.
 
 ---
 
-## Phase 5: Observability & Tooling (Weeks 17-18)
+## Phase 6: Observability & Tooling (Weeks 19-20)
 
 *Focus: Execution graphs, CI/CD integration, red-teaming*
 
-### 5.1 Execution Graph Visualization
+### 6.1 Execution Graph Visualization
 
 Visual representation of agent call chains.
 
@@ -479,7 +560,7 @@ Visual representation of agent call chains.
 | Add graph export endpoint (DOT/JSON) | P3 | 2 days | Capture |
 | Create web-based graph viewer | P4 | 3 days | Export |
 
-### 5.2 CI/CD Pipeline Integration
+### 6.2 CI/CD Pipeline Integration
 
 Security scanning for development workflows.
 
@@ -491,7 +572,7 @@ Security scanning for development workflows.
 | Add GitLab CI template | P3 | 1 day | CLI |
 | Document CI/CD integration guide | P3 | 1 day | All above |
 
-### 5.3 Automated Red-Teaming
+### 6.3 Automated Red-Teaming
 
 Self-testing against known attack patterns.
 
@@ -502,7 +583,7 @@ Self-testing against known attack patterns.
 | Add scheduled red-team runs | P4 | 2 days | — |
 | Generate red-team reports | P3 | 2 days | Runs |
 
-### Phase 5 Deliverables
+### Phase 6 Deliverables
 - [ ] Execution graph visualization
 - [ ] CI/CD integration (GitHub Actions, GitLab)
 - [ ] Red-team automation framework
@@ -512,9 +593,9 @@ Self-testing against known attack patterns.
 
 ---
 
-## Phase 6: Documentation & Release (Week 19-20)
+## Phase 7: Documentation & Release (Week 21-22)
 
-### 6.1 Documentation Updates
+### 7.1 Documentation Updates
 
 | Task | Priority | Effort |
 |------|----------|--------|
@@ -524,7 +605,7 @@ Self-testing against known attack patterns.
 | Create migration guide (v1 → v2) | HIGH | 2 days |
 | Update API reference | HIGH | 1 day |
 
-### 6.2 Release Preparation
+### 7.2 Release Preparation
 
 | Task | Priority | Effort |
 |------|----------|--------|
@@ -538,15 +619,17 @@ Self-testing against known attack patterns.
 ## Timeline Summary
 
 ```
-Weeks 1-4:   Phase 1 — MCP 2025-11-25 Compliance
-Weeks 5-8:   Phase 2 — Advanced Threat Detection
-Weeks 9-12:  Phase 3 — Standards Alignment
-Weeks 13-16: Phase 4 — Enterprise Hardening
-Weeks 17-18: Phase 5 — Observability & Tooling
-Weeks 19-20: Phase 6 — Documentation & Release
+Weeks 1-4:   Phase 1 — MCP 2025-11-25 Compliance ✅
+Weeks 5-8:   Phase 2 — Advanced Threat Detection ✅
+Weeks 9-10:  Phase 3.1-3.2 — Runtime Integration & Cross-Agent Security ✅
+Week 11:     Phase 3.3 — Advanced Threat Detection ✅
+Weeks 12-14: Phase 4.1 — Standards Alignment
+Weeks 15-18: Phase 5 — Enterprise Hardening
+Weeks 19-20: Phase 6 — Observability & Tooling
+Weeks 21-22: Phase 7 — Documentation & Release
 ```
 
-**Total Duration:** 20 weeks (~5 months)
+**Total Duration:** 22 weeks (~5.5 months)
 **Team Size:** 2-3 engineers
 
 ---
