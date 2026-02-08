@@ -51,6 +51,12 @@ dashmap = "6"
 percent-encoding = "2.3"
 metrics = "0.24"
 metrics-exporter-prometheus = "0.16"
+# OpenTelemetry (Phase 4)
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry-semantic-conventions = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.0"

@@ -672,6 +672,15 @@ fn sanitize_context(
     })
 }
 
+#[tracing::instrument(
+    name = "sentinel.policy_evaluation",
+    skip(state, headers, req),
+    fields(
+        tool = %req.action.tool,
+        function = %req.action.function,
+        tenant_id = %tenant_ctx.tenant_id,
+    )
+)]
 async fn evaluate(
     State(state): State<AppState>,
     Extension(tenant_ctx): Extension<TenantContext>,
@@ -975,11 +984,17 @@ async fn evaluate(
     }))
 }
 
+#[tracing::instrument(name = "sentinel.list_policies", skip(state))]
 async fn list_policies(State(state): State<AppState>) -> Json<Vec<Policy>> {
     let snap = state.policy_state.load();
     Json(snap.policies.clone())
 }
 
+#[tracing::instrument(
+    name = "sentinel.add_policy",
+    skip(state),
+    fields(policy_id = %policy.id)
+)]
 async fn add_policy(
     State(state): State<AppState>,
     Json(policy): Json<Policy>,
@@ -1116,6 +1131,11 @@ async fn add_policy(
     (StatusCode::CREATED, Json(json!({"added": id})))
 }
 
+#[tracing::instrument(
+    name = "sentinel.remove_policy",
+    skip(state),
+    fields(policy_id = %id)
+)]
 async fn remove_policy(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -1194,6 +1214,7 @@ async fn remove_policy(
     (StatusCode::OK, Json(json!({"removed": removed, "id": id})))
 }
 
+#[tracing::instrument(name = "sentinel.reload_policies", skip(state))]
 async fn reload_policies(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
@@ -1230,6 +1251,7 @@ struct AuditEntriesQuery {
     offset: Option<usize>,
 }
 
+#[tracing::instrument(name = "sentinel.audit_entries", skip(state, params))]
 async fn audit_entries(
     State(state): State<AppState>,
     Query(params): Query<AuditEntriesQuery>,
