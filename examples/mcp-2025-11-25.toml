@@ -1,0 +1,113 @@
+# MCP 2025-11-25 Compliance Configuration
+#
+# This example demonstrates the new security features introduced in
+# MCP 2025-11-25, including async task policies, resource indicators,
+# capability-based routing (CIMD), and step-up authentication.
+
+# ═══════════════════════════════════════════════════════════════════
+# ASYNC TASKS CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════
+#
+# Controls async task lifecycle:
+# - Maximum concurrent tasks per session
+# - Task duration limits with automatic expiry
+# - Cancellation authorization
+
+[async_tasks]
+enabled = true
+max_concurrent_tasks = 100          # Maximum active tasks per session
+max_task_duration_secs = 3600       # 1 hour max duration
+require_self_cancel = true          # Only creator can cancel
+# allow_cancellation = ["admin", "operator"]  # If require_self_cancel = false
+
+# ═══════════════════════════════════════════════════════════════════
+# RFC 8707 RESOURCE INDICATORS
+# ═══════════════════════════════════════════════════════════════════
+#
+# OAuth 2.0 Resource Indicator validation prevents token replay attacks
+# by binding tokens to specific API endpoints.
+
+[resource_indicator]
+enabled = true
+require_resource = false            # Don't require resource indicator initially
+allowed_resources = [
+    "urn:sentinel:*",               # Sentinel internal resources
+    "https://api.example.com/*",    # Example API endpoint
+]
+
+# ═══════════════════════════════════════════════════════════════════
+# CIMD (CAPABILITY-INDEXED MESSAGE DISPATCH)
+# ═══════════════════════════════════════════════════════════════════
+#
+# Capability-based routing ensures clients have declared the
+# necessary capabilities before accessing certain features.
+
+[cimd]
+enabled = true
+required_capabilities = ["tools"]   # Require tools capability
+blocked_capabilities = [
+    "admin.dangerous",              # Block dangerous admin capabilities
+]
+
+# ═══════════════════════════════════════════════════════════════════
+# STEP-UP AUTHENTICATION
+# ═══════════════════════════════════════════════════════════════════
+#
+# Require stronger authentication for sensitive operations without
+# blocking the entire session.
+
+[step_up_auth]
+enabled = true
+step_up_expiry_secs = 1800          # 30 minutes
+required_level = 3                   # 3 = OAuthMfa
+trigger_tools = [
+    "delete_*",                     # Any delete operation
+    "transfer_*",                   # Financial transfers
+    "admin_*",                      # Admin operations
+]
+
+# ═══════════════════════════════════════════════════════════════════
+# POLICIES
+# ═══════════════════════════════════════════════════════════════════
+#
+# Example policies using the new MCP 2025-11-25 context conditions.
+
+[[policies]]
+name = "Limit async tasks for untrusted agents"
+tool_pattern = "background_*"
+function_pattern = "*"
+priority = 100
+policy_type = { Conditional = { conditions = {
+    context_conditions = [
+        { type = "async_task_policy", max_concurrent = 5, max_duration_secs = 600, require_self_cancel = true }
+    ]
+} } }
+
+[[policies]]
+name = "Require MFA for admin tools"
+tool_pattern = "admin_*"
+function_pattern = "*"
+priority = 200
+policy_type = { Conditional = { conditions = {
+    context_conditions = [
+        { type = "step_up_auth", required_level = 3 }
+    ]
+} } }
+
+[[policies]]
+name = "Require tools capability"
+tool_pattern = "*"
+function_pattern = "execute"
+priority = 50
+policy_type = { Conditional = { conditions = {
+    context_conditions = [
+        { type = "capability_required", required_capabilities = ["tools"], blocked_capabilities = [] }
+    ]
+} } }
+
+[[policies]]
+name = "Default allow"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 0
+policy_type = "Allow"

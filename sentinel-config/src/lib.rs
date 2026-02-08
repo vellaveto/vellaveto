@@ -937,6 +937,184 @@ impl Default for SamplingConfig {
 /// Maximum number of allowed models for sampling config.
 pub const MAX_ALLOWED_MODELS: usize = 100;
 
+// ═══════════════════════════════════════════════════
+// MCP 2025-11-25 CONFIGURATION
+// ═══════════════════════════════════════════════════
+
+/// Default maximum concurrent async tasks.
+fn default_max_concurrent_tasks() -> usize {
+    100
+}
+
+/// Default maximum task duration (1 hour in seconds).
+fn default_max_task_duration_secs() -> u64 {
+    3600
+}
+
+/// Async task lifecycle configuration (MCP 2025-11-25).
+///
+/// Controls policies for async task creation, duration limits, and cancellation.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [async_tasks]
+/// enabled = true
+/// max_concurrent_tasks = 100
+/// max_task_duration_secs = 3600
+/// require_self_cancel = true
+/// allow_cancellation = ["admin", "operator"]
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AsyncTaskConfig {
+    /// Master toggle for async task policies. Default: true.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Maximum concurrent active tasks per session. Default: 100.
+    /// Set to 0 for unlimited.
+    #[serde(default = "default_max_concurrent_tasks")]
+    pub max_concurrent_tasks: usize,
+
+    /// Maximum task duration in seconds. Default: 3600 (1 hour).
+    /// Set to 0 for unlimited.
+    #[serde(default = "default_max_task_duration_secs")]
+    pub max_task_duration_secs: u64,
+
+    /// When true, only the agent that created a task can cancel it.
+    /// When false, any agent in allow_cancellation can cancel.
+    /// Default: true.
+    #[serde(default = "default_true")]
+    pub require_self_cancel: bool,
+
+    /// Agent IDs or roles allowed to cancel any task.
+    /// Only applies when require_self_cancel is false.
+    #[serde(default)]
+    pub allow_cancellation: Vec<String>,
+}
+
+impl Default for AsyncTaskConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_concurrent_tasks: default_max_concurrent_tasks(),
+            max_task_duration_secs: default_max_task_duration_secs(),
+            require_self_cancel: true,
+            allow_cancellation: Vec::new(),
+        }
+    }
+}
+
+/// RFC 8707 Resource Indicator configuration.
+///
+/// Validates OAuth tokens include the expected resource indicators.
+/// Resource indicators bind tokens to specific API endpoints.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [resource_indicator]
+/// enabled = true
+/// allowed_resources = ["urn:sentinel:*", "https://api.example.com/*"]
+/// require_resource = false
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ResourceIndicatorConfig {
+    /// Enable resource indicator validation. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Patterns for allowed resource URIs (glob patterns supported).
+    /// If non-empty, at least one pattern must match the token's resource.
+    #[serde(default)]
+    pub allowed_resources: Vec<String>,
+
+    /// When true, deny if the token has no resource indicator.
+    /// Default: false.
+    #[serde(default)]
+    pub require_resource: bool,
+}
+
+/// CIMD (Capability-Indexed Message Dispatch) configuration.
+///
+/// Controls capability requirements for MCP 2025-11-25 sessions.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [cimd]
+/// enabled = true
+/// required_capabilities = ["tools"]
+/// blocked_capabilities = ["admin.dangerous"]
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct CimdConfig {
+    /// Enable capability-based routing. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Capabilities that must be declared by the client.
+    #[serde(default)]
+    pub required_capabilities: Vec<String>,
+
+    /// Capabilities that must NOT be declared by the client.
+    #[serde(default)]
+    pub blocked_capabilities: Vec<String>,
+}
+
+/// Default step-up auth expiry (30 minutes in seconds).
+fn default_step_up_expiry_secs() -> u64 {
+    1800
+}
+
+/// Step-up authentication configuration.
+///
+/// Allows policies to require stronger authentication for sensitive operations.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [step_up_auth]
+/// enabled = true
+/// step_up_expiry_secs = 1800
+/// trigger_tools = ["delete_*", "transfer_*", "admin_*"]
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StepUpAuthConfig {
+    /// Enable step-up authentication. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// How long a step-up auth session is valid in seconds. Default: 1800 (30 min).
+    #[serde(default = "default_step_up_expiry_secs")]
+    pub step_up_expiry_secs: u64,
+
+    /// Tool patterns that trigger step-up auth challenges.
+    /// Supports glob patterns like "delete_*".
+    #[serde(default)]
+    pub trigger_tools: Vec<String>,
+
+    /// Required auth level for triggered tools. Default: 3 (OAuthMfa).
+    /// 0=None, 1=Basic, 2=OAuth, 3=OAuthMfa, 4=HardwareKey
+    #[serde(default = "default_step_up_level")]
+    pub required_level: u8,
+}
+
+fn default_step_up_level() -> u8 {
+    3 // OAuthMfa
+}
+
+impl Default for StepUpAuthConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            step_up_expiry_secs: default_step_up_expiry_secs(),
+            trigger_tools: Vec::new(),
+            required_level: default_step_up_level(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolicyConfig {
     pub policies: Vec<PolicyRule>,
@@ -1031,6 +1209,26 @@ pub struct PolicyConfig {
     /// via Redis, enabling horizontal scaling behind a load balancer.
     #[serde(default)]
     pub cluster: ClusterConfig,
+
+    // ═══════════════════════════════════════════════════
+    // MCP 2025-11-25 CONFIGURATION
+    // ═══════════════════════════════════════════════════
+
+    /// Async task lifecycle configuration (MCP 2025-11-25).
+    #[serde(default)]
+    pub async_tasks: AsyncTaskConfig,
+
+    /// RFC 8707 Resource Indicator configuration.
+    #[serde(default)]
+    pub resource_indicator: ResourceIndicatorConfig,
+
+    /// CIMD (Capability-Indexed Message Dispatch) configuration.
+    #[serde(default)]
+    pub cimd: CimdConfig,
+
+    /// Step-up authentication configuration.
+    #[serde(default)]
+    pub step_up_auth: StepUpAuthConfig,
 }
 
 /// Tool registry with trust scoring configuration (P2.1).
@@ -2867,6 +3065,10 @@ policy_type = "Allow"
             data_flow: DataFlowTrackingConfig::default(),
             semantic_detection: SemanticDetectionConfig::default(),
             cluster: ClusterConfig::default(),
+            async_tasks: AsyncTaskConfig::default(),
+            resource_indicator: ResourceIndicatorConfig::default(),
+            cimd: CimdConfig::default(),
+            step_up_auth: StepUpAuthConfig::default(),
         };
         config.policies = (0..=MAX_POLICIES)
             .map(|i| PolicyRule {

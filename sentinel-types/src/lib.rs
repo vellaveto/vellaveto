@@ -2,6 +2,184 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 
+// ═══════════════════════════════════════════════════
+// MCP 2025-11-25 COMPLIANCE TYPES
+// ═══════════════════════════════════════════════════
+
+/// Status of an async MCP task for lifecycle tracking.
+///
+/// MCP 2025-11-25 introduces async tasks that run in the background.
+/// This enum tracks the current state for policy enforcement and audit.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskStatus {
+    /// Task has been accepted but not yet started.
+    #[default]
+    Pending,
+    /// Task is currently executing.
+    Running,
+    /// Task completed successfully.
+    Completed,
+    /// Task failed with an error.
+    Failed { reason: String },
+    /// Task was cancelled by request.
+    Cancelled,
+    /// Task expired due to timeout.
+    Expired,
+}
+
+
+impl fmt::Display for TaskStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TaskStatus::Pending => write!(f, "pending"),
+            TaskStatus::Running => write!(f, "running"),
+            TaskStatus::Completed => write!(f, "completed"),
+            TaskStatus::Failed { reason } => write!(f, "failed: {}", reason),
+            TaskStatus::Cancelled => write!(f, "cancelled"),
+            TaskStatus::Expired => write!(f, "expired"),
+        }
+    }
+}
+
+/// A tracked async MCP task for lifecycle management.
+///
+/// Sentinel tracks task state to enforce policies on:
+/// - Maximum concurrent tasks per session/agent
+/// - Task duration limits
+/// - Cancellation authorization (self-cancel only vs. any agent)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrackedTask {
+    /// Unique task identifier from the MCP server.
+    pub task_id: String,
+    /// Tool that created this task.
+    pub tool: String,
+    /// Function that created this task.
+    pub function: String,
+    /// Current task status.
+    pub status: TaskStatus,
+    /// ISO 8601 timestamp when the task was created.
+    pub created_at: String,
+    /// ISO 8601 timestamp when the task expires (if set).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    /// Agent ID that created this task (for cancellation authorization).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+    /// Session ID this task belongs to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+}
+
+impl TrackedTask {
+    /// Returns true if the task is in a terminal state.
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self.status,
+            TaskStatus::Completed | TaskStatus::Failed { .. } | TaskStatus::Cancelled | TaskStatus::Expired
+        )
+    }
+
+    /// Returns true if the task is active (pending or running).
+    pub fn is_active(&self) -> bool {
+        matches!(self.status, TaskStatus::Pending | TaskStatus::Running)
+    }
+}
+
+/// Authentication level for step-up authentication policies.
+///
+/// Step-up auth allows policies to require stronger authentication
+/// for sensitive operations. Levels are ordered by strength.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[serde(rename_all = "snake_case")]
+#[repr(u8)]
+pub enum AuthLevel {
+    /// No authentication.
+    #[default]
+    None = 0,
+    /// Basic authentication (API key, simple token).
+    Basic = 1,
+    /// OAuth 2.0/2.1 authentication.
+    OAuth = 2,
+    /// OAuth with MFA (multi-factor authentication).
+    OAuthMfa = 3,
+    /// Hardware key authentication (WebAuthn, FIDO2).
+    HardwareKey = 4,
+}
+
+
+impl fmt::Display for AuthLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AuthLevel::None => write!(f, "none"),
+            AuthLevel::Basic => write!(f, "basic"),
+            AuthLevel::OAuth => write!(f, "oauth"),
+            AuthLevel::OAuthMfa => write!(f, "oauth_mfa"),
+            AuthLevel::HardwareKey => write!(f, "hardware_key"),
+        }
+    }
+}
+
+impl AuthLevel {
+    /// Convert from u8 to AuthLevel, defaulting to None for unknown values.
+    pub fn from_u8(value: u8) -> Self {
+        match value {
+            0 => AuthLevel::None,
+            1 => AuthLevel::Basic,
+            2 => AuthLevel::OAuth,
+            3 => AuthLevel::OAuthMfa,
+            4 => AuthLevel::HardwareKey,
+            _ => AuthLevel::None,
+        }
+    }
+
+    /// Returns true if this level meets or exceeds the required level.
+    pub fn satisfies(&self, required: AuthLevel) -> bool {
+        *self >= required
+    }
+}
+
+/// An MCP capability declaration for CIMD (Capability-Indexed Message Dispatch).
+///
+/// MCP 2025-11-25 introduces capability negotiation. Clients declare their
+/// capabilities, and policies can require or block specific capabilities.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct McpCapability {
+    /// Capability name (e.g., "tools", "resources", "sampling").
+    pub name: String,
+    /// Optional version string for the capability.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Sub-capabilities (e.g., for "tools": ["read", "write", "execute"]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sub_capabilities: Vec<String>,
+}
+
+impl McpCapability {
+    /// Create a new capability with just a name.
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            version: None,
+            sub_capabilities: Vec::new(),
+        }
+    }
+
+    /// Create a capability with a version.
+    pub fn with_version(name: impl Into<String>, version: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            version: Some(version.into()),
+            sub_capabilities: Vec::new(),
+        }
+    }
+
+    /// Check if this capability has a specific sub-capability.
+    pub fn has_sub(&self, sub: &str) -> bool {
+        self.sub_capabilities.iter().any(|s| s == sub)
+    }
+}
+
 /// Maximum length for tool and function names (bytes).
 const MAX_NAME_LEN: usize = 256;
 
@@ -1269,5 +1447,183 @@ mod tests {
             !ctx.has_any_meaningful_fields(),
             "Context with empty agent_identity should not be meaningful"
         );
+    }
+
+    // ═══════════════════════════════════════════════════
+    // MCP 2025-11-25 TYPES TESTS
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_task_status_serialization() {
+        let statuses = vec![
+            TaskStatus::Pending,
+            TaskStatus::Running,
+            TaskStatus::Completed,
+            TaskStatus::Failed { reason: "timeout".to_string() },
+            TaskStatus::Cancelled,
+            TaskStatus::Expired,
+        ];
+        for status in statuses {
+            let json_str = serde_json::to_string(&status).unwrap();
+            let deserialized: TaskStatus = serde_json::from_str(&json_str).unwrap();
+            assert_eq!(status, deserialized);
+        }
+    }
+
+    #[test]
+    fn test_task_status_display() {
+        assert_eq!(TaskStatus::Pending.to_string(), "pending");
+        assert_eq!(TaskStatus::Running.to_string(), "running");
+        assert_eq!(TaskStatus::Completed.to_string(), "completed");
+        assert_eq!(
+            TaskStatus::Failed { reason: "error".to_string() }.to_string(),
+            "failed: error"
+        );
+        assert_eq!(TaskStatus::Cancelled.to_string(), "cancelled");
+        assert_eq!(TaskStatus::Expired.to_string(), "expired");
+    }
+
+    #[test]
+    fn test_tracked_task_terminal_states() {
+        let pending = TrackedTask {
+            task_id: "1".to_string(),
+            tool: "tool".to_string(),
+            function: "func".to_string(),
+            status: TaskStatus::Pending,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            expires_at: None,
+            created_by: None,
+            session_id: None,
+        };
+        assert!(!pending.is_terminal());
+        assert!(pending.is_active());
+
+        let running = TrackedTask {
+            status: TaskStatus::Running,
+            ..pending.clone()
+        };
+        assert!(!running.is_terminal());
+        assert!(running.is_active());
+
+        let completed = TrackedTask {
+            status: TaskStatus::Completed,
+            ..pending.clone()
+        };
+        assert!(completed.is_terminal());
+        assert!(!completed.is_active());
+
+        let failed = TrackedTask {
+            status: TaskStatus::Failed { reason: "error".to_string() },
+            ..pending.clone()
+        };
+        assert!(failed.is_terminal());
+        assert!(!failed.is_active());
+
+        let cancelled = TrackedTask {
+            status: TaskStatus::Cancelled,
+            ..pending.clone()
+        };
+        assert!(cancelled.is_terminal());
+        assert!(!cancelled.is_active());
+
+        let expired = TrackedTask {
+            status: TaskStatus::Expired,
+            ..pending
+        };
+        assert!(expired.is_terminal());
+        assert!(!expired.is_active());
+    }
+
+    #[test]
+    fn test_tracked_task_serialization() {
+        let task = TrackedTask {
+            task_id: "task-123".to_string(),
+            tool: "background_job".to_string(),
+            function: "execute".to_string(),
+            status: TaskStatus::Running,
+            created_at: "2026-01-01T12:00:00Z".to_string(),
+            expires_at: Some("2026-01-01T13:00:00Z".to_string()),
+            created_by: Some("agent-1".to_string()),
+            session_id: Some("session-abc".to_string()),
+        };
+        let json_str = serde_json::to_string(&task).unwrap();
+        let deserialized: TrackedTask = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(task, deserialized);
+    }
+
+    #[test]
+    fn test_auth_level_ordering() {
+        assert!(AuthLevel::None < AuthLevel::Basic);
+        assert!(AuthLevel::Basic < AuthLevel::OAuth);
+        assert!(AuthLevel::OAuth < AuthLevel::OAuthMfa);
+        assert!(AuthLevel::OAuthMfa < AuthLevel::HardwareKey);
+    }
+
+    #[test]
+    fn test_auth_level_satisfies() {
+        assert!(AuthLevel::HardwareKey.satisfies(AuthLevel::None));
+        assert!(AuthLevel::HardwareKey.satisfies(AuthLevel::Basic));
+        assert!(AuthLevel::HardwareKey.satisfies(AuthLevel::OAuth));
+        assert!(AuthLevel::HardwareKey.satisfies(AuthLevel::OAuthMfa));
+        assert!(AuthLevel::HardwareKey.satisfies(AuthLevel::HardwareKey));
+
+        assert!(!AuthLevel::None.satisfies(AuthLevel::Basic));
+        assert!(!AuthLevel::OAuth.satisfies(AuthLevel::OAuthMfa));
+    }
+
+    #[test]
+    fn test_auth_level_from_u8() {
+        assert_eq!(AuthLevel::from_u8(0), AuthLevel::None);
+        assert_eq!(AuthLevel::from_u8(1), AuthLevel::Basic);
+        assert_eq!(AuthLevel::from_u8(2), AuthLevel::OAuth);
+        assert_eq!(AuthLevel::from_u8(3), AuthLevel::OAuthMfa);
+        assert_eq!(AuthLevel::from_u8(4), AuthLevel::HardwareKey);
+        assert_eq!(AuthLevel::from_u8(255), AuthLevel::None); // Unknown defaults to None
+    }
+
+    #[test]
+    fn test_auth_level_display() {
+        assert_eq!(AuthLevel::None.to_string(), "none");
+        assert_eq!(AuthLevel::Basic.to_string(), "basic");
+        assert_eq!(AuthLevel::OAuth.to_string(), "oauth");
+        assert_eq!(AuthLevel::OAuthMfa.to_string(), "oauth_mfa");
+        assert_eq!(AuthLevel::HardwareKey.to_string(), "hardware_key");
+    }
+
+    #[test]
+    fn test_mcp_capability_new() {
+        let cap = McpCapability::new("tools");
+        assert_eq!(cap.name, "tools");
+        assert!(cap.version.is_none());
+        assert!(cap.sub_capabilities.is_empty());
+    }
+
+    #[test]
+    fn test_mcp_capability_with_version() {
+        let cap = McpCapability::with_version("sampling", "1.0");
+        assert_eq!(cap.name, "sampling");
+        assert_eq!(cap.version, Some("1.0".to_string()));
+    }
+
+    #[test]
+    fn test_mcp_capability_has_sub() {
+        let mut cap = McpCapability::new("tools");
+        cap.sub_capabilities = vec!["read".to_string(), "write".to_string()];
+
+        assert!(cap.has_sub("read"));
+        assert!(cap.has_sub("write"));
+        assert!(!cap.has_sub("execute"));
+    }
+
+    #[test]
+    fn test_mcp_capability_serialization() {
+        let cap = McpCapability {
+            name: "resources".to_string(),
+            version: Some("2.0".to_string()),
+            sub_capabilities: vec!["list".to_string(), "read".to_string()],
+        };
+        let json_str = serde_json::to_string(&cap).unwrap();
+        let deserialized: McpCapability = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(cap, deserialized);
     }
 }

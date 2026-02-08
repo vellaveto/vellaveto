@@ -751,6 +751,10 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             data_flow: Default::default(),
             semantic_detection: Default::default(),
             cluster: Default::default(),
+            async_tasks: Default::default(),
+            resource_indicator: Default::default(),
+            cimd: Default::default(),
+            step_up_auth: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

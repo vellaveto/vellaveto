@@ -57,3 +57,9 @@ name = "fuzz_semantic_similarity"
 path = "fuzz_targets/fuzz_semantic_similarity.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_async_tasks"
+path = "fuzz_targets/fuzz_async_tasks.rs"
+test = false
+doc = false

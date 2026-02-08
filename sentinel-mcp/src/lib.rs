@@ -1,3 +1,5 @@
+pub mod auth_level;
+pub mod capability;
 pub mod data_flow;
 pub mod elicitation;
 pub mod extractor;
@@ -9,6 +11,7 @@ pub mod proxy;
 pub mod rug_pull;
 #[cfg(feature = "semantic-detection")]
 pub mod semantic_detection;
+pub mod task_state;
 pub mod tool_registry;
 
 use sentinel_engine::PolicyEngine;

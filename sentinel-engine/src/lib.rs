@@ -378,6 +378,68 @@ pub enum CompiledContextCondition {
         require_attestation: bool,
         deny_reason: String,
     },
+
+    // ═══════════════════════════════════════════════════
+    // MCP 2025-11-25 CONTEXT CONDITIONS
+    // ═══════════════════════════════════════════════════
+
+    /// MCP 2025-11-25: Async task lifecycle policy.
+    ///
+    /// Controls the creation and cancellation of async MCP tasks. Policies can:
+    /// - Limit maximum concurrent tasks per session/agent
+    /// - Set maximum task duration before automatic expiry
+    /// - Restrict task cancellation to the creating agent only
+    AsyncTaskPolicy {
+        /// Maximum number of concurrent active tasks. 0 = unlimited.
+        max_concurrent: usize,
+        /// Maximum task duration in seconds. 0 = unlimited.
+        max_duration_secs: u64,
+        /// When true, only the agent that created a task can cancel it.
+        require_self_cancel: bool,
+        deny_reason: String,
+    },
+
+    /// RFC 8707: OAuth 2.0 Resource Indicator validation.
+    ///
+    /// Validates that OAuth tokens include the expected resource indicators.
+    /// Resource indicators prevent token replay attacks by binding tokens
+    /// to specific API endpoints or resource servers.
+    ResourceIndicator {
+        /// Patterns for allowed resource URIs. Supports glob patterns.
+        /// If non-empty, at least one pattern must match the token's resource.
+        allowed_resources: Vec<PatternMatcher>,
+        /// When true, deny if the token has no resource indicator.
+        require_resource: bool,
+        deny_reason: String,
+    },
+
+    /// CIMD: Capability-Indexed Message Dispatch.
+    ///
+    /// MCP 2025-11-25 introduces capability negotiation. This condition
+    /// checks that the client has declared the required capabilities
+    /// and has not declared any blocked capabilities.
+    CapabilityRequired {
+        /// Capabilities that must be declared by the client.
+        /// All listed capabilities must be present.
+        required_capabilities: Vec<String>,
+        /// Capabilities that must NOT be declared by the client.
+        /// If any listed capability is present, deny.
+        blocked_capabilities: Vec<String>,
+        deny_reason: String,
+    },
+
+    /// Step-up authentication trigger.
+    ///
+    /// When the current authentication level is below the required level,
+    /// the policy triggers a step-up authentication challenge instead of
+    /// denying outright. This allows sensitive operations to require
+    /// stronger authentication without blocking the session.
+    StepUpAuth {
+        /// Required authentication level (maps to AuthLevel enum).
+        /// 0=None, 1=Basic, 2=OAuth, 3=OAuthMfa, 4=HardwareKey
+        required_level: u8,
+        deny_reason: String,
+    },
 }
 
 /// Pre-parsed fields extracted from a policy's `conditions` JSON.
@@ -1545,6 +1607,142 @@ impl PolicyEngine {
                     deny_reason,
                 })
             }
+
+            // ═══════════════════════════════════════════════════
+            // MCP 2025-11-25 CONTEXT CONDITIONS
+            // ═══════════════════════════════════════════════════
+
+            "async_task_policy" => {
+                // MCP 2025-11-25: Async task lifecycle policy
+                let max_concurrent = obj
+                    .get("max_concurrent")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| usize::try_from(v).unwrap_or(usize::MAX))
+                    .unwrap_or(0); // 0 = unlimited
+
+                let max_duration_secs = obj
+                    .get("max_duration_secs")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0); // 0 = unlimited
+
+                let require_self_cancel = obj
+                    .get("require_self_cancel")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true); // Default: only creator can cancel
+
+                let deny_reason = format!(
+                    "Async task policy violated for policy '{}'",
+                    policy.name
+                );
+
+                Ok(CompiledContextCondition::AsyncTaskPolicy {
+                    max_concurrent,
+                    max_duration_secs,
+                    require_self_cancel,
+                    deny_reason,
+                })
+            }
+
+            "resource_indicator" => {
+                // RFC 8707: OAuth 2.0 Resource Indicators
+                let allowed_resources: Vec<PatternMatcher> = obj
+                    .get("allowed_resources")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str())
+                            .map(PatternMatcher::compile)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                let require_resource = obj
+                    .get("require_resource")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
+                let deny_reason = format!(
+                    "Resource indicator validation failed for policy '{}'",
+                    policy.name
+                );
+
+                Ok(CompiledContextCondition::ResourceIndicator {
+                    allowed_resources,
+                    require_resource,
+                    deny_reason,
+                })
+            }
+
+            "capability_required" => {
+                // CIMD: Capability-Indexed Message Dispatch
+                let required_capabilities: Vec<String> = obj
+                    .get("required_capabilities")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                let blocked_capabilities: Vec<String> = obj
+                    .get("blocked_capabilities")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                let deny_reason = format!(
+                    "Capability requirement not met for policy '{}'",
+                    policy.name
+                );
+
+                Ok(CompiledContextCondition::CapabilityRequired {
+                    required_capabilities,
+                    blocked_capabilities,
+                    deny_reason,
+                })
+            }
+
+            "step_up_auth" => {
+                // Step-up authentication
+                let required_level_u64 = obj
+                    .get("required_level")
+                    .and_then(|v| v.as_u64())
+                    .ok_or_else(|| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "step_up_auth missing 'required_level' integer".to_string(),
+                    })?;
+
+                // Validate level is in valid range (0-4)
+                if required_level_u64 > 4 {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "step_up_auth required_level must be 0-4, got {}",
+                            required_level_u64
+                        ),
+                    });
+                }
+
+                let required_level = required_level_u64 as u8;
+
+                let deny_reason = format!(
+                    "Step-up authentication required (level {}) for policy '{}'",
+                    required_level, policy.name
+                );
+
+                Ok(CompiledContextCondition::StepUpAuth {
+                    required_level,
+                    deny_reason,
+                })
+            }
+
             _ => Err(PolicyValidationError {
                 policy_id: policy.id.clone(),
                 policy_name: policy.name.clone(),
@@ -2249,6 +2447,147 @@ impl PolicyEngine {
                             }
                             // Fall back to legacy agent_id matching is handled by AgentId condition
                         }
+                    }
+                }
+
+                // ═══════════════════════════════════════════════════
+                // MCP 2025-11-25 CONTEXT CONDITIONS EVALUATION
+                // ═══════════════════════════════════════════════════
+
+                CompiledContextCondition::AsyncTaskPolicy {
+                    max_concurrent,
+                    max_duration_secs: _,
+                    require_self_cancel: _,
+                    deny_reason: _,
+                } => {
+                    // MCP 2025-11-25: Async task policy check.
+                    // Note: max_concurrent is checked at task creation time via TaskStateManager.
+                    // This condition is evaluated here for policy matching, but actual enforcement
+                    // happens in the MCP proxy layer when handling tasks/* methods.
+                    //
+                    // Here we just validate that if max_concurrent is set, we would
+                    // log/trace the policy applicability. The actual task count check
+                    // happens in sentinel-mcp/src/task_state.rs.
+                    if *max_concurrent > 0 {
+                        tracing::trace!(
+                            policy = %cp.policy.name,
+                            max_concurrent = %max_concurrent,
+                            "async_task_policy condition active"
+                        );
+                    }
+                    // Continue to next condition - actual enforcement is at task creation
+                }
+
+                CompiledContextCondition::ResourceIndicator {
+                    allowed_resources,
+                    require_resource,
+                    deny_reason,
+                } => {
+                    // RFC 8707: OAuth 2.0 Resource Indicators
+                    // The resource indicator should be stored in context by the OAuth layer.
+                    // We check for it in agent_identity claims where oauth_resource is set.
+                    let resource = context
+                        .agent_identity
+                        .as_ref()
+                        .and_then(|id| id.claim_str("resource"));
+
+                    match resource {
+                        Some(res) => {
+                            // Check if resource matches any allowed pattern
+                            if !allowed_resources.is_empty() {
+                                let matches = allowed_resources.iter().any(|p| p.matches(res));
+                                if !matches {
+                                    return Some(Verdict::Deny {
+                                        reason: format!(
+                                            "{} (resource '{}' not in allowed list)",
+                                            deny_reason, res
+                                        ),
+                                    });
+                                }
+                            }
+                        }
+                        None => {
+                            if *require_resource {
+                                return Some(Verdict::Deny {
+                                    reason: format!(
+                                        "{} (resource indicator required but not present)",
+                                        deny_reason
+                                    ),
+                                });
+                            }
+                        }
+                    }
+                }
+
+                CompiledContextCondition::CapabilityRequired {
+                    required_capabilities,
+                    blocked_capabilities,
+                    deny_reason,
+                } => {
+                    // CIMD: Capability-Indexed Message Dispatch
+                    // Capabilities are stored in agent_identity claims as a comma-separated
+                    // string or as a JSON array under the "capabilities" claim.
+                    let declared_caps: Vec<&str> = context
+                        .agent_identity
+                        .as_ref()
+                        .and_then(|id| {
+                            // Try array first, then comma-separated string
+                            id.claim_str_array("capabilities")
+                                .map(|arr| arr.into_iter().collect())
+                                .or_else(|| {
+                                    id.claim_str("capabilities")
+                                        .map(|s| s.split(',').map(str::trim).collect())
+                                })
+                        })
+                        .unwrap_or_default();
+
+                    // Check blocked capabilities first
+                    for blocked in blocked_capabilities {
+                        if declared_caps.iter().any(|&c| c == blocked) {
+                            return Some(Verdict::Deny {
+                                reason: format!(
+                                    "{} (blocked capability '{}' is declared)",
+                                    deny_reason, blocked
+                                ),
+                            });
+                        }
+                    }
+
+                    // Check required capabilities
+                    for required in required_capabilities {
+                        if !declared_caps.iter().any(|&c| c == required) {
+                            return Some(Verdict::Deny {
+                                reason: format!(
+                                    "{} (required capability '{}' not declared)",
+                                    deny_reason, required
+                                ),
+                            });
+                        }
+                    }
+                }
+
+                CompiledContextCondition::StepUpAuth {
+                    required_level,
+                    deny_reason,
+                } => {
+                    // Step-up authentication check
+                    // The current auth level is stored in agent_identity claims as "auth_level"
+                    let current_level: u8 = context
+                        .agent_identity
+                        .as_ref()
+                        .and_then(|id| id.claim_str("auth_level"))
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(0); // Default to None (0)
+
+                    if current_level < *required_level {
+                        // Return a special verdict that signals step-up is needed
+                        // The proxy layer interprets this and issues an authentication challenge
+                        return Some(Verdict::RequireApproval {
+                            reason: format!(
+                                "{} (current level {}, required {})",
+                                deny_reason, current_level, required_level
+                            ),
+                        });
                     }
                 }
             }
