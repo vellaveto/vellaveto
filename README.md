@@ -11,7 +11,7 @@
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-3%2C200%2B_passing-brightgreen.svg" alt="Tests: 3,200+ passing">
+    <img src="https://img.shields.io/badge/tests-3%2C300%2B_passing-brightgreen.svg" alt="Tests: 3,300+ passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <img src="https://img.shields.io/badge/security_audit-33_rounds%2C_380%2B_findings-informational.svg" alt="Security Audit: 33 rounds, 380+ findings">
     <a href="https://modelcontextprotocol.io/specification/2025-06-18"><img src="https://img.shields.io/badge/MCP-2025--06--18-blueviolet.svg" alt="MCP 2025-06-18"></a>
@@ -35,7 +35,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>1.0.0</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>3,200+ tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>3,300+ tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-06-18 (Streamable HTTP)</td></tr>
@@ -79,6 +79,7 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Elicitation interception** (MCP 2025-06-18) — Validates `elicitation/create` requests, blocks sensitive field types, enforces per-session rate limits
 - **Sampling policy enforcement** — Configurable policies for `sampling/createMessage` with content inspection and model filtering
 - **Sampling attack detection** — Rate limiting, prompt length validation, and sensitive content detection for sampling requests
+- **Cross-agent security** — Agent trust graph with privilege levels, Ed25519 signed inter-agent messages, and second-order prompt injection detection for multi-agent systems
 
 ### 🚀 Deployment & Operations
 - **Three deployment modes**: HTTP API server, MCP stdio proxy, HTTP reverse proxy
@@ -688,6 +689,7 @@ Environment variables override values set in the config file.
 | 👤 **Shadow agent detection** | Agent fingerprinting and impersonation alerts |
 | 🔗 **Deputy validation** | Delegation chain tracking with depth limits (confused deputy prevention) |
 | 📋 **Schema poisoning** | Schema lineage tracking with mutation thresholds |
+| 🤝 **Cross-agent security** | Agent trust graph, Ed25519 message signing, privilege escalation detection |
 | 🛡️ **CSRF protection** | Origin header validation on POST/DELETE endpoints |
 | ⏱️ **Constant-time auth** | API key comparison uses `subtle::ConstantTimeEq` |
 | 📋 **Tamper-evident audit** | SHA-256 hash chain + Ed25519 checkpoints + rotation manifests |

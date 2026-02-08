@@ -238,11 +238,71 @@ Strengthen agent identity and authorization checks.
 
 ---
 
-## Phase 3.2: Standards Alignment (Weeks 10-12)
+## Phase 3.2: Cross-Agent Security (Week 10) ✅ COMPLETE
+
+*Focus: Multi-agent trust relationships, message signing, privilege escalation detection*
+
+> **Status:** Implemented in commit `a043b17`. All deliverables complete.
+
+### 3.2.1 Agent Trust Graph
+
+Track trust relationships between agents in multi-agent systems.
+
+| Task | Priority | Status |
+|------|----------|--------|
+| Implement privilege level enum | P0 | ✅ Complete |
+| Create agent trust graph with delegation chains | P0 | ✅ Complete |
+| Implement escalation detection for request chains | P0 | ✅ Complete |
+| Add trust closure computation | P0 | ✅ Complete |
+| Add circular delegation detection | P0 | ✅ Complete |
+
+### 3.2.2 Inter-Agent Message Signing
+
+Cryptographic message envelopes for inter-agent communication.
+
+| Task | Priority | Status |
+|------|----------|--------|
+| Implement Ed25519 signed message envelope | P0 | ✅ Complete |
+| Add nonce-based anti-replay protection | P0 | ✅ Complete |
+| Create agent key registry | P0 | ✅ Complete |
+| Add message verification with freshness check | P0 | ✅ Complete |
+
+### 3.2.3 Privilege Escalation Detection
+
+Detect second-order prompt injection and confused deputy attacks.
+
+| Task | Priority | Status |
+|------|----------|--------|
+| Implement injection pattern analysis | P0 | ✅ Complete |
+| Add Unicode manipulation detection | P0 | ✅ Complete |
+| Add delimiter injection detection | P0 | ✅ Complete |
+| Implement suspicious agent pair tracking | P0 | ✅ Complete |
+| Add configurable thresholds | P0 | ✅ Complete |
+
+### 3.2.4 Configuration
+
+| Task | Priority | Status |
+|------|----------|--------|
+| Create CrossAgentConfig struct | P0 | ✅ Complete |
+| Add validation for all config parameters | P0 | ✅ Complete |
+| Integrate into PolicyConfig | P0 | ✅ Complete |
+
+### Phase 3.2 Deliverables
+- [x] Agent trust graph with privilege levels
+- [x] Ed25519 message signing with anti-replay
+- [x] Second-order prompt injection detection
+- [x] Unicode and delimiter injection detection
+- [x] CrossAgentConfig with full validation
+
+**Completed:** 2026-02-08
+
+---
+
+## Phase 3.3: Standards Alignment (Weeks 11-13)
 
 *Focus: MITRE ATLAS, OWASP AIVSS, NIST alignment*
 
-### 3.1 MITRE ATLAS Threat Mapping
+### 3.3.1 MITRE ATLAS Threat Mapping
 
 Map Sentinel detections to MITRE ATLAS techniques.
 
@@ -262,7 +322,7 @@ Map Sentinel detections to MITRE ATLAS techniques.
 - AML.T0064: Data Exfiltration (Agent)
 - (14 new agentic AI techniques total)
 
-### 3.2 OWASP AIVSS Integration
+### 3.3.2 OWASP AIVSS Integration
 
 Prepare for AI Vulnerability Scoring System (expected RSA 2026).
 
@@ -273,7 +333,7 @@ Prepare for AI Vulnerability Scoring System (expected RSA 2026).
 | Add severity to finding reports | P2 | 1 day | Calculation |
 | Create AIVSS-formatted exports | P2 | 2 days | — |
 
-### 3.3 NIST AI RMF Alignment
+### 3.3.3 NIST AI RMF Alignment
 
 Align with NIST AI Risk Management Framework.
 
@@ -284,7 +344,7 @@ Align with NIST AI Risk Management Framework.
 | Document NIST MANAGE function coverage | P2 | 2 days | — |
 | Create NIST compliance report generator | P2 | 3 days | All above |
 
-### 3.4 ISO/IEC 27090 Preparation
+### 3.3.4 ISO/IEC 27090 Preparation
 
 Prepare for AI security standard (expected mid-2026).
 
@@ -294,13 +354,13 @@ Prepare for AI security standard (expected mid-2026).
 | Gap analysis against current implementation | P3 | 2 days | Review |
 | Document compliance mapping | P3 | 2 days | Gap analysis |
 
-### Phase 3 Deliverables
+### Phase 3.3 Deliverables
 - [ ] MITRE ATLAS threat mapping
 - [ ] AIVSS severity scoring
 - [ ] NIST AI RMF compliance documentation
 - [ ] ISO 27090 readiness assessment
 
-**Estimated Duration:** 4 weeks
+**Estimated Duration:** 3 weeks
 **Risk:** Standards not finalized; may require updates post-release
 
 ---
