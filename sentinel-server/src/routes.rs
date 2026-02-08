@@ -58,6 +58,12 @@ pub fn build_router(state: AppState) -> Router {
             "/api/registry/tools/{name}/revoke",
             post(revoke_registry_tool),
         )
+        // Tenant management endpoints (Phase 3)
+        .route("/api/tenants", get(list_tenants))
+        .route("/api/tenants", post(create_tenant))
+        .route("/api/tenants/{id}", get(get_tenant))
+        .route("/api/tenants/{id}", axum::routing::put(update_tenant))
+        .route("/api/tenants/{id}", delete(delete_tenant))
         // Admin dashboard (P3.2)
         .route("/dashboard", get(crate::dashboard::dashboard_page))
         .route(
@@ -2022,6 +2028,221 @@ async fn revoke_registry_tool(
         )
     })?;
     Ok(Json(value))
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Tenant Management Endpoints (Phase 3)
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Response type for tenant operations.
+#[derive(Serialize)]
+struct TenantResponse {
+    tenant: crate::tenant::Tenant,
+}
+
+/// Request type for creating/updating a tenant.
+#[derive(Deserialize)]
+struct TenantRequest {
+    id: String,
+    name: String,
+    #[serde(default = "default_true_for_tenant")]
+    enabled: bool,
+    #[serde(default)]
+    quotas: Option<crate::tenant::TenantQuotas>,
+    #[serde(default)]
+    metadata: std::collections::HashMap<String, String>,
+}
+
+fn default_true_for_tenant() -> bool {
+    true
+}
+
+/// List all tenants.
+///
+/// Returns an empty list if no tenant store is configured.
+async fn list_tenants(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::tenant::Tenant>>, (StatusCode, Json<ErrorResponse>)> {
+    let tenants = match &state.tenant_store {
+        Some(store) => store.list_tenants(),
+        None => vec![],
+    };
+    Ok(Json(tenants))
+}
+
+/// Get a specific tenant by ID.
+async fn get_tenant(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let store = state.tenant_store.as_ref().ok_or_else(|| {
+        (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(ErrorResponse {
+                error: "Tenant store not configured".to_string(),
+            }),
+        )
+    })?;
+
+    let tenant = store.get_tenant(&id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Tenant not found: {}", id),
+            }),
+        )
+    })?;
+
+    Ok(Json(TenantResponse { tenant }))
+}
+
+/// Create a new tenant.
+async fn create_tenant(
+    State(state): State<AppState>,
+    Json(req): Json<TenantRequest>,
+) -> Result<(StatusCode, Json<TenantResponse>), (StatusCode, Json<ErrorResponse>)> {
+    // Validate tenant ID
+    if let Err(e) = crate::tenant::validate_tenant_id(&req.id) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse { error: e.to_string() }),
+        ));
+    }
+
+    let store = state.tenant_store.as_ref().ok_or_else(|| {
+        (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(ErrorResponse {
+                error: "Tenant store not configured".to_string(),
+            }),
+        )
+    })?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let tenant = crate::tenant::Tenant {
+        id: req.id,
+        name: req.name,
+        enabled: req.enabled,
+        quotas: req.quotas.unwrap_or_default(),
+        metadata: req.metadata,
+        created_at: Some(now.clone()),
+        updated_at: Some(now),
+    };
+
+    store.create_tenant(tenant.clone()).map_err(|e| match e {
+        crate::tenant::TenantError::InvalidTenantId(msg) => (
+            StatusCode::CONFLICT,
+            Json(ErrorResponse { error: msg }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    Ok((StatusCode::CREATED, Json(TenantResponse { tenant })))
+}
+
+/// Update an existing tenant.
+async fn update_tenant(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<TenantRequest>,
+) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Validate that path ID matches body ID
+    if id != req.id {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Tenant ID in path must match ID in body".to_string(),
+            }),
+        ));
+    }
+
+    let store = state.tenant_store.as_ref().ok_or_else(|| {
+        (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(ErrorResponse {
+                error: "Tenant store not configured".to_string(),
+            }),
+        )
+    })?;
+
+    // Get existing tenant to preserve created_at
+    let existing = store.get_tenant(&id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Tenant not found: {}", id),
+            }),
+        )
+    })?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let tenant = crate::tenant::Tenant {
+        id: req.id,
+        name: req.name,
+        enabled: req.enabled,
+        quotas: req.quotas.unwrap_or_default(),
+        metadata: req.metadata,
+        created_at: existing.created_at,
+        updated_at: Some(now),
+    };
+
+    store.update_tenant(tenant.clone()).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(TenantResponse { tenant }))
+}
+
+/// Delete a tenant.
+async fn delete_tenant(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    // Don't allow deleting the default tenant
+    if id == crate::tenant::DEFAULT_TENANT_ID {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Cannot delete the default tenant".to_string(),
+            }),
+        ));
+    }
+
+    let store = state.tenant_store.as_ref().ok_or_else(|| {
+        (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(ErrorResponse {
+                error: "Tenant store not configured".to_string(),
+            }),
+        )
+    })?;
+
+    store.delete_tenant(&id).map_err(|e| match e {
+        crate::tenant::TenantError::TenantNotFound(_) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Tenant not found: {}", id),
+            }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Middleware that enforces per-category rate limits.
