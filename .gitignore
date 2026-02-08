@@ -30,6 +30,7 @@ policies/
 TASKS.md
 CLAUDE.md
 .claude/
+ATTACK_PLAYBOOK.md
 
 # Bottega multi-agent coordination
 coordination
@@ -47,6 +48,9 @@ fuzz/target/
 
 # Quality reports (session-local)
 quality/
+
+# Security testing (Shannon pentest)
+security-testing/
 
 # OS
 .DS_Store
