@@ -10,7 +10,7 @@
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-3%2C029_passing-brightgreen.svg" alt="Tests: 2,671 passing">
+    <img src="https://img.shields.io/badge/tests-3%2C031_passing-brightgreen.svg" alt="Tests: 3,031 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <img src="https://img.shields.io/badge/security_audit-32_rounds%2C_380%2B_findings-informational.svg" alt="Security Audit: 32 rounds, 380+ findings">
     <a href="https://modelcontextprotocol.io/specification/2025-06-18"><img src="https://img.shields.io/badge/MCP-2025--06--18-blueviolet.svg" alt="MCP 2025-06-18"></a>
@@ -32,7 +32,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 
 <table>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>3,029 tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>3,031 tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-06-18 (Streamable HTTP)</td></tr>
@@ -649,7 +649,7 @@ Sentinel has undergone 32 rounds of adversarial security audit covering 31+ atta
 | Total findings triaged | 380+ |
 | Findings fixed | 300+ |
 | Critical/HIGH findings fixed | 80+ |
-| Test count post-audit | 3,029 |
+| Test count post-audit | 3,031 |
 
 Key areas covered: tool poisoning, prompt injection, path traversal, SSRF/domain bypass, session fixation, JSON parsing, memory poisoning, elicitation social engineering, audit log tampering, OAuth/JWT validation, SIEM export injection, rug-pull detection, tool squatting, DLP bypass, SSE transport parity, config reload races, Unicode case-folding, IPv6 transition mechanisms, CEF/SIEM injection, and webhook SSRF.
 
@@ -814,8 +814,9 @@ sentinel/
   sentinel-server/         HTTP API server + Prometheus metrics + admin dashboard
   sentinel-proxy/          Stdio MCP proxy binary
   sentinel-http-proxy/     Streamable HTTP reverse proxy binary
-  sentinel-integration/    Integration and E2E tests (~95 test files)
+  sentinel-integration/    Integration and E2E tests (~97 test files)
   fuzz/                    6 fuzz targets for parser boundary code
+  examples/                Example configs and demo scripts
   scripts/                 Benchmark regression scripts
 ```
 
