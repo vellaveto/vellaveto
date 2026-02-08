@@ -1,10 +1,14 @@
 pub mod dashboard;
 pub mod idempotency;
 pub mod metrics;
+pub mod opa;
 pub mod rbac;
 pub mod routes;
 pub mod telemetry;
 pub mod tenant;
+pub mod threat_intel;
+pub mod tls;
+pub mod jit;
 
 /// Re-export for fuzz testing — not part of the public API.
 #[doc(hidden)]

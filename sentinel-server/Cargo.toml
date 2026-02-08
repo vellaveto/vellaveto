@@ -59,5 +59,13 @@ opentelemetry-otlp = { workspace = true }
 opentelemetry-semantic-conventions = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 
+# Phase 5: Enterprise Hardening
+tokio-rustls = "0.26"
+rustls = "0.23"
+rustls-pemfile = "2"
+x509-parser = "0.17"
+reqwest = { version = "0.12", features = ["json"] }
+lru = "0.12"
+
 [dev-dependencies]
 tempfile = "3.0"
