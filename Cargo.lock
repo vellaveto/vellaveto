@@ -2866,7 +2866,7 @@ checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 
 [[package]]
 name = "sentinel-approval"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "sentinel-types",
@@ -2883,7 +2883,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-audit"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2910,7 +2910,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-canonical"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "proptest",
  "sentinel-types",
@@ -2920,7 +2920,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-cluster"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2943,7 +2943,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-config"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -2958,7 +2958,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-engine"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "criterion",
@@ -2978,7 +2978,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-http-proxy"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "axum 0.8.8",
@@ -3016,7 +3016,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-integration"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "arc-swap",
  "axum 0.8.8",
@@ -3036,7 +3036,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-mcp"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "aho-corasick",
  "base64 0.22.1",
@@ -3066,7 +3066,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-proxy"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3084,7 +3084,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-server"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3131,7 +3131,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-types"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "proptest",
  "serde",

@@ -2,8 +2,8 @@ apiVersion: v2
 name: sentinel
 description: MCP Tool Firewall - Runtime security engine for AI agent tool calls
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 1.0.0
+appVersion: "1.0.0"
 
 keywords:
   - mcp
