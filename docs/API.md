@@ -15,6 +15,8 @@ This document provides a complete reference for the Sentinel HTTP API.
   - [Audit](#audit)
   - [Tool Registry](#tool-registry)
   - [Tenants](#tenants)
+  - [Security Managers](#security-managers)
+  - [Execution Graphs](#execution-graphs)
 - [Error Codes](#error-codes)
 
 ---
@@ -958,6 +960,434 @@ Delete a tenant.
 {
   "message": "Tenant deleted",
   "tenant_id": "tenant-2"
+}
+```
+
+---
+
+### Security Managers
+
+These endpoints manage Phase 1-2 security features. All require admin authentication.
+
+#### Circuit Breaker
+
+**GET /api/circuit-breaker**
+
+List all circuit breakers.
+
+```json
+{
+  "circuits": [
+    {
+      "tool": "external_api",
+      "state": "closed",
+      "failure_count": 2,
+      "success_count": 50,
+      "last_failure": "2026-02-08T09:30:00Z"
+    }
+  ]
+}
+```
+
+**GET /api/circuit-breaker/{tool}**
+
+Get circuit state for a specific tool.
+
+**POST /api/circuit-breaker/{tool}/reset**
+
+Reset a circuit breaker to closed state.
+
+**GET /api/circuit-breaker/stats**
+
+Get overall circuit breaker statistics.
+
+---
+
+#### Shadow Agent Detection
+
+**GET /api/shadow-agents**
+
+List known agents and their fingerprints.
+
+```json
+{
+  "agents": [
+    {
+      "id": "agent-123",
+      "fingerprint": "sha256:abc123...",
+      "trust_level": "standard",
+      "first_seen": "2026-02-01T00:00:00Z",
+      "last_seen": "2026-02-08T10:00:00Z"
+    }
+  ]
+}
+```
+
+**POST /api/shadow-agents**
+
+Register a new trusted agent.
+
+**Request Body:**
+
+```json
+{
+  "id": "agent-456",
+  "fingerprint": "sha256:def456...",
+  "trust_level": "elevated"
+}
+```
+
+**PUT /api/shadow-agents/{id}/trust**
+
+Update an agent's trust level.
+
+**DELETE /api/shadow-agents/{id}**
+
+Remove an agent from the registry.
+
+---
+
+#### Schema Lineage
+
+**GET /api/schema-lineage**
+
+List tracked tool schemas.
+
+```json
+{
+  "schemas": [
+    {
+      "tool": "file_read",
+      "current_hash": "sha256:abc123...",
+      "trust_score": 0.95,
+      "mutation_count": 0,
+      "first_seen": "2026-02-01T00:00:00Z"
+    }
+  ]
+}
+```
+
+**GET /api/schema-lineage/{tool}**
+
+Get schema lineage for a specific tool.
+
+**PUT /api/schema-lineage/{tool}/trust**
+
+Reset trust score for a tool's schema.
+
+**DELETE /api/schema-lineage/{tool}**
+
+Remove schema tracking for a tool.
+
+---
+
+#### Task State
+
+**GET /api/tasks**
+
+List active async tasks.
+
+```json
+{
+  "tasks": [
+    {
+      "id": "task-123",
+      "tool": "long_running_operation",
+      "status": "running",
+      "created_at": "2026-02-08T10:00:00Z",
+      "session_id": "sess-456"
+    }
+  ]
+}
+```
+
+**GET /api/tasks/{id}**
+
+Get task details.
+
+**POST /api/tasks/{id}/cancel**
+
+Cancel a running task.
+
+**GET /api/tasks/stats**
+
+Get task statistics (active, completed, cancelled counts).
+
+---
+
+#### Auth Levels
+
+**GET /api/auth-levels/{session}**
+
+Get current authentication level for a session.
+
+```json
+{
+  "session_id": "sess-123",
+  "current_level": "standard",
+  "max_level": "admin",
+  "upgraded_at": null
+}
+```
+
+**POST /api/auth-levels/{session}/upgrade**
+
+Upgrade session authentication level (step-up auth).
+
+**Request Body:**
+
+```json
+{
+  "target_level": "elevated",
+  "verification_method": "mfa"
+}
+```
+
+**DELETE /api/auth-levels/{session}**
+
+Clear authentication level (downgrade to basic).
+
+---
+
+#### Sampling Detection
+
+**GET /api/sampling/stats**
+
+Get sampling request statistics.
+
+```json
+{
+  "session_count": 25,
+  "message": "Use /api/sampling/{session}/reset to clear session stats"
+}
+```
+
+**POST /api/sampling/{session}/reset**
+
+Reset sampling statistics for a session.
+
+---
+
+#### Deputy Delegation
+
+**GET /api/deputy/delegations**
+
+List active delegations.
+
+```json
+{
+  "active_count": 5
+}
+```
+
+**POST /api/deputy/delegations**
+
+Register a new delegation.
+
+**Request Body:**
+
+```json
+{
+  "session_id": "sess-123",
+  "from_principal": "user@example.com",
+  "to_principal": "agent-456",
+  "allowed_tools": ["file_read", "file_write"],
+  "expires_secs": 3600
+}
+```
+
+**DELETE /api/deputy/delegations/{session}**
+
+Remove a delegation.
+
+---
+
+### Execution Graphs
+
+Execution graphs visualize agent call chains for debugging and analysis.
+
+#### GET /api/graphs
+
+List all execution graph sessions.
+
+**Authentication:** Required
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `tool` | string | - | Filter by tool name |
+| `limit` | integer | 100 | Maximum sessions to return |
+| `offset` | integer | 0 | Sessions to skip |
+
+**Response:**
+
+```json
+{
+  "total": 25,
+  "offset": 0,
+  "limit": 100,
+  "graphs": [
+    {
+      "session_id": "sess-123",
+      "node_count": 15,
+      "started_at": 1707382800,
+      "ended_at": 1707382860
+    }
+  ]
+}
+```
+
+---
+
+#### GET /api/graphs/{session}
+
+Get execution graph in JSON format.
+
+**Authentication:** Required
+
+**Path Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `session` | Session ID |
+
+**Response:**
+
+```json
+{
+  "session_id": "sess-123",
+  "nodes": {
+    "node-1": {
+      "id": "node-1",
+      "session_id": "sess-123",
+      "parent_id": null,
+      "tool": "orchestrator",
+      "function": "plan",
+      "started_at": 1707382800,
+      "completed_at": 1707382805,
+      "duration_ms": 5000,
+      "verdict": "allow",
+      "depth": 0,
+      "children": ["node-2", "node-3"]
+    },
+    "node-2": {
+      "id": "node-2",
+      "session_id": "sess-123",
+      "parent_id": "node-1",
+      "tool": "file_read",
+      "function": "read",
+      "verdict": "allow",
+      "depth": 1
+    }
+  },
+  "edges": [
+    {
+      "from": "node-1",
+      "to": "node-2",
+      "edge_type": "call",
+      "timestamp": 1707382805
+    }
+  ],
+  "roots": ["node-1"],
+  "metadata": {
+    "total_calls": 15,
+    "allowed_calls": 14,
+    "denied_calls": 1,
+    "max_depth": 3
+  }
+}
+```
+
+---
+
+#### GET /api/graphs/{session}/dot
+
+Get execution graph in DOT (Graphviz) format.
+
+**Authentication:** Required
+
+**Path Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `session` | Session ID |
+
+**Response:**
+
+```http
+HTTP/1.1 200 OK
+Content-Type: text/vnd.graphviz
+
+digraph execution_graph {
+  rankdir=TB;
+  node [shape=box, style=rounded];
+
+  "node-1" [label="orchestrator\nplan", color=green, penwidth=2];
+  "node-2" [label="file_read\nread", color=green, penwidth=2];
+  "node-3" [label="bash\nexecute", color=red, penwidth=2];
+
+  "node-1" -> "node-2" [style=solid, color=black];
+  "node-1" -> "node-3" [style=solid, color=black];
+}
+```
+
+**Visualization:**
+
+Save the output to a file and render with Graphviz:
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" \
+  http://localhost:3000/api/graphs/sess-123/dot > graph.dot
+
+dot -Tpng graph.dot -o graph.png
+```
+
+**Color Legend:**
+- **Green**: Allow verdict
+- **Red**: Deny verdict
+- **Yellow**: Pending
+- **Orange**: Requires approval
+
+**Edge Styles:**
+- **Solid black**: Call relationship
+- **Dashed blue**: Data flow
+- **Dotted purple**: Delegation
+
+---
+
+#### GET /api/graphs/{session}/stats
+
+Get execution graph statistics.
+
+**Authentication:** Required
+
+**Path Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `session` | Session ID |
+
+**Response:**
+
+```json
+{
+  "total_nodes": 15,
+  "total_edges": 14,
+  "root_count": 1,
+  "max_depth": 3,
+  "tool_distribution": {
+    "file_read": 5,
+    "bash": 3,
+    "http_request": 4,
+    "orchestrator": 3
+  },
+  "agent_distribution": {
+    "agent-123": 10,
+    "agent-456": 5
+  },
+  "avg_duration_ms": 250,
+  "allow_rate": 0.93
 }
 ```
 

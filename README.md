@@ -7,7 +7,7 @@
     🔍 Intercept &middot; ⚖️ Evaluate &middot; 🚫 Enforce &middot; 📋 Audit
   </p>
   <p align="center">
-    <a href="https://github.com/paolovella/sentinel/releases/tag/v1.0.0"><img src="https://img.shields.io/badge/version-1.0.0-blue.svg" alt="Version 1.0.0"></a>
+    <a href="https://github.com/paolovella/sentinel/releases/tag/v2.0.0"><img src="https://img.shields.io/badge/version-2.0.0-blue.svg" alt="Version 2.0.0"></a>
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
@@ -125,12 +125,12 @@ Sentinel enforces security policies on every tool call before it reaches the too
 
 ```bash
 # Pull the latest release
-docker pull ghcr.io/paolovella/sentinel:1.0.0
+docker pull ghcr.io/paolovella/sentinel:2.0.0
 
 # Run with a policy config
 docker run -p 3000:3000 \
   -v /path/to/config.toml:/etc/sentinel/config.toml:ro \
-  ghcr.io/paolovella/sentinel:1.0.0
+  ghcr.io/paolovella/sentinel:2.0.0
 ```
 
 ### Kubernetes (Helm)
