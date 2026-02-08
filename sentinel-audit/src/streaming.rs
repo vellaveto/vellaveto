@@ -1034,12 +1034,14 @@ pub enum SyslogSeverity {
 }
 
 impl SyslogFacility {
+    #[allow(dead_code)] // Used by SyslogExporter when siem-exporters feature is enabled
     fn as_u8(self) -> u8 {
         self as u8
     }
 }
 
 impl SyslogSeverity {
+    #[allow(dead_code)] // Used by SyslogExporter when siem-exporters feature is enabled
     fn as_u8(self) -> u8 {
         self as u8
     }

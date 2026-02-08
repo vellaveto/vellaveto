@@ -892,6 +892,7 @@ mod owasp_mcp07_auth {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
         };
         (state, tmp)
     }
@@ -1287,6 +1288,7 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
         };
 
         let app = routes::build_router(state);
@@ -1533,6 +1535,7 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1615,6 +1618,7 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

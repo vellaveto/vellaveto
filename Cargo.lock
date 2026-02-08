@@ -2888,6 +2888,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
+ "criterion",
  "ed25519-dalek",
  "hex",
  "hostname",

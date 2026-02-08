@@ -378,6 +378,7 @@ mod server_auth {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
         };
         (state, tmp)
     }
@@ -501,6 +502,7 @@ mod server_auth {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
         };
         let app = routes::build_router(state);
 
@@ -1091,6 +1093,7 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
 
     let app = routes::build_router(state);
@@ -1180,6 +1183,7 @@ async fn finding_12_approval_creation_failure_denies_request() {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
 
     let app = routes::build_router(state);

@@ -45,3 +45,7 @@ harness = false
 name = "semantic"
 harness = false
 required-features = ["semantic-detection"]
+
+[[bench]]
+name = "rug_pull"
+harness = false

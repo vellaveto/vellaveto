@@ -9,7 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-sentinel-mcp = { path = "../sentinel-mcp" }
+sentinel-mcp = { path = "../sentinel-mcp", features = ["semantic-detection"] }
 sentinel-engine = { path = "../sentinel-engine" }
 sentinel-server = { path = "../sentinel-server" }
 sentinel-types = { path = "../sentinel-types" }
@@ -49,5 +49,11 @@ doc = false
 [[bin]]
 name = "fuzz_scan_params"
 path = "fuzz_targets/fuzz_scan_params.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_semantic_similarity"
+path = "fuzz_targets/fuzz_semantic_similarity.rs"
 test = false
 doc = false
