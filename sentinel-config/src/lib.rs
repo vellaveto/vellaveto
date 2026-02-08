@@ -1253,6 +1253,15 @@ pub struct PolicyConfig {
     /// Sampling attack detection configuration.
     #[serde(default)]
     pub sampling_detection: SamplingDetectionConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 3.2: CROSS-AGENT SECURITY CONFIGURATION
+    // ═══════════════════════════════════════════════════
+
+    /// Cross-agent security configuration for multi-agent systems.
+    /// Controls trust relationships, message signing, and privilege escalation detection.
+    #[serde(default)]
+    pub cross_agent: CrossAgentConfig,
 }
 
 /// Tool registry with trust scoring configuration (P2.1).
@@ -1894,6 +1903,129 @@ impl Default for SamplingDetectionConfig {
     }
 }
 
+// ═══════════════════════════════════════════════════
+// PHASE 3.2: CROSS-AGENT SECURITY CONFIGURATION
+// ═══════════════════════════════════════════════════
+
+fn default_max_chain_depth() -> u8 {
+    5
+}
+
+fn default_nonce_expiry_secs() -> u64 {
+    300
+}
+
+fn default_escalation_deny_threshold() -> f32 {
+    0.7
+}
+
+fn default_escalation_alert_threshold() -> f32 {
+    0.3
+}
+
+fn default_max_privilege_gap() -> u8 {
+    2
+}
+
+/// Cross-agent security configuration (Phase 3.2).
+///
+/// Controls multi-agent trust relationships, message signing requirements,
+/// and privilege escalation detection. This configuration is essential for
+/// protecting against second-order prompt injection and confused deputy attacks
+/// in multi-agent systems.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [cross_agent]
+/// enabled = true
+/// require_message_signing = true
+/// max_chain_depth = 5
+/// trusted_agents = ["orchestrator", "supervisor"]
+/// nonce_expiry_secs = 300
+/// escalation_deny_threshold = 0.7
+/// escalation_alert_threshold = 0.3
+/// max_privilege_gap = 2
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CrossAgentConfig {
+    /// Enable cross-agent security features. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Require cryptographic message signing for inter-agent communication.
+    /// When enabled, agents must sign messages with Ed25519 keys.
+    /// Default: false.
+    #[serde(default)]
+    pub require_message_signing: bool,
+
+    /// Maximum depth of request delegation chains.
+    /// Chains exceeding this depth are rejected to prevent unbounded delegation.
+    /// Default: 5.
+    #[serde(default = "default_max_chain_depth")]
+    pub max_chain_depth: u8,
+
+    /// List of globally trusted agent IDs that bypass certain checks.
+    /// These agents can be delegated to by any other agent regardless of
+    /// explicit trust relationships.
+    #[serde(default)]
+    pub trusted_agents: Vec<String>,
+
+    /// Nonce expiry time in seconds for anti-replay protection.
+    /// Messages with nonces older than this are rejected.
+    /// Default: 300 (5 minutes).
+    #[serde(default = "default_nonce_expiry_secs")]
+    pub nonce_expiry_secs: u64,
+
+    /// Confidence threshold above which actions are automatically denied.
+    /// Must be in range [0.0, 1.0].
+    /// Default: 0.7.
+    #[serde(default = "default_escalation_deny_threshold")]
+    pub escalation_deny_threshold: f32,
+
+    /// Confidence threshold above which alerts are generated (but action allowed).
+    /// Must be in range [0.0, 1.0] and less than deny_threshold.
+    /// Default: 0.3.
+    #[serde(default = "default_escalation_alert_threshold")]
+    pub escalation_alert_threshold: f32,
+
+    /// Maximum allowed privilege gap between agents in a chain.
+    /// Gaps exceeding this trigger review requirements.
+    /// Default: 2.
+    #[serde(default = "default_max_privilege_gap")]
+    pub max_privilege_gap: u8,
+
+    /// Enable Unicode manipulation checks in injection detection.
+    /// Default: true.
+    #[serde(default = "default_true")]
+    pub check_unicode_manipulation: bool,
+
+    /// Enable delimiter injection checks.
+    /// Default: true.
+    #[serde(default = "default_true")]
+    pub check_delimiter_injection: bool,
+}
+
+impl Default for CrossAgentConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            require_message_signing: false,
+            max_chain_depth: default_max_chain_depth(),
+            trusted_agents: Vec::new(),
+            nonce_expiry_secs: default_nonce_expiry_secs(),
+            escalation_deny_threshold: default_escalation_deny_threshold(),
+            escalation_alert_threshold: default_escalation_alert_threshold(),
+            max_privilege_gap: default_max_privilege_gap(),
+            check_unicode_manipulation: true,
+            check_delimiter_injection: true,
+        }
+    }
+}
+
+/// Maximum number of trusted agents in cross-agent config.
+pub const MAX_CROSS_AGENT_TRUSTED_AGENTS: usize = 1_000;
+
 /// Maximum number of known agents for shadow agent tracking.
 pub const MAX_KNOWN_AGENTS: usize = 100_000;
 
@@ -2444,6 +2576,48 @@ impl PolicyConfig {
         if self.sampling_detection.enabled && self.sampling_detection.window_secs == 0 {
             return Err(
                 "sampling_detection.window_secs must be > 0 when enabled".to_string(),
+            );
+        }
+
+        // Validate cross-agent security config
+        if self.cross_agent.trusted_agents.len() > MAX_CROSS_AGENT_TRUSTED_AGENTS {
+            return Err(format!(
+                "cross_agent.trusted_agents has {} entries, max is {}",
+                self.cross_agent.trusted_agents.len(),
+                MAX_CROSS_AGENT_TRUSTED_AGENTS
+            ));
+        }
+        if !self.cross_agent.escalation_deny_threshold.is_finite()
+            || self.cross_agent.escalation_deny_threshold < 0.0
+            || self.cross_agent.escalation_deny_threshold > 1.0
+        {
+            return Err(format!(
+                "cross_agent.escalation_deny_threshold must be in [0.0, 1.0], got {}",
+                self.cross_agent.escalation_deny_threshold
+            ));
+        }
+        if !self.cross_agent.escalation_alert_threshold.is_finite()
+            || self.cross_agent.escalation_alert_threshold < 0.0
+            || self.cross_agent.escalation_alert_threshold > 1.0
+        {
+            return Err(format!(
+                "cross_agent.escalation_alert_threshold must be in [0.0, 1.0], got {}",
+                self.cross_agent.escalation_alert_threshold
+            ));
+        }
+        if self.cross_agent.escalation_alert_threshold > self.cross_agent.escalation_deny_threshold {
+            return Err(format!(
+                "cross_agent.escalation_alert_threshold ({}) must be <= escalation_deny_threshold ({})",
+                self.cross_agent.escalation_alert_threshold,
+                self.cross_agent.escalation_deny_threshold
+            ));
+        }
+        if self.cross_agent.max_chain_depth == 0 {
+            return Err("cross_agent.max_chain_depth must be > 0".to_string());
+        }
+        if self.cross_agent.enabled && self.cross_agent.nonce_expiry_secs == 0 {
+            return Err(
+                "cross_agent.nonce_expiry_secs must be > 0 when enabled".to_string(),
             );
         }
 
@@ -3530,6 +3704,7 @@ policy_type = "Allow"
             shadow_agent: ShadowAgentConfig::default(),
             schema_poisoning: SchemaPoisoningConfig::default(),
             sampling_detection: SamplingDetectionConfig::default(),
+            cross_agent: CrossAgentConfig::default(),
         };
         config.policies = (0..=MAX_POLICIES)
             .map(|i| PolicyRule {

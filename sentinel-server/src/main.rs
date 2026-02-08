@@ -905,6 +905,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         shadow_agent: Default::default(),
         schema_poisoning: Default::default(),
         sampling_detection: Default::default(),
+        cross_agent: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;
