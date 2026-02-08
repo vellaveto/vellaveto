@@ -108,6 +108,13 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Supply chain verification** with SHA-256 hash checking of MCP server binaries
 - **MCP 2025-06-18 compliance** with protocol version header, RFC 8707 resource indicators, and `_meta` preservation
 
+### 🔐 ETDI: Cryptographic Tool Security
+- **Tool signature verification** — Ed25519/ECDSA P-256 cryptographic signing of tool definitions with trusted signer allowlists (fingerprints + SPIFFE IDs)
+- **Attestation chain** — Provenance tracking with initial registration, version updates, and chain integrity verification
+- **Version pinning** — Semantic versioning constraints (`^1.0.0`, `~2.1.0`, exact) with hash-based drift detection for rug-pull prevention
+- **ETDI persistent store** — Signatures, attestations, and pins with optional HMAC integrity protection
+- **ETDI API** — Full REST API for signature verification, attestation chain management, and version pin operations
+
 ### 🏢 Enterprise Features
 - **mTLS / SPIFFE-SPIRE** — Mutual TLS with client certificate verification, SPIFFE identity extraction from X.509 SAN URIs, trust domains, workload identity, and ID-to-role mapping
 - **OPA Integration** — External policy evaluation via Open Policy Agent with async HTTP client, LRU decision caching (configurable TTL), fail-open/closed modes, and structured decision parsing
@@ -548,6 +555,16 @@ Supports RS256, ES256, and EdDSA algorithms. Algorithm confusion attacks are pre
 | `GET` | `/api/tasks` | Yes | List async task states |
 | `GET` | `/api/auth-levels/:session` | Yes | Get session auth level |
 | `GET` | `/api/deputy/delegations` | Yes | List delegation chains |
+| `GET` | `/api/etdi/signatures` | Yes | List all tool signatures |
+| `GET` | `/api/etdi/signatures/:tool` | Yes | Get signature for a tool |
+| `POST` | `/api/etdi/signatures/:tool/verify` | Yes | Verify tool signature |
+| `GET` | `/api/etdi/attestations` | Yes | List all attestations |
+| `GET` | `/api/etdi/attestations/:tool` | Yes | Get attestation chain for a tool |
+| `GET` | `/api/etdi/attestations/:tool/verify` | Yes | Verify attestation chain integrity |
+| `GET` | `/api/etdi/pins` | Yes | List all version pins |
+| `GET` | `/api/etdi/pins/:tool` | Yes | Get version pin for a tool |
+| `POST` | `/api/etdi/pins/:tool` | Yes | Create version pin |
+| `DELETE` | `/api/etdi/pins/:tool` | Yes | Remove version pin |
 
 All endpoints except `/health`, `/metrics`, and `/api/metrics` require a `Bearer` token matching `SENTINEL_API_KEY`. Use `--allow-anonymous` to disable authentication for development.
 
@@ -713,6 +730,7 @@ Environment variables override values set in the config file.
 | 🔑 **OAuth 2.1** | JWT/JWKS validation, algorithm confusion prevention, scope enforcement |
 | 🚦 **Rate limiting** | Per-IP, per-principal, per-endpoint with burst support and capacity bounds |
 | 🔗 **Supply chain** | SHA-256 hash verification of MCP server binaries before spawn |
+| 🔏 **ETDI tool signing** | Ed25519/ECDSA tool signatures with attestation chains and version pinning |
 
 ### 🔬 Security Audit
 

@@ -870,7 +870,7 @@ The following research agents provided input for this roadmap:
 
 | Gap | Industry Standard | Sentinel Status | Priority |
 |-----|-------------------|-----------------|----------|
-| ETDI Cryptographic Tool Verification | ETDI proposal (2025) | Not implemented | P0 |
+| ~~ETDI Cryptographic Tool Verification~~ | ETDI proposal (2025) | ✅ Implemented (Phase 8) | ~~P0~~ |
 | Memory Injection Defense (MINJA) | Agent Security Bench | Partial (memory_tracking) | P1 |
 | Non-Human Identity (NHI) Lifecycle | ATF, CyberArk | Not implemented | P1 |
 | Stateful Session Reasoning Guards | NeMo Guardrails | Not implemented | P2 |
@@ -882,9 +882,11 @@ The following research agents provided input for this roadmap:
 
 ---
 
-## Phase 8: ETDI & Cryptographic Tool Security (v2.1)
+## Phase 8: ETDI & Cryptographic Tool Security (v2.1) ✅ COMPLETE
 
 *Focus: Implement Enhanced Tool Definition Interface for cryptographic tool attestation*
+
+> **Status:** Implemented in commit `c9590d6`. All core deliverables complete.
 
 ### Background
 
@@ -897,11 +899,11 @@ ETDI (arxiv:2506.01333) proposes cryptographic verification of tool definitions 
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
-| Define ToolSignature schema (Ed25519/ECDSA) | P0 | 1 day | Pending |
-| Implement signature verification in tool registry | P0 | 2 days | Pending |
-| Add signature verification to schema poisoning checks | P0 | 1 day | Pending |
-| Create tool signing CLI (`sentinel sign-tool`) | P0 | 2 days | Pending |
-| Add signature verification failure audit events | P0 | 1 day | Pending |
+| Define ToolSignature schema (Ed25519/ECDSA) | P0 | 1 day | ✅ Complete |
+| Implement signature verification in tool registry | P0 | 2 days | ✅ Complete |
+| Add signature verification to schema poisoning checks | P0 | 1 day | ✅ Complete |
+| Create tool signing CLI (`sentinel sign-tool`) | P0 | 2 days | Deferred |
+| Add signature verification failure audit events | P0 | 1 day | ✅ Complete |
 
 **Configuration:**
 ```toml
@@ -919,28 +921,48 @@ signature_algorithm = "ed25519" # ed25519 | ecdsa-p256
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
-| Implement attestation chain validation | P0 | 2 days | Pending |
-| Add tool provenance tracking | P0 | 2 days | Pending |
-| Create attestation transparency log | P1 | 3 days | Pending |
-| Integrate with Sigstore/Rekor (optional) | P2 | 3 days | Pending |
+| Implement attestation chain validation | P0 | 2 days | ✅ Complete |
+| Add tool provenance tracking | P0 | 2 days | ✅ Complete |
+| Create attestation transparency log | P1 | 3 days | ✅ Complete |
+| Integrate with Sigstore/Rekor (optional) | P2 | 3 days | Deferred |
 
 ### 8.3 Tool Version Pinning
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
-| Implement version pinning in tool registry | P0 | 1 day | Pending |
-| Add semantic versioning constraint validation | P0 | 1 day | Pending |
-| Detect unauthorized version updates | P0 | 1 day | Pending |
-| Add version drift alerting | P0 | 1 day | Pending |
+| Implement version pinning in tool registry | P0 | 1 day | ✅ Complete |
+| Add semantic versioning constraint validation | P0 | 1 day | ✅ Complete |
+| Detect unauthorized version updates | P0 | 1 day | ✅ Complete |
+| Add version drift alerting | P0 | 1 day | ✅ Complete |
+
+### 8.4 ETDI Store & API
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Implement persistent ETDI store | P0 | 2 days | ✅ Complete |
+| Add HMAC integrity protection for store | P0 | 1 day | ✅ Complete |
+| Create ETDI API endpoints | P0 | 2 days | ✅ Complete |
+| Add SPIFFE workload identity trust | P0 | 1 day | ✅ Complete |
+
+**Implemented API Endpoints:**
+- `GET /api/etdi/signatures` — List all tool signatures
+- `GET /api/etdi/signatures/{tool}` — Get signature for a tool
+- `POST /api/etdi/signatures/{tool}/verify` — Verify tool signature
+- `GET /api/etdi/attestations` — List all attestations
+- `GET /api/etdi/attestations/{tool}` — Get attestation chain for a tool
+- `GET /api/etdi/attestations/{tool}/verify` — Verify attestation chain integrity
+- `GET/POST/DELETE /api/etdi/pins/{tool}` — Manage version pins
 
 ### Phase 8 Deliverables
-- [ ] Ed25519/ECDSA tool signature verification
-- [ ] Attestation chain with provenance tracking
-- [ ] Tool signing CLI for developers
-- [ ] Version pinning with semantic versioning
-- [ ] Sigstore integration (optional)
+- [x] Ed25519/ECDSA tool signature verification
+- [x] Attestation chain with provenance tracking
+- [ ] Tool signing CLI for developers (deferred)
+- [x] Version pinning with semantic versioning
+- [x] ETDI persistent store with HMAC protection
+- [x] SPIFFE workload identity trust
+- [ ] Sigstore integration (deferred to v2.2)
 
-**Estimated Duration:** 3 weeks
+**Completed:** 2026-02-08
 
 ---
 
@@ -1270,12 +1292,12 @@ AI observability platforms (Arize, Langfuse, Helicone) provide:
 ## v2.1 Timeline Summary
 
 ```
-Phase 8:  ETDI & Cryptographic Tool Security     (3 weeks)  ← P0
+Phase 8:  ETDI & Cryptographic Tool Security     (3 weeks)  ✅ COMPLETE
 Phase 9:  Memory Injection Defense               (3 weeks)  ← P1
 Phase 10: Non-Human Identity Lifecycle           (3 weeks)  ← P1
 Phase 11: MCP Tasks Primitive                    (2 weeks)  ← P1
 ───────────────────────────────────────────────────────────
-v2.1 Total: 11 weeks (~2.75 months)
+v2.1 Remaining: 8 weeks (~2 months)
 ```
 
 ## v2.2 Timeline Summary
@@ -1293,7 +1315,7 @@ v2.2 Total: 11 weeks (~2.75 months)
 
 ## Competitor Feature Comparison (Updated)
 
-| Feature | Sentinel v2.0 | NeMo Guardrails | Guardrails AI | Zenity | Prisma AIRS |
+| Feature | Sentinel v2.1 | NeMo Guardrails | Guardrails AI | Zenity | Prisma AIRS |
 |---------|---------------|-----------------|---------------|--------|-------------|
 | Policy Engine | ✅ Strong | ✅ Strong | ✅ Strong | ✅ Strong | ✅ Strong |
 | Injection Detection | ✅ Multi-layer | ✅ LLM-based | ✅ LLM-based | ⚠️ Basic | ✅ Strong |
@@ -1302,7 +1324,7 @@ v2.2 Total: 11 weeks (~2.75 months)
 | MCP Protocol Support | ✅ Native | ❌ | ❌ | ⚠️ Basic | ❌ |
 | Schema Poisoning | ✅ Jaccard | ❌ | ❌ | ❌ | ❌ |
 | Cross-Agent Security | ✅ Trust graph | ❌ | ❌ | ⚠️ Basic | ❌ |
-| ETDI Tool Signing | ❌ v2.1 | ❌ | ❌ | ❌ | ❌ |
+| ETDI Tool Signing | ✅ Ed25519/ECDSA | ❌ | ❌ | ❌ | ❌ |
 | Memory Injection Defense | ⚠️ Partial | ❌ | ❌ | ❌ | ❌ |
 | Semantic Guardrails | ❌ v2.2 | ✅ Native | ✅ Native | ⚠️ Basic | ⚠️ Basic |
 | NHI Lifecycle | ⚠️ Partial | ❌ | ❌ | ⚠️ Basic | ❌ |
