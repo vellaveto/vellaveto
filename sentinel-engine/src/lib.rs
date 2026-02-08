@@ -1907,7 +1907,7 @@ impl PolicyEngine {
                     .unwrap_or(0.1); // Default: 10% change triggers alert
 
                 // Validate threshold is in valid range
-                if !mutation_threshold.is_finite() || mutation_threshold < 0.0 || mutation_threshold > 1.0 {
+                if !mutation_threshold.is_finite() || !(0.0..=1.0).contains(&mutation_threshold) {
                     return Err(PolicyValidationError {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),

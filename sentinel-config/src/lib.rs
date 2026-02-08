@@ -2416,17 +2416,16 @@ impl PolicyConfig {
         }
 
         // Validate schema poisoning config
-        if self.schema_poisoning.enabled {
-            if !self.schema_poisoning.mutation_threshold.is_finite()
+        if self.schema_poisoning.enabled
+            && (!self.schema_poisoning.mutation_threshold.is_finite()
                 || self.schema_poisoning.mutation_threshold < 0.0
-                || self.schema_poisoning.mutation_threshold > 1.0
+                || self.schema_poisoning.mutation_threshold > 1.0)
             {
                 return Err(format!(
                     "schema_poisoning.mutation_threshold must be in [0.0, 1.0], got {}",
                     self.schema_poisoning.mutation_threshold
                 ));
             }
-        }
         if self.schema_poisoning.max_tracked_schemas > MAX_TRACKED_SCHEMAS {
             return Err(format!(
                 "schema_poisoning.max_tracked_schemas must be <= {}, got {}",

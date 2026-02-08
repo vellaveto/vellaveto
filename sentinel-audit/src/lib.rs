@@ -835,6 +835,230 @@ impl AuditLogger {
         self.log_entry(&action, &verdict, metadata).await
     }
 
+    // =========================================================================
+    // Security Event Logging Helpers (Phase 3.1 - Runtime Integration)
+    // =========================================================================
+
+    /// Log a circuit breaker state change event.
+    ///
+    /// Circuit breaker events track when tools transition between open/closed/half-open
+    /// states, helping detect cascading failures and service degradation.
+    pub async fn log_circuit_breaker_event(
+        &self,
+        event_type: &str,
+        tool: &str,
+        details: serde_json::Value,
+    ) -> Result<(), AuditError> {
+        let action = Action::new("sentinel", "circuit_breaker", serde_json::json!({}));
+        let verdict = if event_type == "rejected" {
+            Verdict::Deny {
+                reason: format!("Circuit breaker open for tool: {}", tool),
+            }
+        } else {
+            Verdict::Allow
+        };
+        let mut metadata = serde_json::json!({
+            "event": format!("circuit_breaker.{}", event_type),
+            "tool": tool,
+        });
+        if let serde_json::Value::Object(ref mut map) = metadata {
+            if let serde_json::Value::Object(d) = details {
+                for (k, v) in d {
+                    map.insert(k, v);
+                }
+            }
+        }
+        self.log_entry(&action, &verdict, metadata).await
+    }
+
+    /// Log a deputy validation event.
+    ///
+    /// Deputy events track delegation registration, validation failures, and
+    /// depth limit violations for confused deputy attack prevention.
+    pub async fn log_deputy_event(
+        &self,
+        event_type: &str,
+        session: &str,
+        details: serde_json::Value,
+    ) -> Result<(), AuditError> {
+        let action = Action::new("sentinel", "deputy", serde_json::json!({}));
+        let verdict = if event_type == "validation_failed" || event_type == "depth_exceeded" {
+            Verdict::Deny {
+                reason: format!("Deputy validation failed for session: {}", session),
+            }
+        } else {
+            Verdict::Allow
+        };
+        let mut metadata = serde_json::json!({
+            "event": format!("deputy.{}", event_type),
+            "session": session,
+        });
+        if let serde_json::Value::Object(ref mut map) = metadata {
+            if let serde_json::Value::Object(d) = details {
+                for (k, v) in d {
+                    map.insert(k, v);
+                }
+            }
+        }
+        self.log_entry(&action, &verdict, metadata).await
+    }
+
+    /// Log a shadow agent detection event.
+    ///
+    /// Shadow agent events track agent registration, impersonation detection,
+    /// and trust level changes.
+    pub async fn log_shadow_agent_event(
+        &self,
+        event_type: &str,
+        agent_id: &str,
+        details: serde_json::Value,
+    ) -> Result<(), AuditError> {
+        let action = Action::new("sentinel", "shadow_agent", serde_json::json!({}));
+        let verdict = if event_type == "detected" {
+            Verdict::Deny {
+                reason: format!("Shadow agent detected impersonating: {}", agent_id),
+            }
+        } else {
+            Verdict::Allow
+        };
+        let mut metadata = serde_json::json!({
+            "event": format!("shadow_agent.{}", event_type),
+            "agent_id": agent_id,
+        });
+        if let serde_json::Value::Object(ref mut map) = metadata {
+            if let serde_json::Value::Object(d) = details {
+                for (k, v) in d {
+                    map.insert(k, v);
+                }
+            }
+        }
+        self.log_entry(&action, &verdict, metadata).await
+    }
+
+    /// Log a schema poisoning event.
+    ///
+    /// Schema events track mutation detection, poisoning alerts, and trust resets
+    /// for tool schema integrity monitoring.
+    pub async fn log_schema_event(
+        &self,
+        event_type: &str,
+        tool: &str,
+        details: serde_json::Value,
+    ) -> Result<(), AuditError> {
+        let action = Action::new("sentinel", "schema", serde_json::json!({}));
+        let verdict = if event_type == "poisoning_alert" {
+            Verdict::Deny {
+                reason: format!("Schema poisoning detected for tool: {}", tool),
+            }
+        } else {
+            Verdict::Allow
+        };
+        let mut metadata = serde_json::json!({
+            "event": format!("schema.{}", event_type),
+            "tool": tool,
+        });
+        if let serde_json::Value::Object(ref mut map) = metadata {
+            if let serde_json::Value::Object(d) = details {
+                for (k, v) in d {
+                    map.insert(k, v);
+                }
+            }
+        }
+        self.log_entry(&action, &verdict, metadata).await
+    }
+
+    /// Log a task lifecycle event.
+    ///
+    /// Task events track async MCP task creation, status changes, cancellation,
+    /// expiration, and session limit violations.
+    pub async fn log_task_event(
+        &self,
+        event_type: &str,
+        task_id: &str,
+        details: serde_json::Value,
+    ) -> Result<(), AuditError> {
+        let action = Action::new("sentinel", "task", serde_json::json!({}));
+        let verdict = if event_type == "limit_exceeded" {
+            Verdict::Deny {
+                reason: format!("Task limit exceeded for task: {}", task_id),
+            }
+        } else {
+            Verdict::Allow
+        };
+        let mut metadata = serde_json::json!({
+            "event": format!("task.{}", event_type),
+            "task_id": task_id,
+        });
+        if let serde_json::Value::Object(ref mut map) = metadata {
+            if let serde_json::Value::Object(d) = details {
+                for (k, v) in d {
+                    map.insert(k, v);
+                }
+            }
+        }
+        self.log_entry(&action, &verdict, metadata).await
+    }
+
+    /// Log an authentication level event.
+    ///
+    /// Auth events track step-up authentication requirements, level upgrades,
+    /// and level expirations.
+    pub async fn log_auth_event(
+        &self,
+        event_type: &str,
+        session: &str,
+        details: serde_json::Value,
+    ) -> Result<(), AuditError> {
+        let action = Action::new("sentinel", "auth", serde_json::json!({}));
+        let verdict = if event_type == "step_up_required" {
+            Verdict::Deny {
+                reason: format!("Step-up authentication required for session: {}", session),
+            }
+        } else {
+            Verdict::Allow
+        };
+        let mut metadata = serde_json::json!({
+            "event": format!("auth.{}", event_type),
+            "session": session,
+        });
+        if let serde_json::Value::Object(ref mut map) = metadata {
+            if let serde_json::Value::Object(d) = details {
+                for (k, v) in d {
+                    map.insert(k, v);
+                }
+            }
+        }
+        self.log_entry(&action, &verdict, metadata).await
+    }
+
+    /// Log a sampling detection event.
+    ///
+    /// Sampling events track rate limit violations, prompt length violations,
+    /// sensitive content detection, and model denials.
+    pub async fn log_sampling_event(
+        &self,
+        event_type: &str,
+        session: &str,
+        details: serde_json::Value,
+    ) -> Result<(), AuditError> {
+        let action = Action::new("sentinel", "sampling", serde_json::json!({}));
+        let verdict = Verdict::Deny {
+            reason: format!("Sampling request denied for session: {}", session),
+        };
+        let mut metadata = serde_json::json!({
+            "event": format!("sampling.{}", event_type),
+            "session": session,
+        });
+        if let serde_json::Value::Object(ref mut map) = metadata {
+            if let serde_json::Value::Object(d) = details {
+                for (k, v) in d {
+                    map.insert(k, v);
+                }
+            }
+        }
+        self.log_entry(&action, &verdict, metadata).await
+    }
+
     /// Check whether the audit log has a heartbeat gap — a period longer than
     /// `max_gap_secs` between consecutive entries (heartbeat or otherwise).
     ///
@@ -4445,5 +4669,209 @@ mod tests {
             "Failure message should mention size limit, got: {}",
             failure
         );
+    }
+
+    // =========================================================================
+    // Security Event Helper Tests (Phase 3.1)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_log_circuit_breaker_event_opened() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone());
+
+        logger
+            .log_circuit_breaker_event(
+                "opened",
+                "test_tool",
+                json!({
+                    "failure_count": 5,
+                    "threshold": 3,
+                }),
+            )
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        assert_eq!(entries.len(), 1);
+        let entry = &entries[0];
+        assert!(matches!(entry.verdict, Verdict::Allow));
+        let event = entry.metadata.get("event").and_then(|v| v.as_str()).unwrap();
+        assert_eq!(event, "circuit_breaker.opened");
+        assert_eq!(entry.metadata.get("tool").and_then(|v| v.as_str()).unwrap(), "test_tool");
+        assert_eq!(entry.metadata.get("failure_count").and_then(|v| v.as_u64()).unwrap(), 5);
+    }
+
+    #[tokio::test]
+    async fn test_log_circuit_breaker_event_rejected() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone());
+
+        logger
+            .log_circuit_breaker_event(
+                "rejected",
+                "failing_tool",
+                json!({ "reason": "too many failures" }),
+            )
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(&entries[0].verdict, Verdict::Deny { reason } if reason.contains("Circuit breaker open")));
+    }
+
+    #[tokio::test]
+    async fn test_log_deputy_event_validation_failed() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone());
+
+        logger
+            .log_deputy_event(
+                "validation_failed",
+                "session_123",
+                json!({
+                    "tool": "dangerous_tool",
+                    "principal": "untrusted_agent",
+                    "error": "No delegation found",
+                }),
+            )
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(&entries[0].verdict, Verdict::Deny { .. }));
+        let event = entries[0].metadata.get("event").and_then(|v| v.as_str()).unwrap();
+        assert_eq!(event, "deputy.validation_failed");
+    }
+
+    #[tokio::test]
+    async fn test_log_shadow_agent_event_detected() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone());
+
+        logger
+            .log_shadow_agent_event(
+                "detected",
+                "trusted_agent_id",
+                json!({
+                    "expected_fingerprint": "abc123",
+                    "actual_fingerprint": "xyz789",
+                    "severity": "high",
+                }),
+            )
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(&entries[0].verdict, Verdict::Deny { reason } if reason.contains("Shadow agent detected")));
+        let event = entries[0].metadata.get("event").and_then(|v| v.as_str()).unwrap();
+        assert_eq!(event, "shadow_agent.detected");
+    }
+
+    #[tokio::test]
+    async fn test_log_schema_event_poisoning_alert() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone());
+
+        logger
+            .log_schema_event(
+                "poisoning_alert",
+                "tool_with_mutated_schema",
+                json!({
+                    "changed_fields": ["input_schema", "description"],
+                    "previous_hash": "abc",
+                    "current_hash": "def",
+                }),
+            )
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(&entries[0].verdict, Verdict::Deny { .. }));
+        let event = entries[0].metadata.get("event").and_then(|v| v.as_str()).unwrap();
+        assert_eq!(event, "schema.poisoning_alert");
+    }
+
+    #[tokio::test]
+    async fn test_log_task_event_created() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone());
+
+        logger
+            .log_task_event(
+                "created",
+                "task_abc",
+                json!({
+                    "tool": "long_running_tool",
+                    "function": "process_data",
+                    "created_by": "user_123",
+                }),
+            )
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(entries[0].verdict, Verdict::Allow));
+        let event = entries[0].metadata.get("event").and_then(|v| v.as_str()).unwrap();
+        assert_eq!(event, "task.created");
+    }
+
+    #[tokio::test]
+    async fn test_log_auth_event_step_up_required() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone());
+
+        logger
+            .log_auth_event(
+                "step_up_required",
+                "session_xyz",
+                json!({
+                    "current_level": "Basic",
+                    "required_level": "OAuthMfa",
+                }),
+            )
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(&entries[0].verdict, Verdict::Deny { reason } if reason.contains("Step-up authentication")));
+    }
+
+    #[tokio::test]
+    async fn test_log_sampling_event_rate_limit_exceeded() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone());
+
+        logger
+            .log_sampling_event(
+                "rate_limit_exceeded",
+                "session_spam",
+                json!({
+                    "count": 100,
+                    "limit": 10,
+                }),
+            )
+            .await
+            .unwrap();
+
+        let entries = logger.load_entries().await.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(&entries[0].verdict, Verdict::Deny { .. }));
+        let event = entries[0].metadata.get("event").and_then(|v| v.as_str()).unwrap();
+        assert_eq!(event, "sampling.rate_limit_exceeded");
     }
 }

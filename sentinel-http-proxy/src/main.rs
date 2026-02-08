@@ -403,6 +403,15 @@ async fn main() -> Result<()> {
             .ok()
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false),
+
+        // Phase 3.1 Security Managers - disabled by default in HTTP proxy
+        // These are initialized via sentinel-server when running in server mode
+        circuit_breaker: None,
+        shadow_agent: None,
+        deputy: None,
+        schema_lineage: None,
+        auth_level: None,
+        sampling_detector: None,
     };
 
     if state.canonicalize {

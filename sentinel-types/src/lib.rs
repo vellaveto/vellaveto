@@ -392,6 +392,7 @@ impl SchemaRecord {
 /// Tracks the delegation chain to prevent unauthorized tool access
 /// via confused deputy attacks (OWASP ASI02).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default)]
 pub struct PrincipalContext {
     /// The original principal that initiated the request.
     pub original_principal: String,
@@ -408,17 +409,6 @@ pub struct PrincipalContext {
     pub delegation_expires: Option<u64>,
 }
 
-impl Default for PrincipalContext {
-    fn default() -> Self {
-        Self {
-            original_principal: String::new(),
-            delegated_to: None,
-            delegation_depth: 0,
-            allowed_tools: Vec::new(),
-            delegation_expires: None,
-        }
-    }
-}
 
 impl PrincipalContext {
     /// Create a new context for a direct (non-delegated) principal.
@@ -439,7 +429,7 @@ impl PrincipalContext {
 
     /// Returns true if the delegation has expired.
     pub fn is_expired(&self, now: u64) -> bool {
-        self.delegation_expires.map_or(false, |exp| now >= exp)
+        self.delegation_expires.is_some_and(|exp| now >= exp)
     }
 }
 
