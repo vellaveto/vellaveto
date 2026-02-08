@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Phase 3.1: Runtime Integration for Security Managers
+- **Admin API endpoints** for all Phase 1 & 2 security managers:
+  - Circuit breaker: `GET/POST /api/circuit-breaker/*` (list, stats, get state, reset)
+  - Shadow agent: `GET/POST/PUT/DELETE /api/shadow-agents/*` (list, register, update trust)
+  - Schema lineage: `GET/PUT/DELETE /api/schema-lineage/*` (list, get, reset trust, remove)
+  - Task state: `GET/POST /api/tasks/*` (list, stats, get, cancel)
+  - Auth level: `GET/POST/DELETE /api/auth-levels/*` (get, upgrade, clear)
+  - Sampling detection: `GET/POST /api/sampling/*` (stats, reset)
+  - Deputy validation: `GET/POST/DELETE /api/deputy/delegations/*` (list, register, remove)
+- **Audit event helpers** for security events:
+  - `log_circuit_breaker_event` - tracks open/closed/half-open/rejected states
+  - `log_deputy_event` - tracks delegation and validation failures
+  - `log_shadow_agent_event` - tracks agent impersonation detection
+  - `log_schema_event` - tracks schema poisoning alerts
+  - `log_task_event` - tracks async task lifecycle
+  - `log_auth_event` - tracks step-up authentication
+  - `log_sampling_event` - tracks sampling request denials
+- **HTTP proxy integration** with circuit breaker check before forwarding tool calls
+- Security managers integrated into ProxyBridge and AppState for runtime enforcement
+
+#### Phase 2: Advanced Threat Detection (OWASP ASI Top 10)
+- **Circuit Breaker** (ASI08) — Cascading failure prevention with configurable thresholds
+- **Confused Deputy Prevention** (ASI02) — Delegation chain validation with depth limits
+- **Shadow Agent Detection** — Agent fingerprinting and impersonation alerts
+- **Schema Poisoning Detection** (ASI05) — Schema lineage tracking with mutation thresholds
+- **Sampling Attack Detection** — Rate limiting and content inspection for sampling requests
+
+#### Phase 1: MCP 2025-11-25 Compliance
+- **Async Tasks Security** — Task state manager with lifecycle tracking
+- **OAuth Resource Indicators** — RFC 8707 parsing and validation
+- **CIMD** — Capability-indexed message dispatch routing
+- **Step-Up Authentication** — Auth level tracking with upgrade flow
+
 ### Security
 - Fix timing side-channel in CORS origin validation (R33-001) - origin matching now checks all configured origins to prevent timing-based enumeration
 

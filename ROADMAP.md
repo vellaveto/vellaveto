@@ -37,9 +37,11 @@ Sentinel v1.0.0 is production-ready with 33 audit rounds and 3,167 tests. This r
 
 ---
 
-## Phase 1: MCP 2025-11-25 Compliance (Weeks 1-4)
+## Phase 1: MCP 2025-11-25 Compliance (Weeks 1-4) ✅ COMPLETE
 
 *Focus: Protocol updates for Async Tasks, Resource Indicators, CIMD*
+
+> **Status:** Implemented in commit `fad480c`. All deliverables complete.
 
 ### 1.1 Async Tasks Security
 
@@ -102,19 +104,21 @@ MCP 2025-11-25 defines step-up auth for sensitive operations.
 | Integrate with human-in-the-loop approvals | P1 | 2 days | Challenge flow |
 
 ### Phase 1 Deliverables
-- [ ] Async task policy enforcement
-- [ ] OAuth resource indicator validation
-- [ ] CIMD capability-based routing
-- [ ] Step-up authentication flow
+- [x] Async task policy enforcement
+- [x] OAuth resource indicator validation
+- [x] CIMD capability-based routing
+- [x] Step-up authentication flow
 
 **Estimated Duration:** 4 weeks
-**Risk:** Protocol spec may evolve; design for extensibility
+**Completed:** 2026-02-07
 
 ---
 
-## Phase 2: Advanced Threat Detection (Weeks 5-8)
+## Phase 2: Advanced Threat Detection (Weeks 5-8) ✅ COMPLETE
 
 *Focus: Close gaps identified in CoSAI whitepaper and OWASP ASI Top 10*
+
+> **Status:** Implemented in commit `e4deb2d`. All deliverables complete.
 
 ### 2.1 Shadow Agent Discovery (ASI02)
 
@@ -198,18 +202,43 @@ Strengthen agent identity and authorization checks.
 | Add confused deputy test suite | P1 | 2 days | All above |
 
 ### Phase 2 Deliverables
-- [ ] Shadow agent detection and alerting
-- [ ] Full schema poisoning detection
-- [ ] Circuit breaker with cascade protection
-- [ ] Sampling attack detection
-- [ ] Confused deputy prevention
+- [x] Shadow agent detection and alerting
+- [x] Full schema poisoning detection
+- [x] Circuit breaker with cascade protection
+- [x] Sampling attack detection
+- [x] Confused deputy prevention
 
 **Estimated Duration:** 4 weeks
-**Risk:** False positive tuning required for anomaly detection
+**Completed:** 2026-02-07
 
 ---
 
-## Phase 3: Standards Alignment (Weeks 9-12)
+## Phase 3.1: Runtime Integration (Week 9) ✅ COMPLETE
+
+*Focus: Wire Phase 1 & 2 security modules into runtime enforcement*
+
+> **Status:** Implemented in commits `05364be` and `7a3c52d`. All deliverables complete.
+
+### 3.1.1 Completed Tasks
+- [x] ProxyBridge manager integration (circuit breaker, shadow agent, deputy, schema lineage, auth level, sampling detector)
+- [x] Enforcement calls at request evaluation points
+- [x] AppState manager fields for sentinel-server
+- [x] Admin API endpoints (25+ routes for security manager management)
+- [x] Audit event generation helpers (7 event types with comprehensive tests)
+- [x] HTTP proxy integration with circuit breaker check
+
+### 3.1.2 Files Modified
+- `sentinel-mcp/src/proxy/bridge.rs` — Manager fields and enforcement
+- `sentinel-server/src/lib.rs` — AppState integration
+- `sentinel-server/src/routes.rs` — Admin API endpoints
+- `sentinel-audit/src/lib.rs` — Security event helpers
+- `sentinel-http-proxy/src/proxy.rs` — HTTP proxy integration
+
+**Completed:** 2026-02-08
+
+---
+
+## Phase 3.2: Standards Alignment (Weeks 10-12)
 
 *Focus: MITRE ATLAS, OWASP AIVSS, NIST alignment*
 
@@ -510,15 +539,15 @@ The following research agents provided input for this roadmap:
 | ID | Threat | Sentinel Coverage |
 |----|--------|-------------------|
 | ASI01 | Prompt Injection | ✅ Injection detection (v1.0) |
-| ASI02 | Sensitive Data Disclosure | ✅ DLP scanning (v1.0) |
+| ASI02 | Sensitive Data Disclosure | ✅ DLP scanning (v1.0), Deputy validation (Phase 2) |
 | ASI03 | Inadequate Sandboxing | ⚠️ Path/network rules (partial) |
 | ASI04 | Privilege Escalation | ✅ RBAC, approval flow (v1.0) |
-| ASI05 | Confused Deputy | 🔲 Phase 2 (confused deputy prevention) |
+| ASI05 | Confused Deputy | ✅ Deputy validation with delegation chains (Phase 2) |
 | ASI06 | Excessive Agency | ✅ Policy engine (v1.0) |
-| ASI07 | Insecure Plugins | ✅ Rug-pull detection (v1.0) |
-| ASI08 | Cascading Failures | 🔲 Phase 2 (circuit breaker) |
+| ASI07 | Insecure Plugins | ✅ Rug-pull detection (v1.0), Schema poisoning (Phase 2) |
+| ASI08 | Cascading Failures | ✅ Circuit breaker with failure budget (Phase 2) |
 | ASI09 | Over-reliance on Agent | ⚠️ Human-in-the-loop (partial) |
-| ASI10 | Inadequate Monitoring | ✅ Audit logging (v1.0) |
+| ASI10 | Inadequate Monitoring | ✅ Audit logging (v1.0), Security event helpers (Phase 3.1) |
 
 ---
 
