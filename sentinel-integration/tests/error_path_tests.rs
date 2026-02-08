@@ -69,6 +69,7 @@ fn make_test_state(tmp: &TempDir) -> AppState {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     }
 }
 

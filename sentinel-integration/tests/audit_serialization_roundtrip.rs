@@ -21,6 +21,7 @@ fn make_entry(verdict: Verdict, metadata: serde_json::Value) -> AuditEntry {
         verdict,
         timestamp: "2025-01-01T00:00:00+00:00".to_string(),
         metadata,
+        sequence: 0,
         entry_hash: None,
         prev_hash: None,
     }

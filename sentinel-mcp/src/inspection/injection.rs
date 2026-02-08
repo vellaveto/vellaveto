@@ -289,7 +289,9 @@ impl InjectionScanner {
         matches: &mut Vec<&'a str>,
         depth: usize,
     ) {
-        const MAX_DEPTH: usize = 10;
+        // SECURITY (R33-004): Increased from 10 to 32 to detect payloads hidden in
+        // deeply nested JSON structures. Stack usage is O(depth) but 32 levels is safe.
+        const MAX_DEPTH: usize = 32;
         if depth > MAX_DEPTH {
             return;
         }
@@ -542,7 +544,9 @@ fn scan_json_value_for_injection(
     matches: &mut Vec<&'static str>,
     depth: usize,
 ) {
-    const MAX_DEPTH: usize = 10;
+    // SECURITY (R33-004): Increased from 10 to 32 to detect payloads hidden in
+    // deeply nested JSON structures. Stack usage is O(depth) but 32 levels is safe.
+    const MAX_DEPTH: usize = 32;
     if depth > MAX_DEPTH {
         return;
     }

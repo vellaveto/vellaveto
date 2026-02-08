@@ -125,9 +125,9 @@ impl SchemaLineageTracker {
 
     /// Calculate similarity between two schemas (0.0-1.0).
     ///
-    /// This is a simple field-based comparison. More sophisticated
-    /// semantic comparison could be added later.
-    #[allow(dead_code)] // Reserved for future full schema comparison
+    /// Uses Jaccard similarity on character trigrams for a balance between
+    /// accuracy and performance. More sophisticated semantic comparison
+    /// could be added later.
     fn calculate_similarity(old_schema: &Value, new_schema: &Value) -> f32 {
         // Simple approach: compare JSON structure
         let old_str = serde_json::to_string(old_schema).unwrap_or_default();
@@ -158,7 +158,11 @@ impl SchemaLineageTracker {
     }
 
     /// Detect changed fields between schemas.
-    #[allow(dead_code)] // Reserved for future detailed change detection
+    ///
+    /// Returns a list of changes with prefixes:
+    /// - `+field` for added fields
+    /// - `-field` for removed fields
+    /// - `~field` for modified fields
     fn detect_changes(old_schema: &Value, new_schema: &Value) -> Vec<String> {
         let mut changes = Vec::new();
 
@@ -187,6 +191,9 @@ impl SchemaLineageTracker {
     ///
     /// Returns the observation result indicating whether this is new,
     /// unchanged, or changed.
+    ///
+    /// SECURITY (R33-006): When schema content is available, uses actual
+    /// field-level comparison instead of heuristics for accurate detection.
     pub fn observe_schema(&self, tool: &str, schema: &Value) -> ObservationResult {
         let now = Self::now();
         let hash = Self::hash_schema(schema);
@@ -201,25 +208,35 @@ impl SchemaLineageTracker {
                 return ObservationResult::Unchanged;
             }
 
-            // Schema changed - check severity
-            // We need to store the old schema to calculate similarity
-            // For now, we'll use a simplified approach based on hash history
-            let similarity = if record.version_history.is_empty() {
-                0.5 // Unknown similarity for first change
+            // SECURITY (R33-006): Use actual schema comparison when available
+            let (similarity, changed_fields) = if let Some(ref old_schema) = record.schema_content {
+                let sim = Self::calculate_similarity(old_schema, schema);
+                let changes = Self::detect_changes(old_schema, schema);
+                (sim, changes)
             } else {
-                // Rough estimate based on version count
-                1.0 - (1.0 / (record.version_count() as f32 + 1.0))
+                // Fall back to heuristic when schema content not available
+                let sim = if record.version_history.is_empty() {
+                    0.5 // Unknown similarity for first change
+                } else {
+                    // Rough estimate based on version count
+                    1.0 - (1.0 / (record.version_count() as f32 + 1.0))
+                };
+                (sim, Vec::new())
             };
 
-            let changed_fields = Vec::new(); // Would need old schema to compute
-
-            // Update record
+            // Update record with new schema
             let old_hash = record.schema_hash.clone();
             if record.version_history.len() < 10 {
                 record.version_history.push(old_hash.clone());
             }
             record.schema_hash = hash.clone();
             record.last_seen = now;
+
+            // SECURITY (R33-006): Store new schema content if under size limit
+            let schema_str = serde_json::to_string(schema).unwrap_or_default();
+            if schema_str.len() <= SchemaRecord::MAX_SCHEMA_SIZE {
+                record.schema_content = Some(schema.clone());
+            }
 
             // Decay trust on change
             record.trust_score = (record.trust_score * 0.5).max(0.0);
@@ -244,7 +261,11 @@ impl SchemaLineageTracker {
                 self.evict_oldest_internal(&mut schemas);
             }
 
-            schemas.insert(tool.to_string(), SchemaRecord::new(tool, hash, now));
+            // SECURITY (R33-006): Store schema content for future comparisons
+            schemas.insert(
+                tool.to_string(),
+                SchemaRecord::new_with_content(tool, hash, schema, now),
+            );
 
             tracing::debug!(
                 tool = %tool,

@@ -213,6 +213,7 @@ mod tests {
             verdict,
             timestamp: "2026-02-04T12:00:00Z".to_string(),
             metadata: serde_json::json!({"source": "test"}),
+            sequence: 0,
             entry_hash: Some("abc123".to_string()),
             prev_hash: None,
         }

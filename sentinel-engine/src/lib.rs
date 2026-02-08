@@ -639,9 +639,12 @@ impl PolicyEngine {
 
         // Check total length (max 253 for a fully qualified domain name)
         if domain.len() > 253 {
+            // SECURITY (R33-003): Use safe truncation to avoid panics on UTF-8 boundaries.
+            // Even though domains should be ASCII, malformed inputs could contain multi-byte chars.
+            let truncated: String = domain.chars().take(40).collect();
             return Err(format!(
                 "Domain '{}' exceeds maximum length of 253 characters ({} chars)",
-                &domain[..40],
+                truncated,
                 domain.len()
             ));
         }
@@ -655,9 +658,11 @@ impl PolicyEngine {
                 ));
             }
             if label.len() > 63 {
+                // SECURITY (R33-003): Use safe truncation to avoid panics on UTF-8 boundaries.
+                let truncated: String = label.chars().take(20).collect();
                 return Err(format!(
                     "Label '{}...' in domain '{}' exceeds maximum length of 63 characters",
-                    &label[..20],
+                    truncated,
                     pattern
                 ));
             }

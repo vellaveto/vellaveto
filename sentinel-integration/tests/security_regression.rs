@@ -386,6 +386,7 @@ mod server_auth {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
         };
         (state, tmp)
     }
@@ -517,6 +518,7 @@ mod server_auth {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
         };
         let app = routes::build_router(state);
 
@@ -1115,6 +1117,7 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
 
     let app = routes::build_router(state);
@@ -1212,6 +1215,7 @@ async fn finding_12_approval_creation_failure_denies_request() {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
 
     let app = routes::build_router(state);

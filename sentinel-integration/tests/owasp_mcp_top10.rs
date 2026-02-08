@@ -900,6 +900,7 @@ mod owasp_mcp07_auth {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
         };
         (state, tmp)
     }
@@ -1303,6 +1304,7 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
         };
 
         let app = routes::build_router(state);
@@ -1557,6 +1559,7 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1647,6 +1650,7 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

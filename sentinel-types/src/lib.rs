@@ -360,9 +360,18 @@ pub struct SchemaRecord {
     pub version_history: Vec<String>,
     /// Trust score based on schema stability (0.0-1.0).
     pub trust_score: f32,
+    /// SECURITY (R33-006): Actual schema content for field-level diff detection.
+    /// Only stored if schema is under 64KB to prevent memory exhaustion.
+    /// Enables real similarity calculation instead of heuristics.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_content: Option<serde_json::Value>,
 }
 
 impl SchemaRecord {
+    /// Maximum schema size to store in memory (64 KB).
+    /// Larger schemas fall back to hash-only comparison.
+    pub const MAX_SCHEMA_SIZE: usize = 64 * 1024;
+
     /// Create a new schema record with initial observation.
     pub fn new(tool_name: impl Into<String>, schema_hash: impl Into<String>, now: u64) -> Self {
         Self {
@@ -372,6 +381,30 @@ impl SchemaRecord {
             last_seen: now,
             version_history: Vec::new(),
             trust_score: 0.0, // Start with no trust
+            schema_content: None,
+        }
+    }
+
+    /// Create a new schema record with content stored (if under size limit).
+    pub fn new_with_content(
+        tool_name: impl Into<String>,
+        schema_hash: impl Into<String>,
+        schema: &serde_json::Value,
+        now: u64,
+    ) -> Self {
+        let content = serde_json::to_string(schema)
+            .ok()
+            .filter(|s| s.len() <= Self::MAX_SCHEMA_SIZE)
+            .map(|_| schema.clone());
+
+        Self {
+            tool_name: tool_name.into(),
+            schema_hash: schema_hash.into(),
+            first_seen: now,
+            last_seen: now,
+            version_history: Vec::new(),
+            trust_score: 0.0,
+            schema_content: content,
         }
     }
 
@@ -2085,10 +2118,30 @@ mod tests {
             last_seen: 2000,
             version_history: vec!["hash0".to_string(), "hash1".to_string()],
             trust_score: 0.75,
+            schema_content: Some(serde_json::json!({"type": "object"})),
         };
         let json_str = serde_json::to_string(&record).unwrap();
         let deserialized: SchemaRecord = serde_json::from_str(&json_str).unwrap();
         assert_eq!(record, deserialized);
+    }
+
+    #[test]
+    fn test_schema_record_new_with_content() {
+        let schema = serde_json::json!({"type": "object", "properties": {"name": {"type": "string"}}});
+        let record = SchemaRecord::new_with_content("test_tool", "hash123", &schema, 1000);
+        assert_eq!(record.tool_name, "test_tool");
+        assert_eq!(record.schema_hash, "hash123");
+        assert_eq!(record.schema_content, Some(schema));
+    }
+
+    #[test]
+    fn test_schema_record_large_schema_not_stored() {
+        // Create a schema larger than MAX_SCHEMA_SIZE
+        let large_value = "x".repeat(SchemaRecord::MAX_SCHEMA_SIZE + 1000);
+        let schema = serde_json::json!({"data": large_value});
+        let record = SchemaRecord::new_with_content("test_tool", "hash123", &schema, 1000);
+        // Schema content should be None because it's too large
+        assert!(record.schema_content.is_none());
     }
 
     #[test]

@@ -1040,6 +1040,7 @@ fn attack_audit_cef_pipe_injection() {
         },
         timestamp: "2026-02-04T00:00:00Z".to_string(),
         metadata: json!({}),
+        sequence: 0,
         entry_hash: None,
         prev_hash: None,
     };
@@ -1077,6 +1078,7 @@ fn attack_audit_cef_equals_injection() {
         },
         timestamp: "2026-02-04T00:00:00Z".to_string(),
         metadata: json!({}),
+        sequence: 0,
         entry_hash: None,
         prev_hash: None,
     };
@@ -1388,6 +1390,7 @@ fn attack_r9_3_pii_bypass_numeric_credit_card() {
         verdict: Verdict::Allow,
         timestamp: "2026-02-04T00:00:00Z".to_string(),
         metadata: json!({}),
+        sequence: 0,
         entry_hash: None,
         prev_hash: None,
     };

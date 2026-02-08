@@ -1472,6 +1472,7 @@ mod tests {
                 reason: "blocked path".to_string(),
             },
             metadata: Default::default(),
+            sequence: 0,
             entry_hash: None,
             prev_hash: None,
         };
@@ -1514,6 +1515,7 @@ mod tests {
             },
             verdict: Verdict::Allow,
             metadata: Default::default(),
+            sequence: 0,
             entry_hash: None,
             prev_hash: None,
         };

@@ -567,7 +567,9 @@ impl SemanticScanner {
         depth: usize,
         max_result: &mut SemanticScore,
     ) {
-        const MAX_DEPTH: usize = 10;
+        // SECURITY (R33-004): Increased from 10 to 32 to detect semantic injection
+        // payloads hidden in deeply nested JSON structures.
+        const MAX_DEPTH: usize = 32;
         if depth > MAX_DEPTH {
             return;
         }

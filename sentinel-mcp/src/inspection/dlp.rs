@@ -117,7 +117,9 @@ pub fn scan_parameters_for_secrets(parameters: &serde_json::Value) -> Vec<DlpFin
 }
 
 /// Maximum recursion depth for DLP parameter scanning to prevent stack overflow.
-const DLP_MAX_DEPTH: usize = 10;
+/// SECURITY (R33-004): Increased from 10 to 32 to detect secrets hidden in
+/// deeply nested JSON structures. Stack usage is O(depth) but 32 levels is safe.
+const DLP_MAX_DEPTH: usize = 32;
 
 fn scan_value_for_secrets(
     value: &serde_json::Value,
@@ -309,6 +311,62 @@ fn scan_string_for_secrets(
                 &mut matched_patterns,
                 findings,
             );
+        }
+    }
+
+    // SECURITY (R33-005): Layers 6-8 add triple-encoding detection.
+    // Attackers may use triple encoding to evade double-layer detection.
+
+    // Layer 6: base64(base64(raw)) — double base64 encoding
+    if let Some(ref b64) = base64_decoded {
+        if start.elapsed() >= DLP_DECODE_BUDGET {
+            return;
+        }
+        if let Some(ref decoded) = try_base64_decode(b64) {
+            scan_decoded_layer(
+                decoded,
+                path,
+                "(base64+base64)",
+                regexes,
+                &mut matched_patterns,
+                findings,
+            );
+        }
+    }
+
+    // Layer 7: percent(percent(raw)) — double URL encoding
+    if let Some(ref pct) = percent_decoded {
+        if start.elapsed() >= DLP_DECODE_BUDGET {
+            return;
+        }
+        if let Some(ref decoded) = try_percent_decode(pct) {
+            scan_decoded_layer(
+                decoded,
+                path,
+                "(url_encoded+url_encoded)",
+                regexes,
+                &mut matched_patterns,
+                findings,
+            );
+        }
+    }
+
+    // Layer 8: base64(percent(base64(raw))) — triple mixed encoding
+    if let Some(ref b64) = base64_decoded {
+        if start.elapsed() >= DLP_DECODE_BUDGET {
+            return;
+        }
+        if let Some(ref pct) = try_percent_decode(b64) {
+            if let Some(ref decoded) = try_base64_decode(pct) {
+                scan_decoded_layer(
+                    decoded,
+                    path,
+                    "(base64+url_encoded+base64)",
+                    regexes,
+                    &mut matched_patterns,
+                    findings,
+                );
+            }
         }
     }
 }

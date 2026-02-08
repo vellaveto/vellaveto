@@ -41,6 +41,11 @@ pub struct AuditEntry {
     pub verdict: Verdict,
     pub timestamp: String,
     pub metadata: serde_json::Value,
+    /// Monotonic sequence number within this audit log file.
+    /// SECURITY (R33-001): Prevents hash collision under high load even if
+    /// timestamps collide. Combined with UUID id, ensures unique hash inputs.
+    #[serde(default)]
+    pub sequence: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -572,6 +577,12 @@ impl AuditLogger {
     /// oversized checkpoint files.
     const MAX_CHECKPOINT_FILE_SIZE: u64 = 10 * 1024 * 1024;
 
+    /// Maximum checkpoint line size (64 KB). Prevents memory exhaustion from
+    /// maliciously crafted checkpoint files with extremely long lines.
+    /// SECURITY (R33-002): A valid checkpoint line should be well under 4 KB,
+    /// so 64 KB is generous while still preventing abuse.
+    const MAX_CHECKPOINT_LINE_SIZE: usize = 64 * 1024;
+
     /// Load all checkpoints from the checkpoint file.
     pub async fn load_checkpoints(&self) -> Result<Vec<Checkpoint>, AuditError> {
         let cp_path = self.checkpoint_path();
@@ -598,8 +609,19 @@ impl AuditLogger {
         };
 
         let mut checkpoints = Vec::new();
-        for line in content.lines() {
+        for (line_num, line) in content.lines().enumerate() {
             if line.trim().is_empty() {
+                continue;
+            }
+            // SECURITY (R33-002): Reject oversized lines to prevent memory exhaustion.
+            // A valid checkpoint line should be well under 4 KB.
+            if line.len() > Self::MAX_CHECKPOINT_LINE_SIZE {
+                tracing::warn!(
+                    line_num = line_num + 1,
+                    line_len = line.len(),
+                    max_len = Self::MAX_CHECKPOINT_LINE_SIZE,
+                    "Skipping oversized checkpoint line"
+                );
                 continue;
             }
             match serde_json::from_str::<Checkpoint>(line) {
@@ -1702,10 +1724,13 @@ impl AuditLogger {
 
     /// Compute the SHA-256 hash of an entry's content.
     ///
-    /// Hash = SHA-256(id || action_json || verdict_json || timestamp || metadata_json || prev_hash)
+    /// Hash = SHA-256(id || sequence || action_json || verdict_json || timestamp || metadata_json || prev_hash)
     ///
     /// Uses RFC 8785 (JSON Canonicalization Scheme) for deterministic JSON serialization.
     /// This ensures hash stability across serde_json versions and key insertion orders.
+    ///
+    /// SECURITY (R33-001): The sequence number is included in the hash to prevent
+    /// collision attacks under high load where timestamps might be identical.
     fn compute_entry_hash(entry: &AuditEntry) -> Result<String, AuditError> {
         let action_json = Self::canonical_json(&entry.action)?;
         let verdict_json = Self::canonical_json(&entry.verdict)?;
@@ -1716,6 +1741,9 @@ impl AuditLogger {
         // Length-prefix each field with u64 little-endian to prevent
         // boundary-shift collisions (e.g., id="ab",action="cd" vs id="abc",action="d")
         Self::hash_field(&mut hasher, entry.id.as_bytes());
+        // SECURITY (R33-001): Include monotonic sequence number to ensure uniqueness
+        // even if two entries have identical timestamps under high load.
+        hasher.update(entry.sequence.to_le_bytes());
         Self::hash_field(&mut hasher, &action_json);
         Self::hash_field(&mut hasher, &verdict_json);
         Self::hash_field(&mut hasher, entry.timestamp.as_bytes());
@@ -1878,12 +1906,18 @@ impl AuditLogger {
             self.entry_count.store(0, Ordering::Relaxed); // Reset counter for new file
         }
 
+        // SECURITY (R33-001): Assign monotonic sequence number BEFORE creating entry.
+        // This ensures the sequence is included in the hash, preventing collision
+        // attacks where two entries might have identical timestamps under high load.
+        let sequence = self.entry_count.load(Ordering::Relaxed);
+
         let mut entry = AuditEntry {
             id: Uuid::new_v4().to_string(),
             action: logged_action,
             verdict: logged_verdict,
             timestamp: Utc::now().to_rfc3339(),
             metadata: logged_metadata,
+            sequence,
             entry_hash: None,
             prev_hash: last_hash_guard.clone(),
         };
@@ -1952,6 +1986,12 @@ impl AuditLogger {
     /// and then triggers `verify_chain()` to OOM the server.
     const MAX_AUDIT_LOG_SIZE: u64 = 100 * 1024 * 1024;
 
+    /// Maximum audit log line size (1 MB). Prevents memory exhaustion from
+    /// maliciously crafted audit files with extremely long lines.
+    /// SECURITY (R33-002): A valid audit entry should be under 100 KB (including
+    /// large metadata), so 1 MB is generous while still preventing abuse.
+    const MAX_AUDIT_LINE_SIZE: usize = 1024 * 1024;
+
     /// Load all entries from the audit log.
     ///
     /// Corrupt or malformed lines are skipped with a warning rather than
@@ -1985,6 +2025,18 @@ impl AuditLogger {
         let mut skipped = 0usize;
         for (line_num, line) in content.lines().enumerate() {
             if line.trim().is_empty() {
+                continue;
+            }
+            // SECURITY (R33-002): Reject oversized lines to prevent memory exhaustion.
+            if line.len() > Self::MAX_AUDIT_LINE_SIZE {
+                skipped += 1;
+                tracing::warn!(
+                    line_num = line_num + 1,
+                    line_len = line.len(),
+                    max_len = Self::MAX_AUDIT_LINE_SIZE,
+                    "Skipping oversized audit line in {:?}",
+                    self.log_path
+                );
                 continue;
             }
             match serde_json::from_str::<AuditEntry>(line) {
@@ -2578,6 +2630,7 @@ mod tests {
             verdict: Verdict::Allow,
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             metadata: json!({}),
+            sequence: 0,
             entry_hash: None,
             prev_hash: None,
         };
@@ -2588,6 +2641,7 @@ mod tests {
             verdict: Verdict::Allow,
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             metadata: json!({}),
+            sequence: 0,
             entry_hash: None,
             prev_hash: None,
         };
@@ -2621,6 +2675,7 @@ mod tests {
             verdict: Verdict::Allow,
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             metadata: metadata_a,
+            sequence: 0,
             entry_hash: None,
             prev_hash: None,
         };
@@ -2635,6 +2690,7 @@ mod tests {
             verdict: Verdict::Allow,
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             metadata: metadata_b,
+            sequence: 0,
             entry_hash: None,
             prev_hash: None,
         };
