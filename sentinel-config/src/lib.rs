@@ -1152,7 +1152,7 @@ impl Default for StepUpAuthConfig {
 /// enforcement = "warn"
 /// auto_pin = false
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct EtdiConfig {
     /// Enable ETDI signature verification. Default: false.
     #[serde(default)]
@@ -1185,19 +1185,6 @@ pub struct EtdiConfig {
     pub version_pinning: VersionPinningConfig,
 }
 
-impl Default for EtdiConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            require_signatures: false,
-            signature_algorithm: SignatureAlgorithm::default(),
-            data_path: None,
-            allowed_signers: AllowedSignersConfig::default(),
-            attestation: AttestationConfig::default(),
-            version_pinning: VersionPinningConfig::default(),
-        }
-    }
-}
 
 /// Configuration for trusted tool signers.
 ///
@@ -1261,6 +1248,7 @@ pub struct VersionPinningConfig {
     /// Enforcement mode for version drift.
     /// - "warn": Log warnings but allow the tool to be used.
     /// - "block": Block tools that don't match their pinned version/hash.
+    ///
     /// Default: "warn".
     #[serde(default = "default_version_enforcement")]
     pub enforcement: String,

@@ -601,11 +601,7 @@ fn is_valid_domain_pattern(pattern: &str) -> bool {
     }
 
     // Allow wildcard prefix
-    let check_pattern = if pattern.starts_with("*.") {
-        &pattern[2..]
-    } else {
-        pattern
-    };
+    let check_pattern = pattern.strip_prefix("*.").unwrap_or(pattern);
 
     // Basic domain validation
     if check_pattern.is_empty() {
@@ -652,12 +648,12 @@ fn glob_matches(pattern: &str, path: &str) -> bool {
         return true;
     }
 
-    if pattern.starts_with("**/") {
-        return path.contains(&pattern[3..]);
+    if let Some(suffix) = pattern.strip_prefix("**/") {
+        return path.contains(suffix);
     }
 
-    if pattern.ends_with("/**") {
-        return path.starts_with(&pattern[..pattern.len() - 3]);
+    if let Some(prefix) = pattern.strip_suffix("/**") {
+        return path.starts_with(prefix);
     }
 
     pattern == path
