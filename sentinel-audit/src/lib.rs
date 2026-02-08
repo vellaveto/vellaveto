@@ -1,5 +1,6 @@
 pub mod export;
 pub mod pii;
+pub mod streaming;
 
 use chrono::Utc;
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
