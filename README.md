@@ -13,7 +13,7 @@
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
     <img src="https://img.shields.io/badge/tests-3%2C167_passing-brightgreen.svg" alt="Tests: 3,167 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
-    <img src="https://img.shields.io/badge/security_audit-32_rounds%2C_380%2B_findings-informational.svg" alt="Security Audit: 32 rounds, 380+ findings">
+    <img src="https://img.shields.io/badge/security_audit-33_rounds%2C_380%2B_findings-informational.svg" alt="Security Audit: 33 rounds, 380+ findings">
     <a href="https://modelcontextprotocol.io/specification/2025-06-18"><img src="https://img.shields.io/badge/MCP-2025--06--18-blueviolet.svg" alt="MCP 2025-06-18"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
   </p>
@@ -681,11 +681,11 @@ Environment variables override values set in the config file.
 
 ### 🔬 Security Audit
 
-Sentinel has undergone 32 rounds of adversarial security audit covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/).
+Sentinel has undergone 33 rounds of adversarial security audit covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/).
 
 | Metric | Value |
 |--------|-------|
-| Audit rounds completed | 32 |
+| Audit rounds completed | 33 |
 | Attack classes tested | 31+ |
 | Total findings triaged | 380+ |
 | Findings fixed | 300+ |
