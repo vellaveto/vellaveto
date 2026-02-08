@@ -80,6 +80,8 @@ fn test_state_with_rbac(rbac_config: RbacConfig) -> (AppState, TempDir) {
         tool_registry: None,
         cluster: None,
         rbac_config,
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
     };
     (state, tmp)
 }

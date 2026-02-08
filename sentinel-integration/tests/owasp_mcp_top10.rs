@@ -890,6 +890,8 @@ mod owasp_mcp07_auth {
             tool_registry: None,
             cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
         };
         (state, tmp)
     }
@@ -1283,6 +1285,8 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
             tool_registry: None,
             cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
         };
 
         let app = routes::build_router(state);
@@ -1527,6 +1531,8 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
         tool_registry: None,
         cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1607,6 +1613,8 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
         tool_registry: None,
         cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

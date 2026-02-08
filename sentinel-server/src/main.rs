@@ -576,6 +576,10 @@ async fn cmd_serve(
         // RBAC configuration (Phase 2) — default: disabled, all requests get Admin
         // To enable: set rbac.enabled = true in config and optionally configure JWT
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        // Tenant configuration (Phase 3) — default: disabled, single-tenant mode
+        // To enable: set tenant.enabled = true in config
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
     };
 
     tracing::info!("Audit log: {}", audit_path.display());

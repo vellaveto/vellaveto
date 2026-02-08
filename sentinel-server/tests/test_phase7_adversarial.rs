@@ -55,6 +55,8 @@ fn state_with_api_key(tmp: &TempDir) -> AppState {
         tool_registry: None,
         cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
     }
 }
 
@@ -273,6 +275,8 @@ async fn regression_38_prometheus_metrics_rate_limited() {
         tool_registry: None,
         cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
     };
 
     // First request should succeed

@@ -507,6 +507,12 @@ pub struct AppState {
     /// RBAC configuration for role-based access control (Phase 2).
     /// When enabled, endpoints are protected by role-based permissions.
     pub rbac_config: rbac::RbacConfig,
+    /// Tenant configuration for multi-tenancy support (Phase 3).
+    /// When enabled, requests are scoped to a tenant.
+    pub tenant_config: tenant::TenantConfig,
+    /// Tenant store for looking up tenant details and quotas.
+    /// None means no tenant validation (config + default tenant only).
+    pub tenant_store: Option<Arc<dyn tenant::TenantStore>>,
 }
 
 /// Error type for cluster-dispatched approval operations.

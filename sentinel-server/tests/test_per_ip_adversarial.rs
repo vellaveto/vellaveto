@@ -56,6 +56,8 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         tool_registry: None,
         cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
     };
     (state, tmp)
 }
@@ -395,6 +397,8 @@ async fn regression_24_error_message_does_not_leak_architecture() {
         tool_registry: None,
         cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

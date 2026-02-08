@@ -376,6 +376,8 @@ mod server_auth {
             tool_registry: None,
             cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
         };
         (state, tmp)
     }
@@ -497,6 +499,8 @@ mod server_auth {
             tool_registry: None,
             cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
         };
         let app = routes::build_router(state);
 
@@ -1085,6 +1089,8 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         tool_registry: None,
         cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
     };
 
     let app = routes::build_router(state);
@@ -1172,6 +1178,8 @@ async fn finding_12_approval_creation_failure_denies_request() {
         tool_registry: None,
         cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
     };
 
     let app = routes::build_router(state);

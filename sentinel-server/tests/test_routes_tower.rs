@@ -55,6 +55,8 @@ fn make_state() -> (AppState, TempDir) {
         tool_registry: None,
         cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
     };
     (state, tmp)
 }
@@ -82,6 +84,8 @@ fn make_empty_state() -> (AppState, TempDir) {
         tool_registry: None,
         cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
     };
     (state, tmp)
 }
@@ -930,6 +934,8 @@ priority = 1
         tool_registry: None,
         cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
     };
     let app = routes::build_router(state.clone());
 
@@ -1022,6 +1028,8 @@ fn make_approval_state() -> (AppState, TempDir) {
         tool_registry: None,
         cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
     };
     (state, tmp)
 }
@@ -1475,6 +1483,8 @@ fn make_authed_state() -> (AppState, TempDir) {
         tool_registry: None,
         cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
     };
     (state, tmp)
 }
@@ -1952,6 +1962,8 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         tool_registry: None,
         cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
     };
     (state, tmp)
 }
@@ -2604,6 +2616,8 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         tool_registry: None,
         cluster: None,
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
     };
     (state, tmp)
 }

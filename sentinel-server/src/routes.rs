@@ -1,5 +1,5 @@
 use axum::{
-    extract::{DefaultBodyLimit, Path, Query, Request, State},
+    extract::{DefaultBodyLimit, Extension, Path, Query, Request, State},
     http::{header, HeaderMap, HeaderName, HeaderValue, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -20,6 +20,7 @@ use governor::clock::Clock;
 use subtle::ConstantTimeEq;
 
 use crate::rbac::{rbac_middleware, RbacState};
+use crate::tenant::{TenantContext, TenantState, tenant_middleware};
 use crate::AppState;
 
 pub fn build_router(state: AppState) -> Router {
@@ -71,7 +72,16 @@ pub fn build_router(state: AppState) -> Router {
         // and pending approval count, which are security-sensitive (see R26-SRV-6).
         // SECURITY (R38-SRV-2): /metrics inside rate_limit — prevents scraper DoS.
         .route("/metrics", get(prometheus_metrics))
-        // RBAC middleware (innermost - runs after auth, checks permissions)
+        // Tenant middleware (innermost - runs after auth, extracts tenant context)
+        // When multi-tenancy is disabled, all requests get the default tenant.
+        .route_layer(middleware::from_fn_with_state(
+            TenantState {
+                config: state.tenant_config.clone(),
+                store: state.tenant_store.clone(),
+            },
+            tenant_middleware,
+        ))
+        // RBAC middleware (after tenant - runs after auth, checks permissions)
         // When RBAC is disabled, all requests get Admin role and pass through.
         .route_layer(middleware::from_fn_with_state(
             RbacState {
@@ -589,6 +599,7 @@ fn derive_resolver_identity(headers: &HeaderMap, client_value: &str) -> String {
 fn sanitize_context(
     context: Option<EvaluationContext>,
     headers: &HeaderMap,
+    tenant_id: Option<String>,
 ) -> Option<EvaluationContext> {
     /// Maximum agent_id length to prevent memory abuse via oversized identifiers.
     const MAX_AGENT_ID_LEN: usize = 256;
@@ -649,13 +660,15 @@ fn sanitize_context(
             call_counts: std::collections::HashMap::new(),
             previous_actions: Vec::new(),
             call_chain: Vec::new(),
-            tenant_id: None,
+            // Tenant ID is set by the tenant middleware, not client-controlled
+            tenant_id,
         }
     })
 }
 
 async fn evaluate(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     headers: HeaderMap,
     Json(req): Json<EvaluateRequest>,
 ) -> Result<Json<EvaluateResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -676,7 +689,8 @@ async fn evaluate(
     // SECURITY: Sanitize client-supplied context to prevent spoofing of
     // session-state fields (call_counts, previous_actions, timestamp).
     // R20-AGENT-ID: Derive agent_id from auth header when present.
-    let context = sanitize_context(req.context, &headers);
+    // SECURITY: Tenant ID is extracted by middleware, never client-supplied.
+    let context = sanitize_context(req.context, &headers, Some(tenant_ctx.tenant_id.clone()));
 
     // SECURITY (R10-2): Always run auto-extraction from parameters,
     // ignoring client-supplied target_paths/target_domains. A malicious
@@ -741,7 +755,7 @@ async fn evaluate(
                             .log_entry(
                                 &action,
                                 &deny,
-                                json!({"source": "http", "registry": "unknown_tool"}),
+                                json!({"source": "http", "registry": "unknown_tool", "tenant_id": &tenant_ctx.tenant_id}),
                             )
                             .await
                         {
@@ -767,7 +781,7 @@ async fn evaluate(
                     .log_entry(
                         &action,
                         &verdict,
-                        json!({"source": "http", "registry": "unknown_tool", "approval_id": approval_id}),
+                        json!({"source": "http", "registry": "unknown_tool", "approval_id": approval_id, "tenant_id": &tenant_ctx.tenant_id}),
                     )
                     .await
                 {
@@ -817,7 +831,7 @@ async fn evaluate(
                             .log_entry(
                                 &action,
                                 &deny,
-                                json!({"source": "http", "registry": "untrusted_tool"}),
+                                json!({"source": "http", "registry": "untrusted_tool", "tenant_id": &tenant_ctx.tenant_id}),
                             )
                             .await
                         {
@@ -843,7 +857,7 @@ async fn evaluate(
                     .log_entry(
                         &action,
                         &verdict,
-                        json!({"source": "http", "registry": "untrusted_tool", "approval_id": approval_id}),
+                        json!({"source": "http", "registry": "untrusted_tool", "approval_id": approval_id, "tenant_id": &tenant_ctx.tenant_id}),
                     )
                     .await
                 {
@@ -938,7 +952,7 @@ async fn evaluate(
         .log_entry(
             &action,
             &verdict,
-            json!({"source": "http", "approval_id": approval_id}),
+            json!({"source": "http", "approval_id": approval_id, "tenant_id": &tenant_ctx.tenant_id}),
         )
         .await
     {
@@ -2322,7 +2336,7 @@ mod tests {
     #[test]
     fn test_sanitize_context_none_stays_none() {
         let headers = HeaderMap::new();
-        assert!(sanitize_context(None, &headers).is_none());
+        assert!(sanitize_context(None, &headers, None).is_none());
     }
 
     #[test]
@@ -2339,7 +2353,7 @@ mod tests {
             call_chain: Vec::new(),
             tenant_id: None,
         };
-        let sanitized = sanitize_context(Some(spoofed), &headers).unwrap();
+        let sanitized = sanitize_context(Some(spoofed), &headers, None).unwrap();
         // agent_id preserved (no auth header)
         assert_eq!(sanitized.agent_id, Some("agent-a".to_string()));
         // Session-state fields stripped
@@ -2361,7 +2375,7 @@ mod tests {
             call_chain: Vec::new(),
             tenant_id: None,
         };
-        let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
+        let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         assert_eq!(sanitized.agent_id, Some("my-agent".to_string()));
     }
 
@@ -2383,7 +2397,7 @@ mod tests {
             call_chain: Vec::new(),
             tenant_id: None,
         };
-        let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
+        let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         let agent_id = sanitized.agent_id.unwrap();
         assert!(
             agent_id.starts_with("bearer:"),
@@ -2414,7 +2428,7 @@ mod tests {
             call_chain: Vec::new(),
             tenant_id: None,
         };
-        let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
+        let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         let agent_id = sanitized.agent_id.unwrap();
         assert!(
             agent_id.starts_with("bearer:"),
@@ -2440,7 +2454,7 @@ mod tests {
             call_chain: Vec::new(),
             tenant_id: None,
         };
-        let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
+        let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         assert!(
             sanitized.agent_id.is_none(),
             "Agent ID > 256 bytes should be rejected"
@@ -2460,7 +2474,7 @@ mod tests {
             call_chain: Vec::new(),
             tenant_id: None,
         };
-        let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
+        let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         assert_eq!(sanitized.agent_id, Some(max_id));
     }
 
@@ -2476,7 +2490,7 @@ mod tests {
             call_chain: Vec::new(),
             tenant_id: None,
         };
-        let sanitized = sanitize_context(Some(ctx), &headers).unwrap();
+        let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         assert!(
             sanitized.agent_id.is_none(),
             "Empty agent_id should be rejected"
