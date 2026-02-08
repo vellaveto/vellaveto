@@ -114,6 +114,19 @@ pub struct ProxyBridge {
 
     /// Sampling detector for sampling attack prevention (Phase 2).
     sampling_detector: Option<Arc<SamplingDetector>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 8: ETDI Cryptographic Tool Security
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// ETDI signature verifier for tool definition verification.
+    etdi_verifier: Option<Arc<crate::etdi::ToolSignatureVerifier>>,
+    /// ETDI attestation chain manager.
+    etdi_attestations: Option<Arc<crate::etdi::AttestationChain>>,
+    /// ETDI version pin manager.
+    etdi_version_pins: Option<Arc<crate::etdi::VersionPinManager>>,
+    /// Whether to require ETDI signatures for all tools.
+    etdi_require_signatures: bool,
 }
 
 impl ProxyBridge {
@@ -146,6 +159,11 @@ impl ProxyBridge {
             shadow_agent: None,
             schema_lineage: None,
             sampling_detector: None,
+            // Phase 8: ETDI (default: disabled)
+            etdi_verifier: None,
+            etdi_attestations: None,
+            etdi_version_pins: None,
+            etdi_require_signatures: false,
         }
     }
 
@@ -296,6 +314,38 @@ impl ProxyBridge {
     /// When set, sampling requests are rate-limited and content-scanned.
     pub fn with_sampling_detector(mut self, detector: Arc<SamplingDetector>) -> Self {
         self.sampling_detector = Some(detector);
+        self
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 8: ETDI Builder Methods
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Set the ETDI signature verifier for tool definition verification.
+    /// When set, tool signatures are verified against the trusted signers list.
+    pub fn with_etdi_verifier(mut self, verifier: Arc<crate::etdi::ToolSignatureVerifier>) -> Self {
+        self.etdi_verifier = Some(verifier);
+        self
+    }
+
+    /// Set the ETDI attestation chain manager.
+    /// When set, tool attestation chains are tracked and verified.
+    pub fn with_etdi_attestations(mut self, attestations: Arc<crate::etdi::AttestationChain>) -> Self {
+        self.etdi_attestations = Some(attestations);
+        self
+    }
+
+    /// Set the ETDI version pin manager.
+    /// When set, tools are checked against version pins before being allowed.
+    pub fn with_etdi_version_pins(mut self, pins: Arc<crate::etdi::VersionPinManager>) -> Self {
+        self.etdi_version_pins = Some(pins);
+        self
+    }
+
+    /// Set whether to require ETDI signatures for all tools.
+    /// When true, unsigned tools are blocked. Default: false.
+    pub fn with_etdi_require_signatures(mut self, require: bool) -> Self {
+        self.etdi_require_signatures = require;
         self
     }
 

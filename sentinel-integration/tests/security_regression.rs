@@ -387,6 +387,10 @@ mod server_auth {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
         };
         (state, tmp)
     }
@@ -519,6 +523,10 @@ mod server_auth {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
         };
         let app = routes::build_router(state);
 
@@ -1118,6 +1126,10 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     };
 
     let app = routes::build_router(state);
@@ -1216,6 +1228,10 @@ async fn finding_12_approval_creation_failure_denies_request() {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     };
 
     let app = routes::build_router(state);

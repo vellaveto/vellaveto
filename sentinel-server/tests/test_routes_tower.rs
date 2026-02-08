@@ -66,6 +66,10 @@ fn make_state() -> (AppState, TempDir) {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     };
     (state, tmp)
 }
@@ -104,6 +108,10 @@ fn make_empty_state() -> (AppState, TempDir) {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     };
     (state, tmp)
 }
@@ -963,6 +971,10 @@ priority = 1
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     };
     let app = routes::build_router(state.clone());
 
@@ -1066,6 +1078,10 @@ fn make_approval_state() -> (AppState, TempDir) {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     };
     (state, tmp)
 }
@@ -1530,6 +1546,10 @@ fn make_authed_state() -> (AppState, TempDir) {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     };
     (state, tmp)
 }
@@ -2018,6 +2038,10 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     };
     (state, tmp)
 }
@@ -2681,6 +2705,10 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     };
     (state, tmp)
 }

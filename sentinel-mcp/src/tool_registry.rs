@@ -89,6 +89,26 @@ pub struct ToolEntry {
     /// Computed trust score (0.0 to 1.0). Recomputed on load.
     #[serde(default = "default_trust_score")]
     pub trust_score: f32,
+
+    // ═══════════════════════════════════════════════════
+    // ETDI (Enhanced Tool Definition Interface) Fields
+    // ═══════════════════════════════════════════════════
+
+    /// ETDI signature for this tool (from tool provider).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<sentinel_types::ToolSignature>,
+    /// Whether the ETDI signature has been verified as cryptographically valid.
+    #[serde(default)]
+    pub signature_verified: bool,
+    /// Whether the signer is in the trusted signers list.
+    #[serde(default)]
+    pub signer_trusted: bool,
+    /// Tool version string (from tool metadata, if provided).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Whether this tool is version-pinned.
+    #[serde(default)]
+    pub version_pinned: bool,
 }
 
 fn default_trust_score() -> f32 {
@@ -109,7 +129,55 @@ impl ToolEntry {
             admin_approved: false,
             flagged_for_squatting: false,
             trust_score: 0.5, // Will be recomputed
+            // ETDI fields
+            signature: None,
+            signature_verified: false,
+            signer_trusted: false,
+            version: None,
+            version_pinned: false,
         }
+    }
+
+    /// Create a new tool entry with ETDI signature.
+    pub fn new_with_signature(
+        tool_id: String,
+        schema_hash: String,
+        signature: sentinel_types::ToolSignature,
+        signature_verified: bool,
+        signer_trusted: bool,
+    ) -> Self {
+        let mut entry = Self::new(tool_id, schema_hash);
+        entry.signature = Some(signature);
+        entry.signature_verified = signature_verified;
+        entry.signer_trusted = signer_trusted;
+        entry
+    }
+
+    /// Set the ETDI signature verification result.
+    pub fn set_signature_verification(
+        &mut self,
+        signature: sentinel_types::ToolSignature,
+        verified: bool,
+        trusted: bool,
+    ) {
+        self.signature = Some(signature);
+        self.signature_verified = verified;
+        self.signer_trusted = trusted;
+    }
+
+    /// Set the tool version.
+    pub fn set_version(&mut self, version: String) {
+        self.version = Some(version);
+    }
+
+    /// Mark this tool as version-pinned.
+    pub fn set_version_pinned(&mut self, pinned: bool) {
+        self.version_pinned = pinned;
+    }
+
+    /// Returns true if the tool has a valid, trusted signature.
+    pub fn is_etdi_verified(&self) -> bool {
+        self.signature_verified && self.signer_trusted
     }
 
     /// Compute the trust score based on current state and timestamps.
@@ -120,6 +188,8 @@ impl ToolEntry {
     /// - +0.1 for age > 7 days
     /// - +0.1 for age > 30 days
     /// - +0.2 for admin_approved = true
+    /// - +0.2 for ETDI verified and trusted signature
+    /// - +0.1 for version_pinned = true
     /// - -0.3 for each schema change (rug-pull)
     /// - -0.2 if flagged for squatting
     /// - Clamped to [0.0, 1.0]
@@ -152,6 +222,16 @@ impl ToolEntry {
         // Admin approval bonus
         if self.admin_approved {
             score += 0.2;
+        }
+
+        // ETDI signature verification bonus
+        if self.is_etdi_verified() {
+            score += 0.2;
+        }
+
+        // Version pinning bonus
+        if self.version_pinned {
+            score += 0.1;
         }
 
         // Schema change penalty (-0.3 per change)
@@ -1038,6 +1118,11 @@ mod tests {
             admin_approved: true,
             flagged_for_squatting: false,
             trust_score: 0.75,
+            signature: None,
+            signature_verified: false,
+            signer_trusted: false,
+            version: None,
+            version_pinned: false,
         };
 
         let json = serde_json::to_string(&entry).unwrap();

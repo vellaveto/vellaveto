@@ -91,6 +91,10 @@ fn test_state_with_rbac(rbac_config: RbacConfig) -> (AppState, TempDir) {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     };
     (state, tmp)
 }

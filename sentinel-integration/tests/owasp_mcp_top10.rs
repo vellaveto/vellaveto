@@ -901,6 +901,10 @@ mod owasp_mcp07_auth {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
         };
         (state, tmp)
     }
@@ -1305,6 +1309,10 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
         };
 
         let app = routes::build_router(state);
@@ -1560,6 +1568,10 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1651,6 +1663,10 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

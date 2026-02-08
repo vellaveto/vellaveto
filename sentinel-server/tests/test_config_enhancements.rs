@@ -174,6 +174,7 @@ fn to_policies_produces_correct_policy_structs() {
         spiffe: Default::default(),
         opa: Default::default(),
         threat_intel: Default::default(),
+        etdi: Default::default(),
         jit_access: Default::default(),
     };
     let policies = config.to_policies();
@@ -230,6 +231,7 @@ fn to_policies_uses_default_priority_when_none() {
         spiffe: Default::default(),
         opa: Default::default(),
         threat_intel: Default::default(),
+        etdi: Default::default(),
         jit_access: Default::default(),
     };
     let policies = config.to_policies();
@@ -392,6 +394,7 @@ fn policy_config_toml_roundtrip() {
         spiffe: Default::default(),
         opa: Default::default(),
         threat_intel: Default::default(),
+        etdi: Default::default(),
         jit_access: Default::default(),
     };
     let toml_str = toml::to_string(&original).unwrap();

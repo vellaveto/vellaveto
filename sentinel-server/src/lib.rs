@@ -619,6 +619,26 @@ pub struct AppState {
     /// Execution graph store for visualizing agent call chains (Phase 6).
     /// None when execution graph tracking is disabled.
     pub exec_graph_store: Option<Arc<sentinel_audit::exec_graph::ExecutionGraphStore>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 8: ETDI Cryptographic Tool Security
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// ETDI store for persistent signature, attestation, and pin state.
+    /// None when ETDI is disabled.
+    pub etdi_store: Option<Arc<sentinel_mcp::etdi::EtdiStore>>,
+
+    /// ETDI signature verifier.
+    /// None when ETDI signature verification is disabled.
+    pub etdi_verifier: Option<Arc<sentinel_mcp::etdi::ToolSignatureVerifier>>,
+
+    /// ETDI attestation chain manager.
+    /// None when attestation tracking is disabled.
+    pub etdi_attestations: Option<Arc<sentinel_mcp::etdi::AttestationChain>>,
+
+    /// ETDI version pin manager.
+    /// None when version pinning is disabled.
+    pub etdi_version_pins: Option<Arc<sentinel_mcp::etdi::VersionPinManager>>,
 }
 
 /// Error type for cluster-dispatched approval operations.
@@ -820,6 +840,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             opa: Default::default(),
             threat_intel: Default::default(),
             jit_access: Default::default(),
+            etdi: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

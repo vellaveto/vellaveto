@@ -4,6 +4,7 @@ pub mod attack_sim;
 pub mod auth_level;
 pub mod escalation_detector;
 pub mod capability;
+pub mod etdi;
 pub mod goal_tracking;
 pub mod data_flow;
 pub mod elicitation;

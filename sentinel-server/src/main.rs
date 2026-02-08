@@ -92,6 +92,51 @@ enum Commands {
         /// Path to the binary to hash
         path: String,
     },
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // Phase 8: ETDI Cryptographic Tool Security Commands
+    // ═══════════════════════════════════════════════════════════════════════════════
+    /// Generate an Ed25519 keypair for signing tool definitions (ETDI)
+    GenerateKey {
+        /// Path to write the private key (hex-encoded)
+        #[arg(long)]
+        private_key: std::path::PathBuf,
+        /// Path to write the public key (hex-encoded)
+        #[arg(long)]
+        public_key: std::path::PathBuf,
+    },
+    /// Sign a tool definition (ETDI)
+    SignTool {
+        /// Tool name
+        #[arg(long)]
+        tool: String,
+        /// Path to the tool definition JSON file
+        #[arg(long)]
+        definition: std::path::PathBuf,
+        /// Path to the private key file
+        #[arg(long)]
+        key: std::path::PathBuf,
+        /// Signer identity (optional, e.g., SPIFFE ID)
+        #[arg(long)]
+        signer: Option<String>,
+        /// Path to write the signature JSON
+        #[arg(long)]
+        output: std::path::PathBuf,
+        /// Signature expiry in days (optional)
+        #[arg(long)]
+        expires_in_days: Option<u32>,
+    },
+    /// Verify a tool signature (ETDI)
+    VerifySignature {
+        /// Tool name
+        #[arg(long)]
+        tool: String,
+        /// Path to the tool definition JSON file
+        #[arg(long)]
+        definition: std::path::PathBuf,
+        /// Path to the signature JSON file
+        #[arg(long)]
+        signature: std::path::PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -133,6 +178,23 @@ async fn main() -> Result<()> {
             list_rotated,
         } => cmd_verify(audit, trusted_key, list_rotated).await,
         Commands::HashBinary { path } => cmd_hash_binary(path),
+        Commands::GenerateKey {
+            private_key,
+            public_key,
+        } => cmd_generate_key(private_key, public_key),
+        Commands::SignTool {
+            tool,
+            definition,
+            key,
+            signer,
+            output,
+            expires_in_days,
+        } => cmd_sign_tool(tool, definition, key, signer, output, expires_in_days).await,
+        Commands::VerifySignature {
+            tool,
+            definition,
+            signature,
+        } => cmd_verify_signature(tool, definition, signature).await,
     }
 }
 
@@ -616,6 +678,12 @@ async fn cmd_serve(
         sampling_detector: None,
         // Phase 6: Observability
         exec_graph_store: None,
+        // Phase 8: ETDI Cryptographic Tool Security — default: None (disabled)
+        // TODO: Initialize from PolicyConfig.etdi when enabled in configuration
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -973,6 +1041,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         opa: Default::default(),
         threat_intel: Default::default(),
         jit_access: Default::default(),
+        etdi: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;
@@ -1159,6 +1228,130 @@ fn cmd_hash_binary(path: String) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("{}", e))?;
     println!("\"{}\" = \"{}\"", path, hash);
     Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ETDI Cryptographic Tool Security Commands
+// ═══════════════════════════════════════════════════════════════════════════════
+
+fn cmd_generate_key(
+    private_key_path: std::path::PathBuf,
+    public_key_path: std::path::PathBuf,
+) -> Result<()> {
+    use sentinel_mcp::etdi::ToolSigner;
+
+    let signer = ToolSigner::generate()
+        .map_err(|e| anyhow::anyhow!("Key generation failed: {}", e))?;
+
+    let private_key = signer.private_key_hex();
+    let public_key = signer.public_key_hex();
+    let fingerprint = signer.fingerprint();
+
+    std::fs::write(&private_key_path, &private_key)
+        .context("Failed to write private key")?;
+    std::fs::write(&public_key_path, public_key)
+        .context("Failed to write public key")?;
+
+    println!("Generated Ed25519 keypair:");
+    println!("  Private key: {}", private_key_path.display());
+    println!("  Public key:  {}", public_key_path.display());
+    println!("  Fingerprint: {}", fingerprint);
+    println!();
+    println!("Add the fingerprint to your config:");
+    println!("  [etdi.allowed_signers]");
+    println!("  fingerprints = [\"{}\"]", fingerprint);
+
+    Ok(())
+}
+
+async fn cmd_sign_tool(
+    tool: String,
+    definition_path: std::path::PathBuf,
+    key_path: std::path::PathBuf,
+    signer_identity: Option<String>,
+    output_path: std::path::PathBuf,
+    expires_in_days: Option<u32>,
+) -> Result<()> {
+    use sentinel_mcp::etdi::ToolSigner;
+
+    // Read private key
+    let key_hex = std::fs::read_to_string(&key_path)
+        .with_context(|| format!("Failed to read key file: {}", key_path.display()))?;
+    let key_hex = key_hex.trim();
+
+    // Read definition
+    let definition_json = std::fs::read_to_string(&definition_path)
+        .with_context(|| format!("Failed to read definition: {}", definition_path.display()))?;
+    let schema: serde_json::Value = serde_json::from_str(&definition_json)
+        .with_context(|| format!("Invalid JSON in definition: {}", definition_path.display()))?;
+
+    // Create signer
+    let signer = ToolSigner::from_private_key_hex(key_hex, signer_identity)
+        .map_err(|e| anyhow::anyhow!("Invalid private key: {}", e))?;
+
+    // Sign the tool
+    let signature = signer.sign_tool(&tool, &schema, expires_in_days);
+
+    // Write signature
+    let signature_json = serde_json::to_string_pretty(&signature)?;
+    std::fs::write(&output_path, &signature_json)
+        .with_context(|| format!("Failed to write signature: {}", output_path.display()))?;
+
+    println!("Signed tool '{}'", tool);
+    println!("  Signature ID: {}", signature.signature_id);
+    println!("  Algorithm:    {}", signature.algorithm);
+    println!("  Signed at:    {}", signature.signed_at);
+    if let Some(ref exp) = signature.expires_at {
+        println!("  Expires at:   {}", exp);
+    }
+    println!("  Output:       {}", output_path.display());
+
+    Ok(())
+}
+
+async fn cmd_verify_signature(
+    tool: String,
+    definition_path: std::path::PathBuf,
+    signature_path: std::path::PathBuf,
+) -> Result<()> {
+    use sentinel_mcp::etdi::ToolSignatureVerifier;
+    use sentinel_config::AllowedSignersConfig;
+
+    // Read definition
+    let definition_json = std::fs::read_to_string(&definition_path)
+        .with_context(|| format!("Failed to read definition: {}", definition_path.display()))?;
+    let schema: serde_json::Value = serde_json::from_str(&definition_json)
+        .with_context(|| format!("Invalid JSON in definition: {}", definition_path.display()))?;
+
+    // Read signature
+    let sig_json = std::fs::read_to_string(&signature_path)
+        .with_context(|| format!("Failed to read signature: {}", signature_path.display()))?;
+    let signature: sentinel_types::ToolSignature = serde_json::from_str(&sig_json)
+        .with_context(|| format!("Invalid signature JSON: {}", signature_path.display()))?;
+
+    // Verify (trust all signers for CLI verification)
+    let allowed = AllowedSignersConfig {
+        fingerprints: signature.key_fingerprint.clone().into_iter().collect(),
+        spiffe_ids: signature.signer_spiffe_id.clone().into_iter().collect(),
+    };
+    let verifier = ToolSignatureVerifier::new(allowed);
+    let result = verifier.verify_tool_signature(&tool, &schema, &signature);
+
+    println!("Verification result for tool '{}':", tool);
+    println!("  Valid:         {}", result.valid);
+    println!("  Signer trusted: {}", result.signer_trusted);
+    println!("  Expired:       {}", result.expired);
+    println!("  Message:       {}", result.message);
+
+    if result.is_fully_verified() {
+        println!();
+        println!("VERIFICATION PASSED");
+        Ok(())
+    } else {
+        println!();
+        println!("VERIFICATION FAILED");
+        anyhow::bail!("Signature verification failed: {}", result.message)
+    }
 }
 
 fn extract_tool_pattern(id: &str) -> String {

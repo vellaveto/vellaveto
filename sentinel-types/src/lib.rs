@@ -869,6 +869,213 @@ pub struct ConstraintResult {
     pub passed: bool,
 }
 
+// ═══════════════════════════════════════════════════
+// ETDI: ENHANCED TOOL DEFINITION INTERFACE
+// Cryptographic verification of MCP tool definitions
+// Based on arxiv:2506.01333
+// ═══════════════════════════════════════════════════
+
+/// Signature algorithm for tool definitions (ETDI).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SignatureAlgorithm {
+    /// Ed25519 signatures (recommended, default).
+    #[default]
+    Ed25519,
+    /// ECDSA with P-256 curve.
+    EcdsaP256,
+}
+
+impl fmt::Display for SignatureAlgorithm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SignatureAlgorithm::Ed25519 => write!(f, "ed25519"),
+            SignatureAlgorithm::EcdsaP256 => write!(f, "ecdsa_p256"),
+        }
+    }
+}
+
+/// A cryptographic signature on a tool definition.
+///
+/// Part of the ETDI (Enhanced Tool Definition Interface) system.
+/// Tool providers sign their tool definitions, and Sentinel verifies
+/// these signatures before allowing tool registration.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ToolSignature {
+    /// Unique identifier for this signature.
+    pub signature_id: String,
+    /// Hex-encoded cryptographic signature.
+    pub signature: String,
+    /// Algorithm used to create the signature.
+    pub algorithm: SignatureAlgorithm,
+    /// Hex-encoded public key of the signer.
+    pub public_key: String,
+    /// Optional fingerprint of the public key (for key management).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_fingerprint: Option<String>,
+    /// ISO 8601 timestamp when the signature was created.
+    pub signed_at: String,
+    /// ISO 8601 timestamp when the signature expires (optional).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    /// SPIFFE ID of the signer for workload identity (optional).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signer_spiffe_id: Option<String>,
+}
+
+impl ToolSignature {
+    /// Returns true if the signature has expired.
+    pub fn is_expired(&self, now: &str) -> bool {
+        self.expires_at.as_ref().is_some_and(|exp| now >= exp.as_str())
+    }
+}
+
+/// Verification result for a tool signature.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SignatureVerification {
+    /// Whether the cryptographic signature is valid.
+    pub valid: bool,
+    /// Whether the signer is in the trusted signers list.
+    pub signer_trusted: bool,
+    /// Whether the signature has expired.
+    pub expired: bool,
+    /// Human-readable message about the verification result.
+    pub message: String,
+}
+
+impl SignatureVerification {
+    /// Returns true if the signature passes all checks.
+    pub fn is_fully_verified(&self) -> bool {
+        self.valid && self.signer_trusted && !self.expired
+    }
+}
+
+/// An attestation record in a tool's provenance chain.
+///
+/// Attestations form a chain of custody for tool definitions,
+/// allowing verification that a tool has not been modified
+/// since it was first registered.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ToolAttestation {
+    /// Unique identifier for this attestation.
+    pub attestation_id: String,
+    /// Type of attestation (e.g., "initial", "version_update", "security_audit").
+    pub attestation_type: String,
+    /// Entity that created this attestation.
+    pub attester: String,
+    /// ISO 8601 timestamp when the attestation was created.
+    pub timestamp: String,
+    /// SHA-256 hash of the tool definition at attestation time.
+    pub tool_hash: String,
+    /// ID of the previous attestation in the chain (None for first attestation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_attestation: Option<String>,
+    /// Cryptographic signature on this attestation.
+    pub signature: ToolSignature,
+    /// Optional reference to a transparency log entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transparency_log_entry: Option<String>,
+}
+
+impl ToolAttestation {
+    /// Returns true if this is the first attestation in the chain.
+    pub fn is_initial(&self) -> bool {
+        self.previous_attestation.is_none()
+    }
+}
+
+/// Version pinning record for a tool.
+///
+/// Pins allow administrators to lock tools to specific versions
+/// or version constraints, preventing unauthorized updates.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ToolVersionPin {
+    /// Name of the tool being pinned.
+    pub tool_name: String,
+    /// Exact version to pin to (e.g., "1.2.3").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned_version: Option<String>,
+    /// Semver constraint (e.g., "^1.2.0", ">=1.0,<2.0").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_constraint: Option<String>,
+    /// SHA-256 hash of the pinned tool definition.
+    pub definition_hash: String,
+    /// ISO 8601 timestamp when the pin was created.
+    pub pinned_at: String,
+    /// Identity of who created this pin.
+    pub pinned_by: String,
+}
+
+impl ToolVersionPin {
+    /// Returns true if the pin uses an exact version match.
+    pub fn is_exact(&self) -> bool {
+        self.pinned_version.is_some()
+    }
+
+    /// Returns true if the pin uses a constraint.
+    pub fn is_constraint(&self) -> bool {
+        self.version_constraint.is_some()
+    }
+}
+
+/// Result of version drift detection.
+///
+/// Generated when a tool's version or definition changes
+/// from the pinned state.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VersionDriftAlert {
+    /// Name of the tool with drift.
+    pub tool: String,
+    /// Expected version or hash from the pin.
+    pub expected_version: String,
+    /// Actual version or hash observed.
+    pub actual_version: String,
+    /// Type of drift detected (e.g., "version_mismatch", "hash_mismatch").
+    pub drift_type: String,
+    /// Whether this drift should block the tool from being used.
+    pub blocking: bool,
+    /// ISO 8601 timestamp when the drift was detected.
+    pub detected_at: String,
+}
+
+impl VersionDriftAlert {
+    /// Create a version mismatch alert.
+    pub fn version_mismatch(
+        tool: impl Into<String>,
+        expected: impl Into<String>,
+        actual: impl Into<String>,
+        blocking: bool,
+        detected_at: impl Into<String>,
+    ) -> Self {
+        Self {
+            tool: tool.into(),
+            expected_version: expected.into(),
+            actual_version: actual.into(),
+            drift_type: "version_mismatch".to_string(),
+            blocking,
+            detected_at: detected_at.into(),
+        }
+    }
+
+    /// Create a hash mismatch alert.
+    pub fn hash_mismatch(
+        tool: impl Into<String>,
+        expected_hash: impl Into<String>,
+        actual_hash: impl Into<String>,
+        blocking: bool,
+        detected_at: impl Into<String>,
+    ) -> Self {
+        Self {
+            tool: tool.into(),
+            expected_version: expected_hash.into(),
+            actual_version: actual_hash.into(),
+            drift_type: "hash_mismatch".to_string(),
+            blocking,
+            detected_at: detected_at.into(),
+        }
+    }
+}
+
 /// Cryptographically attested agent identity from a signed JWT.
 ///
 /// This type represents a validated identity extracted from the `X-Agent-Identity`
@@ -2243,5 +2450,279 @@ mod tests {
         let json_str = serde_json::to_string(&stats).unwrap();
         let deserialized: SamplingStats = serde_json::from_str(&json_str).unwrap();
         assert_eq!(stats, deserialized);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // ETDI (Enhanced Tool Definition Interface) TESTS
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_signature_algorithm_display() {
+        assert_eq!(SignatureAlgorithm::Ed25519.to_string(), "ed25519");
+        assert_eq!(SignatureAlgorithm::EcdsaP256.to_string(), "ecdsa_p256");
+    }
+
+    #[test]
+    fn test_signature_algorithm_default() {
+        assert_eq!(SignatureAlgorithm::default(), SignatureAlgorithm::Ed25519);
+    }
+
+    #[test]
+    fn test_signature_algorithm_serialization() {
+        for alg in [SignatureAlgorithm::Ed25519, SignatureAlgorithm::EcdsaP256] {
+            let json_str = serde_json::to_string(&alg).unwrap();
+            let deserialized: SignatureAlgorithm = serde_json::from_str(&json_str).unwrap();
+            assert_eq!(alg, deserialized);
+        }
+    }
+
+    #[test]
+    fn test_tool_signature_serialization_roundtrip() {
+        let sig = ToolSignature {
+            signature_id: "sig-123".to_string(),
+            signature: "deadbeef".to_string(),
+            algorithm: SignatureAlgorithm::Ed25519,
+            public_key: "cafe0123".to_string(),
+            key_fingerprint: Some("fp:abc".to_string()),
+            signed_at: "2026-01-15T12:00:00Z".to_string(),
+            expires_at: Some("2027-01-15T12:00:00Z".to_string()),
+            signer_spiffe_id: Some("spiffe://example.org/agent".to_string()),
+        };
+        let json_str = serde_json::to_string(&sig).unwrap();
+        let deserialized: ToolSignature = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(sig, deserialized);
+    }
+
+    #[test]
+    fn test_tool_signature_is_expired() {
+        let sig = ToolSignature {
+            signature_id: "sig-1".to_string(),
+            signature: "abc".to_string(),
+            algorithm: SignatureAlgorithm::Ed25519,
+            public_key: "key".to_string(),
+            key_fingerprint: None,
+            signed_at: "2026-01-01T00:00:00Z".to_string(),
+            expires_at: Some("2026-06-01T00:00:00Z".to_string()),
+            signer_spiffe_id: None,
+        };
+
+        // Before expiry
+        assert!(!sig.is_expired("2026-05-01T00:00:00Z"));
+        // At expiry
+        assert!(sig.is_expired("2026-06-01T00:00:00Z"));
+        // After expiry
+        assert!(sig.is_expired("2026-12-01T00:00:00Z"));
+    }
+
+    #[test]
+    fn test_tool_signature_no_expiry_never_expires() {
+        let sig = ToolSignature {
+            signature_id: "sig-1".to_string(),
+            signature: "abc".to_string(),
+            algorithm: SignatureAlgorithm::Ed25519,
+            public_key: "key".to_string(),
+            key_fingerprint: None,
+            signed_at: "2026-01-01T00:00:00Z".to_string(),
+            expires_at: None,
+            signer_spiffe_id: None,
+        };
+        assert!(!sig.is_expired("2099-12-31T23:59:59Z"));
+    }
+
+    #[test]
+    fn test_signature_verification_is_fully_verified() {
+        let valid_and_trusted = SignatureVerification {
+            valid: true,
+            signer_trusted: true,
+            expired: false,
+            message: "OK".to_string(),
+        };
+        assert!(valid_and_trusted.is_fully_verified());
+
+        let invalid = SignatureVerification {
+            valid: false,
+            signer_trusted: true,
+            expired: false,
+            message: "bad sig".to_string(),
+        };
+        assert!(!invalid.is_fully_verified());
+
+        let untrusted = SignatureVerification {
+            valid: true,
+            signer_trusted: false,
+            expired: false,
+            message: "unknown signer".to_string(),
+        };
+        assert!(!untrusted.is_fully_verified());
+
+        let expired = SignatureVerification {
+            valid: true,
+            signer_trusted: true,
+            expired: true,
+            message: "expired".to_string(),
+        };
+        assert!(!expired.is_fully_verified());
+    }
+
+    #[test]
+    fn test_signature_verification_serialization() {
+        let verification = SignatureVerification {
+            valid: true,
+            signer_trusted: true,
+            expired: false,
+            message: "Verified successfully".to_string(),
+        };
+        let json_str = serde_json::to_string(&verification).unwrap();
+        let deserialized: SignatureVerification = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(verification, deserialized);
+    }
+
+    #[test]
+    fn test_tool_attestation_is_initial() {
+        let sig = ToolSignature {
+            signature_id: "sig-1".to_string(),
+            signature: "abc".to_string(),
+            algorithm: SignatureAlgorithm::Ed25519,
+            public_key: "key".to_string(),
+            key_fingerprint: None,
+            signed_at: "2026-01-01T00:00:00Z".to_string(),
+            expires_at: None,
+            signer_spiffe_id: None,
+        };
+
+        let initial = ToolAttestation {
+            attestation_id: "att-1".to_string(),
+            attestation_type: "initial".to_string(),
+            attester: "admin".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            tool_hash: "hash123".to_string(),
+            previous_attestation: None,
+            signature: sig.clone(),
+            transparency_log_entry: None,
+        };
+        assert!(initial.is_initial());
+
+        let chained = ToolAttestation {
+            attestation_id: "att-2".to_string(),
+            attestation_type: "version_update".to_string(),
+            attester: "admin".to_string(),
+            timestamp: "2026-02-01T00:00:00Z".to_string(),
+            tool_hash: "hash456".to_string(),
+            previous_attestation: Some("att-1".to_string()),
+            signature: sig,
+            transparency_log_entry: Some("log-entry-123".to_string()),
+        };
+        assert!(!chained.is_initial());
+    }
+
+    #[test]
+    fn test_tool_attestation_serialization() {
+        let sig = ToolSignature {
+            signature_id: "sig-1".to_string(),
+            signature: "abc".to_string(),
+            algorithm: SignatureAlgorithm::Ed25519,
+            public_key: "key".to_string(),
+            key_fingerprint: None,
+            signed_at: "2026-01-01T00:00:00Z".to_string(),
+            expires_at: None,
+            signer_spiffe_id: None,
+        };
+        let attestation = ToolAttestation {
+            attestation_id: "att-1".to_string(),
+            attestation_type: "initial".to_string(),
+            attester: "admin".to_string(),
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            tool_hash: "hash123".to_string(),
+            previous_attestation: None,
+            signature: sig,
+            transparency_log_entry: None,
+        };
+        let json_str = serde_json::to_string(&attestation).unwrap();
+        let deserialized: ToolAttestation = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(attestation, deserialized);
+    }
+
+    #[test]
+    fn test_tool_version_pin_exact_vs_constraint() {
+        let exact = ToolVersionPin {
+            tool_name: "my_tool".to_string(),
+            pinned_version: Some("1.2.3".to_string()),
+            version_constraint: None,
+            definition_hash: "hash123".to_string(),
+            pinned_at: "2026-01-01T00:00:00Z".to_string(),
+            pinned_by: "admin".to_string(),
+        };
+        assert!(exact.is_exact());
+        assert!(!exact.is_constraint());
+
+        let constraint = ToolVersionPin {
+            tool_name: "my_tool".to_string(),
+            pinned_version: None,
+            version_constraint: Some("^1.2.0".to_string()),
+            definition_hash: "hash456".to_string(),
+            pinned_at: "2026-01-01T00:00:00Z".to_string(),
+            pinned_by: "admin".to_string(),
+        };
+        assert!(!constraint.is_exact());
+        assert!(constraint.is_constraint());
+    }
+
+    #[test]
+    fn test_tool_version_pin_serialization() {
+        let pin = ToolVersionPin {
+            tool_name: "tool".to_string(),
+            pinned_version: Some("1.0.0".to_string()),
+            version_constraint: None,
+            definition_hash: "hash".to_string(),
+            pinned_at: "2026-01-01T00:00:00Z".to_string(),
+            pinned_by: "admin".to_string(),
+        };
+        let json_str = serde_json::to_string(&pin).unwrap();
+        let deserialized: ToolVersionPin = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(pin, deserialized);
+    }
+
+    #[test]
+    fn test_version_drift_alert_version_mismatch() {
+        let alert = VersionDriftAlert::version_mismatch(
+            "my_tool",
+            "1.0.0",
+            "1.1.0",
+            true,
+            "2026-02-01T00:00:00Z",
+        );
+        assert_eq!(alert.tool, "my_tool");
+        assert_eq!(alert.expected_version, "1.0.0");
+        assert_eq!(alert.actual_version, "1.1.0");
+        assert_eq!(alert.drift_type, "version_mismatch");
+        assert!(alert.blocking);
+    }
+
+    #[test]
+    fn test_version_drift_alert_hash_mismatch() {
+        let alert = VersionDriftAlert::hash_mismatch(
+            "my_tool",
+            "abc123",
+            "def456",
+            false,
+            "2026-02-01T00:00:00Z",
+        );
+        assert_eq!(alert.drift_type, "hash_mismatch");
+        assert!(!alert.blocking);
+    }
+
+    #[test]
+    fn test_version_drift_alert_serialization() {
+        let alert = VersionDriftAlert {
+            tool: "tool".to_string(),
+            expected_version: "1.0".to_string(),
+            actual_version: "2.0".to_string(),
+            drift_type: "version_mismatch".to_string(),
+            blocking: true,
+            detected_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let json_str = serde_json::to_string(&alert).unwrap();
+        let deserialized: VersionDriftAlert = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(alert, deserialized);
     }
 }

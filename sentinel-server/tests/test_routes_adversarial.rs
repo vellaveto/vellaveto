@@ -65,6 +65,10 @@ fn make_state() -> (AppState, TempDir) {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     };
     (state, tmp)
 }
@@ -103,6 +107,10 @@ fn make_empty_state() -> (AppState, TempDir) {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     };
     (state, tmp)
 }
@@ -525,6 +533,10 @@ priority = 1
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     };
     let policy_state = state.policy_state.clone();
     let app = routes::build_router(state);
@@ -630,6 +642,10 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     };
     let app = routes::build_router(state);
 

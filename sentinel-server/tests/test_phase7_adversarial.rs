@@ -66,6 +66,10 @@ fn state_with_api_key(tmp: &TempDir) -> AppState {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     }
 }
 
@@ -295,6 +299,10 @@ async fn regression_38_prometheus_metrics_rate_limited() {
         schema_lineage: None,
         sampling_detector: None,
         exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
     };
 
     // First request should succeed

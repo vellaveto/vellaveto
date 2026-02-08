@@ -3164,6 +3164,7 @@ dependencies = [
  "proptest",
  "rand 0.8.5",
  "regex",
+ "semver",
  "sentinel-approval",
  "sentinel-audit",
  "sentinel-config",
