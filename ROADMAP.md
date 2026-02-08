@@ -1,676 +1,536 @@
-# Sentinel Roadmap
+# Sentinel Roadmap v2.0
 
-> **Version:** 1.0.0
+> **Version:** 2.0.0 (Planning)
 > **Generated:** 2026-02-08
-> **Status:** ✅ All phases complete - v1.0.0 released
-> **Based on:** Multi-agent research analysis (security, architecture, features, testing)
+> **Status:** Research complete, implementation pending
+> **Based on:** Multi-agent research (MCP spec, OWASP, enterprise features, competitor analysis)
 
 ---
 
 ## Executive Summary
 
-Sentinel is a production-ready MCP firewall with excellent security posture (33 audit rounds, 3,167 tests, zero P0/P1 vulnerabilities). This roadmap documents the completed implementation phases that led to the v1.0.0 release.
+Sentinel v1.0.0 is production-ready with 33 audit rounds and 3,167 tests. This roadmap defines v2.0 priorities based on:
 
-**Key Themes:**
-1. **Enterprise Auth & Multi-tenancy** — Enable shared deployments
-2. **Observability & Integration** — Meet enterprise logging/tracing requirements
-3. **Code Quality & Maintainability** — Reduce technical debt
-4. **Testing & Hardening** — Increase confidence through property-based testing and fuzzing
+1. **MCP 2025-11-25 Protocol Compliance** — Async Tasks, Resource Indicators, CIMD
+2. **Advanced Threat Detection** — Shadow agents, full schema poisoning, cascading failures
+3. **Standards Alignment** — MITRE ATLAS, OWASP ASI Top 10, NIST AI Profile
+4. **Enterprise Hardening** — mTLS/SPIFFE, OPA integration, threat intelligence
+
+**Research Sources:**
+- MCP Specification 2025-11-25 updates
+- OWASP Top 10 for Agentic Applications 2026 (ASI01-ASI10)
+- CoSAI MCP Security Whitepaper (12 threat categories, ~40 threats)
+- MITRE ATLAS agentic AI techniques (14 new entries)
+- Competitor analysis (Zenity, Lasso, Operant AI, NeMo Guardrails)
 
 ---
 
-## Phase 1: Foundation & Quick Wins (Weeks 1-2)
+## Priority Matrix
 
-*Focus: Code quality, testing infrastructure, deployment basics*
+| Priority | Theme | Business Value |
+|----------|-------|----------------|
+| **P0** | MCP 2025-11-25 Compliance | Protocol compatibility |
+| **P1** | Advanced Threat Detection | Close security gaps |
+| **P2** | Standards & Compliance | Enterprise adoption |
+| **P3** | Enterprise Features | Feature parity |
+| **P4** | Observability & Tooling | Operational excellence |
 
-### 1.1 Architecture Cleanup
+---
 
-| Task | Priority | Effort | Owner |
-|------|----------|--------|-------|
-| Split `sentinel-mcp/src/inspection.rs` (3,373 LOC) into modules | HIGH | 3 days | — |
-| Split `sentinel-mcp/src/proxy.rs` (3,294 LOC) into modules | HIGH | 3 days | — |
-| Consolidate error handling (thiserror only, remove anyhow from libs) | MEDIUM | 2 days | — |
-| Extract `ProxyConfig` struct from 15 builder methods | MEDIUM | 1 day | — |
+## Phase 1: MCP 2025-11-25 Compliance (Weeks 1-4)
 
-**Suggested module structure:**
-```
-sentinel-mcp/src/
-├── inspection/
-│   ├── mod.rs           # Re-exports, coordination
-│   ├── dlp_scanner.rs   # Secret detection patterns
-│   ├── injection.rs     # Injection pattern matching
-│   ├── decode.rs        # 5-layer decode pipeline
-│   └── output.rs        # Output schema validation
-├── proxy/
-│   ├── mod.rs           # Re-exports
-│   ├── bridge.rs        # ProxyBridge core
-│   ├── message.rs       # JSON-RPC message handling
-│   ├── session.rs       # Session management
-│   └── evaluation.rs    # Policy evaluation integration
-```
+*Focus: Protocol updates for Async Tasks, Resource Indicators, CIMD*
 
-### 1.2 Testing Infrastructure
+### 1.1 Async Tasks Security
+
+The MCP 2025-11-25 spec introduces async task execution. This creates new attack vectors:
+- Task state manipulation during long-running operations
+- Unauthorized task cancellation/resumption
+- Task result tampering
 
 | Task | Priority | Effort | Depends On |
 |------|----------|--------|------------|
-| Add `proptest` dependency to workspace | HIGH | 0.5 days | — |
-| Create property tests for policy evaluation invariants | HIGH | 2 days | proptest |
-| Add `fuzz_output_schema_validation.rs` target | MEDIUM | 1 day | — |
-| Add `fuzz_dlp_inspection.rs` target | MEDIUM | 1 day | — |
-| Add `fuzz_policy_regex_compilation.rs` target | MEDIUM | 1 day | — |
-| Add end-to-end HTTP→audit pipeline test | HIGH | 1 day | — |
+| Define `AsyncTaskPolicy` type | P0 | 1 day | — |
+| Implement task state validation middleware | P0 | 3 days | Policy type |
+| Add task lifecycle audit events | P0 | 1 day | Middleware |
+| Implement task cancellation authorization | P0 | 2 days | Middleware |
+| Add task timeout enforcement | P0 | 1 day | — |
+| Create async task fuzz target | P0 | 1 day | All above |
 
-**Property test invariants to implement:**
-```rust
-// sentinel-engine/tests/proptest_invariants.rs
-proptest! {
-    #[test]
-    fn evaluate_never_panics(action: Action, policies: Vec<Policy>) {
-        let engine = PolicyEngine::with_policies(policies);
-        let _ = engine.evaluate_action(&action); // Should never panic
-    }
-
-    #[test]
-    fn higher_priority_always_wins(policies: Vec<Policy>, action: Action) {
-        // Verify priority ordering is always respected
-    }
-
-    #[test]
-    fn normalized_paths_never_contain_dotdot(path: String) {
-        if let Ok(normalized) = normalize_path(&path) {
-            prop_assert!(!normalized.contains(".."));
-        }
-    }
-}
+**New policy configuration:**
+```toml
+[policies.async_tasks]
+enabled = true
+max_task_duration = "1h"
+max_concurrent_tasks = 100
+allow_cancellation = ["admin", "operator"]
+require_completion_signature = true
 ```
 
-### 1.3 Deployment Basics
+### 1.2 OAuth Resource Indicators (RFC 8707)
+
+MCP 2025-11-25 requires resource indicator support for OAuth flows.
 
 | Task | Priority | Effort | Depends On |
 |------|----------|--------|------------|
-| Create multi-stage Dockerfile | HIGH | 0.5 days | — |
-| Publish Docker images to GitHub Container Registry | HIGH | 0.5 days | Dockerfile |
-| Create basic Helm chart (Deployment, Service, ConfigMap) | HIGH | 2 days | Docker images |
-| Add Helm chart documentation | MEDIUM | 0.5 days | Helm chart |
+| Parse resource indicators from OAuth requests | P0 | 1 day | — |
+| Validate resource scope against policy | P0 | 2 days | Parsing |
+| Add resource indicator to audit context | P0 | 0.5 days | Validation |
+| Support multiple resource servers | P1 | 2 days | — |
+| Add resource indicator integration tests | P0 | 1 day | All above |
 
-**Dockerfile structure:**
-```dockerfile
-# Build stage
-FROM rust:1.75-alpine AS builder
-WORKDIR /build
-COPY . .
-RUN cargo build --release --bin sentinel --bin sentinel-http-proxy
+### 1.3 CIMD (Capability-Indexed Message Dispatch)
 
-# Runtime stage
-FROM alpine:3.19
-RUN apk add --no-cache ca-certificates
-COPY --from=builder /build/target/release/sentinel /usr/local/bin/
-COPY --from=builder /build/target/release/sentinel-http-proxy /usr/local/bin/
-ENTRYPOINT ["sentinel"]
-```
+New MCP routing mechanism requiring policy enforcement.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Parse CIMD capability headers | P0 | 1 day | — |
+| Define capability-based routing policies | P0 | 2 days | Parsing |
+| Implement capability inheritance validation | P1 | 2 days | Policies |
+| Add capability attestation verification | P1 | 2 days | — |
+
+### 1.4 Step-Up Authentication
+
+MCP 2025-11-25 defines step-up auth for sensitive operations.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Define step-up auth policy triggers | P1 | 1 day | — |
+| Implement auth level tracking per session | P1 | 2 days | Triggers |
+| Add step-up challenge/response flow | P1 | 3 days | Tracking |
+| Integrate with human-in-the-loop approvals | P1 | 2 days | Challenge flow |
 
 ### Phase 1 Deliverables
-- [ ] Modular `sentinel-mcp` crate structure
-- [ ] Property-based testing suite
-- [ ] 3 new fuzz targets
-- [ ] Docker images on GHCR
-- [ ] Helm chart v0.1.0
-
-**Estimated Duration:** 2 weeks
-**Team Size:** 1-2 engineers
-
----
-
-## Phase 2: Enterprise Authentication (Weeks 3-5)
-
-*Focus: RBAC, key management, identity provider integration*
-
-### 2.1 Role-Based Access Control (RBAC)
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Define role and permission model | HIGH | 1 day | — |
-| Extend JWT claims parsing for roles | HIGH | 1 day | — |
-| Implement role middleware in routes.rs | HIGH | 2 days | Role model |
-| Create endpoint permission matrix | HIGH | 1 day | Role middleware |
-| Add RBAC integration tests | HIGH | 1 day | All above |
-
-**Permission model:**
-```rust
-pub enum Permission {
-    // Policy management
-    PolicyRead,
-    PolicyWrite,
-    PolicyReload,
-
-    // Approvals
-    ApprovalRead,
-    ApprovalResolve,
-
-    // Audit
-    AuditRead,
-    AuditExport,
-    AuditCheckpoint,
-
-    // Admin
-    MetricsRead,
-    DashboardAccess,
-    ConfigReload,
-}
-
-pub enum Role {
-    Admin,      // All permissions
-    Operator,   // PolicyRead, ApprovalResolve, AuditRead, MetricsRead
-    Auditor,    // AuditRead, AuditExport
-    Viewer,     // PolicyRead, AuditRead
-}
-```
-
-**Endpoint permission matrix:**
-
-| Endpoint | Admin | Operator | Auditor | Viewer |
-|----------|-------|----------|---------|--------|
-| POST /api/evaluate | ✓ | ✓ | ✗ | ✗ |
-| GET /api/policies | ✓ | ✓ | ✓ | ✓ |
-| POST /api/policies | ✓ | ✗ | ✗ | ✗ |
-| DELETE /api/policies/:id | ✓ | ✗ | ✗ | ✗ |
-| POST /api/policies/reload | ✓ | ✓ | ✗ | ✗ |
-| GET /api/approvals/pending | ✓ | ✓ | ✓ | ✗ |
-| POST /api/approvals/:id/approve | ✓ | ✓ | ✗ | ✗ |
-| GET /api/audit/* | ✓ | ✓ | ✓ | ✓ |
-| POST /api/audit/checkpoint | ✓ | ✗ | ✗ | ✗ |
-| GET /metrics | ✓ | ✓ | ✗ | ✗ |
-| GET /dashboard | ✓ | ✓ | ✓ | ✓ |
-
-### 2.2 Key Rotation & Management
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Design key versioning schema | HIGH | 0.5 days | — |
-| Implement key rotation scheduler | HIGH | 2 days | — |
-| Add key version to checkpoint signatures | HIGH | 1 day | Key versioning |
-| Support old key verification (grace period) | MEDIUM | 1 day | Key versioning |
-| Add key rotation audit events | MEDIUM | 0.5 days | — |
-| Create key rotation CLI command | MEDIUM | 1 day | All above |
-
-**Configuration:**
-```toml
-[keys]
-# Ed25519 signing key (hex-encoded seed)
-signing_key = "a1b2c3d4..."
-
-# Automatic rotation
-rotation_interval = "90d"    # Rotate every 90 days
-grace_period = "7d"          # Accept old key for 7 days after rotation
-rotation_warning = "14d"     # Warn 14 days before expiry
-
-# Key history (for verification of old checkpoints)
-max_historical_keys = 10
-```
-
-### 2.3 Secret Manager Integration
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Define `SecretProvider` trait | HIGH | 0.5 days | — |
-| Implement `EnvSecretProvider` (current behavior) | HIGH | 0.5 days | Trait |
-| Implement `VaultSecretProvider` | HIGH | 2 days | Trait |
-| Implement `AwsSecretsManagerProvider` | MEDIUM | 2 days | Trait |
-| Add secret refresh/lease management | MEDIUM | 1 day | Providers |
-
-**Trait design:**
-```rust
-#[async_trait]
-pub trait SecretProvider: Send + Sync {
-    async fn get_secret(&self, key: &str) -> Result<Secret, SecretError>;
-    async fn refresh(&self) -> Result<(), SecretError>;
-}
-
-pub struct Secret {
-    pub value: SecretString,
-    pub expires_at: Option<DateTime<Utc>>,
-    pub version: Option<String>,
-}
-```
-
-**Configuration:**
-```toml
-[secrets]
-provider = "vault"  # env | vault | aws | azure
-
-[secrets.vault]
-address = "https://vault.example.com"
-auth_method = "approle"
-role_id_env = "VAULT_ROLE_ID"
-secret_id_env = "VAULT_SECRET_ID"
-secret_path = "secret/data/sentinel"
-```
-
-### Phase 2 Deliverables
-- [ ] RBAC with 4 built-in roles
-- [ ] Automatic key rotation
-- [ ] HashiCorp Vault integration
-- [ ] AWS Secrets Manager integration (optional)
-
-**Estimated Duration:** 3 weeks
-**Team Size:** 1-2 engineers
-
----
-
-## Phase 3: Multi-Tenancy (Weeks 6-8)
-
-*Focus: Tenant isolation for SaaS deployments*
-
-### 3.1 Tenant Model
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Design tenant data model | HIGH | 1 day | — |
-| Add `tenant_id` to EvaluationContext | HIGH | 1 day | Model |
-| Implement tenant middleware (extract from JWT/header) | HIGH | 2 days | Model |
-| Namespace policies by tenant | HIGH | 2 days | Middleware |
-| Partition audit logs by tenant | HIGH | 2 days | Middleware |
-| Extend Redis backend for tenant isolation | MEDIUM | 2 days | All above |
-
-**Tenant extraction priority:**
-1. JWT claim: `tenant_id` or `org_id`
-2. Header: `X-Tenant-ID`
-3. Subdomain: `{tenant}.sentinel.example.com`
-4. Default tenant (for single-tenant mode)
-
-**Policy namespacing:**
-```
-# Before (single-tenant)
-policy_id = "file_system:read_file"
-
-# After (multi-tenant)
-policy_id = "{tenant_id}:file_system:read_file"
-
-# Shared policies (cross-tenant)
-policy_id = "_global_:dangerous_tools_block"
-```
-
-### 3.2 Tenant Administration
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Create tenant management API endpoints | HIGH | 2 days | Tenant model |
-| Implement tenant quota enforcement | MEDIUM | 2 days | Tenant API |
-| Add tenant-scoped rate limiting | MEDIUM | 1 day | Quotas |
-| Create tenant dashboard view | MEDIUM | 1 day | Tenant API |
-
-**New endpoints:**
-```
-POST   /api/tenants                  # Create tenant (super-admin only)
-GET    /api/tenants                  # List tenants
-GET    /api/tenants/:id              # Get tenant details
-PUT    /api/tenants/:id              # Update tenant
-DELETE /api/tenants/:id              # Delete tenant
-GET    /api/tenants/:id/policies     # List tenant policies
-GET    /api/tenants/:id/audit        # Tenant audit log
-GET    /api/tenants/:id/metrics      # Tenant metrics
-```
-
-**Quota configuration:**
-```toml
-[tenants.defaults]
-max_policies = 1000
-max_evaluations_per_minute = 10000
-max_approvals_pending = 100
-max_audit_retention_days = 90
-
-[tenants.overrides."tenant-123"]
-max_policies = 5000
-max_evaluations_per_minute = 50000
-```
-
-### 3.3 Tenant Isolation Testing
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Cross-tenant policy isolation tests | HIGH | 1 day | Multi-tenancy |
-| Cross-tenant audit isolation tests | HIGH | 1 day | Multi-tenancy |
-| Tenant quota enforcement tests | MEDIUM | 1 day | Quotas |
-| Tenant deletion cascade tests | MEDIUM | 0.5 days | Tenant API |
-
-### Phase 3 Deliverables
-- [ ] Multi-tenant data isolation
-- [ ] Tenant management API
-- [ ] Tenant quotas and rate limiting
-- [ ] 100% tenant isolation test coverage
-
-**Estimated Duration:** 3 weeks
-**Team Size:** 2 engineers
-
----
-
-## Phase 4: Observability & Integration (Weeks 9-12)
-
-*Focus: Enterprise logging, tracing, and cloud integrations*
-
-### 4.1 OpenTelemetry Integration
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Add opentelemetry dependencies | HIGH | 0.5 days | — |
-| Instrument policy evaluation with spans | HIGH | 1 day | OTEL deps |
-| Instrument HTTP handlers with spans | HIGH | 1 day | OTEL deps |
-| Add W3C Trace Context propagation | HIGH | 1 day | Spans |
-| Configure OTLP exporter | HIGH | 1 day | Spans |
-| Add trace sampling configuration | MEDIUM | 0.5 days | Exporter |
-
-**Span hierarchy:**
-```
-sentinel.http_request
-├── sentinel.auth_validation
-├── sentinel.policy_evaluation
-│   ├── sentinel.path_matching
-│   ├── sentinel.network_matching
-│   └── sentinel.context_evaluation
-├── sentinel.dlp_scanning
-├── sentinel.audit_logging
-└── sentinel.upstream_proxy (if proxying)
-```
-
-**Configuration:**
-```toml
-[telemetry]
-enabled = true
-service_name = "sentinel"
-exporter = "otlp"  # otlp | jaeger | zipkin | stdout
-
-[telemetry.otlp]
-endpoint = "http://otel-collector:4317"
-protocol = "grpc"  # grpc | http
-
-[telemetry.sampling]
-strategy = "parent_based"  # always_on | always_off | parent_based | ratio
-ratio = 0.1  # Sample 10% of traces (if ratio strategy)
-```
-
-### 4.2 SIEM Integrations
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Define `SiemExporter` trait | HIGH | 0.5 days | — |
-| Implement Splunk HEC exporter | HIGH | 2 days | Trait |
-| Implement Datadog exporter | HIGH | 2 days | Trait |
-| Implement Elasticsearch exporter | MEDIUM | 2 days | Trait |
-| Implement generic webhook exporter | MEDIUM | 1 day | Trait |
-| Add async batching and retry logic | HIGH | 2 days | Exporters |
-| Implement syslog (RFC 5424) exporter | MEDIUM | 1 day | Trait |
-
-**Trait design:**
-```rust
-#[async_trait]
-pub trait SiemExporter: Send + Sync {
-    fn name(&self) -> &str;
-    async fn export_batch(&self, entries: &[AuditEntry]) -> Result<(), ExportError>;
-    async fn health_check(&self) -> Result<(), ExportError>;
-}
-
-pub struct ExporterConfig {
-    pub batch_size: usize,        // Default: 100
-    pub flush_interval: Duration, // Default: 5s
-    pub max_retries: u32,         // Default: 3
-    pub retry_backoff: Duration,  // Default: 1s
-}
-```
-
-**Configuration:**
-```toml
-[audit.export]
-enabled = true
-exporters = ["splunk", "datadog"]
-
-[audit.export.splunk]
-endpoint = "https://splunk.example.com:8088/services/collector"
-token_env = "SPLUNK_HEC_TOKEN"
-index = "sentinel"
-source = "sentinel-prod"
-batch_size = 100
-flush_interval = "5s"
-
-[audit.export.datadog]
-endpoint = "https://http-intake.logs.datadoghq.com/v1/input"
-api_key_env = "DD_API_KEY"
-service = "sentinel"
-source = "sentinel"
-tags = ["env:production", "team:security"]
-```
-
-### 4.3 Enhanced Metrics
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Add `sentinel_approval_pending_count` gauge | HIGH | 0.5 days | — |
-| Add `sentinel_approval_resolution_time_seconds` histogram | HIGH | 0.5 days | — |
-| Add `sentinel_dlp_findings_by_type` counter | HIGH | 0.5 days | — |
-| Add `sentinel_injection_detections_total` counter | MEDIUM | 0.5 days | — |
-| Add `sentinel_policy_compilation_errors_total` counter | MEDIUM | 0.5 days | — |
-| Add `sentinel_cluster_backend_latency_seconds` histogram | MEDIUM | 0.5 days | — |
-| Add per-tenant metrics (if multi-tenant) | MEDIUM | 1 day | Phase 3 |
-
-### 4.4 Cloud Provider Integrations
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Create `sentinel-cloud` crate | HIGH | 0.5 days | — |
-| Implement AWS EC2 metadata client | MEDIUM | 1 day | Crate |
-| Implement AWS Secrets Manager provider | MEDIUM | 2 days | Crate |
-| Implement AWS CloudWatch Logs exporter | MEDIUM | 2 days | Crate |
-| Implement GCP Secret Manager provider | MEDIUM | 2 days | Crate |
-| Implement GCP Cloud Logging exporter | MEDIUM | 2 days | Crate |
-| Implement Azure Key Vault provider | MEDIUM | 2 days | Crate |
-| Implement Azure Monitor Logs exporter | MEDIUM | 2 days | Crate |
-
-### Phase 4 Deliverables
-- [ ] OpenTelemetry with OTLP export
-- [ ] Splunk HEC integration
-- [ ] Datadog integration
-- [ ] Elasticsearch integration
-- [ ] 10 new Prometheus metrics
-- [ ] AWS, GCP, Azure integrations
+- [ ] Async task policy enforcement
+- [ ] OAuth resource indicator validation
+- [ ] CIMD capability-based routing
+- [ ] Step-up authentication flow
 
 **Estimated Duration:** 4 weeks
-**Team Size:** 2 engineers
+**Risk:** Protocol spec may evolve; design for extensibility
 
 ---
 
-## Phase 5: Advanced Security (Weeks 13-14)
+## Phase 2: Advanced Threat Detection (Weeks 5-8)
 
-*Focus: Security hardening based on research findings*
+*Focus: Close gaps identified in CoSAI whitepaper and OWASP ASI Top 10*
 
-### 5.1 Security Enhancements
+### 2.1 Shadow Agent Discovery (ASI02)
 
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Add Referer header validation (CSRF defense-in-depth) | MEDIUM | 1 day | — |
-| Implement idempotency keys for mutating endpoints | MEDIUM | 2 days | — |
-| Add per-endpoint rate limit configuration | MEDIUM | 1 day | — |
-| Implement optional response signing (X-Verdict-Signature) | LOW | 1 day | — |
-| Add mTLS support for client certificates | LOW | 3 days | — |
-| Implement replay protection (nonce/sequence) | LOW | 2 days | — |
-
-### 5.2 Additional Fuzz Targets
+Detect unauthorized/rogue agents operating in the environment.
 
 | Task | Priority | Effort | Depends On |
 |------|----------|--------|------------|
-| Add `fuzz_semantic_similarity.rs` | MEDIUM | 1 day | — |
-| Add benchmark for DLP decode pipeline | MEDIUM | 1 day | — |
-| Add benchmark for rug-pull detection | MEDIUM | 1 day | — |
-| Add benchmark for audit export throughput | LOW | 0.5 days | — |
+| Implement agent fingerprinting | P1 | 2 days | — |
+| Create agent registry with known-good baseline | P1 | 2 days | Fingerprinting |
+| Add anomaly detection for unknown agents | P1 | 3 days | Registry |
+| Implement agent behavior profiling | P1 | 3 days | — |
+| Alert on shadow agent detection | P1 | 1 day | All above |
 
-### 5.3 Error Path Testing
+**Detection signals:**
+- Unknown JWT issuers
+- Unusual tool call patterns
+- Unregistered client certificates
+- Anomalous request origins
+
+### 2.2 Full Schema Poisoning Detection
+
+Extend rug-pull detection for complete schema replacement attacks.
 
 | Task | Priority | Effort | Depends On |
 |------|----------|--------|------------|
-| Add filesystem error handling tests | MEDIUM | 1 day | — |
-| Add network error handling tests | MEDIUM | 1 day | — |
-| Add policy compilation error tests | MEDIUM | 1 day | — |
-| Add policy reload race condition tests | MEDIUM | 1 day | — |
-| Add approval concurrency stress tests | MEDIUM | 1 day | — |
+| Detect wholesale schema replacement | P1 | 2 days | — |
+| Track schema lineage across versions | P1 | 2 days | Detection |
+| Add schema signing/verification (optional) | P2 | 3 days | Lineage |
+| Implement gradual schema change thresholds | P1 | 2 days | — |
+| Add schema poisoning adversarial tests | P1 | 1 day | All above |
+
+**Thresholds:**
+```toml
+[detection.schema_poisoning]
+max_field_additions_per_update = 5
+max_field_removals_per_update = 2
+max_type_changes_per_update = 1
+require_announcement_period = "24h"
+```
+
+### 2.3 Cascading Failure Protection (OWASP ASI08)
+
+Prevent chain reactions when one agent fails.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Implement circuit breaker per upstream tool | P1 | 2 days | — |
+| Add failure budget tracking | P1 | 2 days | Circuit breaker |
+| Implement graceful degradation policies | P1 | 2 days | — |
+| Add cascade detection alerts | P1 | 1 day | — |
+| Create chaos testing framework | P2 | 3 days | All above |
+
+**Circuit breaker configuration:**
+```toml
+[resilience.circuit_breaker]
+failure_threshold = 5       # failures before opening
+recovery_timeout = "30s"    # wait before half-open
+success_threshold = 3       # successes to close
+```
+
+### 2.4 Sampling-Based Attack Detection
+
+New attack vector from MCP sampling endpoint.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Add sampling request rate limiting | P1 | 1 day | — |
+| Detect sampling exfiltration patterns | P1 | 2 days | — |
+| Validate sampling context constraints | P1 | 2 days | — |
+| Add sampling to DLP inspection pipeline | P1 | 2 days | — |
+
+### 2.5 Confused Deputy Prevention (ASI05)
+
+Strengthen agent identity and authorization checks.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Implement strict principal binding | P1 | 2 days | — |
+| Add request origin chain validation | P1 | 2 days | Binding |
+| Enforce capability-based delegation | P1 | 3 days | — |
+| Add confused deputy test suite | P1 | 2 days | All above |
+
+### Phase 2 Deliverables
+- [ ] Shadow agent detection and alerting
+- [ ] Full schema poisoning detection
+- [ ] Circuit breaker with cascade protection
+- [ ] Sampling attack detection
+- [ ] Confused deputy prevention
+
+**Estimated Duration:** 4 weeks
+**Risk:** False positive tuning required for anomaly detection
+
+---
+
+## Phase 3: Standards Alignment (Weeks 9-12)
+
+*Focus: MITRE ATLAS, OWASP AIVSS, NIST alignment*
+
+### 3.1 MITRE ATLAS Threat Mapping
+
+Map Sentinel detections to MITRE ATLAS techniques.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Create ATLAS technique registry | P2 | 1 day | — |
+| Map existing detections to ATLAS IDs | P2 | 2 days | Registry |
+| Add ATLAS technique ID to audit events | P2 | 1 day | Mapping |
+| Generate ATLAS coverage report | P2 | 2 days | All above |
+| Document unmapped techniques as gaps | P2 | 1 day | Coverage |
+
+**ATLAS techniques to map:**
+- AML.T0060: Agent Manipulation
+- AML.T0061: Tool Poisoning
+- AML.T0062: Memory Injection
+- AML.T0063: Privilege Escalation (Agent)
+- AML.T0064: Data Exfiltration (Agent)
+- (14 new agentic AI techniques total)
+
+### 3.2 OWASP AIVSS Integration
+
+Prepare for AI Vulnerability Scoring System (expected RSA 2026).
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Design severity scoring framework | P2 | 2 days | — |
+| Implement AIVSS score calculation | P2 | 3 days | Framework |
+| Add severity to finding reports | P2 | 1 day | Calculation |
+| Create AIVSS-formatted exports | P2 | 2 days | — |
+
+### 3.3 NIST AI RMF Alignment
+
+Align with NIST AI Risk Management Framework.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Document NIST MAP function coverage | P2 | 2 days | — |
+| Document NIST MEASURE function coverage | P2 | 2 days | — |
+| Document NIST MANAGE function coverage | P2 | 2 days | — |
+| Create NIST compliance report generator | P2 | 3 days | All above |
+
+### 3.4 ISO/IEC 27090 Preparation
+
+Prepare for AI security standard (expected mid-2026).
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Review draft 27090 requirements | P3 | 1 day | — |
+| Gap analysis against current implementation | P3 | 2 days | Review |
+| Document compliance mapping | P3 | 2 days | Gap analysis |
+
+### Phase 3 Deliverables
+- [ ] MITRE ATLAS threat mapping
+- [ ] AIVSS severity scoring
+- [ ] NIST AI RMF compliance documentation
+- [ ] ISO 27090 readiness assessment
+
+**Estimated Duration:** 4 weeks
+**Risk:** Standards not finalized; may require updates post-release
+
+---
+
+## Phase 4: Enterprise Hardening (Weeks 13-16)
+
+*Focus: mTLS, OPA, threat intelligence, JIT access*
+
+### 4.1 mTLS / SPIFFE-SPIRE Integration
+
+Zero-trust workload identity.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Add mTLS configuration options | P2 | 2 days | — |
+| Implement SPIFFE ID extraction from X.509 | P2 | 2 days | mTLS |
+| Add SPIFFE-based policy matching | P2 | 3 days | ID extraction |
+| Integrate with SPIRE for workload attestation | P3 | 3 days | — |
+| Add mTLS revocation checking | P2 | 2 days | — |
+
+**Configuration:**
+```toml
+[tls]
+mode = "mtls"  # none | tls | mtls
+client_ca = "/etc/sentinel/client-ca.pem"
+require_client_cert = true
+
+[identity.spiffe]
+enabled = true
+trust_domain = "example.org"
+workload_socket = "unix:///var/run/spire/agent.sock"
+```
+
+### 4.2 OPA / Rego Policy Integration
+
+External policy evaluation for complex rules.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Design OPA integration architecture | P2 | 1 day | — |
+| Implement OPA client with caching | P2 | 3 days | Architecture |
+| Add OPA policy reference in Sentinel policies | P2 | 2 days | Client |
+| Support Rego policy bundles | P3 | 2 days | — |
+| Add OPA decision audit logging | P2 | 1 day | Client |
+
+**Usage:**
+```toml
+[policies.external]
+provider = "opa"
+
+[policies.external.opa]
+endpoint = "http://opa:8181/v1/data/sentinel/allow"
+cache_ttl = "60s"
+timeout = "100ms"
+```
+
+### 4.3 Threat Intelligence Integration
+
+Enrich decisions with external threat feeds.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Define threat intelligence provider trait | P2 | 1 day | — |
+| Implement STIX/TAXII consumer | P3 | 3 days | Trait |
+| Implement MISP integration | P3 | 3 days | Trait |
+| Add IOC matching to network rules | P2 | 2 days | Provider |
+| Cache threat data with TTL | P2 | 1 day | — |
+
+### 4.4 Just-In-Time Access
+
+Temporary elevated permissions with auto-expiry.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Design JIT access model | P2 | 1 day | — |
+| Implement JIT token issuance | P2 | 3 days | Model |
+| Add JIT access to human-in-the-loop flow | P2 | 2 days | Token issuance |
+| Implement automatic access revocation | P2 | 2 days | — |
+| Add JIT access audit trail | P2 | 1 day | All above |
+
+### 4.5 FIPS 140-2 Compliance Mode
+
+For regulated environments.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Evaluate FIPS-compliant Rust crypto libraries | P3 | 2 days | — |
+| Add FIPS mode configuration flag | P3 | 1 day | Evaluation |
+| Replace crypto primitives in FIPS mode | P3 | 5 days | Flag |
+| Document FIPS compliance scope | P3 | 1 day | All above |
+
+### Phase 4 Deliverables
+- [ ] mTLS with SPIFFE-SPIRE support
+- [ ] OPA/Rego policy integration
+- [ ] Threat intelligence feeds
+- [ ] JIT access with auto-expiry
+- [ ] FIPS 140-2 compliance mode (optional)
+
+**Estimated Duration:** 4 weeks
+**Risk:** FIPS compliance adds complexity; consider separate build
+
+---
+
+## Phase 5: Observability & Tooling (Weeks 17-18)
+
+*Focus: Execution graphs, CI/CD integration, red-teaming*
+
+### 5.1 Execution Graph Visualization
+
+Visual representation of agent call chains.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Define execution graph data model | P3 | 1 day | — |
+| Capture parent-child relationships in audit | P3 | 2 days | Model |
+| Add graph export endpoint (DOT/JSON) | P3 | 2 days | Capture |
+| Create web-based graph viewer | P4 | 3 days | Export |
+
+### 5.2 CI/CD Pipeline Integration
+
+Security scanning for development workflows.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Create policy validation CLI command | P3 | 1 day | — |
+| Add schema validation CLI command | P3 | 1 day | — |
+| Create GitHub Action for policy checks | P3 | 2 days | CLI |
+| Add GitLab CI template | P3 | 1 day | CLI |
+| Document CI/CD integration guide | P3 | 1 day | All above |
+
+### 5.3 Automated Red-Teaming
+
+Self-testing against known attack patterns.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Create attack simulation framework | P3 | 3 days | — |
+| Implement MCPTox benchmark attacks | P3 | 3 days | Framework |
+| Add scheduled red-team runs | P4 | 2 days | — |
+| Generate red-team reports | P3 | 2 days | Runs |
 
 ### Phase 5 Deliverables
-- [ ] Defense-in-depth security hardening
-- [ ] Complete fuzz target coverage
-- [ ] Error path test coverage
-- [ ] Concurrency stress tests
+- [ ] Execution graph visualization
+- [ ] CI/CD integration (GitHub Actions, GitLab)
+- [ ] Red-team automation framework
+- [ ] MCPTox benchmark coverage
 
 **Estimated Duration:** 2 weeks
-**Team Size:** 1 engineer
 
 ---
 
-## Phase 6: Documentation & Polish (Week 15)
+## Phase 6: Documentation & Release (Week 19-20)
 
-*Focus: Production readiness documentation*
+### 6.1 Documentation Updates
 
-### 6.1 Documentation
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Create deployment guide (Docker, K8s, bare metal) | HIGH | 2 days | — |
-| Create operations runbook (monitoring, troubleshooting) | HIGH | 2 days | — |
-| Create security hardening guide | HIGH | 1 day | — |
-| Create integration guides (Vault, AWS, Splunk) | MEDIUM | 2 days | — |
-| Update API reference documentation | HIGH | 1 day | — |
-| Create migration guide (version upgrades) | MEDIUM | 1 day | — |
+| Task | Priority | Effort |
+|------|----------|--------|
+| Update deployment guide with new features | HIGH | 2 days |
+| Create threat model documentation | HIGH | 2 days |
+| Document MITRE ATLAS coverage | MEDIUM | 1 day |
+| Create migration guide (v1 → v2) | HIGH | 2 days |
+| Update API reference | HIGH | 1 day |
 
 ### 6.2 Release Preparation
 
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Create CHANGELOG.md | HIGH | 0.5 days | — |
-| Version bump to 1.0.0 | HIGH | 0.5 days | — |
-| Create GitHub release with binaries | HIGH | 0.5 days | — |
-| Publish Helm chart to artifact hub | MEDIUM | 0.5 days | — |
-| Create announcement blog post | MEDIUM | 1 day | — |
-
-### Phase 6 Deliverables
-- [ ] Complete documentation suite
-- [ ] v1.0.0 release
-- [ ] Helm chart on Artifact Hub
-- [ ] Docker images tagged 1.0.0
-
-**Estimated Duration:** 1 week
-**Team Size:** 1 engineer
+| Task | Priority | Effort |
+|------|----------|--------|
+| Version bump to 2.0.0 | HIGH | 0.5 days |
+| Update CHANGELOG.md | HIGH | 1 day |
+| Create GitHub release | HIGH | 0.5 days |
+| Publish updated Helm chart | HIGH | 0.5 days |
 
 ---
 
 ## Timeline Summary
 
 ```
-Week 1-2:   Phase 1 — Foundation & Quick Wins
-Week 3-5:   Phase 2 — Enterprise Authentication
-Week 6-8:   Phase 3 — Multi-Tenancy
-Week 9-12:  Phase 4 — Observability & Integration
-Week 13-14: Phase 5 — Advanced Security
-Week 15:    Phase 6 — Documentation & Polish
+Weeks 1-4:   Phase 1 — MCP 2025-11-25 Compliance
+Weeks 5-8:   Phase 2 — Advanced Threat Detection
+Weeks 9-12:  Phase 3 — Standards Alignment
+Weeks 13-16: Phase 4 — Enterprise Hardening
+Weeks 17-18: Phase 5 — Observability & Tooling
+Weeks 19-20: Phase 6 — Documentation & Release
 ```
 
-**Total Duration:** 15 weeks (~4 months)
-**Team Size:** 1-2 engineers
-
----
-
-## Resource Estimates
-
-| Phase | Engineering Days | Dependencies |
-|-------|------------------|--------------|
-| Phase 1 | 15-20 days | None |
-| Phase 2 | 20-25 days | Phase 1 |
-| Phase 3 | 15-20 days | Phase 2 |
-| Phase 4 | 25-30 days | Phase 1 |
-| Phase 5 | 10-15 days | Phase 1 |
-| Phase 6 | 8-10 days | All phases |
-| **Total** | **93-120 days** | — |
+**Total Duration:** 20 weeks (~5 months)
+**Team Size:** 2-3 engineers
 
 ---
 
 ## Success Metrics
 
 ### Phase 1 Exit Criteria
-- [ ] `sentinel-mcp` split into 8+ focused modules
-- [ ] 10+ property-based tests passing
-- [ ] 9 fuzz targets (up from 6)
-- [ ] Docker images < 50MB
-- [ ] Helm chart deployable to K8s
+- [ ] MCP 2025-11-25 protocol compliance verified
+- [ ] Async task policy enforcement functional
+- [ ] OAuth resource indicator validation passing
 
 ### Phase 2 Exit Criteria
-- [ ] RBAC with 4 roles functional
-- [ ] Key rotation working with 7-day grace period
-- [ ] Vault integration tested in staging
+- [ ] Shadow agent detection with <1% false positive rate
+- [ ] Schema poisoning blocks 100% of MCPTox test cases
+- [ ] Circuit breaker prevents cascade in chaos tests
 
 ### Phase 3 Exit Criteria
-- [ ] 100 tenants supported with isolation
-- [ ] Cross-tenant access blocked (verified by tests)
-- [ ] Tenant quota enforcement functional
+- [ ] 80%+ MITRE ATLAS technique coverage
+- [ ] AIVSS scores generated for all findings
+- [ ] NIST AI RMF documentation complete
 
 ### Phase 4 Exit Criteria
-- [ ] Traces visible in Jaeger/Datadog
-- [ ] Audit logs streaming to Splunk
-- [ ] 20+ Prometheus metrics exposed
+- [ ] mTLS/SPIFFE working in Kubernetes
+- [ ] OPA integration tested with complex policies
+- [ ] JIT access functional with audit trail
 
 ### Phase 5 Exit Criteria
-- [ ] All P2 security gaps closed
-- [ ] 0 panics in 1M fuzz iterations per target
-- [ ] Error path coverage > 80%
-
-### Phase 6 Exit Criteria
-- [ ] v1.0.0 released
-- [ ] All docs reviewed and published
-- [ ] No open P0/P1 issues
+- [ ] Execution graphs visible in dashboard
+- [ ] GitHub Action published and documented
+- [ ] MCPTox benchmark 95%+ detection rate
 
 ---
 
-## Risk Mitigation
+## Research Agent References
 
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| Multi-tenancy complexity | Medium | High | Start with simple JWT-based tenant ID; defer subdomain routing |
-| SIEM integration variability | Medium | Medium | Generic webhook as fallback; specific integrations as stretch goals |
-| Key rotation backward compat | Low | High | Long grace period (7 days); extensive testing |
-| OpenTelemetry overhead | Low | Medium | Configurable sampling; benchmark before/after |
+The following research agents provided input for this roadmap:
 
----
-
-## Dependencies & Prerequisites
-
-### External Dependencies
-- HashiCorp Vault (optional, for Phase 2)
-- Redis (optional, for clustering)
-- OTEL Collector (for Phase 4)
-- Kubernetes cluster (for Helm chart testing)
-
-### Crate Dependencies to Add
-```toml
-# Phase 1
-proptest = "1.4"
-
-# Phase 2
-vault = "0.4"            # HashiCorp Vault client
-aws-sdk-secretsmanager = "1.0"
-
-# Phase 4
-opentelemetry = "0.22"
-opentelemetry-otlp = "0.15"
-tracing-opentelemetry = "0.23"
-```
+| Agent | Focus Area | Key Findings |
+|-------|------------|--------------|
+| MCP Security | Protocol updates | MCP 2025-11-25 (Async Tasks, CIMD, Resource Indicators) |
+| AI Threats | Attack vectors | MCPTox benchmark, tool poisoning 72% success rate |
+| Enterprise | Gateway features | mTLS, OPA, SPIFFE-SPIRE integration patterns |
+| OWASP | Standards | AIVSS, NIST AI RMF, ISO 27090 timeline |
+| Competitor | Market analysis | Shadow agent discovery, execution graphs as gaps |
 
 ---
 
-## Appendix: Research Agent IDs
+## Appendix: OWASP ASI Top 10 Coverage
 
-For follow-up work, these agent sessions can be resumed:
-
-| Agent | ID | Focus |
-|-------|-----|-------|
-| Security Auditor | a346fbe | Security gaps, OWASP coverage |
-| Architecture Reviewer | a4dcf60 | Code structure, dependencies |
-| Feature Analyst | a942446 | Enterprise features, integrations |
-| Test Coverage Analyst | abe7f3d | Testing gaps, fuzz targets |
+| ID | Threat | Sentinel Coverage |
+|----|--------|-------------------|
+| ASI01 | Prompt Injection | ✅ Injection detection (v1.0) |
+| ASI02 | Sensitive Data Disclosure | ✅ DLP scanning (v1.0) |
+| ASI03 | Inadequate Sandboxing | ⚠️ Path/network rules (partial) |
+| ASI04 | Privilege Escalation | ✅ RBAC, approval flow (v1.0) |
+| ASI05 | Confused Deputy | 🔲 Phase 2 (confused deputy prevention) |
+| ASI06 | Excessive Agency | ✅ Policy engine (v1.0) |
+| ASI07 | Insecure Plugins | ✅ Rug-pull detection (v1.0) |
+| ASI08 | Cascading Failures | 🔲 Phase 2 (circuit breaker) |
+| ASI09 | Over-reliance on Agent | ⚠️ Human-in-the-loop (partial) |
+| ASI10 | Inadequate Monitoring | ✅ Audit logging (v1.0) |
 
 ---
 
-*This roadmap is a living document. Update as priorities change.*
+## Appendix: Known CVEs Addressed
+
+| CVE | Description | Sentinel Mitigation |
+|-----|-------------|---------------------|
+| CVE-2025-68143 | Git MCP Server path traversal | Path normalization (v1.0) |
+| CVE-2025-68144 | Git MCP Server arbitrary read | Path rules, DLP (v1.0) |
+| CVE-2025-68145 | Git MCP Server secret exposure | DLP scanning (v1.0) |
+| CVE-2025-6514 | mcp-remote SSRF | DNS rebinding protection (v1.0) |
+
+---
+
+*This roadmap is a living document. Update as standards finalize and priorities shift.*
