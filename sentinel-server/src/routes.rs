@@ -2586,6 +2586,11 @@ fn categorize_rate_limit<'a>(
     method: &Method,
     path: &str,
 ) -> Option<&'a governor::DefaultDirectRateLimiter> {
+    // Check for endpoint-specific limits first (takes priority)
+    if let Some(limiter) = limits.get_endpoint_limiter(path) {
+        return Some(limiter);
+    }
+
     // SECURITY (R41-SRV-4): Match any method for /api/evaluate, not just POST.
     // The rate limit middleware runs before routing, so a PUT /api/evaluate
     // would be categorized as "admin" instead of "evaluate", bypassing
@@ -3107,6 +3112,7 @@ mod tests {
             readonly: None,
             per_ip: None,
             per_principal: None,
+            endpoint_limits: std::collections::HashMap::new(),
         };
 
         // POST should use evaluate bucket
@@ -3211,5 +3217,62 @@ mod tests {
         assert!(!validate_origin("https://app.example.com:9000", &origins));
         // No port should not match origin with port
         assert!(!validate_origin("https://app.example.com", &origins));
+    }
+
+    // --- Per-Endpoint Rate Limiting Tests (Phase 5) ---
+
+    #[test]
+    fn test_endpoint_limit_takes_priority() {
+        use std::num::NonZeroU32;
+
+        let limits = crate::RateLimits::new_with_burst(Some(100), None, Some(50), None, Some(25), None)
+            .with_endpoint_limit("/api/special", NonZeroU32::new(10).unwrap(), None);
+
+        // Endpoint-specific limit should be returned
+        let limiter = categorize_rate_limit(&limits, &Method::POST, "/api/special");
+        assert!(limiter.is_some());
+
+        // Different endpoint falls back to category limits
+        let limiter = categorize_rate_limit(&limits, &Method::POST, "/api/evaluate");
+        assert!(limiter.is_some());
+    }
+
+    #[test]
+    fn test_endpoint_limit_prefix_matching() {
+        use std::num::NonZeroU32;
+
+        let limits = crate::RateLimits::new_with_burst(Some(100), None, Some(50), None, Some(25), None)
+            .with_endpoint_limit("/api/audit", NonZeroU32::new(10).unwrap(), None);
+
+        // Exact match
+        assert!(limits.get_endpoint_limiter("/api/audit").is_some());
+        // Prefix match
+        assert!(limits.get_endpoint_limiter("/api/audit/entries").is_some());
+        assert!(limits.get_endpoint_limiter("/api/audit/report").is_some());
+        // Non-match
+        assert!(limits.get_endpoint_limiter("/api/policies").is_none());
+    }
+
+    #[test]
+    fn test_endpoint_limit_longest_match_wins() {
+        use std::num::NonZeroU32;
+
+        let limits = crate::RateLimits::new_with_burst(None, None, None, None, None, None)
+            .with_endpoint_limit("/api", NonZeroU32::new(100).unwrap(), None)
+            .with_endpoint_limit("/api/audit", NonZeroU32::new(50).unwrap(), None)
+            .with_endpoint_limit("/api/audit/checkpoint", NonZeroU32::new(10).unwrap(), None);
+
+        // Most specific match should win
+        let l1 = limits.get_endpoint_limiter("/api/audit/checkpoint");
+        let l2 = limits.get_endpoint_limiter("/api/audit/entries");
+        let l3 = limits.get_endpoint_limiter("/api/policies");
+
+        // All should have limiters (from different prefix matches)
+        assert!(l1.is_some());
+        assert!(l2.is_some());
+        assert!(l3.is_some());
+
+        // Pointers should be different (different limiters)
+        assert!(!std::ptr::eq(l1.unwrap() as *const _, l2.unwrap() as *const _));
     }
 }

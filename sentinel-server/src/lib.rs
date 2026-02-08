@@ -27,12 +27,22 @@ use std::time::Instant;
 ///
 /// Each category can independently be enabled (Some) or disabled (None).
 /// When enabled, the limiter enforces a global requests-per-second cap.
+///
+/// ## Priority Order
+/// Rate limits are checked in this order (first match wins):
+/// 1. Endpoint-specific limits (path prefix match)
+/// 2. Category limits (evaluate, admin, readonly based on method/path)
+/// 3. Per-IP limits (if configured)
+/// 4. Per-principal limits (if configured)
 pub struct RateLimits {
     pub evaluate: Option<governor::DefaultDirectRateLimiter>,
     pub admin: Option<governor::DefaultDirectRateLimiter>,
     pub readonly: Option<governor::DefaultDirectRateLimiter>,
     pub per_ip: Option<PerIpRateLimiter>,
     pub per_principal: Option<PerKeyRateLimiter>,
+    /// Per-endpoint rate limits. Keys are path prefixes (e.g., "/api/evaluate").
+    /// Takes priority over category-based limits.
+    pub endpoint_limits: std::collections::HashMap<String, governor::DefaultDirectRateLimiter>,
 }
 
 /// Per-IP rate limiter using DashMap for lock-free concurrent access.
@@ -326,6 +336,7 @@ impl RateLimits {
                 .map(|r| RateLimiter::direct(Quota::per_second(r))),
             per_ip: None,
             per_principal: None,
+            endpoint_limits: std::collections::HashMap::new(),
         }
     }
 
@@ -354,7 +365,44 @@ impl RateLimits {
             }),
             per_ip: None,
             per_principal: None,
+            endpoint_limits: std::collections::HashMap::new(),
         }
+    }
+
+    /// Add a rate limit for a specific endpoint path.
+    ///
+    /// The path is matched as a prefix, so "/api/evaluate" matches both
+    /// "/api/evaluate" and "/api/evaluate/foo". More specific paths take
+    /// priority (longest match wins).
+    pub fn with_endpoint_limit(
+        mut self,
+        path: impl Into<String>,
+        rps: NonZeroU32,
+        burst: Option<NonZeroU32>,
+    ) -> Self {
+        let limiter = RateLimiter::direct(build_quota(rps, burst));
+        self.endpoint_limits.insert(path.into(), limiter);
+        self
+    }
+
+    /// Get the endpoint-specific rate limiter for a path, if any.
+    ///
+    /// Returns the limiter for the longest matching path prefix.
+    pub fn get_endpoint_limiter(&self, path: &str) -> Option<&governor::DefaultDirectRateLimiter> {
+        // Find the longest matching prefix
+        let mut best_match: Option<(&str, &governor::DefaultDirectRateLimiter)> = None;
+        for (prefix, limiter) in &self.endpoint_limits {
+            if path.starts_with(prefix) {
+                match best_match {
+                    None => best_match = Some((prefix, limiter)),
+                    Some((current, _)) if prefix.len() > current.len() => {
+                        best_match = Some((prefix, limiter));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        best_match.map(|(_, limiter)| limiter)
     }
 
     /// Set the per-IP rate limiter.
@@ -405,6 +453,7 @@ impl RateLimits {
             readonly: None,
             per_ip: None,
             per_principal: None,
+            endpoint_limits: std::collections::HashMap::new(),
         }
     }
 }
