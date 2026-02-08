@@ -1262,6 +1262,15 @@ pub struct PolicyConfig {
     /// Controls trust relationships, message signing, and privilege escalation detection.
     #[serde(default)]
     pub cross_agent: CrossAgentConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 3.3: ADVANCED THREAT DETECTION CONFIGURATION
+    // ═══════════════════════════════════════════════════
+
+    /// Advanced threat detection configuration.
+    /// Controls goal tracking, workflow monitoring, namespace security, and more.
+    #[serde(default)]
+    pub advanced_threat: AdvancedThreatConfig,
 }
 
 /// Tool registry with trust scoring configuration (P2.1).
@@ -2023,6 +2032,128 @@ impl Default for CrossAgentConfig {
     }
 }
 
+// ═══════════════════════════════════════════════════
+// PHASE 3.3: ADVANCED THREAT DETECTION CONFIGURATION
+// ═══════════════════════════════════════════════════
+
+/// Advanced threat detection configuration (Phase 3.3).
+///
+/// Controls advanced security features for detecting sophisticated attacks:
+/// - Goal state tracking (objective drift detection)
+/// - Workflow intent tracking (long-horizon attack detection)
+/// - Tool namespace security (shadowing/collision detection)
+/// - Output security analysis (covert channel detection)
+/// - Token-level security (smuggling, flooding, glitch tokens)
+/// - Kill switch (emergency termination)
+///
+/// # TOML Example
+///
+/// ```toml
+/// [advanced_threat]
+/// goal_tracking_enabled = true
+/// goal_drift_threshold = 0.3
+/// workflow_tracking_enabled = true
+/// workflow_step_budget = 100
+/// tool_namespace_enforcement = true
+/// output_security_enabled = true
+/// token_security_enabled = true
+/// kill_switch_enabled = true
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdvancedThreatConfig {
+    /// Enable goal state tracking to detect objective drift mid-session.
+    /// Detects when an agent's goals change unexpectedly (ASI01 mitigation).
+    /// Default: false.
+    #[serde(default)]
+    pub goal_tracking_enabled: bool,
+
+    /// Similarity threshold below which goals are considered diverged.
+    /// Lower values are stricter. Range: [0.0, 1.0].
+    /// Default: 0.3.
+    #[serde(default = "default_goal_drift_threshold")]
+    pub goal_drift_threshold: f32,
+
+    /// Enable workflow intent tracking for long-horizon attack detection.
+    /// Tracks multi-step workflows and detects suspicious patterns.
+    /// Default: false.
+    #[serde(default)]
+    pub workflow_tracking_enabled: bool,
+
+    /// Maximum steps allowed in a workflow before requiring re-authorization.
+    /// Prevents unbounded workflows that could be exploited for slow attacks.
+    /// Default: 100.
+    #[serde(default = "default_workflow_step_budget")]
+    pub workflow_step_budget: usize,
+
+    /// Enable tool namespace enforcement to prevent shadowing attacks.
+    /// Detects tools with similar names that may be attempting to shadow
+    /// legitimate tools (typosquatting, homoglyphs).
+    /// Default: false.
+    #[serde(default)]
+    pub tool_namespace_enforcement: bool,
+
+    /// Enable output security analysis for covert channel detection.
+    /// Detects steganography, abnormal entropy, and hidden data in outputs.
+    /// Default: false.
+    #[serde(default)]
+    pub output_security_enabled: bool,
+
+    /// Enable token-level security analysis.
+    /// Detects token smuggling, context flooding, and glitch tokens.
+    /// Default: false.
+    #[serde(default)]
+    pub token_security_enabled: bool,
+
+    /// Default context budget (tokens) for token security.
+    /// Sessions exceeding this limit trigger flooding alerts.
+    /// Default: 100000.
+    #[serde(default = "default_context_budget")]
+    pub default_context_budget: usize,
+
+    /// Enable emergency kill switch for session termination.
+    /// When armed, allows immediate termination of all agent sessions.
+    /// Default: false.
+    #[serde(default)]
+    pub kill_switch_enabled: bool,
+
+    /// Protected tool name patterns for namespace security.
+    /// Tools matching these patterns require trust attestation.
+    #[serde(default)]
+    pub protected_tool_patterns: Vec<String>,
+}
+
+fn default_goal_drift_threshold() -> f32 {
+    0.3
+}
+
+fn default_workflow_step_budget() -> usize {
+    100
+}
+
+fn default_context_budget() -> usize {
+    100_000
+}
+
+impl Default for AdvancedThreatConfig {
+    fn default() -> Self {
+        Self {
+            goal_tracking_enabled: false,
+            goal_drift_threshold: default_goal_drift_threshold(),
+            workflow_tracking_enabled: false,
+            workflow_step_budget: default_workflow_step_budget(),
+            tool_namespace_enforcement: false,
+            output_security_enabled: false,
+            token_security_enabled: false,
+            default_context_budget: default_context_budget(),
+            kill_switch_enabled: false,
+            protected_tool_patterns: Vec::new(),
+        }
+    }
+}
+
+/// Maximum protected tool patterns for advanced threat config.
+pub const MAX_PROTECTED_TOOL_PATTERNS: usize = 200;
+
 /// Maximum number of trusted agents in cross-agent config.
 pub const MAX_CROSS_AGENT_TRUSTED_AGENTS: usize = 1_000;
 
@@ -2619,6 +2750,30 @@ impl PolicyConfig {
             return Err(
                 "cross_agent.nonce_expiry_secs must be > 0 when enabled".to_string(),
             );
+        }
+
+        // PHASE 3.3: Advanced Threat Detection validation
+        if self.advanced_threat.protected_tool_patterns.len() > MAX_PROTECTED_TOOL_PATTERNS {
+            return Err(format!(
+                "advanced_threat.protected_tool_patterns has {} entries, max is {}",
+                self.advanced_threat.protected_tool_patterns.len(),
+                MAX_PROTECTED_TOOL_PATTERNS
+            ));
+        }
+        if !self.advanced_threat.goal_drift_threshold.is_finite()
+            || self.advanced_threat.goal_drift_threshold < 0.0
+            || self.advanced_threat.goal_drift_threshold > 1.0
+        {
+            return Err(format!(
+                "advanced_threat.goal_drift_threshold must be in [0.0, 1.0], got {}",
+                self.advanced_threat.goal_drift_threshold
+            ));
+        }
+        if self.advanced_threat.workflow_step_budget == 0 {
+            return Err("advanced_threat.workflow_step_budget must be > 0".to_string());
+        }
+        if self.advanced_threat.default_context_budget == 0 {
+            return Err("advanced_threat.default_context_budget must be > 0".to_string());
         }
 
         Ok(())
@@ -3705,6 +3860,7 @@ policy_type = "Allow"
             schema_poisoning: SchemaPoisoningConfig::default(),
             sampling_detection: SamplingDetectionConfig::default(),
             cross_agent: CrossAgentConfig::default(),
+            advanced_threat: AdvancedThreatConfig::default(),
         };
         config.policies = (0..=MAX_POLICIES)
             .map(|i| PolicyRule {

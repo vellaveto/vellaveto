@@ -168,6 +168,8 @@ fn to_policies_produces_correct_policy_structs() {
         shadow_agent: Default::default(),
         schema_poisoning: Default::default(),
         sampling_detection: Default::default(),
+        cross_agent: Default::default(),
+        advanced_threat: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(policies.len(), 1);
@@ -217,6 +219,8 @@ fn to_policies_uses_default_priority_when_none() {
         shadow_agent: Default::default(),
         schema_poisoning: Default::default(),
         sampling_detection: Default::default(),
+        cross_agent: Default::default(),
+        advanced_threat: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(
@@ -372,6 +376,8 @@ fn policy_config_toml_roundtrip() {
         shadow_agent: Default::default(),
         schema_poisoning: Default::default(),
         sampling_detection: Default::default(),
+        cross_agent: Default::default(),
+        advanced_threat: Default::default(),
     };
     let toml_str = toml::to_string(&original).unwrap();
     let parsed = PolicyConfig::from_toml(&toml_str).unwrap();

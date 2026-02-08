@@ -802,6 +802,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             schema_poisoning: Default::default(),
             sampling_detection: Default::default(),
             cross_agent: Default::default(),
+            advanced_threat: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {
