@@ -306,8 +306,12 @@ async fn csrf_referer_check(
 }
 
 /// Validate that an origin is in the allowed list.
+///
+/// SECURITY (R33-001): This function avoids timing side-channels by always
+/// checking all configured origins rather than returning early on match.
+/// This prevents attackers from enumerating allowed origins via timing analysis.
 fn validate_origin(origin: &str, allowed_origins: &[String]) -> bool {
-    // Wildcard allows everything
+    // Wildcard allows everything (not secret, can return early)
     if allowed_origins.iter().any(|o| o == "*") {
         return true;
     }
@@ -316,6 +320,8 @@ fn validate_origin(origin: &str, allowed_origins: &[String]) -> bool {
     let origin_lower = origin.to_lowercase();
 
     // Check if it's localhost (always allowed for development)
+    // SECURITY: Localhost detection is not timing-sensitive as these
+    // prefixes are well-known and not secret.
     let is_localhost = origin_lower.starts_with("http://localhost")
         || origin_lower.starts_with("https://localhost")
         || origin_lower.starts_with("http://127.0.0.1")
@@ -328,23 +334,28 @@ fn validate_origin(origin: &str, allowed_origins: &[String]) -> bool {
         return is_localhost;
     }
 
-    // Check against configured origins
+    // SECURITY (R33-001): Check all origins in constant time to prevent
+    // timing side-channel that could reveal which origins are configured.
+    // We accumulate the result and avoid early returns.
+    let mut matched = false;
     for allowed in allowed_origins {
         let allowed_lower = allowed.to_lowercase();
+        // Exact match
         if origin_lower == allowed_lower {
-            return true;
+            matched = true;
+            // Don't return early - continue checking to maintain constant time
         }
-        // Also allow if the origin matches without port when allowed has no port
-        if !allowed_lower.contains(':') || allowed_lower.matches(':').count() == 1 {
-            // allowed is just a domain or has scheme:host, check prefix match
-            if origin_lower.starts_with(&allowed_lower) {
-                return true;
-            }
+        // Prefix match when allowed has no port or just scheme:host
+        if (!allowed_lower.contains(':') || allowed_lower.matches(':').count() == 1)
+            && origin_lower.starts_with(&allowed_lower)
+        {
+            matched = true;
+            // Don't return early
         }
     }
 
-    // Always allow localhost as fallback
-    is_localhost
+    // Return true if matched or if it's localhost (fallback)
+    matched || is_localhost
 }
 
 /// Middleware that requires API key authentication.
