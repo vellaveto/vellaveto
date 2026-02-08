@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+- Fix timing side-channel in CORS origin validation (R33-001) - origin matching now checks all configured origins to prevent timing-based enumeration
+
+### Changed
+- Security audit rounds: 32 → 33
+
+---
+
 ## [1.0.0] - 2026-02-08
 
 Initial production release of Sentinel, a runtime security engine for AI agent tool calls.
@@ -97,11 +107,11 @@ Initial production release of Sentinel, a runtime security engine for AI agent t
 - 1MB request body limit
 - Security headers (HSTS, X-Content-Type-Options, X-Frame-Options)
 - CORS configuration
-- 17 rounds of adversarial security audits
+- 33 rounds of adversarial security audits
 
 ### Testing
 
-- 2,400+ tests across all crates
+- 3,167 tests across all crates
 - Property-based testing with proptest
 - Fuzz targets for:
   - JSON-RPC framing
