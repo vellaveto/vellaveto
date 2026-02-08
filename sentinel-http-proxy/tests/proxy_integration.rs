@@ -1883,7 +1883,10 @@ async fn trace_query_param_ignored_when_trace_disabled_in_config() {
     let upstream_url = start_mock_upstream().await;
     let state = build_test_state(&upstream_url, &tmp);
     // trace_enabled defaults to false from build_test_state — do NOT set it to true
-    assert!(!state.trace_enabled, "Precondition: trace_enabled must be false");
+    assert!(
+        !state.trace_enabled,
+        "Precondition: trace_enabled must be false"
+    );
     let app = build_router(state);
 
     // Denied tool call with ?trace=true — should NOT include trace when config disables it
@@ -1922,7 +1925,10 @@ async fn trace_header_suppressed_on_allowed_request_when_trace_disabled() {
     let tmp = TempDir::new().unwrap();
     let upstream_url = start_mock_upstream().await;
     let state = build_test_state(&upstream_url, &tmp);
-    assert!(!state.trace_enabled, "Precondition: trace_enabled must be false");
+    assert!(
+        !state.trace_enabled,
+        "Precondition: trace_enabled must be false"
+    );
     let app = build_router(state);
 
     // read_file is allowed
