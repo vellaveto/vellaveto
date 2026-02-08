@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Phase 8: ETDI Cryptographic Tool Security
+- **Tool Signature Verification** — Ed25519/ECDSA P-256 cryptographic signing of tool definitions with trusted signer allowlists (fingerprints + SPIFFE IDs) and expiration support
+- **Attestation Chain** — Provenance tracking for tool definitions with initial registration, version updates, and chain integrity verification
+- **Version Pinning** — Semantic versioning constraints (`^1.0.0`, `~2.1.0`, exact) with hash-based drift detection for rug-pull prevention
+- **ETDI Store** — Persistent storage for signatures, attestations, and pins with optional HMAC integrity protection
+- **ETDI API Endpoints**:
+  - `GET /api/etdi/signatures` — List all tool signatures
+  - `GET /api/etdi/signatures/{tool}` — Get signature for a tool
+  - `POST /api/etdi/signatures/{tool}/verify` — Verify tool signature
+  - `GET /api/etdi/attestations` — List all attestations
+  - `GET /api/etdi/attestations/{tool}` — Get attestation chain for a tool
+  - `GET /api/etdi/attestations/{tool}/verify` — Verify attestation chain integrity
+  - `GET/POST/DELETE /api/etdi/pins/{tool}` — Manage version pins
+- **Tool Registry Integration** — Signature verification on tool registration with configurable `require_signatures` mode for fail-closed enforcement
+
 ### Security
 
 - **R33-001**: Add monotonic sequence counter to audit hash chain to prevent collision attacks under high load
