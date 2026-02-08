@@ -88,6 +88,7 @@ fn test_state_with_tenants(
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config,
         tenant_store,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
     (state, tmp)
 }

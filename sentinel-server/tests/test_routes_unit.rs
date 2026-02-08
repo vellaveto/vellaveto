@@ -55,6 +55,7 @@ fn test_state() -> (AppState, TempDir) {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
     (state, tmp)
 }
@@ -404,6 +405,7 @@ async fn health_not_rate_limited() {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
 
     // Rapid /health requests must all succeed despite strict rate limit
@@ -454,6 +456,7 @@ async fn rate_limit_429_includes_retry_after() {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -598,6 +601,7 @@ async fn per_ip_rate_limit_throttles_single_ip() {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -690,6 +694,7 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -755,6 +760,7 @@ async fn per_ip_health_exempt_from_rate_limit() {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
 
     // Multiple health checks from same IP should all succeed
@@ -812,6 +818,7 @@ async fn per_ip_rate_limit_ipv6_addresses() {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -904,6 +911,7 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -980,6 +988,7 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1055,6 +1064,7 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1128,6 +1138,7 @@ async fn per_ip_rate_limit_429_response_body_format() {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

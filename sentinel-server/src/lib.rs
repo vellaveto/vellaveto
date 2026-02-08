@@ -1,4 +1,5 @@
 pub mod dashboard;
+pub mod idempotency;
 pub mod metrics;
 pub mod rbac;
 pub mod routes;
@@ -514,6 +515,8 @@ pub struct AppState {
     /// Tenant store for looking up tenant details and quotas.
     /// None means no tenant validation (config + default tenant only).
     pub tenant_store: Option<Arc<dyn tenant::TenantStore>>,
+    /// Idempotency key store for at-most-once request semantics (Phase 5).
+    pub idempotency: idempotency::IdempotencyStore,
 }
 
 /// Error type for cluster-dispatched approval operations.

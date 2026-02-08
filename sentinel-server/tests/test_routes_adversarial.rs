@@ -56,6 +56,7 @@ fn make_state() -> (AppState, TempDir) {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
     (state, tmp)
 }
@@ -85,6 +86,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
     (state, tmp)
 }
@@ -498,6 +500,7 @@ priority = 1
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
     let policy_state = state.policy_state.clone();
     let app = routes::build_router(state);
@@ -594,6 +597,7 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
     let app = routes::build_router(state);
 

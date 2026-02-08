@@ -57,6 +57,7 @@ fn make_state() -> (AppState, TempDir) {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
     (state, tmp)
 }
@@ -86,6 +87,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
     (state, tmp)
 }
@@ -936,6 +938,7 @@ priority = 1
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
     let app = routes::build_router(state.clone());
 
@@ -1030,6 +1033,7 @@ fn make_approval_state() -> (AppState, TempDir) {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
     (state, tmp)
 }
@@ -1485,6 +1489,7 @@ fn make_authed_state() -> (AppState, TempDir) {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
     (state, tmp)
 }
@@ -1964,6 +1969,7 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
     (state, tmp)
 }
@@ -2618,6 +2624,7 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
     (state, tmp)
 }

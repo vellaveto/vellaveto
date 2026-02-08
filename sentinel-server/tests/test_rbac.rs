@@ -82,6 +82,7 @@ fn test_state_with_rbac(rbac_config: RbacConfig) -> (AppState, TempDir) {
         rbac_config,
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
     };
     (state, tmp)
 }

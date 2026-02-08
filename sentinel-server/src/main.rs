@@ -580,6 +580,11 @@ async fn cmd_serve(
         // To enable: set tenant.enabled = true in config
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
+        // Idempotency key store (Phase 5) — default: disabled
+        // To enable: set idempotency.enabled = true in config
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(
+            sentinel_server::idempotency::IdempotencyConfig::default(),
+        ),
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
