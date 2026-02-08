@@ -52,6 +52,7 @@ fn test_state() -> (AppState, TempDir) {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
     (state, tmp)
 }
@@ -398,6 +399,7 @@ async fn health_not_rate_limited() {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
 
     // Rapid /health requests must all succeed despite strict rate limit
@@ -445,6 +447,7 @@ async fn rate_limit_429_includes_retry_after() {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -586,6 +589,7 @@ async fn per_ip_rate_limit_throttles_single_ip() {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -675,6 +679,7 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -737,6 +742,7 @@ async fn per_ip_health_exempt_from_rate_limit() {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
 
     // Multiple health checks from same IP should all succeed
@@ -791,6 +797,7 @@ async fn per_ip_rate_limit_ipv6_addresses() {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -880,6 +887,7 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -953,6 +961,7 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1025,6 +1034,7 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1095,6 +1105,7 @@ async fn per_ip_rate_limit_429_response_body_format() {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

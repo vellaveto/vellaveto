@@ -55,6 +55,7 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
     (state, tmp)
 }
@@ -393,6 +394,7 @@ async fn regression_24_error_message_does_not_leak_architecture() {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

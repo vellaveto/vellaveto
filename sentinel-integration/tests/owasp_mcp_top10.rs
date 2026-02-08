@@ -889,6 +889,7 @@ mod owasp_mcp07_auth {
             prometheus_handle: None,
             tool_registry: None,
             cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
         };
         (state, tmp)
     }
@@ -1281,6 +1282,7 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
             prometheus_handle: None,
             tool_registry: None,
             cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
         };
 
         let app = routes::build_router(state);
@@ -1524,6 +1526,7 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1603,6 +1606,7 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

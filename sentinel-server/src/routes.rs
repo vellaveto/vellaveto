@@ -19,6 +19,7 @@ use governor::clock::Clock;
 
 use subtle::ConstantTimeEq;
 
+use crate::rbac::{rbac_middleware, RbacState};
 use crate::AppState;
 
 pub fn build_router(state: AppState) -> Router {
@@ -70,6 +71,14 @@ pub fn build_router(state: AppState) -> Router {
         // and pending approval count, which are security-sensitive (see R26-SRV-6).
         // SECURITY (R38-SRV-2): /metrics inside rate_limit — prevents scraper DoS.
         .route("/metrics", get(prometheus_metrics))
+        // RBAC middleware (innermost - runs after auth, checks permissions)
+        // When RBAC is disabled, all requests get Admin role and pass through.
+        .route_layer(middleware::from_fn_with_state(
+            RbacState {
+                config: state.rbac_config.clone(),
+            },
+            rbac_middleware,
+        ))
         // SECURITY (R27-SRV-8): rate_limit MUST be outermost (applied last)
         // so it runs BEFORE auth. Previously auth was outermost, meaning
         // unauthenticated flood requests bypassed rate limiting entirely.

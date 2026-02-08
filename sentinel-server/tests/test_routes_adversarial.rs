@@ -53,6 +53,7 @@ fn make_state() -> (AppState, TempDir) {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
     (state, tmp)
 }
@@ -79,6 +80,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
     (state, tmp)
 }
@@ -489,6 +491,7 @@ priority = 1
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
     let policy_state = state.policy_state.clone();
     let app = routes::build_router(state);
@@ -582,6 +585,7 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
     let app = routes::build_router(state);
 

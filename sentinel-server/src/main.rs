@@ -573,6 +573,9 @@ async fn cmd_serve(
         prometheus_handle,
         tool_registry,
         cluster,
+        // RBAC configuration (Phase 2) — default: disabled, all requests get Admin
+        // To enable: set rbac.enabled = true in config and optionally configure JWT
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
 
     tracing::info!("Audit log: {}", audit_path.display());

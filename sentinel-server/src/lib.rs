@@ -1,5 +1,6 @@
 pub mod dashboard;
 pub mod metrics;
+pub mod rbac;
 pub mod routes;
 
 /// Re-export for fuzz testing — not part of the public API.
@@ -502,6 +503,9 @@ pub struct AppState {
     /// When clustering is enabled, approvals and rate limits are shared across
     /// instances. When disabled, delegates to the local `ApprovalStore`.
     pub cluster: Option<Arc<dyn sentinel_cluster::ClusterBackend>>,
+    /// RBAC configuration for role-based access control (Phase 2).
+    /// When enabled, endpoints are protected by role-based permissions.
+    pub rbac_config: rbac::RbacConfig,
 }
 
 /// Error type for cluster-dispatched approval operations.

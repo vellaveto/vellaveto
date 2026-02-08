@@ -375,6 +375,7 @@ mod server_auth {
             prometheus_handle: None,
             tool_registry: None,
             cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
         };
         (state, tmp)
     }
@@ -495,6 +496,7 @@ mod server_auth {
             prometheus_handle: None,
             tool_registry: None,
             cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
         };
         let app = routes::build_router(state);
 
@@ -1082,6 +1084,7 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
 
     let app = routes::build_router(state);
@@ -1168,6 +1171,7 @@ async fn finding_12_approval_creation_failure_denies_request() {
         prometheus_handle: None,
         tool_registry: None,
         cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
     };
 
     let app = routes::build_router(state);
