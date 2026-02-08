@@ -1,9 +1,9 @@
-# Sentinel Roadmap v2.0
+# Sentinel Roadmap v2.1
 
-> **Version:** 2.0.0 (Planning)
+> **Version:** 2.1.0 (Planning)
 > **Generated:** 2026-02-08
-> **Status:** Research complete, implementation pending
-> **Based on:** Multi-agent research (MCP spec, OWASP, enterprise features, competitor analysis)
+> **Status:** v2.0.0 released, v2.1 research complete
+> **Based on:** Multi-agent research (MCP spec 2025-11-25, OWASP ASI Top 10, enterprise patterns, competitor analysis)
 
 ---
 
@@ -838,3 +838,486 @@ The following research agents provided input for this roadmap:
 ---
 
 *This roadmap is a living document. Update as standards finalize and priorities shift.*
+
+---
+
+# Future Roadmap: v2.1 and Beyond
+
+> **Research Sources (2026-02-08):**
+> - MCP Specification 2025-11-25 Security Best Practices
+> - OWASP Top 10 for Agentic Applications 2026 (finalized)
+> - ETDI: Enhanced Tool Definition Interface (arxiv:2506.01333)
+> - MINJA: Memory Injection Attacks (Agent Security Bench)
+> - Agentic Trust Framework (ATF) for Zero Trust NHI
+> - Enterprise AI Security Patterns (Microsoft, CrowdStrike Unit42)
+> - Competitor Analysis: NeMo Guardrails, Guardrails AI, Zenity, Prisma AIRS
+
+---
+
+## Gap Analysis: Sentinel v2.0 vs Industry State-of-the-Art
+
+### Implemented (Strong Coverage)
+- [x] Policy engine with path/network rules
+- [x] DLP scanning (8-layer decode pipeline)
+- [x] Injection detection (Aho-Corasick + semantic)
+- [x] Audit logging with tamper-evident hash chain
+- [x] Circuit breaker for cascading failures
+- [x] Schema poisoning detection
+- [x] Cross-agent security (trust graph, message signing)
+- [x] MITRE ATLAS mapping, OWASP AIVSS scoring
+
+### Gaps Identified (v2.1 Priorities)
+
+| Gap | Industry Standard | Sentinel Status | Priority |
+|-----|-------------------|-----------------|----------|
+| ETDI Cryptographic Tool Verification | ETDI proposal (2025) | Not implemented | P0 |
+| Memory Injection Defense (MINJA) | Agent Security Bench | Partial (memory_tracking) | P1 |
+| Non-Human Identity (NHI) Lifecycle | ATF, CyberArk | Not implemented | P1 |
+| Stateful Session Reasoning Guards | NeMo Guardrails | Not implemented | P2 |
+| Semantic Guardrails (LLM-based) | Guardrails AI, NeMo | Not implemented | P2 |
+| A2A Protocol Security | Google A2A (2025) | Not implemented | P2 |
+| RAG Poisoning Detection | Microsoft research | Not implemented | P2 |
+| MCP Tasks Primitive Support | MCP 2025-11-25 | Not implemented | P1 |
+| Agent Observability Platform Integration | Arize, Langfuse | Partial (OTEL) | P3 |
+
+---
+
+## Phase 8: ETDI & Cryptographic Tool Security (v2.1)
+
+*Focus: Implement Enhanced Tool Definition Interface for cryptographic tool attestation*
+
+### Background
+
+ETDI (arxiv:2506.01333) proposes cryptographic verification of tool definitions to prevent:
+- Tool rug-pulls (definition changes post-install)
+- Tool squatting (malicious tools impersonating legitimate ones)
+- Supply chain attacks on MCP tool servers
+
+### 8.1 Tool Signature Verification
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Define ToolSignature schema (Ed25519/ECDSA) | P0 | 1 day | Pending |
+| Implement signature verification in tool registry | P0 | 2 days | Pending |
+| Add signature verification to schema poisoning checks | P0 | 1 day | Pending |
+| Create tool signing CLI (`sentinel sign-tool`) | P0 | 2 days | Pending |
+| Add signature verification failure audit events | P0 | 1 day | Pending |
+
+**Configuration:**
+```toml
+[etdi]
+enabled = true
+require_signatures = true       # Reject unsigned tools
+allowed_signers = [
+  "spiffe://example.org/tool-server/official",
+  "SHA256:abc123..."            # Or public key fingerprints
+]
+signature_algorithm = "ed25519" # ed25519 | ecdsa-p256
+```
+
+### 8.2 Tool Attestation Chain
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Implement attestation chain validation | P0 | 2 days | Pending |
+| Add tool provenance tracking | P0 | 2 days | Pending |
+| Create attestation transparency log | P1 | 3 days | Pending |
+| Integrate with Sigstore/Rekor (optional) | P2 | 3 days | Pending |
+
+### 8.3 Tool Version Pinning
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Implement version pinning in tool registry | P0 | 1 day | Pending |
+| Add semantic versioning constraint validation | P0 | 1 day | Pending |
+| Detect unauthorized version updates | P0 | 1 day | Pending |
+| Add version drift alerting | P0 | 1 day | Pending |
+
+### Phase 8 Deliverables
+- [ ] Ed25519/ECDSA tool signature verification
+- [ ] Attestation chain with provenance tracking
+- [ ] Tool signing CLI for developers
+- [ ] Version pinning with semantic versioning
+- [ ] Sigstore integration (optional)
+
+**Estimated Duration:** 3 weeks
+
+---
+
+## Phase 9: Memory Injection Defense (v2.1)
+
+*Focus: Comprehensive defense against MINJA (Memory Injection) attacks*
+
+### Background
+
+MINJA attacks (Agent Security Bench, 2025) demonstrate that LLM agents with persistent memory are vulnerable to:
+- Delayed injection: Malicious data stored in memory, activated later
+- Cross-session poisoning: Poisoning one session affects future sessions
+- Memory-based privilege escalation: Stored credentials/capabilities misused
+
+### 9.1 Enhanced Memory Tracking
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Extend memory_tracking.rs with taint propagation | P1 | 3 days | Pending |
+| Implement memory provenance graph | P1 | 2 days | Pending |
+| Add memory age-based trust decay | P1 | 1 day | Pending |
+| Create memory quarantine for suspicious data | P1 | 2 days | Pending |
+
+**Configuration:**
+```toml
+[memory_security]
+enabled = true
+taint_propagation = true
+trust_decay_hours = 24          # Trust decreases over time
+max_memory_age_days = 7         # Force re-verification after 7 days
+quarantine_on_injection_detect = true
+```
+
+### 9.2 Memory Integrity Verification
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Implement memory content hashing | P1 | 1 day | Pending |
+| Add integrity verification on memory retrieval | P1 | 2 days | Pending |
+| Detect memory tampering between sessions | P1 | 2 days | Pending |
+| Create memory audit trail | P1 | 1 day | Pending |
+
+### 9.3 Memory Isolation
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Implement per-agent memory namespaces | P1 | 2 days | Pending |
+| Add memory access control policies | P1 | 2 days | Pending |
+| Create memory sharing approval workflow | P2 | 2 days | Pending |
+| Implement memory encryption at rest | P2 | 2 days | Pending |
+
+### Phase 9 Deliverables
+- [ ] Taint propagation for memory tracking
+- [ ] Memory provenance graph with trust decay
+- [ ] Integrity verification on retrieval
+- [ ] Per-agent memory isolation
+- [ ] Memory access control policies
+
+**Estimated Duration:** 3 weeks
+
+---
+
+## Phase 10: Non-Human Identity (NHI) Lifecycle (v2.1)
+
+*Focus: Implement Agentic Trust Framework (ATF) for zero-trust agent identity*
+
+### Background
+
+Traditional IAM assumes human users. AI agents require:
+- Machine identities with short-lived credentials
+- Just-in-time access with automatic revocation
+- Behavioral attestation (is this agent acting normally?)
+- Delegation chains with accountability
+
+### 10.1 Agent Identity Lifecycle
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Implement agent registration with attestation | P1 | 2 days | Pending |
+| Add agent credential rotation | P1 | 2 days | Pending |
+| Implement agent revocation list | P1 | 1 day | Pending |
+| Create agent identity federation | P2 | 3 days | Pending |
+
+**Configuration:**
+```toml
+[nhi]
+enabled = true
+credential_ttl_secs = 3600      # 1 hour max credential lifetime
+require_attestation = true
+attestation_types = ["jwt", "mtls", "spiffe"]
+auto_revoke_on_anomaly = true
+```
+
+### 10.2 Behavioral Attestation
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Extend behavioral anomaly detection for NHI | P1 | 2 days | Pending |
+| Implement continuous authentication | P1 | 2 days | Pending |
+| Add behavioral drift alerting | P1 | 1 day | Pending |
+| Create agent behavior baseline learning | P2 | 3 days | Pending |
+
+### 10.3 Delegation & Accountability
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Enhance delegation chain with NHI tracking | P1 | 2 days | Pending |
+| Implement delegation approval workflow | P1 | 2 days | Pending |
+| Add delegation scope constraints | P1 | 1 day | Pending |
+| Create delegation audit reports | P1 | 1 day | Pending |
+
+### Phase 10 Deliverables
+- [ ] Agent identity lifecycle (register, rotate, revoke)
+- [ ] Behavioral attestation with continuous auth
+- [ ] Enhanced delegation chains for NHI
+- [ ] Delegation scope constraints and approval
+
+**Estimated Duration:** 3 weeks
+
+---
+
+## Phase 11: MCP Tasks Primitive (v2.1)
+
+*Focus: Security for the new MCP Tasks primitive in 2025-11-25 spec*
+
+### Background
+
+MCP 2025-11-25 introduces the Tasks primitive for long-running, multi-step operations:
+- Task state persistence across reconnections
+- Task cancellation and resumption
+- Task result streaming
+
+### 11.1 Task Security
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Implement task state encryption | P1 | 2 days | Pending |
+| Add task authentication on resume | P1 | 2 days | Pending |
+| Implement task result validation | P1 | 2 days | Pending |
+| Create task timeout enforcement | P1 | 1 day | Pending |
+
+### 11.2 Task Integrity
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Implement task state hash chain | P1 | 2 days | Pending |
+| Add task state tampering detection | P1 | 1 day | Pending |
+| Create task checkpoint verification | P1 | 2 days | Pending |
+| Implement task replay protection | P1 | 1 day | Pending |
+
+### Phase 11 Deliverables
+- [ ] Task state encryption and authentication
+- [ ] Task result validation and streaming security
+- [ ] Task state hash chain for integrity
+- [ ] Checkpoint verification and replay protection
+
+**Estimated Duration:** 2 weeks
+
+---
+
+## Phase 12: Semantic Guardrails (v2.2)
+
+*Focus: LLM-based guardrails for nuanced policy enforcement*
+
+### Background
+
+Competitors like NeMo Guardrails and Guardrails AI use LLM-based reasoning for:
+- Intent classification beyond pattern matching
+- Contextual policy enforcement
+- Natural language policy definitions
+- Jailbreak detection resistant to adversarial prompts
+
+### 12.1 LLM Policy Evaluator
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Define LLM evaluator interface | P2 | 1 day | Pending |
+| Implement local model support (GGUF/ONNX) | P2 | 3 days | Pending |
+| Add cloud model support (OpenAI, Anthropic) | P2 | 2 days | Pending |
+| Create evaluation caching layer | P2 | 2 days | Pending |
+
+**Configuration:**
+```toml
+[semantic_guardrails]
+enabled = true
+model = "local:llama-guard-3"   # or "openai:gpt-4o"
+cache_ttl_secs = 300
+max_latency_ms = 500
+fallback_on_timeout = "deny"    # deny | allow | pattern_match
+```
+
+### 12.2 Intent Classification
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Implement intent taxonomy | P2 | 2 days | Pending |
+| Add intent-based policy routing | P2 | 2 days | Pending |
+| Create intent confidence thresholds | P2 | 1 day | Pending |
+| Implement intent chain tracking | P2 | 2 days | Pending |
+
+### 12.3 Natural Language Policies
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Design NL policy syntax | P2 | 2 days | Pending |
+| Implement NL to rule compiler | P2 | 3 days | Pending |
+| Add policy explanation generation | P2 | 2 days | Pending |
+| Create policy testing framework | P2 | 2 days | Pending |
+
+### Phase 12 Deliverables
+- [ ] LLM policy evaluator with local/cloud support
+- [ ] Intent classification with confidence thresholds
+- [ ] Natural language policy definitions
+- [ ] Policy explanation generation
+
+**Estimated Duration:** 4 weeks
+
+---
+
+## Phase 13: RAG Poisoning Defense (v2.2)
+
+*Focus: Protect retrieval-augmented generation from data poisoning*
+
+### Background
+
+RAG systems are vulnerable to:
+- Document injection: Malicious content in knowledge base
+- Embedding manipulation: Adversarial perturbations
+- Context window flooding: Irrelevant data diluting real information
+
+### 13.1 Document Verification
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Implement document provenance tracking | P2 | 2 days | Pending |
+| Add document content hashing | P2 | 1 day | Pending |
+| Create document approval workflow | P2 | 2 days | Pending |
+| Implement document trust scoring | P2 | 2 days | Pending |
+
+### 13.2 Retrieval Security
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Add retrieval result inspection | P2 | 2 days | Pending |
+| Implement embedding similarity anomaly detection | P2 | 3 days | Pending |
+| Create retrieval diversity enforcement | P2 | 2 days | Pending |
+| Add context window budget tracking | P2 | 1 day | Pending |
+
+### Phase 13 Deliverables
+- [ ] Document provenance and trust scoring
+- [ ] Retrieval result inspection
+- [ ] Embedding anomaly detection
+- [ ] Context window budget enforcement
+
+**Estimated Duration:** 3 weeks
+
+---
+
+## Phase 14: A2A Protocol Security (v2.2)
+
+*Focus: Security for Google's Agent-to-Agent (A2A) protocol*
+
+### Background
+
+Google's A2A protocol (2025) defines standardized agent-to-agent communication.
+Sentinel should secure A2A traffic similar to MCP.
+
+### 14.1 A2A Support
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Implement A2A message parsing | P2 | 2 days | Pending |
+| Add A2A policy evaluation | P2 | 2 days | Pending |
+| Create A2A audit logging | P2 | 1 day | Pending |
+| Implement A2A proxy mode | P2 | 3 days | Pending |
+
+### Phase 14 Deliverables
+- [ ] A2A protocol support
+- [ ] A2A policy evaluation
+- [ ] A2A audit logging
+- [ ] A2A proxy mode
+
+**Estimated Duration:** 2 weeks
+
+---
+
+## Phase 15: Observability Platform Integration (v2.2)
+
+*Focus: Deep integration with AI observability platforms*
+
+### Background
+
+AI observability platforms (Arize, Langfuse, Helicone) provide:
+- LLM call tracing and debugging
+- Token usage analytics
+- Quality evaluation
+- A/B testing
+
+### 15.1 Platform Integrations
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Add Arize export integration | P3 | 2 days | Pending |
+| Add Langfuse export integration | P3 | 2 days | Pending |
+| Add Helicone export integration | P3 | 2 days | Pending |
+| Create custom webhook export | P3 | 1 day | Pending |
+
+### 15.2 Enhanced Tracing
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Add full request/response capture | P3 | 2 days | Pending |
+| Implement trace sampling | P3 | 1 day | Pending |
+| Add trace filtering by policy outcome | P3 | 1 day | Pending |
+| Create trace correlation with external spans | P3 | 2 days | Pending |
+
+### Phase 15 Deliverables
+- [ ] Arize, Langfuse, Helicone integrations
+- [ ] Full request/response capture
+- [ ] Trace sampling and filtering
+- [ ] External span correlation
+
+**Estimated Duration:** 2 weeks
+
+---
+
+## v2.1 Timeline Summary
+
+```
+Phase 8:  ETDI & Cryptographic Tool Security     (3 weeks)  ← P0
+Phase 9:  Memory Injection Defense               (3 weeks)  ← P1
+Phase 10: Non-Human Identity Lifecycle           (3 weeks)  ← P1
+Phase 11: MCP Tasks Primitive                    (2 weeks)  ← P1
+───────────────────────────────────────────────────────────
+v2.1 Total: 11 weeks (~2.75 months)
+```
+
+## v2.2 Timeline Summary
+
+```
+Phase 12: Semantic Guardrails                    (4 weeks)  ← P2
+Phase 13: RAG Poisoning Defense                  (3 weeks)  ← P2
+Phase 14: A2A Protocol Security                  (2 weeks)  ← P2
+Phase 15: Observability Platform Integration     (2 weeks)  ← P3
+───────────────────────────────────────────────────────────
+v2.2 Total: 11 weeks (~2.75 months)
+```
+
+---
+
+## Competitor Feature Comparison (Updated)
+
+| Feature | Sentinel v2.0 | NeMo Guardrails | Guardrails AI | Zenity | Prisma AIRS |
+|---------|---------------|-----------------|---------------|--------|-------------|
+| Policy Engine | ✅ Strong | ✅ Strong | ✅ Strong | ✅ Strong | ✅ Strong |
+| Injection Detection | ✅ Multi-layer | ✅ LLM-based | ✅ LLM-based | ⚠️ Basic | ✅ Strong |
+| DLP/Data Loss Prevention | ✅ 8-layer | ⚠️ Basic | ✅ Validators | ✅ Strong | ✅ Strong |
+| Audit Logging | ✅ Hash chain | ⚠️ Basic | ⚠️ Basic | ✅ Strong | ✅ Strong |
+| MCP Protocol Support | ✅ Native | ❌ | ❌ | ⚠️ Basic | ❌ |
+| Schema Poisoning | ✅ Jaccard | ❌ | ❌ | ❌ | ❌ |
+| Cross-Agent Security | ✅ Trust graph | ❌ | ❌ | ⚠️ Basic | ❌ |
+| ETDI Tool Signing | ❌ v2.1 | ❌ | ❌ | ❌ | ❌ |
+| Memory Injection Defense | ⚠️ Partial | ❌ | ❌ | ❌ | ❌ |
+| Semantic Guardrails | ❌ v2.2 | ✅ Native | ✅ Native | ⚠️ Basic | ⚠️ Basic |
+| NHI Lifecycle | ⚠️ Partial | ❌ | ❌ | ⚠️ Basic | ❌ |
+
+---
+
+## Research Bibliography
+
+1. **ETDI: Enhanced Tool Definition Interface** — arxiv:2506.01333 (2025)
+2. **MINJA: Memory Injection Attacks on LLM Agents** — Agent Security Bench (2025)
+3. **Agentic Trust Framework (ATF)** — CyberArk, Astrix Security (2026)
+4. **MCP Specification 2025-11-25** — modelcontextprotocol.io
+5. **OWASP Top 10 for Agentic Applications 2026** — genai.owasp.org
+6. **A2A Protocol Specification** — Google (2025)
+7. **Enterprise-Grade Security for MCP** — arxiv:2504.08623 (2025)
+8. **Runtime Risk to Real-Time Defense** — Microsoft Security Blog (2026)
+9. **Agent Security Bench: Evaluating LLM Agent Safety** — Stanford (2025)
+10. **Privilege Management in MCP** — arxiv:2507.06250 (2025)

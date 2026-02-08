@@ -325,7 +325,7 @@ impl ExecutionGraph {
             ));
         }
 
-        dot.push_str("\n");
+        dot.push('\n');
 
         // Add edges
         for edge in &self.edges {

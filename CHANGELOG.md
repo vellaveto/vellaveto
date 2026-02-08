@@ -20,6 +20,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Security audit rounds: 33 → 34
 
+### Documentation
+
+- **ROADMAP.md**: Added v2.1 and v2.2 roadmap based on security research
+  - Phase 8: ETDI Cryptographic Tool Security
+  - Phase 9: Memory Injection Defense (MINJA)
+  - Phase 10: Non-Human Identity (NHI) Lifecycle
+  - Phase 11: MCP Tasks Primitive
+  - Phase 12: Semantic Guardrails (LLM-based)
+  - Phase 13: RAG Poisoning Defense
+  - Phase 14: A2A Protocol Security
+  - Phase 15: Observability Platform Integration
+- Updated gap analysis vs competitor landscape (NeMo Guardrails, Guardrails AI, Zenity, Prisma AIRS)
+- Added research bibliography with 10 academic/industry references
+
 ---
 
 ## [2.0.0] - 2026-02-08
