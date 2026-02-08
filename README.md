@@ -7,10 +7,11 @@
     🔍 Intercept &middot; ⚖️ Evaluate &middot; 🚫 Enforce &middot; 📋 Audit
   </p>
   <p align="center">
+    <a href="https://github.com/paolovella/sentinel/releases/tag/v1.0.0"><img src="https://img.shields.io/badge/version-1.0.0-blue.svg" alt="Version 1.0.0"></a>
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-3%2C031_passing-brightgreen.svg" alt="Tests: 3,031 passing">
+    <img src="https://img.shields.io/badge/tests-3%2C167_passing-brightgreen.svg" alt="Tests: 3,167 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <img src="https://img.shields.io/badge/security_audit-32_rounds%2C_380%2B_findings-informational.svg" alt="Security Audit: 32 rounds, 380+ findings">
     <a href="https://modelcontextprotocol.io/specification/2025-06-18"><img src="https://img.shields.io/badge/MCP-2025--06--18-blueviolet.svg" alt="MCP 2025-06-18"></a>
@@ -22,7 +23,8 @@
     <a href="#-deployment-modes">Deployment</a> &middot;
     <a href="#-http-api-reference">API</a> &middot;
     <a href="#-audit-system">Audit</a> &middot;
-    <a href="#-security-properties">Security</a>
+    <a href="#-security-properties">Security</a> &middot;
+    <a href="#-documentation">Docs</a>
   </p>
 </p>
 
@@ -31,8 +33,9 @@
 Sentinel is a lightweight, high-performance firewall that sits between AI agents and their tools. It intercepts [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) and function-calling requests, enforces security policies on paths, domains, and actions, and maintains a tamper-evident audit trail with cryptographic guarantees.
 
 <table>
+<tr><td>🏷️ <strong>Version</strong></td><td>1.0.0</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>3,031 tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>3,167 tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-06-18 (Streamable HTTP)</td></tr>
@@ -94,10 +97,48 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Supply chain verification** with SHA-256 hash checking of MCP server binaries
 - **MCP 2025-06-18 compliance** with protocol version header, RFC 8707 resource indicators, and `_meta` preservation
 
+## 📦 Installation
+
+### Docker (Recommended)
+
+```bash
+# Pull the latest release
+docker pull ghcr.io/paolovella/sentinel:1.0.0
+
+# Run with a policy config
+docker run -p 3000:3000 \
+  -v /path/to/config.toml:/etc/sentinel/config.toml:ro \
+  ghcr.io/paolovella/sentinel:1.0.0
+```
+
+### Kubernetes (Helm)
+
+```bash
+# Install with Helm
+helm install sentinel ./helm/sentinel \
+  --namespace sentinel \
+  --create-namespace \
+  -f values-production.yaml
+```
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for complete deployment instructions.
+
+### Build from Source
+
+```bash
+# Clone and build
+git clone https://github.com/paolovella/sentinel.git
+cd sentinel
+cargo build --release
+
+# Binaries in target/release/
+ls target/release/sentinel target/release/sentinel-http-proxy
+```
+
 ## 🚀 Quick Start
 
 ```bash
-# Build
+# Build (if not using Docker)
 cargo build --release
 
 # Create a policy config (deny-by-default baseline)
@@ -649,7 +690,7 @@ Sentinel has undergone 32 rounds of adversarial security audit covering 31+ atta
 | Total findings triaged | 380+ |
 | Findings fixed | 300+ |
 | Critical/HIGH findings fixed | 80+ |
-| Test count post-audit | 3,031 |
+| Test count post-audit | 3,167 |
 
 Key areas covered: tool poisoning, prompt injection, path traversal, SSRF/domain bypass, session fixation, JSON parsing, memory poisoning, elicitation social engineering, audit log tampering, OAuth/JWT validation, SIEM export injection, rug-pull detection, tool squatting, DLP bypass, SSE transport parity, config reload races, Unicode case-folding, IPv6 transition mechanisms, CEF/SIEM injection, and webhook SSRF.
 
@@ -795,7 +836,7 @@ CI runs 6 parallel jobs on every push and pull request:
 | 🧹 **Check & Lint** | `cargo fmt`, `cargo check`, `cargo clippy`, `unwrap()` hygiene scan |
 | 🧪 **Test Suite** | `cargo test --workspace`, doc build verification |
 | 🔐 **Security Audit** | `cargo audit` via `rustsec/audit-check` for dependency CVEs |
-| 🐛 **Fuzz Targets** | Compiles all 6 fuzz targets on nightly to catch build regressions |
+| 🐛 **Fuzz Targets** | Compiles all 7 fuzz targets on nightly to catch build regressions |
 | 📈 **Benchmarks** | Runs criterion benchmarks with cached baselines (main branch only) |
 | 📦 **Release Build** | Full LTO release build with 50MB binary size guard |
 
@@ -814,11 +855,23 @@ sentinel/
   sentinel-server/         HTTP API server + Prometheus metrics + admin dashboard
   sentinel-proxy/          Stdio MCP proxy binary
   sentinel-http-proxy/     Streamable HTTP reverse proxy binary
-  sentinel-integration/    Integration and E2E tests (~97 test files)
-  fuzz/                    6 fuzz targets for parser boundary code
+  sentinel-integration/    Integration and E2E tests (98 test files)
+  fuzz/                    7 fuzz targets for parser boundary code
   examples/                Example configs and demo scripts
   scripts/                 Benchmark regression scripts
 ```
+
+## 📚 Documentation
+
+Comprehensive documentation is available in the `docs/` directory:
+
+| Document | Description |
+|----------|-------------|
+| [Deployment Guide](docs/DEPLOYMENT.md) | Docker, Kubernetes (Helm), and bare metal installation |
+| [Operations Runbook](docs/OPERATIONS.md) | Monitoring, troubleshooting, and maintenance procedures |
+| [Security Hardening](docs/SECURITY.md) | Security configuration best practices |
+| [API Reference](docs/API.md) | Complete HTTP API documentation |
+| [Changelog](CHANGELOG.md) | Version history and release notes |
 
 ## 📚 References
 
