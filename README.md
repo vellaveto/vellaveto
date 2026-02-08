@@ -108,6 +108,12 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Supply chain verification** with SHA-256 hash checking of MCP server binaries
 - **MCP 2025-06-18 compliance** with protocol version header, RFC 8707 resource indicators, and `_meta` preservation
 
+### 🏢 Enterprise Features (Configuration Ready)
+- **mTLS / SPIFFE-SPIRE** — Mutual TLS with client certificate verification, SPIFFE trust domains, workload identity, and ID-to-role mapping
+- **OPA Integration** — External policy evaluation via Open Policy Agent with caching, timeouts, fail-open/closed modes, and local bundle support
+- **Threat Intelligence** — TAXII, MISP, and custom threat feed integration with IOC matching, confidence thresholds, and configurable actions
+- **Just-In-Time Access** — Temporary elevated permissions with TTL, approval requirements, auto-revocation on alerts, and session limits
+
 ## 📦 Installation
 
 ### Docker (Recommended)

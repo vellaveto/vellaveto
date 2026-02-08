@@ -468,85 +468,160 @@ Map Sentinel detections to MITRE ATLAS techniques.
 
 ---
 
-## Phase 5: Enterprise Hardening (Weeks 15-18)
+## Phase 5: Enterprise Hardening - Configuration (Weeks 15-16) ✅ COMPLETE
 
-*Focus: mTLS, OPA, threat intelligence, JIT access*
+*Focus: Configuration layer for mTLS, OPA, threat intelligence, JIT access*
 
-### 5.1 mTLS / SPIFFE-SPIRE Integration
+> **Status:** Configuration types implemented in commit `fc8da13`. Runtime implementation pending.
 
-Zero-trust workload identity.
+### 5.1 mTLS / SPIFFE-SPIRE Configuration
 
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Add mTLS configuration options | P2 | 2 days | — |
-| Implement SPIFFE ID extraction from X.509 | P2 | 2 days | mTLS |
-| Add SPIFFE-based policy matching | P2 | 3 days | ID extraction |
-| Integrate with SPIRE for workload attestation | P3 | 3 days | — |
-| Add mTLS revocation checking | P2 | 2 days | — |
+| Task | Priority | Status |
+|------|----------|--------|
+| Add TlsConfig with mode (none/tls/mtls) | P2 | ✅ Complete |
+| Add cert_path, key_path, client_ca_path | P2 | ✅ Complete |
+| Add CRL and OCSP stapling options | P2 | ✅ Complete |
+| Add min TLS version and cipher suites | P2 | ✅ Complete |
+| Add SpiffeConfig with trust domain | P2 | ✅ Complete |
+| Add allowed_spiffe_ids and id_to_role mapping | P2 | ✅ Complete |
 
 **Configuration:**
 ```toml
 [tls]
 mode = "mtls"  # none | tls | mtls
-client_ca = "/etc/sentinel/client-ca.pem"
+cert_path = "/etc/sentinel/server.crt"
+key_path = "/etc/sentinel/server.key"
+client_ca_path = "/etc/sentinel/client-ca.pem"
 require_client_cert = true
+min_version = "1.2"
+ocsp_stapling = true
 
-[identity.spiffe]
+[spiffe]
 enabled = true
 trust_domain = "example.org"
 workload_socket = "unix:///var/run/spire/agent.sock"
+allowed_spiffe_ids = ["spiffe://example.org/agent/frontend"]
 ```
 
-### 5.2 OPA / Rego Policy Integration
+### 5.2 OPA / Rego Policy Configuration
 
-External policy evaluation for complex rules.
+| Task | Priority | Status |
+|------|----------|--------|
+| Add OpaConfig with endpoint and decision_path | P2 | ✅ Complete |
+| Add cache_ttl_secs and timeout_ms | P2 | ✅ Complete |
+| Add fail_open option (default: false) | P2 | ✅ Complete |
+| Add bundle_path for local evaluation | P2 | ✅ Complete |
+| Add audit_decisions flag | P2 | ✅ Complete |
 
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Design OPA integration architecture | P2 | 1 day | — |
-| Implement OPA client with caching | P2 | 3 days | Architecture |
-| Add OPA policy reference in Sentinel policies | P2 | 2 days | Client |
-| Support Rego policy bundles | P3 | 2 days | — |
-| Add OPA decision audit logging | P2 | 1 day | Client |
-
-**Usage:**
+**Configuration:**
 ```toml
-[policies.external]
-provider = "opa"
-
-[policies.external.opa]
+[opa]
+enabled = true
 endpoint = "http://opa:8181/v1/data/sentinel/allow"
-cache_ttl = "60s"
-timeout = "100ms"
+decision_path = "result"
+cache_ttl_secs = 60
+timeout_ms = 100
+fail_open = false
+audit_decisions = true
 ```
 
-### 5.3 Threat Intelligence Integration
+### 5.3 Threat Intelligence Configuration
 
-Enrich decisions with external threat feeds.
+| Task | Priority | Status |
+|------|----------|--------|
+| Add ThreatIntelConfig with provider enum | P2 | ✅ Complete |
+| Add TAXII, MISP, Custom provider types | P2 | ✅ Complete |
+| Add refresh_interval and cache_ttl | P2 | ✅ Complete |
+| Add ioc_types filter and min_confidence | P2 | ✅ Complete |
+| Add on_match action (deny/alert/require_approval) | P2 | ✅ Complete |
+
+**Configuration:**
+```toml
+[threat_intel]
+enabled = true
+provider = "taxii"
+endpoint = "https://taxii.example.com/taxii2/"
+collection_id = "indicators"
+refresh_interval_secs = 3600
+min_confidence = 70
+on_match = "deny"
+```
+
+### 5.4 Just-In-Time Access Configuration
+
+| Task | Priority | Status |
+|------|----------|--------|
+| Add JitAccessConfig with TTL settings | P2 | ✅ Complete |
+| Add max_sessions_per_principal | P2 | ✅ Complete |
+| Add require_approval and require_reason | P2 | ✅ Complete |
+| Add auto_revoke_on_alert | P2 | ✅ Complete |
+| Add notification_webhook | P2 | ✅ Complete |
+
+**Configuration:**
+```toml
+[jit_access]
+enabled = true
+default_ttl_secs = 3600
+max_ttl_secs = 86400
+require_approval = true
+require_reason = true
+max_sessions_per_principal = 3
+auto_revoke_on_alert = true
+```
+
+### Phase 5 Configuration Deliverables
+- [x] TlsConfig with mTLS mode and revocation options
+- [x] SpiffeConfig with trust domain and ID mapping
+- [x] OpaConfig with caching and fail-open mode
+- [x] ThreatIntelConfig with TAXII/MISP/Custom providers
+- [x] JitAccessConfig with TTL and approval settings
+- [x] Validation for all configuration parameters
+
+**Completed:** 2026-02-08
+
+---
+
+## Phase 5.5: Enterprise Hardening - Runtime (Weeks 17-18)
+
+*Focus: Runtime implementation of enterprise features*
+
+### 5.5.1 TLS Runtime Implementation
 
 | Task | Priority | Effort | Depends On |
 |------|----------|--------|------------|
-| Define threat intelligence provider trait | P2 | 1 day | — |
-| Implement STIX/TAXII consumer | P3 | 3 days | Trait |
-| Implement MISP integration | P3 | 3 days | Trait |
-| Add IOC matching to network rules | P2 | 2 days | Provider |
-| Cache threat data with TTL | P2 | 1 day | — |
+| Integrate tokio-rustls for TLS termination | P2 | 2 days | Config |
+| Implement client certificate extraction | P2 | 2 days | TLS |
+| Add SPIFFE ID extraction from X.509 SAN | P2 | 2 days | Cert extraction |
+| Implement CRL/OCSP checking | P3 | 2 days | — |
 
-### 5.4 Just-In-Time Access
-
-Temporary elevated permissions with auto-expiry.
+### 5.5.2 OPA Runtime Implementation
 
 | Task | Priority | Effort | Depends On |
 |------|----------|--------|------------|
-| Design JIT access model | P2 | 1 day | — |
-| Implement JIT token issuance | P2 | 3 days | Model |
-| Add JIT access to human-in-the-loop flow | P2 | 2 days | Token issuance |
-| Implement automatic access revocation | P2 | 2 days | — |
-| Add JIT access audit trail | P2 | 1 day | All above |
+| Implement OPA HTTP client | P2 | 2 days | Config |
+| Add decision caching with TTL | P2 | 1 day | Client |
+| Integrate with policy evaluation | P2 | 2 days | Client |
+| Add OPA decision audit logging | P2 | 1 day | Integration |
 
-### 5.5 FIPS 140-2 Compliance Mode
+### 5.5.3 Threat Intelligence Runtime
 
-For regulated environments.
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Implement TAXII 2.1 client | P3 | 3 days | Config |
+| Implement MISP client | P3 | 3 days | Config |
+| Add IOC matching to network rules | P2 | 2 days | Client |
+| Implement background refresh | P2 | 1 day | Client |
+
+### 5.5.4 JIT Access Runtime
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Implement JIT token issuance | P2 | 2 days | Config |
+| Add JIT to approval flow | P2 | 2 days | Token |
+| Implement auto-revocation | P2 | 1 day | Token |
+| Add JIT audit events | P2 | 1 day | All above |
+
+### 5.5.5 FIPS 140-2 Compliance Mode
 
 | Task | Priority | Effort | Depends On |
 |------|----------|--------|------------|
@@ -555,8 +630,19 @@ For regulated environments.
 | Replace crypto primitives in FIPS mode | P3 | 5 days | Flag |
 | Document FIPS compliance scope | P3 | 1 day | All above |
 
-### Phase 4 Deliverables
-- [ ] mTLS with SPIFFE-SPIRE support
+### Phase 5.5 Deliverables
+- [ ] TLS termination with client cert extraction
+- [ ] SPIFFE ID extraction and policy matching
+- [ ] OPA client with caching
+- [ ] Threat intelligence feed consumers
+- [ ] JIT token issuance and revocation
+- [ ] FIPS 140-2 compliance mode (optional)
+
+**Estimated Duration:** 2 weeks
+
+---
+
+## Phase 6: Observability & Tooling (Weeks 19-20)
 - [ ] OPA/Rego policy integration
 - [ ] Threat intelligence feeds
 - [ ] JIT access with auto-expiry
@@ -646,7 +732,8 @@ Weeks 5-8:   Phase 2 — Advanced Threat Detection ✅
 Weeks 9-10:  Phase 3.1-3.2 — Runtime Integration & Cross-Agent Security ✅
 Week 11:     Phase 3.3 — Advanced Threat Detection ✅
 Weeks 12-14: Phase 4.1 — Standards Alignment ✅
-Weeks 15-18: Phase 5 — Enterprise Hardening
+Weeks 15-16: Phase 5 — Enterprise Hardening (Config) ✅
+Weeks 17-18: Phase 5.5 — Enterprise Hardening (Runtime)
 Weeks 19-20: Phase 6 — Observability & Tooling
 Weeks 21-22: Phase 7 — Documentation & Release
 ```
