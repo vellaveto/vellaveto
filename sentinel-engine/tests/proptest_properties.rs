@@ -849,3 +849,130 @@ proptest! {
         );
     }
 }
+
+// ═══════════════════════════════════
+// PROPERTY 27: evaluate_action never panics on arbitrary input
+// ═══════════════════════════════════
+// ROADMAP Phase 1: Critical invariant — the engine must never panic
+// on malformed or adversarial input, always returning a Result.
+
+proptest! {
+    #![proptest_config(proptest::test_runner::Config::with_cases(500))]
+
+    #[test]
+    fn evaluate_action_never_panics(
+        action in arb_action(),
+        policies in arb_policies(),
+    ) {
+        let engine = match PolicyEngine::with_policies(false, &policies) {
+            Ok(e) => e,
+            Err(_) => return Ok(()), // Invalid policies — skip
+        };
+
+        // This must not panic, regardless of input
+        let result = engine.evaluate_action(&action, &policies);
+
+        // Result must be Ok or Err, but must never panic
+        prop_assert!(result.is_ok() || result.is_err(),
+            "evaluate_action must return a Result, never panic");
+    }
+}
+
+// ═══════════════════════════════════
+// PROPERTY 28: Higher priority policies always win
+// ═══════════════════════════════════
+// ROADMAP Phase 1: Policy priority ordering is critical for security.
+// When two policies match the same action, the one with higher priority
+// (HIGHER numeric value) must determine the verdict.
+
+proptest! {
+    #[test]
+    fn higher_priority_always_wins(
+        tool in "[a-z]{3,10}",
+        allow_priority in 51..100i32,
+        deny_priority in 1..50i32,
+    ) {
+        // Create two policies that both match the same tool pattern
+        // Allow has higher priority (higher number), Deny has lower priority
+        let allow_policy = Policy {
+            id: format!("{}:*", tool),
+            name: "Allow tool".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: allow_priority,
+            path_rules: None,
+            network_rules: None,
+        };
+        let deny_policy = Policy {
+            id: format!("{}:*", tool),
+            name: "Deny tool".to_string(),
+            policy_type: PolicyType::Deny,
+            priority: deny_priority,
+            path_rules: None,
+            network_rules: None,
+        };
+
+        // Even though Deny is added first, Allow should win due to higher priority
+        let mut policies = vec![deny_policy, allow_policy];
+        PolicyEngine::sort_policies(&mut policies);
+
+        let engine = match PolicyEngine::with_policies(false, &policies) {
+            Ok(e) => e,
+            Err(_) => return Ok(()), // Should not happen with valid policies
+        };
+
+        let action = Action::new(&tool, "any_function", json!({}));
+        let result = engine.evaluate_action(&action, &policies);
+
+        prop_assert!(matches!(result, Ok(Verdict::Allow)),
+            "Higher priority policy (priority={}) must win over lower priority (priority={}). Got: {:?}",
+            allow_priority, deny_priority, result);
+    }
+}
+
+// ═══════════════════════════════════
+// PROPERTY 29: Same priority - Deny takes precedence over Allow
+// ═══════════════════════════════════
+// When policies have the same priority, Deny policies take precedence
+// over Allow policies (fail-closed security principle).
+
+proptest! {
+    #[test]
+    fn same_priority_deny_wins_over_allow(
+        tool in "[a-z]{3,10}",
+        priority in 1..100i32,
+    ) {
+        // Two policies with same priority, different verdicts
+        let allow_policy = Policy {
+            id: format!("{}:*", tool),
+            name: "Allow policy".to_string(),
+            policy_type: PolicyType::Allow,
+            priority,
+            path_rules: None,
+            network_rules: None,
+        };
+        let deny_policy = Policy {
+            id: format!("{}:*", tool),
+            name: "Deny policy".to_string(),
+            policy_type: PolicyType::Deny,
+            priority, // Same priority
+            path_rules: None,
+            network_rules: None,
+        };
+
+        // Regardless of insertion order, Deny should win at same priority
+        let mut policies = vec![allow_policy.clone(), deny_policy.clone()];
+        PolicyEngine::sort_policies(&mut policies);
+
+        let engine = match PolicyEngine::with_policies(false, &policies) {
+            Ok(e) => e,
+            Err(_) => return Ok(()),
+        };
+
+        let action = Action::new(&tool, "any_function", json!({}));
+        let result = engine.evaluate_action(&action, &policies);
+
+        // Deny must win over Allow at same priority (fail-closed)
+        prop_assert!(matches!(result, Ok(Verdict::Deny { .. })),
+            "Deny must win over Allow at same priority (fail-closed). Got: {:?}", result);
+    }
+}
