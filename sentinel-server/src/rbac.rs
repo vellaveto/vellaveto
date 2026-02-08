@@ -247,19 +247,21 @@ impl Principal {
     }
 
     /// Require a permission, returning an error response if denied.
-    pub fn require_permission(&self, permission: Permission) -> Result<(), Response> {
+    pub fn require_permission(&self, permission: Permission) -> Result<(), Box<Response>> {
         if self.has_permission(permission) {
             Ok(())
         } else {
-            Err((
-                StatusCode::FORBIDDEN,
-                Json(json!({
-                    "error": "Permission denied",
-                    "required_permission": format!("{:?}", permission),
-                    "your_role": self.role.to_string(),
-                })),
-            )
-                .into_response())
+            Err(Box::new(
+                (
+                    StatusCode::FORBIDDEN,
+                    Json(json!({
+                        "error": "Permission denied",
+                        "required_permission": format!("{:?}", permission),
+                        "your_role": self.role.to_string(),
+                    })),
+                )
+                    .into_response(),
+            ))
         }
     }
 }
