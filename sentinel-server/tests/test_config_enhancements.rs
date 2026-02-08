@@ -170,6 +170,11 @@ fn to_policies_produces_correct_policy_structs() {
         sampling_detection: Default::default(),
         cross_agent: Default::default(),
         advanced_threat: Default::default(),
+        tls: Default::default(),
+        spiffe: Default::default(),
+        opa: Default::default(),
+        threat_intel: Default::default(),
+        jit_access: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(policies.len(), 1);
@@ -221,6 +226,11 @@ fn to_policies_uses_default_priority_when_none() {
         sampling_detection: Default::default(),
         cross_agent: Default::default(),
         advanced_threat: Default::default(),
+        tls: Default::default(),
+        spiffe: Default::default(),
+        opa: Default::default(),
+        threat_intel: Default::default(),
+        jit_access: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(
@@ -378,6 +388,11 @@ fn policy_config_toml_roundtrip() {
         sampling_detection: Default::default(),
         cross_agent: Default::default(),
         advanced_threat: Default::default(),
+        tls: Default::default(),
+        spiffe: Default::default(),
+        opa: Default::default(),
+        threat_intel: Default::default(),
+        jit_access: Default::default(),
     };
     let toml_str = toml::to_string(&original).unwrap();
     let parsed = PolicyConfig::from_toml(&toml_str).unwrap();

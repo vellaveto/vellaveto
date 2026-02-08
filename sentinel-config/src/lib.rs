@@ -1271,6 +1271,30 @@ pub struct PolicyConfig {
     /// Controls goal tracking, workflow monitoring, namespace security, and more.
     #[serde(default)]
     pub advanced_threat: AdvancedThreatConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 5: ENTERPRISE HARDENING CONFIGURATION
+    // ═══════════════════════════════════════════════════
+
+    /// TLS/mTLS configuration for secure transport.
+    #[serde(default)]
+    pub tls: TlsConfig,
+
+    /// SPIFFE/SPIRE workload identity configuration.
+    #[serde(default)]
+    pub spiffe: SpiffeConfig,
+
+    /// OPA (Open Policy Agent) integration configuration.
+    #[serde(default)]
+    pub opa: OpaConfig,
+
+    /// Threat intelligence feed configuration.
+    #[serde(default)]
+    pub threat_intel: ThreatIntelConfig,
+
+    /// Just-In-Time (JIT) access configuration.
+    #[serde(default)]
+    pub jit_access: JitAccessConfig,
 }
 
 /// Tool registry with trust scoring configuration (P2.1).
@@ -2776,6 +2800,69 @@ impl PolicyConfig {
             return Err("advanced_threat.default_context_budget must be > 0".to_string());
         }
 
+        // ── Enterprise hardening validation ────────────────────────────────
+        // TLS validation
+        if matches!(self.tls.mode, TlsMode::Tls | TlsMode::Mtls) {
+            if self.tls.cert_path.is_none() {
+                return Err("tls.cert_path is required when TLS is enabled".to_string());
+            }
+            if self.tls.key_path.is_none() {
+                return Err("tls.key_path is required when TLS is enabled".to_string());
+            }
+        }
+        if self.tls.mode == TlsMode::Mtls && self.tls.client_ca_path.is_none() {
+            return Err("tls.client_ca_path is required when mTLS is enabled".to_string());
+        }
+
+        // SPIFFE validation
+        if self.spiffe.enabled && self.spiffe.trust_domain.is_none() {
+            return Err("spiffe.trust_domain is required when SPIFFE is enabled".to_string());
+        }
+
+        // OPA validation
+        if self.opa.enabled {
+            if self.opa.endpoint.is_none() && self.opa.bundle_path.is_none() {
+                return Err(
+                    "opa.endpoint or opa.bundle_path is required when OPA is enabled".to_string(),
+                );
+            }
+            if self.opa.timeout_ms == 0 {
+                return Err("opa.timeout_ms must be > 0".to_string());
+            }
+        }
+
+        // Threat intel validation
+        if self.threat_intel.enabled {
+            if self.threat_intel.provider.is_none() {
+                return Err(
+                    "threat_intel.provider is required when threat intel is enabled".to_string(),
+                );
+            }
+            if self.threat_intel.endpoint.is_none() {
+                return Err(
+                    "threat_intel.endpoint is required when threat intel is enabled".to_string(),
+                );
+            }
+            if self.threat_intel.min_confidence > 100 {
+                return Err("threat_intel.min_confidence must be <= 100".to_string());
+            }
+        }
+
+        // JIT access validation
+        if self.jit_access.enabled {
+            if self.jit_access.default_ttl_secs == 0 {
+                return Err("jit_access.default_ttl_secs must be > 0".to_string());
+            }
+            if self.jit_access.max_ttl_secs < self.jit_access.default_ttl_secs {
+                return Err(
+                    "jit_access.max_ttl_secs must be >= jit_access.default_ttl_secs".to_string(),
+                );
+            }
+            if self.jit_access.max_sessions_per_principal == 0 {
+                return Err("jit_access.max_sessions_per_principal must be > 0".to_string());
+            }
+        }
+
         Ok(())
     }
 
@@ -2838,6 +2925,363 @@ impl PolicyConfig {
             })
             .collect()
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PHASE 5: ENTERPRISE HARDENING CONFIGURATION TYPES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// TLS mode for the server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TlsMode {
+    /// No TLS (plain HTTP).
+    #[default]
+    None,
+    /// Server-side TLS only.
+    Tls,
+    /// Mutual TLS (client certificate required).
+    Mtls,
+}
+
+/// TLS/mTLS configuration for secure transport.
+///
+/// Enables server-side TLS or mutual TLS (mTLS) where clients must present
+/// valid certificates signed by a trusted CA.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [tls]
+/// mode = "mtls"
+/// cert_path = "/etc/sentinel/server.crt"
+/// key_path = "/etc/sentinel/server.key"
+/// client_ca_path = "/etc/sentinel/client-ca.pem"
+/// require_client_cert = true
+/// verify_client_cert = true
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TlsConfig {
+    /// TLS mode: none, tls, or mtls. Default: none.
+    #[serde(default)]
+    pub mode: TlsMode,
+
+    /// Path to the server certificate (PEM format).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cert_path: Option<String>,
+
+    /// Path to the server private key (PEM format).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_path: Option<String>,
+
+    /// Path to the CA certificate for verifying client certificates (mTLS).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_ca_path: Option<String>,
+
+    /// Require clients to present a certificate (mTLS). Default: false.
+    #[serde(default)]
+    pub require_client_cert: bool,
+
+    /// Verify client certificates against the CA. Default: true when mTLS enabled.
+    #[serde(default = "default_true")]
+    pub verify_client_cert: bool,
+
+    /// Minimum TLS version. Default: "1.2".
+    #[serde(default = "default_min_tls_version")]
+    pub min_version: String,
+
+    /// Allowed cipher suites (empty = use defaults).
+    #[serde(default)]
+    pub cipher_suites: Vec<String>,
+
+    /// Enable OCSP stapling for certificate revocation checking. Default: false.
+    #[serde(default)]
+    pub ocsp_stapling: bool,
+
+    /// CRL (Certificate Revocation List) path for revocation checking.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crl_path: Option<String>,
+}
+
+fn default_min_tls_version() -> String {
+    "1.2".to_string()
+}
+
+/// SPIFFE/SPIRE workload identity configuration.
+///
+/// Integrates with SPIFFE (Secure Production Identity Framework for Everyone)
+/// for zero-trust workload identity. When enabled, client identities are
+/// extracted from X.509 SVIDs (SPIFFE Verifiable Identity Documents).
+///
+/// # TOML Example
+///
+/// ```toml
+/// [spiffe]
+/// enabled = true
+/// trust_domain = "example.org"
+/// workload_socket = "unix:///var/run/spire/agent.sock"
+/// allowed_spiffe_ids = [
+///     "spiffe://example.org/agent/frontend",
+///     "spiffe://example.org/agent/backend",
+/// ]
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct SpiffeConfig {
+    /// Enable SPIFFE identity extraction. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// SPIFFE trust domain (e.g., "example.org").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trust_domain: Option<String>,
+
+    /// Path to SPIRE agent workload API socket.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workload_socket: Option<String>,
+
+    /// Allowed SPIFFE IDs. If non-empty, only these identities are permitted.
+    #[serde(default)]
+    pub allowed_spiffe_ids: Vec<String>,
+
+    /// Map SPIFFE IDs to Sentinel roles for RBAC.
+    #[serde(default)]
+    pub id_to_role: std::collections::HashMap<String, String>,
+
+    /// Cache SVID validation results. Default: 60 seconds.
+    #[serde(default = "default_svid_cache_ttl")]
+    pub svid_cache_ttl_secs: u64,
+}
+
+fn default_svid_cache_ttl() -> u64 {
+    60
+}
+
+/// OPA (Open Policy Agent) integration configuration.
+///
+/// Delegates complex policy decisions to an external OPA server. Sentinel
+/// sends evaluation context to OPA and uses the response to inform verdicts.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [opa]
+/// enabled = true
+/// endpoint = "http://opa:8181/v1/data/sentinel/allow"
+/// decision_path = "result.allow"
+/// cache_ttl_secs = 60
+/// timeout_ms = 100
+/// fail_open = false
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct OpaConfig {
+    /// Enable OPA integration. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// OPA server endpoint URL (e.g., "http://opa:8181/v1/data/sentinel/allow").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+
+    /// JSON path to extract the decision from OPA response. Default: "result".
+    #[serde(default = "default_opa_decision_path")]
+    pub decision_path: String,
+
+    /// Cache OPA decisions for this many seconds. Default: 60.
+    /// Set to 0 to disable caching.
+    #[serde(default = "default_opa_cache_ttl")]
+    pub cache_ttl_secs: u64,
+
+    /// Timeout for OPA requests in milliseconds. Default: 100.
+    #[serde(default = "default_opa_timeout")]
+    pub timeout_ms: u64,
+
+    /// Fail-open if OPA is unreachable. Default: false (fail-closed).
+    /// WARNING: Setting to true may allow requests when OPA is down.
+    #[serde(default)]
+    pub fail_open: bool,
+
+    /// Additional headers to send with OPA requests.
+    #[serde(default)]
+    pub headers: std::collections::HashMap<String, String>,
+
+    /// Path to OPA policy bundle for local evaluation (alternative to remote OPA).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle_path: Option<String>,
+
+    /// Include full evaluation trace in audit log. Default: false.
+    #[serde(default)]
+    pub audit_decisions: bool,
+}
+
+fn default_opa_decision_path() -> String {
+    "result".to_string()
+}
+
+fn default_opa_cache_ttl() -> u64 {
+    60
+}
+
+fn default_opa_timeout() -> u64 {
+    100
+}
+
+/// Threat intelligence feed provider type.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThreatIntelProvider {
+    /// STIX/TAXII feed.
+    Taxii,
+    /// MISP (Malware Information Sharing Platform).
+    Misp,
+    /// Custom HTTP endpoint returning IOCs in JSON.
+    Custom,
+}
+
+/// Threat intelligence feed configuration.
+///
+/// Enriches security decisions with external threat intelligence feeds.
+/// Supports STIX/TAXII, MISP, and custom providers.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [threat_intel]
+/// enabled = true
+/// provider = "taxii"
+/// endpoint = "https://taxii.example.com/taxii2/"
+/// collection_id = "indicators"
+/// api_key = "${TAXII_API_KEY}"
+/// refresh_interval_secs = 3600
+/// cache_ttl_secs = 86400
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ThreatIntelConfig {
+    /// Enable threat intelligence integration. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Provider type (taxii, misp, custom).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<ThreatIntelProvider>,
+
+    /// Feed endpoint URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+
+    /// TAXII collection ID or MISP event filter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection_id: Option<String>,
+
+    /// API key for authentication (supports ${ENV_VAR} expansion).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+
+    /// How often to refresh the feed in seconds. Default: 3600 (1 hour).
+    #[serde(default = "default_threat_refresh")]
+    pub refresh_interval_secs: u64,
+
+    /// Cache IOCs for this many seconds. Default: 86400 (24 hours).
+    #[serde(default = "default_threat_cache_ttl")]
+    pub cache_ttl_secs: u64,
+
+    /// IOC types to match against (ip, domain, url, hash). Empty = all.
+    #[serde(default)]
+    pub ioc_types: Vec<String>,
+
+    /// Action when IOC matched: "deny", "alert", "require_approval".
+    #[serde(default = "default_threat_action")]
+    pub on_match: String,
+
+    /// Minimum confidence score (0-100) for IOC to be actionable. Default: 70.
+    #[serde(default = "default_threat_confidence")]
+    pub min_confidence: u8,
+}
+
+fn default_threat_refresh() -> u64 {
+    3600
+}
+
+fn default_threat_cache_ttl() -> u64 {
+    86400
+}
+
+fn default_threat_action() -> String {
+    "deny".to_string()
+}
+
+fn default_threat_confidence() -> u8 {
+    70
+}
+
+/// Just-In-Time (JIT) access configuration.
+///
+/// Enables temporary elevated permissions with automatic expiry. JIT access
+/// integrates with the human-in-the-loop approval flow.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [jit_access]
+/// enabled = true
+/// default_ttl_secs = 3600
+/// max_ttl_secs = 86400
+/// require_approval = true
+/// require_reason = true
+/// allowed_elevations = ["admin", "operator"]
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct JitAccessConfig {
+    /// Enable JIT access. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Default TTL for JIT tokens in seconds. Default: 3600 (1 hour).
+    #[serde(default = "default_jit_ttl")]
+    pub default_ttl_secs: u64,
+
+    /// Maximum TTL for JIT tokens in seconds. Default: 86400 (24 hours).
+    #[serde(default = "default_jit_max_ttl")]
+    pub max_ttl_secs: u64,
+
+    /// Require human approval for JIT access requests. Default: true.
+    #[serde(default = "default_true")]
+    pub require_approval: bool,
+
+    /// Require a reason/justification for JIT access. Default: true.
+    #[serde(default = "default_true")]
+    pub require_reason: bool,
+
+    /// Allowed elevation levels that can be requested.
+    #[serde(default)]
+    pub allowed_elevations: Vec<String>,
+
+    /// Maximum concurrent JIT sessions per principal. Default: 3.
+    #[serde(default = "default_jit_max_sessions")]
+    pub max_sessions_per_principal: u32,
+
+    /// Automatically revoke JIT access on security events. Default: true.
+    #[serde(default = "default_true")]
+    pub auto_revoke_on_alert: bool,
+
+    /// Notification webhook for JIT access events.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notification_webhook: Option<String>,
+
+    /// Require re-authentication for JIT elevation. Default: false.
+    #[serde(default)]
+    pub require_reauth: bool,
+}
+
+fn default_jit_ttl() -> u64 {
+    3600
+}
+
+fn default_jit_max_ttl() -> u64 {
+    86400
+}
+
+fn default_jit_max_sessions() -> u32 {
+    3
 }
 
 #[cfg(test)]
@@ -3861,6 +4305,11 @@ policy_type = "Allow"
             sampling_detection: SamplingDetectionConfig::default(),
             cross_agent: CrossAgentConfig::default(),
             advanced_threat: AdvancedThreatConfig::default(),
+            tls: TlsConfig::default(),
+            spiffe: SpiffeConfig::default(),
+            opa: OpaConfig::default(),
+            threat_intel: ThreatIntelConfig::default(),
+            jit_access: JitAccessConfig::default(),
         };
         config.policies = (0..=MAX_POLICIES)
             .map(|i| PolicyRule {

@@ -907,6 +907,11 @@ fn cmd_policies(preset: String) -> Result<()> {
         sampling_detection: Default::default(),
         cross_agent: Default::default(),
         advanced_threat: Default::default(),
+        tls: Default::default(),
+        spiffe: Default::default(),
+        opa: Default::default(),
+        threat_intel: Default::default(),
+        jit_access: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;
