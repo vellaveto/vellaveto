@@ -1,5 +1,6 @@
 pub mod agent_message;
 pub mod agent_trust;
+pub mod attack_sim;
 pub mod auth_level;
 pub mod escalation_detector;
 pub mod capability;

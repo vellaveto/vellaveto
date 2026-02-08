@@ -65,6 +65,7 @@ fn make_state() -> (AppState, TempDir) {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
     (state, tmp)
 }
@@ -102,6 +103,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
     (state, tmp)
 }
@@ -960,6 +962,7 @@ priority = 1
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
     let app = routes::build_router(state.clone());
 
@@ -1062,6 +1065,7 @@ fn make_approval_state() -> (AppState, TempDir) {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
     (state, tmp)
 }
@@ -1525,6 +1529,7 @@ fn make_authed_state() -> (AppState, TempDir) {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
     (state, tmp)
 }
@@ -2012,6 +2017,7 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
     (state, tmp)
 }
@@ -2674,6 +2680,7 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
     (state, tmp)
 }

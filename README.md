@@ -114,6 +114,11 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Threat Intelligence** — TAXII 2.1 (STIX), MISP, and custom REST threat feed integration with IOC matching, confidence filtering, and configurable actions (deny/alert/require_approval)
 - **Just-In-Time Access** — Session-based temporary elevated permissions with approval workflows, per-principal session limits, auto-revocation on security alerts, and permission/tool access checking
 
+### 📊 Observability & Tooling
+- **Execution Graphs** — Visual call chain tracking with DOT (Graphviz) and JSON export, color-coded verdicts, parent-child relationships, and graph statistics API
+- **Policy Validation CLI** — Enhanced `sentinel check` with strict mode, JSON/text output, best-practice and security checks, shadow policy detection, and wide pattern warnings
+- **Attack Simulation** — Automated red-teaming framework with 40+ OWASP ASI Top 10 attack payloads, multi-step sequences, schema mutations, and result summarization
+
 ## 📦 Installation
 
 ### Docker (Recommended)

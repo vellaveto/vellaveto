@@ -63,6 +63,7 @@ fn test_state() -> (AppState, TempDir) {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
     (state, tmp)
 }
@@ -420,6 +421,7 @@ async fn health_not_rate_limited() {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
 
     // Rapid /health requests must all succeed despite strict rate limit
@@ -478,6 +480,7 @@ async fn rate_limit_429_includes_retry_after() {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -630,6 +633,7 @@ async fn per_ip_rate_limit_throttles_single_ip() {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -730,6 +734,7 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -803,6 +808,7 @@ async fn per_ip_health_exempt_from_rate_limit() {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
 
     // Multiple health checks from same IP should all succeed
@@ -868,6 +874,7 @@ async fn per_ip_rate_limit_ipv6_addresses() {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -968,6 +975,7 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1052,6 +1060,7 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1135,6 +1144,7 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1216,6 +1226,7 @@ async fn per_ip_rate_limit_429_response_body_format() {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

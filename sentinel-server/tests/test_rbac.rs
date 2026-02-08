@@ -90,6 +90,7 @@ fn test_state_with_rbac(rbac_config: RbacConfig) -> (AppState, TempDir) {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
     (state, tmp)
 }

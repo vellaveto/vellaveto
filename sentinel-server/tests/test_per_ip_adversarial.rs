@@ -66,6 +66,7 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
     (state, tmp)
 }
@@ -415,6 +416,7 @@ async fn regression_24_error_message_does_not_leak_architecture() {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

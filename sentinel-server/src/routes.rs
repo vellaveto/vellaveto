@@ -108,6 +108,13 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/deputy/delegations", get(list_delegations))
         .route("/api/deputy/delegations", post(register_delegation))
         .route("/api/deputy/delegations/{session}", delete(remove_delegation))
+        // ═══════════════════════════════════════════════════════════════════
+        // Phase 6: Execution Graph Export
+        // ═══════════════════════════════════════════════════════════════════
+        .route("/api/graphs", get(list_graphs))
+        .route("/api/graphs/{session}", get(get_graph))
+        .route("/api/graphs/{session}/dot", get(get_graph_dot))
+        .route("/api/graphs/{session}/stats", get(get_graph_stats))
         // SECURITY (R38-SRV-1): /metrics inside auth — exposes policy count
         // and pending approval count, which are security-sensitive (see R26-SRV-6).
         // SECURITY (R38-SRV-2): /metrics inside rate_limit — prevents scraper DoS.
@@ -3164,6 +3171,183 @@ async fn remove_delegation(
     deputy.remove_context(&session);
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Execution Graph Export Handlers (Phase 6)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Query parameters for graph listing.
+#[derive(Deserialize)]
+struct GraphListQuery {
+    /// Filter by tool name.
+    tool: Option<String>,
+    /// Maximum number of results.
+    limit: Option<usize>,
+    /// Offset for pagination.
+    offset: Option<usize>,
+}
+
+/// List all execution graph sessions.
+///
+/// GET /api/graphs
+async fn list_graphs(
+    State(state): State<AppState>,
+    Query(params): Query<GraphListQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let store = state.exec_graph_store.as_ref().ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Execution graph tracking is not enabled".to_string(),
+            }),
+        )
+    })?;
+
+    let sessions = store.list_sessions().await;
+    let total = sessions.len();
+    let limit = params.limit.unwrap_or(100).min(1000);
+    let offset = params.offset.unwrap_or(0);
+
+    // If filtering by tool, we need to check each graph
+    let filtered: Vec<_> = if let Some(ref tool_filter) = params.tool {
+        let mut result = Vec::new();
+        for session_id in &sessions {
+            if let Some(graph) = store.get(session_id).await {
+                if graph.metadata.unique_tools.contains(tool_filter) {
+                    result.push(json!({
+                        "session_id": session_id,
+                        "node_count": graph.nodes.len(),
+                        "started_at": graph.metadata.started_at,
+                        "ended_at": graph.metadata.ended_at,
+                    }));
+                }
+            }
+        }
+        result.into_iter().skip(offset).take(limit).collect()
+    } else {
+        let mut result = Vec::new();
+        for session_id in sessions.iter().skip(offset).take(limit) {
+            if let Some(graph) = store.get(session_id).await {
+                result.push(json!({
+                    "session_id": session_id,
+                    "node_count": graph.nodes.len(),
+                    "started_at": graph.metadata.started_at,
+                    "ended_at": graph.metadata.ended_at,
+                }));
+            }
+        }
+        result
+    };
+
+    Ok(Json(json!({
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "graphs": filtered,
+    })))
+}
+
+/// Get an execution graph in JSON format.
+///
+/// GET /api/graphs/{session}
+async fn get_graph(
+    State(state): State<AppState>,
+    Path(session): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let store = state.exec_graph_store.as_ref().ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Execution graph tracking is not enabled".to_string(),
+            }),
+        )
+    })?;
+
+    let graph = store.get(&session).await.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Graph not found for session: {}", session),
+            }),
+        )
+    })?;
+
+    let json_value = serde_json::to_value(&graph).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Failed to serialize graph: {}", e),
+            }),
+        )
+    })?;
+
+    Ok(Json(json_value))
+}
+
+/// Get an execution graph in DOT (Graphviz) format.
+///
+/// GET /api/graphs/{session}/dot
+async fn get_graph_dot(
+    State(state): State<AppState>,
+    Path(session): Path<String>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let store = state.exec_graph_store.as_ref().ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Execution graph tracking is not enabled".to_string(),
+            }),
+        )
+    })?;
+
+    let graph = store.get(&session).await.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Graph not found for session: {}", session),
+            }),
+        )
+    })?;
+
+    let dot = graph.to_dot();
+
+    Ok((
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "text/vnd.graphviz")],
+        dot,
+    )
+        .into_response())
+}
+
+/// Get execution graph statistics.
+///
+/// GET /api/graphs/{session}/stats
+async fn get_graph_stats(
+    State(state): State<AppState>,
+    Path(session): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let store = state.exec_graph_store.as_ref().ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Execution graph tracking is not enabled".to_string(),
+            }),
+        )
+    })?;
+
+    let graph = store.get(&session).await.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Graph not found for session: {}", session),
+            }),
+        )
+    })?;
+
+    let stats = graph.statistics();
+
+    Ok(Json(serde_json::to_value(&stats).unwrap_or_else(|_| json!({}))))
 }
 
 /// Middleware that enforces per-category rate limits.

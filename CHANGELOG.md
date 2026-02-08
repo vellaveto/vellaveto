@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 6: Observability & Tooling
+- **Execution Graph Data Model** — Comprehensive call chain visualization with `ExecutionNode` (tool, function, verdict, timing, depth), `ExecutionEdge` (call/data-flow/delegation edges), and `ExecutionGraph` (session-scoped graphs with metadata)
+- **Execution Graph Store** — In-memory store with configurable max graphs and age limits, session-based lookup, node lifecycle tracking (add, complete), and automatic cleanup
+- **Graph Export Formats** — DOT (Graphviz) and JSON export with color-coded verdicts (green=allow, red=deny), edge styling by type, and full graph statistics
+- **Graph Export API** — RESTful endpoints for graph management:
+  - `GET /api/graphs` — List sessions with pagination and tool filtering
+  - `GET /api/graphs/{session}` — Get graph in JSON format
+  - `GET /api/graphs/{session}/dot` — Get graph in DOT (Graphviz) format
+  - `GET /api/graphs/{session}/stats` — Get graph statistics (node count, depths, tool distribution)
+- **Policy Validation CLI** — Enhanced `sentinel check` command with:
+  - `--strict` mode (warnings become errors)
+  - `--format json|text` output format
+  - `--no-best-practices` to skip best practice checks
+  - `--no-security-checks` to skip security checks
+  - Shadow policy, wide pattern, and dangerous configuration detection
+- **Attack Simulation Framework** — Automated red-teaming based on OWASP ASI Top 10 and MCPTox benchmarks:
+  - 10 attack categories (Prompt Injection, Data Disclosure, Sandboxing, etc.)
+  - 40+ built-in attack payloads with severity ratings
+  - Multi-step attack sequences, schema mutations, parameter manipulation
+  - Result summarization by category and severity
+  - JSON import/export for custom scenarios
+
 #### Phase 5.5: Enterprise Hardening (Runtime)
 - **TLS/mTLS Runtime** — TLS termination via tokio-rustls with client certificate extraction, SPIFFE identity parsing from X.509 SAN URIs, and configurable TLS/mTLS modes
 - **OPA Client Runtime** — Async HTTP client for Open Policy Agent with LRU decision caching (configurable TTL), fail-open/fail-closed modes, and structured decision parsing

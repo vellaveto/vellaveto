@@ -644,49 +644,69 @@ auto_revoke_on_alert = true
 
 ---
 
-## Phase 6: Observability & Tooling (Weeks 19-20)
+## Phase 6: Observability & Tooling (Weeks 19-20) ✅ COMPLETE
 
 *Focus: Execution graphs, CI/CD integration, red-teaming*
 
-### 6.1 Execution Graph Visualization
+> **Status:** Implemented. Core observability features complete.
+
+### 6.1 Execution Graph Visualization ✅
 
 Visual representation of agent call chains.
 
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Define execution graph data model | P3 | 1 day | — |
-| Capture parent-child relationships in audit | P3 | 2 days | Model |
-| Add graph export endpoint (DOT/JSON) | P3 | 2 days | Capture |
-| Create web-based graph viewer | P4 | 3 days | Export |
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Define execution graph data model | P3 | 1 day | ✅ Done |
+| Capture parent-child relationships in audit | P3 | 2 days | ✅ Done |
+| Add graph export endpoint (DOT/JSON) | P3 | 2 days | ✅ Done |
+| Create web-based graph viewer | P4 | 3 days | Deferred |
 
-### 6.2 CI/CD Pipeline Integration
+**Implemented:**
+- `ExecutionNode`, `ExecutionEdge`, `ExecutionGraph` types in `sentinel-audit/src/exec_graph.rs`
+- `ExecutionGraphStore` with session-based storage, cleanup, and lifecycle tracking
+- DOT (Graphviz) export with color-coded verdicts and edge styling
+- JSON export with full graph serialization
+- API endpoints: `GET /api/graphs`, `GET /api/graphs/{session}`, `GET /api/graphs/{session}/dot`, `GET /api/graphs/{session}/stats`
+
+### 6.2 CI/CD Pipeline Integration ✅
 
 Security scanning for development workflows.
 
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Create policy validation CLI command | P3 | 1 day | — |
-| Add schema validation CLI command | P3 | 1 day | — |
-| Create GitHub Action for policy checks | P3 | 2 days | CLI |
-| Add GitLab CI template | P3 | 1 day | CLI |
-| Document CI/CD integration guide | P3 | 1 day | All above |
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Create policy validation CLI command | P3 | 1 day | ✅ Done |
+| Add schema validation CLI command | P3 | 1 day | Deferred |
+| Create GitHub Action for policy checks | P3 | 2 days | Deferred |
+| Add GitLab CI template | P3 | 1 day | Deferred |
+| Document CI/CD integration guide | P3 | 1 day | Deferred |
 
-### 6.3 Automated Red-Teaming
+**Implemented:**
+- `PolicyValidator` in `sentinel-config/src/validation.rs` with severity levels
+- Enhanced `sentinel check` with `--strict`, `--format`, `--no-best-practices`, `--no-security-checks`
+- Shadow policy detection, wide pattern warnings, dangerous config checks
+
+### 6.3 Automated Red-Teaming ✅
 
 Self-testing against known attack patterns.
 
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Create attack simulation framework | P3 | 3 days | — |
-| Implement MCPTox benchmark attacks | P3 | 3 days | Framework |
-| Add scheduled red-team runs | P4 | 2 days | — |
-| Generate red-team reports | P3 | 2 days | Runs |
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Create attack simulation framework | P3 | 3 days | ✅ Done |
+| Implement MCPTox benchmark attacks | P3 | 3 days | ✅ Done |
+| Add scheduled red-team runs | P4 | 2 days | Deferred |
+| Generate red-team reports | P3 | 2 days | ✅ Done |
+
+**Implemented:**
+- `AttackSimulator` in `sentinel-mcp/src/attack_sim.rs` with 40+ attack payloads
+- 10 attack categories aligned with OWASP ASI Top 10 (Prompt Injection, Data Disclosure, etc.)
+- Multi-step attack sequences, schema mutations, parameter manipulation
+- JSON import/export for custom scenarios, result summarization
 
 ### Phase 6 Deliverables
-- [ ] Execution graph visualization
-- [ ] CI/CD integration (GitHub Actions, GitLab)
-- [ ] Red-team automation framework
-- [ ] MCPTox benchmark coverage
+- [x] Execution graph visualization (DOT/JSON export, API endpoints)
+- [ ] CI/CD integration (GitHub Actions, GitLab) — CLI ready, templates deferred
+- [x] Red-team automation framework (40+ attacks, OWASP ASI alignment)
+- [x] MCPTox benchmark coverage (via attack payloads)
 
 **Estimated Duration:** 2 weeks
 
@@ -725,7 +745,7 @@ Week 11:     Phase 3.3 — Advanced Threat Detection ✅
 Weeks 12-14: Phase 4.1 — Standards Alignment ✅
 Weeks 15-16: Phase 5 — Enterprise Hardening (Config) ✅
 Weeks 17-18: Phase 5.5 — Enterprise Hardening (Runtime) ✅
-Weeks 19-20: Phase 6 — Observability & Tooling
+Weeks 19-20: Phase 6 — Observability & Tooling ✅
 Weeks 21-22: Phase 7 — Documentation & Release
 ```
 

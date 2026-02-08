@@ -51,10 +51,23 @@ enum Commands {
         #[arg(short, long)]
         config: String,
     },
-    /// Validate a config file
+    /// Validate a config file with comprehensive checks
     Check {
+        /// Path to the configuration file
         #[arg(short, long)]
         config: String,
+        /// Strict mode: treat warnings as errors
+        #[arg(long, default_value_t = false)]
+        strict: bool,
+        /// Output format (text or json)
+        #[arg(long, default_value = "text")]
+        format: String,
+        /// Skip best practice checks
+        #[arg(long, default_value_t = false)]
+        no_best_practices: bool,
+        /// Skip security checks
+        #[arg(long, default_value_t = false)]
+        no_security_checks: bool,
     },
     /// List canonical policies as TOML
     Policies {
@@ -106,7 +119,13 @@ async fn main() -> Result<()> {
             params,
             config,
         } => cmd_evaluate(tool, function, params, config).await,
-        Commands::Check { config } => cmd_check(config).await,
+        Commands::Check {
+            config,
+            strict,
+            format,
+            no_best_practices,
+            no_security_checks,
+        } => cmd_check(config, strict, format, no_best_practices, no_security_checks).await,
         Commands::Policies { preset } => cmd_policies(preset),
         Commands::Verify {
             audit,
@@ -595,6 +614,8 @@ async fn cmd_serve(
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        // Phase 6: Observability
+        exec_graph_store: None,
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -825,26 +846,66 @@ async fn cmd_evaluate(
     Ok(())
 }
 
-async fn cmd_check(config: String) -> Result<()> {
+async fn cmd_check(
+    config: String,
+    strict: bool,
+    format: String,
+    no_best_practices: bool,
+    no_security_checks: bool,
+) -> Result<()> {
+    use sentinel_config::validation::PolicyValidator;
+
+    // Load the configuration
     let policy_config = PolicyConfig::load_file(&config)
         .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
-    let policies = policy_config.to_policies();
 
-    println!("Config OK: {} policies loaded", policies.len());
-    for (i, p) in policies.iter().enumerate() {
-        println!(
-            "  [{}] id={:?} name={:?} type={} priority={}",
-            i,
-            p.id,
-            p.name,
-            match &p.policy_type {
-                sentinel_types::PolicyType::Allow => "Allow".to_string(),
-                sentinel_types::PolicyType::Deny => "Deny".to_string(),
-                sentinel_types::PolicyType::Conditional { .. } => "Conditional".to_string(),
-            },
-            p.priority
-        );
+    // Build the validator with options
+    let mut validator = PolicyValidator::new();
+    if strict {
+        validator = validator.strict();
     }
+    if no_best_practices {
+        validator = validator.with_best_practices(false);
+    }
+    if no_security_checks {
+        validator = validator.with_security_checks(false);
+    }
+
+    // Run validation
+    let result = validator.validate(&policy_config);
+
+    // Output results
+    if format == "json" {
+        let output = serde_json::to_string_pretty(&result)?;
+        println!("{}", output);
+    } else {
+        // Text format
+        println!("{}", result.to_text());
+
+        // Also show policy summary
+        let policies = policy_config.to_policies();
+        println!("\nPolicies loaded: {}", policies.len());
+        for (i, p) in policies.iter().enumerate() {
+            println!(
+                "  [{}] id={:?} name={:?} type={} priority={}",
+                i,
+                p.id,
+                p.name,
+                match &p.policy_type {
+                    sentinel_types::PolicyType::Allow => "Allow",
+                    sentinel_types::PolicyType::Deny => "Deny",
+                    sentinel_types::PolicyType::Conditional { .. } => "Conditional",
+                },
+                p.priority
+            );
+        }
+    }
+
+    // Exit with error code if invalid
+    if result.has_errors() {
+        anyhow::bail!("Configuration validation failed with {} errors", result.summary.errors);
+    }
+
     Ok(())
 }
 

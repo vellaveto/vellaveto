@@ -64,6 +64,7 @@ fn make_state() -> (AppState, TempDir) {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
     (state, tmp)
 }
@@ -101,6 +102,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
     (state, tmp)
 }
@@ -522,6 +524,7 @@ priority = 1
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
     let policy_state = state.policy_state.clone();
     let app = routes::build_router(state);
@@ -626,6 +629,7 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
     let app = routes::build_router(state);
 

@@ -240,7 +240,12 @@ policy_type = "Allow"
         .unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Config OK"));
+    // New validation format outputs "Configuration is VALID" instead of "Config OK"
+    assert!(
+        stdout.contains("Configuration is VALID") || stdout.contains("Policies loaded"),
+        "Expected validation output, got: {}",
+        stdout
+    );
 }
 
 #[test]

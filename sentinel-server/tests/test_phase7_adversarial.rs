@@ -65,6 +65,7 @@ fn state_with_api_key(tmp: &TempDir) -> AppState {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     }
 }
 
@@ -293,6 +294,7 @@ async fn regression_38_prometheus_metrics_rate_limited() {
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
 
     // First request should succeed

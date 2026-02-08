@@ -90,7 +90,7 @@ fn check_valid_toml_config_succeeds() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("1 policies loaded") || stdout.contains("Config OK"),
+        stdout.contains("Policies loaded: 1") || stdout.contains("1 policies loaded") || stdout.contains("Config OK"),
         "check should report loaded policies. Got: {}",
         stdout
     );
@@ -145,7 +145,7 @@ fn check_empty_policies_array_succeeds() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("0 policies"),
+        stdout.contains("Policies loaded: 0") || stdout.contains("0 policies"),
         "Should report 0 policies. Got: {}",
         stdout
     );

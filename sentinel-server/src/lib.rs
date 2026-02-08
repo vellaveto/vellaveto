@@ -611,6 +611,14 @@ pub struct AppState {
     /// Sampling detector for sampling attack prevention (Phase 2).
     /// None when sampling detection is disabled.
     pub sampling_detector: Option<Arc<SamplingDetector>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 6: Observability & Tooling
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Execution graph store for visualizing agent call chains (Phase 6).
+    /// None when execution graph tracking is disabled.
+    pub exec_graph_store: Option<Arc<sentinel_audit::exec_graph::ExecutionGraphStore>>,
 }
 
 /// Error type for cluster-dispatched approval operations.

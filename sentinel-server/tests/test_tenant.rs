@@ -96,6 +96,7 @@ fn test_state_with_tenants(
         shadow_agent: None,
         schema_lineage: None,
         sampling_detector: None,
+        exec_graph_store: None,
     };
     (state, tmp)
 }
