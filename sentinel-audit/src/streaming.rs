@@ -974,6 +974,391 @@ impl SiemExporter for ElasticsearchExporter {
     }
 }
 
+// ============================================================================
+// Syslog Exporter (RFC 5424)
+// ============================================================================
+
+/// Syslog protocol variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SyslogProtocol {
+    /// UDP (default, fire-and-forget)
+    #[default]
+    Udp,
+    /// TCP (reliable)
+    Tcp,
+}
+
+/// Syslog facility (RFC 5424 Section 6.2.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SyslogFacility {
+    Kern = 0,
+    User = 1,
+    Mail = 2,
+    Daemon = 3,
+    Auth = 4,
+    Syslog = 5,
+    Lpr = 6,
+    News = 7,
+    Uucp = 8,
+    Cron = 9,
+    Authpriv = 10,
+    Ftp = 11,
+    Ntp = 12,
+    Audit = 13,
+    Alert = 14,
+    Clock = 15,
+    #[default]
+    Local0 = 16,
+    Local1 = 17,
+    Local2 = 18,
+    Local3 = 19,
+    Local4 = 20,
+    Local5 = 21,
+    Local6 = 22,
+    Local7 = 23,
+}
+
+/// Syslog severity (RFC 5424 Section 6.2.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyslogSeverity {
+    Emergency = 0,
+    Alert = 1,
+    Critical = 2,
+    Error = 3,
+    Warning = 4,
+    Notice = 5,
+    Info = 6,
+    Debug = 7,
+}
+
+impl SyslogFacility {
+    fn as_u8(self) -> u8 {
+        self as u8
+    }
+}
+
+impl SyslogSeverity {
+    fn as_u8(self) -> u8 {
+        self as u8
+    }
+}
+
+/// Configuration for syslog exporter.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyslogConfig {
+    /// Syslog server host.
+    pub host: String,
+
+    /// Syslog server port (default: 514 for UDP, 6514 for TLS).
+    #[serde(default = "default_syslog_port")]
+    pub port: u16,
+
+    /// Protocol: "udp" or "tcp".
+    #[serde(default)]
+    pub protocol: SyslogProtocol,
+
+    /// Syslog facility.
+    #[serde(default)]
+    pub facility: SyslogFacility,
+
+    /// Application name for syslog messages.
+    #[serde(default = "default_app_name")]
+    pub app_name: String,
+
+    /// Enterprise ID for structured data (IANA-assigned or private).
+    #[serde(default = "default_enterprise_id")]
+    pub enterprise_id: String,
+
+    /// Include JSON payload in message body.
+    #[serde(default = "default_include_json")]
+    pub include_json: bool,
+
+    /// Common exporter configuration.
+    #[serde(flatten, default)]
+    pub common: ExporterConfig,
+}
+
+fn default_syslog_port() -> u16 {
+    514
+}
+
+fn default_app_name() -> String {
+    "sentinel".to_string()
+}
+
+fn default_enterprise_id() -> String {
+    "sentinel".to_string()
+}
+
+fn default_include_json() -> bool {
+    true
+}
+
+impl Default for SyslogConfig {
+    fn default() -> Self {
+        Self {
+            host: String::new(),
+            port: default_syslog_port(),
+            protocol: SyslogProtocol::default(),
+            facility: SyslogFacility::default(),
+            app_name: default_app_name(),
+            enterprise_id: default_enterprise_id(),
+            include_json: default_include_json(),
+            common: ExporterConfig::default(),
+        }
+    }
+}
+
+/// Syslog exporter implementing RFC 5424.
+#[cfg(feature = "siem-exporters")]
+pub struct SyslogExporter {
+    config: SyslogConfig,
+    hostname: String,
+}
+
+#[cfg(feature = "siem-exporters")]
+impl SyslogExporter {
+    /// Create a new syslog exporter.
+    pub fn new(config: SyslogConfig) -> Result<Self, ExportError> {
+        if config.host.is_empty() {
+            return Err(ExportError::Configuration(
+                "Syslog host is required".to_string(),
+            ));
+        }
+
+        let hostname = hostname::get()
+            .ok()
+            .and_then(|h: std::ffi::OsString| h.into_string().ok())
+            .unwrap_or_else(|| "localhost".to_string());
+
+        Ok(Self { config, hostname })
+    }
+
+    /// Extract verdict string and optional reason from Verdict enum.
+    fn verdict_info(verdict: &sentinel_types::Verdict) -> (&'static str, Option<&str>) {
+        match verdict {
+            sentinel_types::Verdict::Allow => ("allow", None),
+            sentinel_types::Verdict::Deny { reason } => ("deny", Some(reason.as_str())),
+            sentinel_types::Verdict::RequireApproval { reason } => {
+                ("require_approval", Some(reason.as_str()))
+            }
+        }
+    }
+
+    /// Format an audit entry as RFC 5424 syslog message.
+    fn format_rfc5424(&self, entry: &AuditEntry) -> String {
+        let (verdict_str, reason) = Self::verdict_info(&entry.verdict);
+
+        // Determine severity based on verdict
+        let severity = match verdict_str {
+            "deny" => SyslogSeverity::Warning,
+            "allow" => SyslogSeverity::Info,
+            "require_approval" => SyslogSeverity::Notice,
+            _ => SyslogSeverity::Info,
+        };
+
+        // Calculate PRI = facility * 8 + severity
+        let pri = (self.config.facility.as_u8() as u16) * 8 + (severity.as_u8() as u16);
+
+        // Timestamp is already a String in ISO 8601 format
+        let timestamp = &entry.timestamp;
+
+        // Process ID
+        let procid = std::process::id();
+
+        // Message ID - use entry ID
+        let msgid = &entry.id;
+
+        // Build structured data (RFC 5424 Section 6.3)
+        let sd = self.build_structured_data(entry, verdict_str, reason);
+
+        // Build message body
+        let msg = if self.config.include_json {
+            serde_json::to_string(entry).unwrap_or_default()
+        } else {
+            format!(
+                "{} {} {} -> {}",
+                verdict_str,
+                entry.action.tool,
+                entry.action.function,
+                entry.action.target_paths.join(",")
+            )
+        };
+
+        // RFC 5424 format:
+        // <PRI>VERSION TIMESTAMP HOSTNAME APP-NAME PROCID MSGID [STRUCTURED-DATA] MSG
+        format!(
+            "<{}>1 {} {} {} {} {} {} {}",
+            pri,
+            timestamp,
+            self.hostname,
+            self.config.app_name,
+            procid,
+            msgid,
+            sd,
+            msg
+        )
+    }
+
+    /// Build RFC 5424 structured data section.
+    fn build_structured_data(
+        &self,
+        entry: &AuditEntry,
+        verdict_str: &str,
+        reason: Option<&str>,
+    ) -> String {
+        let eid = &self.config.enterprise_id;
+
+        // Escape special characters in SD-PARAM values (RFC 5424 Section 6.3.3)
+        let escape_sd_value = |s: &str| -> String {
+            s.replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace(']', "\\]")
+        };
+
+        let verdict = escape_sd_value(verdict_str);
+        let tool = escape_sd_value(&entry.action.tool);
+        let function = escape_sd_value(&entry.action.function);
+
+        // Primary structured data element
+        let mut sd = format!(
+            "[sentinel@{} verdict=\"{}\" tool=\"{}\" function=\"{}\"]",
+            eid, verdict, tool, function
+        );
+
+        // Add reason if present
+        if let Some(r) = reason {
+            let reason_escaped = escape_sd_value(r);
+            sd.push_str(&format!("[reason@{} msg=\"{}\"]", eid, reason_escaped));
+        }
+
+        // Add target paths if present
+        if !entry.action.target_paths.is_empty() {
+            let paths = entry
+                .action
+                .target_paths
+                .iter()
+                .map(|p| escape_sd_value(p))
+                .collect::<Vec<_>>()
+                .join(",");
+            sd.push_str(&format!("[paths@{} list=\"{}\"]", eid, paths));
+        }
+
+        // Add target domains if present
+        if !entry.action.target_domains.is_empty() {
+            let domains = entry
+                .action
+                .target_domains
+                .iter()
+                .map(|d| escape_sd_value(d))
+                .collect::<Vec<_>>()
+                .join(",");
+            sd.push_str(&format!("[domains@{} list=\"{}\"]", eid, domains));
+        }
+
+        sd
+    }
+
+    /// Send a message via UDP.
+    async fn send_udp(&self, message: &str) -> Result<(), ExportError> {
+        use tokio::net::UdpSocket;
+
+        let socket = UdpSocket::bind("0.0.0.0:0")
+            .await
+            .map_err(|e| ExportError::HttpError(format!("Failed to bind UDP socket: {}", e)))?;
+
+        let addr = format!("{}:{}", self.config.host, self.config.port);
+        socket
+            .send_to(message.as_bytes(), &addr)
+            .await
+            .map_err(|e| ExportError::HttpError(format!("Failed to send UDP: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Send a message via TCP.
+    async fn send_tcp(&self, message: &str) -> Result<(), ExportError> {
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::TcpStream;
+
+        let addr = format!("{}:{}", self.config.host, self.config.port);
+        let mut stream = TcpStream::connect(&addr)
+            .await
+            .map_err(|e| ExportError::HttpError(format!("Failed to connect TCP: {}", e)))?;
+
+        // RFC 5425: Octet-counting framing for TCP
+        // Format: MSG-LEN SP SYSLOG-MSG
+        let framed = format!("{} {}", message.len(), message);
+        stream
+            .write_all(framed.as_bytes())
+            .await
+            .map_err(|e| ExportError::HttpError(format!("Failed to write TCP: {}", e)))?;
+
+        stream
+            .flush()
+            .await
+            .map_err(|e| ExportError::HttpError(format!("Failed to flush TCP: {}", e)))?;
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "siem-exporters")]
+#[async_trait]
+impl SiemExporter for SyslogExporter {
+    fn name(&self) -> &str {
+        "syslog"
+    }
+
+    async fn export_batch(&self, entries: &[AuditEntry]) -> Result<(), ExportError> {
+        for entry in entries {
+            let message = self.format_rfc5424(entry);
+
+            match self.config.protocol {
+                SyslogProtocol::Udp => self.send_udp(&message).await?,
+                SyslogProtocol::Tcp => self.send_tcp(&message).await?,
+            }
+        }
+
+        tracing::debug!(
+            exporter = "syslog",
+            host = %self.config.host,
+            count = entries.len(),
+            "Exported batch to syslog"
+        );
+
+        Ok(())
+    }
+
+    async fn health_check(&self) -> Result<(), ExportError> {
+        // For UDP, we can't really check health - just verify socket binding works
+        // For TCP, attempt a connection
+        match self.config.protocol {
+            SyslogProtocol::Udp => {
+                use tokio::net::UdpSocket;
+                UdpSocket::bind("0.0.0.0:0")
+                    .await
+                    .map_err(|e| ExportError::Configuration(format!("UDP socket error: {}", e)))?;
+                Ok(())
+            }
+            SyslogProtocol::Tcp => {
+                use tokio::net::TcpStream;
+                let addr = format!("{}:{}", self.config.host, self.config.port);
+                TcpStream::connect(&addr)
+                    .await
+                    .map_err(|e| ExportError::Configuration(format!("TCP connect error: {}", e)))?;
+                Ok(())
+            }
+        }
+    }
+
+    fn config(&self) -> &ExporterConfig {
+        &self.config.common
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1033,5 +1418,124 @@ mod tests {
         };
         let result = WebhookExporter::new(config);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_syslog_config_defaults() {
+        let config = SyslogConfig::default();
+        assert_eq!(config.port, 514);
+        assert_eq!(config.protocol, SyslogProtocol::Udp);
+        assert_eq!(config.app_name, "sentinel");
+        assert!(config.include_json);
+    }
+
+    #[cfg(feature = "siem-exporters")]
+    #[test]
+    fn test_syslog_exporter_requires_host() {
+        let config = SyslogConfig {
+            host: String::new(),
+            ..Default::default()
+        };
+        let result = SyslogExporter::new(config);
+        assert!(result.is_err());
+    }
+
+    #[cfg(feature = "siem-exporters")]
+    #[test]
+    fn test_syslog_rfc5424_format() {
+        use sentinel_types::{Action, Verdict};
+
+        let config = SyslogConfig {
+            host: "localhost".to_string(),
+            facility: SyslogFacility::Local0,
+            app_name: "sentinel-test".to_string(),
+            enterprise_id: "12345".to_string(),
+            include_json: false,
+            ..Default::default()
+        };
+        let exporter = SyslogExporter::new(config).unwrap();
+
+        let entry = AuditEntry {
+            id: "test-id-123".to_string(),
+            timestamp: "2024-01-15T10:30:00Z".to_string(),
+            action: Action {
+                tool: "file".to_string(),
+                function: "read".to_string(),
+                parameters: Default::default(),
+                target_paths: vec!["/etc/passwd".to_string()],
+                target_domains: vec![],
+                resolved_ips: vec![],
+            },
+            verdict: Verdict::Deny {
+                reason: "blocked path".to_string(),
+            },
+            metadata: Default::default(),
+            entry_hash: None,
+            prev_hash: None,
+        };
+
+        let message = exporter.format_rfc5424(&entry);
+
+        // Verify RFC 5424 structure
+        assert!(message.starts_with("<132>")); // PRI = 16*8 + 4 (Local0 + Warning)
+        assert!(message.contains("sentinel-test")); // APP-NAME
+        assert!(message.contains("test-id-123")); // MSGID
+        assert!(message.contains("[sentinel@12345")); // Structured data
+        assert!(message.contains("verdict=\"deny\"")); // SD param
+        assert!(message.contains("tool=\"file\"")); // SD param
+        assert!(message.contains("[reason@12345")); // Reason structured data
+    }
+
+    #[cfg(feature = "siem-exporters")]
+    #[test]
+    fn test_syslog_structured_data_escaping() {
+        use sentinel_types::{Action, Verdict};
+
+        let config = SyslogConfig {
+            host: "localhost".to_string(),
+            enterprise_id: "test".to_string(),
+            include_json: false,
+            ..Default::default()
+        };
+        let exporter = SyslogExporter::new(config).unwrap();
+
+        let entry = AuditEntry {
+            id: "test".to_string(),
+            timestamp: "2024-01-15T10:30:00Z".to_string(),
+            action: Action {
+                tool: "test\"tool".to_string(), // Contains quote
+                function: "func]tion".to_string(), // Contains bracket
+                parameters: Default::default(),
+                target_paths: vec!["/path\\with\\backslash".to_string()],
+                target_domains: vec![],
+                resolved_ips: vec![],
+            },
+            verdict: Verdict::Allow,
+            metadata: Default::default(),
+            entry_hash: None,
+            prev_hash: None,
+        };
+
+        let message = exporter.format_rfc5424(&entry);
+
+        // Verify escaping
+        assert!(message.contains("tool=\"test\\\"tool\"")); // Quote escaped
+        assert!(message.contains("function=\"func\\]tion\"")); // Bracket escaped
+        assert!(message.contains("\\\\backslash")); // Backslash escaped
+    }
+
+    #[test]
+    fn test_syslog_severity_mapping() {
+        assert_eq!(SyslogSeverity::Emergency.as_u8(), 0);
+        assert_eq!(SyslogSeverity::Warning.as_u8(), 4);
+        assert_eq!(SyslogSeverity::Info.as_u8(), 6);
+    }
+
+    #[test]
+    fn test_syslog_facility_values() {
+        assert_eq!(SyslogFacility::Kern.as_u8(), 0);
+        assert_eq!(SyslogFacility::Local0.as_u8(), 16);
+        assert_eq!(SyslogFacility::Local7.as_u8(), 23);
+        assert_eq!(SyslogFacility::Auth.as_u8(), 4);
     }
 }
