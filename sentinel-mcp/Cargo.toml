@@ -8,6 +8,11 @@ repository.workspace = true
 [features]
 default = []
 semantic-detection = []
+semantic-guardrails = ["lru", "async-trait"]
+llm-cloud = ["semantic-guardrails", "reqwest"]
+llm-local-gguf = ["semantic-guardrails"]
+llm-local-onnx = ["semantic-guardrails"]
+semantic-guardrails-full = ["semantic-guardrails", "llm-cloud", "llm-local-gguf", "llm-local-onnx"]
 
 [dependencies]
 sentinel-types = { path = "../sentinel-types" }
@@ -36,6 +41,13 @@ chacha20poly1305 = "0.10"
 rand = "0.8"
 getrandom = "0.2"
 semver = "1.0"
+
+# Semantic guardrails dependencies
+lru = { version = "0.12", optional = true }
+async-trait = { version = "0.1", optional = true }
+
+# Cloud LLM backends
+reqwest = { version = "0.12", features = ["json"], optional = true }
 
 [dev-dependencies]
 proptest = "1.4"

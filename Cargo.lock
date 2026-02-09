@@ -3225,6 +3225,7 @@ name = "sentinel-mcp"
 version = "2.0.0"
 dependencies = [
  "aho-corasick",
+ "async-trait",
  "base64 0.22.1",
  "chacha20poly1305",
  "chrono",
@@ -3233,10 +3234,12 @@ dependencies = [
  "getrandom 0.2.17",
  "hex",
  "hmac",
+ "lru",
  "percent-encoding",
  "proptest",
  "rand 0.8.5",
  "regex",
+ "reqwest 0.12.28",
  "semver",
  "sentinel-approval",
  "sentinel-audit",
