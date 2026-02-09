@@ -337,6 +337,11 @@ pub enum TenantError {
 
     #[error("invalid tenant ID: {0}")]
     InvalidTenantId(String),
+
+    /// SECURITY (FIND-025): Internal error for lock poisoning.
+    /// Fail-closed: lock poisoning prevents tenant operations rather than panicking.
+    #[error("internal error: {0}")]
+    Internal(String),
 }
 
 /// Extract tenant ID from request headers.
@@ -447,8 +452,9 @@ impl InMemoryTenantStore {
 
     pub fn with_default_tenant() -> Self {
         let store = Self::new();
-        {
-            let mut tenants = store.tenants.write().unwrap();
+        // SECURITY (FIND-025): Use ok() to avoid panic on lock poisoning.
+        // If poisoned at construction time, the store is empty but usable.
+        if let Ok(mut tenants) = store.tenants.write() {
             tenants.insert(DEFAULT_TENANT_ID.to_string(), Tenant::default_tenant());
         }
         store
@@ -457,15 +463,29 @@ impl InMemoryTenantStore {
 
 impl TenantStore for InMemoryTenantStore {
     fn get_tenant(&self, id: &str) -> Option<Tenant> {
-        self.tenants.read().unwrap().get(id).cloned()
+        // SECURITY (FIND-025): Fail-closed on lock poisoning — return None (tenant not found).
+        // This denies access rather than panicking.
+        self.tenants
+            .read()
+            .ok()
+            .and_then(|guard| guard.get(id).cloned())
     }
 
     fn list_tenants(&self) -> Vec<Tenant> {
-        self.tenants.read().unwrap().values().cloned().collect()
+        // SECURITY (FIND-025): Fail-closed on lock poisoning — return empty list.
+        self.tenants
+            .read()
+            .ok()
+            .map(|guard| guard.values().cloned().collect())
+            .unwrap_or_default()
     }
 
     fn create_tenant(&self, tenant: Tenant) -> Result<(), TenantError> {
-        let mut tenants = self.tenants.write().unwrap();
+        // SECURITY (FIND-025): Return error on lock poisoning instead of panicking.
+        let mut tenants = self
+            .tenants
+            .write()
+            .map_err(|_| TenantError::Internal("lock poisoned".into()))?;
         if tenants.contains_key(&tenant.id) {
             return Err(TenantError::InvalidTenantId(format!(
                 "tenant already exists: {}",
@@ -477,7 +497,11 @@ impl TenantStore for InMemoryTenantStore {
     }
 
     fn update_tenant(&self, tenant: Tenant) -> Result<(), TenantError> {
-        let mut tenants = self.tenants.write().unwrap();
+        // SECURITY (FIND-025): Return error on lock poisoning instead of panicking.
+        let mut tenants = self
+            .tenants
+            .write()
+            .map_err(|_| TenantError::Internal("lock poisoned".into()))?;
         if !tenants.contains_key(&tenant.id) {
             return Err(TenantError::TenantNotFound(tenant.id.clone()));
         }
@@ -486,7 +510,11 @@ impl TenantStore for InMemoryTenantStore {
     }
 
     fn delete_tenant(&self, id: &str) -> Result<(), TenantError> {
-        let mut tenants = self.tenants.write().unwrap();
+        // SECURITY (FIND-025): Return error on lock poisoning instead of panicking.
+        let mut tenants = self
+            .tenants
+            .write()
+            .map_err(|_| TenantError::Internal("lock poisoned".into()))?;
         if tenants.remove(id).is_none() {
             return Err(TenantError::TenantNotFound(id.to_string()));
         }
@@ -616,6 +644,7 @@ pub async fn tenant_middleware(
                 TenantError::TenantNotFound(_) => StatusCode::NOT_FOUND,
                 TenantError::TenantDisabled(_) => StatusCode::FORBIDDEN,
                 TenantError::InvalidTenantId(_) => StatusCode::BAD_REQUEST,
+                TenantError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             };
             (status, Json(json!({ "error": e.to_string() }))).into_response()
         }

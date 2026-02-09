@@ -71,6 +71,7 @@ fn state_with_api_key(tmp: &TempDir) -> AppState {
         etdi_attestations: None,
         etdi_version_pins: None,
         memory_security: None,
+        nhi: None,
     }
 }
 
@@ -305,6 +306,7 @@ async fn regression_38_prometheus_metrics_rate_limited() {
         etdi_attestations: None,
         etdi_version_pins: None,
         memory_security: None,
+        nhi: None,
     };
 
     // First request should succeed
