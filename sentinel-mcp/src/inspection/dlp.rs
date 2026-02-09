@@ -6,6 +6,7 @@
 
 use std::collections::HashSet;
 use std::sync::OnceLock;
+use unicode_normalization::UnicodeNormalization;
 
 /// Shared compiled DLP regexes (FIND-009: single instance for all scanning functions).
 ///
@@ -69,7 +70,10 @@ pub const DLP_PATTERNS: &[(&str, &str)] = &[
         "jwt_token",
         // Bounded quantifiers {1,8192} prevent ReDoS while covering realistic JWT sizes.
         // JWTs can be large (especially with many claims) but >8KB per segment is abnormal.
-        r"eyJ[A-Za-z0-9_-]{1,8192}\.eyJ[A-Za-z0-9_-]{1,8192}\.[A-Za-z0-9_-]{1,8192}",
+        // SECURITY: Match both 3-part (header.payload.signature) and 2-part (header.payload)
+        // JWTs. A 2-part JWT without signature still contains sensitive claims that could
+        // be exfiltrated and re-signed by an attacker.
+        r"eyJ[A-Za-z0-9_-]{1,8192}\.eyJ[A-Za-z0-9_-]{1,8192}(?:\.[A-Za-z0-9_-]{1,8192})?",
     ),
     // Stripe API keys (secret, publishable, restricted)
     (
@@ -177,6 +181,14 @@ const DLP_DECODE_BUDGET: std::time::Duration = std::time::Duration::from_millis(
 #[cfg(not(debug_assertions))]
 const DLP_DECODE_BUDGET: std::time::Duration = std::time::Duration::from_millis(5);
 
+/// Maximum string size for DLP scanning (1 MB).
+///
+/// SECURITY: Prevents CPU exhaustion from scanning very large strings with all
+/// DLP patterns. Secrets are unlikely to be > 1MB, so this limit doesn't affect
+/// detection while protecting against DoS attacks. When exceeded, only the first
+/// MAX_DLP_STRING_SIZE bytes are scanned and a warning is logged.
+const MAX_DLP_STRING_SIZE: usize = 1024 * 1024; // 1 MB
+
 /// Attempt base64 decoding across standard and URL-safe variants (with and without padding).
 /// Returns `Some(decoded_string)` on success, `None` if no variant produces valid UTF-8.
 ///
@@ -228,8 +240,15 @@ fn scan_decoded_layer<'a>(
     matched_patterns: &mut HashSet<&'a str>,
     findings: &mut Vec<DlpFinding>,
 ) {
+    // SECURITY: Apply NFKC normalization to detect secrets obfuscated with Unicode
+    // homoglyphs or fullwidth characters. For example, Cyrillic 'а' (U+0430) looks
+    // identical to Latin 'a' but would bypass ASCII regex patterns without normalization.
+    // This matches the approach used in injection detection (injection.rs:370).
+    let normalized: String = decoded.nfkc().collect();
+
     for (name, re) in regexes {
-        if !matched_patterns.contains(name) && re.is_match(decoded) {
+        // Check both original and normalized forms to catch all cases
+        if !matched_patterns.contains(name) && (re.is_match(decoded) || re.is_match(&normalized)) {
             matched_patterns.insert(*name);
             findings.push(DlpFinding {
                 pattern_name: name.to_string(),
@@ -257,14 +276,34 @@ fn scan_string_for_secrets(
     regexes: &[(&str, regex::Regex)],
     findings: &mut Vec<DlpFinding>,
 ) {
+    // SECURITY: Limit string size to prevent CPU exhaustion from regex scanning.
+    // Secrets are unlikely to exceed 1MB, so truncation doesn't affect detection.
+    let scan_str = if s.len() > MAX_DLP_STRING_SIZE {
+        tracing::warn!(
+            "DLP: String at path '{}' exceeds {} bytes ({} bytes), truncating for scan",
+            path,
+            MAX_DLP_STRING_SIZE,
+            s.len()
+        );
+        // Find a char boundary to avoid panics on multi-byte UTF-8
+        let mut end = MAX_DLP_STRING_SIZE;
+        while end > 0 && !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        &s[..end]
+    } else {
+        s
+    };
+
     let start = std::time::Instant::now();
     let mut matched_patterns = HashSet::new();
 
     // Layer 1: Scan the raw string directly (always runs)
-    scan_decoded_layer(s, path, "", regexes, &mut matched_patterns, findings);
+    scan_decoded_layer(scan_str, path, "", regexes, &mut matched_patterns, findings);
 
     // Layer 2: base64(raw) — always attempted (existing behavior, no budget gate)
-    let base64_decoded = try_base64_decode(s);
+    // Use scan_str (size-limited) to prevent DoS from decoding huge strings.
+    let base64_decoded = try_base64_decode(scan_str);
     if let Some(ref decoded) = base64_decoded {
         scan_decoded_layer(
             decoded,
@@ -277,7 +316,8 @@ fn scan_string_for_secrets(
     }
 
     // Layer 3: percent(raw) — always attempted (existing behavior, no budget gate)
-    let percent_decoded = try_percent_decode(s);
+    // Use scan_str (size-limited) to prevent DoS from decoding huge strings.
+    let percent_decoded = try_percent_decode(scan_str);
     if let Some(ref decoded) = percent_decoded {
         scan_decoded_layer(
             decoded,
@@ -575,6 +615,22 @@ mod tests {
     }
 
     #[test]
+    fn test_dlp_detects_aws_key_with_fullwidth_unicode() {
+        // SECURITY: Test that fullwidth Unicode characters don't bypass DLP detection.
+        // Using fullwidth 'Ａ' (U+FF21), 'Ｋ' (U+FF2B), 'Ｉ' (U+FF29), 'Ａ' (U+FF21).
+        // After NFKC normalization, "ＡＫＩＡ" becomes "AKIA" and matches the pattern.
+        let params = json!({
+            "content": "Key: ＡＫＩＡIOSFODNN7EXAMPLE"  // First 4 chars are fullwidth
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            !findings.is_empty(),
+            "Should detect AWS key with fullwidth Unicode after NFKC normalization"
+        );
+        assert!(findings.iter().any(|f| f.pattern_name == "aws_access_key"));
+    }
+
+    #[test]
     fn test_dlp_detects_github_token() {
         let params = json!({
             "auth": {
@@ -606,6 +662,18 @@ mod tests {
         });
         let findings = scan_parameters_for_secrets(&params);
         assert!(!findings.is_empty(), "Should detect JWT");
+        assert!(findings.iter().any(|f| f.pattern_name == "jwt_token"));
+    }
+
+    #[test]
+    fn test_dlp_detects_jwt_without_signature() {
+        // SECURITY: 2-part JWTs (header.payload) without signature still contain
+        // sensitive claims that can be exfiltrated and re-signed by an attacker.
+        let params = json!({
+            "data": "Token: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIiwicm9sZSI6ImFkbWluIn0"
+        });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(!findings.is_empty(), "Should detect 2-part JWT without signature");
         assert!(findings.iter().any(|f| f.pattern_name == "jwt_token"));
     }
 
