@@ -570,12 +570,24 @@ struct EvaluateRequest {
     context: Option<EvaluationContext>,
 }
 
+/// Query parameters for the evaluate endpoint.
+/// IMPROVEMENT_PLAN 10.4: Add ?trace=true for OPA-style decision logging.
+#[derive(Debug, Deserialize, Default)]
+struct EvaluateQuery {
+    /// When true, return detailed evaluation trace with per-policy match info.
+    #[serde(default)]
+    trace: bool,
+}
+
 #[derive(Serialize)]
 struct EvaluateResponse {
     verdict: Verdict,
     action: Action,
     #[serde(skip_serializing_if = "Option::is_none")]
     approval_id: Option<String>,
+    /// Detailed evaluation trace (only present when ?trace=true).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trace: Option<sentinel_types::EvaluationTrace>,
 }
 
 /// SECURITY (R31-SRV-1): Redact action parameters before returning in the evaluate
@@ -923,6 +935,7 @@ fn sanitize_context(
 async fn evaluate(
     State(state): State<AppState>,
     Extension(tenant_ctx): Extension<TenantContext>,
+    Query(query): Query<EvaluateQuery>,
     headers: HeaderMap,
     Json(req): Json<EvaluateRequest>,
 ) -> Result<Json<EvaluateResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -1021,6 +1034,7 @@ async fn evaluate(
                             verdict: deny,
                             action: redact_response_action(action),
                             approval_id: None,
+                            trace: None,
                         }));
                     }
                 };
@@ -1047,6 +1061,7 @@ async fn evaluate(
                     verdict,
                     action: redact_response_action(action),
                     approval_id,
+                    trace: None,
                 }));
             }
             sentinel_mcp::tool_registry::TrustLevel::Untrusted { score } => {
@@ -1097,6 +1112,7 @@ async fn evaluate(
                             verdict: deny,
                             action: redact_response_action(action),
                             approval_id: None,
+                            trace: None,
                         }));
                     }
                 };
@@ -1123,6 +1139,7 @@ async fn evaluate(
                     verdict,
                     action: redact_response_action(action),
                     approval_id,
+                    trace: None,
                 }));
             }
             sentinel_mcp::tool_registry::TrustLevel::Trusted => {
@@ -1131,21 +1148,43 @@ async fn evaluate(
         }
     }
 
-    let verdict = snap
-        .engine
-        .evaluate_action_with_context(&action, &snap.policies, context.as_ref())
-        .map_err(|e| {
-            tracing::error!("Engine evaluation error: {}", e);
-            state.metrics.record_error();
-            crate::metrics::record_evaluation_verdict("error");
-            crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "Policy evaluation failed".to_string(),
-                }),
-            )
-        })?;
+    // IMPROVEMENT_PLAN 10.4: Support ?trace=true for OPA-style decision logging.
+    // When trace is requested, we use the traced evaluation path which returns
+    // per-policy match details along with the verdict.
+    let (verdict, eval_trace) = if query.trace {
+        snap.engine
+            .evaluate_action_traced_with_context(&action, context.as_ref())
+            .map(|(v, t)| (v, Some(t)))
+            .map_err(|e| {
+                tracing::error!("Engine evaluation error: {}", e);
+                state.metrics.record_error();
+                crate::metrics::record_evaluation_verdict("error");
+                crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "Policy evaluation failed".to_string(),
+                    }),
+                )
+            })?
+    } else {
+        let v = snap
+            .engine
+            .evaluate_action_with_context(&action, &snap.policies, context.as_ref())
+            .map_err(|e| {
+                tracing::error!("Engine evaluation error: {}", e);
+                state.metrics.record_error();
+                crate::metrics::record_evaluation_verdict("error");
+                crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "Policy evaluation failed".to_string(),
+                    }),
+                )
+            })?;
+        (v, None)
+    };
 
     // If RequireApproval, create a pending approval.
     // Fail-closed: if approval creation fails, convert to Deny so the caller
@@ -1231,6 +1270,7 @@ async fn evaluate(
         verdict,
         action: redact_response_action(action),
         approval_id,
+        trace: eval_trace,
     }))
 }
 
