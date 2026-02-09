@@ -11,7 +11,7 @@
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-3%2C343_passing-brightgreen.svg" alt="Tests: 3,343 passing">
+    <img src="https://img.shields.io/badge/tests-3%2C643_passing-brightgreen.svg" alt="Tests: 3,643 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <img src="https://img.shields.io/badge/security_audit-33_rounds%2C_380%2B_findings-informational.svg" alt="Security Audit: 34 rounds, 380+ findings">
     <a href="https://modelcontextprotocol.io/specification/2025-06-18"><img src="https://img.shields.io/badge/MCP-2025--06--18-blueviolet.svg" alt="MCP 2025-06-18"></a>
@@ -35,7 +35,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>1.0.0</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>3,343 tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>3,643 tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-06-18 (Streamable HTTP)</td></tr>
@@ -147,6 +147,14 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Evaluation caching** — LRU + TTL cache minimizes latency and cost on repeated patterns
 - **Pluggable backends** — Support for cloud (OpenAI, Anthropic) and local (GGUF, ONNX) models
 - **Fail-closed design** — Errors, timeouts, and low confidence all result in denial
+
+### 📚 RAG Poisoning Defense
+- **Document verification** — Trust scoring with age bonuses, admin approval, signature verification, and mutation penalties
+- **Document provenance** — SHA-256 content hashing, version chain tracking, and source attribution
+- **Retrieval security** — Result count limits, DLP scanning, and sensitive data filtering
+- **Diversity enforcement** — Jaccard similarity detection prevents context flooding with duplicate content
+- **Embedding anomaly detection** — Per-agent baseline tracking with cosine similarity comparison
+- **Context budget enforcement** — Token-based limits per retrieval and per session with truncate/reject/warn modes
 
 ### 🏢 Enterprise Features
 - **mTLS / SPIFFE-SPIRE** — Mutual TLS with client certificate verification, SPIFFE identity extraction from X.509 SAN URIs, trust domains, workload identity, and ID-to-role mapping

@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 13: RAG Poisoning Defense
+- **Document Verification** — Trust scoring with age bonuses (+0.1/week, capped at 0.3), admin approval (+0.2), Ed25519 signature verification (+0.2), version stability bonuses, and mutation penalties (-0.3 per change)
+- **Document Provenance** — SHA-256 content hashing, version chain tracking, source attribution, and timestamp management for knowledge base documents
+- **Retrieval Security** — Inspection of retrieval results with configurable limits, DLP scanning integration, and result filtering for sensitive data
+- **Diversity Enforcement** — Jaccard similarity-based duplicate detection to prevent context flooding with near-identical content
+- **Embedding Anomaly Detection** — Per-agent baseline tracking with cosine similarity comparison, configurable thresholds, and automatic anomaly flagging
+- **Context Budget Enforcement** — Token-based budget tracking per session with per-retrieval limits, total session limits, and configurable enforcement modes (truncate/reject/warn)
+- **RagDefenseService** — High-level facade combining document verification, retrieval inspection, embedding anomaly detection, and context budget tracking
+- **New Types**: `DocumentMetadata`, `DocumentTrustScore`, `TrustFactor`, `DocumentVerifier`, `RetrievalResult`, `RetrievalInspection`, `RetrievalInspector`, `RagDlpFinding`, `EmbeddingVector`, `EmbeddingBaseline`, `AnomalyDetection`, `EmbeddingAnomalyDetector`, `BudgetUsage`, `BudgetEnforcement`, `ContextBudgetTracker`, `RagDefenseService`
+- **New Config**: `RagDefenseConfig` with `DocumentVerificationConfig`, `RetrievalSecurityConfig`, `EmbeddingAnomalyConfig`, `ContextBudgetConfig`
+- **New Errors**: `RagDefenseError` with variants for low trust scores, content hash mismatches, retrieval limits, embedding anomalies, budget exceeded, and more
+- **Feature Flag**: `rag-defense`
+
 #### Phase 12: Semantic Guardrails (LLM-Based Policy Evaluation)
 - **Intent Classification** — Structured taxonomy of action intents (DataRead, DataWrite, SystemExecute, NetworkFetch, CredentialAccess, etc.) with confidence scoring and risk category detection
 - **Natural Language Policies** — Define policies in plain English with glob-based tool/function matching, compiled to efficient matchers
