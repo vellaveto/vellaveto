@@ -7,6 +7,38 @@
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
+/// Shared compiled DLP regexes (FIND-009: single instance for all scanning functions).
+///
+/// Previously each scanning function had its own OnceLock, causing:
+/// 1. Duplicate "CRITICAL" log messages if a pattern fails to compile
+/// 2. Risk of divergent pattern coverage if initialization logic differed
+/// 3. ~4x memory usage for identical compiled regex automata
+///
+/// This single shared static eliminates all three issues.
+static DLP_REGEXES: OnceLock<Vec<(&'static str, regex::Regex)>> = OnceLock::new();
+
+/// Get or initialize the shared DLP regex patterns.
+fn get_dlp_regexes() -> &'static [(&'static str, regex::Regex)] {
+    DLP_REGEXES.get_or_init(|| {
+        DLP_PATTERNS
+            .iter()
+            .filter_map(|(name, pat)| match regex::Regex::new(pat) {
+                Ok(re) => Some((*name, re)),
+                Err(e) => {
+                    // SECURITY (R35-MCP-2): Log error if DLP pattern fails to compile.
+                    tracing::error!(
+                        "CRITICAL: Failed to compile DLP pattern '{}': {}. \
+                         This pattern will be SKIPPED.",
+                        name,
+                        e
+                    );
+                    None
+                }
+            })
+            .collect()
+    })
+}
+
 /// DLP (Data Loss Prevention) patterns for detecting secrets in tool call parameters.
 ///
 /// These patterns detect common secret formats that should not be exfiltrated
@@ -90,26 +122,8 @@ pub struct DlpFinding {
 /// Recursively inspects all string values in the parameters JSON for DLP patterns.
 /// Returns findings indicating which secrets were detected and where.
 pub fn scan_parameters_for_secrets(parameters: &serde_json::Value) -> Vec<DlpFinding> {
-    // Lazily compile DLP patterns
-    static DLP_REGEXES: OnceLock<Vec<(&'static str, regex::Regex)>> = OnceLock::new();
-    let regexes = DLP_REGEXES.get_or_init(|| {
-        DLP_PATTERNS
-            .iter()
-            .filter_map(|(name, pat)| match regex::Regex::new(pat) {
-                Ok(re) => Some((*name, re)),
-                Err(e) => {
-                    // SECURITY (R35-MCP-2): Log error if DLP pattern fails to compile.
-                    tracing::error!(
-                        "CRITICAL: Failed to compile DLP pattern '{}': {}. \
-                         This pattern will be SKIPPED.",
-                        name,
-                        e
-                    );
-                    None
-                }
-            })
-            .collect()
-    });
+    // FIND-009: Use shared DLP regex instance
+    let regexes = get_dlp_regexes();
 
     let mut findings = Vec::new();
     scan_value_for_secrets(parameters, "$", regexes, &mut findings, 0);
@@ -380,26 +394,8 @@ fn scan_string_for_secrets(
 ///
 /// Returns findings indicating which secrets were detected and where in the response.
 pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding> {
-    // Lazily compile DLP patterns (same set as scan_parameters_for_secrets)
-    static DLP_REGEXES: OnceLock<Vec<(&'static str, regex::Regex)>> = OnceLock::new();
-    let regexes = DLP_REGEXES.get_or_init(|| {
-        DLP_PATTERNS
-            .iter()
-            .filter_map(|(name, pat)| match regex::Regex::new(pat) {
-                Ok(re) => Some((*name, re)),
-                Err(e) => {
-                    // SECURITY (R35-MCP-2): Log error if DLP pattern fails to compile.
-                    tracing::error!(
-                        "CRITICAL: Failed to compile DLP pattern '{}': {}. \
-                         This pattern will be SKIPPED.",
-                        name,
-                        e
-                    );
-                    None
-                }
-            })
-            .collect()
-    });
+    // FIND-009: Use shared DLP regex instance
+    let regexes = get_dlp_regexes();
 
     let mut findings = Vec::new();
 
@@ -530,25 +526,8 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
 /// (e.g., `notifications/resources/updated` with a URI containing an AWS key, or
 /// `notifications/progress` with secrets in the `message` field).
 pub fn scan_notification_for_secrets(notification: &serde_json::Value) -> Vec<DlpFinding> {
-    static DLP_REGEXES: OnceLock<Vec<(&'static str, regex::Regex)>> = OnceLock::new();
-    let regexes = DLP_REGEXES.get_or_init(|| {
-        DLP_PATTERNS
-            .iter()
-            .filter_map(|(name, pat)| match regex::Regex::new(pat) {
-                Ok(re) => Some((*name, re)),
-                Err(e) => {
-                    // SECURITY (R35-MCP-2): Log error if DLP pattern fails to compile.
-                    tracing::error!(
-                        "CRITICAL: Failed to compile DLP pattern '{}': {}. \
-                         This pattern will be SKIPPED.",
-                        name,
-                        e
-                    );
-                    None
-                }
-            })
-            .collect()
-    });
+    // FIND-009: Use shared DLP regex instance
+    let regexes = get_dlp_regexes();
 
     let mut findings = Vec::new();
 
@@ -572,25 +551,8 @@ pub fn scan_notification_for_secrets(notification: &serde_json::Value) -> Vec<Dl
 /// is not valid JSON. Without this, a malicious upstream can embed secrets
 /// in non-JSON SSE data lines to bypass DLP detection entirely.
 pub fn scan_text_for_secrets(text: &str, location: &str) -> Vec<DlpFinding> {
-    static DLP_REGEXES: OnceLock<Vec<(&'static str, regex::Regex)>> = OnceLock::new();
-    let regexes = DLP_REGEXES.get_or_init(|| {
-        DLP_PATTERNS
-            .iter()
-            .filter_map(|(name, pat)| match regex::Regex::new(pat) {
-                Ok(re) => Some((*name, re)),
-                Err(e) => {
-                    // SECURITY (R35-MCP-2): Log error if DLP pattern fails to compile.
-                    tracing::error!(
-                        "CRITICAL: Failed to compile DLP pattern '{}': {}. \
-                         This pattern will be SKIPPED.",
-                        name,
-                        e
-                    );
-                    None
-                }
-            })
-            .collect()
-    });
+    // FIND-009: Use shared DLP regex instance
+    let regexes = get_dlp_regexes();
 
     let mut findings = Vec::new();
     scan_string_for_secrets(text, location, regexes, &mut findings);
