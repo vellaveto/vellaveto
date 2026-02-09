@@ -24,6 +24,8 @@ pub mod schema_poisoning;
 pub mod semantic_detection;
 #[cfg(feature = "semantic-guardrails")]
 pub mod semantic_guardrails;
+#[cfg(feature = "rag-defense")]
+pub mod rag_defense;
 pub mod shadow_agent;
 pub mod task_security;
 pub mod task_state;

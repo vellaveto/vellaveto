@@ -1050,6 +1050,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         etdi: Default::default(),
         memory_security: Default::default(),
         nhi: Default::default(),
+        rag_defense: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

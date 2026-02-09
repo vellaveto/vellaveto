@@ -13,6 +13,7 @@ llm-cloud = ["semantic-guardrails", "reqwest"]
 llm-local-gguf = ["semantic-guardrails"]
 llm-local-onnx = ["semantic-guardrails"]
 semantic-guardrails-full = ["semantic-guardrails", "llm-cloud", "llm-local-gguf", "llm-local-onnx"]
+rag-defense = []
 
 [dependencies]
 sentinel-types = { path = "../sentinel-types" }
