@@ -11,7 +11,7 @@
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-3%2C425_passing-brightgreen.svg" alt="Tests: 3,425 passing">
+    <img src="https://img.shields.io/badge/tests-3%2C343_passing-brightgreen.svg" alt="Tests: 3,343 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <img src="https://img.shields.io/badge/security_audit-33_rounds%2C_380%2B_findings-informational.svg" alt="Security Audit: 34 rounds, 380+ findings">
     <a href="https://modelcontextprotocol.io/specification/2025-06-18"><img src="https://img.shields.io/badge/MCP-2025--06--18-blueviolet.svg" alt="MCP 2025-06-18"></a>
@@ -35,7 +35,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>1.0.0</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>3,425 tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>3,343 tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-06-18 (Streamable HTTP)</td></tr>
@@ -123,6 +123,14 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Quarantine management** — Isolate suspicious data with severity-based quarantine policies and safe release workflows
 - **Namespace isolation** — Strict memory isolation between agents with namespace-scoped access control and cross-namespace violation detection
 - **MINJA API** — 10 REST endpoints for taint tracking, provenance queries, trust scoring, quarantine operations, and namespace management
+
+### 🤖 NHI: Non-Human Identity Lifecycle
+- **Agent identity registration** — Multiple attestation types (JWT, mTLS, SPIFFE, DPoP, API key) with configurable TTL and public key binding
+- **Identity lifecycle** — Full state machine: Probationary → Active → Suspended → Revoked → Expired with automatic transitions
+- **Behavioral attestation** — Continuous authentication via behavioral baselines using Welford's online variance algorithm
+- **Delegation chains** — Agent-to-agent permission delegation with scope constraints, depth limits, and accountability tracking
+- **Credential rotation** — Automatic lifecycle with expiration warnings, rotation history, and DPoP (RFC 9449) support
+- **NHI API** — 16 REST endpoints for identity registration, lifecycle management, behavioral checks, delegations, and credential rotation
 
 ### 🏢 Enterprise Features
 - **mTLS / SPIFFE-SPIRE** — Mutual TLS with client certificate verification, SPIFFE identity extraction from X.509 SAN URIs, trust domains, workload identity, and ID-to-role mapping
@@ -584,6 +592,23 @@ Supports RS256, ES256, and EdDSA algorithms. Algorithm confusion attacks are pre
 | `POST` | `/api/minja/quarantine/:id` | Yes | Quarantine a data item |
 | `DELETE` | `/api/minja/quarantine/:id` | Yes | Release data from quarantine |
 | `GET` | `/api/minja/namespaces/:agent` | Yes | Get namespace isolation status |
+| `GET` | `/api/nhi/agents` | Yes | List registered agent identities |
+| `POST` | `/api/nhi/agents` | Yes | Register a new agent identity |
+| `GET` | `/api/nhi/agents/:id` | Yes | Get agent identity details |
+| `DELETE` | `/api/nhi/agents/:id` | Yes | Revoke agent identity |
+| `POST` | `/api/nhi/agents/:id/activate` | Yes | Activate probationary identity |
+| `POST` | `/api/nhi/agents/:id/suspend` | Yes | Suspend active identity |
+| `GET` | `/api/nhi/agents/:id/baseline` | Yes | Get behavioral baseline |
+| `POST` | `/api/nhi/agents/:id/check` | Yes | Check behavior against baseline |
+| `GET` | `/api/nhi/delegations` | Yes | List all delegations |
+| `POST` | `/api/nhi/delegations` | Yes | Create a delegation |
+| `GET` | `/api/nhi/delegations/:from/:to` | Yes | Get delegation details |
+| `DELETE` | `/api/nhi/delegations/:from/:to` | Yes | Revoke delegation |
+| `GET` | `/api/nhi/delegations/:id/chain` | Yes | Resolve full delegation chain |
+| `POST` | `/api/nhi/agents/:id/rotate` | Yes | Rotate agent credentials |
+| `GET` | `/api/nhi/expiring` | Yes | Get identities expiring soon |
+| `POST` | `/api/nhi/dpop/nonce` | Yes | Generate DPoP nonce |
+| `GET` | `/api/nhi/stats` | Yes | Get NHI statistics |
 
 All endpoints except `/health`, `/metrics`, and `/api/metrics` require a `Bearer` token matching `SENTINEL_API_KEY`. Use `--allow-anonymous` to disable authentication for development.
 
@@ -751,6 +776,7 @@ Environment variables override values set in the config file.
 | 🔗 **Supply chain** | SHA-256 hash verification of MCP server binaries before spawn |
 | 🔏 **ETDI tool signing** | Ed25519/ECDSA tool signatures with attestation chains and version pinning |
 | 🧠 **MINJA memory defense** | Taint propagation, provenance graphs, trust decay, quarantine, and namespace isolation |
+| 🤖 **NHI lifecycle** | Agent identity attestation, behavioral baselines, delegation chains, credential rotation, and DPoP |
 
 ### 🔬 Security Audit
 
@@ -763,7 +789,7 @@ Sentinel has undergone 34 rounds of adversarial security audit covering 31+ atta
 | Total findings triaged | 380+ |
 | Findings fixed | 300+ |
 | Critical/HIGH findings fixed | 80+ |
-| Test count post-audit | 3,167 |
+| Test count post-audit | 3,343 |
 
 Key areas covered: tool poisoning, prompt injection, path traversal, SSRF/domain bypass, session fixation, JSON parsing, memory poisoning, elicitation social engineering, audit log tampering, OAuth/JWT validation, SIEM export injection, rug-pull detection, tool squatting, DLP bypass, SSE transport parity, config reload races, Unicode case-folding, IPv6 transition mechanisms, CEF/SIEM injection, and webhook SSRF.
 

@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 10: NHI (Non-Human Identity) Lifecycle Management
+- **Agent Identity Registration** — Multiple attestation types (JWT, mTLS, SPIFFE, DPoP, API key) with configurable TTL, public key binding, and metadata tags
+- **Identity Lifecycle States** — Full lifecycle management: Probationary → Active → Suspended → Revoked → Expired with automatic status transitions
+- **Behavioral Attestation** — Continuous authentication via behavioral baselines using Welford's online variance algorithm for request intervals, tool call patterns, and source IP tracking
+- **Anomaly Detection** — Configurable anomaly thresholds with recommendations (Allow, AllowWithLogging, StepUpAuth, Suspend, Revoke) based on deviation severity
+- **Delegation Chains** — Agent-to-agent permission delegation with scope constraints, depth limits, and chain resolution for accountability tracking
+- **Credential Rotation** — Automatic credential lifecycle with expiration warnings, rotation history, and thumbprint tracking
+- **DPoP Support** — RFC 9449 Demonstration of Proof-of-Possession with nonce generation, replay prevention, and access token hash binding
+- **NHI API Endpoints**:
+  - `GET/POST /api/nhi/agents` — List and register agent identities
+  - `GET/DELETE /api/nhi/agents/{id}` — Get or revoke agent identity
+  - `POST /api/nhi/agents/{id}/activate` — Activate probationary identity
+  - `POST /api/nhi/agents/{id}/suspend` — Suspend active identity
+  - `GET /api/nhi/agents/{id}/baseline` — Get behavioral baseline
+  - `POST /api/nhi/agents/{id}/check` — Check behavior against baseline
+  - `GET/POST /api/nhi/delegations` — List and create delegations
+  - `GET/DELETE /api/nhi/delegations/{from}/{to}` — Get or revoke delegation
+  - `GET /api/nhi/delegations/{id}/chain` — Resolve full delegation chain
+  - `POST /api/nhi/agents/{id}/rotate` — Rotate credentials
+  - `GET /api/nhi/expiring` — Get identities expiring soon
+  - `POST /api/nhi/dpop/nonce` — Generate DPoP nonce
+  - `GET /api/nhi/stats` — NHI statistics
+- **New Types**: `NhiAgentIdentity`, `NhiIdentityStatus`, `NhiAttestationType`, `NhiBehavioralBaseline`, `NhiBehavioralCheckResult`, `NhiBehavioralDeviation`, `NhiBehavioralRecommendation`, `NhiDelegationLink`, `NhiDelegationChain`, `NhiDpopProof`, `NhiDpopVerificationResult`, `NhiCredentialRotation`, `NhiStats`
+- **New Config**: `NhiConfig`, `DpopConfig` with comprehensive defaults for credential TTL, attestation types, anomaly thresholds, delegation limits, and rotation warnings
+
 #### Phase 9: MINJA (Memory Injection Defense)
 - **Taint Propagation** — Data from untrusted sources tagged with taint labels (`UserInput`, `ExternalApi`, `AgentOutput`, `DerivedData`, `Sanitized`) that propagate to derived data automatically
 - **Provenance Graph** — DAG tracking data lineage with FIFO eviction, detects suspicious patterns (notification→replay chains, feedback loops, data laundering)
@@ -60,6 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Security audit rounds: 33 → 34
+- Test suite: 3,167 → 3,343 tests
 
 ### Documentation
 

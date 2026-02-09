@@ -1,8 +1,8 @@
 # Sentinel Roadmap v2.1
 
-> **Version:** 2.1.0 (Planning)
-> **Generated:** 2026-02-08
-> **Status:** v2.0.0 released, v2.1 research complete
+> **Version:** 2.1.0 (In Progress)
+> **Generated:** 2026-02-09
+> **Status:** v2.0.0 released, Phase 8-10 complete, Phase 11 pending
 > **Based on:** Multi-agent research (MCP spec 2025-11-25, OWASP ASI Top 10, enterprise patterns, competitor analysis)
 
 ---
@@ -872,7 +872,7 @@ The following research agents provided input for this roadmap:
 |-----|-------------------|-----------------|----------|
 | ~~ETDI Cryptographic Tool Verification~~ | ETDI proposal (2025) | ✅ Implemented (Phase 8) | ~~P0~~ |
 | ~~Memory Injection Defense (MINJA)~~ | Agent Security Bench | ✅ Implemented (Phase 9) | ~~P1~~ |
-| Non-Human Identity (NHI) Lifecycle | ATF, CyberArk | Not implemented | P1 |
+| ~~Non-Human Identity (NHI) Lifecycle~~ | ATF, CyberArk | ✅ Implemented (Phase 10) | ~~P1~~ |
 | Stateful Session Reasoning Guards | NeMo Guardrails | Not implemented | P2 |
 | Semantic Guardrails (LLM-based) | Guardrails AI, NeMo | Not implemented | P2 |
 | A2A Protocol Security | Google A2A (2025) | Not implemented | P2 |
@@ -1027,9 +1027,11 @@ quarantine_on_injection_detect = true
 
 ---
 
-## Phase 10: Non-Human Identity (NHI) Lifecycle (v2.1)
+## Phase 10: Non-Human Identity (NHI) Lifecycle (v2.1) ✅ COMPLETE
 
 *Focus: Implement Agentic Trust Framework (ATF) for zero-trust agent identity*
+
+> **Status:** Implemented in commit `0320659`. All core deliverables complete.
 
 ### Background
 
@@ -1043,10 +1045,10 @@ Traditional IAM assumes human users. AI agents require:
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
-| Implement agent registration with attestation | P1 | 2 days | Pending |
-| Add agent credential rotation | P1 | 2 days | Pending |
-| Implement agent revocation list | P1 | 1 day | Pending |
-| Create agent identity federation | P2 | 3 days | Pending |
+| Implement agent registration with attestation | P1 | 2 days | ✅ Complete |
+| Add agent credential rotation | P1 | 2 days | ✅ Complete |
+| Implement agent revocation list | P1 | 1 day | ✅ Complete |
+| Create agent identity federation | P2 | 3 days | Deferred |
 
 **Configuration:**
 ```toml
@@ -1054,35 +1056,77 @@ Traditional IAM assumes human users. AI agents require:
 enabled = true
 credential_ttl_secs = 3600      # 1 hour max credential lifetime
 require_attestation = true
-attestation_types = ["jwt", "mtls", "spiffe"]
+attestation_types = ["jwt", "mtls", "spiffe", "dpop", "api_key"]
 auto_revoke_on_anomaly = true
+probationary_period_secs = 86400  # 24 hours
 ```
 
 ### 10.2 Behavioral Attestation
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
-| Extend behavioral anomaly detection for NHI | P1 | 2 days | Pending |
-| Implement continuous authentication | P1 | 2 days | Pending |
-| Add behavioral drift alerting | P1 | 1 day | Pending |
-| Create agent behavior baseline learning | P2 | 3 days | Pending |
+| Extend behavioral anomaly detection for NHI | P1 | 2 days | ✅ Complete |
+| Implement continuous authentication | P1 | 2 days | ✅ Complete |
+| Add behavioral drift alerting | P1 | 1 day | ✅ Complete |
+| Create agent behavior baseline learning | P2 | 3 days | ✅ Complete |
+
+**Features:**
+- Welford's online algorithm for variance calculation
+- Request interval, tool call frequency, and source IP tracking
+- Anomaly thresholds with deviation severity (Minor, Moderate, Severe)
+- Recommendations: Allow, AllowWithLogging, StepUpAuth, Suspend, Revoke
 
 ### 10.3 Delegation & Accountability
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
-| Enhance delegation chain with NHI tracking | P1 | 2 days | Pending |
-| Implement delegation approval workflow | P1 | 2 days | Pending |
-| Add delegation scope constraints | P1 | 1 day | Pending |
-| Create delegation audit reports | P1 | 1 day | Pending |
+| Enhance delegation chain with NHI tracking | P1 | 2 days | ✅ Complete |
+| Implement delegation approval workflow | P1 | 2 days | ✅ Complete |
+| Add delegation scope constraints | P1 | 1 day | ✅ Complete |
+| Create delegation audit reports | P1 | 1 day | ✅ Complete |
+
+**Features:**
+- Delegation links with scope (tools, resources, permissions)
+- Depth limits (configurable, default 5)
+- Chain resolution with cycle detection
+- Approval workflow with approver tracking
+
+### 10.4 DPoP Support (RFC 9449)
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Implement DPoP proof verification | P1 | 2 days | ✅ Complete |
+| Add nonce generation and tracking | P1 | 1 day | ✅ Complete |
+| Implement access token hash binding | P1 | 1 day | ✅ Complete |
+
+### 10.5 NHI API Endpoints
+
+| Endpoint | Method | Description | Status |
+|----------|--------|-------------|--------|
+| `/api/nhi/agents` | GET/POST | List/register identities | ✅ Complete |
+| `/api/nhi/agents/{id}` | GET/DELETE | Get/revoke identity | ✅ Complete |
+| `/api/nhi/agents/{id}/activate` | POST | Activate probationary | ✅ Complete |
+| `/api/nhi/agents/{id}/suspend` | POST | Suspend identity | ✅ Complete |
+| `/api/nhi/agents/{id}/baseline` | GET | Get behavioral baseline | ✅ Complete |
+| `/api/nhi/agents/{id}/check` | POST | Check behavior | ✅ Complete |
+| `/api/nhi/delegations` | GET/POST | List/create delegations | ✅ Complete |
+| `/api/nhi/delegations/{from}/{to}` | GET/DELETE | Get/revoke delegation | ✅ Complete |
+| `/api/nhi/delegations/{id}/chain` | GET | Resolve full chain | ✅ Complete |
+| `/api/nhi/agents/{id}/rotate` | POST | Rotate credentials | ✅ Complete |
+| `/api/nhi/expiring` | GET | Expiring identities | ✅ Complete |
+| `/api/nhi/dpop/nonce` | POST | Generate DPoP nonce | ✅ Complete |
+| `/api/nhi/stats` | GET | NHI statistics | ✅ Complete |
 
 ### Phase 10 Deliverables
-- [ ] Agent identity lifecycle (register, rotate, revoke)
-- [ ] Behavioral attestation with continuous auth
-- [ ] Enhanced delegation chains for NHI
-- [ ] Delegation scope constraints and approval
+- [x] Agent identity lifecycle (register, rotate, revoke)
+- [x] Behavioral attestation with continuous auth
+- [x] Enhanced delegation chains for NHI
+- [x] Delegation scope constraints and approval
+- [x] DPoP (RFC 9449) support
+- [x] 16 REST API endpoints
+- [x] 28 integration tests
 
-**Estimated Duration:** 3 weeks
+**Completed:** 2026-02-09
 
 ---
 
@@ -1296,10 +1340,10 @@ AI observability platforms (Arize, Langfuse, Helicone) provide:
 ```
 Phase 8:  ETDI & Cryptographic Tool Security     (3 weeks)  ✅ COMPLETE
 Phase 9:  Memory Injection Defense               (3 weeks)  ✅ COMPLETE
-Phase 10: Non-Human Identity Lifecycle           (3 weeks)  ← P1
+Phase 10: Non-Human Identity Lifecycle           (3 weeks)  ✅ COMPLETE
 Phase 11: MCP Tasks Primitive                    (2 weeks)  ← P1
 ───────────────────────────────────────────────────────────
-v2.1 Remaining: 5 weeks (~1.25 months)
+v2.1 Remaining: 2 weeks (~0.5 months)
 ```
 
 ## v2.2 Timeline Summary
@@ -1329,7 +1373,7 @@ v2.2 Total: 11 weeks (~2.75 months)
 | ETDI Tool Signing | ✅ Ed25519/ECDSA | ❌ | ❌ | ❌ | ❌ |
 | Memory Injection Defense | ✅ Full MINJA | ❌ | ❌ | ❌ | ❌ |
 | Semantic Guardrails | ❌ v2.2 | ✅ Native | ✅ Native | ⚠️ Basic | ⚠️ Basic |
-| NHI Lifecycle | ⚠️ Partial | ❌ | ❌ | ⚠️ Basic | ❌ |
+| NHI Lifecycle | ✅ Full | ❌ | ❌ | ⚠️ Basic | ❌ |
 
 ---
 
