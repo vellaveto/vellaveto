@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+#### DLP Hardening
+- **Unicode NFKC Normalization** — DLP scanning now applies NFKC normalization to detect secrets obfuscated with Unicode homoglyphs (e.g., Cyrillic 'а' vs Latin 'a') and fullwidth characters
+- **2-Part JWT Detection** — Extended JWT pattern to detect header.payload tokens without signature, which still contain sensitive claims attackers could exfiltrate and re-sign
+- **Size Limit Protection** — Added 1MB (`MAX_DLP_STRING_SIZE`) limit to prevent CPU exhaustion from regex scanning very large strings; truncated strings still scanned with warning logged
+- **New Tests**: `test_dlp_detects_aws_key_with_fullwidth_unicode`, `test_dlp_detects_jwt_without_signature`
+
 #### Legacy Policy Path Security Fix (P0)
 - **Policy Bypass Fix** — Legacy policy evaluation path (`apply_policy`) now enforces `path_rules`, `network_rules`, and `ip_rules` before returning verdicts, matching compiled policy behavior
 - **Path Rules Enforcement** — Added `check_path_rules_legacy()` with glob matching, path normalization, and fail-closed behavior for invalid patterns
