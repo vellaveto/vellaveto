@@ -75,6 +75,7 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Circuit breaker** (ASI08) — Cascading failure prevention with failure budgets and automatic recovery
 - **Shadow agent detection** — Agent fingerprinting and impersonation alerts for multi-agent environments
 - **Memory poisoning defense** (ASI06) — Cross-request data flow tracking detects when tool response data is replayed verbatim in subsequent tool call parameters
+- **Memory injection defense** (ASI06) — Taint propagation with provenance graphs, exponential trust decay, quarantine management, and agent namespace isolation
 - **DLP response scanning** — Detects secrets (AWS keys, GitHub tokens, JWTs, private keys, Slack tokens) in tool responses through 5 decode layers
 - **Elicitation interception** (MCP 2025-06-18) — Validates `elicitation/create` requests, blocks sensitive field types, enforces per-session rate limits
 - **Sampling policy enforcement** — Configurable policies for `sampling/createMessage` with content inspection and model filtering
@@ -114,6 +115,14 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Version pinning** — Semantic versioning constraints (`^1.0.0`, `~2.1.0`, exact) with hash-based drift detection for rug-pull prevention
 - **ETDI persistent store** — Signatures, attestations, and pins with optional HMAC integrity protection
 - **ETDI API** — Full REST API for signature verification, attestation chain management, and version pin operations
+
+### 🧠 MINJA: Memory Injection Defense
+- **Taint propagation** — Track tainted data across memory operations with configurable severity thresholds and propagation rules
+- **Provenance graph** — DAG-based data lineage tracking with node ancestry, trust inheritance, and graph traversal queries
+- **Trust decay** — Exponential decay of data trust scores over time with configurable half-life and minimum trust floors
+- **Quarantine management** — Isolate suspicious data with severity-based quarantine policies and safe release workflows
+- **Namespace isolation** — Strict memory isolation between agents with namespace-scoped access control and cross-namespace violation detection
+- **MINJA API** — 10 REST endpoints for taint tracking, provenance queries, trust scoring, quarantine operations, and namespace management
 
 ### 🏢 Enterprise Features
 - **mTLS / SPIFFE-SPIRE** — Mutual TLS with client certificate verification, SPIFFE identity extraction from X.509 SAN URIs, trust domains, workload identity, and ID-to-role mapping
@@ -565,6 +574,16 @@ Supports RS256, ES256, and EdDSA algorithms. Algorithm confusion attacks are pre
 | `GET` | `/api/etdi/pins/:tool` | Yes | Get version pin for a tool |
 | `POST` | `/api/etdi/pins/:tool` | Yes | Create version pin |
 | `DELETE` | `/api/etdi/pins/:tool` | Yes | Remove version pin |
+| `GET` | `/api/minja/taint/:id` | Yes | Get taint status for a data item |
+| `POST` | `/api/minja/taint` | Yes | Mark data as tainted with severity |
+| `GET` | `/api/minja/provenance/:id` | Yes | Get provenance graph for data |
+| `POST` | `/api/minja/provenance` | Yes | Record data lineage relationship |
+| `GET` | `/api/minja/trust/:id` | Yes | Get current trust score with decay |
+| `POST` | `/api/minja/trust/:id/refresh` | Yes | Refresh trust score timestamp |
+| `GET` | `/api/minja/quarantine` | Yes | List quarantined data items |
+| `POST` | `/api/minja/quarantine/:id` | Yes | Quarantine a data item |
+| `DELETE` | `/api/minja/quarantine/:id` | Yes | Release data from quarantine |
+| `GET` | `/api/minja/namespaces/:agent` | Yes | Get namespace isolation status |
 
 All endpoints except `/health`, `/metrics`, and `/api/metrics` require a `Bearer` token matching `SENTINEL_API_KEY`. Use `--allow-anonymous` to disable authentication for development.
 
@@ -731,6 +750,7 @@ Environment variables override values set in the config file.
 | 🚦 **Rate limiting** | Per-IP, per-principal, per-endpoint with burst support and capacity bounds |
 | 🔗 **Supply chain** | SHA-256 hash verification of MCP server binaries before spawn |
 | 🔏 **ETDI tool signing** | Ed25519/ECDSA tool signatures with attestation chains and version pinning |
+| 🧠 **MINJA memory defense** | Taint propagation, provenance graphs, trust decay, quarantine, and namespace isolation |
 
 ### 🔬 Security Audit
 

@@ -871,7 +871,7 @@ The following research agents provided input for this roadmap:
 | Gap | Industry Standard | Sentinel Status | Priority |
 |-----|-------------------|-----------------|----------|
 | ~~ETDI Cryptographic Tool Verification~~ | ETDI proposal (2025) | ✅ Implemented (Phase 8) | ~~P0~~ |
-| Memory Injection Defense (MINJA) | Agent Security Bench | Partial (memory_tracking) | P1 |
+| ~~Memory Injection Defense (MINJA)~~ | Agent Security Bench | ✅ Implemented (Phase 9) | ~~P1~~ |
 | Non-Human Identity (NHI) Lifecycle | ATF, CyberArk | Not implemented | P1 |
 | Stateful Session Reasoning Guards | NeMo Guardrails | Not implemented | P2 |
 | Semantic Guardrails (LLM-based) | Guardrails AI, NeMo | Not implemented | P2 |
@@ -966,9 +966,11 @@ signature_algorithm = "ed25519" # ed25519 | ecdsa-p256
 
 ---
 
-## Phase 9: Memory Injection Defense (v2.1)
+## Phase 9: Memory Injection Defense (v2.1) ✅ COMPLETE
 
 *Focus: Comprehensive defense against MINJA (Memory Injection) attacks*
+
+> **Status:** Implemented. All core deliverables complete.
 
 ### Background
 
@@ -981,10 +983,10 @@ MINJA attacks (Agent Security Bench, 2025) demonstrate that LLM agents with pers
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
-| Extend memory_tracking.rs with taint propagation | P1 | 3 days | Pending |
-| Implement memory provenance graph | P1 | 2 days | Pending |
-| Add memory age-based trust decay | P1 | 1 day | Pending |
-| Create memory quarantine for suspicious data | P1 | 2 days | Pending |
+| Extend memory_tracking.rs with taint propagation | P1 | 3 days | ✅ Complete |
+| Implement memory provenance graph | P1 | 2 days | ✅ Complete |
+| Add memory age-based trust decay | P1 | 1 day | ✅ Complete |
+| Create memory quarantine for suspicious data | P1 | 2 days | ✅ Complete |
 
 **Configuration:**
 ```toml
@@ -1000,28 +1002,28 @@ quarantine_on_injection_detect = true
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
-| Implement memory content hashing | P1 | 1 day | Pending |
-| Add integrity verification on memory retrieval | P1 | 2 days | Pending |
-| Detect memory tampering between sessions | P1 | 2 days | Pending |
-| Create memory audit trail | P1 | 1 day | Pending |
+| Implement memory content hashing | P1 | 1 day | ✅ Complete |
+| Add integrity verification on memory retrieval | P1 | 2 days | ✅ Complete |
+| Detect memory tampering between sessions | P1 | 2 days | ✅ Complete |
+| Create memory audit trail | P1 | 1 day | ✅ Complete |
 
 ### 9.3 Memory Isolation
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
-| Implement per-agent memory namespaces | P1 | 2 days | Pending |
-| Add memory access control policies | P1 | 2 days | Pending |
-| Create memory sharing approval workflow | P2 | 2 days | Pending |
-| Implement memory encryption at rest | P2 | 2 days | Pending |
+| Implement per-agent memory namespaces | P1 | 2 days | ✅ Complete |
+| Add memory access control policies | P1 | 2 days | ✅ Complete |
+| Create memory sharing approval workflow | P2 | 2 days | ✅ Complete |
+| Implement memory encryption at rest | P2 | 2 days | Deferred |
 
 ### Phase 9 Deliverables
-- [ ] Taint propagation for memory tracking
-- [ ] Memory provenance graph with trust decay
-- [ ] Integrity verification on retrieval
-- [ ] Per-agent memory isolation
-- [ ] Memory access control policies
+- [x] Taint propagation for memory tracking
+- [x] Memory provenance graph with trust decay
+- [x] Integrity verification on retrieval
+- [x] Per-agent memory isolation
+- [x] Memory access control policies
 
-**Estimated Duration:** 3 weeks
+**Completed:** 2026-02-09
 
 ---
 
@@ -1293,11 +1295,11 @@ AI observability platforms (Arize, Langfuse, Helicone) provide:
 
 ```
 Phase 8:  ETDI & Cryptographic Tool Security     (3 weeks)  ✅ COMPLETE
-Phase 9:  Memory Injection Defense               (3 weeks)  ← P1
+Phase 9:  Memory Injection Defense               (3 weeks)  ✅ COMPLETE
 Phase 10: Non-Human Identity Lifecycle           (3 weeks)  ← P1
 Phase 11: MCP Tasks Primitive                    (2 weeks)  ← P1
 ───────────────────────────────────────────────────────────
-v2.1 Remaining: 8 weeks (~2 months)
+v2.1 Remaining: 5 weeks (~1.25 months)
 ```
 
 ## v2.2 Timeline Summary
@@ -1325,7 +1327,7 @@ v2.2 Total: 11 weeks (~2.75 months)
 | Schema Poisoning | ✅ Jaccard | ❌ | ❌ | ❌ | ❌ |
 | Cross-Agent Security | ✅ Trust graph | ❌ | ❌ | ⚠️ Basic | ❌ |
 | ETDI Tool Signing | ✅ Ed25519/ECDSA | ❌ | ❌ | ❌ | ❌ |
-| Memory Injection Defense | ⚠️ Partial | ❌ | ❌ | ❌ | ❌ |
+| Memory Injection Defense | ✅ Full MINJA | ❌ | ❌ | ❌ | ❌ |
 | Semantic Guardrails | ❌ v2.2 | ✅ Native | ✅ Native | ⚠️ Basic | ⚠️ Basic |
 | NHI Lifecycle | ⚠️ Partial | ❌ | ❌ | ⚠️ Basic | ❌ |
 

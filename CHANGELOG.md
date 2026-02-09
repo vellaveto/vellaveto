@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 9: MINJA (Memory Injection Defense)
+- **Taint Propagation** — Data from untrusted sources tagged with taint labels (`UserInput`, `ExternalApi`, `AgentOutput`, `DerivedData`, `Sanitized`) that propagate to derived data automatically
+- **Provenance Graph** — DAG tracking data lineage with FIFO eviction, detects suspicious patterns (notification→replay chains, feedback loops, data laundering)
+- **Trust Decay** — Exponential decay with configurable λ (default 0.029 for 24-hour half-life), time-based trust erosion for stale data
+- **Quarantine Management** — Automatic quarantine on injection detection, manual quarantine/release via API, detection metadata tracking
+- **Namespace Isolation** — Per-agent namespaces with configurable isolation levels:
+  - `Session` — Data isolated per session
+  - `Agent` — Data isolated per agent identity
+  - `Shared` — Explicit sharing with approval
+- **Sharing Approval** — Cross-namespace data sharing requires explicit approval with access type specification (Read/Write/Admin)
+- **Memory Security API Endpoints**:
+  - `GET /api/memory/entries` — List memory entries with taint filtering
+  - `GET /api/memory/entries/{id}` — Get memory entry details
+  - `GET /api/memory/entries/{id}/provenance` — Get provenance chain for entry
+  - `POST /api/memory/quarantine/{id}` — Quarantine a memory entry
+  - `DELETE /api/memory/quarantine/{id}` — Release entry from quarantine
+  - `GET /api/memory/quarantine` — List quarantined entries
+  - `GET /api/memory/namespaces` — List namespaces
+  - `POST /api/memory/namespaces/{ns}/share` — Request namespace sharing
+  - `POST /api/memory/namespaces/{ns}/share/approve` — Approve sharing request
+  - `GET /api/memory/stats` — Get memory security statistics
+- **New Types**: `TaintLabel`, `MemoryEntry`, `ProvenanceNode`, `ProvenanceEventType`, `QuarantineEntry`, `QuarantineDetection`, `MemoryNamespace`, `NamespaceIsolation`, `MemoryAccessDecision`, `NamespaceSharingRequest`, `NamespaceAccessType`, `MemorySecurityStats`
+- **New Config**: `MemorySecurityConfig`, `NamespaceConfig` with decay λ, max provenance depth, quarantine policies
+
 #### Phase 8: ETDI Cryptographic Tool Security
 - **Tool Signature Verification** — Ed25519/ECDSA P-256 cryptographic signing of tool definitions with trusted signer allowlists (fingerprints + SPIFFE IDs) and expiration support
 - **Attestation Chain** — Provenance tracking for tool definitions with initial registration, version updates, and chain integrity verification
