@@ -202,20 +202,25 @@ The most critical issue is **observability blindness**: DLP findings, behavioral
 
 ---
 
-## Phase 5: Code Quality (P3) — Week 3-4
+## Phase 5: Code Quality (P3) — Week 3-4 ✅ PARTIAL
 
-### 5.1 Extract JSON-RPC Error Codes
+### 5.1 Extract JSON-RPC Error Codes ✅
 
-**Problem:** Error codes (-32700, -32001, etc.) scattered across proxy.rs.
+**Problem:** ~~Error codes (-32700, -32001, etc.) scattered across proxy.rs.~~ **Fixed.**
+
+**Completed:** Commit `404a5f8` created `sentinel-types/src/json_rpc.rs` with all standard JSON-RPC 2.0 codes and Sentinel application-specific codes (-32001 to -32021).
 
 **Tasks:**
 ```
-[ ] Create sentinel-types/src/json_rpc.rs with error code constants
-[ ] Replace hardcoded values in sentinel-http-proxy/src/proxy.rs
-[ ] Replace hardcoded values in sentinel-mcp/src/proxy/bridge.rs
+[x] Create sentinel-types/src/json_rpc.rs with error code constants
+[x] Replace hardcoded values in sentinel-mcp/src/lib.rs
+[x] Replace hardcoded values in sentinel-mcp/src/extractor.rs
+[x] Replace hardcoded values in sentinel-mcp/src/a2a/error.rs
+[x] Replace hardcoded values in sentinel-mcp/src/a2a/extractor.rs
+[x] Replace hardcoded values in sentinel-mcp/src/a2a/proxy.rs
 ```
 
-**Effort:** 0.5 day
+**Completed:** 2026-02-10
 
 ### 5.2 Wire Phase 1-2 Security Managers
 
@@ -295,10 +300,10 @@ The most critical issue is **observability blindness**: DLP findings, behavioral
 | 2 | Security (replay, DoS protection) | P1 | 1 day | ✅ Complete |
 | 3 | Test Coverage (ETDI, memory, DLP) | P1 | 4 days | ✅ Complete |
 | 4 | Fuzz Targets | P2 | 2 days | ✅ Complete |
-| 5 | Code Quality (constants, TODOs, descriptions) | P3 | 2 days | Pending |
+| 5 | Code Quality (constants, TODOs, descriptions) | P3 | 2 days | ✅ Partial (5.1 done) |
 | 6 | Dependency Cleanup | P3 | 1 day | ✅ Partial (6.2 done) |
 
-**Remaining Effort:** ~3 days — P1 and P2 phases complete, only P3 remaining
+**Remaining Effort:** ~2.5 days — P1 and P2 phases complete, P3 partially complete (5.1 done)
 
 ---
 

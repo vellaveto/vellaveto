@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Dependency cleanup**: Removed `rustls-pemfile` crate, now using `rustls::pki_types::pem::PemObject` trait for PEM parsing
+- **JSON-RPC error code consolidation**: Moved hardcoded error codes into `sentinel-types/src/json_rpc.rs` module with named constants for all standard JSON-RPC 2.0 codes and Sentinel application-specific codes (-32001 to -32021)
 
 ### Added
 
