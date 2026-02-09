@@ -212,6 +212,13 @@ impl CircuitBreakerManager {
                     stats.state = CircuitState::HalfOpen;
                     stats.success_count = 1;
                     stats.last_state_change = now;
+                    // IMPROVEMENT_PLAN 1.3: Record state change metric
+                    metrics::counter!(
+                        "sentinel_circuit_breaker_state_changes_total",
+                        "from_state" => "open",
+                        "to_state" => "half_open"
+                    )
+                    .increment(1);
                     tracing::info!(
                         tool = %tool,
                         "Circuit breaker transitioning to half-open after timeout"
@@ -227,6 +234,13 @@ impl CircuitBreakerManager {
                     stats.failure_count = 0;
                     stats.success_count = 0;
                     stats.last_state_change = now;
+                    // IMPROVEMENT_PLAN 1.3: Record state change metric
+                    metrics::counter!(
+                        "sentinel_circuit_breaker_state_changes_total",
+                        "from_state" => "half_open",
+                        "to_state" => "closed"
+                    )
+                    .increment(1);
                     tracing::info!(
                         tool = %tool,
                         "Circuit breaker closed after recovery"
@@ -273,6 +287,13 @@ impl CircuitBreakerManager {
                 if stats.failure_count >= self.failure_threshold {
                     stats.state = CircuitState::Open;
                     stats.last_state_change = now;
+                    // IMPROVEMENT_PLAN 1.3: Record state change metric
+                    metrics::counter!(
+                        "sentinel_circuit_breaker_state_changes_total",
+                        "from_state" => "closed",
+                        "to_state" => "open"
+                    )
+                    .increment(1);
                     tracing::warn!(
                         tool = %tool,
                         failures = stats.failure_count,
@@ -290,6 +311,13 @@ impl CircuitBreakerManager {
                 stats.failure_count += 1;
                 stats.success_count = 0;
                 stats.last_state_change = now;
+                // IMPROVEMENT_PLAN 1.3: Record state change metric
+                metrics::counter!(
+                    "sentinel_circuit_breaker_state_changes_total",
+                    "from_state" => "half_open",
+                    "to_state" => "open"
+                )
+                .increment(1);
                 tracing::warn!(
                     tool = %tool,
                     "Circuit breaker reopened after half-open failure"

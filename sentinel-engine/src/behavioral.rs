@@ -325,6 +325,17 @@ impl BehavioralTracker {
                     severity,
                 };
 
+                // IMPROVEMENT_PLAN 1.2: Record anomaly detection metrics
+                let severity_label = match severity {
+                    AnomalySeverity::Critical => "critical",
+                    AnomalySeverity::Warning => "warning",
+                };
+                metrics::counter!(
+                    "sentinel_anomaly_detections_total",
+                    "severity" => severity_label.to_string()
+                )
+                .increment(1);
+
                 // Log anomaly detection for observability
                 match severity {
                     AnomalySeverity::Critical => {

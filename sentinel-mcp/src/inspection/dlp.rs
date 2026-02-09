@@ -131,6 +131,17 @@ pub fn scan_parameters_for_secrets(parameters: &serde_json::Value) -> Vec<DlpFin
 
     let mut findings = Vec::new();
     scan_value_for_secrets(parameters, "$", regexes, &mut findings, 0);
+
+    // IMPROVEMENT_PLAN 1.1: Log DLP findings for observability
+    if !findings.is_empty() {
+        let patterns: Vec<&str> = findings.iter().map(|f| f.pattern_name.as_str()).collect();
+        tracing::warn!(
+            patterns = ?patterns,
+            finding_count = findings.len(),
+            "DLP: Detected secrets in request parameters"
+        );
+    }
+
     findings
 }
 
@@ -555,6 +566,16 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
         }
     }
 
+    // IMPROVEMENT_PLAN 1.1: Log DLP findings for observability
+    if !findings.is_empty() {
+        let patterns: Vec<&str> = findings.iter().map(|f| f.pattern_name.as_str()).collect();
+        tracing::warn!(
+            patterns = ?patterns,
+            finding_count = findings.len(),
+            "DLP: Detected secrets in response content"
+        );
+    }
+
     findings
 }
 
@@ -581,6 +602,16 @@ pub fn scan_notification_for_secrets(notification: &serde_json::Value) -> Vec<Dl
         scan_string_for_secrets(method, "method", regexes, &mut findings);
     }
 
+    // IMPROVEMENT_PLAN 1.1: Log DLP findings for observability
+    if !findings.is_empty() {
+        let patterns: Vec<&str> = findings.iter().map(|f| f.pattern_name.as_str()).collect();
+        tracing::warn!(
+            patterns = ?patterns,
+            finding_count = findings.len(),
+            "DLP: Detected secrets in notification"
+        );
+    }
+
     findings
 }
 
@@ -596,6 +627,18 @@ pub fn scan_text_for_secrets(text: &str, location: &str) -> Vec<DlpFinding> {
 
     let mut findings = Vec::new();
     scan_string_for_secrets(text, location, regexes, &mut findings);
+
+    // IMPROVEMENT_PLAN 1.1: Log DLP findings for observability
+    if !findings.is_empty() {
+        let patterns: Vec<&str> = findings.iter().map(|f| f.pattern_name.as_str()).collect();
+        tracing::warn!(
+            patterns = ?patterns,
+            location = %location,
+            finding_count = findings.len(),
+            "DLP: Detected secrets in text content"
+        );
+    }
+
     findings
 }
 

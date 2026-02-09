@@ -17,6 +17,7 @@ percent-encoding = "2.3"
 idna = "1.0"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 tracing = { workspace = true }
+metrics = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
