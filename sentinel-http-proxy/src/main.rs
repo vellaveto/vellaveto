@@ -484,6 +484,38 @@ async fn main() -> Result<()> {
         }
     });
 
+    // Spawn periodic audit heartbeat task.
+    // IMPROVEMENT_PLAN 10.6: Heartbeat entries enable detection of log truncation/gaps.
+    let heartbeat_interval: u64 = std::env::var("SENTINEL_HEARTBEAT_INTERVAL")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(300);
+
+    if heartbeat_interval > 0 {
+        let heartbeat_audit = shutdown_audit.clone();
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(Duration::from_secs(heartbeat_interval));
+            let mut sequence: u64 = 0;
+            // Skip the first immediate tick — heartbeat starts after first interval
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                sequence += 1;
+                if let Err(e) = heartbeat_audit
+                    .log_heartbeat(heartbeat_interval, sequence)
+                    .await
+                {
+                    tracing::warn!("Failed to log audit heartbeat: {}", e);
+                }
+            }
+        });
+        tracing::info!(
+            "Audit heartbeat task enabled (every {}s)",
+            heartbeat_interval
+        );
+    }
+
     // Start server
     let listener = tokio::net::TcpListener::bind(bind_addr)
         .await
