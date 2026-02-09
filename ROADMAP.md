@@ -902,7 +902,7 @@ ETDI (arxiv:2506.01333) proposes cryptographic verification of tool definitions 
 | Define ToolSignature schema (Ed25519/ECDSA) | P0 | 1 day | ✅ Complete |
 | Implement signature verification in tool registry | P0 | 2 days | ✅ Complete |
 | Add signature verification to schema poisoning checks | P0 | 1 day | ✅ Complete |
-| Create tool signing CLI (`sentinel sign-tool`) | P0 | 2 days | Deferred |
+| Create tool signing CLI (`sentinel sign-tool`) | P0 | 2 days | ✅ Complete |
 | Add signature verification failure audit events | P0 | 1 day | ✅ Complete |
 
 **Configuration:**
@@ -956,7 +956,7 @@ signature_algorithm = "ed25519" # ed25519 | ecdsa-p256
 ### Phase 8 Deliverables
 - [x] Ed25519/ECDSA tool signature verification
 - [x] Attestation chain with provenance tracking
-- [ ] Tool signing CLI for developers (deferred)
+- [x] Tool signing CLI for developers (`sentinel generate-key`, `sign-tool`, `verify-signature`)
 - [x] Version pinning with semantic versioning
 - [x] ETDI persistent store with HMAC protection
 - [x] SPIFFE workload identity trust

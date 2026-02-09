@@ -907,6 +907,17 @@ sentinel policies --preset dangerous
 # Verify audit log integrity
 sentinel verify --audit audit.log [--list-rotated]
 
+# ETDI: Generate Ed25519 keypair for tool signing
+sentinel generate-key --private-key key.priv --public-key key.pub
+
+# ETDI: Sign a tool definition
+sentinel sign-tool --tool read_file --definition schema.json \
+  --key key.priv --output signature.json [--expires-in-days 365]
+
+# ETDI: Verify a tool signature
+sentinel verify-signature --tool read_file --definition schema.json \
+  --signature signature.json
+
 # Stdio MCP proxy
 sentinel-proxy --config policy.toml [--strict] [--timeout 30] [--trace] \
   -- ./mcp-server --arg1

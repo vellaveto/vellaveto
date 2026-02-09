@@ -72,6 +72,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `GET /api/etdi/attestations/{tool}/verify` — Verify attestation chain integrity
   - `GET/POST/DELETE /api/etdi/pins/{tool}` — Manage version pins
 - **Tool Registry Integration** — Signature verification on tool registration with configurable `require_signatures` mode for fail-closed enforcement
+- **ETDI CLI Commands**:
+  - `sentinel generate-key` — Generate Ed25519 keypair for tool signing
+  - `sentinel sign-tool` — Sign a tool definition with expiration support
+  - `sentinel verify-signature` — Verify a tool signature against its definition
 
 ### Security
 
