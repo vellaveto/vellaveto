@@ -3652,11 +3652,28 @@ impl PolicyEngine {
     /// Apply a matched policy to produce a verdict.
     /// Returns `None` when a Conditional policy with `on_no_match: "continue"` has no
     /// conditions fire, signaling the evaluation loop to try the next policy.
+    ///
+    /// SECURITY (P0-FIX): This legacy path now checks path_rules, network_rules, and
+    /// ip_rules before returning the verdict, matching the behavior of the compiled
+    /// policy path. Previously, these checks were skipped, allowing policy bypass.
     fn apply_policy(
         &self,
         action: &Action,
         policy: &Policy,
     ) -> Result<Option<Verdict>, EngineError> {
+        // Check path rules before policy type dispatch (same as compiled path).
+        if let Some(denial) = self.check_path_rules_legacy(action, policy)? {
+            return Ok(Some(denial));
+        }
+        // Check network rules before policy type dispatch.
+        if let Some(denial) = self.check_network_rules_legacy(action, policy) {
+            return Ok(Some(denial));
+        }
+        // Check IP rules (DNS rebinding protection) after network rules.
+        if let Some(denial) = self.check_ip_rules_legacy(action, policy) {
+            return Ok(Some(denial));
+        }
+
         match &policy.policy_type {
             PolicyType::Allow => Ok(Some(Verdict::Allow)),
             PolicyType::Deny => Ok(Some(Verdict::Deny {
@@ -3666,6 +3683,279 @@ impl PolicyEngine {
                 self.evaluate_conditions(action, policy, conditions)
             }
         }
+    }
+
+    /// Check action target_paths against raw path rules (legacy path).
+    ///
+    /// SECURITY (P0-FIX): This is the legacy equivalent of `check_path_rules()` for
+    /// the compiled path. It compiles glob patterns on each call (slower, but correct).
+    fn check_path_rules_legacy(
+        &self,
+        action: &Action,
+        policy: &Policy,
+    ) -> Result<Option<Verdict>, EngineError> {
+        let rules = match &policy.path_rules {
+            Some(r) => r,
+            None => return Ok(None),
+        };
+
+        // If both allowed and blocked are empty, no path rules to check
+        if rules.allowed.is_empty() && rules.blocked.is_empty() {
+            return Ok(None);
+        }
+
+        if action.target_paths.is_empty() {
+            // SECURITY (R28-ENG-1): When an allowlist is configured but no
+            // target paths were extracted, fail-closed.
+            if !rules.allowed.is_empty() {
+                return Ok(Some(Verdict::Deny {
+                    reason: format!(
+                        "No target paths provided but path allowlist is configured for policy '{}'",
+                        policy.name
+                    ),
+                }));
+            }
+            return Ok(None); // Blocklist-only mode: nothing to block
+        }
+
+        for raw_path in &action.target_paths {
+            let normalized =
+                match Self::normalize_path_bounded(raw_path, self.max_path_decode_iterations) {
+                    Ok(n) => n,
+                    Err(e) => {
+                        return Ok(Some(Verdict::Deny {
+                            reason: format!("Path normalization failed: {}", e),
+                        }))
+                    }
+                };
+
+            // Check blocked patterns first (blocked takes precedence)
+            for pattern in &rules.blocked {
+                // SECURITY: Invalid glob patterns are treated as fail-closed (Deny),
+                // not as errors. This ensures malformed policies don't cause 500s.
+                match self.glob_is_match(pattern, &normalized, &policy.id) {
+                    Ok(true) => {
+                        return Ok(Some(Verdict::Deny {
+                            reason: format!(
+                                "Path '{}' blocked by pattern '{}' in policy '{}'",
+                                normalized, pattern, policy.name
+                            ),
+                        }));
+                    }
+                    Ok(false) => {}
+                    Err(e) => {
+                        return Ok(Some(Verdict::Deny {
+                            reason: format!(
+                                "Invalid glob pattern '{}' in policy '{}': {} (fail-closed)",
+                                pattern, policy.name, e
+                            ),
+                        }));
+                    }
+                }
+            }
+
+            // If allowed list is non-empty, path must match at least one
+            if !rules.allowed.is_empty() {
+                let mut any_allowed = false;
+                for pattern in &rules.allowed {
+                    // SECURITY: Invalid glob patterns in allowlist are fail-closed.
+                    match self.glob_is_match(pattern, &normalized, &policy.id) {
+                        Ok(true) => {
+                            any_allowed = true;
+                            break;
+                        }
+                        Ok(false) => {}
+                        Err(e) => {
+                            return Ok(Some(Verdict::Deny {
+                                reason: format!(
+                                    "Invalid glob pattern '{}' in policy '{}': {} (fail-closed)",
+                                    pattern, policy.name, e
+                                ),
+                            }));
+                        }
+                    }
+                }
+                if !any_allowed {
+                    return Ok(Some(Verdict::Deny {
+                        reason: format!(
+                            "Path '{}' not in allowed paths for policy '{}'",
+                            normalized, policy.name
+                        ),
+                    }));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Check action target_domains against raw network rules (legacy path).
+    ///
+    /// SECURITY (P0-FIX): This is the legacy equivalent of `check_network_rules()` for
+    /// the compiled path.
+    fn check_network_rules_legacy(&self, action: &Action, policy: &Policy) -> Option<Verdict> {
+        let rules = match &policy.network_rules {
+            Some(r) => r,
+            None => return None,
+        };
+
+        // If both allowed and blocked domains are empty, no network rules to check
+        if rules.allowed_domains.is_empty() && rules.blocked_domains.is_empty() {
+            return None;
+        }
+
+        if action.target_domains.is_empty() {
+            // SECURITY (R28-ENG-1): When an allowed_domains list is configured
+            // but no target domains were extracted, fail-closed.
+            if !rules.allowed_domains.is_empty() {
+                return Some(Verdict::Deny {
+                    reason: format!(
+                        "No target domains provided but domain allowlist is configured for policy '{}'",
+                        policy.name
+                    ),
+                });
+            }
+            return None; // Blocklist-only mode: nothing to block
+        }
+
+        for raw_domain in &action.target_domains {
+            let domain = raw_domain.to_lowercase();
+
+            // SECURITY (R30-ENG-2): Fail-closed for non-ASCII domains that fail
+            // IDNA normalization.
+            if Self::normalize_domain_for_match(&domain).is_none() {
+                return Some(Verdict::Deny {
+                    reason: format!(
+                        "Domain '{}' cannot be normalized (IDNA failure) — blocked by policy '{}'",
+                        domain, policy.name
+                    ),
+                });
+            }
+
+            // Check blocked domains first
+            for pattern in &rules.blocked_domains {
+                if Self::match_domain_pattern(&domain, pattern) {
+                    return Some(Verdict::Deny {
+                        reason: format!(
+                            "Domain '{}' blocked by pattern '{}' in policy '{}'",
+                            domain, pattern, policy.name
+                        ),
+                    });
+                }
+            }
+
+            // If allowed list is non-empty, domain must match at least one
+            if !rules.allowed_domains.is_empty()
+                && !rules
+                    .allowed_domains
+                    .iter()
+                    .any(|p| Self::match_domain_pattern(&domain, p))
+            {
+                return Some(Verdict::Deny {
+                    reason: format!(
+                        "Domain '{}' not in allowed domains for policy '{}'",
+                        domain, policy.name
+                    ),
+                });
+            }
+        }
+
+        None
+    }
+
+    /// Check resolved IPs against raw IP rules (legacy path).
+    ///
+    /// SECURITY (P0-FIX): This is the legacy equivalent of `check_ip_rules()` for
+    /// the compiled path.
+    fn check_ip_rules_legacy(&self, action: &Action, policy: &Policy) -> Option<Verdict> {
+        let network_rules = match &policy.network_rules {
+            Some(r) => r,
+            None => return None,
+        };
+        let ip_rules = match &network_rules.ip_rules {
+            Some(r) => r,
+            None => return None,
+        };
+
+        // Fail-closed: if ip_rules are configured but no resolved IPs provided
+        // and the action has target domains, deny.
+        if action.resolved_ips.is_empty() && !action.target_domains.is_empty() {
+            return Some(Verdict::Deny {
+                reason: format!(
+                    "IP rules configured but no resolved IPs provided for policy '{}'",
+                    policy.name
+                ),
+            });
+        }
+
+        for ip_str in &action.resolved_ips {
+            // Parse the IP address
+            let raw_ip: IpAddr = match ip_str.parse() {
+                Ok(ip) => ip,
+                Err(_) => {
+                    return Some(Verdict::Deny {
+                        reason: format!("Invalid resolved IP '{}' in policy '{}'", ip_str, policy.name),
+                    })
+                }
+            };
+
+            // SECURITY (R24-ENG-1, R29-ENG-1): Canonicalize IPv6 transition
+            // mechanism addresses to their embedded IPv4 form.
+            let ip = match raw_ip {
+                IpAddr::V6(ref v6) => {
+                    if let Some(v4) = extract_embedded_ipv4(v6) {
+                        IpAddr::V4(v4)
+                    } else {
+                        raw_ip
+                    }
+                }
+                _ => raw_ip,
+            };
+
+            // Check block_private
+            if ip_rules.block_private && is_private_ip(ip) {
+                return Some(Verdict::Deny {
+                    reason: format!(
+                        "Resolved IP '{}' is a private/reserved address (DNS rebinding protection) in policy '{}'",
+                        ip, policy.name
+                    ),
+                });
+            }
+
+            // Check blocked_cidrs
+            for cidr_str in &ip_rules.blocked_cidrs {
+                if let Ok(cidr) = cidr_str.parse::<IpNet>() {
+                    if cidr.contains(&ip) {
+                        return Some(Verdict::Deny {
+                            reason: format!(
+                                "Resolved IP '{}' in blocked CIDR '{}' in policy '{}'",
+                                ip, cidr_str, policy.name
+                            ),
+                        });
+                    }
+                }
+            }
+
+            // Check allowed_cidrs (if non-empty, must match at least one)
+            if !ip_rules.allowed_cidrs.is_empty() {
+                let allowed = ip_rules.allowed_cidrs.iter().any(|cidr_str| {
+                    cidr_str
+                        .parse::<IpNet>()
+                        .map(|cidr| cidr.contains(&ip))
+                        .unwrap_or(false)
+                });
+                if !allowed {
+                    return Some(Verdict::Deny {
+                        reason: format!(
+                            "Resolved IP '{}' not in allowed CIDRs for policy '{}'",
+                            ip, policy.name
+                        ),
+                    });
+                }
+            }
+        }
+
+        None
     }
 
     /// Evaluate conditional policy rules.
