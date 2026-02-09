@@ -26,6 +26,8 @@ pub mod semantic_detection;
 pub mod semantic_guardrails;
 #[cfg(feature = "rag-defense")]
 pub mod rag_defense;
+#[cfg(feature = "a2a")]
+pub mod a2a;
 pub mod shadow_agent;
 pub mod task_security;
 pub mod task_state;

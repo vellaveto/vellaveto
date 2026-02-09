@@ -860,6 +860,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             memory_security: Default::default(),
             nhi: Default::default(),
             rag_defense: Default::default(),
+            a2a: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

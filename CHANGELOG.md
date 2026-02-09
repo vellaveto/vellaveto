@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 14: A2A Protocol Security
+- **A2A Message Classification** — Parse and classify A2A JSON-RPC messages (message/send, message/stream, tasks/get, tasks/cancel, tasks/resubscribe) with method normalization to prevent Unicode bypass attacks
+- **Action Extraction** — Convert A2A messages to Sentinel Actions for policy evaluation using tool pattern "a2a" with function-specific mapping (message_send, message_stream, task_get, task_cancel, task_resubscribe)
+- **Agent Card Handling** — Fetch, parse, and cache A2A Agent Cards from `/.well-known/agent.json` with TTL-based expiration, capability validation, and authentication scheme detection
+- **A2A Proxy Service** — HTTP proxy for A2A traffic with policy evaluation, security scanning integration (DLP, injection detection), circuit breaker support, and configurable task operation restrictions
+- **Batch Rejection** — JSON-RPC batch requests rejected at transport layer to prevent TOCTOU attacks (matching MCP security pattern)
+- **Security Integration** — Reuse existing security managers (circuit breaker, shadow agent detection, DLP scanning, injection detection) for A2A traffic
+- **New Types**: `A2aMessageType`, `TaskState`, `PartContent`, `FileContent`, `MessagePart`, `A2aMessage`, `AgentCard`, `AgentCardCache`, `A2aProxyService`, `A2aProxyConfig`, `A2aProxyDecision`
+- **New Config**: `A2aConfig` with upstream URL, listen address, agent card verification, auth method filtering, security feature toggles, message size limits, and task operation restrictions
+- **New Errors**: `A2aError` with variants for invalid messages, agent card failures, authentication, task operations, policy denial, security violations, and upstream errors
+- **Feature Flag**: `a2a`
+
 #### Phase 13: RAG Poisoning Defense
 - **Document Verification** — Trust scoring with age bonuses (+0.1/week, capped at 0.3), admin approval (+0.2), Ed25519 signature verification (+0.2), version stability bonuses, and mutation penalties (-0.3 per change)
 - **Document Provenance** — SHA-256 content hashing, version chain tracking, source attribution, and timestamp management for knowledge base documents

@@ -156,6 +156,15 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Embedding anomaly detection** — Per-agent baseline tracking with cosine similarity comparison
 - **Context budget enforcement** — Token-based limits per retrieval and per session with truncate/reject/warn modes
 
+### 🤝 A2A Protocol Security
+- **Message classification** — Parse and classify A2A JSON-RPC messages (message/send, message/stream, tasks/get, tasks/cancel, tasks/resubscribe)
+- **Action extraction** — Convert A2A messages to Sentinel Actions for policy evaluation with tool pattern "a2a"
+- **Agent Card handling** — Fetch, cache, and validate A2A Agent Cards from `/.well-known/agent.json` with TTL-based expiration
+- **Proxy service** — HTTP proxy for A2A traffic with policy evaluation, DLP scanning, injection detection, and circuit breaker
+- **Batch rejection** — JSON-RPC batch requests rejected to prevent TOCTOU attacks (matching MCP security pattern)
+- **Authentication validation** — Validate request authentication against agent card supported schemes (API key, Bearer, OAuth 2.0, mTLS)
+- **Task operation restrictions** — Configurable allowlist for task operations (get, cancel, resubscribe)
+
 ### 🏢 Enterprise Features
 - **mTLS / SPIFFE-SPIRE** — Mutual TLS with client certificate verification, SPIFFE identity extraction from X.509 SAN URIs, trust domains, workload identity, and ID-to-role mapping
 - **OPA Integration** — External policy evaluation via Open Policy Agent with async HTTP client, LRU decision caching (configurable TTL), fail-open/closed modes, and structured decision parsing

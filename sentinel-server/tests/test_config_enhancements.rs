@@ -179,6 +179,7 @@ fn to_policies_produces_correct_policy_structs() {
         memory_security: Default::default(),
         nhi: Default::default(),
         rag_defense: Default::default(),
+        a2a: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(policies.len(), 1);
@@ -239,6 +240,7 @@ fn to_policies_uses_default_priority_when_none() {
         memory_security: Default::default(),
         nhi: Default::default(),
         rag_defense: Default::default(),
+        a2a: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(
@@ -405,6 +407,7 @@ fn policy_config_toml_roundtrip() {
         memory_security: Default::default(),
         nhi: Default::default(),
         rag_defense: Default::default(),
+        a2a: Default::default(),
     };
     let toml_str = toml::to_string(&original).unwrap();
     let parsed = PolicyConfig::from_toml(&toml_str).unwrap();
