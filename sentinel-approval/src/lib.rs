@@ -452,6 +452,11 @@ impl ApprovalStore {
     }
 
     /// Deny a pending approval.
+    ///
+    /// SECURITY (R9-2): When `requested_by` is set on the approval, the
+    /// resolver identity (`by`) must differ from the requester. This prevents
+    /// an agent from denying its own tool calls — a separation-of-privilege
+    /// requirement for meaningful human-in-the-loop approval flows.
     pub async fn deny(&self, id: &str, by: &str) -> Result<PendingApproval, ApprovalError> {
         // SECURITY (R39-SUP-6): Validate identity length at the store level.
         if by.len() > MAX_IDENTITY_LEN {
@@ -468,6 +473,53 @@ impl ApprovalStore {
 
         if approval.status != ApprovalStatus::Pending {
             return Err(ApprovalError::AlreadyResolved(id.to_string()));
+        }
+
+        // SECURITY (R9-2): Prevent self-denial. If the approval was
+        // requested by a known principal, the denier must be different.
+        // Compare the base principal (before any "(note: ...)" suffix).
+        // SECURITY (R23-SUP-1): Also reject principals that contain the
+        // `" (note:"` separator themselves — an attacker could inject a
+        // crafted `requested_by` like `"victim (note:real_id"` so the
+        // split produces a different base than their actual identity.
+        if let Some(requester) = &approval.requested_by {
+            let requester_base = requester.split(" (note:").next().unwrap_or(requester);
+            let denier_base = by.split(" (note:").next().unwrap_or(by);
+
+            // Reject if the base principal contains parentheses — indicates
+            // an attempt to embed a fake note separator in the identity.
+            if requester_base.contains('(') || denier_base.contains('(') {
+                return Err(ApprovalError::Validation(
+                    "Self-denial denied: principal contains invalid characters".to_string(),
+                ));
+            }
+
+            // SECURITY (R28-SUP-10): Case-insensitive comparison to prevent
+            // self-denial bypass via casing variations (e.g., "Admin@Corp.com"
+            // vs "admin@corp.com").
+            // SECURITY (R36-SUP-4): Apply Unicode NFKC normalization before
+            // comparison to prevent bypass via confusable characters (e.g.,
+            // Cyrillic 'a' U+0430 vs Latin 'a' U+0061). NFKC maps compatibility
+            // equivalents to their canonical forms.
+            // SECURITY (R38-SUP-3): Use full Unicode case folding instead of
+            // ASCII-only `eq_ignore_ascii_case`. Non-ASCII letters like Turkish
+            // İ (U+0130) must case-fold correctly to detect self-denial.
+            let requester_normalized: String = requester_base.nfkc().collect();
+            let denier_normalized: String = denier_base.nfkc().collect();
+            let req_lower: String = requester_normalized
+                .chars()
+                .flat_map(char::to_lowercase)
+                .collect();
+            let den_lower: String = denier_normalized
+                .chars()
+                .flat_map(char::to_lowercase)
+                .collect();
+            if !req_lower.is_empty() && req_lower != "anonymous" && req_lower == den_lower {
+                return Err(ApprovalError::Validation(format!(
+                    "Self-denial denied: requester '{}' cannot deny their own request",
+                    requester_base
+                )));
+            }
         }
 
         // Compute dedup key before mutating the approval

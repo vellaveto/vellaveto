@@ -52,6 +52,8 @@ pub enum DeputyError {
     SessionNotFound { session_id: String },
     /// No principal identified.
     NoPrincipal,
+    /// Internal error (e.g., RwLock poisoned). Fail-closed.
+    InternalError { reason: String },
 }
 
 impl std::fmt::Display for DeputyError {
@@ -81,6 +83,9 @@ impl std::fmt::Display for DeputyError {
             }
             DeputyError::NoPrincipal => {
                 write!(f, "No principal identified")
+            }
+            DeputyError::InternalError { reason } => {
+                write!(f, "Internal error (fail-closed): {}", reason)
             }
         }
     }
@@ -133,16 +138,31 @@ impl DeputyValidator {
     }
 
     /// Get the current timestamp as Unix seconds.
+    ///
+    /// Note: Returns 0 on system time error. This is acceptable for deputy
+    /// expiry checks because 0 will cause all time-based expirations to trigger
+    /// (fail-closed behavior).
     fn now() -> u64 {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
-            .unwrap_or(0)
+            .unwrap_or_else(|e| {
+                tracing::error!("CRITICAL: System time error in deputy: {}", e);
+                0
+            })
     }
 
     /// Register a delegation rule.
+    ///
+    /// Note: If RwLock is poisoned, logs error and does nothing.
     pub fn add_rule(&self, rule_id: impl Into<String>, rule: DelegationRule) {
-        let mut rules = self.delegation_rules.write().unwrap_or_else(|p| p.into_inner());
+        let mut rules = match self.delegation_rules.write() {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("CRITICAL: Deputy RwLock poisoned in add_rule: {}", e);
+                return;
+            }
+        };
         rules.insert(rule_id.into(), rule);
     }
 
@@ -156,6 +176,8 @@ impl DeputyValidator {
     ///
     /// # Returns
     /// `Ok(())` if delegation was registered, `Err(DeputyError)` if not authorized.
+    ///
+    /// SECURITY: Fails closed if RwLock is poisoned.
     pub fn register_delegation(
         &self,
         session_id: &str,
@@ -163,7 +185,16 @@ impl DeputyValidator {
         to: &str,
         allowed_tools: &[String],
     ) -> Result<(), DeputyError> {
-        let mut contexts = self.active_contexts.write().unwrap_or_else(|p| p.into_inner());
+        let mut contexts = self.active_contexts.write().map_err(|e| {
+            tracing::error!(
+                "CRITICAL: Deputy RwLock poisoned in register_delegation for session '{}': {}",
+                session_id,
+                e
+            );
+            DeputyError::InternalError {
+                reason: "RwLock poisoned — failing closed".to_string(),
+            }
+        })?;
 
         // Get current context if exists
         let current_depth = contexts
@@ -211,13 +242,24 @@ impl DeputyValidator {
     ///
     /// # Returns
     /// `Ok(())` if authorized, `Err(DeputyError)` if not.
+    ///
+    /// SECURITY: Fails closed if RwLock is poisoned.
     pub fn validate_action(
         &self,
         session_id: &str,
         tool: &str,
         claimed_principal: &str,
     ) -> Result<(), DeputyError> {
-        let contexts = self.active_contexts.read().unwrap_or_else(|p| p.into_inner());
+        let contexts = self.active_contexts.read().map_err(|e| {
+            tracing::error!(
+                "CRITICAL: Deputy RwLock poisoned in validate_action for session '{}': {}",
+                session_id,
+                e
+            );
+            DeputyError::InternalError {
+                reason: "RwLock poisoned — failing closed".to_string(),
+            }
+        })?;
 
         let ctx = match contexts.get(session_id) {
             Some(c) => c,
@@ -268,23 +310,55 @@ impl DeputyValidator {
     }
 
     /// Get the current principal context for a session.
+    ///
+    /// Note: If RwLock is poisoned, returns None and logs error.
     pub fn get_context(&self, session_id: &str) -> Option<PrincipalContext> {
-        let contexts = self.active_contexts.read().unwrap_or_else(|p| p.into_inner());
+        let contexts = match self.active_contexts.read() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(
+                    "CRITICAL: Deputy RwLock poisoned in get_context for session '{}': {}",
+                    session_id,
+                    e
+                );
+                return None;
+            }
+        };
         contexts.get(session_id).cloned()
     }
 
     /// Remove a session's delegation context.
+    ///
+    /// Note: If RwLock is poisoned, logs error and does nothing.
     pub fn remove_context(&self, session_id: &str) {
-        let mut contexts = self.active_contexts.write().unwrap_or_else(|p| p.into_inner());
+        let mut contexts = match self.active_contexts.write() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(
+                    "CRITICAL: Deputy RwLock poisoned in remove_context for session '{}': {}",
+                    session_id,
+                    e
+                );
+                return;
+            }
+        };
         contexts.remove(session_id);
     }
 
     /// Clean up expired delegation contexts.
     ///
     /// Returns the number of contexts removed.
+    ///
+    /// Note: If RwLock is poisoned, returns 0 and logs error.
     pub fn cleanup_expired(&self) -> usize {
         let now = Self::now();
-        let mut contexts = self.active_contexts.write().unwrap_or_else(|p| p.into_inner());
+        let mut contexts = match self.active_contexts.write() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("CRITICAL: Deputy RwLock poisoned in cleanup_expired: {}", e);
+                return 0;
+            }
+        };
 
         let old_len = contexts.len();
         contexts.retain(|_, ctx| !ctx.is_expired(now));
@@ -293,8 +367,16 @@ impl DeputyValidator {
     }
 
     /// Get the number of active delegation contexts.
+    ///
+    /// Note: If RwLock is poisoned, returns 0 and logs error.
     pub fn active_count(&self) -> usize {
-        let contexts = self.active_contexts.read().unwrap_or_else(|p| p.into_inner());
+        let contexts = match self.active_contexts.read() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("CRITICAL: Deputy RwLock poisoned in active_count: {}", e);
+                return 0;
+            }
+        };
         contexts.len()
     }
 }

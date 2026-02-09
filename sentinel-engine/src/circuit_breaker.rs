@@ -98,18 +98,44 @@ impl CircuitBreakerManager {
     }
 
     /// Get the current timestamp as Unix seconds.
-    fn now() -> u64 {
+    ///
+    /// SECURITY: Returns Result to enable fail-closed behavior when system time
+    /// is unavailable. Callers should deny requests when this returns Err.
+    fn now() -> Result<u64, String> {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
-            .unwrap_or(0)
+            .map_err(|e| format!("System time error (fail-closed): {}", e))
+    }
+
+    /// Fallback timestamp for non-critical paths where we can't propagate errors.
+    /// Uses 0 as a safe default that keeps circuits in their current state.
+    fn now_or_zero() -> u64 {
+        Self::now().unwrap_or_else(|e| {
+            tracing::error!("CRITICAL: {}", e);
+            0
+        })
     }
 
     /// Check if a request can proceed for the given tool.
     ///
     /// Returns `Ok(())` if allowed, `Err(reason)` if blocked.
+    ///
+    /// SECURITY: This method is fail-closed. If the RwLock is poisoned or
+    /// system time is unavailable, requests are denied to prevent cascading
+    /// failures from bypassing circuit breaker protection.
     pub fn can_proceed(&self, tool: &str) -> Result<(), String> {
-        let circuits = self.circuits.read().unwrap_or_else(|p| p.into_inner());
+        // SECURITY: Fail-closed on RwLock poisoning instead of recovering stale state.
+        let circuits = self.circuits.read().map_err(|_| {
+            tracing::error!(
+                "CRITICAL: Circuit breaker RwLock poisoned — failing closed for tool '{}'",
+                tool
+            );
+            format!(
+                "Circuit breaker unavailable for tool '{}' (internal error — failing closed)",
+                tool
+            )
+        })?;
 
         let stats = match circuits.get(tool) {
             Some(s) => s,
@@ -120,7 +146,8 @@ impl CircuitBreakerManager {
             CircuitState::Closed => Ok(()),
             CircuitState::Open => {
                 // Check if it's time to transition to half-open
-                let now = Self::now();
+                // SECURITY: Fail-closed on system time error.
+                let now = Self::now()?;
                 if now >= stats.last_state_change + self.open_duration_secs {
                     // Would transition to half-open, allow one request
                     Ok(())
@@ -148,9 +175,23 @@ impl CircuitBreakerManager {
     }
 
     /// Record a successful call.
+    ///
+    /// Note: If RwLock is poisoned, logs a critical error but does not panic.
+    /// This is acceptable because record_success is not on the security-critical
+    /// path (can_proceed is). However, persistent poisoning will be visible in logs.
     pub fn record_success(&self, tool: &str) {
-        let mut circuits = self.circuits.write().unwrap_or_else(|p| p.into_inner());
-        let now = Self::now();
+        let mut circuits = match self.circuits.write() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(
+                    "CRITICAL: Circuit breaker RwLock poisoned in record_success for '{}': {}",
+                    tool,
+                    e
+                );
+                return;
+            }
+        };
+        let now = Self::now_or_zero();
 
         let stats = circuits.entry(tool.to_string()).or_insert_with(|| CircuitStats {
             state: CircuitState::Closed,
@@ -196,9 +237,23 @@ impl CircuitBreakerManager {
     }
 
     /// Record a failure. Returns the new circuit state.
+    ///
+    /// Note: If RwLock is poisoned, logs a critical error and returns Open
+    /// (fail-closed behavior for the returned state).
     pub fn record_failure(&self, tool: &str) -> CircuitState {
-        let mut circuits = self.circuits.write().unwrap_or_else(|p| p.into_inner());
-        let now = Self::now();
+        let mut circuits = match self.circuits.write() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(
+                    "CRITICAL: Circuit breaker RwLock poisoned in record_failure for '{}': {}",
+                    tool,
+                    e
+                );
+                // Return Open as fail-closed behavior
+                return CircuitState::Open;
+            }
+        };
+        let now = Self::now_or_zero();
 
         let stats = circuits.entry(tool.to_string()).or_insert_with(|| CircuitStats {
             state: CircuitState::Closed,
@@ -246,15 +301,28 @@ impl CircuitBreakerManager {
     }
 
     /// Get the current state for a tool.
+    ///
+    /// Note: If RwLock is poisoned, returns Open (fail-closed behavior).
     pub fn get_state(&self, tool: &str) -> CircuitState {
-        let circuits = self.circuits.read().unwrap_or_else(|p| p.into_inner());
+        let circuits = match self.circuits.read() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(
+                    "CRITICAL: Circuit breaker RwLock poisoned in get_state for '{}': {}",
+                    tool,
+                    e
+                );
+                // Return Open as fail-closed behavior
+                return CircuitState::Open;
+            }
+        };
 
         circuits
             .get(tool)
             .map(|s| {
                 // Check for automatic transition to half-open
                 if s.state == CircuitState::Open {
-                    let now = Self::now();
+                    let now = Self::now_or_zero();
                     if now >= s.last_state_change + self.open_duration_secs {
                         return CircuitState::HalfOpen;
                     }
@@ -265,14 +333,38 @@ impl CircuitBreakerManager {
     }
 
     /// Get full statistics for a tool.
+    ///
+    /// Note: If RwLock is poisoned, returns None and logs error.
     pub fn get_stats(&self, tool: &str) -> Option<CircuitStats> {
-        let circuits = self.circuits.read().unwrap_or_else(|p| p.into_inner());
+        let circuits = match self.circuits.read() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(
+                    "CRITICAL: Circuit breaker RwLock poisoned in get_stats for '{}': {}",
+                    tool,
+                    e
+                );
+                return None;
+            }
+        };
         circuits.get(tool).cloned()
     }
 
     /// Manually reset a circuit to closed state.
+    ///
+    /// Note: If RwLock is poisoned, logs error and does nothing.
     pub fn reset(&self, tool: &str) {
-        let mut circuits = self.circuits.write().unwrap_or_else(|p| p.into_inner());
+        let mut circuits = match self.circuits.write() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(
+                    "CRITICAL: Circuit breaker RwLock poisoned in reset for '{}': {}",
+                    tool,
+                    e
+                );
+                return;
+            }
+        };
         circuits.remove(tool);
         tracing::info!(
             tool = %tool,
@@ -286,15 +378,36 @@ impl CircuitBreakerManager {
     }
 
     /// Get all tracked tools.
+    ///
+    /// Note: If RwLock is poisoned, returns empty vec and logs error.
     pub fn tracked_tools(&self) -> Vec<String> {
-        let circuits = self.circuits.read().unwrap_or_else(|p| p.into_inner());
+        let circuits = match self.circuits.read() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("CRITICAL: Circuit breaker RwLock poisoned in tracked_tools: {}", e);
+                return Vec::new();
+            }
+        };
         circuits.keys().cloned().collect()
     }
 
     /// Get summary statistics for all circuits.
+    ///
+    /// Note: If RwLock is poisoned, returns empty summary and logs error.
     pub fn summary(&self) -> CircuitSummary {
-        let circuits = self.circuits.read().unwrap_or_else(|p| p.into_inner());
-        let now = Self::now();
+        let circuits = match self.circuits.read() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("CRITICAL: Circuit breaker RwLock poisoned in summary: {}", e);
+                return CircuitSummary {
+                    total: 0,
+                    closed: 0,
+                    open: 0,
+                    half_open: 0,
+                };
+            }
+        };
+        let now = Self::now_or_zero();
 
         let mut closed = 0;
         let mut open = 0;
