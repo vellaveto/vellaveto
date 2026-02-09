@@ -5141,36 +5141,24 @@ impl PolicyEngine {
     ///
     /// When only one interpretation resolves, that value is returned.
     /// When both resolve to the same value, that value is returned.
+    ///
+    /// IMPROVEMENT_PLAN 4.1: Also supports bracket notation for array access:
+    /// - `items[0]` — access first element of array "items"
+    /// - `config.items[0].path` — traverse nested path with array access
+    /// - `matrix[0][1]` — multi-dimensional array access
     pub fn get_param_by_path<'a>(
         params: &'a serde_json::Value,
         path: &str,
     ) -> Option<&'a serde_json::Value> {
         let exact_match = params.get(path);
 
-        // For non-dotted paths, exact match is the only interpretation
-        if !path.contains('.') {
+        // For non-dotted paths without brackets, exact match is the only interpretation
+        if !path.contains('.') && !path.contains('[') {
             return exact_match;
         }
 
-        // Try dot-split traversal for nested objects
-        let traversal_match = {
-            let mut current = params;
-            let mut found = true;
-            for segment in path.split('.') {
-                match current.get(segment) {
-                    Some(v) => current = v,
-                    None => {
-                        found = false;
-                        break;
-                    }
-                }
-            }
-            if found {
-                Some(current)
-            } else {
-                None
-            }
-        };
+        // Try dot-split traversal for nested objects with bracket notation support
+        let traversal_match = Self::traverse_path(params, path);
 
         match (exact_match, traversal_match) {
             // Both exist but differ: ambiguous — fail-closed (return None)
@@ -5182,6 +5170,62 @@ impl PolicyEngine {
             (None, Some(traversal)) => Some(traversal),
             (None, None) => None,
         }
+    }
+
+    /// Traverse a JSON value using a path with dot notation and bracket notation.
+    ///
+    /// Supports:
+    /// - `foo.bar` — nested object access
+    /// - `items[0]` — array index access
+    /// - `foo.items[0].bar` — mixed traversal
+    /// - `matrix[0][1]` — consecutive array access
+    fn traverse_path<'a>(
+        params: &'a serde_json::Value,
+        path: &str,
+    ) -> Option<&'a serde_json::Value> {
+        let mut current = params;
+
+        // Split by dots first, then handle bracket notation within each segment
+        for segment in path.split('.') {
+            if segment.is_empty() {
+                continue;
+            }
+
+            // Check for bracket notation: field[index] or just [index]
+            if let Some(bracket_pos) = segment.find('[') {
+                // Get the field name before the bracket (may be empty for [0][1] style)
+                let field_name = &segment[..bracket_pos];
+
+                // If there's a field name, traverse into it first
+                if !field_name.is_empty() {
+                    current = current.get(field_name)?;
+                }
+
+                // Parse all bracket indices in this segment: [0][1][2]...
+                let mut rest = &segment[bracket_pos..];
+                while rest.starts_with('[') {
+                    let close_pos = rest.find(']')?;
+                    let index_str = &rest[1..close_pos];
+                    let index: usize = index_str.parse().ok()?;
+
+                    // Access array element
+                    current = current.get(index)?;
+
+                    // Move past this bracket pair
+                    rest = &rest[close_pos + 1..];
+                }
+
+                // If there's remaining content after brackets, it's malformed
+                if !rest.is_empty() {
+                    return None;
+                }
+            } else {
+                // Simple field access
+                current = current.get(segment)?;
+            }
+        }
+
+        Some(current)
     }
 
     /// Maximum number of string values to collect during recursive parameter scanning.
@@ -7518,6 +7562,119 @@ mod tests {
             PolicyEngine::get_param_by_path(&params, "config.path"),
             Some(&json!("/tmp/safe.txt")),
             "Exact key with no nested equivalent should resolve normally"
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // IMPROVEMENT_PLAN 4.1: Bracket Notation for Array Access
+    // ═══════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_get_param_by_path_array_access_simple() {
+        let params = json!({"items": ["a", "b", "c"]});
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "items[0]"),
+            Some(&json!("a")),
+            "items[0] should return first element"
+        );
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "items[2]"),
+            Some(&json!("c")),
+            "items[2] should return third element"
+        );
+    }
+
+    #[test]
+    fn test_get_param_by_path_array_access_nested() {
+        let params = json!({"config": {"items": [{"path": "/tmp/a"}, {"path": "/tmp/b"}]}});
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "config.items[0].path"),
+            Some(&json!("/tmp/a")),
+            "config.items[0].path should traverse into nested array"
+        );
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "config.items[1].path"),
+            Some(&json!("/tmp/b")),
+            "config.items[1].path should traverse into nested array"
+        );
+    }
+
+    #[test]
+    fn test_get_param_by_path_array_access_out_of_bounds() {
+        let params = json!({"items": ["a", "b"]});
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "items[5]"),
+            None,
+            "Out of bounds array access should return None"
+        );
+    }
+
+    #[test]
+    fn test_get_param_by_path_multidimensional_array() {
+        let params = json!({"matrix": [[1, 2], [3, 4], [5, 6]]});
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "matrix[0][0]"),
+            Some(&json!(1)),
+            "matrix[0][0] should return 1"
+        );
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "matrix[1][1]"),
+            Some(&json!(4)),
+            "matrix[1][1] should return 4"
+        );
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "matrix[2][0]"),
+            Some(&json!(5)),
+            "matrix[2][0] should return 5"
+        );
+    }
+
+    #[test]
+    fn test_get_param_by_path_array_on_non_array() {
+        let params = json!({"items": "not an array"});
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "items[0]"),
+            None,
+            "Array access on non-array should return None"
+        );
+    }
+
+    #[test]
+    fn test_get_param_by_path_mixed_traversal() {
+        let params = json!({
+            "users": [
+                {"name": "alice", "roles": ["admin", "user"]},
+                {"name": "bob", "roles": ["user"]}
+            ]
+        });
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "users[0].name"),
+            Some(&json!("alice")),
+        );
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "users[0].roles[0]"),
+            Some(&json!("admin")),
+        );
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "users[1].roles[0]"),
+            Some(&json!("user")),
+        );
+    }
+
+    #[test]
+    fn test_get_param_by_path_invalid_bracket_syntax() {
+        let params = json!({"items": [1, 2, 3]});
+        // Non-numeric index
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "items[abc]"),
+            None,
+            "Non-numeric array index should return None"
+        );
+        // Unclosed bracket
+        assert_eq!(
+            PolicyEngine::get_param_by_path(&params, "items[0"),
+            None,
+            "Unclosed bracket should return None"
         );
     }
 
