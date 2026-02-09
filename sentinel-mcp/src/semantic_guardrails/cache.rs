@@ -76,6 +76,13 @@ fn default_enabled() -> bool {
     true
 }
 
+/// Fallback cache size when disabled or when max_size is 0.
+/// SAFETY: 1 is always non-zero, so this const initialization is safe.
+const FALLBACK_CACHE_SIZE: NonZeroUsize = match NonZeroUsize::new(1) {
+    Some(n) => n,
+    None => unreachable!(),
+};
+
 impl Default for CacheConfig {
     fn default() -> Self {
         Self {
@@ -167,10 +174,12 @@ pub struct EvaluationCache {
 impl EvaluationCache {
     /// Creates a new evaluation cache with the given configuration.
     pub fn new(config: CacheConfig) -> Self {
+        // Use the configured max_size if valid, otherwise fall back to 1.
+        // This avoids expect()/unwrap() per project no-panic policy.
         let size = if config.enabled && config.max_size > 0 {
-            NonZeroUsize::new(config.max_size).expect("max_size > 0")
+            NonZeroUsize::new(config.max_size).unwrap_or(FALLBACK_CACHE_SIZE)
         } else {
-            NonZeroUsize::new(1).expect("1 is non-zero")
+            FALLBACK_CACHE_SIZE
         };
 
         Self {

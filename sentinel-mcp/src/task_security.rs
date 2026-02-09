@@ -158,7 +158,7 @@ impl SecureTaskManager {
         let mut secure_task = SecureTask::new(task.clone());
 
         // Generate resume token
-        secure_task.resume_token = Some(self.generate_resume_token(&task.task_id));
+        secure_task.resume_token = Some(self.generate_resume_token(&task.task_id)?);
 
         // Encrypt state data if provided
         if let Some(data) = state_data {
@@ -511,16 +511,18 @@ impl SecureTaskManager {
             .map_err(|e| TaskSecurityError::DecryptionFailed(e.to_string()))
     }
 
-    fn generate_resume_token(&self, task_id: &str) -> String {
+    fn generate_resume_token(&self, task_id: &str) -> Result<String, TaskSecurityError> {
+        // HMAC-SHA256 accepts any key length, but we propagate errors per no-panic policy.
         let mut mac = <HmacSha256 as Mac>::new_from_slice(&self.hmac_key)
-            .expect("HMAC key should be valid");
+            .map_err(|e| TaskSecurityError::InvalidKey(e.to_string()))?;
         mac.update(task_id.as_bytes());
         mac.update(b"|resume|");
         // Add random component for uniqueness
         let mut random = [0u8; 16];
-        let _ = getrandom::getrandom(&mut random);
+        getrandom::getrandom(&mut random)
+            .map_err(|e| TaskSecurityError::EncryptionFailed(format!("RNG failed: {}", e)))?;
         mac.update(&random);
-        hex::encode(mac.finalize().into_bytes())
+        Ok(hex::encode(mac.finalize().into_bytes()))
     }
 
     fn verify_resume_token(&self, task_id: &str, token: &str) -> bool {
