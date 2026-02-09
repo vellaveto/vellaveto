@@ -27,7 +27,7 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
-tracing = "0.1"
+tracing = { workspace = true }
 unicode-normalization = "0.1"
 aho-corasick = "1.1"
 sha2 = "0.10"
@@ -46,7 +46,7 @@ semver = "1.0"
 
 # Semantic guardrails dependencies
 lru = { version = "0.12", optional = true }
-async-trait = { version = "0.1", optional = true }
+async-trait = { workspace = true, optional = true }
 
 # Cloud LLM backends
 reqwest = { version = "0.12", features = ["json"], optional = true }

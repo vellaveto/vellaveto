@@ -16,7 +16,7 @@ regex = "1"
 percent-encoding = "2.3"
 idna = "1.0"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-tracing = "0.1"
+tracing = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
