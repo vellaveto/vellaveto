@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+#### Legacy Policy Path Security Fix (P0)
+- **Policy Bypass Fix** — Legacy policy evaluation path (`apply_policy`) now enforces `path_rules`, `network_rules`, and `ip_rules` before returning verdicts, matching compiled policy behavior
+- **Path Rules Enforcement** — Added `check_path_rules_legacy()` with glob matching, path normalization, and fail-closed behavior for invalid patterns
+- **Network Rules Enforcement** — Added `check_network_rules_legacy()` with IDNA normalization and domain pattern matching
+- **IP Rules Enforcement** — Added `check_ip_rules_legacy()` with DNS rebinding protection, IPv6 transition mechanism canonicalization, and CIDR enforcement
+- **Invalid Glob Handling** — Malformed glob patterns now produce `Deny` verdicts instead of 500 errors (fail-closed)
+
+#### Code Quality Fixes
+- **FIND-027** — Eliminated `expect()`/`unwrap()` violations in `sentinel-mcp` library code per no-panic policy:
+  - `cache.rs`: Replaced `expect()` with const `FALLBACK_CACHE_SIZE` and `unwrap_or()`
+  - `task_security.rs`: Changed `generate_resume_token` to return `Result`, propagating HMAC and RNG errors
+- **FIND-021/FIND-002** — Standardized workspace dependency management:
+  - `sentinel-config`: Use `workspace = true` for serde, serde_json
+  - `sentinel-audit`: Use `workspace = true` for tokio, tracing
+  - `sentinel-proxy`: Use `workspace = true` for tracing
+
 ### Added
 
 #### Phase 14: A2A Protocol Security
@@ -136,8 +154,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Security audit rounds: 33 → 34
-- Test suite: 3,167 → 3,343 tests
+- Security audit rounds: 34 → 35
+- Test suite: 3,343 → 3,643 tests
 
 ### Documentation
 
