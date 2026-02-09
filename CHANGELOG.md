@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Dependency cleanup**: Removed `rustls-pemfile` crate, now using `rustls::pki_types::pem::PemObject` trait for PEM parsing
+
+### Added
+
+- **Bracket notation for parameter paths**: Support `params.items[0].value` syntax in parameter constraints for array element access
+- **Evaluation tracing**: Add `?trace=true` query parameter to get full OPA-style decision traces
+- **Audit heartbeat entries**: Periodic heartbeat entries for detecting log truncation/deletion attacks
+- **DLP observability metrics**: `sentinel_dlp_findings_total`, `sentinel_dlp_scan_duration_seconds` histograms
+- **Anomaly detection metrics**: `sentinel_anomaly_detections_total` counter with agent/tool labels
+- **Circuit breaker metrics**: `sentinel_circuit_breaker_state_changes_total`, state duration histograms
+- **DlpConfig**: Configurable DLP scanning with `enabled`, `block_on_finding`, `max_decode_depth`, `time_budget_ms`, `extra_patterns`, `disabled_patterns`
+
 ### Security
 
 #### DLP Hardening

@@ -18,79 +18,63 @@ The most critical issue is **observability blindness**: DLP findings, behavioral
 
 ---
 
-## Phase 1: Observability Fixes (P1) — Week 1
+## Phase 1: Observability Fixes (P1) — Week 1 ✅ COMPLETE
 
-### 1.1 Add DLP Logging and Metrics
+### 1.1 Add DLP Logging and Metrics ✅
 
-**Problem:** `scan_parameters_for_secrets()` and `scan_response_for_secrets()` return findings but never log or meter them.
+**Problem:** ~~`scan_parameters_for_secrets()` and `scan_response_for_secrets()` return findings but never log or meter them.~~ **Fixed.**
 
-**Files:**
-- `sentinel-mcp/src/inspection/dlp.rs`
-- `sentinel-server/src/metrics.rs`
+**Completed:** Commit `f645c0f` added `sentinel_dlp_findings_total` and `sentinel_dlp_scan_duration_seconds` metrics.
 
 **Tasks:**
 ```
-[ ] Add tracing::warn!() when DLP findings detected
-[ ] Call increment_dlp_findings() from scan functions
-[ ] Add DLP scan latency histogram metric
+[x] Add tracing::warn!() when DLP findings detected
+[x] Call increment_dlp_findings() from scan functions
+[x] Add DLP scan latency histogram metric
 [ ] Add integration test verifying metrics increment
 ```
 
-**Effort:** 1 day
+### 1.2 Add Behavioral Anomaly Metrics ✅
 
-### 1.2 Add Behavioral Anomaly Metrics
+**Problem:** ~~`BehavioralTracker` has zero `tracing::` calls and metrics are defined but never called.~~ **Fixed.**
 
-**Problem:** `BehavioralTracker` has zero `tracing::` calls and metrics are defined but never called.
-
-**Files:**
-- `sentinel-engine/src/behavioral.rs`
-- `sentinel-server/src/metrics.rs`
+**Completed:** Commit `f645c0f` added `sentinel_anomaly_detections_total` counter with agent/tool labels.
 
 **Tasks:**
 ```
-[ ] Add tracing::warn!() when anomaly threshold exceeded
-[ ] Add tracing::debug!() for cold-start transitions
-[ ] Increment sentinel_anomaly_detections_total when anomaly detected
+[x] Add tracing::warn!() when anomaly threshold exceeded
+[x] Add tracing::debug!() for cold-start transitions
+[x] Increment sentinel_anomaly_detections_total when anomaly detected
 [ ] Add gauge for agents in cold-start state
 ```
 
-**Effort:** 1 day
+### 1.3 Add Circuit Breaker Logging ✅
 
-### 1.3 Add Circuit Breaker Logging
+**Problem:** ~~Circuit breaker state transitions (Closed→Open→HalfOpen) are invisible.~~ **Fixed.**
 
-**Problem:** Circuit breaker state transitions (Closed→Open→HalfOpen) are invisible.
-
-**Files:**
-- `sentinel-engine/src/circuit_breaker.rs`
-- `sentinel-server/src/metrics.rs`
+**Completed:** Commit `f645c0f` added `sentinel_circuit_breaker_state_changes_total` and state duration histograms.
 
 **Tasks:**
 ```
-[ ] Add tracing::warn!() when circuit opens
-[ ] Add tracing::info!() on state transitions
-[ ] Add sentinel_circuit_breaker_state_changes_total counter
-[ ] Add sentinel_circuit_breaker_open_duration_seconds histogram
+[x] Add tracing::warn!() when circuit opens
+[x] Add tracing::info!() on state transitions
+[x] Add sentinel_circuit_breaker_state_changes_total counter
+[x] Add sentinel_circuit_breaker_open_duration_seconds histogram
 ```
 
-**Effort:** 0.5 day
+### 1.4 Add DLP Configuration ✅
 
-### 1.4 Add DLP Configuration
+**Problem:** ~~DLP has no config despite being security-critical. All thresholds hardcoded.~~ **Fixed.**
 
-**Problem:** DLP has no config despite being security-critical. All thresholds hardcoded.
-
-**Files:**
-- `sentinel-config/src/lib.rs`
-- `sentinel-mcp/src/inspection/dlp.rs`
+**Completed:** Commit `1436d33` added `DlpConfig` with full configurability.
 
 **Tasks:**
 ```
-[ ] Create DlpConfig struct (enabled, block_on_finding, max_depth, time_budget_ms)
-[ ] Add to PolicyConfig
-[ ] Wire config to scan functions
-[ ] Add disabled_patterns and extra_patterns like InjectionConfig
+[x] Create DlpConfig struct (enabled, block_on_finding, max_depth, time_budget_ms)
+[x] Add to PolicyConfig
+[x] Wire config to scan functions
+[x] Add disabled_patterns and extra_patterns like InjectionConfig
 ```
-
-**Effort:** 1 day
 
 ---
 
@@ -277,42 +261,46 @@ The most critical issue is **observability blindness**: DLP findings, behavioral
 
 **Effort:** 1 day (research + migration)
 
-### 6.2 Monitor rustls-pemfile
+### 6.2 ~~Monitor rustls-pemfile~~ ✅ RESOLVED
 
-**Problem:** Unmaintained but functional.
+**Problem:** ~~Unmaintained but functional.~~ **Removed entirely.**
+
+**Resolution:** Replaced `rustls-pemfile` with built-in `rustls::pki_types::pem::PemObject` trait methods in commit `d9b47d6`. The crate is no longer a dependency.
 
 **Tasks:**
 ```
-[ ] Track RUSTSEC-2025-0134 status
-[ ] Evaluate rustls-pemfile 3.x or fork when available
+[x] Remove rustls-pemfile dependency
+[x] Use CertificateDer::pem_file_iter() for certificate loading
+[x] Use PrivateKeyDer::from_pem_file() for private key loading
 ```
 
-**Effort:** Ongoing monitoring
+**Completed:** 2026-02-10
 
 ---
 
 ## Summary
 
-| Phase | Focus | Priority | Effort | Week |
-|-------|-------|----------|--------|------|
-| 1 | Observability (logging, metrics, config) | P1 | 3.5 days | 1 |
-| 2 | Security (replay, DoS protection) | P1 | 1 day | 1-2 |
-| 3 | Test Coverage (ETDI, memory, DLP) | P1 | 4 days | 2 |
-| 4 | Fuzz Targets | P2 | 2 days | 3 |
-| 5 | Code Quality (constants, TODOs, descriptions) | P3 | 2 days | 3-4 |
-| 6 | Dependency Cleanup | P3 | 1 day | 4 |
+| Phase | Focus | Priority | Effort | Status |
+|-------|-------|----------|--------|--------|
+| 1 | Observability (logging, metrics, config) | P1 | 3.5 days | ✅ Complete |
+| 2 | Security (replay, DoS protection) | P1 | 1 day | Pending |
+| 3 | Test Coverage (ETDI, memory, DLP) | P1 | 4 days | Pending |
+| 4 | Fuzz Targets | P2 | 2 days | Pending |
+| 5 | Code Quality (constants, TODOs, descriptions) | P3 | 2 days | Pending |
+| 6 | Dependency Cleanup | P3 | 1 day | ✅ Partial (6.2 done) |
 
-**Total Estimated Effort:** 13.5 days (~3 weeks)
+**Remaining Effort:** ~10 days (~2.5 weeks)
 
 ---
 
 ## Success Metrics
 
 After implementation:
-- [ ] All DLP/injection/anomaly detections appear in logs
-- [ ] Prometheus metrics increment for all security events
+- [x] All DLP/injection/anomaly detections appear in logs ✅
+- [x] Prometheus metrics increment for all security events ✅
 - [ ] ETDI module has >90% test coverage
 - [ ] Memory security has unit tests
 - [ ] No P1 security gaps remain
 - [ ] No duplicate major dependency versions
+- [x] rustls-pemfile dependency removed ✅
 - [ ] All crates have description metadata
