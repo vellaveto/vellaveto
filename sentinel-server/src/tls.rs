@@ -3,12 +3,11 @@
 //! Provides TLS termination with optional mutual TLS (client certificate verification)
 //! and SPIFFE identity extraction from X.509 certificates.
 
+use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::WebPkiClientVerifier;
 use rustls::RootCertStore;
 use sentinel_config::{TlsConfig, TlsMode};
-use std::fs::File;
-use std::io::BufReader;
 use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
@@ -92,12 +91,10 @@ pub fn extract_spiffe_ids(cert_der: &[u8]) -> Vec<SpiffeIdentity> {
 
 /// Load certificates from a PEM file.
 fn load_certs(path: &Path) -> Result<Vec<CertificateDer<'static>>, TlsError> {
-    let file = File::open(path).map_err(|e| {
-        TlsError::Certificate(format!("Failed to open certificate file {:?}: {}", path, e))
-    })?;
-    let mut reader = BufReader::new(file);
-
-    let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut reader)
+    let certs: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(path)
+        .map_err(|e| {
+            TlsError::Certificate(format!("Failed to open certificate file {:?}: {}", path, e))
+        })?
         .filter_map(|cert| cert.ok())
         .collect();
 
@@ -113,25 +110,13 @@ fn load_certs(path: &Path) -> Result<Vec<CertificateDer<'static>>, TlsError> {
 
 /// Load a private key from a PEM file.
 fn load_private_key(path: &Path) -> Result<PrivateKeyDer<'static>, TlsError> {
-    let file = File::open(path).map_err(|e| {
-        TlsError::PrivateKey(format!("Failed to open private key file {:?}: {}", path, e))
-    })?;
-    let mut reader = BufReader::new(file);
-
-    // Try to read different key formats
-    for item in rustls_pemfile::read_all(&mut reader).flatten() {
-        match item {
-            rustls_pemfile::Item::Pkcs1Key(key) => return Ok(PrivateKeyDer::Pkcs1(key)),
-            rustls_pemfile::Item::Pkcs8Key(key) => return Ok(PrivateKeyDer::Pkcs8(key)),
-            rustls_pemfile::Item::Sec1Key(key) => return Ok(PrivateKeyDer::Sec1(key)),
-            _ => continue,
-        }
-    }
-
-    Err(TlsError::PrivateKey(format!(
-        "No valid private key found in {:?}",
-        path
-    )))
+    // PrivateKeyDer::from_pem_file handles PKCS#1, PKCS#8, and SEC1 key formats
+    PrivateKeyDer::from_pem_file(path).map_err(|e| {
+        TlsError::PrivateKey(format!(
+            "Failed to read private key from {:?}: {}",
+            path, e
+        ))
+    })
 }
 
 /// Load CA certificates for client verification.
