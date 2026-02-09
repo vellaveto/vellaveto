@@ -993,6 +993,54 @@ pub struct AsyncTaskConfig {
     /// Only applies when require_self_cancel is false.
     #[serde(default)]
     pub allow_cancellation: Vec<String>,
+
+    // ═══════════════════════════════════════════════════
+    // Phase 11: Task Security Configuration
+    // ═══════════════════════════════════════════════════
+
+    /// Enable task state encryption (ChaCha20-Poly1305). Default: true.
+    #[serde(default = "default_true")]
+    pub encrypt_state: bool,
+
+    /// Enable hash chain integrity tracking. Default: true.
+    #[serde(default = "default_true")]
+    pub enable_hash_chain: bool,
+
+    /// Enable resume token authentication. Default: true.
+    #[serde(default = "default_true")]
+    pub require_resume_token: bool,
+
+    /// Enable replay protection via nonce tracking. Default: true.
+    #[serde(default = "default_true")]
+    pub replay_protection: bool,
+
+    /// Maximum nonces to track per task (FIFO eviction). Default: 1000.
+    #[serde(default = "default_max_nonces")]
+    pub max_nonces: usize,
+
+    /// Enable checkpoint creation for long-running tasks. Default: false.
+    #[serde(default)]
+    pub enable_checkpoints: bool,
+
+    /// Create checkpoint after this many state transitions. Default: 10.
+    #[serde(default = "default_checkpoint_interval")]
+    pub checkpoint_interval: usize,
+
+    /// Retention period for completed tasks in seconds. Default: 3600.
+    #[serde(default = "default_task_retention_secs")]
+    pub task_retention_secs: u64,
+}
+
+fn default_max_nonces() -> usize {
+    1000
+}
+
+fn default_checkpoint_interval() -> usize {
+    10
+}
+
+fn default_task_retention_secs() -> u64 {
+    3600
 }
 
 impl Default for AsyncTaskConfig {
@@ -1003,6 +1051,14 @@ impl Default for AsyncTaskConfig {
             max_task_duration_secs: default_max_task_duration_secs(),
             require_self_cancel: true,
             allow_cancellation: Vec::new(),
+            encrypt_state: true,
+            enable_hash_chain: true,
+            require_resume_token: true,
+            replay_protection: true,
+            max_nonces: default_max_nonces(),
+            enable_checkpoints: false,
+            checkpoint_interval: default_checkpoint_interval(),
+            task_retention_secs: default_task_retention_secs(),
         }
     }
 }

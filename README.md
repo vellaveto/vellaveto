@@ -132,6 +132,13 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Credential rotation** — Automatic lifecycle with expiration warnings, rotation history, and DPoP (RFC 9449) support
 - **NHI API** — 16 REST endpoints for identity registration, lifecycle management, behavioral checks, delegations, and credential rotation
 
+### ⏱️ MCP Tasks Security
+- **Task state encryption** — ChaCha20-Poly1305 AEAD encryption for sensitive task state data at rest
+- **Resume authentication** — HMAC-SHA256 tokens prevent unauthorized access to long-running tasks
+- **Hash chain integrity** — SHA-256 chain of state transitions with tamper detection and verification
+- **Checkpoint verification** — Ed25519 signed snapshots for non-repudiation and point-in-time verification
+- **Replay protection** — Nonce tracking with configurable FIFO eviction prevents request replay attacks
+
 ### 🏢 Enterprise Features
 - **mTLS / SPIFFE-SPIRE** — Mutual TLS with client certificate verification, SPIFFE identity extraction from X.509 SAN URIs, trust domains, workload identity, and ID-to-role mapping
 - **OPA Integration** — External policy evaluation via Open Policy Agent with async HTTP client, LRU decision caching (configurable TTL), fail-open/closed modes, and structured decision parsing
@@ -777,6 +784,7 @@ Environment variables override values set in the config file.
 | 🔏 **ETDI tool signing** | Ed25519/ECDSA tool signatures with attestation chains and version pinning |
 | 🧠 **MINJA memory defense** | Taint propagation, provenance graphs, trust decay, quarantine, and namespace isolation |
 | 🤖 **NHI lifecycle** | Agent identity attestation, behavioral baselines, delegation chains, credential rotation, and DPoP |
+| ⏱️ **Task security** | ChaCha20-Poly1305 encryption, HMAC resume tokens, SHA-256 hash chains, Ed25519 checkpoints, replay protection |
 
 ### 🔬 Security Audit
 
