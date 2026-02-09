@@ -13,6 +13,7 @@ pub mod framing;
 pub mod inspection;
 pub mod memory_security;
 pub mod memory_tracking;
+pub mod nhi;
 pub mod output_security;
 pub mod output_validation;
 pub mod proxy;

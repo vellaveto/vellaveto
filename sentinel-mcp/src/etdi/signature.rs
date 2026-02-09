@@ -39,6 +39,9 @@ pub enum EtdiError {
     HexDecode(#[from] hex::FromHexError),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+    /// SECURITY (FIND-027): HMAC initialization failure (fail-closed).
+    #[error("HMAC initialization failed")]
+    HmacInit,
 }
 
 /// Compute the canonical hash of a tool definition for signing.

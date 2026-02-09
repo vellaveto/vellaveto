@@ -1485,6 +1485,16 @@ pub struct PolicyConfig {
     /// quarantine, and namespace isolation.
     #[serde(default)]
     pub memory_security: MemorySecurityConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 10: NON-HUMAN IDENTITY (NHI) LIFECYCLE
+    // ═══════════════════════════════════════════════════
+
+    /// Non-Human Identity (NHI) lifecycle management configuration.
+    /// Controls agent identity registration, attestation, behavioral
+    /// baselines, credential rotation, and delegation chains.
+    #[serde(default)]
+    pub nhi: NhiConfig,
 }
 
 /// Tool registry with trust scoring configuration (P2.1).
@@ -3655,6 +3665,265 @@ impl Default for NamespaceConfig {
     }
 }
 
+// ═══════════════════════════════════════════════════
+// PHASE 10: NHI (NON-HUMAN IDENTITY) CONFIGURATION
+// ═══════════════════════════════════════════════════
+
+/// Non-Human Identity (NHI) lifecycle management configuration.
+///
+/// Provides identity management for machine identities (agents, services,
+/// bots) including registration, attestation, behavioral monitoring,
+/// and credential lifecycle management.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [nhi]
+/// enabled = true
+/// credential_ttl_secs = 3600
+/// max_credential_ttl_secs = 86400
+/// require_attestation = true
+/// attestation_types = ["jwt", "mtls", "spiffe", "dpop"]
+/// auto_revoke_on_anomaly = true
+/// anomaly_threshold = 0.3
+/// baseline_learning_period_hours = 168
+///
+/// [nhi.dpop]
+/// require_nonce = true
+/// max_clock_skew_secs = 300
+/// allowed_algorithms = ["ES256", "RS256"]
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct NhiConfig {
+    /// Enable NHI lifecycle management. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Default credential TTL in seconds. Default: 3600 (1 hour).
+    #[serde(default = "default_nhi_credential_ttl")]
+    pub credential_ttl_secs: u64,
+
+    /// Maximum allowed credential TTL in seconds. Default: 86400 (24 hours).
+    #[serde(default = "default_nhi_max_credential_ttl")]
+    pub max_credential_ttl_secs: u64,
+
+    /// Require attestation for all agent registrations. Default: true.
+    #[serde(default = "default_true")]
+    pub require_attestation: bool,
+
+    /// Allowed attestation types. Default: ["jwt", "mtls", "spiffe", "dpop", "api_key"].
+    #[serde(default = "default_nhi_attestation_types")]
+    pub attestation_types: Vec<String>,
+
+    /// Automatically revoke identity on behavioral anomaly. Default: false.
+    /// When true, identities with anomaly scores above threshold are suspended.
+    #[serde(default)]
+    pub auto_revoke_on_anomaly: bool,
+
+    /// Anomaly threshold (0.0 - 1.0) for behavioral alerts. Default: 0.3.
+    /// Scores above this trigger alerts or suspension (if auto_revoke enabled).
+    #[serde(default = "default_nhi_anomaly_threshold")]
+    pub anomaly_threshold: f64,
+
+    /// Learning period for behavioral baselines in hours. Default: 168 (7 days).
+    /// During this period, behavior is observed but not enforced.
+    #[serde(default = "default_nhi_baseline_period")]
+    pub baseline_learning_period_hours: u64,
+
+    /// Minimum observations before baseline is active. Default: 100.
+    #[serde(default = "default_nhi_min_observations")]
+    pub min_baseline_observations: u64,
+
+    /// Maximum registered identities. Default: 10000.
+    #[serde(default = "default_nhi_max_identities")]
+    pub max_identities: usize,
+
+    /// Maximum active delegations. Default: 5000.
+    #[serde(default = "default_nhi_max_delegations")]
+    pub max_delegations: usize,
+
+    /// Maximum delegation chain depth. Default: 5.
+    #[serde(default = "default_nhi_max_chain_depth")]
+    pub max_delegation_chain_depth: usize,
+
+    /// Require explicit delegation approval. Default: true.
+    #[serde(default = "default_true")]
+    pub require_delegation_approval: bool,
+
+    /// Credential rotation warning threshold in hours. Default: 24.
+    /// Alerts are generated when credentials expire within this window.
+    #[serde(default = "default_nhi_rotation_warning")]
+    pub rotation_warning_hours: u64,
+
+    /// DPoP (Demonstration of Proof-of-Possession) configuration.
+    #[serde(default)]
+    pub dpop: DpopConfig,
+
+    /// SPIFFE trust domains to accept (in addition to main trust domain).
+    #[serde(default)]
+    pub additional_trust_domains: Vec<String>,
+
+    /// Tags that mark identities as privileged (bypasses some checks).
+    #[serde(default)]
+    pub privileged_tags: Vec<String>,
+
+    /// Enable continuous authentication scoring. Default: true.
+    #[serde(default = "default_true")]
+    pub continuous_auth: bool,
+
+    /// Session timeout in seconds for behavioral tracking. Default: 3600.
+    #[serde(default = "default_nhi_session_timeout")]
+    pub session_timeout_secs: u64,
+}
+
+fn default_nhi_credential_ttl() -> u64 {
+    3600 // 1 hour
+}
+
+fn default_nhi_max_credential_ttl() -> u64 {
+    86400 // 24 hours
+}
+
+fn default_nhi_attestation_types() -> Vec<String> {
+    vec![
+        "jwt".to_string(),
+        "mtls".to_string(),
+        "spiffe".to_string(),
+        "dpop".to_string(),
+        "api_key".to_string(),
+    ]
+}
+
+fn default_nhi_anomaly_threshold() -> f64 {
+    0.3
+}
+
+fn default_nhi_baseline_period() -> u64 {
+    168 // 7 days
+}
+
+fn default_nhi_min_observations() -> u64 {
+    100
+}
+
+fn default_nhi_max_identities() -> usize {
+    10000
+}
+
+fn default_nhi_max_delegations() -> usize {
+    5000
+}
+
+fn default_nhi_max_chain_depth() -> usize {
+    5
+}
+
+fn default_nhi_rotation_warning() -> u64 {
+    24 // 24 hours before expiration
+}
+
+fn default_nhi_session_timeout() -> u64 {
+    3600 // 1 hour
+}
+
+impl Default for NhiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            credential_ttl_secs: default_nhi_credential_ttl(),
+            max_credential_ttl_secs: default_nhi_max_credential_ttl(),
+            require_attestation: true,
+            attestation_types: default_nhi_attestation_types(),
+            auto_revoke_on_anomaly: false,
+            anomaly_threshold: default_nhi_anomaly_threshold(),
+            baseline_learning_period_hours: default_nhi_baseline_period(),
+            min_baseline_observations: default_nhi_min_observations(),
+            max_identities: default_nhi_max_identities(),
+            max_delegations: default_nhi_max_delegations(),
+            max_delegation_chain_depth: default_nhi_max_chain_depth(),
+            require_delegation_approval: true,
+            rotation_warning_hours: default_nhi_rotation_warning(),
+            dpop: DpopConfig::default(),
+            additional_trust_domains: Vec::new(),
+            privileged_tags: Vec::new(),
+            continuous_auth: true,
+            session_timeout_secs: default_nhi_session_timeout(),
+        }
+    }
+}
+
+/// DPoP (Demonstration of Proof-of-Possession) configuration per RFC 9449.
+///
+/// Controls validation of DPoP proofs for sender-constrained tokens.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DpopConfig {
+    /// Require server-issued nonce in DPoP proofs. Default: true.
+    #[serde(default = "default_true")]
+    pub require_nonce: bool,
+
+    /// Maximum clock skew allowed in seconds. Default: 300 (5 minutes).
+    #[serde(default = "default_dpop_clock_skew")]
+    pub max_clock_skew_secs: u64,
+
+    /// Allowed signature algorithms. Default: ["ES256", "RS256", "EdDSA"].
+    #[serde(default = "default_dpop_algorithms")]
+    pub allowed_algorithms: Vec<String>,
+
+    /// Nonce validity period in seconds. Default: 300 (5 minutes).
+    #[serde(default = "default_dpop_nonce_ttl")]
+    pub nonce_ttl_secs: u64,
+
+    /// Maximum number of active nonces to track. Default: 10000.
+    #[serde(default = "default_dpop_max_nonces")]
+    pub max_nonces: usize,
+
+    /// Require access token hash (ath) claim when binding to tokens. Default: true.
+    #[serde(default = "default_true")]
+    pub require_ath: bool,
+
+    /// Maximum DPoP proof lifetime in seconds. Default: 60.
+    #[serde(default = "default_dpop_proof_lifetime")]
+    pub max_proof_lifetime_secs: u64,
+}
+
+fn default_dpop_clock_skew() -> u64 {
+    300 // 5 minutes
+}
+
+fn default_dpop_algorithms() -> Vec<String> {
+    vec![
+        "ES256".to_string(),
+        "RS256".to_string(),
+        "EdDSA".to_string(),
+    ]
+}
+
+fn default_dpop_nonce_ttl() -> u64 {
+    300 // 5 minutes
+}
+
+fn default_dpop_max_nonces() -> usize {
+    10000
+}
+
+fn default_dpop_proof_lifetime() -> u64 {
+    60 // 1 minute
+}
+
+impl Default for DpopConfig {
+    fn default() -> Self {
+        Self {
+            require_nonce: true,
+            max_clock_skew_secs: default_dpop_clock_skew(),
+            allowed_algorithms: default_dpop_algorithms(),
+            nonce_ttl_secs: default_dpop_nonce_ttl(),
+            max_nonces: default_dpop_max_nonces(),
+            require_ath: true,
+            max_proof_lifetime_secs: default_dpop_proof_lifetime(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4683,6 +4952,7 @@ policy_type = "Allow"
             jit_access: JitAccessConfig::default(),
             etdi: EtdiConfig::default(),
             memory_security: MemorySecurityConfig::default(),
+            nhi: NhiConfig::default(),
         };
         config.policies = (0..=MAX_POLICIES)
             .map(|i| PolicyRule {

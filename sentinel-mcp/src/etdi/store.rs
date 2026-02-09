@@ -226,7 +226,7 @@ impl EtdiStore {
 
         let json = serde_json::to_string(entry)?;
         let line = if let Some(ref key) = self.hmac_key {
-            let hmac = self.compute_hmac(key, &json);
+            let hmac = self.compute_hmac(key, &json)?;
             format!("{}\t{}\n", json, hmac)
         } else {
             format!("{}\n", json)
@@ -293,7 +293,7 @@ impl EtdiStore {
     async fn write_entry(&self, file: &mut fs::File, entry: &StoreEntry) -> Result<(), EtdiError> {
         let json = serde_json::to_string(entry)?;
         let line = if let Some(ref key) = self.hmac_key {
-            let hmac = self.compute_hmac(key, &json);
+            let hmac = self.compute_hmac(key, &json)?;
             format!("{}\t{}\n", json, hmac)
         } else {
             format!("{}\n", json)
@@ -310,17 +310,22 @@ impl EtdiStore {
         }
     }
 
-    fn compute_hmac(&self, key: &[u8; 32], data: &str) -> String {
-        let mut mac = HmacSha256::new_from_slice(key).expect("HMAC key length");
+    // SECURITY (FIND-027): Return Result instead of panicking on HMAC init failure.
+    fn compute_hmac(&self, key: &[u8; 32], data: &str) -> Result<String, EtdiError> {
+        let mut mac = HmacSha256::new_from_slice(key).map_err(|_| EtdiError::HmacInit)?;
         mac.update(data.as_bytes());
-        hex::encode(mac.finalize().into_bytes())
+        Ok(hex::encode(mac.finalize().into_bytes()))
     }
 
+    // SECURITY (FIND-027): Fail-closed on HMAC init failure (returns false).
     fn verify_hmac(&self, key: &[u8; 32], data: &str, expected_hex: &str) -> bool {
         let Ok(expected) = hex::decode(expected_hex) else {
             return false;
         };
-        let mut mac = HmacSha256::new_from_slice(key).expect("HMAC key length");
+        let Ok(mut mac) = HmacSha256::new_from_slice(key) else {
+            // Fail-closed: treat HMAC init failure as verification failure
+            return false;
+        };
         mac.update(data.as_bytes());
         mac.verify_slice(&expected).is_ok()
     }

@@ -1789,6 +1789,371 @@ pub struct MemorySecurityStats {
     pub pending_shares: u64,
 }
 
+// ═══════════════════════════════════════════════════
+// PHASE 10: NON-HUMAN IDENTITY (NHI) LIFECYCLE TYPES
+// ═══════════════════════════════════════════════════
+
+/// Attestation type for agent identity verification.
+///
+/// Determines how an agent proves its identity to Sentinel.
+/// Different attestation types offer varying levels of security.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NhiAttestationType {
+    /// JWT-based attestation (signed identity claims).
+    #[default]
+    Jwt,
+    /// Mutual TLS with client certificate.
+    Mtls,
+    /// SPIFFE/SPIRE workload identity.
+    Spiffe,
+    /// DPoP (Demonstration of Proof-of-Possession) per RFC 9449.
+    DPoP,
+    /// API key authentication (lowest security).
+    ApiKey,
+}
+
+impl fmt::Display for NhiAttestationType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NhiAttestationType::Jwt => write!(f, "jwt"),
+            NhiAttestationType::Mtls => write!(f, "mtls"),
+            NhiAttestationType::Spiffe => write!(f, "spiffe"),
+            NhiAttestationType::DPoP => write!(f, "dpop"),
+            NhiAttestationType::ApiKey => write!(f, "api_key"),
+        }
+    }
+}
+
+/// Status of an agent identity in the NHI lifecycle.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NhiIdentityStatus {
+    /// Identity is active and valid.
+    #[default]
+    Active,
+    /// Identity is suspended pending review.
+    Suspended,
+    /// Identity has been revoked.
+    Revoked,
+    /// Identity has expired.
+    Expired,
+    /// Identity is in a probationary period (new or recently restored).
+    Probationary,
+}
+
+impl fmt::Display for NhiIdentityStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NhiIdentityStatus::Active => write!(f, "active"),
+            NhiIdentityStatus::Suspended => write!(f, "suspended"),
+            NhiIdentityStatus::Revoked => write!(f, "revoked"),
+            NhiIdentityStatus::Expired => write!(f, "expired"),
+            NhiIdentityStatus::Probationary => write!(f, "probationary"),
+        }
+    }
+}
+
+/// Registered agent identity for NHI lifecycle management.
+///
+/// Tracks the full lifecycle of a non-human identity, including:
+/// - Attestation type and credentials
+/// - Behavioral baseline for continuous authentication
+/// - Credential rotation and expiration
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default)]
+pub struct NhiAgentIdentity {
+    /// Unique agent identifier.
+    pub id: String,
+    /// Human-readable name for the agent.
+    pub name: String,
+    /// Attestation type used for verification.
+    pub attestation_type: NhiAttestationType,
+    /// Current identity status.
+    pub status: NhiIdentityStatus,
+    /// SPIFFE ID if using SPIFFE attestation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spiffe_id: Option<String>,
+    /// Public key for signature verification (hex-encoded).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_key: Option<String>,
+    /// Key algorithm (e.g., "Ed25519", "ES256", "RS256").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_algorithm: Option<String>,
+    /// ISO 8601 timestamp when the identity was issued.
+    pub issued_at: String,
+    /// ISO 8601 timestamp when the identity expires.
+    pub expires_at: String,
+    /// ISO 8601 timestamp of last credential rotation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_rotation: Option<String>,
+    /// Number of successful authentications.
+    #[serde(default)]
+    pub auth_count: u64,
+    /// ISO 8601 timestamp of last successful authentication.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_auth: Option<String>,
+    /// Tags for categorization (e.g., "production", "internal").
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Custom metadata.
+    #[serde(default)]
+    pub metadata: HashMap<String, String>,
+}
+
+
+/// Behavioral baseline for continuous agent authentication.
+///
+/// Tracks typical behavior patterns to detect anomalies that might
+/// indicate credential theft or impersonation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct NhiBehavioralBaseline {
+    /// Agent ID this baseline belongs to.
+    pub agent_id: String,
+    /// Tool call frequency distribution (tool:function → calls per hour).
+    #[serde(default)]
+    pub tool_call_patterns: HashMap<String, f64>,
+    /// Average interval between requests in seconds.
+    #[serde(default)]
+    pub avg_request_interval_secs: f64,
+    /// Standard deviation of request intervals.
+    #[serde(default)]
+    pub request_interval_stddev: f64,
+    /// Typical session duration in seconds.
+    #[serde(default)]
+    pub typical_session_duration_secs: f64,
+    /// Number of observations used to build this baseline.
+    #[serde(default)]
+    pub observation_count: u64,
+    /// ISO 8601 timestamp when the baseline was first created.
+    pub created_at: String,
+    /// ISO 8601 timestamp when the baseline was last updated.
+    pub last_updated: String,
+    /// Confidence score (0.0 - 1.0) based on observation count.
+    #[serde(default)]
+    pub confidence: f64,
+    /// Typical IP addresses or ranges.
+    #[serde(default)]
+    pub typical_source_ips: Vec<String>,
+    /// Typical time windows (hour of day, 0-23).
+    #[serde(default)]
+    pub active_hours: Vec<u8>,
+}
+
+impl Default for NhiBehavioralBaseline {
+    fn default() -> Self {
+        Self {
+            agent_id: String::new(),
+            tool_call_patterns: HashMap::new(),
+            avg_request_interval_secs: 0.0,
+            request_interval_stddev: 0.0,
+            typical_session_duration_secs: 0.0,
+            observation_count: 0,
+            created_at: String::new(),
+            last_updated: String::new(),
+            confidence: 0.0,
+            typical_source_ips: Vec::new(),
+            active_hours: Vec::new(),
+        }
+    }
+}
+
+/// Result of behavioral attestation check.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct NhiBehavioralCheckResult {
+    /// Whether the behavior is within acceptable bounds.
+    pub within_baseline: bool,
+    /// Anomaly score (0.0 = normal, 1.0 = highly anomalous).
+    pub anomaly_score: f64,
+    /// Specific deviations detected.
+    #[serde(default)]
+    pub deviations: Vec<NhiBehavioralDeviation>,
+    /// Recommended action.
+    pub recommendation: NhiBehavioralRecommendation,
+}
+
+/// A specific behavioral deviation from the baseline.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct NhiBehavioralDeviation {
+    /// Type of deviation.
+    pub deviation_type: String,
+    /// Observed value.
+    pub observed: String,
+    /// Expected value or range.
+    pub expected: String,
+    /// Severity (0.0 - 1.0).
+    pub severity: f64,
+}
+
+/// Recommended action based on behavioral analysis.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NhiBehavioralRecommendation {
+    /// Allow the request normally.
+    Allow,
+    /// Allow but log for review.
+    AllowWithLogging,
+    /// Require additional authentication.
+    StepUpAuth,
+    /// Suspend the identity pending review.
+    Suspend,
+    /// Revoke the identity immediately.
+    Revoke,
+}
+
+impl fmt::Display for NhiBehavioralRecommendation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NhiBehavioralRecommendation::Allow => write!(f, "allow"),
+            NhiBehavioralRecommendation::AllowWithLogging => write!(f, "allow_with_logging"),
+            NhiBehavioralRecommendation::StepUpAuth => write!(f, "step_up_auth"),
+            NhiBehavioralRecommendation::Suspend => write!(f, "suspend"),
+            NhiBehavioralRecommendation::Revoke => write!(f, "revoke"),
+        }
+    }
+}
+
+/// A link in a delegation chain for NHI accountability.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct NhiDelegationLink {
+    /// Agent delegating permissions.
+    pub from_agent: String,
+    /// Agent receiving permissions.
+    pub to_agent: String,
+    /// Permissions being delegated.
+    pub permissions: Vec<String>,
+    /// Scope constraints (e.g., "tools:read_file", "domains:*.internal").
+    #[serde(default)]
+    pub scope_constraints: Vec<String>,
+    /// ISO 8601 timestamp when the delegation was created.
+    pub created_at: String,
+    /// ISO 8601 timestamp when the delegation expires.
+    pub expires_at: String,
+    /// Whether the delegation is currently active.
+    #[serde(default = "default_true_nhi")]
+    pub active: bool,
+    /// Reason for the delegation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+fn default_true_nhi() -> bool {
+    true
+}
+
+/// Full delegation chain for audit and accountability.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct NhiDelegationChain {
+    /// Ordered list of delegation links from origin to current agent.
+    pub chain: Vec<NhiDelegationLink>,
+    /// Maximum allowed chain depth.
+    pub max_depth: usize,
+    /// ISO 8601 timestamp when this chain was resolved.
+    pub resolved_at: String,
+}
+
+impl NhiDelegationChain {
+    /// Returns the current depth of the chain.
+    pub fn depth(&self) -> usize {
+        self.chain.len()
+    }
+
+    /// Returns true if the chain exceeds the maximum allowed depth.
+    pub fn exceeds_max_depth(&self) -> bool {
+        self.chain.len() > self.max_depth
+    }
+
+    /// Returns the originating agent (first in chain).
+    pub fn origin(&self) -> Option<&str> {
+        self.chain.first().map(|link| link.from_agent.as_str())
+    }
+
+    /// Returns the final delegated agent (last to_agent in chain).
+    pub fn terminus(&self) -> Option<&str> {
+        self.chain.last().map(|link| link.to_agent.as_str())
+    }
+}
+
+/// DPoP (Demonstration of Proof-of-Possession) proof for RFC 9449 compliance.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct NhiDpopProof {
+    /// The DPoP proof JWT.
+    pub proof: String,
+    /// HTTP method (e.g., "POST").
+    pub htm: String,
+    /// HTTP URI.
+    pub htu: String,
+    /// Access token hash (ath claim) if binding to an access token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ath: Option<String>,
+    /// Nonce from the server (if required).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<String>,
+    /// ISO 8601 timestamp of proof creation.
+    pub iat: String,
+    /// Unique identifier for replay prevention (jti claim).
+    pub jti: String,
+}
+
+/// Result of DPoP proof verification.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct NhiDpopVerificationResult {
+    /// Whether the proof is valid.
+    pub valid: bool,
+    /// Public key thumbprint (JWK thumbprint).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbprint: Option<String>,
+    /// Error message if verification failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Nonce to return for retry (if applicable).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_nonce: Option<String>,
+}
+
+/// Statistics for NHI lifecycle management.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct NhiStats {
+    /// Total registered agent identities.
+    pub total_identities: u64,
+    /// Active identities.
+    pub active_identities: u64,
+    /// Suspended identities.
+    pub suspended_identities: u64,
+    /// Revoked identities.
+    pub revoked_identities: u64,
+    /// Expired identities.
+    pub expired_identities: u64,
+    /// Identities with behavioral baselines.
+    pub with_baselines: u64,
+    /// Authentications in the last hour.
+    pub auths_last_hour: u64,
+    /// Behavioral anomalies detected in the last hour.
+    pub anomalies_last_hour: u64,
+    /// Active delegations.
+    pub active_delegations: u64,
+    /// DPoP proofs verified in the last hour.
+    pub dpop_verifications_last_hour: u64,
+}
+
+/// Credential rotation event for audit.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct NhiCredentialRotation {
+    /// Agent ID.
+    pub agent_id: String,
+    /// Previous key thumbprint (if applicable).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_thumbprint: Option<String>,
+    /// New key thumbprint.
+    pub new_thumbprint: String,
+    /// ISO 8601 timestamp of rotation.
+    pub rotated_at: String,
+    /// Rotation trigger (scheduled, manual, security_event).
+    pub trigger: String,
+    /// New expiration time.
+    pub new_expires_at: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3278,5 +3643,214 @@ mod tests {
         let json_str = serde_json::to_string(&alert).unwrap();
         let deserialized: VersionDriftAlert = serde_json::from_str(&json_str).unwrap();
         assert_eq!(alert, deserialized);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 10: NHI LIFECYCLE TYPES TESTS
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_nhi_attestation_type_serialization() {
+        let types = vec![
+            NhiAttestationType::Jwt,
+            NhiAttestationType::Mtls,
+            NhiAttestationType::Spiffe,
+            NhiAttestationType::DPoP,
+            NhiAttestationType::ApiKey,
+        ];
+        for atype in types {
+            let json_str = serde_json::to_string(&atype).unwrap();
+            let deserialized: NhiAttestationType = serde_json::from_str(&json_str).unwrap();
+            assert_eq!(atype, deserialized);
+        }
+    }
+
+    #[test]
+    fn test_nhi_attestation_type_display() {
+        assert_eq!(NhiAttestationType::Jwt.to_string(), "jwt");
+        assert_eq!(NhiAttestationType::Mtls.to_string(), "mtls");
+        assert_eq!(NhiAttestationType::Spiffe.to_string(), "spiffe");
+        assert_eq!(NhiAttestationType::DPoP.to_string(), "dpop");
+        assert_eq!(NhiAttestationType::ApiKey.to_string(), "api_key");
+    }
+
+    #[test]
+    fn test_nhi_identity_status_serialization() {
+        let statuses = vec![
+            NhiIdentityStatus::Active,
+            NhiIdentityStatus::Suspended,
+            NhiIdentityStatus::Revoked,
+            NhiIdentityStatus::Expired,
+            NhiIdentityStatus::Probationary,
+        ];
+        for status in statuses {
+            let json_str = serde_json::to_string(&status).unwrap();
+            let deserialized: NhiIdentityStatus = serde_json::from_str(&json_str).unwrap();
+            assert_eq!(status, deserialized);
+        }
+    }
+
+    #[test]
+    fn test_nhi_identity_status_display() {
+        assert_eq!(NhiIdentityStatus::Active.to_string(), "active");
+        assert_eq!(NhiIdentityStatus::Suspended.to_string(), "suspended");
+        assert_eq!(NhiIdentityStatus::Revoked.to_string(), "revoked");
+        assert_eq!(NhiIdentityStatus::Expired.to_string(), "expired");
+        assert_eq!(NhiIdentityStatus::Probationary.to_string(), "probationary");
+    }
+
+    #[test]
+    fn test_nhi_agent_identity_serialization() {
+        let identity = NhiAgentIdentity {
+            id: "agent-123".to_string(),
+            name: "Test Agent".to_string(),
+            attestation_type: NhiAttestationType::Spiffe,
+            status: NhiIdentityStatus::Active,
+            spiffe_id: Some("spiffe://example.org/agent/test".to_string()),
+            public_key: Some("abc123".to_string()),
+            key_algorithm: Some("Ed25519".to_string()),
+            issued_at: "2026-01-01T00:00:00Z".to_string(),
+            expires_at: "2027-01-01T00:00:00Z".to_string(),
+            last_rotation: Some("2026-06-01T00:00:00Z".to_string()),
+            auth_count: 42,
+            last_auth: Some("2026-02-01T12:00:00Z".to_string()),
+            tags: vec!["production".to_string(), "internal".to_string()],
+            metadata: {
+                let mut m = HashMap::new();
+                m.insert("team".to_string(), "platform".to_string());
+                m
+            },
+        };
+        let json_str = serde_json::to_string(&identity).unwrap();
+        let deserialized: NhiAgentIdentity = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(identity, deserialized);
+    }
+
+    #[test]
+    fn test_nhi_behavioral_baseline_serialization() {
+        let baseline = NhiBehavioralBaseline {
+            agent_id: "agent-123".to_string(),
+            tool_call_patterns: {
+                let mut m = HashMap::new();
+                m.insert("file:read".to_string(), 10.5);
+                m.insert("http:get".to_string(), 5.2);
+                m
+            },
+            avg_request_interval_secs: 2.5,
+            request_interval_stddev: 0.8,
+            typical_session_duration_secs: 3600.0,
+            observation_count: 1000,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            last_updated: "2026-02-01T00:00:00Z".to_string(),
+            confidence: 0.95,
+            typical_source_ips: vec!["10.0.0.0/8".to_string()],
+            active_hours: vec![9, 10, 11, 12, 13, 14, 15, 16, 17],
+        };
+        let json_str = serde_json::to_string(&baseline).unwrap();
+        let deserialized: NhiBehavioralBaseline = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(baseline, deserialized);
+    }
+
+    #[test]
+    fn test_nhi_behavioral_recommendation_display() {
+        assert_eq!(NhiBehavioralRecommendation::Allow.to_string(), "allow");
+        assert_eq!(NhiBehavioralRecommendation::AllowWithLogging.to_string(), "allow_with_logging");
+        assert_eq!(NhiBehavioralRecommendation::StepUpAuth.to_string(), "step_up_auth");
+        assert_eq!(NhiBehavioralRecommendation::Suspend.to_string(), "suspend");
+        assert_eq!(NhiBehavioralRecommendation::Revoke.to_string(), "revoke");
+    }
+
+    #[test]
+    fn test_nhi_delegation_chain_depth() {
+        let chain = NhiDelegationChain {
+            chain: vec![
+                NhiDelegationLink {
+                    from_agent: "agent-a".to_string(),
+                    to_agent: "agent-b".to_string(),
+                    permissions: vec!["read".to_string()],
+                    scope_constraints: vec!["tools:file_*".to_string()],
+                    created_at: "2026-01-01T00:00:00Z".to_string(),
+                    expires_at: "2026-02-01T00:00:00Z".to_string(),
+                    active: true,
+                    reason: Some("Temporary delegation".to_string()),
+                },
+                NhiDelegationLink {
+                    from_agent: "agent-b".to_string(),
+                    to_agent: "agent-c".to_string(),
+                    permissions: vec!["read".to_string()],
+                    scope_constraints: vec![],
+                    created_at: "2026-01-01T00:00:00Z".to_string(),
+                    expires_at: "2026-02-01T00:00:00Z".to_string(),
+                    active: true,
+                    reason: None,
+                },
+            ],
+            max_depth: 5,
+            resolved_at: "2026-01-15T00:00:00Z".to_string(),
+        };
+        assert_eq!(chain.depth(), 2);
+        assert!(!chain.exceeds_max_depth());
+        assert_eq!(chain.origin(), Some("agent-a"));
+        assert_eq!(chain.terminus(), Some("agent-c"));
+    }
+
+    #[test]
+    fn test_nhi_delegation_chain_exceeds_max() {
+        let chain = NhiDelegationChain {
+            chain: vec![
+                NhiDelegationLink {
+                    from_agent: "a".to_string(),
+                    to_agent: "b".to_string(),
+                    permissions: vec![],
+                    scope_constraints: vec![],
+                    created_at: "".to_string(),
+                    expires_at: "".to_string(),
+                    active: true,
+                    reason: None,
+                },
+            ],
+            max_depth: 0, // Max depth of 0 means no delegation allowed
+            resolved_at: "".to_string(),
+        };
+        assert!(chain.exceeds_max_depth());
+    }
+
+    #[test]
+    fn test_nhi_dpop_proof_serialization() {
+        let proof = NhiDpopProof {
+            proof: "eyJ0eXAiOiJkcG9wK2p3dCIsImFsZyI6IkVTMjU2In0...".to_string(),
+            htm: "POST".to_string(),
+            htu: "https://api.example.com/resource".to_string(),
+            ath: Some("fUHyO2r2Z3DZ53EsNrWBb0xWXoaNy59IiKCAqksmQEo".to_string()),
+            nonce: Some("server-nonce-123".to_string()),
+            iat: "2026-02-01T12:00:00Z".to_string(),
+            jti: "unique-id-456".to_string(),
+        };
+        let json_str = serde_json::to_string(&proof).unwrap();
+        let deserialized: NhiDpopProof = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(proof, deserialized);
+    }
+
+    #[test]
+    fn test_nhi_stats_default() {
+        let stats = NhiStats::default();
+        assert_eq!(stats.total_identities, 0);
+        assert_eq!(stats.active_identities, 0);
+        assert_eq!(stats.active_delegations, 0);
+    }
+
+    #[test]
+    fn test_nhi_credential_rotation_serialization() {
+        let rotation = NhiCredentialRotation {
+            agent_id: "agent-123".to_string(),
+            previous_thumbprint: Some("old-thumb".to_string()),
+            new_thumbprint: "new-thumb".to_string(),
+            rotated_at: "2026-02-01T00:00:00Z".to_string(),
+            trigger: "scheduled".to_string(),
+            new_expires_at: "2027-02-01T00:00:00Z".to_string(),
+        };
+        let json_str = serde_json::to_string(&rotation).unwrap();
+        let deserialized: NhiCredentialRotation = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(rotation, deserialized);
     }
 }

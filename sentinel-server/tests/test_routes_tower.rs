@@ -71,6 +71,7 @@ fn make_state() -> (AppState, TempDir) {
         etdi_attestations: None,
         etdi_version_pins: None,
         memory_security: None,
+        nhi: None,
     };
     (state, tmp)
 }
@@ -114,6 +115,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         etdi_attestations: None,
         etdi_version_pins: None,
         memory_security: None,
+        nhi: None,
     };
     (state, tmp)
 }
@@ -978,6 +980,7 @@ priority = 1
         etdi_attestations: None,
         etdi_version_pins: None,
         memory_security: None,
+        nhi: None,
     };
     let app = routes::build_router(state.clone());
 
@@ -1086,6 +1089,7 @@ fn make_approval_state() -> (AppState, TempDir) {
         etdi_attestations: None,
         etdi_version_pins: None,
         memory_security: None,
+        nhi: None,
     };
     (state, tmp)
 }
@@ -1555,6 +1559,7 @@ fn make_authed_state() -> (AppState, TempDir) {
         etdi_attestations: None,
         etdi_version_pins: None,
         memory_security: None,
+        nhi: None,
     };
     (state, tmp)
 }
@@ -2048,6 +2053,7 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         etdi_attestations: None,
         etdi_version_pins: None,
         memory_security: None,
+        nhi: None,
     };
     (state, tmp)
 }
@@ -2716,6 +2722,7 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         etdi_attestations: None,
         etdi_version_pins: None,
         memory_security: None,
+        nhi: None,
     };
     (state, tmp)
 }

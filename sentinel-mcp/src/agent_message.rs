@@ -34,6 +34,9 @@ pub enum MessageError {
     VerificationFailed(String),
     #[error("Missing sender public key")]
     MissingSenderKey,
+    /// SECURITY (FIND-027): Random nonce generation failed (no entropy).
+    #[error("Random nonce generation failed")]
+    RandomGeneratorFailed,
 }
 
 /// Signed inter-agent message envelope.
@@ -82,14 +85,15 @@ mod signature_serde {
 
 impl SignedAgentMessage {
     /// Sign a message with the sender's private key.
+    /// SECURITY (FIND-027): Returns Result to handle RNG failure without panic.
     pub fn sign(
         sender_key: &SigningKey,
         sender_id: &str,
         recipient: &str,
         payload: &[u8],
-    ) -> Self {
+    ) -> Result<Self, MessageError> {
         let mut nonce = [0u8; 32];
-        getrandom::getrandom(&mut nonce).expect("Failed to generate random nonce");
+        getrandom::getrandom(&mut nonce).map_err(|_| MessageError::RandomGeneratorFailed)?;
 
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -99,14 +103,14 @@ impl SignedAgentMessage {
         let message_bytes = Self::build_signing_input(sender_id, recipient, payload, &nonce, timestamp);
         let signature = sender_key.sign(&message_bytes);
 
-        Self {
+        Ok(Self {
             sender: sender_id.to_string(),
             recipient: recipient.to_string(),
             payload: payload.to_vec(),
             signature: signature.to_bytes(),
             nonce,
             timestamp,
-        }
+        })
     }
 
     /// Verify the message signature and freshness.
@@ -321,7 +325,7 @@ impl AgentKeyPair {
     }
 
     /// Sign a message to another agent.
-    pub fn sign_message(&self, recipient: &str, payload: &[u8]) -> SignedAgentMessage {
+    pub fn sign_message(&self, recipient: &str, payload: &[u8]) -> Result<SignedAgentMessage, MessageError> {
         SignedAgentMessage::sign(&self.signing_key, &self.agent_id, recipient, payload)
     }
 
@@ -414,7 +418,7 @@ mod tests {
         let registry = AgentKeyRegistry::new();
         registry.register("alice", *alice.verifying_key());
 
-        let message = alice.sign_message("bob", b"Hello, Bob!");
+        let message = alice.sign_message("bob", b"Hello, Bob!").unwrap();
 
         assert_eq!(message.sender, "alice");
         assert_eq!(message.recipient, "bob");
@@ -433,7 +437,7 @@ mod tests {
         // Register Eve's key as Alice's (simulating key confusion)
         registry.register("alice", *eve.verifying_key());
 
-        let message = alice.sign_message("bob", b"Hello, Bob!");
+        let message = alice.sign_message("bob", b"Hello, Bob!").unwrap();
 
         // Verification should fail
         let result = registry.verify_message(&message, 60, None);
@@ -446,7 +450,7 @@ mod tests {
         let registry = AgentKeyRegistry::new();
         registry.register("alice", *alice.verifying_key());
 
-        let mut message = alice.sign_message("bob", b"Hello!");
+        let mut message = alice.sign_message("bob", b"Hello!").unwrap();
         // Set timestamp to 2 hours ago
         message.timestamp -= 7200;
 
@@ -464,7 +468,7 @@ mod tests {
         registry.register("alice", *alice.verifying_key());
         let nonce_tracker = NonceTracker::new(300);
 
-        let message = alice.sign_message("bob", b"Hello!");
+        let message = alice.sign_message("bob", b"Hello!").unwrap();
 
         // First verification should succeed
         let result = registry.verify_message(&message, 60, Some(&nonce_tracker));
@@ -519,7 +523,7 @@ mod tests {
         let registry = AgentKeyRegistry::new();
         // Don't register alice's key
 
-        let message = alice.sign_message("bob", b"Hello!");
+        let message = alice.sign_message("bob", b"Hello!").unwrap();
 
         let result = registry.verify_message(&message, 60, None);
         assert!(matches!(result, Err(MessageError::MissingSenderKey)));
@@ -542,11 +546,11 @@ mod tests {
     #[test]
     fn test_payload_str() {
         let alice = AgentKeyPair::generate("alice");
-        let message = alice.sign_message("bob", b"Hello, World!");
+        let message = alice.sign_message("bob", b"Hello, World!").unwrap();
         assert_eq!(message.payload_str(), Some("Hello, World!"));
 
         // Invalid UTF-8
-        let message = alice.sign_message("bob", &[0xff, 0xfe]);
+        let message = alice.sign_message("bob", &[0xff, 0xfe]).unwrap();
         assert_eq!(message.payload_str(), None);
     }
 }

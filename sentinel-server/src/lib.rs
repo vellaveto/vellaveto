@@ -647,6 +647,14 @@ pub struct AppState {
     /// Memory security manager for MINJA defense.
     /// None when memory security is disabled.
     pub memory_security: Option<Arc<sentinel_mcp::memory_security::MemorySecurityManager>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 10: Non-Human Identity (NHI) Lifecycle
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// NHI manager for agent identity lifecycle management.
+    /// None when NHI is disabled.
+    pub nhi: Option<Arc<sentinel_mcp::nhi::NhiManager>>,
 }
 
 /// Error type for cluster-dispatched approval operations.
@@ -850,6 +858,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             jit_access: Default::default(),
             etdi: Default::default(),
             memory_security: Default::default(),
+            nhi: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

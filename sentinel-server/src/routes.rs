@@ -144,6 +144,32 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/memory/namespaces", post(create_memory_namespace))
         .route("/api/memory/namespaces/{id}/share", post(share_memory_namespace))
         .route("/api/memory/stats", get(memory_security_stats))
+        // ═══════════════════════════════════════════════════════════════════
+        // Phase 10: Non-Human Identity (NHI) Lifecycle
+        // ═══════════════════════════════════════════════════════════════════
+        // Agent Identities
+        .route("/api/nhi/agents", get(list_nhi_agents))
+        .route("/api/nhi/agents", post(register_nhi_agent))
+        .route("/api/nhi/agents/{id}", get(get_nhi_agent))
+        .route("/api/nhi/agents/{id}", delete(revoke_nhi_agent))
+        .route("/api/nhi/agents/{id}/activate", post(activate_nhi_agent))
+        .route("/api/nhi/agents/{id}/suspend", post(suspend_nhi_agent))
+        // Behavioral Baselines
+        .route("/api/nhi/agents/{id}/baseline", get(get_nhi_baseline))
+        .route("/api/nhi/agents/{id}/check", post(check_nhi_behavior))
+        // Delegations
+        .route("/api/nhi/delegations", get(list_nhi_delegations))
+        .route("/api/nhi/delegations", post(create_nhi_delegation))
+        .route("/api/nhi/delegations/{from}/{to}", get(get_nhi_delegation))
+        .route("/api/nhi/delegations/{from}/{to}", delete(revoke_nhi_delegation))
+        .route("/api/nhi/delegations/{id}/chain", get(get_nhi_delegation_chain))
+        // Credentials
+        .route("/api/nhi/agents/{id}/rotate", post(rotate_nhi_credentials))
+        .route("/api/nhi/expiring", get(get_expiring_nhi_identities))
+        // DPoP
+        .route("/api/nhi/dpop/nonce", post(generate_dpop_nonce))
+        // Stats
+        .route("/api/nhi/stats", get(nhi_stats))
         // SECURITY (R38-SRV-1): /metrics inside auth — exposes policy count
         // and pending approval count, which are security-sensitive (see R26-SRV-6).
         // SECURITY (R38-SRV-2): /metrics inside rate_limit — prevents scraper DoS.
@@ -4168,6 +4194,380 @@ async fn memory_security_stats(
     Ok(Json(json!({
         "stats": stats,
     })))
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE 10: NHI (NON-HUMAN IDENTITY) LIFECYCLE ENDPOINTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// List all NHI agent identities.
+async fn list_nhi_agents(
+    State(state): State<crate::AppState>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(ref manager) = state.nhi else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "NHI not enabled"})),
+        ));
+    };
+
+    let status_filter = params.get("status").and_then(|s| match s.as_str() {
+        "active" => Some(sentinel_types::NhiIdentityStatus::Active),
+        "suspended" => Some(sentinel_types::NhiIdentityStatus::Suspended),
+        "revoked" => Some(sentinel_types::NhiIdentityStatus::Revoked),
+        "expired" => Some(sentinel_types::NhiIdentityStatus::Expired),
+        "probationary" => Some(sentinel_types::NhiIdentityStatus::Probationary),
+        _ => None,
+    });
+
+    let agents = manager.list_identities(status_filter).await;
+    Ok(Json(json!({"agents": agents})))
+}
+
+/// Register a new NHI agent identity.
+async fn register_nhi_agent(
+    State(state): State<crate::AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(ref manager) = state.nhi else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "NHI not enabled"})),
+        ));
+    };
+
+    let name = body["name"].as_str().unwrap_or("unnamed");
+    let attestation_type = match body["attestation_type"].as_str().unwrap_or("jwt") {
+        "jwt" => sentinel_types::NhiAttestationType::Jwt,
+        "mtls" => sentinel_types::NhiAttestationType::Mtls,
+        "spiffe" => sentinel_types::NhiAttestationType::Spiffe,
+        "dpop" => sentinel_types::NhiAttestationType::DPoP,
+        "api_key" => sentinel_types::NhiAttestationType::ApiKey,
+        _ => sentinel_types::NhiAttestationType::Jwt,
+    };
+    let spiffe_id = body["spiffe_id"].as_str();
+    let public_key = body["public_key"].as_str();
+    let key_algorithm = body["key_algorithm"].as_str();
+    let ttl_secs = body["ttl_secs"].as_u64();
+    let tags: Vec<String> = body["tags"]
+        .as_array()
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default();
+    let metadata: std::collections::HashMap<String, String> = body["metadata"]
+        .as_object()
+        .map(|obj| {
+            obj.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    match manager
+        .register_identity(name, attestation_type, spiffe_id, public_key, key_algorithm, ttl_secs, tags, metadata)
+        .await
+    {
+        Ok(id) => Ok(Json(json!({"id": id, "status": "registered"}))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()})))),
+    }
+}
+
+/// Get a specific NHI agent identity.
+async fn get_nhi_agent(
+    State(state): State<crate::AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(ref manager) = state.nhi else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "NHI not enabled"})),
+        ));
+    };
+
+    match manager.get_identity(&id).await {
+        Some(agent) => Ok(Json(json!({"agent": agent}))),
+        None => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Agent not found"})))),
+    }
+}
+
+/// Revoke an NHI agent identity.
+async fn revoke_nhi_agent(
+    State(state): State<crate::AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(ref manager) = state.nhi else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "NHI not enabled"})),
+        ));
+    };
+
+    match manager.update_status(&id, sentinel_types::NhiIdentityStatus::Revoked).await {
+        Ok(()) => Ok(Json(json!({"status": "revoked"}))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()})))),
+    }
+}
+
+/// Activate an NHI agent identity.
+async fn activate_nhi_agent(
+    State(state): State<crate::AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(ref manager) = state.nhi else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "NHI not enabled"})),
+        ));
+    };
+
+    match manager.activate_identity(&id).await {
+        Ok(()) => Ok(Json(json!({"status": "active"}))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()})))),
+    }
+}
+
+/// Suspend an NHI agent identity.
+async fn suspend_nhi_agent(
+    State(state): State<crate::AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(ref manager) = state.nhi else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "NHI not enabled"})),
+        ));
+    };
+
+    match manager.update_status(&id, sentinel_types::NhiIdentityStatus::Suspended).await {
+        Ok(()) => Ok(Json(json!({"status": "suspended"}))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()})))),
+    }
+}
+
+/// Get the behavioral baseline for an NHI agent.
+async fn get_nhi_baseline(
+    State(state): State<crate::AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(ref manager) = state.nhi else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "NHI not enabled"})),
+        ));
+    };
+
+    match manager.get_baseline(&id).await {
+        Some(baseline) => Ok(Json(json!({"baseline": baseline}))),
+        None => Err((StatusCode::NOT_FOUND, Json(json!({"error": "No baseline for agent"})))),
+    }
+}
+
+/// Check behavior against baseline for an NHI agent.
+async fn check_nhi_behavior(
+    State(state): State<crate::AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(ref manager) = state.nhi else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "NHI not enabled"})),
+        ));
+    };
+
+    let tool_call = body["tool_call"].as_str().unwrap_or("unknown");
+    let request_interval = body["request_interval_secs"].as_f64();
+    let source_ip = body["source_ip"].as_str();
+
+    let result = manager.check_behavior(&id, tool_call, request_interval, source_ip).await;
+    Ok(Json(json!({"result": result})))
+}
+
+/// List NHI delegations.
+async fn list_nhi_delegations(
+    State(state): State<crate::AppState>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(ref manager) = state.nhi else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "NHI not enabled"})),
+        ));
+    };
+
+    let agent_id = params.get("agent_id");
+    let delegations = if let Some(agent) = agent_id {
+        manager.list_delegations(agent).await
+    } else {
+        // Return all delegations for the first agent or empty
+        Vec::new()
+    };
+
+    Ok(Json(json!({"delegations": delegations})))
+}
+
+/// Create an NHI delegation.
+async fn create_nhi_delegation(
+    State(state): State<crate::AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(ref manager) = state.nhi else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "NHI not enabled"})),
+        ));
+    };
+
+    let from_agent = body["from_agent"].as_str().ok_or_else(|| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "from_agent required"})))
+    })?;
+    let to_agent = body["to_agent"].as_str().ok_or_else(|| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "to_agent required"})))
+    })?;
+    let permissions: Vec<String> = body["permissions"]
+        .as_array()
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default();
+    let scope_constraints: Vec<String> = body["scope_constraints"]
+        .as_array()
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default();
+    let ttl_secs = body["ttl_secs"].as_u64().unwrap_or(3600);
+    let reason = body["reason"].as_str().map(|s| s.to_string());
+
+    match manager
+        .create_delegation(from_agent, to_agent, permissions, scope_constraints, ttl_secs, reason)
+        .await
+    {
+        Ok(delegation) => Ok(Json(json!({"delegation": delegation}))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()})))),
+    }
+}
+
+/// Get a specific NHI delegation.
+async fn get_nhi_delegation(
+    State(state): State<crate::AppState>,
+    Path((from, to)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(ref manager) = state.nhi else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "NHI not enabled"})),
+        ));
+    };
+
+    match manager.get_delegation(&from, &to).await {
+        Some(delegation) => Ok(Json(json!({"delegation": delegation}))),
+        None => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Delegation not found"})))),
+    }
+}
+
+/// Revoke an NHI delegation.
+async fn revoke_nhi_delegation(
+    State(state): State<crate::AppState>,
+    Path((from, to)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(ref manager) = state.nhi else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "NHI not enabled"})),
+        ));
+    };
+
+    match manager.revoke_delegation(&from, &to).await {
+        Ok(()) => Ok(Json(json!({"status": "revoked"}))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()})))),
+    }
+}
+
+/// Get the full delegation chain for an agent.
+async fn get_nhi_delegation_chain(
+    State(state): State<crate::AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(ref manager) = state.nhi else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "NHI not enabled"})),
+        ));
+    };
+
+    let chain = manager.resolve_delegation_chain(&id).await;
+    Ok(Json(json!({"chain": chain})))
+}
+
+/// Rotate credentials for an NHI agent.
+async fn rotate_nhi_credentials(
+    State(state): State<crate::AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(ref manager) = state.nhi else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "NHI not enabled"})),
+        ));
+    };
+
+    let new_public_key = body["new_public_key"].as_str().ok_or_else(|| {
+        (StatusCode::BAD_REQUEST, Json(json!({"error": "new_public_key required"})))
+    })?;
+    let new_key_algorithm = body["new_key_algorithm"].as_str();
+    let trigger = body["trigger"].as_str().unwrap_or("manual");
+    let new_ttl_secs = body["new_ttl_secs"].as_u64();
+
+    match manager
+        .rotate_credentials(&id, new_public_key, new_key_algorithm, trigger, new_ttl_secs)
+        .await
+    {
+        Ok(rotation) => Ok(Json(json!({"rotation": rotation}))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()})))),
+    }
+}
+
+/// Get identities expiring within the warning window.
+async fn get_expiring_nhi_identities(
+    State(state): State<crate::AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(ref manager) = state.nhi else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "NHI not enabled"})),
+        ));
+    };
+
+    let expiring = manager.get_expiring_identities().await;
+    Ok(Json(json!({"expiring": expiring})))
+}
+
+/// Generate a DPoP nonce.
+async fn generate_dpop_nonce(
+    State(state): State<crate::AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(ref manager) = state.nhi else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "NHI not enabled"})),
+        ));
+    };
+
+    let nonce = manager.generate_dpop_nonce().await;
+    Ok(Json(json!({"nonce": nonce})))
+}
+
+/// Get NHI statistics.
+async fn nhi_stats(
+    State(state): State<crate::AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(ref manager) = state.nhi else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "NHI not enabled"})),
+        ));
+    };
+
+    let stats = manager.stats().await;
+    Ok(Json(json!({"stats": stats})))
 }
 
 #[cfg(test)]

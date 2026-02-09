@@ -687,6 +687,9 @@ async fn cmd_serve(
         // Phase 9: Memory Injection Defense (MINJA) — default: None (disabled)
         // TODO: Initialize from PolicyConfig.memory_security when enabled in configuration
         memory_security: None,
+        // Phase 10: Non-Human Identity (NHI) Lifecycle — default: None (disabled)
+        // TODO: Initialize from PolicyConfig.nhi when enabled in configuration
+        nhi: None,
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -1046,6 +1049,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         jit_access: Default::default(),
         etdi: Default::default(),
         memory_security: Default::default(),
+        nhi: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

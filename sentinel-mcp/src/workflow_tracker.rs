@@ -256,29 +256,26 @@ impl WorkflowTracker {
     ) -> StepResult {
         let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
 
-        let session = match sessions.get_mut(session_id) {
-            Some(s) => s,
-            None => {
-                // Auto-create session and workflow
-                let mut new_session = SessionWorkflows {
-                    workflows: HashMap::new(),
-                    recent_tools: VecDeque::with_capacity(20),
-                    last_activity: Instant::now(),
-                    total_steps: 0,
-                };
-                let workflow = WorkflowState {
-                    id: workflow_id.to_string(),
-                    actions: VecDeque::new(),
-                    started_at: Instant::now(),
-                    last_activity: Instant::now(),
-                    active: true,
-                    custom_budget: None,
-                };
-                new_session.workflows.insert(workflow_id.to_string(), workflow);
-                sessions.insert(session_id.to_string(), new_session);
-                sessions.get_mut(session_id).unwrap()
-            }
-        };
+        // SECURITY (FIND-027): Use entry API to avoid unwrap() after insert.
+        let session = sessions.entry(session_id.to_string()).or_insert_with(|| {
+            // Auto-create session with initial workflow
+            let mut new_session = SessionWorkflows {
+                workflows: HashMap::new(),
+                recent_tools: VecDeque::with_capacity(20),
+                last_activity: Instant::now(),
+                total_steps: 0,
+            };
+            let workflow = WorkflowState {
+                id: workflow_id.to_string(),
+                actions: VecDeque::new(),
+                started_at: Instant::now(),
+                last_activity: Instant::now(),
+                active: true,
+                custom_budget: None,
+            };
+            new_session.workflows.insert(workflow_id.to_string(), workflow);
+            new_session
+        });
 
         session.last_activity = Instant::now();
 

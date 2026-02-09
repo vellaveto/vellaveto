@@ -392,6 +392,7 @@ mod server_auth {
         etdi_attestations: None,
         etdi_version_pins: None,
         memory_security: None,
+        nhi: None,
         };
         (state, tmp)
     }
@@ -529,6 +530,7 @@ mod server_auth {
         etdi_attestations: None,
         etdi_version_pins: None,
         memory_security: None,
+        nhi: None,
         };
         let app = routes::build_router(state);
 
@@ -1133,6 +1135,7 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         etdi_attestations: None,
         etdi_version_pins: None,
         memory_security: None,
+        nhi: None,
     };
 
     let app = routes::build_router(state);
@@ -1236,6 +1239,7 @@ async fn finding_12_approval_creation_failure_denies_request() {
         etdi_attestations: None,
         etdi_version_pins: None,
         memory_security: None,
+        nhi: None,
     };
 
     let app = routes::build_router(state);
