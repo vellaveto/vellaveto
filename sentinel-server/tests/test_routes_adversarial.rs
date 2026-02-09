@@ -71,6 +71,9 @@ fn make_state() -> (AppState, TempDir) {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        // Server Configuration (FIND-004, FIND-005)
+        metrics_require_auth: true,
+        audit_strict_mode: false,
     };
     (state, tmp)
 }
@@ -115,6 +118,9 @@ fn make_empty_state() -> (AppState, TempDir) {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        // Server Configuration (FIND-004, FIND-005)
+        metrics_require_auth: true,
+        audit_strict_mode: false,
     };
     (state, tmp)
 }
@@ -543,6 +549,9 @@ priority = 1
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        // Server Configuration (FIND-004, FIND-005)
+        metrics_require_auth: true,
+        audit_strict_mode: false,
     };
     let policy_state = state.policy_state.clone();
     let app = routes::build_router(state);
@@ -654,6 +663,9 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        // Server Configuration (FIND-004, FIND-005)
+        metrics_require_auth: true,
+        audit_strict_mode: false,
     };
     let app = routes::build_router(state);
 
@@ -837,5 +849,126 @@ async fn test_r32_srv3_file_localhost_boundary() {
         resp.status() == StatusCode::OK || resp.status() == StatusCode::FORBIDDEN,
         "file://localhost.evil.com must not cause misparse, got status: {}",
         resp.status()
+    );
+}
+
+// =============================================================================
+// FIND-004: Metrics endpoint authentication configuration
+// =============================================================================
+
+/// When metrics_require_auth is true (default), /metrics requires authentication.
+#[tokio::test]
+async fn test_find004_metrics_require_auth_true_blocks_unauthenticated() {
+    let tmp = TempDir::new().unwrap();
+    let state = AppState {
+        policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![],
+        })),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("test.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: Some(Arc::new("test-secret-key-123".to_string())),
+        rate_limits: Arc::new(RateLimits::disabled()),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
+        tool_registry: None,
+        cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
+        exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
+        memory_security: None,
+        nhi: None,
+        // FIND-004: Require auth for metrics (default)
+        metrics_require_auth: true,
+        audit_strict_mode: false,
+    };
+    let app = routes::build_router(state);
+
+    // Unauthenticated request to /metrics should be blocked
+    let req = Request::get("/metrics").body(Body::empty()).unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "FIND-004: /metrics should require auth when metrics_require_auth=true"
+    );
+}
+
+/// When metrics_require_auth is false, /metrics is accessible without authentication.
+#[tokio::test]
+async fn test_find004_metrics_require_auth_false_allows_unauthenticated() {
+    let tmp = TempDir::new().unwrap();
+    let state = AppState {
+        policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![],
+        })),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("test.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: Some(Arc::new("test-secret-key-123".to_string())),
+        rate_limits: Arc::new(RateLimits::disabled()),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
+        tool_registry: None,
+        cluster: None,
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
+        exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
+        memory_security: None,
+        nhi: None,
+        // FIND-004: Allow unauthenticated metrics
+        metrics_require_auth: false,
+        audit_strict_mode: false,
+    };
+    let app = routes::build_router(state);
+
+    // Unauthenticated request to /metrics should succeed
+    let req = Request::get("/metrics").body(Body::empty()).unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    // Note: might be 404 if prometheus_handle is None, but not 401
+    assert_ne!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "FIND-004: /metrics should not require auth when metrics_require_auth=false"
     );
 }

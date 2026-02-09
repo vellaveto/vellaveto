@@ -690,6 +690,10 @@ async fn cmd_serve(
         // Phase 10: Non-Human Identity (NHI) Lifecycle — default: None (disabled)
         // TODO: Initialize from PolicyConfig.nhi when enabled in configuration
         nhi: None,
+
+        // Server Configuration (FIND-004, FIND-005)
+        metrics_require_auth: policy_config.metrics_require_auth,
+        audit_strict_mode: policy_config.audit.strict_mode,
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -1052,6 +1056,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         nhi: Default::default(),
         rag_defense: Default::default(),
         a2a: Default::default(),
+        metrics_require_auth: true,
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

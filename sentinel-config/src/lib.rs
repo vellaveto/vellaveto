@@ -188,6 +188,13 @@ pub struct AuditConfig {
     /// Custom PII detection patterns appended to the built-in set.
     #[serde(default)]
     pub custom_pii_patterns: Vec<CustomPiiPattern>,
+    /// Strict audit mode (FIND-005): When true, audit logging failures cause
+    /// requests to be denied instead of proceeding without an audit trail.
+    /// This ensures fail-closed behavior for security-critical deployments
+    /// where every decision must be recorded.
+    /// Default: false (backward compatible, fail-open for audit).
+    #[serde(default)]
+    pub strict_mode: bool,
 }
 
 /// Constant-time comparison for hash strings to prevent timing side-channels.
@@ -1571,6 +1578,21 @@ pub struct PolicyConfig {
     /// agent card verification, and existing security managers.
     #[serde(default)]
     pub a2a: A2aConfig,
+
+    // ═══════════════════════════════════════════════════
+    // SERVER CONFIGURATION
+    // ═══════════════════════════════════════════════════
+
+    /// Metrics endpoint authentication (FIND-004).
+    /// When true (default), `/metrics` and `/api/metrics` endpoints require
+    /// API key authentication. Set to false to allow unauthenticated access
+    /// for Prometheus scrapers in trusted network environments.
+    ///
+    /// SECURITY NOTE: Metrics expose policy counts, pending approval counts,
+    /// and evaluation statistics. Only disable authentication when the metrics
+    /// endpoint is protected by network-level controls (e.g., internal VPC only).
+    #[serde(default = "default_true")]
+    pub metrics_require_auth: bool,
 }
 
 /// Tool registry with trust scoring configuration (P2.1).
@@ -5794,6 +5816,7 @@ policy_type = "Allow"
             nhi: NhiConfig::default(),
             rag_defense: RagDefenseConfig::default(),
             a2a: A2aConfig::default(),
+            metrics_require_auth: true,
         };
         config.policies = (0..=MAX_POLICIES)
             .map(|i| PolicyRule {

@@ -456,8 +456,8 @@ fn validate_origin(origin: &str, allowed_origins: &[String]) -> bool {
 
 /// Middleware that requires API key authentication.
 ///
-/// **Public endpoints** (no auth required): `/health`, `/api/metrics`, and all
-/// `OPTIONS`/`HEAD` requests.
+/// **Public endpoints** (no auth required): `/health`, and all `OPTIONS` requests.
+/// When `metrics_require_auth` is false, `/metrics` and `/api/metrics` are also public.
 ///
 /// **All other endpoints** (including GET on `/api/policies`, `/api/audit/*`,
 /// `/api/approvals/*`) require a valid `Bearer` token when `SENTINEL_API_KEY`
@@ -474,11 +474,16 @@ async fn require_api_key(State(state): State<AppState>, request: Request, next: 
     }
 
     // Public endpoints: always accessible without auth.
-    // SECURITY (R38-SRV-1): /api/metrics removed — exposes policy count and
-    // pending approval count (sensitive, per R26-SRV-6). /metrics (Prometheus)
-    // is also now behind auth for the same reason.
     let path = request.uri().path();
     if path == "/health" {
+        return next.run(request).await;
+    }
+
+    // SECURITY (FIND-004): Metrics endpoint authentication is configurable.
+    // When metrics_require_auth is false, /metrics and /api/metrics are public.
+    // Default is true (auth required) for security — metrics expose policy counts
+    // and pending approval counts (sensitive, per R26-SRV-6 and R38-SRV-1).
+    if !state.metrics_require_auth && (path == "/metrics" || path == "/api/metrics") {
         return next.run(request).await;
     }
 
@@ -1192,10 +1197,10 @@ async fn evaluate(
         }
     }
 
-    // Log to audit — fire-and-forget on error (don't fail the request).
+    // Log to audit.
     // SECURITY (R16-AUDIT-3): Log at error level (not warn) because a silent
     // audit failure means security decisions proceed without an audit trail.
-    // An attacker who fills the disk can suppress audit logging entirely.
+    // SECURITY (FIND-005): In strict audit mode, audit failures block the request.
     if let Err(e) = state
         .audit
         .log_entry(
@@ -1207,6 +1212,17 @@ async fn evaluate(
     {
         tracing::error!("AUDIT FAILURE: security decision not recorded: {}", e);
         state.metrics.record_error();
+
+        // SECURITY (FIND-005): Strict audit mode — fail-closed if audit fails.
+        // This ensures no unaudited security decisions can occur.
+        if state.audit_strict_mode {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ErrorResponse {
+                    error: "Audit logging failed — request denied (strict audit mode)".to_string(),
+                }),
+            ));
+        }
     } else {
         crate::metrics::increment_audit_entries();
     }

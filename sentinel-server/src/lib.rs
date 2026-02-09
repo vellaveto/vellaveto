@@ -655,6 +655,19 @@ pub struct AppState {
     /// NHI manager for agent identity lifecycle management.
     /// None when NHI is disabled.
     pub nhi: Option<Arc<sentinel_mcp::nhi::NhiManager>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Server Configuration (FIND-004, FIND-005)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// When true, `/metrics` and `/api/metrics` require authentication (FIND-004).
+    /// Default: true (secure by default).
+    pub metrics_require_auth: bool,
+
+    /// Strict audit mode (FIND-005): When true, audit logging failures cause
+    /// requests to be denied instead of proceeding without an audit trail.
+    /// Default: false (backward compatible).
+    pub audit_strict_mode: bool,
 }
 
 /// Error type for cluster-dispatched approval operations.
@@ -861,6 +874,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             nhi: Default::default(),
             rag_defense: Default::default(),
             a2a: Default::default(),
+            metrics_require_auth: true,
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

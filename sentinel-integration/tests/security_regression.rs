@@ -393,6 +393,9 @@ mod server_auth {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        // Server Configuration (FIND-004, FIND-005)
+        metrics_require_auth: true,
+        audit_strict_mode: false,
         };
         (state, tmp)
     }
@@ -531,6 +534,9 @@ mod server_auth {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        // Server Configuration (FIND-004, FIND-005)
+        metrics_require_auth: true,
+        audit_strict_mode: false,
         };
         let app = routes::build_router(state);
 
@@ -1136,6 +1142,9 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        // Server Configuration (FIND-004, FIND-005)
+        metrics_require_auth: true,
+        audit_strict_mode: false,
     };
 
     let app = routes::build_router(state);
@@ -1240,6 +1249,9 @@ async fn finding_12_approval_creation_failure_denies_request() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        // Server Configuration (FIND-004, FIND-005)
+        metrics_require_auth: true,
+        audit_strict_mode: false,
     };
 
     let app = routes::build_router(state);
