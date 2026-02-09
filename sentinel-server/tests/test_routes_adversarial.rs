@@ -69,6 +69,7 @@ fn make_state() -> (AppState, TempDir) {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
     (state, tmp)
 }
@@ -111,6 +112,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
     (state, tmp)
 }
@@ -537,6 +539,7 @@ priority = 1
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
     let policy_state = state.policy_state.clone();
     let app = routes::build_router(state);
@@ -646,6 +649,7 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
     let app = routes::build_router(state);
 

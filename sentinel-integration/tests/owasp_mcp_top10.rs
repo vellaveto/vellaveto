@@ -905,6 +905,7 @@ mod owasp_mcp07_auth {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
         };
         (state, tmp)
     }
@@ -1313,6 +1314,7 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
         };
 
         let app = routes::build_router(state);
@@ -1572,6 +1574,7 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1667,6 +1670,7 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

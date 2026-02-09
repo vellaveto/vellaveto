@@ -639,6 +639,14 @@ pub struct AppState {
     /// ETDI version pin manager.
     /// None when version pinning is disabled.
     pub etdi_version_pins: Option<Arc<sentinel_mcp::etdi::VersionPinManager>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 9: Memory Injection Defense (MINJA)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Memory security manager for MINJA defense.
+    /// None when memory security is disabled.
+    pub memory_security: Option<Arc<sentinel_mcp::memory_security::MemorySecurityManager>>,
 }
 
 /// Error type for cluster-dispatched approval operations.
@@ -841,6 +849,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             threat_intel: Default::default(),
             jit_access: Default::default(),
             etdi: Default::default(),
+            memory_security: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

@@ -95,6 +95,7 @@ fn test_state_with_rbac(rbac_config: RbacConfig) -> (AppState, TempDir) {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
     (state, tmp)
 }

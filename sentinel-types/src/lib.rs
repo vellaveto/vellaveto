@@ -1235,6 +1235,560 @@ impl EvaluationContext {
     }
 }
 
+// ═══════════════════════════════════════════════════
+// PHASE 9: MEMORY INJECTION DEFENSE (MINJA) TYPES
+// ═══════════════════════════════════════════════════
+
+/// Taint labels for tracking data provenance and trust level.
+///
+/// Memory entries are tagged with taint labels to indicate their source
+/// and security properties. Taint propagates when derived data is created.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum TaintLabel {
+    /// Data from an untrusted source (external tool response, notification).
+    Untrusted,
+    /// Data that has been sanitized or validated.
+    Sanitized,
+    /// Data that is quarantined due to security concerns.
+    Quarantined,
+    /// Data that contains sensitive information (PII, secrets).
+    Sensitive,
+    /// Data that originated from a different agent (cross-agent flow).
+    CrossAgent,
+    /// Data that has been replayed from a previous session.
+    Replayed,
+    /// Data derived from multiple sources with mixed trust levels.
+    MixedProvenance,
+    /// Data that failed integrity verification.
+    IntegrityFailed,
+}
+
+impl fmt::Display for TaintLabel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TaintLabel::Untrusted => write!(f, "untrusted"),
+            TaintLabel::Sanitized => write!(f, "sanitized"),
+            TaintLabel::Quarantined => write!(f, "quarantined"),
+            TaintLabel::Sensitive => write!(f, "sensitive"),
+            TaintLabel::CrossAgent => write!(f, "cross_agent"),
+            TaintLabel::Replayed => write!(f, "replayed"),
+            TaintLabel::MixedProvenance => write!(f, "mixed_provenance"),
+            TaintLabel::IntegrityFailed => write!(f, "integrity_failed"),
+        }
+    }
+}
+
+/// Maximum number of taint labels per memory entry.
+pub const MAX_TAINT_LABELS: usize = 16;
+
+/// A memory entry with provenance tracking for MINJA defense.
+///
+/// Represents a notable string or data fragment recorded from tool responses,
+/// notifications, or other sources. Tracks access patterns, trust scores,
+/// and provenance for detecting memory injection attacks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MemoryEntry {
+    /// Unique identifier for this entry (UUID v4).
+    pub id: String,
+    /// SHA-256 fingerprint of the content.
+    pub fingerprint: String,
+    /// Truncated preview of the content (first 100 chars).
+    pub preview: String,
+    /// ISO 8601 timestamp when the entry was first recorded.
+    pub recorded_at: String,
+    /// ISO 8601 timestamp when the entry was last accessed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_accessed: Option<String>,
+    /// Number of times this entry has been accessed (matched in parameters).
+    #[serde(default)]
+    pub access_count: u64,
+    /// Taint labels associated with this entry.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub taint_labels: Vec<TaintLabel>,
+    /// Current trust score (0.0 = no trust, 1.0 = full trust).
+    /// Decays over time based on trust_decay_rate.
+    #[serde(default = "default_trust_score")]
+    pub trust_score: f64,
+    /// ID of the provenance node that created this entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance_id: Option<String>,
+    /// Whether this entry is currently quarantined.
+    #[serde(default)]
+    pub quarantined: bool,
+    /// Namespace this entry belongs to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    /// Session ID this entry belongs to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// Agent ID that created this entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// SHA-256 hash of the full content for integrity verification.
+    pub content_hash: String,
+}
+
+fn default_trust_score() -> f64 {
+    1.0
+}
+
+impl MemoryEntry {
+    /// Maximum preview length in characters.
+    pub const MAX_PREVIEW_LENGTH: usize = 100;
+
+    /// Create a new memory entry with default values.
+    pub fn new(
+        id: String,
+        fingerprint: String,
+        content: &str,
+        content_hash: String,
+        recorded_at: String,
+    ) -> Self {
+        let preview = if content.len() > Self::MAX_PREVIEW_LENGTH {
+            let mut end = Self::MAX_PREVIEW_LENGTH;
+            while !content.is_char_boundary(end) && end > 0 {
+                end -= 1;
+            }
+            format!("{}...", &content[..end])
+        } else {
+            content.to_string()
+        };
+
+        Self {
+            id,
+            fingerprint,
+            preview,
+            recorded_at,
+            last_accessed: None,
+            access_count: 0,
+            taint_labels: vec![TaintLabel::Untrusted],
+            trust_score: 1.0,
+            provenance_id: None,
+            quarantined: false,
+            namespace: None,
+            session_id: None,
+            agent_id: None,
+            content_hash,
+        }
+    }
+
+    /// Check if this entry is tainted with a specific label.
+    pub fn has_taint(&self, label: TaintLabel) -> bool {
+        self.taint_labels.contains(&label)
+    }
+
+    /// Add a taint label if not already present and under the limit.
+    pub fn add_taint(&mut self, label: TaintLabel) -> bool {
+        if self.taint_labels.len() >= MAX_TAINT_LABELS {
+            return false;
+        }
+        if !self.taint_labels.contains(&label) {
+            self.taint_labels.push(label);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Check if the entry should be blocked based on quarantine status.
+    pub fn is_blocked(&self) -> bool {
+        self.quarantined || self.has_taint(TaintLabel::Quarantined)
+    }
+
+    /// Calculate the current trust score after decay.
+    /// Uses exponential decay: trust(t) = initial_trust * e^(-λ * age_hours)
+    pub fn decayed_trust_score(&self, decay_rate: f64, current_time: &str) -> f64 {
+        let age_hours = Self::hours_since(&self.recorded_at, current_time);
+        self.trust_score * (-decay_rate * age_hours).exp()
+    }
+
+    /// Calculate hours between two ISO 8601 timestamps.
+    /// Returns 0.0 if parsing fails.
+    fn hours_since(start: &str, end: &str) -> f64 {
+        // Simple parsing: extract the timestamp portion and compute difference
+        // For robustness, we'd use chrono but keep dependencies minimal
+        use std::time::Duration;
+
+        // Try to parse as Unix timestamp or ISO 8601
+        let start_secs = Self::parse_timestamp(start).unwrap_or(0);
+        let end_secs = Self::parse_timestamp(end).unwrap_or(0);
+
+        if end_secs > start_secs {
+            Duration::from_secs(end_secs - start_secs).as_secs_f64() / 3600.0
+        } else {
+            0.0
+        }
+    }
+
+    /// Parse an ISO 8601 timestamp to Unix seconds (approximate).
+    fn parse_timestamp(ts: &str) -> Option<u64> {
+        // Simplified parsing: YYYY-MM-DDTHH:MM:SSZ
+        if ts.len() < 19 {
+            return None;
+        }
+        let year: u64 = ts.get(0..4)?.parse().ok()?;
+        let month: u64 = ts.get(5..7)?.parse().ok()?;
+        let day: u64 = ts.get(8..10)?.parse().ok()?;
+        let hour: u64 = ts.get(11..13)?.parse().ok()?;
+        let min: u64 = ts.get(14..16)?.parse().ok()?;
+        let sec: u64 = ts.get(17..19)?.parse().ok()?;
+
+        // Approximate calculation (ignores leap years, etc.)
+        let days_since_epoch = (year - 1970) * 365 + (month - 1) * 30 + day;
+        Some(days_since_epoch * 86400 + hour * 3600 + min * 60 + sec)
+    }
+}
+
+/// Event types for provenance tracking.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum ProvenanceEventType {
+    /// Data received from a tool response.
+    ToolResponse,
+    /// Data received from a notification.
+    Notification,
+    /// Data derived from other entries (transformation, aggregation).
+    Derivation,
+    /// Data replayed from a previous request.
+    Replay,
+    /// Data received from external source (user input, API).
+    ExternalInput,
+    /// Data created by the agent itself.
+    AgentGenerated,
+    /// Data received from another agent.
+    CrossAgentReceive,
+    /// Data sent to another agent.
+    CrossAgentSend,
+    /// Data restored from persistent storage.
+    Restore,
+    /// Data sanitized or validated.
+    Sanitization,
+}
+
+impl fmt::Display for ProvenanceEventType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ProvenanceEventType::ToolResponse => write!(f, "tool_response"),
+            ProvenanceEventType::Notification => write!(f, "notification"),
+            ProvenanceEventType::Derivation => write!(f, "derivation"),
+            ProvenanceEventType::Replay => write!(f, "replay"),
+            ProvenanceEventType::ExternalInput => write!(f, "external_input"),
+            ProvenanceEventType::AgentGenerated => write!(f, "agent_generated"),
+            ProvenanceEventType::CrossAgentReceive => write!(f, "cross_agent_receive"),
+            ProvenanceEventType::CrossAgentSend => write!(f, "cross_agent_send"),
+            ProvenanceEventType::Restore => write!(f, "restore"),
+            ProvenanceEventType::Sanitization => write!(f, "sanitization"),
+        }
+    }
+}
+
+/// A node in the provenance graph tracking data lineage.
+///
+/// Forms a DAG (directed acyclic graph) where edges point from parent
+/// entries to derived entries. Used to detect suspicious patterns like
+/// notification→replay chains or cross-session data flows.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ProvenanceNode {
+    /// Unique identifier for this node (UUID v4).
+    pub id: String,
+    /// Type of event that created this node.
+    pub event_type: ProvenanceEventType,
+    /// ISO 8601 timestamp when this node was created.
+    pub timestamp: String,
+    /// Source identifier (tool name, notification method, agent ID).
+    pub source: String,
+    /// Session ID where this event occurred.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// Parent node IDs (entries this was derived from).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parents: Vec<String>,
+    /// SHA-256 hash of the content at this node.
+    pub content_hash: String,
+    /// Memory entry ID associated with this node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_id: Option<String>,
+    /// Additional metadata about the provenance event.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, String>,
+}
+
+impl ProvenanceNode {
+    /// Maximum number of parent references per node.
+    pub const MAX_PARENTS: usize = 64;
+
+    /// Create a new provenance node.
+    pub fn new(
+        id: String,
+        event_type: ProvenanceEventType,
+        source: String,
+        content_hash: String,
+        timestamp: String,
+    ) -> Self {
+        Self {
+            id,
+            event_type,
+            timestamp,
+            source,
+            session_id: None,
+            parents: Vec::new(),
+            content_hash,
+            entry_id: None,
+            metadata: HashMap::new(),
+        }
+    }
+
+    /// Check if this node represents a suspicious pattern.
+    pub fn is_suspicious(&self) -> bool {
+        matches!(
+            self.event_type,
+            ProvenanceEventType::Replay | ProvenanceEventType::CrossAgentReceive
+        )
+    }
+}
+
+/// Reason for quarantining a memory entry.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum QuarantineDetection {
+    /// Entry matched injection patterns.
+    InjectionPattern,
+    /// Suspicious data flow pattern detected.
+    SuspiciousDataFlow,
+    /// Trust score below threshold.
+    LowTrust,
+    /// Cross-session data replay detected.
+    CrossSessionReplay,
+    /// Notification→tool_call chain detected.
+    NotificationReplay,
+    /// Content integrity verification failed.
+    IntegrityFailure,
+    /// Manual quarantine by administrator.
+    ManualQuarantine,
+    /// Entry from untrusted source exceeded access threshold.
+    ExcessiveAccess,
+    /// Entry contains sensitive data patterns.
+    SensitiveData,
+}
+
+impl fmt::Display for QuarantineDetection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            QuarantineDetection::InjectionPattern => write!(f, "injection_pattern"),
+            QuarantineDetection::SuspiciousDataFlow => write!(f, "suspicious_data_flow"),
+            QuarantineDetection::LowTrust => write!(f, "low_trust"),
+            QuarantineDetection::CrossSessionReplay => write!(f, "cross_session_replay"),
+            QuarantineDetection::NotificationReplay => write!(f, "notification_replay"),
+            QuarantineDetection::IntegrityFailure => write!(f, "integrity_failure"),
+            QuarantineDetection::ManualQuarantine => write!(f, "manual_quarantine"),
+            QuarantineDetection::ExcessiveAccess => write!(f, "excessive_access"),
+            QuarantineDetection::SensitiveData => write!(f, "sensitive_data"),
+        }
+    }
+}
+
+/// Record of a quarantined memory entry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct QuarantineEntry {
+    /// ID of the quarantined memory entry.
+    pub entry_id: String,
+    /// Reason for quarantine.
+    pub reason: QuarantineDetection,
+    /// ISO 8601 timestamp when quarantine was applied.
+    pub quarantined_at: String,
+    /// Optional description of the quarantine reason.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Agent or system that triggered the quarantine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub triggered_by: Option<String>,
+    /// Whether the quarantine was lifted.
+    #[serde(default)]
+    pub released: bool,
+    /// ISO 8601 timestamp when quarantine was released.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub released_at: Option<String>,
+}
+
+impl QuarantineEntry {
+    /// Create a new quarantine entry.
+    pub fn new(entry_id: String, reason: QuarantineDetection, quarantined_at: String) -> Self {
+        Self {
+            entry_id,
+            reason,
+            quarantined_at,
+            description: None,
+            triggered_by: None,
+            released: false,
+            released_at: None,
+        }
+    }
+}
+
+/// Memory namespace for agent isolation.
+///
+/// Namespaces provide logical isolation between agents and sessions.
+/// Access control policies determine which agents can read/write to
+/// which namespaces.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MemoryNamespace {
+    /// Unique namespace identifier.
+    pub id: String,
+    /// Agent ID that owns this namespace.
+    pub owner_agent: String,
+    /// Agent IDs allowed to read from this namespace.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub read_allowed: Vec<String>,
+    /// Agent IDs allowed to write to this namespace.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub write_allowed: Vec<String>,
+    /// ISO 8601 timestamp when namespace was created.
+    pub created_at: String,
+    /// Isolation level for the namespace.
+    #[serde(default)]
+    pub isolation: NamespaceIsolation,
+    /// Whether this namespace is the default for its owner.
+    #[serde(default)]
+    pub is_default: bool,
+}
+
+impl MemoryNamespace {
+    /// Create a new namespace with the given owner.
+    pub fn new(id: String, owner_agent: String, created_at: String) -> Self {
+        Self {
+            id,
+            owner_agent: owner_agent.clone(),
+            read_allowed: vec![owner_agent.clone()],
+            write_allowed: vec![owner_agent],
+            created_at,
+            isolation: NamespaceIsolation::default(),
+            is_default: false,
+        }
+    }
+
+    /// Check if an agent can read from this namespace.
+    pub fn can_read(&self, agent_id: &str) -> bool {
+        self.owner_agent == agent_id
+            || self.read_allowed.iter().any(|a| a == agent_id || a == "*")
+    }
+
+    /// Check if an agent can write to this namespace.
+    pub fn can_write(&self, agent_id: &str) -> bool {
+        self.owner_agent == agent_id
+            || self.write_allowed.iter().any(|a| a == agent_id || a == "*")
+    }
+}
+
+/// Namespace isolation level.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NamespaceIsolation {
+    /// Isolated per session (default).
+    #[default]
+    Session,
+    /// Isolated per agent (shared across sessions).
+    Agent,
+    /// Shared namespace (accessible by allowed agents).
+    Shared,
+}
+
+impl fmt::Display for NamespaceIsolation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NamespaceIsolation::Session => write!(f, "session"),
+            NamespaceIsolation::Agent => write!(f, "agent"),
+            NamespaceIsolation::Shared => write!(f, "shared"),
+        }
+    }
+}
+
+/// Decision for memory access requests.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryAccessDecision {
+    /// Access is allowed.
+    Allow,
+    /// Access is denied with a reason.
+    Deny { reason: String },
+    /// Access requires manual approval.
+    RequireApproval { reason: String },
+}
+
+impl fmt::Display for MemoryAccessDecision {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MemoryAccessDecision::Allow => write!(f, "allow"),
+            MemoryAccessDecision::Deny { reason } => write!(f, "deny: {}", reason),
+            MemoryAccessDecision::RequireApproval { reason } => {
+                write!(f, "require_approval: {}", reason)
+            }
+        }
+    }
+}
+
+/// Request to share a namespace with another agent.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct NamespaceSharingRequest {
+    /// Namespace ID to share.
+    pub namespace_id: String,
+    /// Agent ID requesting access.
+    pub requester_agent: String,
+    /// Requested access type.
+    pub access_type: NamespaceAccessType,
+    /// ISO 8601 timestamp of the request.
+    pub requested_at: String,
+    /// Whether the request has been approved.
+    #[serde(default)]
+    pub approved: Option<bool>,
+    /// ISO 8601 timestamp when the request was resolved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_at: Option<String>,
+}
+
+/// Type of namespace access requested.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum NamespaceAccessType {
+    /// Read-only access.
+    Read,
+    /// Write access (implies read).
+    Write,
+    /// Full access (read, write, and share).
+    Full,
+}
+
+impl fmt::Display for NamespaceAccessType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NamespaceAccessType::Read => write!(f, "read"),
+            NamespaceAccessType::Write => write!(f, "write"),
+            NamespaceAccessType::Full => write!(f, "full"),
+        }
+    }
+}
+
+/// Statistics for memory security operations.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct MemorySecurityStats {
+    /// Total entries tracked.
+    pub total_entries: u64,
+    /// Entries currently quarantined.
+    pub quarantined_entries: u64,
+    /// Total provenance nodes.
+    pub provenance_nodes: u64,
+    /// Namespaces created.
+    pub namespaces: u64,
+    /// Injection patterns detected.
+    pub injections_detected: u64,
+    /// Cross-session replays blocked.
+    pub cross_session_blocked: u64,
+    /// Low-trust access denials.
+    pub low_trust_denials: u64,
+    /// Sharing approvals pending.
+    pub pending_shares: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1475,6 +1475,16 @@ pub struct PolicyConfig {
     /// rug-pulls, tool squatting, and supply chain attacks.
     #[serde(default)]
     pub etdi: EtdiConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 9: MEMORY INJECTION DEFENSE (MINJA)
+    // ═══════════════════════════════════════════════════
+
+    /// Memory security configuration for MINJA defense.
+    /// Controls taint propagation, provenance tracking, trust decay,
+    /// quarantine, and namespace isolation.
+    #[serde(default)]
+    pub memory_security: MemorySecurityConfig,
 }
 
 /// Tool registry with trust scoring configuration (P2.1).
@@ -3464,6 +3474,187 @@ fn default_jit_max_sessions() -> u32 {
     3
 }
 
+// ═══════════════════════════════════════════════════
+// PHASE 9: MEMORY INJECTION DEFENSE (MINJA) CONFIGURATION
+// ═══════════════════════════════════════════════════
+
+/// Memory security configuration for MINJA defense (Phase 9).
+///
+/// Controls taint propagation, provenance tracking, trust decay, quarantine,
+/// and namespace isolation for memory injection defense.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [memory_security]
+/// enabled = true
+/// taint_propagation = true
+/// provenance_tracking = true
+/// trust_decay_rate = 0.029
+/// trust_threshold = 0.1
+/// max_memory_age_hours = 168
+/// quarantine_on_injection = true
+/// block_quarantined = true
+/// max_entries_per_session = 5000
+///
+/// [memory_security.namespaces]
+/// enabled = true
+/// default_isolation = "session"
+/// require_sharing_approval = true
+/// max_namespaces = 1000
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MemorySecurityConfig {
+    /// Enable memory security tracking. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Enable taint label propagation to derived entries. Default: true.
+    #[serde(default = "default_true")]
+    pub taint_propagation: bool,
+
+    /// Enable provenance graph tracking. Default: true.
+    #[serde(default = "default_true")]
+    pub provenance_tracking: bool,
+
+    /// Trust decay rate (lambda) for exponential decay.
+    /// Default: 0.029 (24-hour half-life).
+    /// Formula: trust(t) = initial_trust * e^(-λ * age_hours)
+    #[serde(default = "default_trust_decay_rate")]
+    pub trust_decay_rate: f64,
+
+    /// Trust threshold below which entries are flagged.
+    /// Default: 0.1 (10% of initial trust).
+    #[serde(default = "default_trust_threshold_mem")]
+    pub trust_threshold: f64,
+
+    /// Maximum age in hours for memory entries before eviction.
+    /// Default: 168 (7 days).
+    #[serde(default = "default_max_memory_age")]
+    pub max_memory_age_hours: u64,
+
+    /// Automatically quarantine entries matching injection patterns.
+    /// Default: true.
+    #[serde(default = "default_true")]
+    pub quarantine_on_injection: bool,
+
+    /// Block access to quarantined entries. Default: true.
+    #[serde(default = "default_true")]
+    pub block_quarantined: bool,
+
+    /// Maximum memory entries per session. Default: 5000.
+    #[serde(default = "default_max_entries_per_session")]
+    pub max_entries_per_session: usize,
+
+    /// Maximum provenance nodes tracked. Default: 10000.
+    #[serde(default = "default_max_provenance_nodes")]
+    pub max_provenance_nodes: usize,
+
+    /// Namespace isolation configuration.
+    #[serde(default)]
+    pub namespaces: NamespaceConfig,
+
+    /// Block entries that fail integrity verification. Default: true.
+    #[serde(default = "default_true")]
+    pub block_on_integrity_failure: bool,
+
+    /// Compute content hashes for integrity verification. Default: true.
+    #[serde(default = "default_true")]
+    pub content_hashing: bool,
+}
+
+fn default_trust_decay_rate() -> f64 {
+    0.029 // 24-hour half-life: ln(2) / 24 ≈ 0.029
+}
+
+fn default_trust_threshold_mem() -> f64 {
+    0.1
+}
+
+fn default_max_memory_age() -> u64 {
+    168 // 7 days
+}
+
+fn default_max_entries_per_session() -> usize {
+    5000
+}
+
+fn default_max_provenance_nodes() -> usize {
+    10000
+}
+
+impl Default for MemorySecurityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            taint_propagation: true,
+            provenance_tracking: true,
+            trust_decay_rate: default_trust_decay_rate(),
+            trust_threshold: default_trust_threshold_mem(),
+            max_memory_age_hours: default_max_memory_age(),
+            quarantine_on_injection: true,
+            block_quarantined: true,
+            max_entries_per_session: default_max_entries_per_session(),
+            max_provenance_nodes: default_max_provenance_nodes(),
+            namespaces: NamespaceConfig::default(),
+            block_on_integrity_failure: true,
+            content_hashing: true,
+        }
+    }
+}
+
+/// Namespace isolation configuration for memory security.
+///
+/// Controls agent-level namespace isolation and access control.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct NamespaceConfig {
+    /// Enable namespace isolation. Default: true.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Default isolation level for new namespaces.
+    /// Options: "session", "agent", "shared". Default: "session".
+    #[serde(default = "default_namespace_isolation")]
+    pub default_isolation: String,
+
+    /// Require approval for namespace sharing. Default: true.
+    #[serde(default = "default_true")]
+    pub require_sharing_approval: bool,
+
+    /// Maximum namespaces per session. Default: 1000.
+    #[serde(default = "default_max_namespaces")]
+    pub max_namespaces: usize,
+
+    /// Allow cross-session namespace access. Default: false.
+    #[serde(default)]
+    pub allow_cross_session: bool,
+
+    /// Auto-create namespace for new agents. Default: true.
+    #[serde(default = "default_true")]
+    pub auto_create: bool,
+}
+
+fn default_namespace_isolation() -> String {
+    "session".to_string()
+}
+
+fn default_max_namespaces() -> usize {
+    1000
+}
+
+impl Default for NamespaceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            default_isolation: default_namespace_isolation(),
+            require_sharing_approval: true,
+            max_namespaces: default_max_namespaces(),
+            allow_cross_session: false,
+            auto_create: true,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4491,6 +4682,7 @@ policy_type = "Allow"
             threat_intel: ThreatIntelConfig::default(),
             jit_access: JitAccessConfig::default(),
             etdi: EtdiConfig::default(),
+            memory_security: MemorySecurityConfig::default(),
         };
         config.policies = (0..=MAX_POLICIES)
             .map(|i| PolicyRule {

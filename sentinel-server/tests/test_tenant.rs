@@ -101,6 +101,7 @@ fn test_state_with_tenants(
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
     (state, tmp)
 }

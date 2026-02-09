@@ -71,6 +71,7 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
     (state, tmp)
 }
@@ -425,6 +426,7 @@ async fn regression_24_error_message_does_not_leak_architecture() {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

@@ -684,6 +684,9 @@ async fn cmd_serve(
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        // Phase 9: Memory Injection Defense (MINJA) — default: None (disabled)
+        // TODO: Initialize from PolicyConfig.memory_security when enabled in configuration
+        memory_security: None,
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -1042,6 +1045,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         threat_intel: Default::default(),
         jit_access: Default::default(),
         etdi: Default::default(),
+        memory_security: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

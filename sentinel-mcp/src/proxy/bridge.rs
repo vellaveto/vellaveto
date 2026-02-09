@@ -127,6 +127,15 @@ pub struct ProxyBridge {
     etdi_version_pins: Option<Arc<crate::etdi::VersionPinManager>>,
     /// Whether to require ETDI signatures for all tools.
     etdi_require_signatures: bool,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 9: Memory Injection Defense (MINJA)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Memory security manager for MINJA defense.
+    /// When set, memory entries are tracked for taint propagation,
+    /// provenance, and namespace isolation.
+    memory_security: Option<Arc<crate::memory_security::MemorySecurityManager>>,
 }
 
 impl ProxyBridge {
@@ -164,6 +173,8 @@ impl ProxyBridge {
             etdi_attestations: None,
             etdi_version_pins: None,
             etdi_require_signatures: false,
+            // Phase 9: MINJA (default: disabled)
+            memory_security: None,
         }
     }
 
@@ -346,6 +357,21 @@ impl ProxyBridge {
     /// When true, unsigned tools are blocked. Default: false.
     pub fn with_etdi_require_signatures(mut self, require: bool) -> Self {
         self.etdi_require_signatures = require;
+        self
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 9: MINJA Builder Methods
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Set the memory security manager for MINJA defense.
+    /// When set, memory entries are tracked for taint propagation,
+    /// provenance tracking, and namespace isolation.
+    pub fn with_memory_security(
+        mut self,
+        manager: Arc<crate::memory_security::MemorySecurityManager>,
+    ) -> Self {
+        self.memory_security = Some(manager);
         self
     }
 

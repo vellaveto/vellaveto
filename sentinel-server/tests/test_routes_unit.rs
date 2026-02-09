@@ -68,6 +68,7 @@ fn test_state() -> (AppState, TempDir) {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
     (state, tmp)
 }
@@ -430,6 +431,7 @@ async fn health_not_rate_limited() {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
 
     // Rapid /health requests must all succeed despite strict rate limit
@@ -493,6 +495,7 @@ async fn rate_limit_429_includes_retry_after() {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -650,6 +653,7 @@ async fn per_ip_rate_limit_throttles_single_ip() {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -755,6 +759,7 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -833,6 +838,7 @@ async fn per_ip_health_exempt_from_rate_limit() {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
 
     // Multiple health checks from same IP should all succeed
@@ -903,6 +909,7 @@ async fn per_ip_rate_limit_ipv6_addresses() {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1008,6 +1015,7 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1097,6 +1105,7 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1185,6 +1194,7 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1271,6 +1281,7 @@ async fn per_ip_rate_limit_429_response_body_format() {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

@@ -74,6 +74,7 @@ fn make_test_state(tmp: &TempDir) -> AppState {
         etdi_verifier: None,
         etdi_attestations: None,
         etdi_version_pins: None,
+        memory_security: None,
     }
 }
 
