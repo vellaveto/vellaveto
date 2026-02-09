@@ -139,6 +139,15 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Checkpoint verification** — Ed25519 signed snapshots for non-repudiation and point-in-time verification
 - **Replay protection** — Nonce tracking with configurable FIFO eviction prevents request replay attacks
 
+### 🧠 Semantic Guardrails (LLM-Based)
+- **Intent classification** — Structured taxonomy beyond pattern matching (DataRead, DataWrite, SystemExecute, NetworkFetch, CredentialAccess, etc.)
+- **Natural language policies** — Define policies in plain English with glob-based tool/function matching
+- **Jailbreak detection** — LLM-based detection resistant to adversarial prompt evasion
+- **Intent chain tracking** — Per-session tracking to detect suspicious patterns (reconnaissance→exfiltration)
+- **Evaluation caching** — LRU + TTL cache minimizes latency and cost on repeated patterns
+- **Pluggable backends** — Support for cloud (OpenAI, Anthropic) and local (GGUF, ONNX) models
+- **Fail-closed design** — Errors, timeouts, and low confidence all result in denial
+
 ### 🏢 Enterprise Features
 - **mTLS / SPIFFE-SPIRE** — Mutual TLS with client certificate verification, SPIFFE identity extraction from X.509 SAN URIs, trust domains, workload identity, and ID-to-role mapping
 - **OPA Integration** — External policy evaluation via Open Policy Agent with async HTTP client, LRU decision caching (configurable TTL), fail-open/closed modes, and structured decision parsing

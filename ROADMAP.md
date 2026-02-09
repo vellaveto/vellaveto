@@ -1,8 +1,8 @@
 # Sentinel Roadmap v2.1
 
-> **Version:** 2.1.0 (Ready for Release)
+> **Version:** 2.2.0 (In Progress)
 > **Generated:** 2026-02-09
-> **Status:** v2.0.0 released, v2.1 Phases 8-11 complete
+> **Status:** v2.0.0 released, v2.1 Phases 8-11 complete, v2.2 Phase 12 complete
 > **Based on:** Multi-agent research (MCP spec 2025-11-25, OWASP ASI Top 10, enterprise patterns, competitor analysis)
 
 ---
@@ -1211,9 +1211,11 @@ task_retention_secs = 3600     # Completed task retention
 
 ---
 
-## Phase 12: Semantic Guardrails (v2.2)
+## Phase 12: Semantic Guardrails (v2.2) ✅ COMPLETE
 
 *Focus: LLM-based guardrails for nuanced policy enforcement*
+
+> **Status:** Implemented in commit `a56b3a8`. All core deliverables complete.
 
 ### Background
 
@@ -1227,46 +1229,92 @@ Competitors like NeMo Guardrails and Guardrails AI use LLM-based reasoning for:
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
-| Define LLM evaluator interface | P2 | 1 day | Pending |
-| Implement local model support (GGUF/ONNX) | P2 | 3 days | Pending |
-| Add cloud model support (OpenAI, Anthropic) | P2 | 2 days | Pending |
-| Create evaluation caching layer | P2 | 2 days | Pending |
+| Define LLM evaluator interface | P2 | 1 day | ✅ Complete |
+| Implement local model support (GGUF/ONNX) | P2 | 3 days | ✅ Complete (feature-gated) |
+| Add cloud model support (OpenAI, Anthropic) | P2 | 2 days | ✅ Complete (feature-gated) |
+| Create evaluation caching layer | P2 | 2 days | ✅ Complete |
 
 **Configuration:**
 ```toml
 [semantic_guardrails]
 enabled = true
-model = "local:llama-guard-3"   # or "openai:gpt-4o"
+model = "openai:gpt-4o-mini"   # or "anthropic:claude-3-haiku"
 cache_ttl_secs = 300
+cache_max_size = 10000
 max_latency_ms = 500
 fallback_on_timeout = "deny"    # deny | allow | pattern_match
+min_confidence = 0.7
+
+[semantic_guardrails.intent_classification]
+enabled = true
+confidence_threshold = 0.6
+track_intent_chains = true
+
+[semantic_guardrails.jailbreak_detection]
+enabled = true
+confidence_threshold = 0.7
+block_on_detection = true
+
+[[semantic_guardrails.nl_policies]]
+id = "no-file-delete"
+name = "Prevent file deletion"
+statement = "Never allow file deletion outside of /tmp directory"
+tool_patterns = ["filesystem:*", "shell:*"]
 ```
 
 ### 12.2 Intent Classification
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
-| Implement intent taxonomy | P2 | 2 days | Pending |
-| Add intent-based policy routing | P2 | 2 days | Pending |
-| Create intent confidence thresholds | P2 | 1 day | Pending |
-| Implement intent chain tracking | P2 | 2 days | Pending |
+| Implement intent taxonomy | P2 | 2 days | ✅ Complete |
+| Add intent-based policy routing | P2 | 2 days | ✅ Complete |
+| Create intent confidence thresholds | P2 | 1 day | ✅ Complete |
+| Implement intent chain tracking | P2 | 2 days | ✅ Complete |
+
+**Intent Taxonomy:**
+- Data Operations: DataRead, DataWrite, DataDelete, DataExport, DataQuery
+- System Operations: SystemExecute, SystemConfigure, SystemMonitor
+- Network Operations: NetworkFetch, NetworkSend, NetworkConnect
+- Security-Sensitive: CredentialAccess, PrivilegeEscalation, PolicyBypass
+- Malicious: Injection, Exfiltration, DenialOfService
 
 ### 12.3 Natural Language Policies
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
-| Design NL policy syntax | P2 | 2 days | Pending |
-| Implement NL to rule compiler | P2 | 3 days | Pending |
-| Add policy explanation generation | P2 | 2 days | Pending |
-| Create policy testing framework | P2 | 2 days | Pending |
+| Design NL policy syntax | P2 | 2 days | ✅ Complete |
+| Implement NL to rule compiler | P2 | 3 days | ✅ Complete |
+| Add policy explanation generation | P2 | 2 days | ✅ Complete |
+| Create policy testing framework | P2 | 2 days | ✅ Complete |
+
+### 12.4 Jailbreak Detection
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Implement jailbreak pattern detection | P2 | 2 days | ✅ Complete |
+| Add LLM-based jailbreak analysis | P2 | 2 days | ✅ Complete |
+| Create configurable thresholds | P2 | 1 day | ✅ Complete |
+
+### 12.5 Service Architecture
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Create SemanticGuardrailsService facade | P2 | 2 days | ✅ Complete |
+| Implement backend dispatcher | P2 | 2 days | ✅ Complete |
+| Add mock backend for testing | P2 | 2 days | ✅ Complete |
+| Create comprehensive test suite | P2 | 1 day | ✅ Complete |
 
 ### Phase 12 Deliverables
-- [ ] LLM policy evaluator with local/cloud support
-- [ ] Intent classification with confidence thresholds
-- [ ] Natural language policy definitions
-- [ ] Policy explanation generation
+- [x] LLM evaluator interface with pluggable backends
+- [x] Intent classification with confidence thresholds
+- [x] Intent chain tracking for suspicious pattern detection
+- [x] Natural language policy definitions with glob matching
+- [x] Jailbreak detection with configurable thresholds
+- [x] LRU + TTL evaluation cache
+- [x] Mock backend for testing
+- [x] Comprehensive configuration in sentinel-config
 
-**Estimated Duration:** 4 weeks
+**Completed:** 2026-02-09
 
 ---
 
@@ -1391,12 +1439,12 @@ v2.1 Complete! Ready for release.
 ## v2.2 Timeline Summary
 
 ```
-Phase 12: Semantic Guardrails                    (4 weeks)  ← P2
+Phase 12: Semantic Guardrails                    (4 weeks)  ✅ COMPLETE
 Phase 13: RAG Poisoning Defense                  (3 weeks)  ← P2
 Phase 14: A2A Protocol Security                  (2 weeks)  ← P2
 Phase 15: Observability Platform Integration     (2 weeks)  ← P3
 ───────────────────────────────────────────────────────────
-v2.2 Total: 11 weeks (~2.75 months)
+v2.2 Remaining: 7 weeks (~1.75 months)
 ```
 
 ---
@@ -1414,7 +1462,7 @@ v2.2 Total: 11 weeks (~2.75 months)
 | Cross-Agent Security | ✅ Trust graph | ❌ | ❌ | ⚠️ Basic | ❌ |
 | ETDI Tool Signing | ✅ Ed25519/ECDSA | ❌ | ❌ | ❌ | ❌ |
 | Memory Injection Defense | ✅ Full MINJA | ❌ | ❌ | ❌ | ❌ |
-| Semantic Guardrails | ❌ v2.2 | ✅ Native | ✅ Native | ⚠️ Basic | ⚠️ Basic |
+| Semantic Guardrails | ✅ LLM-based | ✅ Native | ✅ Native | ⚠️ Basic | ⚠️ Basic |
 | NHI Lifecycle | ✅ Full | ❌ | ❌ | ⚠️ Basic | ❌ |
 
 ---
