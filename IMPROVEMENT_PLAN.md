@@ -179,24 +179,26 @@ The most critical issue is **observability blindness**: DLP findings, behavioral
 
 ---
 
-## Phase 4: Fuzz Targets (P2) — Week 3
+## Phase 4: Fuzz Targets (P2) — Week 3 ✅ COMPLETE
 
-### 4.1 New Fuzz Targets
+### 4.1 New Fuzz Targets ✅
 
-**Problem:** Missing fuzz coverage for critical parsing functions.
+**Problem:** ~~Missing fuzz coverage for critical parsing functions.~~ **Added 5 new fuzz targets.**
 
 **Directory:** `fuzz/fuzz_targets/`
 
 **Tasks:**
 ```
-[ ] fuzz_dlp_decoding.rs — Multi-layer decode pipeline
-[ ] fuzz_policy_compilation.rs — PolicyEngine::compile_policies()
-[ ] fuzz_injection_detection.rs — Unicode normalization bypass
-[ ] fuzz_output_validation.rs — Schema mutation detection
-[ ] fuzz_etdi_signature.rs — Signature verification
+[x] fuzz_dlp_decoding.rs — Multi-layer decode pipeline (8 layers)
+[x] fuzz_policy_compilation.rs — PolicyEngine policy evaluation
+[x] fuzz_injection_detection.rs — Unicode normalization + Aho-Corasick
+[x] fuzz_output_validation.rs — Schema registration and validation
+[x] fuzz_etdi_signature.rs — Ed25519 signature verification
 ```
 
-**Effort:** 2 days
+**Total fuzz targets:** 15 (was 10, added 5)
+
+**Completed:** 2026-02-10
 
 ---
 
@@ -292,11 +294,11 @@ The most critical issue is **observability blindness**: DLP findings, behavioral
 | 1 | Observability (logging, metrics, config) | P1 | 3.5 days | ✅ Complete |
 | 2 | Security (replay, DoS protection) | P1 | 1 day | ✅ Complete |
 | 3 | Test Coverage (ETDI, memory, DLP) | P1 | 4 days | ✅ Complete |
-| 4 | Fuzz Targets | P2 | 2 days | Pending |
+| 4 | Fuzz Targets | P2 | 2 days | ✅ Complete |
 | 5 | Code Quality (constants, TODOs, descriptions) | P3 | 2 days | Pending |
 | 6 | Dependency Cleanup | P3 | 1 day | ✅ Partial (6.2 done) |
 
-**Remaining Effort:** ~5 days (~1 week) — All P1 phases complete
+**Remaining Effort:** ~3 days — P1 and P2 phases complete, only P3 remaining
 
 ---
 

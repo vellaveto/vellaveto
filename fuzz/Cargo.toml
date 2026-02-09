@@ -13,6 +13,7 @@ sentinel-mcp = { path = "../sentinel-mcp", features = ["semantic-detection"] }
 sentinel-engine = { path = "../sentinel-engine" }
 sentinel-server = { path = "../sentinel-server" }
 sentinel-types = { path = "../sentinel-types" }
+sentinel-config = { path = "../sentinel-config" }
 serde_json = "1.0"
 tokio = { version = "1.0", features = ["rt", "io-util", "macros"] }
 
@@ -73,5 +74,35 @@ doc = false
 [[bin]]
 name = "fuzz_schema_lineage"
 path = "fuzz_targets/fuzz_schema_lineage.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_dlp_decoding"
+path = "fuzz_targets/fuzz_dlp_decoding.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_injection_detection"
+path = "fuzz_targets/fuzz_injection_detection.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_policy_compilation"
+path = "fuzz_targets/fuzz_policy_compilation.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_output_validation"
+path = "fuzz_targets/fuzz_output_validation.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_etdi_signature"
+path = "fuzz_targets/fuzz_etdi_signature.rs"
 test = false
 doc = false
