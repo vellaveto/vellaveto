@@ -837,6 +837,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
         let default_cfg = sentinel_config::PolicyConfig {
             policies: vec![],
             injection: Default::default(),
+            dlp: Default::default(),
             rate_limit: Default::default(),
             audit: Default::default(),
             supply_chain: Default::default(),

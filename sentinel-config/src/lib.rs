@@ -62,6 +62,87 @@ impl Default for InjectionConfig {
     }
 }
 
+/// Configuration for Data Loss Prevention (DLP) scanning.
+///
+/// Controls secret detection in tool call parameters and responses.
+/// DLP scanning detects API keys, tokens, credentials, and other secrets
+/// that should not be exfiltrated via tool calls (OWASP ASI03).
+///
+/// # TOML Example
+///
+/// ```toml
+/// [dlp]
+/// enabled = true
+/// block_on_finding = true
+/// max_depth = 32
+/// time_budget_ms = 5
+/// extra_patterns = [["custom_secret", "CUSTOM_[A-Z0-9]{32}"]]
+/// disabled_patterns = ["generic_api_key"]
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DlpConfig {
+    /// Master toggle for DLP scanning. Defaults to `true`.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// When true, DLP findings block the request instead of just logging.
+    /// Default: `true` (secure by default — block exfiltration attempts).
+    #[serde(default = "default_true")]
+    pub block_on_finding: bool,
+
+    /// Maximum JSON recursion depth for scanning. Defaults to 32.
+    #[serde(default = "default_dlp_max_depth")]
+    pub max_depth: usize,
+
+    /// Time budget for multi-layer decode in milliseconds.
+    /// After this budget is exhausted, remaining decode layers are skipped.
+    /// Default: 5ms (production), 200ms (debug builds).
+    #[serde(default = "default_dlp_time_budget_ms")]
+    pub time_budget_ms: u64,
+
+    /// Maximum string size to scan in bytes. Strings exceeding this are truncated.
+    /// Secrets are unlikely to exceed 1MB so this limit doesn't affect detection.
+    /// Default: 1MB (1_048_576 bytes).
+    #[serde(default = "default_dlp_max_string_size")]
+    pub max_string_size: usize,
+
+    /// Additional patterns appended to the default set.
+    /// Each entry is a tuple of (name, regex_pattern).
+    #[serde(default)]
+    pub extra_patterns: Vec<(String, String)>,
+
+    /// Default patterns to disable. Any default pattern whose name matches
+    /// an entry here (case-insensitive) will be excluded from scanning.
+    #[serde(default)]
+    pub disabled_patterns: Vec<String>,
+}
+
+fn default_dlp_max_depth() -> usize {
+    32
+}
+
+fn default_dlp_time_budget_ms() -> u64 {
+    5
+}
+
+fn default_dlp_max_string_size() -> usize {
+    1024 * 1024 // 1 MB
+}
+
+impl Default for DlpConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            block_on_finding: true,
+            max_depth: 32,
+            time_budget_ms: 5,
+            max_string_size: 1024 * 1024,
+            extra_patterns: Vec::new(),
+            disabled_patterns: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolicyRule {
     pub name: String,
@@ -1356,6 +1437,11 @@ pub struct PolicyConfig {
     /// When absent, defaults are used (scanning enabled, default patterns only).
     #[serde(default)]
     pub injection: InjectionConfig,
+
+    /// Optional DLP (Data Loss Prevention) scanning configuration.
+    /// When absent, defaults are used (scanning enabled, block on finding).
+    #[serde(default)]
+    pub dlp: DlpConfig,
 
     /// Optional rate limiting configuration.
     /// When absent, all rate limits are unconfigured (env vars or defaults apply).
@@ -5779,6 +5865,7 @@ policy_type = "Allow"
         let mut config = PolicyConfig {
             policies: Vec::new(),
             injection: InjectionConfig::default(),
+            dlp: DlpConfig::default(),
             rate_limit: RateLimitConfig::default(),
             audit: AuditConfig::default(),
             supply_chain: SupplyChainConfig::default(),

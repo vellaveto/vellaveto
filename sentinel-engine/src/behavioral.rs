@@ -269,6 +269,12 @@ impl BehavioralTracker {
 
         // Cold start: don't flag until the agent has enough sessions
         if agent.total_sessions < self.config.min_sessions {
+            tracing::debug!(
+                agent_id = %agent_id,
+                sessions = %agent.total_sessions,
+                min_required = %self.config.min_sessions,
+                "Agent in cold-start phase, anomaly detection deferred"
+            );
             return alerts;
         }
 
@@ -284,6 +290,13 @@ impl BehavioralTracker {
 
             // Per-tool cold start: need enough observations for this specific tool
             if baseline.session_count < self.config.min_sessions {
+                tracing::trace!(
+                    agent_id = %agent_id,
+                    tool = %tool,
+                    tool_sessions = %baseline.session_count,
+                    min_required = %self.config.min_sessions,
+                    "Tool in cold-start phase, skipping anomaly check"
+                );
                 continue;
             }
 
@@ -303,14 +316,42 @@ impl BehavioralTracker {
                     AnomalySeverity::Warning
                 };
 
-                alerts.push(AnomalyAlert {
+                let alert = AnomalyAlert {
                     agent_id: agent_id.to_string(),
                     tool: tool.clone(),
                     current_count: count,
                     baseline_ema: baseline.ema,
                     deviation_ratio: ratio,
                     severity,
-                });
+                };
+
+                // Log anomaly detection for observability
+                match severity {
+                    AnomalySeverity::Critical => {
+                        tracing::warn!(
+                            agent_id = %agent_id,
+                            tool = %tool,
+                            current_count = %count,
+                            baseline_ema = %baseline.ema,
+                            deviation_ratio = %ratio,
+                            "CRITICAL behavioral anomaly detected: tool call frequency {:.1}x above baseline",
+                            ratio
+                        );
+                    }
+                    AnomalySeverity::Warning => {
+                        tracing::warn!(
+                            agent_id = %agent_id,
+                            tool = %tool,
+                            current_count = %count,
+                            baseline_ema = %baseline.ema,
+                            deviation_ratio = %ratio,
+                            "Behavioral anomaly detected: tool call frequency {:.1}x above baseline",
+                            ratio
+                        );
+                    }
+                }
+
+                alerts.push(alert);
             }
         }
 

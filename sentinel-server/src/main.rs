@@ -1019,6 +1019,7 @@ fn cmd_policies(preset: String) -> Result<()> {
     let config = PolicyConfig {
         policies: rules,
         injection: Default::default(),
+        dlp: Default::default(),
         rate_limit: Default::default(),
         audit: Default::default(),
         supply_chain: Default::default(),
