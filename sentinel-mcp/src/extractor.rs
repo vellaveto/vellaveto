@@ -442,11 +442,12 @@ pub fn extract_task_action(task_method: &str, task_id: Option<&str>) -> Action {
 /// Per MCP 2025-06-18, JSON-RPC batching is no longer supported.
 /// Uses `id: null` since batch messages don't have a single ID.
 pub fn make_batch_error_response() -> Value {
+    use sentinel_types::json_rpc;
     serde_json::json!({
         "jsonrpc": "2.0",
         "id": null,
         "error": {
-            "code": -32600,
+            "code": json_rpc::INVALID_REQUEST,
             "message": "JSON-RPC batching is not supported (MCP 2025-06-18)"
         }
     })
@@ -454,11 +455,12 @@ pub fn make_batch_error_response() -> Value {
 
 /// Build a JSON-RPC error response for an invalid request.
 pub fn make_invalid_response(id: &Value, reason: &str) -> Value {
+    use sentinel_types::json_rpc;
     serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,
         "error": {
-            "code": -32600,
+            "code": json_rpc::INVALID_REQUEST,
             "message": format!("Invalid request: {}", reason)
         }
     })
@@ -466,15 +468,16 @@ pub fn make_invalid_response(id: &Value, reason: &str) -> Value {
 
 /// Build a JSON-RPC error response for a denied tool call.
 ///
-/// Uses custom application error code -32001 (policy denial).
+/// Uses [`sentinel_types::json_rpc::POLICY_DENIED`] error code.
 /// Per JSON-RPC 2.0, -32000 to -32099 are reserved for application-defined errors.
 /// Includes structured `data` field for client diagnostics.
 pub fn make_denial_response(id: &Value, reason: &str) -> Value {
+    use sentinel_types::json_rpc;
     serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,
         "error": {
-            "code": -32001,
+            "code": json_rpc::POLICY_DENIED,
             "message": format!("Denied by policy: {}", reason),
             "data": {
                 "type": "policy_denial",
@@ -486,14 +489,15 @@ pub fn make_denial_response(id: &Value, reason: &str) -> Value {
 
 /// Build a JSON-RPC error response for a tool call that requires approval.
 ///
-/// Uses custom application error code -32002 (approval required).
+/// Uses [`sentinel_types::json_rpc::APPROVAL_REQUIRED`] error code.
 /// Includes structured `data` field for client diagnostics.
 pub fn make_approval_response(id: &Value, reason: &str) -> Value {
+    use sentinel_types::json_rpc;
     serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,
         "error": {
-            "code": -32002,
+            "code": json_rpc::APPROVAL_REQUIRED,
             "message": format!("Approval required: {}", reason),
             "data": {
                 "type": "approval_required",

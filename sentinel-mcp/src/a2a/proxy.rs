@@ -148,8 +148,9 @@ impl A2aProxyService {
 
         // 5. Handle invalid messages
         if let A2aMessageType::Invalid { id, reason } = &msg_type {
+            use sentinel_types::json_rpc;
             return Ok(A2aProxyDecision::Block {
-                response: make_a2a_error_response(id, -32600, reason),
+                response: make_a2a_error_response(id, json_rpc::INVALID_REQUEST as i32, reason),
                 reason: reason.clone(),
                 verdict: None,
             });
@@ -190,11 +191,12 @@ impl A2aProxyService {
                     });
                 }
                 Ok(verdict @ Verdict::RequireApproval { .. }) => {
+                    use sentinel_types::json_rpc;
                     let id = get_request_id(&msg_type);
                     return Ok(A2aProxyDecision::Block {
                         response: make_a2a_error_response(
                             &id,
-                            -32003,
+                            json_rpc::VALIDATION_ERROR as i32,
                             "Action requires approval",
                         ),
                         reason: "Requires approval".to_string(),
@@ -202,11 +204,12 @@ impl A2aProxyService {
                     });
                 }
                 Err(e) => {
+                    use sentinel_types::json_rpc;
                     // Fail closed: engine errors result in denial
                     let id = get_request_id(&msg_type);
                     let reason = format!("Policy evaluation error: {}", e);
                     return Ok(A2aProxyDecision::Block {
-                        response: make_a2a_error_response(&id, -32603, &reason),
+                        response: make_a2a_error_response(&id, json_rpc::INTERNAL_ERROR as i32, &reason),
                         reason,
                         verdict: None,
                     });

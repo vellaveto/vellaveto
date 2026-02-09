@@ -84,35 +84,29 @@ pub enum A2aError {
 impl A2aError {
     /// Returns the JSON-RPC error code for this error type.
     ///
-    /// Error codes follow the JSON-RPC 2.0 specification:
-    /// - -32700: Parse error
-    /// - -32600: Invalid request
-    /// - -32601: Method not found
-    /// - -32602: Invalid params
-    /// - -32603: Internal error
-    /// - -32000 to -32099: Server errors (reserved)
-    ///
-    /// We use custom codes in the -32001 to -32099 range for A2A-specific errors.
+    /// Error codes follow the JSON-RPC 2.0 specification. See
+    /// [`sentinel_types::json_rpc`] for the full list of codes.
     pub fn code(&self) -> i32 {
+        use sentinel_types::json_rpc;
         match self {
-            A2aError::InvalidMessage(_) => -32600,
-            A2aError::Serialization(_) => -32700,
-            A2aError::AuthenticationRequired { .. } => -32001,
-            A2aError::AuthenticationFailed(_) => -32002,
-            A2aError::PolicyDenied(_) => -32003,
-            A2aError::TaskNotFound { .. } => -32004,
-            A2aError::TaskOperationNotAllowed { .. } => -32005,
-            A2aError::MessageTooLarge { .. } => -32006,
-            A2aError::Timeout => -32007,
-            A2aError::InjectionDetected(_) => -32008,
-            A2aError::DlpViolation(_) => -32009,
-            A2aError::BatchNotAllowed => -32010,
-            A2aError::CircuitBreakerOpen { .. } => -32011,
-            A2aError::ShadowAgentDetected(_) => -32012,
-            A2aError::AgentCardNotFound { .. } => -32020,
-            A2aError::AgentCardInvalid(_) => -32021,
-            A2aError::Upstream(_) => -32603,
-            A2aError::Io(_) => -32603,
+            A2aError::InvalidMessage(_) => json_rpc::INVALID_REQUEST as i32,
+            A2aError::Serialization(_) => json_rpc::PARSE_ERROR as i32,
+            A2aError::AuthenticationRequired { .. } => json_rpc::POLICY_DENIED as i32,
+            A2aError::AuthenticationFailed(_) => json_rpc::APPROVAL_REQUIRED as i32,
+            A2aError::PolicyDenied(_) => json_rpc::VALIDATION_ERROR as i32,
+            A2aError::TaskNotFound { .. } => json_rpc::TASK_NOT_FOUND as i32,
+            A2aError::TaskOperationNotAllowed { .. } => json_rpc::TASK_OPERATION_NOT_ALLOWED as i32,
+            A2aError::MessageTooLarge { .. } => json_rpc::MESSAGE_TOO_LARGE as i32,
+            A2aError::Timeout => json_rpc::TIMEOUT as i32,
+            A2aError::InjectionDetected(_) => json_rpc::INJECTION_DETECTED as i32,
+            A2aError::DlpViolation(_) => json_rpc::DLP_VIOLATION as i32,
+            A2aError::BatchNotAllowed => json_rpc::BATCH_NOT_ALLOWED as i32,
+            A2aError::CircuitBreakerOpen { .. } => json_rpc::CIRCUIT_BREAKER_OPEN as i32,
+            A2aError::ShadowAgentDetected(_) => json_rpc::SHADOW_AGENT_DETECTED as i32,
+            A2aError::AgentCardNotFound { .. } => json_rpc::AGENT_CARD_NOT_FOUND as i32,
+            A2aError::AgentCardInvalid(_) => json_rpc::AGENT_CARD_INVALID as i32,
+            A2aError::Upstream(_) => json_rpc::INTERNAL_ERROR as i32,
+            A2aError::Io(_) => json_rpc::INTERNAL_ERROR as i32,
         }
     }
 }

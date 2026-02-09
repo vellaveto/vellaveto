@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 
+pub mod json_rpc;
+pub use json_rpc::*;
+
 // ═══════════════════════════════════════════════════
 // MCP 2025-11-25 COMPLIANCE TYPES
 // ═══════════════════════════════════════════════════

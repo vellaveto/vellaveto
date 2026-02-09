@@ -251,12 +251,13 @@ impl McpServer {
     }
 
     fn error_code(&self, error: &McpError) -> i32 {
+        use sentinel_types::json_rpc;
         match error {
-            McpError::InvalidRequest(_) => -32600,
-            McpError::MethodNotFound(_) => -32601,
-            McpError::Validation(_) => -32602,
-            McpError::RequestTooLarge(_) => -32000,
-            _ => -32603,
+            McpError::InvalidRequest(_) => json_rpc::INVALID_REQUEST as i32,
+            McpError::MethodNotFound(_) => json_rpc::METHOD_NOT_FOUND as i32,
+            McpError::Validation(_) => json_rpc::INVALID_PARAMS as i32,
+            McpError::RequestTooLarge(_) => json_rpc::SERVER_ERROR as i32,
+            _ => json_rpc::INTERNAL_ERROR as i32,
         }
     }
 }

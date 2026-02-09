@@ -119,9 +119,10 @@ pub fn make_a2a_error_response(id: &Value, code: i32, message: &str) -> Value {
 
 /// Create a JSON-RPC denial response for A2A policy denial.
 ///
-/// Uses error code -32003 (Policy denied) with the denial reason.
+/// Uses [`sentinel_types::json_rpc::VALIDATION_ERROR`] with the denial reason.
 pub fn make_a2a_denial_response(id: &Value, reason: &str) -> Value {
-    make_a2a_error_response(id, -32003, &format!("Policy denied: {}", reason))
+    use sentinel_types::json_rpc;
+    make_a2a_error_response(id, json_rpc::VALIDATION_ERROR as i32, &format!("Policy denied: {}", reason))
 }
 
 /// Create a JSON-RPC success response for A2A.
