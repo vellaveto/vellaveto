@@ -749,7 +749,7 @@ fn attack_json_deep_nesting_dos() {
     for _ in 0..200 {
         raw.push_str(r#"{"a":"#);
     }
-    raw.push_str("1");
+    raw.push('1');
     for _ in 0..200 {
         raw.push('}');
     }
@@ -1296,13 +1296,10 @@ fn attack_tool_name_path_separator() {
             "arguments": {}
         }
     });
-    match classify_message(&msg) {
-        MessageType::ToolCall { tool_name, .. } => {
-            // Tool name should be normalized but path traversal in tool name
-            // should not affect policy matching (policy matches by tool string)
-            assert!(!tool_name.is_empty(), "Tool name should be extracted");
-        }
-        _ => {} // Invalid classification is also acceptable
+    if let MessageType::ToolCall { tool_name, .. } = classify_message(&msg) {
+        // Tool name should be normalized but path traversal in tool name
+        // should not affect policy matching (policy matches by tool string)
+        assert!(!tool_name.is_empty(), "Tool name should be extracted");
     }
 }
 

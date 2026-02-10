@@ -463,7 +463,7 @@ mod p4_interaction {
             Some("AKIAIOSFODNN7EXAMPLE"),
         )];
         let exfil_alerts =
-            data_flow.check_request("http_post", &req_findings, &vec!["evil.com".to_string()]);
+            data_flow.check_request("http_post", &req_findings, &["evil.com".to_string()]);
 
         // Both detection systems should fire
         assert!(

@@ -92,14 +92,29 @@ pub const AGENT_CARD_INVALID: i64 = -32021;
 mod tests {
     use super::*;
 
+    fn runtime_i64(value: i64) -> i64 {
+        // Keep this check runtime so clippy doesn't treat assertions as constants.
+        std::hint::black_box(value)
+    }
+
     #[test]
     fn test_standard_codes_in_spec_range() {
         // Standard codes are -32700, -32600 to -32603
-        assert!(PARSE_ERROR <= -32700);
-        assert!(INVALID_REQUEST >= -32700 && INVALID_REQUEST <= -32600);
-        assert!(METHOD_NOT_FOUND >= -32700 && METHOD_NOT_FOUND <= -32600);
-        assert!(INVALID_PARAMS >= -32700 && INVALID_PARAMS <= -32600);
-        assert!(INTERNAL_ERROR >= -32700 && INTERNAL_ERROR <= -32600);
+        assert_eq!(runtime_i64(PARSE_ERROR), -32700);
+
+        let standard_codes = [
+            runtime_i64(INVALID_REQUEST),
+            runtime_i64(METHOD_NOT_FOUND),
+            runtime_i64(INVALID_PARAMS),
+            runtime_i64(INTERNAL_ERROR),
+        ];
+        for code in standard_codes {
+            assert!(
+                (-32700..=-32600).contains(&code),
+                "Standard code {} is outside -32700..=-32600",
+                code
+            );
+        }
     }
 
     #[test]
@@ -124,8 +139,9 @@ mod tests {
         ];
 
         for code in codes {
+            let code = runtime_i64(code);
             assert!(
-                code >= -32099 && code <= -32000,
+                (-32099..=-32000).contains(&code),
                 "Code {} is outside reserved range -32099 to -32000",
                 code
             );

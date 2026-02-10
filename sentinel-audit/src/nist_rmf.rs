@@ -230,22 +230,31 @@ impl NistRmfRegistry {
             "Organizational culture",
             "Organizational teams are committed to a culture that considers and communicates AI risk.");
 
-        self.add_category(RmfFunction::Govern, 5,
+        self.add_category(
+            RmfFunction::Govern,
+            5,
             "Engagement with stakeholders",
-            "Processes are in place for robust engagement with relevant AI actors.");
+            "Processes are in place for robust engagement with relevant AI actors.",
+        );
 
         self.add_category(RmfFunction::Govern, 6,
             "Third-party management",
             "Policies and procedures are in place to address AI risks and benefits arising from third-party software and data and other supply chain issues.");
 
         // MAP function categories
-        self.add_category(RmfFunction::Map, 1,
+        self.add_category(
+            RmfFunction::Map,
+            1,
             "Context establishment",
-            "Context is established and understood.");
+            "Context is established and understood.",
+        );
 
-        self.add_category(RmfFunction::Map, 2,
+        self.add_category(
+            RmfFunction::Map,
+            2,
             "AI system categorization",
-            "Categorization of the AI system is performed.");
+            "Categorization of the AI system is performed.",
+        );
 
         self.add_category(RmfFunction::Map, 3,
             "AI capabilities and risks",
@@ -260,21 +269,33 @@ impl NistRmfRegistry {
             "Impacts to individuals, groups, communities, organizations, and society are characterized.");
 
         // MEASURE function categories
-        self.add_category(RmfFunction::Measure, 1,
+        self.add_category(
+            RmfFunction::Measure,
+            1,
             "Risk identification and analysis",
-            "Appropriate methods and metrics are identified and applied.");
+            "Appropriate methods and metrics are identified and applied.",
+        );
 
-        self.add_category(RmfFunction::Measure, 2,
+        self.add_category(
+            RmfFunction::Measure,
+            2,
             "AI system evaluation",
-            "AI systems are evaluated for trustworthy characteristics.");
+            "AI systems are evaluated for trustworthy characteristics.",
+        );
 
-        self.add_category(RmfFunction::Measure, 3,
+        self.add_category(
+            RmfFunction::Measure,
+            3,
             "Risk tracking",
-            "Mechanisms for tracking identified AI risks over time are in place.");
+            "Mechanisms for tracking identified AI risks over time are in place.",
+        );
 
-        self.add_category(RmfFunction::Measure, 4,
+        self.add_category(
+            RmfFunction::Measure,
+            4,
             "Feedback integration",
-            "Feedback about efficacy of measurement is gathered and integrated.");
+            "Feedback about efficacy of measurement is gathered and integrated.",
+        );
 
         // MANAGE function categories
         self.add_category(RmfFunction::Manage, 1,
@@ -285,9 +306,12 @@ impl NistRmfRegistry {
             "Risk treatment strategies",
             "Strategies to maximize AI benefits and minimize negative impacts are planned, prepared, implemented, documented, and informed by input from relevant AI actors.");
 
-        self.add_category(RmfFunction::Manage, 3,
+        self.add_category(
+            RmfFunction::Manage,
+            3,
             "Post-deployment risk management",
-            "AI risks and benefits from third-party entities are managed.");
+            "AI risks and benefits from third-party entities are managed.",
+        );
 
         self.add_category(RmfFunction::Manage, 4,
             "Risk treatment implementation",
@@ -314,19 +338,31 @@ impl NistRmfRegistry {
 
         self.add_subcategory(RmfFunction::Govern, 6, 1,
             "Policies and procedures are in place that address AI risks associated with third-party entities.");
-        self.add_subcategory(RmfFunction::Govern, 6, 2,
-            "Contingency processes are in place for third-party AI systems and data.");
+        self.add_subcategory(
+            RmfFunction::Govern,
+            6,
+            2,
+            "Contingency processes are in place for third-party AI systems and data.",
+        );
 
         self.add_subcategory(RmfFunction::Map, 1, 6,
             "System requirements (e.g., functionality, performance, cost, efficiency) are elicited and documented.");
-        self.add_subcategory(RmfFunction::Map, 2, 3,
-            "Scientific integrity and TEVV considerations are identified and documented.");
+        self.add_subcategory(
+            RmfFunction::Map,
+            2,
+            3,
+            "Scientific integrity and TEVV considerations are identified and documented.",
+        );
         self.add_subcategory(RmfFunction::Map, 3, 1,
             "Potential benefits of intended AI system functionality and performance are examined and documented.");
         self.add_subcategory(RmfFunction::Map, 4, 1,
             "Approaches for mapping AI technology and legal risks of its components – including third-party data, software, and models – are in place.");
-        self.add_subcategory(RmfFunction::Map, 4, 2,
-            "Internal risk controls for components of the AI system are identified and documented.");
+        self.add_subcategory(
+            RmfFunction::Map,
+            4,
+            2,
+            "Internal risk controls for components of the AI system are identified and documented.",
+        );
 
         self.add_subcategory(RmfFunction::Measure, 1, 1,
             "Approaches and metrics for measurement of AI risks enumerated during the MAP function are selected for implementation.");
@@ -334,10 +370,18 @@ impl NistRmfRegistry {
             "Internal and external assessments of AI system functionality and behavior are performed and documented.");
         self.add_subcategory(RmfFunction::Measure, 2, 1,
             "Test sets, metrics, and details about the tools used during test, evaluation, validation, and verification are documented.");
-        self.add_subcategory(RmfFunction::Measure, 2, 6,
-            "The AI system is evaluated for safety.");
-        self.add_subcategory(RmfFunction::Measure, 2, 7,
-            "The AI system is evaluated for security and resilience.");
+        self.add_subcategory(
+            RmfFunction::Measure,
+            2,
+            6,
+            "The AI system is evaluated for safety.",
+        );
+        self.add_subcategory(
+            RmfFunction::Measure,
+            2,
+            7,
+            "The AI system is evaluated for security and resilience.",
+        );
         self.add_subcategory(RmfFunction::Measure, 2, 9,
             "Mechanisms are in place to capture and evaluate input from internal and external sources.");
         self.add_subcategory(RmfFunction::Measure, 2, 11,
@@ -346,27 +390,55 @@ impl NistRmfRegistry {
             "Privacy and data protection – whether the AI system protects and does not violate privacy and data protection rules.");
         self.add_subcategory(RmfFunction::Measure, 3, 1,
             "Approaches, personnel, and documentation are in place to regularly identify and track existing and emergent AI risks.");
-        self.add_subcategory(RmfFunction::Measure, 3, 2,
-            "Processes for tracking known risks over time are in place.");
+        self.add_subcategory(
+            RmfFunction::Measure,
+            3,
+            2,
+            "Processes for tracking known risks over time are in place.",
+        );
         self.add_subcategory(RmfFunction::Measure, 3, 3,
             "Feedback processes for end users and affected communities to report problems are in place and operational.");
 
-        self.add_subcategory(RmfFunction::Manage, 1, 1,
-            "A determination is made as to whether AI risk is at an acceptable level.");
+        self.add_subcategory(
+            RmfFunction::Manage,
+            1,
+            1,
+            "A determination is made as to whether AI risk is at an acceptable level.",
+        );
         self.add_subcategory(RmfFunction::Manage, 1, 3,
             "Responses to the AI risks deemed high priority are developed, planned, and documented.");
-        self.add_subcategory(RmfFunction::Manage, 2, 1,
-            "Resources required to manage AI risks are taken into account.");
-        self.add_subcategory(RmfFunction::Manage, 2, 2,
-            "Mechanisms are in place and applied to sustain the value of deployed AI systems.");
+        self.add_subcategory(
+            RmfFunction::Manage,
+            2,
+            1,
+            "Resources required to manage AI risks are taken into account.",
+        );
+        self.add_subcategory(
+            RmfFunction::Manage,
+            2,
+            2,
+            "Mechanisms are in place and applied to sustain the value of deployed AI systems.",
+        );
         self.add_subcategory(RmfFunction::Manage, 2, 4,
             "Mechanisms are in place and applied, and approaches are developed and documented, to enable human oversight of AI systems.");
-        self.add_subcategory(RmfFunction::Manage, 3, 1,
-            "AI risks and benefits from third-party resources are regularly monitored.");
-        self.add_subcategory(RmfFunction::Manage, 3, 2,
-            "Pre-trained models that are used are monitored.");
-        self.add_subcategory(RmfFunction::Manage, 4, 1,
-            "Post-deployment AI system monitoring plans are implemented.");
+        self.add_subcategory(
+            RmfFunction::Manage,
+            3,
+            1,
+            "AI risks and benefits from third-party resources are regularly monitored.",
+        );
+        self.add_subcategory(
+            RmfFunction::Manage,
+            3,
+            2,
+            "Pre-trained models that are used are monitored.",
+        );
+        self.add_subcategory(
+            RmfFunction::Manage,
+            4,
+            1,
+            "Post-deployment AI system monitoring plans are implemented.",
+        );
         self.add_subcategory(RmfFunction::Manage, 4, 2,
             "Measurable activities for continual improvements are integrated into AI system updates and include regular engagement with interested parties.");
         self.add_subcategory(RmfFunction::Manage, 4, 3,
@@ -375,111 +447,277 @@ impl NistRmfRegistry {
 
     fn add_category(&mut self, function: RmfFunction, number: u8, name: &str, description: &str) {
         let id = RmfCategoryId::new(function, number);
-        self.categories.insert(id.clone(), RmfCategory {
-            id,
-            function,
-            name: name.to_string(),
-            description: description.to_string(),
-        });
+        self.categories.insert(
+            id.clone(),
+            RmfCategory {
+                id,
+                function,
+                name: name.to_string(),
+                description: description.to_string(),
+            },
+        );
     }
 
-    fn add_subcategory(&mut self, function: RmfFunction, category: u8, subcategory: u8, description: &str) {
+    fn add_subcategory(
+        &mut self,
+        function: RmfFunction,
+        category: u8,
+        subcategory: u8,
+        description: &str,
+    ) {
         let id = RmfSubcategoryId::new(function, category, subcategory);
         let category_id = RmfCategoryId::new(function, category);
-        self.subcategories.insert(id.clone(), RmfSubcategory {
-            id,
-            category_id,
-            description: description.to_string(),
-        });
+        self.subcategories.insert(
+            id.clone(),
+            RmfSubcategory {
+                id,
+                category_id,
+                description: description.to_string(),
+            },
+        );
     }
 
     fn populate_sentinel_mappings(&mut self) {
         // GOVERN mappings - Policy and governance
-        self.add_mapping(SentinelCapability::PolicyEvaluation, "GOVERN 1.1", ImplementationStatus::Implemented,
-            Some("Policy engine enforces organizational security policies"));
-        self.add_mapping(SentinelCapability::PolicyEvaluation, "GOVERN 1.2", ImplementationStatus::Implemented,
-            Some("Trustworthy AI characteristics enforced through policy rules"));
-        self.add_mapping(SentinelCapability::TamperEvidentAuditLog, "GOVERN 1.5", ImplementationStatus::Implemented,
-            Some("Tamper-evident audit log enables monitoring and review"));
-        self.add_mapping(SentinelCapability::PolicyHotReload, "GOVERN 1.6", ImplementationStatus::Implemented,
-            Some("Hot reload enables policy inventory management"));
-        self.add_mapping(SentinelCapability::KillSwitch, "GOVERN 1.7", ImplementationStatus::Implemented,
-            Some("Kill switch enables safe decommissioning"));
+        self.add_mapping(
+            SentinelCapability::PolicyEvaluation,
+            "GOVERN 1.1",
+            ImplementationStatus::Implemented,
+            Some("Policy engine enforces organizational security policies"),
+        );
+        self.add_mapping(
+            SentinelCapability::PolicyEvaluation,
+            "GOVERN 1.2",
+            ImplementationStatus::Implemented,
+            Some("Trustworthy AI characteristics enforced through policy rules"),
+        );
+        self.add_mapping(
+            SentinelCapability::TamperEvidentAuditLog,
+            "GOVERN 1.5",
+            ImplementationStatus::Implemented,
+            Some("Tamper-evident audit log enables monitoring and review"),
+        );
+        self.add_mapping(
+            SentinelCapability::PolicyHotReload,
+            "GOVERN 1.6",
+            ImplementationStatus::Implemented,
+            Some("Hot reload enables policy inventory management"),
+        );
+        self.add_mapping(
+            SentinelCapability::KillSwitch,
+            "GOVERN 1.7",
+            ImplementationStatus::Implemented,
+            Some("Kill switch enables safe decommissioning"),
+        );
 
-        self.add_mapping(SentinelCapability::InjectionDetection, "GOVERN 4.1", ImplementationStatus::Implemented,
-            Some("Safety-first detection of prompt injection attacks"));
-        self.add_mapping(SentinelCapability::TamperEvidentAuditLog, "GOVERN 4.2", ImplementationStatus::Implemented,
-            Some("All risks and impacts documented in audit trail"));
-        self.add_mapping(SentinelCapability::AuditLogExport, "GOVERN 4.3", ImplementationStatus::Implemented,
-            Some("CEF/JSONL export enables information sharing"));
+        self.add_mapping(
+            SentinelCapability::InjectionDetection,
+            "GOVERN 4.1",
+            ImplementationStatus::Implemented,
+            Some("Safety-first detection of prompt injection attacks"),
+        );
+        self.add_mapping(
+            SentinelCapability::TamperEvidentAuditLog,
+            "GOVERN 4.2",
+            ImplementationStatus::Implemented,
+            Some("All risks and impacts documented in audit trail"),
+        );
+        self.add_mapping(
+            SentinelCapability::AuditLogExport,
+            "GOVERN 4.3",
+            ImplementationStatus::Implemented,
+            Some("CEF/JSONL export enables information sharing"),
+        );
 
-        self.add_mapping(SentinelCapability::ToolSquattingDetection, "GOVERN 6.1", ImplementationStatus::Implemented,
-            Some("Detects third-party tool impersonation"));
-        self.add_mapping(SentinelCapability::CircuitBreaker, "GOVERN 6.2", ImplementationStatus::Implemented,
-            Some("Circuit breaker provides contingency for third-party failures"));
+        self.add_mapping(
+            SentinelCapability::ToolSquattingDetection,
+            "GOVERN 6.1",
+            ImplementationStatus::Implemented,
+            Some("Detects third-party tool impersonation"),
+        );
+        self.add_mapping(
+            SentinelCapability::CircuitBreaker,
+            "GOVERN 6.2",
+            ImplementationStatus::Implemented,
+            Some("Circuit breaker provides contingency for third-party failures"),
+        );
 
         // MAP mappings - Risk identification
-        self.add_mapping(SentinelCapability::ContextConditions, "MAP 1.6", ImplementationStatus::Implemented,
-            Some("Context-aware policies document system requirements"));
-        self.add_mapping(SentinelCapability::OutputValidation, "MAP 2.3", ImplementationStatus::Implemented,
-            Some("Output validation ensures scientific integrity"));
-        self.add_mapping(SentinelCapability::MetricsCollection, "MAP 3.1", ImplementationStatus::Implemented,
-            Some("Prometheus metrics document system performance"));
-        self.add_mapping(SentinelCapability::SchemaPoisoningDetection, "MAP 4.1", ImplementationStatus::Implemented,
-            Some("Schema tracking maps risks of third-party components"));
-        self.add_mapping(SentinelCapability::PathRules, "MAP 4.2", ImplementationStatus::Implemented,
-            Some("Path rules document internal access controls"));
-        self.add_mapping(SentinelCapability::NetworkRules, "MAP 4.2", ImplementationStatus::Implemented,
-            Some("Network rules document internal access controls"));
+        self.add_mapping(
+            SentinelCapability::ContextConditions,
+            "MAP 1.6",
+            ImplementationStatus::Implemented,
+            Some("Context-aware policies document system requirements"),
+        );
+        self.add_mapping(
+            SentinelCapability::OutputValidation,
+            "MAP 2.3",
+            ImplementationStatus::Implemented,
+            Some("Output validation ensures scientific integrity"),
+        );
+        self.add_mapping(
+            SentinelCapability::MetricsCollection,
+            "MAP 3.1",
+            ImplementationStatus::Implemented,
+            Some("Prometheus metrics document system performance"),
+        );
+        self.add_mapping(
+            SentinelCapability::SchemaPoisoningDetection,
+            "MAP 4.1",
+            ImplementationStatus::Implemented,
+            Some("Schema tracking maps risks of third-party components"),
+        );
+        self.add_mapping(
+            SentinelCapability::PathRules,
+            "MAP 4.2",
+            ImplementationStatus::Implemented,
+            Some("Path rules document internal access controls"),
+        );
+        self.add_mapping(
+            SentinelCapability::NetworkRules,
+            "MAP 4.2",
+            ImplementationStatus::Implemented,
+            Some("Network rules document internal access controls"),
+        );
 
         // MEASURE mappings - Risk analysis
-        self.add_mapping(SentinelCapability::MetricsCollection, "MEASURE 1.1", ImplementationStatus::Implemented,
-            Some("Prometheus metrics implement risk measurement"));
-        self.add_mapping(SentinelCapability::TamperEvidentAuditLog, "MEASURE 1.3", ImplementationStatus::Implemented,
-            Some("Audit log documents all system behavior assessments"));
-        self.add_mapping(SentinelCapability::HashChainVerification, "MEASURE 2.1", ImplementationStatus::Implemented,
-            Some("Hash chain verification validates audit integrity"));
-        self.add_mapping(SentinelCapability::InjectionDetection, "MEASURE 2.6", ImplementationStatus::Implemented,
-            Some("Injection detection evaluates system safety"));
-        self.add_mapping(SentinelCapability::ShadowAgentDetection, "MEASURE 2.7", ImplementationStatus::Implemented,
-            Some("Shadow agent detection evaluates security"));
-        self.add_mapping(SentinelCapability::ConfusedDeputyPrevention, "MEASURE 2.7", ImplementationStatus::Implemented,
-            Some("Confused deputy prevention evaluates resilience"));
-        self.add_mapping(SentinelCapability::PrivilegeEscalationDetection, "MEASURE 2.11", ImplementationStatus::Implemented,
-            Some("Privilege escalation detection evaluates access control fairness"));
-        self.add_mapping(SentinelCapability::DlpScanning, "MEASURE 2.12", ImplementationStatus::Implemented,
-            Some("DLP scanning protects privacy and data"));
-        self.add_mapping(SentinelCapability::GoalTracking, "MEASURE 3.1", ImplementationStatus::Implemented,
-            Some("Goal tracking identifies emergent drift risks"));
-        self.add_mapping(SentinelCapability::WorkflowTracking, "MEASURE 3.2", ImplementationStatus::Implemented,
-            Some("Workflow tracking monitors risks over time"));
-        self.add_mapping(SentinelCapability::HumanApproval, "MEASURE 3.3", ImplementationStatus::Implemented,
-            Some("Human approval enables problem reporting"));
+        self.add_mapping(
+            SentinelCapability::MetricsCollection,
+            "MEASURE 1.1",
+            ImplementationStatus::Implemented,
+            Some("Prometheus metrics implement risk measurement"),
+        );
+        self.add_mapping(
+            SentinelCapability::TamperEvidentAuditLog,
+            "MEASURE 1.3",
+            ImplementationStatus::Implemented,
+            Some("Audit log documents all system behavior assessments"),
+        );
+        self.add_mapping(
+            SentinelCapability::HashChainVerification,
+            "MEASURE 2.1",
+            ImplementationStatus::Implemented,
+            Some("Hash chain verification validates audit integrity"),
+        );
+        self.add_mapping(
+            SentinelCapability::InjectionDetection,
+            "MEASURE 2.6",
+            ImplementationStatus::Implemented,
+            Some("Injection detection evaluates system safety"),
+        );
+        self.add_mapping(
+            SentinelCapability::ShadowAgentDetection,
+            "MEASURE 2.7",
+            ImplementationStatus::Implemented,
+            Some("Shadow agent detection evaluates security"),
+        );
+        self.add_mapping(
+            SentinelCapability::ConfusedDeputyPrevention,
+            "MEASURE 2.7",
+            ImplementationStatus::Implemented,
+            Some("Confused deputy prevention evaluates resilience"),
+        );
+        self.add_mapping(
+            SentinelCapability::PrivilegeEscalationDetection,
+            "MEASURE 2.11",
+            ImplementationStatus::Implemented,
+            Some("Privilege escalation detection evaluates access control fairness"),
+        );
+        self.add_mapping(
+            SentinelCapability::DlpScanning,
+            "MEASURE 2.12",
+            ImplementationStatus::Implemented,
+            Some("DLP scanning protects privacy and data"),
+        );
+        self.add_mapping(
+            SentinelCapability::GoalTracking,
+            "MEASURE 3.1",
+            ImplementationStatus::Implemented,
+            Some("Goal tracking identifies emergent drift risks"),
+        );
+        self.add_mapping(
+            SentinelCapability::WorkflowTracking,
+            "MEASURE 3.2",
+            ImplementationStatus::Implemented,
+            Some("Workflow tracking monitors risks over time"),
+        );
+        self.add_mapping(
+            SentinelCapability::HumanApproval,
+            "MEASURE 3.3",
+            ImplementationStatus::Implemented,
+            Some("Human approval enables problem reporting"),
+        );
 
         // MANAGE mappings - Risk response
-        self.add_mapping(SentinelCapability::PolicyEvaluation, "MANAGE 1.1", ImplementationStatus::Implemented,
-            Some("Policy verdicts determine acceptable risk levels"));
-        self.add_mapping(SentinelCapability::CircuitBreaker, "MANAGE 1.3", ImplementationStatus::Implemented,
-            Some("Circuit breaker responds to high priority risks"));
-        self.add_mapping(SentinelCapability::RateLimiting, "MANAGE 2.1", ImplementationStatus::Implemented,
-            Some("Rate limiting manages resource allocation"));
-        self.add_mapping(SentinelCapability::PolicyHotReload, "MANAGE 2.2", ImplementationStatus::Implemented,
-            Some("Hot reload sustains value through dynamic updates"));
-        self.add_mapping(SentinelCapability::HumanApproval, "MANAGE 2.4", ImplementationStatus::Implemented,
-            Some("Human approval enables human oversight"));
-        self.add_mapping(SentinelCapability::RugPullDetection, "MANAGE 3.1", ImplementationStatus::Implemented,
-            Some("Rug pull detection monitors third-party resources"));
-        self.add_mapping(SentinelCapability::SchemaPoisoningDetection, "MANAGE 3.2", ImplementationStatus::Implemented,
-            Some("Schema poisoning detection monitors model schemas"));
-        self.add_mapping(SentinelCapability::TamperEvidentAuditLog, "MANAGE 4.1", ImplementationStatus::Implemented,
-            Some("Audit logging implements post-deployment monitoring"));
-        self.add_mapping(SentinelCapability::AuditLogExport, "MANAGE 4.2", ImplementationStatus::Implemented,
-            Some("Export formats enable continuous improvement"));
-        self.add_mapping(SentinelCapability::KillSwitch, "MANAGE 4.3", ImplementationStatus::Implemented,
-            Some("Kill switch enables incident response and recovery"));
+        self.add_mapping(
+            SentinelCapability::PolicyEvaluation,
+            "MANAGE 1.1",
+            ImplementationStatus::Implemented,
+            Some("Policy verdicts determine acceptable risk levels"),
+        );
+        self.add_mapping(
+            SentinelCapability::CircuitBreaker,
+            "MANAGE 1.3",
+            ImplementationStatus::Implemented,
+            Some("Circuit breaker responds to high priority risks"),
+        );
+        self.add_mapping(
+            SentinelCapability::RateLimiting,
+            "MANAGE 2.1",
+            ImplementationStatus::Implemented,
+            Some("Rate limiting manages resource allocation"),
+        );
+        self.add_mapping(
+            SentinelCapability::PolicyHotReload,
+            "MANAGE 2.2",
+            ImplementationStatus::Implemented,
+            Some("Hot reload sustains value through dynamic updates"),
+        );
+        self.add_mapping(
+            SentinelCapability::HumanApproval,
+            "MANAGE 2.4",
+            ImplementationStatus::Implemented,
+            Some("Human approval enables human oversight"),
+        );
+        self.add_mapping(
+            SentinelCapability::RugPullDetection,
+            "MANAGE 3.1",
+            ImplementationStatus::Implemented,
+            Some("Rug pull detection monitors third-party resources"),
+        );
+        self.add_mapping(
+            SentinelCapability::SchemaPoisoningDetection,
+            "MANAGE 3.2",
+            ImplementationStatus::Implemented,
+            Some("Schema poisoning detection monitors model schemas"),
+        );
+        self.add_mapping(
+            SentinelCapability::TamperEvidentAuditLog,
+            "MANAGE 4.1",
+            ImplementationStatus::Implemented,
+            Some("Audit logging implements post-deployment monitoring"),
+        );
+        self.add_mapping(
+            SentinelCapability::AuditLogExport,
+            "MANAGE 4.2",
+            ImplementationStatus::Implemented,
+            Some("Export formats enable continuous improvement"),
+        );
+        self.add_mapping(
+            SentinelCapability::KillSwitch,
+            "MANAGE 4.3",
+            ImplementationStatus::Implemented,
+            Some("Kill switch enables incident response and recovery"),
+        );
     }
 
-    fn add_mapping(&mut self, capability: SentinelCapability, subcategory: &str, status: ImplementationStatus, notes: Option<&str>) {
+    fn add_mapping(
+        &mut self,
+        capability: SentinelCapability,
+        subcategory: &str,
+        status: ImplementationStatus,
+        notes: Option<&str>,
+    ) {
         self.capability_mappings.push(CapabilityMapping {
             capability,
             subcategory_id: RmfSubcategoryId(subcategory.to_string()),
@@ -509,7 +747,10 @@ impl NistRmfRegistry {
     }
 
     /// Get all mappings for a capability.
-    pub fn mappings_for_capability(&self, capability: SentinelCapability) -> Vec<&CapabilityMapping> {
+    pub fn mappings_for_capability(
+        &self,
+        capability: SentinelCapability,
+    ) -> Vec<&CapabilityMapping> {
         self.capability_mappings
             .iter()
             .filter(|m| m.capability == capability)
@@ -517,7 +758,10 @@ impl NistRmfRegistry {
     }
 
     /// Get all mappings for a subcategory.
-    pub fn mappings_for_subcategory(&self, subcategory_id: &RmfSubcategoryId) -> Vec<&CapabilityMapping> {
+    pub fn mappings_for_subcategory(
+        &self,
+        subcategory_id: &RmfSubcategoryId,
+    ) -> Vec<&CapabilityMapping> {
         self.capability_mappings
             .iter()
             .filter(|m| &m.subcategory_id == subcategory_id)
@@ -529,7 +773,12 @@ impl NistRmfRegistry {
         let mut stats: HashMap<RmfFunction, CoverageStats> = HashMap::new();
 
         // Initialize stats for each function
-        for function in [RmfFunction::Govern, RmfFunction::Map, RmfFunction::Measure, RmfFunction::Manage] {
+        for function in [
+            RmfFunction::Govern,
+            RmfFunction::Map,
+            RmfFunction::Measure,
+            RmfFunction::Manage,
+        ] {
             stats.insert(function, CoverageStats::default());
         }
 
@@ -546,8 +795,13 @@ impl NistRmfRegistry {
         let mut covered: HashMap<RmfFunction, HashSet<String>> = HashMap::new();
         for mapping in &self.capability_mappings {
             if mapping.status == ImplementationStatus::Implemented {
-                if let Some(function) = mapping.subcategory_id.category_id().and_then(|c| c.function()) {
-                    covered.entry(function)
+                if let Some(function) = mapping
+                    .subcategory_id
+                    .category_id()
+                    .and_then(|c| c.function())
+                {
+                    covered
+                        .entry(function)
                         .or_default()
                         .insert(mapping.subcategory_id.0.clone());
                 }
@@ -563,7 +817,8 @@ impl NistRmfRegistry {
         // Calculate percentages
         for s in stats.values_mut() {
             if s.total_subcategories > 0 {
-                s.coverage_percent = (s.covered_subcategories as f32 / s.total_subcategories as f32) * 100.0;
+                s.coverage_percent =
+                    (s.covered_subcategories as f32 / s.total_subcategories as f32) * 100.0;
             }
         }
 
@@ -586,22 +841,27 @@ impl NistRmfRegistry {
 
         for (subcategory_id, mappings) in by_subcategory {
             let id = RmfSubcategoryId(subcategory_id.clone());
-            let description = self.get_subcategory(&id)
+            let description = self
+                .get_subcategory(&id)
                 .map(|s| s.description.clone())
                 .unwrap_or_default();
 
             let capabilities: Vec<_> = mappings.iter().map(|m| m.capability).collect();
-            let status = if mappings.iter().all(|m| m.status == ImplementationStatus::Implemented) {
+            let status = if mappings
+                .iter()
+                .all(|m| m.status == ImplementationStatus::Implemented)
+            {
                 ImplementationStatus::Implemented
-            } else if mappings.iter().any(|m| m.status == ImplementationStatus::Implemented) {
+            } else if mappings
+                .iter()
+                .any(|m| m.status == ImplementationStatus::Implemented)
+            {
                 ImplementationStatus::Partial
             } else {
                 ImplementationStatus::Planned
             };
 
-            let notes: Vec<_> = mappings.iter()
-                .filter_map(|m| m.notes.clone())
-                .collect();
+            let notes: Vec<_> = mappings.iter().filter_map(|m| m.notes.clone()).collect();
 
             findings.push(RmfFinding {
                 subcategory_id,
@@ -673,10 +933,18 @@ impl RmfComplianceReport {
         output.push_str("NIST AI RMF Compliance Summary\n");
         output.push_str("==============================\n\n");
         output.push_str(&format!("Generated: {}\n", self.generated_at));
-        output.push_str(&format!("Overall Coverage: {:.1}%\n\n", self.overall_coverage));
+        output.push_str(&format!(
+            "Overall Coverage: {:.1}%\n\n",
+            self.overall_coverage
+        ));
         output.push_str("Coverage by Function:\n");
 
-        for function in [RmfFunction::Govern, RmfFunction::Map, RmfFunction::Measure, RmfFunction::Manage] {
+        for function in [
+            RmfFunction::Govern,
+            RmfFunction::Map,
+            RmfFunction::Measure,
+            RmfFunction::Manage,
+        ] {
             if let Some(stats) = self.coverage_by_function.get(&function) {
                 output.push_str(&format!(
                     "  {}: {}/{} ({:.1}%)\n",
@@ -690,10 +958,14 @@ impl RmfComplianceReport {
 
         output.push_str(&format!("\nTotal Findings: {}\n", self.findings.len()));
 
-        let implemented = self.findings.iter()
+        let implemented = self
+            .findings
+            .iter()
             .filter(|f| f.status == ImplementationStatus::Implemented)
             .count();
-        let partial = self.findings.iter()
+        let partial = self
+            .findings
+            .iter()
             .filter(|f| f.status == ImplementationStatus::Partial)
             .count();
 
@@ -718,8 +990,14 @@ pub fn add_rmf_metadata(
             .collect();
 
         if let serde_json::Value::Object(ref mut map) = metadata {
-            map.insert("nist_rmf_subcategories".to_string(), serde_json::json!(subcategories));
-            map.insert("nist_rmf_capability".to_string(), serde_json::json!(capability.to_string()));
+            map.insert(
+                "nist_rmf_subcategories".to_string(),
+                serde_json::json!(subcategories),
+            );
+            map.insert(
+                "nist_rmf_capability".to_string(),
+                serde_json::json!(capability.to_string()),
+            );
         }
     }
 }
@@ -782,7 +1060,7 @@ mod tests {
         assert!(coverage.contains_key(&RmfFunction::Manage));
 
         // Each function should have some coverage
-        for (_function, stats) in &coverage {
+        for stats in coverage.values() {
             assert!(stats.total_subcategories > 0);
         }
     }
@@ -825,7 +1103,11 @@ mod tests {
         let registry = NistRmfRegistry::new();
         let mut metadata = serde_json::json!({});
 
-        add_rmf_metadata(&mut metadata, SentinelCapability::InjectionDetection, &registry);
+        add_rmf_metadata(
+            &mut metadata,
+            SentinelCapability::InjectionDetection,
+            &registry,
+        );
 
         assert!(metadata.get("nist_rmf_subcategories").is_some());
         assert!(metadata.get("nist_rmf_capability").is_some());
@@ -833,7 +1115,10 @@ mod tests {
 
     #[test]
     fn test_implementation_status_display() {
-        assert_eq!(format!("{}", ImplementationStatus::Implemented), "Implemented");
+        assert_eq!(
+            format!("{}", ImplementationStatus::Implemented),
+            "Implemented"
+        );
         assert_eq!(format!("{}", ImplementationStatus::Partial), "Partial");
         assert_eq!(format!("{}", ImplementationStatus::Planned), "Planned");
         assert_eq!(format!("{}", ImplementationStatus::NotApplicable), "N/A");
@@ -854,7 +1139,11 @@ mod tests {
 
         for cap in core_capabilities {
             let mappings = registry.mappings_for_capability(cap);
-            assert!(!mappings.is_empty(), "Capability {:?} should have mappings", cap);
+            assert!(
+                !mappings.is_empty(),
+                "Capability {:?} should have mappings",
+                cap
+            );
         }
     }
 }

@@ -1085,7 +1085,6 @@ pub struct AsyncTaskConfig {
     // ═══════════════════════════════════════════════════
     // Phase 11: Task Security Configuration
     // ═══════════════════════════════════════════════════
-
     /// Enable task state encryption (ChaCha20-Poly1305). Default: true.
     #[serde(default = "default_true")]
     pub encrypt_state: bool,
@@ -1329,7 +1328,6 @@ pub struct EtdiConfig {
     pub version_pinning: VersionPinningConfig,
 }
 
-
 /// Configuration for trusted tool signers.
 ///
 /// Tools signed by keys matching these criteria are marked as trusted.
@@ -1355,7 +1353,9 @@ impl AllowedSignersConfig {
 
     /// Check if a fingerprint is trusted.
     pub fn is_fingerprint_trusted(&self, fingerprint: &str) -> bool {
-        self.fingerprints.iter().any(|f| f.eq_ignore_ascii_case(fingerprint))
+        self.fingerprints
+            .iter()
+            .any(|f| f.eq_ignore_ascii_case(fingerprint))
     }
 
     /// Check if a SPIFFE ID is trusted.
@@ -1532,7 +1532,6 @@ pub struct PolicyConfig {
     // ═══════════════════════════════════════════════════
     // MCP 2025-11-25 CONFIGURATION
     // ═══════════════════════════════════════════════════
-
     /// Async task lifecycle configuration (MCP 2025-11-25).
     #[serde(default)]
     pub async_tasks: AsyncTaskConfig,
@@ -1552,7 +1551,6 @@ pub struct PolicyConfig {
     // ═══════════════════════════════════════════════════
     // PHASE 2: ADVANCED THREAT DETECTION CONFIGURATION
     // ═══════════════════════════════════════════════════
-
     /// Circuit breaker configuration for cascading failure protection.
     #[serde(default)]
     pub circuit_breaker: CircuitBreakerConfig,
@@ -1576,7 +1574,6 @@ pub struct PolicyConfig {
     // ═══════════════════════════════════════════════════
     // PHASE 3.2: CROSS-AGENT SECURITY CONFIGURATION
     // ═══════════════════════════════════════════════════
-
     /// Cross-agent security configuration for multi-agent systems.
     /// Controls trust relationships, message signing, and privilege escalation detection.
     #[serde(default)]
@@ -1585,7 +1582,6 @@ pub struct PolicyConfig {
     // ═══════════════════════════════════════════════════
     // PHASE 3.3: ADVANCED THREAT DETECTION CONFIGURATION
     // ═══════════════════════════════════════════════════
-
     /// Advanced threat detection configuration.
     /// Controls goal tracking, workflow monitoring, namespace security, and more.
     #[serde(default)]
@@ -1594,7 +1590,6 @@ pub struct PolicyConfig {
     // ═══════════════════════════════════════════════════
     // PHASE 5: ENTERPRISE HARDENING CONFIGURATION
     // ═══════════════════════════════════════════════════
-
     /// TLS/mTLS configuration for secure transport.
     #[serde(default)]
     pub tls: TlsConfig,
@@ -1618,7 +1613,6 @@ pub struct PolicyConfig {
     // ═══════════════════════════════════════════════════
     // PHASE 8: ETDI CRYPTOGRAPHIC TOOL SECURITY
     // ═══════════════════════════════════════════════════
-
     /// ETDI (Enhanced Tool Definition Interface) configuration.
     /// Provides cryptographic verification of tool definitions to prevent
     /// rug-pulls, tool squatting, and supply chain attacks.
@@ -1628,7 +1622,6 @@ pub struct PolicyConfig {
     // ═══════════════════════════════════════════════════
     // PHASE 9: MEMORY INJECTION DEFENSE (MINJA)
     // ═══════════════════════════════════════════════════
-
     /// Memory security configuration for MINJA defense.
     /// Controls taint propagation, provenance tracking, trust decay,
     /// quarantine, and namespace isolation.
@@ -1638,7 +1631,6 @@ pub struct PolicyConfig {
     // ═══════════════════════════════════════════════════
     // PHASE 10: NON-HUMAN IDENTITY (NHI) LIFECYCLE
     // ═══════════════════════════════════════════════════
-
     /// Non-Human Identity (NHI) lifecycle management configuration.
     /// Controls agent identity registration, attestation, behavioral
     /// baselines, credential rotation, and delegation chains.
@@ -1648,7 +1640,6 @@ pub struct PolicyConfig {
     // ═══════════════════════════════════════════════════
     // PHASE 13: RAG POISONING DEFENSE CONFIGURATION
     // ═══════════════════════════════════════════════════
-
     /// RAG (Retrieval-Augmented Generation) poisoning defense configuration.
     /// Protects against document injection, embedding manipulation, and
     /// context window flooding in RAG systems.
@@ -1658,7 +1649,6 @@ pub struct PolicyConfig {
     // ═══════════════════════════════════════════════════
     // PHASE 14: A2A PROTOCOL SECURITY
     // ═══════════════════════════════════════════════════
-
     /// A2A (Agent-to-Agent) protocol security configuration.
     /// Secures A2A traffic using message interception, policy evaluation,
     /// agent card verification, and existing security managers.
@@ -1668,7 +1658,6 @@ pub struct PolicyConfig {
     // ═══════════════════════════════════════════════════
     // SERVER CONFIGURATION
     // ═══════════════════════════════════════════════════
-
     /// Metrics endpoint authentication (FIND-004).
     /// When true (default), `/metrics` and `/api/metrics` endpoints require
     /// API key authentication. Set to false to allow unauthenticated access
@@ -2685,6 +2674,14 @@ impl PolicyConfig {
                 MAX_CUSTOM_PII_PATTERNS
             ));
         }
+        for (i, pattern) in self.audit.custom_pii_patterns.iter().enumerate() {
+            if let Err(e) = regex::Regex::new(&pattern.pattern) {
+                return Err(format!(
+                    "audit.custom_pii_patterns[{}] '{}' has invalid regex: {}",
+                    i, pattern.name, e
+                ));
+            }
+        }
         if self.manifest.trusted_keys.len() > MAX_TRUSTED_KEYS {
             return Err(format!(
                 "manifest.trusted_keys has {} entries, max is {}",
@@ -3072,12 +3069,12 @@ impl PolicyConfig {
         if self.circuit_breaker.enabled {
             if self.circuit_breaker.failure_threshold == 0 {
                 return Err(
-                    "circuit_breaker.failure_threshold must be > 0 when enabled".to_string(),
+                    "circuit_breaker.failure_threshold must be > 0 when enabled".to_string()
                 );
             }
             if self.circuit_breaker.success_threshold == 0 {
                 return Err(
-                    "circuit_breaker.success_threshold must be > 0 when enabled".to_string(),
+                    "circuit_breaker.success_threshold must be > 0 when enabled".to_string()
                 );
             }
             if self.circuit_breaker.open_duration_secs == 0 {
@@ -3126,12 +3123,12 @@ impl PolicyConfig {
             && (!self.schema_poisoning.mutation_threshold.is_finite()
                 || self.schema_poisoning.mutation_threshold < 0.0
                 || self.schema_poisoning.mutation_threshold > 1.0)
-            {
-                return Err(format!(
-                    "schema_poisoning.mutation_threshold must be in [0.0, 1.0], got {}",
-                    self.schema_poisoning.mutation_threshold
-                ));
-            }
+        {
+            return Err(format!(
+                "schema_poisoning.mutation_threshold must be in [0.0, 1.0], got {}",
+                self.schema_poisoning.mutation_threshold
+            ));
+        }
         if self.schema_poisoning.max_tracked_schemas > MAX_TRACKED_SCHEMAS {
             return Err(format!(
                 "schema_poisoning.max_tracked_schemas must be <= {}, got {}",
@@ -3148,9 +3145,7 @@ impl PolicyConfig {
             ));
         }
         if self.sampling_detection.enabled && self.sampling_detection.window_secs == 0 {
-            return Err(
-                "sampling_detection.window_secs must be > 0 when enabled".to_string(),
-            );
+            return Err("sampling_detection.window_secs must be > 0 when enabled".to_string());
         }
 
         // Validate cross-agent security config
@@ -3179,7 +3174,8 @@ impl PolicyConfig {
                 self.cross_agent.escalation_alert_threshold
             ));
         }
-        if self.cross_agent.escalation_alert_threshold > self.cross_agent.escalation_deny_threshold {
+        if self.cross_agent.escalation_alert_threshold > self.cross_agent.escalation_deny_threshold
+        {
             return Err(format!(
                 "cross_agent.escalation_alert_threshold ({}) must be <= escalation_deny_threshold ({})",
                 self.cross_agent.escalation_alert_threshold,
@@ -3190,9 +3186,7 @@ impl PolicyConfig {
             return Err("cross_agent.max_chain_depth must be > 0".to_string());
         }
         if self.cross_agent.enabled && self.cross_agent.nonce_expiry_secs == 0 {
-            return Err(
-                "cross_agent.nonce_expiry_secs must be > 0 when enabled".to_string(),
-            );
+            return Err("cross_agent.nonce_expiry_secs must be > 0 when enabled".to_string());
         }
 
         // PHASE 3.3: Advanced Threat Detection validation
@@ -6031,6 +6025,49 @@ policy_type = "Allow"
     }
 
     #[test]
+    fn test_validate_rejects_invalid_custom_pii_regex() {
+        let mut config = PolicyConfig::from_toml(
+            r#"
+[[policies]]
+name = "t"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#,
+        )
+        .unwrap();
+        config.audit.custom_pii_patterns = vec![CustomPiiPattern {
+            name: "bad_pii".to_string(),
+            pattern: "[unclosed".to_string(),
+        }];
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("audit.custom_pii_patterns") && err.contains("invalid regex"),
+            "Error should mention audit.custom_pii_patterns and invalid regex: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_accepts_valid_custom_pii_regex() {
+        let mut config = PolicyConfig::from_toml(
+            r#"
+[[policies]]
+name = "t"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#,
+        )
+        .unwrap();
+        config.audit.custom_pii_patterns = vec![CustomPiiPattern {
+            name: "employee_id".to_string(),
+            pattern: r"EMP-\d{6}".to_string(),
+        }];
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
     fn test_validate_accepts_valid_dlp_regex() {
         let mut config = PolicyConfig::from_toml(
             r#"
@@ -6043,9 +6080,10 @@ policy_type = "Allow"
         )
         .unwrap();
         // Valid regex pattern
-        config.dlp.extra_patterns = vec![
-            ("my_token".to_string(), r"my_token_[A-Za-z0-9]{32}".to_string()),
-        ];
+        config.dlp.extra_patterns = vec![(
+            "my_token".to_string(),
+            r"my_token_[A-Za-z0-9]{32}".to_string(),
+        )];
         assert!(config.validate().is_ok());
     }
 
@@ -7144,7 +7182,10 @@ policy_type = "Allow"
         let config = EtdiConfig::default();
         assert!(!config.enabled);
         assert!(!config.require_signatures);
-        assert_eq!(config.signature_algorithm, sentinel_types::SignatureAlgorithm::Ed25519);
+        assert_eq!(
+            config.signature_algorithm,
+            sentinel_types::SignatureAlgorithm::Ed25519
+        );
         assert!(config.data_path.is_none());
         assert!(!config.allowed_signers.has_any());
         assert!(!config.attestation.enabled);
@@ -7183,12 +7224,18 @@ auto_pin = true
         let config = PolicyConfig::from_toml(toml).unwrap();
         assert!(config.etdi.enabled);
         assert!(config.etdi.require_signatures);
-        assert_eq!(config.etdi.data_path, Some("/var/lib/sentinel/etdi".to_string()));
+        assert_eq!(
+            config.etdi.data_path,
+            Some("/var/lib/sentinel/etdi".to_string())
+        );
         assert_eq!(config.etdi.allowed_signers.fingerprints.len(), 2);
         assert_eq!(config.etdi.allowed_signers.spiffe_ids.len(), 1);
         assert!(config.etdi.attestation.enabled);
         assert!(config.etdi.attestation.transparency_log);
-        assert_eq!(config.etdi.attestation.rekor_url, Some("https://rekor.sigstore.dev".to_string()));
+        assert_eq!(
+            config.etdi.attestation.rekor_url,
+            Some("https://rekor.sigstore.dev".to_string())
+        );
         assert!(config.etdi.version_pinning.enabled);
         assert!(config.etdi.version_pinning.is_blocking());
         assert!(config.etdi.version_pinning.auto_pin);

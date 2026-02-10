@@ -36,7 +36,7 @@ use crate::inspection::{
     scan_response_for_injection, scan_response_for_secrets, scan_tool_descriptions,
     scan_tool_descriptions_with_scanner, InjectionScanner,
 };
-use crate::output_validation::OutputSchemaRegistry;
+use crate::output_validation::{OutputSchemaRegistry, ValidationResult};
 pub use crate::rug_pull::ToolAnnotations;
 
 use super::types::{ProxyDecision, ProxyError};
@@ -93,7 +93,6 @@ pub struct ProxyBridge {
     // ═══════════════════════════════════════════════════════════════════
     // Phase 1 & 2 Security Managers (Phase 3.1 Integration)
     // ═══════════════════════════════════════════════════════════════════
-
     /// Task state manager for async task lifecycle tracking (Phase 1).
     task_state: Option<Arc<TaskStateManager>>,
 
@@ -118,7 +117,6 @@ pub struct ProxyBridge {
     // ═══════════════════════════════════════════════════════════════════
     // Phase 8: ETDI Cryptographic Tool Security
     // ═══════════════════════════════════════════════════════════════════
-
     /// ETDI signature verifier for tool definition verification.
     etdi_verifier: Option<Arc<crate::etdi::ToolSignatureVerifier>>,
     /// ETDI attestation chain manager.
@@ -131,7 +129,6 @@ pub struct ProxyBridge {
     // ═══════════════════════════════════════════════════════════════════
     // Phase 9: Memory Injection Defense (MINJA)
     // ═══════════════════════════════════════════════════════════════════
-
     /// Memory security manager for MINJA defense.
     /// When set, memory entries are tracked for taint propagation,
     /// provenance, and namespace isolation.
@@ -341,7 +338,10 @@ impl ProxyBridge {
 
     /// Set the ETDI attestation chain manager.
     /// When set, tool attestation chains are tracked and verified.
-    pub fn with_etdi_attestations(mut self, attestations: Arc<crate::etdi::AttestationChain>) -> Self {
+    pub fn with_etdi_attestations(
+        mut self,
+        attestations: Arc<crate::etdi::AttestationChain>,
+    ) -> Self {
         self.etdi_attestations = Some(attestations);
         self
     }
@@ -380,20 +380,23 @@ impl ProxyBridge {
     /// MCP 2025-11-25 allows clients to include identity information in `_meta`.
     /// This extracts fingerprint components if present.
     fn extract_fingerprint_from_meta(msg: &Value) -> AgentFingerprint {
-        let meta = msg.get("_meta").or_else(|| {
-            msg.get("params").and_then(|p| p.get("_meta"))
-        });
+        let meta = msg
+            .get("_meta")
+            .or_else(|| msg.get("params").and_then(|p| p.get("_meta")));
 
         AgentFingerprint {
-            jwt_sub: meta.and_then(|m| m.get("agent_id"))
+            jwt_sub: meta
+                .and_then(|m| m.get("agent_id"))
                 .or_else(|| meta.and_then(|m| m.get("agentId")))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
-            jwt_iss: meta.and_then(|m| m.get("issuer"))
+            jwt_iss: meta
+                .and_then(|m| m.get("issuer"))
                 .or_else(|| meta.and_then(|m| m.get("iss")))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
-            client_id: meta.and_then(|m| m.get("client_id"))
+            client_id: meta
+                .and_then(|m| m.get("client_id"))
                 .or_else(|| meta.and_then(|m| m.get("clientId")))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
@@ -403,9 +406,9 @@ impl ProxyBridge {
 
     /// Extract claimed agent ID from MCP message.
     fn extract_agent_id(msg: &Value) -> Option<String> {
-        let meta = msg.get("_meta").or_else(|| {
-            msg.get("params").and_then(|p| p.get("_meta"))
-        })?;
+        let meta = msg
+            .get("_meta")
+            .or_else(|| msg.get("params").and_then(|p| p.get("_meta")))?;
         meta.get("agent_id")
             .or_else(|| meta.get("agentId"))
             .and_then(|v| v.as_str())
@@ -1845,11 +1848,15 @@ impl ProxyBridge {
                             }
 
                             // Remove from pending requests on response
+                            // and retain tool_name for response-side checks
+                            // (e.g., structuredContent schema validation).
+                            let mut response_tool_name: Option<String> = None;
                             if let Some(id) = msg.get("id") {
                                 if !id.is_null() {
                                     let id_key = id.to_string();
                                     // Phase 3.1: Circuit breaker recording on response
                                     if let Some((_, tool_name)) = pending_requests.remove(&id_key) {
+                                        response_tool_name = Some(tool_name.clone());
                                         if let Some(ref cb) = self.circuit_breaker {
                                             // Record success or failure based on response
                                             if msg.get("error").is_some() {
@@ -2142,22 +2149,76 @@ impl ProxyBridge {
 
                             // MCP 2025-06-18: Validate structuredContent against output schemas
                             if let Some(result) = msg.get("result") {
-                                if result.get("structuredContent").is_some() {
-                                    // Determine tool name from pending request tracking
-                                    // (tool responses carry the request id but not the tool name,
-                                    // so we only validate if we can identify the tool)
-                                    // For now, log a generic warning if any schema exists
-                                    if let Some(structured) = result.get("structuredContent") {
-                                        // Try to find tool name from the response's isError or content
-                                        // In practice, the proxy would track id→tool_name mapping
+                                if let Some(structured) = result.get("structuredContent") {
+                                    if let Some(tool_name) = response_tool_name.as_deref() {
+                                        match self.output_schema_registry.validate(tool_name, structured) {
+                                            ValidationResult::Valid => {
+                                                tracing::debug!(
+                                                    "structuredContent validated for tool '{}'",
+                                                    tool_name
+                                                );
+                                            }
+                                            ValidationResult::NoSchema => {
+                                                tracing::debug!(
+                                                    "No output schema registered for tool '{}', skipping validation",
+                                                    tool_name
+                                                );
+                                            }
+                                            ValidationResult::Invalid { violations } => {
+                                                tracing::warn!(
+                                                    "SECURITY: structuredContent validation failed for tool '{}': {:?}",
+                                                    tool_name,
+                                                    violations
+                                                );
+                                                let action = sentinel_types::Action::new(
+                                                    "sentinel",
+                                                    "output_schema_violation",
+                                                    json!({
+                                                        "tool": tool_name,
+                                                        "violations": violations,
+                                                        "response_id": msg.get("id"),
+                                                    }),
+                                                );
+                                                if let Err(e) = self
+                                                    .audit
+                                                    .log_entry(
+                                                        &action,
+                                                        &Verdict::Deny {
+                                                            reason: format!(
+                                                                "structuredContent validation failed: {:?}",
+                                                                violations
+                                                            ),
+                                                        },
+                                                        json!({"source": "proxy", "event": "output_schema_violation"}),
+                                                    )
+                                                    .await
+                                                {
+                                                    tracing::warn!(
+                                                        "Failed to audit output schema violation: {}",
+                                                        e
+                                                    );
+                                                }
+
+                                                if self.output_schema_blocking {
+                                                    let blocked_response = json!({
+                                                        "jsonrpc": "2.0",
+                                                        "id": msg.get("id").cloned().unwrap_or(Value::Null),
+                                                        "error": {
+                                                            "code": -32005,
+                                                            "message": "Response blocked: structuredContent schema validation failed"
+                                                        }
+                                                    });
+                                                    write_message(&mut agent_writer, &blocked_response)
+                                                        .await
+                                                        .map_err(ProxyError::Framing)?;
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                    } else {
                                         tracing::debug!(
-                                            "structuredContent present in response, {} schemas registered",
-                                            self.output_schema_registry.len()
+                                            "structuredContent present but tool context unavailable; skipping schema validation"
                                         );
-                                        // TODO: Wire structured content validation when id→tool_name
-                                        // tracking is implemented. Currently we log presence but
-                                        // cannot validate without knowing which tool produced this.
-                                        let _ = structured;
                                     }
                                 }
                             }

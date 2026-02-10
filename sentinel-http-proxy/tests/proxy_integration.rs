@@ -4163,6 +4163,172 @@ async fn call_chain_exceeds_max_depth_denied() {
     );
 }
 
+#[tokio::test]
+async fn call_chain_task_exceeds_max_depth_denied() {
+    let upstream_url = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_chain_depth_test_state(&upstream_url, &tmp, 0);
+    let app = build_router(state);
+
+    let call_chain = json!([
+        {
+            "agent_id": "agent-a",
+            "tool": "orchestrate",
+            "function": "execute",
+            "timestamp": "2026-01-01T12:00:00Z"
+        }
+    ]);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": "tasks/get",
+        "params": {"id": "task-chain-test"}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("x-upstream-agents", call_chain.to_string())
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json_resp = json_body(resp).await;
+    let error = json_resp
+        .get("error")
+        .expect("tasks/get should be denied when call chain exceeds max depth");
+    assert_eq!(error.get("code"), Some(&json!(-32001)));
+    assert_eq!(error.get("message"), Some(&json!("Denied by policy")));
+}
+
+#[tokio::test]
+async fn call_chain_resource_exceeds_max_depth_denied() {
+    let upstream_url = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_chain_depth_test_state(&upstream_url, &tmp, 0);
+    let app = build_router(state);
+
+    let call_chain = json!([
+        {
+            "agent_id": "agent-a",
+            "tool": "orchestrate",
+            "function": "execute",
+            "timestamp": "2026-01-01T12:00:00Z"
+        }
+    ]);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 12,
+        "method": "resources/read",
+        "params": {"uri": "file:///tmp/test.txt"}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("x-upstream-agents", call_chain.to_string())
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json_resp = json_body(resp).await;
+    let error = json_resp
+        .get("error")
+        .expect("resources/read should be denied when call chain exceeds max depth");
+    assert_eq!(error.get("code"), Some(&json!(-32001)));
+    assert_eq!(error.get("message"), Some(&json!("Denied by policy")));
+}
+
+#[tokio::test]
+async fn task_request_malformed_call_chain_header_rejected() {
+    let upstream_url = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_test_state(&upstream_url, &tmp);
+    let app = build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 13,
+        "method": "tasks/get",
+        "params": {"id": "task-invalid-header"}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("x-upstream-agents", "not-json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json_resp = json_body(resp).await;
+    assert_eq!(json_resp["error"]["code"], -32600);
+    assert!(
+        json_resp["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Invalid request"),
+        "Malformed call-chain header should be rejected: {}",
+        json_resp
+    );
+}
+
+#[tokio::test]
+async fn resource_read_malformed_call_chain_header_rejected() {
+    let upstream_url = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_test_state(&upstream_url, &tmp);
+    let app = build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 14,
+        "method": "resources/read",
+        "params": {"uri": "file:///tmp/test.txt"}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("x-upstream-agents", "not-json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json_resp = json_body(resp).await;
+    assert_eq!(json_resp["error"]["code"], -32600);
+    assert!(
+        json_resp["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Invalid request"),
+        "Malformed call-chain header should be rejected: {}",
+        json_resp
+    );
+}
+
 /// Build a ProxyState with agent-specific policies for privilege escalation testing.
 fn build_priv_escalation_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
     let policies = vec![

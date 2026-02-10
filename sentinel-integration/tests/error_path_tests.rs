@@ -186,7 +186,9 @@ mod filesystem_errors {
         // the conditional policy may not match. The key invariant is that it
         // doesn't panic and returns a valid HTTP response.
         assert!(
-            resp.status().is_success() || resp.status().is_client_error() || resp.status().is_server_error(),
+            resp.status().is_success()
+                || resp.status().is_client_error()
+                || resp.status().is_server_error(),
             "Should return a valid HTTP response even with unwritable storage"
         );
     }
@@ -309,7 +311,7 @@ mod policy_reload_races {
                                 id: format!("policy-{}-{}", i, j),
                                 name: "Test".to_string(),
                                 policy_type: PolicyType::Allow,
-                                priority: j as i32,
+                                priority: j,
                                 path_rules: None,
                                 network_rules: None,
                             }],
@@ -357,7 +359,7 @@ mod policy_reload_races {
                         } else {
                             PolicyType::Deny
                         },
-                        priority: i as i32,
+                        priority: i,
                         path_rules: None,
                         network_rules: None,
                     }],
@@ -438,7 +440,11 @@ mod approval_concurrency {
 
                         // Create approval - should not panic or corrupt
                         let result = s
-                            .create(action, "test reason".to_string(), Some("tester".to_string()))
+                            .create(
+                                action,
+                                "test reason".to_string(),
+                                Some("tester".to_string()),
+                            )
                             .await;
                         assert!(result.is_ok(), "Approval creation should succeed");
                         rc.fetch_add(1, Ordering::Relaxed);

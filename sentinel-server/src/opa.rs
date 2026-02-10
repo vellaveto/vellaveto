@@ -7,6 +7,7 @@ use lru::LruCache;
 use reqwest::Client;
 use sentinel_config::OpaConfig;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -189,14 +190,8 @@ impl OpaClient {
                 metadata: serde_json::Value::Null,
             }),
             serde_json::Value::Object(obj) => {
-                let allow = obj
-                    .get("allow")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                let reason = obj
-                    .get("reason")
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
+                let allow = obj.get("allow").and_then(|v| v.as_bool()).unwrap_or(false);
+                let reason = obj.get("reason").and_then(|v| v.as_str()).map(String::from);
                 Ok(OpaDecision {
                     allow,
                     reason,
@@ -216,14 +211,32 @@ impl OpaClient {
     }
 
     /// Generate cache key for an input.
+    ///
+    /// Includes request parameters and context to prevent cross-request cache
+    /// reuse where one allowed decision could be replayed for different inputs.
     fn cache_key(&self, input: &OpaInput) -> String {
-        format!(
-            "{}:{}:{}:{}",
-            input.tool,
-            input.function,
-            input.principal.as_deref().unwrap_or(""),
-            input.session_id.as_deref().unwrap_or("")
-        )
+        let mut hasher = Sha256::new();
+        hasher.update(input.tool.as_bytes());
+        hasher.update([0x1f]);
+        hasher.update(input.function.as_bytes());
+        hasher.update([0x1f]);
+        hasher.update(input.principal.as_deref().unwrap_or("").as_bytes());
+        hasher.update([0x1f]);
+        hasher.update(input.session_id.as_deref().unwrap_or("").as_bytes());
+        hasher.update([0x1f]);
+
+        match serde_json::to_vec(&input.parameters) {
+            Ok(bytes) => hasher.update(&bytes),
+            Err(_) => hasher.update(b"<serde-json-error:parameters>"),
+        }
+        hasher.update([0x1f]);
+
+        match serde_json::to_vec(&input.context) {
+            Ok(bytes) => hasher.update(&bytes),
+            Err(_) => hasher.update(b"<serde-json-error:context>"),
+        }
+
+        format!("{:x}", hasher.finalize())
     }
 
     /// Check if fail-open mode is enabled.
@@ -314,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cache_key() {
+    fn test_cache_key_is_stable_and_input_sensitive() {
         let config = OpaConfig {
             enabled: true,
             endpoint: Some("http://localhost:8181".to_string()),
@@ -326,12 +339,20 @@ mod tests {
         let input = OpaInput {
             tool: "filesystem".to_string(),
             function: "read".to_string(),
-            parameters: serde_json::Value::Null,
+            parameters: serde_json::json!({"path": "/tmp/file.txt"}),
             principal: Some("user1".to_string()),
             session_id: Some("sess123".to_string()),
-            context: serde_json::Value::Null,
+            context: serde_json::json!({"tenant": "acme"}),
         };
-        let key = client.cache_key(&input);
-        assert_eq!(key, "filesystem:read:user1:sess123");
+        let key1 = client.cache_key(&input);
+        let key2 = client.cache_key(&input);
+        assert_eq!(key1, key2, "cache key must be deterministic");
+
+        let changed_params = OpaInput {
+            parameters: serde_json::json!({"path": "/etc/shadow"}),
+            ..input
+        };
+        let key3 = client.cache_key(&changed_params);
+        assert_ne!(key1, key3, "cache key must change when parameters change");
     }
 }

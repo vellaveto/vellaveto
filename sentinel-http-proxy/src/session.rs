@@ -55,8 +55,9 @@ pub struct SessionState {
     /// SECURITY (R15-OAUTH-4): Token expiry timestamp (Unix seconds).
     pub token_expires_at: Option<u64>,
     /// OWASP ASI08: Call chain for multi-agent communication monitoring.
-    /// Tracks the sequence of agent hops for the current request.
-    /// Cleared at the start of each new request, then rebuilt from headers.
+    /// Tracks upstream agent hops for the latest policy-evaluated request.
+    /// Updated from `X-Upstream-Agents` headers on tool calls, resource reads,
+    /// and task requests.
     pub current_call_chain: Vec<sentinel_types::CallChainEntry>,
     /// OWASP ASI07: Cryptographically attested agent identity from X-Agent-Identity JWT.
     /// Populated when the header is present and valid, provides stronger identity

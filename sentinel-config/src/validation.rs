@@ -357,18 +357,11 @@ impl PolicyValidator {
     }
 
     /// Validate a single policy.
-    fn validate_policy(
-        &self,
-        policy: &PolicyRule,
-        location: &str,
-        result: &mut ValidationResult,
-    ) {
+    fn validate_policy(&self, policy: &PolicyRule, location: &str, result: &mut ValidationResult) {
         // Check tool pattern
         if policy.tool_pattern.is_empty() {
-            result.add(
-                ValidationFinding::error("EMPTY_PATTERN", "Empty tool pattern")
-                    .at(location),
-            );
+            result
+                .add(ValidationFinding::error("EMPTY_PATTERN", "Empty tool pattern").at(location));
         }
 
         if policy.tool_pattern == "*" && policy.policy_type == PolicyType::Allow {
@@ -386,8 +379,7 @@ impl PolicyValidator {
         // Check function pattern
         if policy.function_pattern.is_empty() {
             result.add(
-                ValidationFinding::error("EMPTY_PATTERN", "Empty function pattern")
-                    .at(location),
+                ValidationFinding::error("EMPTY_PATTERN", "Empty function pattern").at(location),
             );
         }
 
@@ -424,7 +416,8 @@ impl PolicyValidator {
 
         // Check network rules
         if let Some(ref network_rules) = policy.network_rules {
-            if network_rules.allowed_domains.is_empty() && network_rules.blocked_domains.is_empty() {
+            if network_rules.allowed_domains.is_empty() && network_rules.blocked_domains.is_empty()
+            {
                 result.add(
                     ValidationFinding::warning(
                         "EMPTY_NETWORK_RULES",
@@ -472,14 +465,11 @@ impl PolicyValidator {
 
         if !has_deny_all {
             result.add(
-                ValidationFinding::info(
-                    "NO_DENY_ALL",
-                    "No default deny-all policy found",
-                )
-                .with_category(ValidationCategory::Security)
-                .with_suggestion(
-                    "Consider adding a low-priority deny-all policy as a safety net",
-                ),
+                ValidationFinding::info("NO_DENY_ALL", "No default deny-all policy found")
+                    .with_category(ValidationCategory::Security)
+                    .with_suggestion(
+                        "Consider adding a low-priority deny-all policy as a safety net",
+                    ),
             );
         }
 
@@ -510,12 +500,9 @@ impl PolicyValidator {
 
         if !has_rate_limits {
             result.add(
-                ValidationFinding::warning(
-                    "NO_RATE_LIMITS",
-                    "No rate limits configured",
-                )
-                .with_category(ValidationCategory::Security)
-                .with_suggestion("Consider enabling rate limiting to prevent abuse"),
+                ValidationFinding::warning("NO_RATE_LIMITS", "No rate limits configured")
+                    .with_category(ValidationCategory::Security)
+                    .with_suggestion("Consider enabling rate limiting to prevent abuse"),
             );
         }
     }
@@ -556,11 +543,8 @@ impl PolicyValidator {
         // Check for injection scanning
         if !config.injection.enabled {
             result.add(
-                ValidationFinding::info(
-                    "INJECTION_DISABLED",
-                    "Injection scanning is disabled",
-                )
-                .with_suggestion("Consider enabling injection scanning for better security"),
+                ValidationFinding::info("INJECTION_DISABLED", "Injection scanning is disabled")
+                    .with_suggestion("Consider enabling injection scanning for better security"),
             );
         }
     }
@@ -581,7 +565,12 @@ fn patterns_overlap(pattern1: &str, pattern2: &str) -> bool {
 
     let common_len = parts1.len().min(parts2.len());
     for i in 0..common_len {
-        if parts1[i] != parts2[i] && parts1[i] != "*" && parts1[i] != "**" && parts2[i] != "*" && parts2[i] != "**" {
+        if parts1[i] != parts2[i]
+            && parts1[i] != "*"
+            && parts1[i] != "**"
+            && parts2[i] != "*"
+            && parts2[i] != "**"
+        {
             return false;
         }
     }
@@ -746,10 +735,7 @@ policy_type = "Allow"
         let result = validator.validate(&config);
 
         assert!(result.has_warnings());
-        assert!(result
-            .findings
-            .iter()
-            .any(|f| f.code == "EMPTY_CONFIG"));
+        assert!(result.findings.iter().any(|f| f.code == "EMPTY_CONFIG"));
     }
 
     #[test]
@@ -767,9 +753,7 @@ policy_type = "Allow"
     fn test_validation_result_to_text() {
         let mut result = ValidationResult::new();
         result.add(ValidationFinding::error("E1", "Error 1").at("policy1"));
-        result.add(
-            ValidationFinding::warning("W1", "Warning 1").with_suggestion("Fix it"),
-        );
+        result.add(ValidationFinding::warning("W1", "Warning 1").with_suggestion("Fix it"));
 
         let result = result.finalize();
         let text = result.to_text();

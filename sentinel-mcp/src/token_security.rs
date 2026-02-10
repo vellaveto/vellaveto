@@ -352,10 +352,7 @@ impl TokenSecurityAnalyzer {
         // Check for unusual whitespace patterns that could affect tokenization
         let unusual_whitespace_count = input
             .chars()
-            .filter(|c| {
-                c.is_whitespace()
-                    && !matches!(c, ' ' | '\t' | '\n' | '\r')
-            })
+            .filter(|c| c.is_whitespace() && !matches!(c, ' ' | '\t' | '\n' | '\r'))
             .count();
 
         if unusual_whitespace_count > 5 {
@@ -363,7 +360,8 @@ impl TokenSecurityAnalyzer {
                 smuggle_type: SmugglingType::TokenBoundary,
                 pattern: format!("{} unusual whitespace chars", unusual_whitespace_count),
                 confidence: (unusual_whitespace_count as f32 / 10.0).min(1.0),
-                description: "Unusual whitespace characters may manipulate tokenization".to_string(),
+                description: "Unusual whitespace characters may manipulate tokenization"
+                    .to_string(),
             });
         }
 
@@ -412,13 +410,18 @@ impl TokenSecurityAnalyzer {
         // Estimate token count (rough heuristic: ~4 chars per token for English)
         let estimated_tokens = self.estimate_tokens(input);
 
-        let mut contexts = self.session_contexts.write().unwrap_or_else(|e| e.into_inner());
-        let context = contexts.entry(session_id.to_string()).or_insert(SessionContext {
-            total_tokens: 0,
-            budget: self.config.default_context_budget,
-            last_activity: Instant::now(),
-            request_count: 0,
-        });
+        let mut contexts = self
+            .session_contexts
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
+        let context = contexts
+            .entry(session_id.to_string())
+            .or_insert(SessionContext {
+                total_tokens: 0,
+                budget: self.config.default_context_budget,
+                last_activity: Instant::now(),
+                request_count: 0,
+            });
 
         context.total_tokens += estimated_tokens;
         context.request_count += 1;
@@ -440,10 +443,7 @@ impl TokenSecurityAnalyzer {
                 estimated_tokens: context.total_tokens,
                 budget: context.budget,
                 usage_percent: usage_percent * 100.0,
-                description: format!(
-                    "Context usage at {:.1}% of budget",
-                    usage_percent * 100.0
-                ),
+                description: format!("Context usage at {:.1}% of budget", usage_percent * 100.0),
             });
         }
 
@@ -485,32 +485,46 @@ impl TokenSecurityAnalyzer {
 
     /// Set custom context budget for a session.
     pub fn set_session_budget(&self, session_id: &str, budget: usize) {
-        let mut contexts = self.session_contexts.write().unwrap_or_else(|e| e.into_inner());
-        let context = contexts.entry(session_id.to_string()).or_insert(SessionContext {
-            total_tokens: 0,
-            budget,
-            last_activity: Instant::now(),
-            request_count: 0,
-        });
+        let mut contexts = self
+            .session_contexts
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
+        let context = contexts
+            .entry(session_id.to_string())
+            .or_insert(SessionContext {
+                total_tokens: 0,
+                budget,
+                last_activity: Instant::now(),
+                request_count: 0,
+            });
         context.budget = budget;
     }
 
     /// Reset session context.
     pub fn reset_session(&self, session_id: &str) {
-        let mut contexts = self.session_contexts.write().unwrap_or_else(|e| e.into_inner());
+        let mut contexts = self
+            .session_contexts
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         contexts.remove(session_id);
     }
 
     /// Clean up expired sessions.
     pub fn cleanup_expired_sessions(&self, max_age: Duration) {
-        let mut contexts = self.session_contexts.write().unwrap_or_else(|e| e.into_inner());
+        let mut contexts = self
+            .session_contexts
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
         contexts.retain(|_, ctx| now.duration_since(ctx.last_activity) < max_age);
     }
 
     /// Get session statistics.
     pub fn get_session_stats(&self, session_id: &str) -> Option<(usize, usize, f32)> {
-        let contexts = self.session_contexts.read().unwrap_or_else(|e| e.into_inner());
+        let contexts = self
+            .session_contexts
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         contexts.get(session_id).map(|ctx| {
             (
                 ctx.total_tokens,
@@ -569,7 +583,9 @@ mod tests {
         let analyzer = TokenSecurityAnalyzer::new();
 
         // Normal text
-        assert!(analyzer.detect_unicode_normalization_attack("Normal text").is_none());
+        assert!(analyzer
+            .detect_unicode_normalization_attack("Normal text")
+            .is_none());
 
         // Text with many combining characters
         let combining = "te\u{0301}\u{0302}\u{0303}s\u{0304}\u{0305}t\u{0306}\u{0307}\u{0308}\u{0309}\u{030A}\u{030B}\u{030C}";
@@ -598,7 +614,9 @@ mod tests {
         let analyzer = TokenSecurityAnalyzer::new();
 
         // Normal text
-        assert!(analyzer.detect_token_boundary_attack("Normal text").is_none());
+        assert!(analyzer
+            .detect_token_boundary_attack("Normal text")
+            .is_none());
 
         // Text with excessive boundary markers
         let excessive_markers = "```test``````test``````test``````test``````test``````test```";
@@ -623,9 +641,11 @@ mod tests {
 
     #[test]
     fn test_context_accumulation() {
-        let mut config = TokenSecurityConfig::default();
-        config.default_context_budget = 100; // Small budget for test
-        config.flood_warning_threshold = 0.5;
+        let config = TokenSecurityConfig {
+            default_context_budget: 100, // Small budget for test
+            flood_warning_threshold: 0.5,
+            ..Default::default()
+        };
         let analyzer = TokenSecurityAnalyzer::with_config(config);
 
         // First request - fine
@@ -633,7 +653,8 @@ mod tests {
         assert!(result.is_ok());
 
         // Second request - might trigger warning
-        let _result = analyzer.check_context_budget("session3", "Second request with more words here");
+        let _result =
+            analyzer.check_context_budget("session3", "Second request with more words here");
         // May or may not trigger depending on token estimate
 
         // Many requests - should eventually fail

@@ -245,12 +245,12 @@ impl OutputSecurityAnalyzer {
         // Map of common ASCII chars to their confusable Unicode homoglyphs
         let homoglyphs: HashMap<char, Vec<char>> = [
             ('a', vec!['а', 'ɑ', 'α']), // Latin 'a' vs Cyrillic 'а', etc.
-            ('e', vec!['е', 'ε']),       // Latin 'e' vs Cyrillic 'е'
-            ('o', vec!['о', 'ο', '0']),  // Latin 'o' vs Cyrillic 'о', Greek omicron
-            ('c', vec!['с']),            // Latin 'c' vs Cyrillic 'с'
-            ('p', vec!['р']),            // Latin 'p' vs Cyrillic 'р'
-            ('x', vec!['х']),            // Latin 'x' vs Cyrillic 'х'
-            ('y', vec!['у']),            // Latin 'y' vs Cyrillic 'у'
+            ('e', vec!['е', 'ε']),      // Latin 'e' vs Cyrillic 'е'
+            ('o', vec!['о', 'ο', '0']), // Latin 'o' vs Cyrillic 'о', Greek omicron
+            ('c', vec!['с']),           // Latin 'c' vs Cyrillic 'с'
+            ('p', vec!['р']),           // Latin 'p' vs Cyrillic 'р'
+            ('x', vec!['х']),           // Latin 'x' vs Cyrillic 'х'
+            ('y', vec!['у']),           // Latin 'y' vs Cyrillic 'у'
         ]
         .into_iter()
         .collect();
@@ -357,10 +357,7 @@ impl OutputSecurityAnalyzer {
             return Some(SteganographyAlert {
                 stego_type: SteganographyType::ControlCharacters,
                 confidence: (suspicious_count as f32 / 10.0).min(1.0),
-                description: format!(
-                    "Detected {} unusual control characters",
-                    suspicious_count
-                ),
+                description: format!("Detected {} unusual control characters", suspicious_count),
                 offset: first_offset,
                 length: Some(suspicious_count),
             });
@@ -414,7 +411,12 @@ impl OutputSecurityAnalyzer {
         if self.config.strip_zero_width {
             result = result
                 .chars()
-                .filter(|c| !matches!(c, '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{FEFF}' | '\u{2060}'))
+                .filter(|c| {
+                    !matches!(
+                        c,
+                        '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{FEFF}' | '\u{2060}'
+                    )
+                })
                 .collect();
         }
 
@@ -506,13 +508,18 @@ impl OutputSecurityAnalyzer {
 
     /// Update session baseline with new entropy sample.
     pub fn update_baseline(&self, session_id: &str, entropy: f32) {
-        let mut baselines = self.session_baselines.write().unwrap_or_else(|e| e.into_inner());
+        let mut baselines = self
+            .session_baselines
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
 
-        let baseline = baselines.entry(session_id.to_string()).or_insert(EntropyBaseline {
-            average: entropy,
-            sample_count: 0,
-            std_dev: 0.0,
-        });
+        let baseline = baselines
+            .entry(session_id.to_string())
+            .or_insert(EntropyBaseline {
+                average: entropy,
+                sample_count: 0,
+                std_dev: 0.0,
+            });
 
         // Exponential moving average
         let alpha = 0.2;
@@ -526,7 +533,10 @@ impl OutputSecurityAnalyzer {
 
     /// Get baseline for a session.
     pub fn get_baseline(&self, session_id: &str) -> Option<(f32, f32)> {
-        let baselines = self.session_baselines.read().unwrap_or_else(|e| e.into_inner());
+        let baselines = self
+            .session_baselines
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         baselines.get(session_id).map(|b| (b.average, b.std_dev))
     }
 
@@ -596,10 +606,14 @@ mod tests {
         assert!(analyzer.detect_invisible_chars("Normal text").is_none());
 
         // Text with invisible chars
-        let invisible_text = "Text\u{2060}with\u{2061}invisible\u{2062}chars\u{2063}\u{2064}\u{2065}";
+        let invisible_text =
+            "Text\u{2060}with\u{2061}invisible\u{2062}chars\u{2063}\u{2064}\u{2065}";
         let alert = analyzer.detect_invisible_chars(invisible_text);
         assert!(alert.is_some());
-        assert_eq!(alert.unwrap().stego_type, SteganographyType::InvisibleCharacters);
+        assert_eq!(
+            alert.unwrap().stego_type,
+            SteganographyType::InvisibleCharacters
+        );
     }
 
     #[test]
@@ -607,13 +621,18 @@ mod tests {
         let analyzer = OutputSecurityAnalyzer::new();
 
         // Normal text with standard newlines
-        assert!(analyzer.detect_control_chars("Line 1\nLine 2\r\n").is_none());
+        assert!(analyzer
+            .detect_control_chars("Line 1\nLine 2\r\n")
+            .is_none());
 
         // Text with unusual control chars
         let control_text = "Text\x01with\x02control\x03chars\x04";
         let alert = analyzer.detect_control_chars(control_text);
         assert!(alert.is_some());
-        assert_eq!(alert.unwrap().stego_type, SteganographyType::ControlCharacters);
+        assert_eq!(
+            alert.unwrap().stego_type,
+            SteganographyType::ControlCharacters
+        );
     }
 
     #[test]
@@ -649,8 +668,10 @@ mod tests {
 
     #[test]
     fn test_entropy_too_high() {
-        let mut config = OutputSecurityConfig::default();
-        config.max_entropy_threshold = 4.5; // Lower threshold for test
+        let config = OutputSecurityConfig {
+            max_entropy_threshold: 4.5, // Lower threshold for test
+            ..Default::default()
+        };
         let analyzer = OutputSecurityAnalyzer::with_config(config);
 
         // Data with many unique characters has high entropy

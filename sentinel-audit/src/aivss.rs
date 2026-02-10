@@ -860,9 +860,11 @@ mod tests {
 
     #[test]
     fn test_ai_multipliers_increase_score() {
-        let mut base = AivssMetrics::default();
-        base.confidentiality_impact = Impact::High;
-        base.integrity_impact = Impact::High;
+        let base = AivssMetrics {
+            confidentiality_impact: Impact::High,
+            integrity_impact: Impact::High,
+            ..Default::default()
+        };
 
         let base_score = AivssCalculator::calculate(&base);
 
