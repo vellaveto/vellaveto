@@ -667,15 +667,72 @@ async fn cmd_serve(
             sentinel_server::idempotency::IdempotencyConfig::default(),
         ),
 
-        // Phase 1 & 2 Security Managers — default: None (disabled)
-        // TODO: Initialize from PolicyConfig when enabled in configuration
-        task_state: None,
-        auth_level: None,
-        circuit_breaker: None,
-        deputy: None,
-        shadow_agent: None,
-        schema_lineage: None,
-        sampling_detector: None,
+        // Phase 1 & 2 Security Managers — initialized from PolicyConfig
+        task_state: if policy_config.async_tasks.enabled {
+            Some(Arc::new(sentinel_mcp::task_state::TaskStateManager::with_config(
+                policy_config.async_tasks.max_concurrent_tasks,
+                policy_config.async_tasks.max_task_duration_secs,
+                policy_config.async_tasks.require_self_cancel,
+                policy_config.async_tasks.allow_cancellation.clone(),
+            )))
+        } else {
+            None
+        },
+        auth_level: if policy_config.step_up_auth.enabled {
+            Some(Arc::new(
+                sentinel_mcp::auth_level::AuthLevelTracker::with_default_expiry(
+                    std::time::Duration::from_secs(policy_config.step_up_auth.step_up_expiry_secs),
+                ),
+            ))
+        } else {
+            None
+        },
+        circuit_breaker: if policy_config.circuit_breaker.enabled {
+            Some(Arc::new(
+                sentinel_engine::circuit_breaker::CircuitBreakerManager::with_config(
+                    policy_config.circuit_breaker.failure_threshold,
+                    policy_config.circuit_breaker.success_threshold,
+                    policy_config.circuit_breaker.open_duration_secs,
+                    policy_config.circuit_breaker.half_open_max_requests,
+                ),
+            ))
+        } else {
+            None
+        },
+        deputy: if policy_config.deputy.enabled {
+            Some(Arc::new(sentinel_engine::deputy::DeputyValidator::new(
+                policy_config.deputy.max_delegation_depth,
+            )))
+        } else {
+            None
+        },
+        shadow_agent: if policy_config.shadow_agent.enabled {
+            Some(Arc::new(sentinel_mcp::shadow_agent::ShadowAgentDetector::new(
+                policy_config.shadow_agent.max_known_agents,
+            )))
+        } else {
+            None
+        },
+        schema_lineage: if policy_config.schema_poisoning.enabled {
+            Some(Arc::new(sentinel_mcp::schema_poisoning::SchemaLineageTracker::new(
+                policy_config.schema_poisoning.mutation_threshold,
+                policy_config.schema_poisoning.min_observations,
+                policy_config.schema_poisoning.max_tracked_schemas,
+            )))
+        } else {
+            None
+        },
+        sampling_detector: if policy_config.sampling_detection.enabled {
+            Some(Arc::new(sentinel_mcp::sampling_detector::SamplingDetector::with_config(
+                policy_config.sampling_detection.max_requests_per_window,
+                policy_config.sampling_detection.window_secs,
+                policy_config.sampling_detection.max_prompt_length,
+                policy_config.sampling_detection.allowed_models.clone(),
+                policy_config.sampling_detection.block_sensitive_patterns,
+            )))
+        } else {
+            None
+        },
         // Phase 6: Observability
         exec_graph_store: None,
         // Phase 8: ETDI Cryptographic Tool Security — default: None (disabled)
