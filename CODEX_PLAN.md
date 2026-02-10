@@ -7,6 +7,18 @@
 
 ---
 
+## Active Work Assignment
+
+| Agent | Tasks | Status |
+|-------|-------|--------|
+| **Claude (Main)** | Tasks 2, 3, 4, 5 (P1 low-effort tests) | IN PROGRESS |
+| **Codex** | Task 1, Tasks 6-8 (P1 medium-effort) | ASSIGNED |
+
+**Claude working on:** Redaction boundary tests, TraceContext W3C tests, SpanSampler determinism, Rate limit edge cases
+**Codex should work on:** Async integration tests for exporters, then Phase 15.6 security hardening
+
+---
+
 ## Mission for Codex
 
 Execute the prioritized tasks below autonomously. Follow the project rules in CLAUDE.md strictly:
