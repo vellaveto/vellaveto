@@ -109,56 +109,55 @@ impl ArizeExporter {
 
     /// Convert a SecuritySpan to OTLP span format with OpenInference attributes.
     fn span_to_otlp(&self, span: &SecuritySpan) -> OtlpSpan {
-        let mut attributes = Vec::new();
-
-        // OpenInference semantic conventions
-        attributes.push(OtlpAttribute {
-            key: "openinference.span.kind".to_string(),
-            value: OtlpValue::StringValue(self.span_kind_to_openinference(&span.span_kind)),
-        });
-
-        // Sentinel-specific attributes
-        attributes.push(OtlpAttribute {
-            key: "sentinel.tool".to_string(),
-            value: OtlpValue::StringValue(span.action.tool.clone()),
-        });
-        attributes.push(OtlpAttribute {
-            key: "sentinel.function".to_string(),
-            value: OtlpValue::StringValue(span.action.function.clone()),
-        });
-        attributes.push(OtlpAttribute {
-            key: "sentinel.verdict".to_string(),
-            value: OtlpValue::StringValue(span.verdict.outcome.clone()),
-        });
-        attributes.push(OtlpAttribute {
-            key: "sentinel.duration_ms".to_string(),
-            value: OtlpValue::IntValue(span.duration_ms as i64),
-        });
+        let mut attributes = vec![
+            // OpenInference semantic conventions
+            OtlpAttribute {
+                key: "openinference.span.kind".to_string(),
+                value: OtlpValue::String(self.span_kind_to_openinference(&span.span_kind)),
+            },
+            // Sentinel-specific attributes
+            OtlpAttribute {
+                key: "sentinel.tool".to_string(),
+                value: OtlpValue::String(span.action.tool.clone()),
+            },
+            OtlpAttribute {
+                key: "sentinel.function".to_string(),
+                value: OtlpValue::String(span.action.function.clone()),
+            },
+            OtlpAttribute {
+                key: "sentinel.verdict".to_string(),
+                value: OtlpValue::String(span.verdict.outcome.clone()),
+            },
+            OtlpAttribute {
+                key: "sentinel.duration_ms".to_string(),
+                value: OtlpValue::Int(span.duration_ms as i64),
+            },
+        ];
 
         if let Some(reason) = &span.verdict.reason {
             attributes.push(OtlpAttribute {
                 key: "sentinel.verdict_reason".to_string(),
-                value: OtlpValue::StringValue(reason.clone()),
+                value: OtlpValue::String(reason.clone()),
             });
         }
 
         if let Some(policy) = &span.matched_policy {
             attributes.push(OtlpAttribute {
                 key: "sentinel.matched_policy".to_string(),
-                value: OtlpValue::StringValue(policy.clone()),
+                value: OtlpValue::String(policy.clone()),
             });
         }
 
         // Model information
         attributes.push(OtlpAttribute {
             key: "model_id".to_string(),
-            value: OtlpValue::StringValue(self.config.model_id.clone()),
+            value: OtlpValue::String(self.config.model_id.clone()),
         });
 
         if let Some(version) = &self.config.model_version {
             attributes.push(OtlpAttribute {
                 key: "model_version".to_string(),
-                value: OtlpValue::StringValue(version.clone()),
+                value: OtlpValue::String(version.clone()),
             });
         }
 
@@ -166,11 +165,11 @@ impl ArizeExporter {
         if !span.detections.is_empty() {
             attributes.push(OtlpAttribute {
                 key: "sentinel.detection_count".to_string(),
-                value: OtlpValue::IntValue(span.detections.len() as i64),
+                value: OtlpValue::Int(span.detections.len() as i64),
             });
             attributes.push(OtlpAttribute {
                 key: "sentinel.max_severity".to_string(),
-                value: OtlpValue::IntValue(span.max_severity() as i64),
+                value: OtlpValue::Int(span.max_severity() as i64),
             });
         }
 
@@ -178,13 +177,13 @@ impl ArizeExporter {
         if !span.action.target_paths.is_empty() {
             attributes.push(OtlpAttribute {
                 key: "sentinel.target_paths".to_string(),
-                value: OtlpValue::StringValue(span.action.target_paths.join(",")),
+                value: OtlpValue::String(span.action.target_paths.join(",")),
             });
         }
         if !span.action.target_domains.is_empty() {
             attributes.push(OtlpAttribute {
                 key: "sentinel.target_domains".to_string(),
-                value: OtlpValue::StringValue(span.action.target_domains.join(",")),
+                value: OtlpValue::String(span.action.target_domains.join(",")),
             });
         }
 
@@ -192,13 +191,13 @@ impl ArizeExporter {
         if let Some(req) = &span.request_body {
             attributes.push(OtlpAttribute {
                 key: "input.value".to_string(),
-                value: OtlpValue::StringValue(req.to_string()),
+                value: OtlpValue::String(req.to_string()),
             });
         }
         if let Some(resp) = &span.response_body {
             attributes.push(OtlpAttribute {
                 key: "output.value".to_string(),
-                value: OtlpValue::StringValue(resp.to_string()),
+                value: OtlpValue::String(resp.to_string()),
             });
         }
 
@@ -206,7 +205,7 @@ impl ArizeExporter {
         for (key, value) in &span.attributes {
             attributes.push(OtlpAttribute {
                 key: format!("sentinel.attr.{}", key),
-                value: OtlpValue::StringValue(value.to_string()),
+                value: OtlpValue::String(value.to_string()),
             });
         }
 
@@ -264,11 +263,11 @@ impl ArizeExporter {
                     attributes: vec![
                         OtlpAttribute {
                             key: "service.name".to_string(),
-                            value: OtlpValue::StringValue("sentinel".to_string()),
+                            value: OtlpValue::String("sentinel".to_string()),
                         },
                         OtlpAttribute {
                             key: "service.version".to_string(),
-                            value: OtlpValue::StringValue(env!("CARGO_PKG_VERSION").to_string()),
+                            value: OtlpValue::String(env!("CARGO_PKG_VERSION").to_string()),
                         },
                     ],
                 },
@@ -486,10 +485,10 @@ struct OtlpAttribute {
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)] // Variants kept for OTLP completeness
 enum OtlpValue {
-    StringValue(String),
-    IntValue(i64),
-    BoolValue(bool),
-    DoubleValue(f64),
+    String(String),
+    Int(i64),
+    Bool(bool),
+    Double(f64),
 }
 
 #[derive(Debug, Serialize)]
@@ -621,10 +620,7 @@ mod tests {
             exporter.span_kind_to_openinference(&SpanKind::Chain),
             "CHAIN"
         );
-        assert_eq!(
-            exporter.span_kind_to_openinference(&SpanKind::Tool),
-            "TOOL"
-        );
+        assert_eq!(exporter.span_kind_to_openinference(&SpanKind::Tool), "TOOL");
         assert_eq!(
             exporter.span_kind_to_openinference(&SpanKind::Guardrail),
             "GUARDRAIL"
@@ -640,5 +636,232 @@ mod tests {
         // Invalid hex should produce consistent hash-based bytes
         let bytes2 = hex_to_bytes("invalid-hex");
         assert_eq!(bytes2.len(), 16);
+    }
+
+    // ========================================
+    // Task 9: ArizeExporter Edge Cases (GAP-007, GAP-012)
+    // ========================================
+
+    #[test]
+    fn test_parse_iso8601_to_nanos_valid() {
+        let nanos = parse_iso8601_to_nanos("2024-01-01T00:00:00Z");
+        assert!(nanos.is_some());
+        assert!(nanos.unwrap() > 0);
+    }
+
+    #[test]
+    fn test_parse_iso8601_to_nanos_invalid() {
+        // Invalid timestamp should return None
+        assert!(parse_iso8601_to_nanos("not-a-timestamp").is_none());
+        assert!(parse_iso8601_to_nanos("").is_none());
+        assert!(parse_iso8601_to_nanos("2024-13-45").is_none()); // Invalid date
+    }
+
+    #[test]
+    fn test_parse_iso8601_to_nanos_epoch() {
+        // Unix epoch
+        let nanos = parse_iso8601_to_nanos("1970-01-01T00:00:00Z");
+        assert!(nanos.is_some());
+        assert_eq!(nanos.unwrap(), 0);
+    }
+
+    #[test]
+    fn test_parse_iso8601_to_nanos_year_2038() {
+        // Year 2038 (32-bit overflow boundary)
+        let nanos = parse_iso8601_to_nanos("2038-01-19T03:14:07Z");
+        assert!(nanos.is_some());
+        // Should be close to max i32 in seconds (2147483647)
+        let secs = nanos.unwrap() / 1_000_000_000;
+        assert!(secs > 2_000_000_000);
+    }
+
+    #[test]
+    fn test_parse_iso8601_to_nanos_far_future() {
+        // Far future date
+        let nanos = parse_iso8601_to_nanos("2099-12-31T23:59:59Z");
+        assert!(nanos.is_some());
+        assert!(nanos.unwrap() > 0);
+    }
+
+    #[test]
+    fn test_hex_to_bytes_valid() {
+        // Valid 16-char hex (span ID)
+        let bytes = hex_to_bytes("b7ad6b7169203331");
+        assert_eq!(bytes.len(), 8);
+
+        // Valid 32-char hex (trace ID)
+        let bytes = hex_to_bytes("0af7651916cd43dd8448eb211c80319c");
+        assert_eq!(bytes.len(), 16);
+    }
+
+    #[test]
+    fn test_hex_to_bytes_invalid_consistent() {
+        // Invalid hex should hash to consistent bytes
+        let bytes1 = hex_to_bytes("invalid-hex-string");
+        let bytes2 = hex_to_bytes("invalid-hex-string");
+
+        assert_eq!(bytes1.len(), 16); // SHA256 truncated to 16 bytes
+        assert_eq!(bytes1, bytes2, "same input should produce same hash");
+    }
+
+    #[test]
+    fn test_hex_to_bytes_very_long() {
+        // Very long trace ID should still work
+        let long_hex = "a".repeat(100);
+        let bytes = hex_to_bytes(&long_hex);
+        assert_eq!(bytes.len(), 50); // Each pair of hex chars = 1 byte
+    }
+
+    #[test]
+    fn test_span_to_otlp_all_fields() {
+        let config = test_config();
+        let exporter = ArizeExporter::new(config).unwrap();
+
+        let mut attributes = HashMap::new();
+        attributes.insert("custom_key".to_string(), serde_json::json!("custom_value"));
+
+        let span = SecuritySpan {
+            span_id: "abcd1234".to_string(),
+            parent_span_id: Some("parent123".to_string()),
+            trace_id: "trace12345678901234567890123456".to_string(),
+            span_kind: SpanKind::Guardrail,
+            name: "full_span".to_string(),
+            start_time: "2024-01-01T00:00:00Z".to_string(),
+            end_time: "2024-01-01T00:00:01Z".to_string(),
+            duration_ms: 1000,
+            action: ActionSummary {
+                tool: "test_tool".to_string(),
+                function: "test_function".to_string(),
+                parameter_count: 5,
+                target_paths: vec!["/path/a".to_string(), "/path/b".to_string()],
+                target_domains: vec!["example.com".to_string()],
+                agent_id: Some("agent-1".to_string()),
+            },
+            verdict: VerdictSummary {
+                outcome: "deny".to_string(),
+                reason: Some("blocked by policy".to_string()),
+            },
+            matched_policy: Some("block-sensitive".to_string()),
+            detections: vec![],
+            request_body: Some(serde_json::json!({"request": "data"})),
+            response_body: Some(serde_json::json!({"response": "data"})),
+            attributes,
+        };
+
+        let otlp = exporter.span_to_otlp(&span);
+
+        // Verify all fields mapped
+        assert_eq!(otlp.name, "full_span");
+        assert!(!otlp.trace_id.is_empty());
+        assert!(!otlp.span_id.is_empty());
+        assert!(otlp.parent_span_id.is_some());
+
+        // Verify attributes contain expected fields
+        let attr_map: HashMap<String, &OtlpAttribute> = otlp
+            .attributes
+            .iter()
+            .map(|kv| (kv.key.clone(), kv))
+            .collect();
+
+        assert!(attr_map.contains_key("sentinel.tool"));
+        assert!(attr_map.contains_key("sentinel.function"));
+        assert!(attr_map.contains_key("sentinel.verdict"));
+        assert!(attr_map.contains_key("sentinel.matched_policy"));
+    }
+
+    #[test]
+    fn test_span_to_otlp_large_attributes() {
+        let config = test_config();
+        let exporter = ArizeExporter::new(config).unwrap();
+
+        // Create span with 100+ attributes
+        let mut attributes = HashMap::new();
+        for i in 0..150 {
+            attributes.insert(
+                format!("key_{}", i),
+                serde_json::json!(format!("value_{}", i)),
+            );
+        }
+
+        let span = SecuritySpan {
+            span_id: "abcd1234".to_string(),
+            parent_span_id: None,
+            trace_id: "trace12345678".to_string(),
+            span_kind: SpanKind::Tool,
+            name: "large_attrs".to_string(),
+            start_time: "2024-01-01T00:00:00Z".to_string(),
+            end_time: "2024-01-01T00:00:01Z".to_string(),
+            duration_ms: 1000,
+            action: ActionSummary::new("test_tool", "test_function"),
+            verdict: VerdictSummary {
+                outcome: "allow".to_string(),
+                reason: None,
+            },
+            matched_policy: None,
+            detections: vec![],
+            request_body: None,
+            response_body: None,
+            attributes,
+        };
+
+        let otlp = exporter.span_to_otlp(&span);
+
+        // Should not panic and should include custom attributes
+        // Total attributes = 150 custom + ~10 standard sentinel attrs
+        assert!(
+            otlp.attributes.len() >= 150,
+            "should have at least 150 custom attributes, got {}",
+            otlp.attributes.len()
+        );
+    }
+
+    #[test]
+    fn test_span_to_otlp_empty_paths_domains() {
+        let config = test_config();
+        let exporter = ArizeExporter::new(config).unwrap();
+
+        let span = SecuritySpan {
+            span_id: "abcd1234".to_string(),
+            parent_span_id: None,
+            trace_id: "trace12345678".to_string(),
+            span_kind: SpanKind::Tool,
+            name: "empty_targets".to_string(),
+            start_time: "2024-01-01T00:00:00Z".to_string(),
+            end_time: "2024-01-01T00:00:01Z".to_string(),
+            duration_ms: 1000,
+            action: ActionSummary {
+                tool: "test_tool".to_string(),
+                function: "test_function".to_string(),
+                parameter_count: 0,
+                target_paths: vec![],   // Empty
+                target_domains: vec![], // Empty
+                agent_id: None,
+            },
+            verdict: VerdictSummary {
+                outcome: "allow".to_string(),
+                reason: None,
+            },
+            matched_policy: None,
+            detections: vec![],
+            request_body: None,
+            response_body: None,
+            attributes: HashMap::new(),
+        };
+
+        let otlp = exporter.span_to_otlp(&span);
+
+        // Should handle empty arrays gracefully
+        let attr_map: HashMap<String, &OtlpAttribute> = otlp
+            .attributes
+            .iter()
+            .map(|kv| (kv.key.clone(), kv))
+            .collect();
+
+        // Target paths/domains should still be present (empty string or not present)
+        assert!(
+            !attr_map.contains_key("sentinel.target_paths")
+                || matches!(&attr_map.get("sentinel.target_paths").unwrap().value,
+                OtlpValue::String(s) if s.is_empty())
+        );
     }
 }

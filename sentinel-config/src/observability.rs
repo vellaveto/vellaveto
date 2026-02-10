@@ -715,4 +715,264 @@ mod tests {
         assert!(config.endpoint.is_empty());
         assert!(config.compress);
     }
+
+    // ========================================
+    // Task 11: Private IP Validation Coverage (GAP-009)
+    // ========================================
+
+    #[test]
+    fn test_validate_ipv4_10_0_0_0_8() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+
+        // 10.0.0.0/8 range
+        config.webhook.endpoint = "https://10.0.0.1/webhook".to_string();
+        assert!(config.validate().is_err(), "10.0.0.1 should be rejected");
+
+        config.webhook.endpoint = "https://10.255.255.255/webhook".to_string();
+        assert!(
+            config.validate().is_err(),
+            "10.255.255.255 should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_validate_ipv4_172_16_0_0_12() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+
+        // 172.16.0.0/12 range (172.16.0.0 - 172.31.255.255)
+        config.webhook.endpoint = "https://172.16.0.1/webhook".to_string();
+        assert!(config.validate().is_err(), "172.16.0.1 should be rejected");
+
+        config.webhook.endpoint = "https://172.31.255.255/webhook".to_string();
+        assert!(
+            config.validate().is_err(),
+            "172.31.255.255 should be rejected"
+        );
+
+        // 172.15.x.x should be allowed (outside the private range)
+        config.webhook.endpoint = "https://172.15.0.1/webhook".to_string();
+        assert!(config.validate().is_ok(), "172.15.0.1 should be allowed");
+    }
+
+    #[test]
+    fn test_validate_ipv4_192_168_0_0_16() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+
+        // 192.168.0.0/16 range
+        config.webhook.endpoint = "https://192.168.0.1/webhook".to_string();
+        assert!(config.validate().is_err(), "192.168.0.1 should be rejected");
+
+        config.webhook.endpoint = "https://192.168.255.255/webhook".to_string();
+        assert!(
+            config.validate().is_err(),
+            "192.168.255.255 should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_validate_ipv4_169_254_0_0_16() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+
+        // 169.254.0.0/16 (link-local)
+        config.webhook.endpoint = "https://169.254.0.1/webhook".to_string();
+        assert!(config.validate().is_err(), "169.254.0.1 should be rejected");
+
+        config.webhook.endpoint = "https://169.254.169.254/webhook".to_string();
+        assert!(
+            config.validate().is_err(),
+            "169.254.169.254 (cloud metadata) should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_validate_ipv4_100_64_0_0_10() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+
+        // 100.64.0.0/10 (CGNAT)
+        config.webhook.endpoint = "https://100.64.0.1/webhook".to_string();
+        assert!(config.validate().is_err(), "100.64.0.1 should be rejected");
+
+        config.webhook.endpoint = "https://100.127.255.255/webhook".to_string();
+        assert!(
+            config.validate().is_err(),
+            "100.127.255.255 should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_validate_ipv4_0_0_0_0_8() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+
+        // 0.0.0.0/8 (this network)
+        config.webhook.endpoint = "https://0.0.0.0/webhook".to_string();
+        assert!(config.validate().is_err(), "0.0.0.0 should be rejected");
+
+        config.webhook.endpoint = "https://0.255.255.255/webhook".to_string();
+        assert!(
+            config.validate().is_err(),
+            "0.255.255.255 should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_validate_ipv4_loopback() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+
+        // 127.0.0.0/8 (loopback)
+        config.webhook.endpoint = "https://127.0.0.1/webhook".to_string();
+        assert!(config.validate().is_err(), "127.0.0.1 should be rejected");
+
+        config.webhook.endpoint = "https://127.255.255.255/webhook".to_string();
+        assert!(
+            config.validate().is_err(),
+            "127.255.255.255 should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_validate_ipv6_loopback() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+
+        // ::1 (IPv6 loopback)
+        config.webhook.endpoint = "https://[::1]/webhook".to_string();
+        assert!(config.validate().is_err(), "::1 should be rejected");
+    }
+
+    #[test]
+    fn test_validate_ipv6_unspecified() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+
+        // :: (IPv6 unspecified)
+        config.webhook.endpoint = "https://[::]/webhook".to_string();
+        assert!(config.validate().is_err(), ":: should be rejected");
+    }
+
+    #[test]
+    fn test_validate_ipv6_ula() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+
+        // fc00::/7 (ULA - Unique Local Address)
+        config.webhook.endpoint = "https://[fc00::1]/webhook".to_string();
+        assert!(config.validate().is_err(), "fc00::1 should be rejected");
+
+        config.webhook.endpoint = "https://[fd00::1]/webhook".to_string();
+        assert!(config.validate().is_err(), "fd00::1 should be rejected");
+    }
+
+    #[test]
+    fn test_validate_ipv6_link_local() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+
+        // fe80::/10 (link-local)
+        config.webhook.endpoint = "https://[fe80::1]/webhook".to_string();
+        assert!(config.validate().is_err(), "fe80::1 should be rejected");
+
+        config.webhook.endpoint = "https://[febf::1]/webhook".to_string();
+        assert!(config.validate().is_err(), "febf::1 should be rejected");
+    }
+
+    #[test]
+    fn test_validate_ipv6_public() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+
+        // Public IPv6 should be allowed
+        config.webhook.endpoint = "https://[2001:db8::1]/webhook".to_string();
+        assert!(config.validate().is_ok(), "2001:db8::1 should be allowed");
+    }
+
+    // ========================================
+    // Task 13: has_enabled_exporters Combinations (GAP-020)
+    // ========================================
+
+    #[test]
+    fn test_has_enabled_exporters_master_false_all_exporters_true() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = false;
+        config.langfuse.enabled = true;
+        config.arize.enabled = true;
+        config.helicone.enabled = true;
+        config.webhook.enabled = true;
+
+        assert!(
+            !config.has_enabled_exporters(),
+            "master=false should override all exporter settings"
+        );
+    }
+
+    #[test]
+    fn test_has_enabled_exporters_master_true_all_false() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.langfuse.enabled = false;
+        config.arize.enabled = false;
+        config.helicone.enabled = false;
+        config.webhook.enabled = false;
+
+        assert!(
+            !config.has_enabled_exporters(),
+            "master=true with all exporters=false should return false"
+        );
+    }
+
+    #[test]
+    fn test_has_enabled_exporters_each_exporter_individually() {
+        // Test each exporter individually
+        let exporters = ["langfuse", "arize", "helicone", "webhook"];
+
+        for exporter in &exporters {
+            let mut config = ObservabilityConfig::default();
+            config.enabled = true;
+
+            match *exporter {
+                "langfuse" => config.langfuse.enabled = true,
+                "arize" => config.arize.enabled = true,
+                "helicone" => config.helicone.enabled = true,
+                "webhook" => config.webhook.enabled = true,
+                _ => {}
+            }
+
+            assert!(
+                config.has_enabled_exporters(),
+                "master=true with {}=true should return true",
+                exporter
+            );
+        }
+    }
+
+    #[test]
+    fn test_has_enabled_exporters_multiple_exporters() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.langfuse.enabled = true;
+        config.webhook.enabled = true;
+
+        assert!(
+            config.has_enabled_exporters(),
+            "master=true with multiple exporters should return true"
+        );
+    }
 }

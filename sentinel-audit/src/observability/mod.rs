@@ -1147,7 +1147,10 @@ mod tests {
         });
 
         let redacted = config.redact(&value);
-        assert_eq!(redacted["level1"][0]["level2"][0]["level3"]["password"], "[REDACTED]");
+        assert_eq!(
+            redacted["level1"][0]["level2"][0]["level3"]["password"],
+            "[REDACTED]"
+        );
         assert_eq!(redacted["level1"][1]["api_key"], "[REDACTED]");
     }
 
@@ -1273,7 +1276,7 @@ mod tests {
         // Sample 1000 different trace_ids
         let sampled_count = (0..1000)
             .filter(|i| {
-                let span = SecuritySpan::builder(&format!("trace-{}", i), SpanKind::Tool)
+                let span = SecuritySpan::builder(format!("trace-{}", i), SpanKind::Tool)
                     .verdict(VerdictSummary {
                         outcome: "allow".to_string(),
                         reason: None,
@@ -1303,7 +1306,7 @@ mod tests {
         let sampler = SpanSampler::new(config);
 
         let sampled = (0..100).any(|i| {
-            let span = SecuritySpan::builder(&format!("trace-{}", i), SpanKind::Tool)
+            let span = SecuritySpan::builder(format!("trace-{}", i), SpanKind::Tool)
                 .verdict(VerdictSummary {
                     outcome: "allow".to_string(),
                     reason: None,
@@ -1327,7 +1330,7 @@ mod tests {
         let sampler = SpanSampler::new(config);
 
         let all_sampled = (0..100).all(|i| {
-            let span = SecuritySpan::builder(&format!("trace-{}", i), SpanKind::Tool)
+            let span = SecuritySpan::builder(format!("trace-{}", i), SpanKind::Tool)
                 .verdict(VerdictSummary {
                     outcome: "allow".to_string(),
                     reason: None,
@@ -1433,9 +1436,139 @@ mod tests {
         assert_eq!(parse_retry_after("604800"), 604800); // 1 week
 
         // Overflow defaults to 60
-        assert_eq!(
-            parse_retry_after("99999999999999999999999999"),
-            60
+        assert_eq!(parse_retry_after("99999999999999999999999999"), 60);
+    }
+
+    // ========================================
+    // Task 12: SecuritySpanBuilder Tests (GAP-016, GAP-018)
+    // ========================================
+
+    #[test]
+    fn test_builder_consecutive_builds_unique_ids() {
+        // Build two spans from same builder context
+        let span1 = SecuritySpan::builder("trace-1", SpanKind::Tool)
+            .name("test")
+            .build()
+            .unwrap();
+
+        let span2 = SecuritySpan::builder("trace-1", SpanKind::Tool)
+            .name("test")
+            .build()
+            .unwrap();
+
+        // Span IDs should be different (generated fresh each time)
+        assert_ne!(
+            span1.span_id, span2.span_id,
+            "consecutive builds should produce different span IDs"
         );
+    }
+
+    #[test]
+    fn test_builder_timestamps_are_recent() {
+        let span = SecuritySpan::builder("trace-1", SpanKind::Tool)
+            .name("test")
+            .build()
+            .unwrap();
+
+        // Parse the timestamp and verify it's recent (within last 5 seconds)
+        let now = chrono::Utc::now();
+        let start = chrono::DateTime::parse_from_rfc3339(&span.start_time)
+            .expect("start_time should be valid RFC3339");
+        let end = chrono::DateTime::parse_from_rfc3339(&span.end_time)
+            .expect("end_time should be valid RFC3339");
+
+        let five_secs_ago = now - chrono::Duration::seconds(5);
+        assert!(
+            start.with_timezone(&chrono::Utc) >= five_secs_ago,
+            "start_time should be within last 5 seconds"
+        );
+        assert!(
+            end.with_timezone(&chrono::Utc) >= five_secs_ago,
+            "end_time should be within last 5 seconds"
+        );
+    }
+
+    #[test]
+    fn test_builder_duration_defaults_to_zero() {
+        let span = SecuritySpan::builder("trace-1", SpanKind::Tool)
+            .name("test")
+            .build()
+            .unwrap();
+
+        assert_eq!(span.duration_ms, 0, "duration should default to 0");
+    }
+
+    #[test]
+    fn test_builder_action_defaults() {
+        let span = SecuritySpan::builder("trace-1", SpanKind::Tool)
+            .build()
+            .unwrap();
+
+        assert_eq!(span.action.tool, "unknown");
+        assert_eq!(span.action.function, "unknown");
+    }
+
+    #[test]
+    fn test_builder_verdict_defaults() {
+        let span = SecuritySpan::builder("trace-1", SpanKind::Tool)
+            .build()
+            .unwrap();
+
+        assert_eq!(span.verdict.outcome, "unknown");
+        assert!(span.verdict.reason.is_none());
+    }
+
+    #[test]
+    fn test_new_span_id_length_and_hex() {
+        // Generate 100 span IDs and verify properties
+        for _ in 0..100 {
+            let id = TraceContext::new_span_id();
+
+            // Should be exactly 16 characters
+            assert_eq!(id.len(), 16, "span ID should be 16 characters");
+
+            // Should be valid hex
+            assert!(
+                id.chars().all(|c| c.is_ascii_hexdigit()),
+                "span ID should be valid hex: {}",
+                id
+            );
+        }
+    }
+
+    #[test]
+    fn test_new_span_id_uniqueness() {
+        use std::collections::HashSet;
+
+        // Generate 1000 span IDs and verify uniqueness
+        let mut ids: HashSet<String> = HashSet::new();
+        for _ in 0..1000 {
+            let id = TraceContext::new_span_id();
+            ids.insert(id);
+        }
+
+        assert_eq!(
+            ids.len(),
+            1000,
+            "all 1000 generated span IDs should be unique"
+        );
+    }
+
+    #[test]
+    fn test_ensure_trace_id_generates_when_none() {
+        let mut ctx = TraceContext::default();
+        assert!(ctx.trace_id.is_none());
+
+        // First call generates the ID
+        let trace_id = ctx.ensure_trace_id().to_string();
+        assert_eq!(trace_id.len(), 32, "trace ID should be 32 characters");
+        assert!(
+            trace_id.chars().all(|c| c.is_ascii_hexdigit()),
+            "trace ID should be valid hex"
+        );
+
+        // Should return same ID on subsequent calls
+        let trace_id2 = ctx.ensure_trace_id().to_string();
+        assert_eq!(trace_id, trace_id2);
     }
 }

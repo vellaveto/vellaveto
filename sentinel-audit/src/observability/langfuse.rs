@@ -49,7 +49,11 @@ pub struct LangfuseExporterConfig {
 
 impl LangfuseExporterConfig {
     /// Create a new Langfuse exporter configuration.
-    pub fn new(endpoint: impl Into<String>, public_key: impl Into<String>, secret_key: impl Into<String>) -> Self {
+    pub fn new(
+        endpoint: impl Into<String>,
+        public_key: impl Into<String>,
+        secret_key: impl Into<String>,
+    ) -> Self {
         Self {
             endpoint: endpoint.into(),
             public_key: public_key.into(),
@@ -107,7 +111,9 @@ impl LangfuseExporter {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.common.timeout_secs))
             .build()
-            .map_err(|e| ObservabilityError::Configuration(format!("Failed to create HTTP client: {}", e)))?;
+            .map_err(|e| {
+                ObservabilityError::Configuration(format!("Failed to create HTTP client: {}", e))
+            })?;
 
         // Pre-compute Basic auth header
         let credentials = format!("{}:{}", config.public_key, config.secret_key);
@@ -142,7 +148,10 @@ impl LangfuseExporter {
                 public: Some(false),
                 tags: self.build_tags(span),
             };
-            events.push(LangfuseEvent::TraceCreate(trace));
+            events.push(LangfuseEvent::TraceCreate {
+                event_type: "trace-create".to_string(),
+                body: Box::new(trace),
+            });
         }
 
         // Create an observation for all spans
@@ -165,7 +174,10 @@ impl LangfuseExporter {
             parent_observation_id: span.parent_span_id.clone(),
             version: None,
         };
-        events.push(LangfuseEvent::ObservationCreate(observation));
+        events.push(LangfuseEvent::ObservationCreate {
+            event_type: "observation-create".to_string(),
+            body: Box::new(observation),
+        });
 
         events
     }
@@ -183,19 +195,26 @@ impl LangfuseExporter {
         metadata.insert("tool".into(), serde_json::json!(span.action.tool));
         metadata.insert("function".into(), serde_json::json!(span.action.function));
         metadata.insert("verdict".into(), serde_json::json!(span.verdict.outcome));
-        metadata.insert("span_kind".into(), serde_json::json!(span.span_kind.as_str()));
+        metadata.insert(
+            "span_kind".into(),
+            serde_json::json!(span.span_kind.as_str()),
+        );
 
         if let Some(policy) = &span.matched_policy {
             metadata.insert("matched_policy".into(), serde_json::json!(policy));
         }
 
         if !span.detections.is_empty() {
-            let detections: Vec<_> = span.detections.iter()
-                .map(|d| serde_json::json!({
-                    "type": format!("{:?}", d.detection_type),
-                    "severity": d.severity,
-                    "description": d.description
-                }))
+            let detections: Vec<_> = span
+                .detections
+                .iter()
+                .map(|d| {
+                    serde_json::json!({
+                        "type": format!("{:?}", d.detection_type),
+                        "severity": d.severity,
+                        "description": d.description
+                    })
+                })
                 .collect();
             metadata.insert("security_detections".into(), serde_json::json!(detections));
         }
@@ -228,16 +247,28 @@ impl LangfuseExporter {
         }
 
         if !span.detections.is_empty() {
-            metadata.insert("detection_count".into(), serde_json::json!(span.detections.len()));
-            metadata.insert("max_severity".into(), serde_json::json!(span.max_severity()));
+            metadata.insert(
+                "detection_count".into(),
+                serde_json::json!(span.detections.len()),
+            );
+            metadata.insert(
+                "max_severity".into(),
+                serde_json::json!(span.max_severity()),
+            );
         }
 
         if !span.action.target_paths.is_empty() {
-            metadata.insert("target_paths".into(), serde_json::json!(span.action.target_paths));
+            metadata.insert(
+                "target_paths".into(),
+                serde_json::json!(span.action.target_paths),
+            );
         }
 
         if !span.action.target_domains.is_empty() {
-            metadata.insert("target_domains".into(), serde_json::json!(span.action.target_domains));
+            metadata.insert(
+                "target_domains".into(),
+                serde_json::json!(span.action.target_domains),
+            );
         }
 
         if metadata.is_empty() {
@@ -300,9 +331,13 @@ impl LangfuseExporter {
             metadata: None,
         };
 
-        let url = format!("{}/api/public/ingestion", self.config.endpoint.trim_end_matches('/'));
+        let url = format!(
+            "{}/api/public/ingestion",
+            self.config.endpoint.trim_end_matches('/')
+        );
 
-        let response = self.client
+        let response = self
+            .client
             .post(&url)
             .header("Authorization", &self.auth_header)
             .header("Content-Type", "application/json")
@@ -408,9 +443,13 @@ impl ObservabilityExporter for LangfuseExporter {
     async fn health_check(&self) -> Result<(), ObservabilityError> {
         // Langfuse doesn't have a dedicated health endpoint, so we try
         // to create an empty batch to verify credentials
-        let url = format!("{}/api/public/ingestion", self.config.endpoint.trim_end_matches('/'));
+        let url = format!(
+            "{}/api/public/ingestion",
+            self.config.endpoint.trim_end_matches('/')
+        );
 
-        let response = self.client
+        let response = self
+            .client
             .post(&url)
             .header("Authorization", &self.auth_header)
             .header("Content-Type", "application/json")
@@ -427,7 +466,9 @@ impl ObservabilityExporter for LangfuseExporter {
             // 400 is expected for empty batch but means auth worked
             Ok(())
         } else if status.as_u16() == 401 || status.as_u16() == 403 {
-            Err(ObservabilityError::AuthError("Invalid credentials".to_string()))
+            Err(ObservabilityError::AuthError(
+                "Invalid credentials".to_string(),
+            ))
         } else {
             Err(ObservabilityError::ServerError {
                 status: status.as_u16(),
@@ -455,12 +496,18 @@ struct LangfuseBatch {
 
 /// Langfuse event types.
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type")]
+#[serde(untagged)]
 enum LangfuseEvent {
-    #[serde(rename = "trace-create")]
-    TraceCreate(LangfuseTrace),
-    #[serde(rename = "observation-create")]
-    ObservationCreate(LangfuseObservation),
+    TraceCreate {
+        #[serde(rename = "type")]
+        event_type: String,
+        body: Box<LangfuseTrace>,
+    },
+    ObservationCreate {
+        #[serde(rename = "type")]
+        event_type: String,
+        body: Box<LangfuseObservation>,
+    },
 }
 
 /// Langfuse trace object.
@@ -540,11 +587,7 @@ mod tests {
     use crate::observability::{ActionSummary, VerdictSummary};
 
     fn test_config() -> LangfuseExporterConfig {
-        LangfuseExporterConfig::new(
-            "https://cloud.langfuse.com",
-            "pk-test-123",
-            "sk-test-456",
-        )
+        LangfuseExporterConfig::new("https://cloud.langfuse.com", "pk-test-123", "sk-test-456")
     }
 
     #[test]
@@ -659,10 +702,16 @@ mod tests {
         assert_eq!(exporter.verdict_to_level(&span), Some("ERROR".to_string()));
 
         span.verdict.outcome = "require_approval".to_string();
-        assert_eq!(exporter.verdict_to_level(&span), Some("WARNING".to_string()));
+        assert_eq!(
+            exporter.verdict_to_level(&span),
+            Some("WARNING".to_string())
+        );
 
         span.verdict.outcome = "allow".to_string();
-        assert_eq!(exporter.verdict_to_level(&span), Some("DEFAULT".to_string()));
+        assert_eq!(
+            exporter.verdict_to_level(&span),
+            Some("DEFAULT".to_string())
+        );
     }
 
     #[test]
@@ -695,5 +744,177 @@ mod tests {
         assert!(tags.contains(&"verdict:deny".to_string()));
         assert!(tags.contains(&"kind:tool".to_string()));
         assert!(tags.contains(&"denied".to_string()));
+    }
+
+    // ========================================
+    // Task 10: LangfuseExporter Edge Cases (GAP-014)
+    // ========================================
+
+    #[test]
+    fn test_span_to_events_chain_with_parent() {
+        // Edge case: span has both parent_span_id AND span_kind == Chain
+        // The is_root logic is: parent_span_id.is_none() || span_kind == Chain
+        // So Chain kind ALWAYS creates trace + observation (2 events) due to OR logic
+        let config = test_config();
+        let exporter = LangfuseExporter::new(config).unwrap();
+
+        let span = SecuritySpan {
+            span_id: "span-child".to_string(),
+            parent_span_id: Some("span-parent".to_string()),
+            trace_id: "trace-1".to_string(),
+            span_kind: SpanKind::Chain, // Chain kind with parent
+            name: "nested_chain".to_string(),
+            start_time: "2024-01-01T00:00:00Z".to_string(),
+            end_time: "2024-01-01T00:00:01Z".to_string(),
+            duration_ms: 1000,
+            action: ActionSummary::new("test_tool", "test_function"),
+            verdict: VerdictSummary {
+                outcome: "allow".to_string(),
+                reason: None,
+            },
+            matched_policy: None,
+            detections: vec![],
+            request_body: None,
+            response_body: None,
+            attributes: HashMap::new(),
+        };
+
+        let events = exporter.span_to_events(&span);
+        // Chain always treated as root due to: is_root = parent.is_none() || kind == Chain
+        assert_eq!(
+            events.len(),
+            2,
+            "Chain kind always creates trace + observation due to OR logic"
+        );
+    }
+
+    #[test]
+    fn test_span_to_events_zero_detections_denied() {
+        // Edge case: span with deny verdict but zero detections
+        let config = test_config();
+        let exporter = LangfuseExporter::new(config).unwrap();
+
+        let span = SecuritySpan {
+            span_id: "span-1".to_string(),
+            parent_span_id: None,
+            trace_id: "trace-1".to_string(),
+            span_kind: SpanKind::Guardrail,
+            name: "policy_deny".to_string(),
+            start_time: "2024-01-01T00:00:00Z".to_string(),
+            end_time: "2024-01-01T00:00:01Z".to_string(),
+            duration_ms: 1000,
+            action: ActionSummary::new("test_tool", "test_function"),
+            verdict: VerdictSummary {
+                outcome: "deny".to_string(),
+                reason: Some("blocked by policy".to_string()),
+            },
+            matched_policy: Some("block-all".to_string()),
+            detections: vec![], // Zero detections
+            request_body: None,
+            response_body: None,
+            attributes: HashMap::new(),
+        };
+
+        let events = exporter.span_to_events(&span);
+        // Should create 2 events (trace + observation) for root span
+        assert_eq!(events.len(), 2);
+
+        // Tags should not include detection tags since there are none
+        let tags = exporter.build_tags(&span).unwrap();
+        assert!(
+            !tags.iter().any(|t| t.starts_with("detection:")),
+            "no detection tags should exist for zero detections"
+        );
+    }
+
+    #[test]
+    fn test_span_to_events_count_verification() {
+        // Verify exact event counts for different scenarios
+        let config = test_config();
+        let exporter = LangfuseExporter::new(config).unwrap();
+
+        // Scenario 1: Root Chain span -> 2 events (trace + observation)
+        let root_chain = SecuritySpan {
+            span_id: "span-1".to_string(),
+            parent_span_id: None,
+            trace_id: "trace-1".to_string(),
+            span_kind: SpanKind::Chain,
+            name: "root".to_string(),
+            start_time: "2024-01-01T00:00:00Z".to_string(),
+            end_time: "2024-01-01T00:00:01Z".to_string(),
+            duration_ms: 1000,
+            action: ActionSummary::new("t", "f"),
+            verdict: VerdictSummary {
+                outcome: "allow".to_string(),
+                reason: None,
+            },
+            matched_policy: None,
+            detections: vec![],
+            request_body: None,
+            response_body: None,
+            attributes: HashMap::new(),
+        };
+        assert_eq!(
+            exporter.span_to_events(&root_chain).len(),
+            2,
+            "root Chain span should create exactly 2 events"
+        );
+
+        // Scenario 2: Root Tool span -> 2 events (trace + observation)
+        let root_tool = SecuritySpan {
+            span_kind: SpanKind::Tool,
+            ..root_chain.clone()
+        };
+        assert_eq!(
+            exporter.span_to_events(&root_tool).len(),
+            2,
+            "root Tool span should create exactly 2 events"
+        );
+
+        // Scenario 3: Non-Chain child span with parent -> 1 event (observation only)
+        let child = SecuritySpan {
+            parent_span_id: Some("parent".to_string()),
+            span_kind: SpanKind::Guardrail, // Not Chain, so parent takes effect
+            ..root_chain.clone()
+        };
+        assert_eq!(
+            exporter.span_to_events(&child).len(),
+            1,
+            "non-Chain child span should create exactly 1 event"
+        );
+    }
+
+    #[test]
+    fn test_verdict_to_level_unknown() {
+        let config = test_config();
+        let exporter = LangfuseExporter::new(config).unwrap();
+
+        let span = SecuritySpan {
+            span_id: "span-1".to_string(),
+            parent_span_id: None,
+            trace_id: "trace-1".to_string(),
+            span_kind: SpanKind::Tool,
+            name: "test".to_string(),
+            start_time: "2024-01-01T00:00:00Z".to_string(),
+            end_time: "2024-01-01T00:00:01Z".to_string(),
+            duration_ms: 1000,
+            action: ActionSummary::new("t", "f"),
+            verdict: VerdictSummary {
+                outcome: "unknown".to_string(), // Non-standard outcome
+                reason: None,
+            },
+            matched_policy: None,
+            detections: vec![],
+            request_body: None,
+            response_body: None,
+            attributes: HashMap::new(),
+        };
+
+        // Unknown verdict should map to DEFAULT level (catch-all case)
+        assert_eq!(
+            exporter.verdict_to_level(&span),
+            Some("DEFAULT".to_string()),
+            "unknown verdict should map to DEFAULT"
+        );
     }
 }
