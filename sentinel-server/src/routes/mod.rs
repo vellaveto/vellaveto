@@ -4,10 +4,12 @@
 //! The main router is built by `build_router()`.
 //!
 //! Submodules:
+//! - `circuit_breaker` - Circuit breaker handlers (OWASP ASI08)
 //! - `etdi` - ETDI cryptographic tool security handlers
 //! - `memory` - Memory Injection Defense (MINJA) handlers
 //! - `nhi` - Non-Human Identity (NHI) lifecycle handlers
 
+pub mod circuit_breaker;
 pub mod etdi;
 mod main;
 pub mod memory;

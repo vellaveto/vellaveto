@@ -89,10 +89,10 @@ pub fn build_router(state: AppState) -> Router {
         // Phase 3.1: Security Manager Admin APIs
         // ═══════════════════════════════════════════════════════════════════
         // Circuit Breaker (OWASP ASI08)
-        .route("/api/circuit-breaker", get(list_circuit_breakers))
-        .route("/api/circuit-breaker/stats", get(circuit_breaker_stats))
-        .route("/api/circuit-breaker/{tool}", get(get_circuit_state))
-        .route("/api/circuit-breaker/{tool}/reset", post(reset_circuit))
+        .route("/api/circuit-breaker", get(super::circuit_breaker::list_circuit_breakers))
+        .route("/api/circuit-breaker/stats", get(super::circuit_breaker::circuit_breaker_stats))
+        .route("/api/circuit-breaker/{tool}", get(super::circuit_breaker::get_circuit_state))
+        .route("/api/circuit-breaker/{tool}/reset", post(super::circuit_breaker::reset_circuit))
         // Shadow Agent Detection
         .route("/api/shadow-agents", get(list_shadow_agents))
         .route("/api/shadow-agents", post(register_shadow_agent))
@@ -142,15 +142,27 @@ pub fn build_router(state: AppState) -> Router {
         // Phase 8: ETDI Cryptographic Tool Security
         // ═══════════════════════════════════════════════════════════════════
         // Tool Signatures
-        .route("/api/etdi/signatures", get(super::etdi::list_tool_signatures))
-        .route("/api/etdi/signatures/{tool}", get(super::etdi::get_tool_signature))
+        .route(
+            "/api/etdi/signatures",
+            get(super::etdi::list_tool_signatures),
+        )
+        .route(
+            "/api/etdi/signatures/{tool}",
+            get(super::etdi::get_tool_signature),
+        )
         .route(
             "/api/etdi/signatures/{tool}/verify",
             post(super::etdi::verify_tool_signature),
         )
         // Attestation Chain
-        .route("/api/etdi/attestations", get(super::etdi::list_attestations))
-        .route("/api/etdi/attestations/{tool}", get(super::etdi::get_tool_attestations))
+        .route(
+            "/api/etdi/attestations",
+            get(super::etdi::list_attestations),
+        )
+        .route(
+            "/api/etdi/attestations/{tool}",
+            get(super::etdi::get_tool_attestations),
+        )
         .route(
             "/api/etdi/attestations/{tool}/verify",
             get(super::etdi::verify_attestation_chain),
@@ -158,8 +170,14 @@ pub fn build_router(state: AppState) -> Router {
         // Version Pins
         .route("/api/etdi/pins", get(super::etdi::list_version_pins))
         .route("/api/etdi/pins/{tool}", get(super::etdi::get_version_pin))
-        .route("/api/etdi/pins/{tool}", post(super::etdi::create_version_pin))
-        .route("/api/etdi/pins/{tool}", delete(super::etdi::remove_version_pin))
+        .route(
+            "/api/etdi/pins/{tool}",
+            post(super::etdi::create_version_pin),
+        )
+        .route(
+            "/api/etdi/pins/{tool}",
+            delete(super::etdi::remove_version_pin),
+        )
         // ═══════════════════════════════════════════════════════════════════
         // Phase 9: Memory Injection Defense (MINJA)
         // ═══════════════════════════════════════════════════════════════════
@@ -211,15 +229,36 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/nhi/agents", post(super::nhi::register_nhi_agent))
         .route("/api/nhi/agents/{id}", get(super::nhi::get_nhi_agent))
         .route("/api/nhi/agents/{id}", delete(super::nhi::revoke_nhi_agent))
-        .route("/api/nhi/agents/{id}/activate", post(super::nhi::activate_nhi_agent))
-        .route("/api/nhi/agents/{id}/suspend", post(super::nhi::suspend_nhi_agent))
+        .route(
+            "/api/nhi/agents/{id}/activate",
+            post(super::nhi::activate_nhi_agent),
+        )
+        .route(
+            "/api/nhi/agents/{id}/suspend",
+            post(super::nhi::suspend_nhi_agent),
+        )
         // Behavioral Baselines
-        .route("/api/nhi/agents/{id}/baseline", get(super::nhi::get_nhi_baseline))
-        .route("/api/nhi/agents/{id}/check", post(super::nhi::check_nhi_behavior))
+        .route(
+            "/api/nhi/agents/{id}/baseline",
+            get(super::nhi::get_nhi_baseline),
+        )
+        .route(
+            "/api/nhi/agents/{id}/check",
+            post(super::nhi::check_nhi_behavior),
+        )
         // Delegations
-        .route("/api/nhi/delegations", get(super::nhi::list_nhi_delegations))
-        .route("/api/nhi/delegations", post(super::nhi::create_nhi_delegation))
-        .route("/api/nhi/delegations/{from}/{to}", get(super::nhi::get_nhi_delegation))
+        .route(
+            "/api/nhi/delegations",
+            get(super::nhi::list_nhi_delegations),
+        )
+        .route(
+            "/api/nhi/delegations",
+            post(super::nhi::create_nhi_delegation),
+        )
+        .route(
+            "/api/nhi/delegations/{from}/{to}",
+            get(super::nhi::get_nhi_delegation),
+        )
         .route(
             "/api/nhi/delegations/{from}/{to}",
             delete(super::nhi::revoke_nhi_delegation),
@@ -229,8 +268,14 @@ pub fn build_router(state: AppState) -> Router {
             get(super::nhi::get_nhi_delegation_chain),
         )
         // Credentials
-        .route("/api/nhi/agents/{id}/rotate", post(super::nhi::rotate_nhi_credentials))
-        .route("/api/nhi/expiring", get(super::nhi::get_expiring_nhi_identities))
+        .route(
+            "/api/nhi/agents/{id}/rotate",
+            post(super::nhi::rotate_nhi_credentials),
+        )
+        .route(
+            "/api/nhi/expiring",
+            get(super::nhi::get_expiring_nhi_identities),
+        )
         // DPoP
         .route("/api/nhi/dpop/nonce", post(super::nhi::generate_dpop_nonce))
         // Stats
@@ -670,8 +715,8 @@ fn redact_response_action(mut action: Action) -> Action {
 }
 
 #[derive(Serialize)]
-struct ErrorResponse {
-    error: String,
+pub struct ErrorResponse {
+    pub error: String,
 }
 
 /// Auto-extract target_paths and target_domains from action parameters.
@@ -2674,121 +2719,6 @@ async fn delete_tenant(
 // ═══════════════════════════════════════════════════════════════════════════
 // Phase 3.1: Security Manager Admin API Handlers
 // ═══════════════════════════════════════════════════════════════════════════
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Circuit Breaker Handlers (OWASP ASI08)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// List all circuit breaker states.
-///
-/// GET /api/circuit-breaker
-async fn list_circuit_breakers(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let cb = state.circuit_breaker.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Circuit breaker is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    let tools = cb.tracked_tools();
-    let mut entries = Vec::new();
-
-    for tool in tools {
-        let state = cb.get_state(&tool);
-        let stats = cb.get_stats(&tool);
-        entries.push(json!({
-            "tool": tool,
-            "state": format!("{:?}", state),
-            "stats": stats,
-        }));
-    }
-
-    Ok(Json(json!({
-        "count": entries.len(),
-        "circuits": entries,
-    })))
-}
-
-/// Get circuit breaker statistics summary.
-///
-/// GET /api/circuit-breaker/stats
-async fn circuit_breaker_stats(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let cb = state.circuit_breaker.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Circuit breaker is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    let summary = cb.summary();
-    Ok(Json(json!({
-        "total": summary.total,
-        "open": summary.open,
-        "half_open": summary.half_open,
-        "closed": summary.closed,
-    })))
-}
-
-/// Get circuit breaker state for a specific tool.
-///
-/// GET /api/circuit-breaker/{tool}
-async fn get_circuit_state(
-    State(state): State<AppState>,
-    Path(tool): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let cb = state.circuit_breaker.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Circuit breaker is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    let circuit_state = cb.get_state(&tool);
-    let stats = cb.get_stats(&tool);
-    let recovering = cb.is_recovering(&tool);
-
-    Ok(Json(json!({
-        "tool": tool,
-        "state": format!("{:?}", circuit_state),
-        "stats": stats,
-        "recovering": recovering,
-    })))
-}
-
-/// Reset circuit breaker for a specific tool.
-///
-/// POST /api/circuit-breaker/{tool}/reset
-async fn reset_circuit(
-    State(state): State<AppState>,
-    Path(tool): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let cb = state.circuit_breaker.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Circuit breaker is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    cb.reset(&tool);
-
-    Ok(Json(json!({
-        "tool": tool,
-        "state": "Closed",
-        "message": "Circuit breaker reset successfully",
-    })))
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shadow Agent Detection Handlers
