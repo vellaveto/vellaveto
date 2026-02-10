@@ -184,6 +184,10 @@ pub struct GroundingChecker {
     config: GroundingConfig,
 }
 
+/// Hard cap for response text analyzed by grounding checks.
+/// Prevents excessive CPU/memory use on adversarially large payloads.
+const MAX_GROUNDING_RESPONSE_CHARS: usize = 100_000;
+
 impl GroundingChecker {
     /// Create a new grounding checker with the given configuration.
     pub fn new(config: GroundingConfig) -> Self {
@@ -226,6 +230,14 @@ impl GroundingChecker {
                 contradictions: vec![],
                 attributions: vec![],
                 method: GroundingMethod::Disabled,
+            });
+        }
+
+        let response_len = response.chars().count();
+        if response_len > MAX_GROUNDING_RESPONSE_CHARS {
+            return Err(GroundingError::ResponseTooLong {
+                len: response_len,
+                max: MAX_GROUNDING_RESPONSE_CHARS,
             });
         }
 
@@ -354,9 +366,10 @@ impl GroundingChecker {
         // Simple sentence-based claim extraction
         // In production, would use more sophisticated NLP
         response
-            .split(|c| c == '.' || c == '!' || c == '?')
+            .split(['.', '!', '?'])
             .map(|s| s.trim().to_string())
             .filter(|s| s.len() >= self.config.min_claim_length)
+            .take(self.config.max_claims)
             .collect()
     }
 
@@ -480,7 +493,7 @@ mod tests {
         let checker = GroundingChecker::new(config);
 
         let context = vec!["The Eiffel Tower is located in Paris."];
-        let response = "The Eiffel Tower was built on the moon in 2050.";
+        let response = "Mars has two moons named Phobos and Deimos.";
 
         let result = checker.check_grounding(&context, response).unwrap();
         assert!(result.score < 0.7);
@@ -511,6 +524,36 @@ mod tests {
 
         let claims = checker.extract_claims("First claim. Second claim! Third claim?");
         assert_eq!(claims.len(), 3);
+    }
+
+    #[test]
+    fn test_claim_extraction_respects_max_claims() {
+        let config = GroundingConfig {
+            enabled: true,
+            min_claim_length: 1,
+            max_claims: 2,
+            ..Default::default()
+        };
+        let checker = GroundingChecker::new(config);
+
+        let claims = checker.extract_claims("One. Two. Three.");
+        assert_eq!(claims.len(), 2);
+    }
+
+    #[test]
+    fn test_response_too_long_returns_error() {
+        let config = GroundingConfig {
+            enabled: true,
+            ..Default::default()
+        };
+        let checker = GroundingChecker::new(config);
+
+        let too_long = "a".repeat(MAX_GROUNDING_RESPONSE_CHARS + 1);
+        let result = checker.check_grounding(&["context"], &too_long);
+        assert!(matches!(
+            result,
+            Err(GroundingError::ResponseTooLong { .. })
+        ));
     }
 
     #[test]

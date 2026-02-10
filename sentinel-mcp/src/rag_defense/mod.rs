@@ -298,6 +298,11 @@ impl RagDefenseService {
         &self.budget_tracker
     }
 
+    /// Returns the grounding checker for direct access.
+    pub fn grounding_checker(&self) -> &GroundingChecker {
+        &self.grounding_checker
+    }
+
     // ═══════════════════════════════════════════════════
     // SESSION MANAGEMENT
     // ═══════════════════════════════════════════════════

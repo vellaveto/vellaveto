@@ -288,6 +288,18 @@ impl MultimodalScanner {
         // Determine content type
         let content_type = content_type.unwrap_or_else(|| ContentType::from_magic_bytes(data));
 
+        // Disabled scanner must be a fast no-op.
+        if !self.config.enabled {
+            return Ok(MultimodalScanResult {
+                content_type,
+                extracted_text: None,
+                ocr_confidence: None,
+                injection_findings: vec![],
+                stego_indicators: vec![],
+                scan_duration_ms: start.elapsed().as_millis() as u64,
+            });
+        }
+
         // Check if we should scan this content type
         if !self.config.content_types.contains(&content_type) {
             return Ok(MultimodalScanResult {
@@ -350,8 +362,14 @@ impl MultimodalScanner {
         &self,
         _data: &[u8],
     ) -> Result<(Option<String>, Option<f32>), MultimodalError> {
-        // Placeholder: OCR not available without multimodal feature
-        Ok((None, None))
+        if !self.config.enable_ocr {
+            return Ok((None, None));
+        }
+
+        // Fail closed when OCR is configured but unavailable in this build.
+        Err(MultimodalError::OcrError(
+            "OCR backend unavailable; build with `multimodal` feature".to_string(),
+        ))
     }
 
     /// Extract text from image using OCR (with feature enabled).
@@ -360,7 +378,11 @@ impl MultimodalScanner {
         &self,
         data: &[u8],
     ) -> Result<(Option<String>, Option<f32>), MultimodalError> {
-        use image::io::Reader as ImageReader;
+        if !self.config.enable_ocr {
+            return Ok((None, None));
+        }
+
+        use image::ImageReader;
         use std::io::Cursor;
 
         // Decode image
@@ -371,14 +393,14 @@ impl MultimodalScanner {
             .map_err(|e| MultimodalError::ImageDecodeError(e.to_string()))?;
 
         // Convert to grayscale for OCR
-        let gray = img.to_luma8();
+        let _gray = img.to_luma8();
 
         // TODO: Integrate with actual OCR library (Tesseract)
-        // For now, return placeholder
-        // In production, this would call:
-        // let text = tesseract::ocr(&gray, "eng")?;
-
-        Ok((None, None))
+        // Fail closed until OCR backend is wired.
+        // In production, this should call an OCR engine and return extracted text.
+        Err(MultimodalError::OcrError(
+            "OCR backend not integrated yet".to_string(),
+        ))
     }
 
     /// Extract text from PDF.
@@ -671,6 +693,24 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    /// Disabled scanners should skip size checks and return an empty result.
+    #[test]
+    fn test_scan_disabled_skips_size_checks() {
+        let config = MultimodalConfig {
+            enabled: false,
+            max_image_size: 1,
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+        let large_data = vec![0u8; 1024];
+
+        let result = scanner
+            .scan_content(&large_data, Some(ContentType::Image))
+            .unwrap();
+        assert_eq!(result.content_type, ContentType::Image);
+        assert!(result.injection_findings.is_empty());
+    }
+
     /// GAP-006: Test config default values
     #[test]
     fn test_config_default_values() {
@@ -738,6 +778,7 @@ mod tests {
     fn test_scan_content_auto_detect_type() {
         let config = MultimodalConfig {
             enabled: true,
+            enable_ocr: false,
             content_types: vec![ContentType::Image, ContentType::Pdf],
             ..Default::default()
         };
@@ -752,6 +793,23 @@ mod tests {
         let pdf_data = b"%PDF-1.4 test content";
         let result = scanner.scan_content(pdf_data, None).unwrap();
         assert_eq!(result.content_type, ContentType::Pdf);
+    }
+
+    #[cfg(not(feature = "multimodal"))]
+    #[test]
+    fn test_scan_image_without_multimodal_feature_fails_closed() {
+        let config = MultimodalConfig {
+            enabled: true,
+            enable_ocr: true,
+            content_types: vec![ContentType::Image],
+            max_image_size: 1024,
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+        let image_data = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A];
+
+        let result = scanner.scan_content(&image_data, Some(ContentType::Image));
+        assert!(matches!(result, Err(MultimodalError::OcrError(_))));
     }
 
     /// GAP-006: Test error message contains size info
