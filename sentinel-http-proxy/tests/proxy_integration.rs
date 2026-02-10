@@ -116,6 +116,63 @@ async fn mock_mcp_handler(body: axum::body::Bytes) -> axum::Json<Value> {
     }
 }
 
+/// Start an upstream that omits `result._meta.tool` in tool-call responses.
+/// Used to verify the proxy falls back to request/response id tracking for
+/// structuredContent output-schema validation.
+async fn start_schema_tracking_upstream() -> String {
+    let app = axum::Router::new().route("/mcp", axum::routing::post(schema_tracking_handler));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{}/mcp", addr);
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    url
+}
+
+async fn schema_tracking_handler(body: axum::body::Bytes) -> axum::Json<Value> {
+    let msg: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
+    let id = msg.get("id").cloned().unwrap_or(Value::Null);
+    let method = msg.get("method").and_then(|m| m.as_str()).unwrap_or("");
+
+    match method {
+        "tools/list" => axum::Json(json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "tools": [{
+                    "name": "read_file",
+                    "description": "Read a file",
+                    "outputSchema": {
+                        "type": "object",
+                        "required": ["status"],
+                        "additionalProperties": false,
+                        "properties": {
+                            "status": {"type": "string"}
+                        }
+                    }
+                }]
+            }
+        })),
+        "tools/call" => axum::Json(json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                // Invalid for read_file outputSchema: missing required "status"
+                // and contains an extra key. Also intentionally omits _meta.tool.
+                "structuredContent": {"ok": true}
+            }
+        })),
+        _ => axum::Json(json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {}
+        })),
+    }
+}
+
 fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
     let policies = vec![
         Policy {
@@ -265,6 +322,69 @@ async fn tool_call_allowed_forwards_to_upstream() {
         .as_str()
         .unwrap()
         .contains("read_file"));
+}
+
+#[tokio::test]
+async fn structured_content_validation_uses_tracked_tool_when_meta_missing() {
+    // SECURITY: Upstream omits result._meta.tool. Proxy must still resolve the
+    // originating tool via request/response id tracking and enforce outputSchema.
+    let upstream_url = start_schema_tracking_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_test_state(&upstream_url, &tmp);
+    let app = build_router(state);
+
+    // Register output schema from tools/list first.
+    let tools_list_body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    }))
+    .unwrap();
+    let tools_list_resp = app
+        .clone()
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .body(Body::from(tools_list_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(tools_list_resp.status(), StatusCode::OK);
+
+    // Tool call returns structuredContent without _meta.tool.
+    let tool_call_body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"path": "/tmp/test"}
+        }
+    }))
+    .unwrap();
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .body(Body::from(tool_call_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = json_body(resp).await;
+    assert_eq!(json["error"]["code"], -32001);
+    assert!(
+        json["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("output schema validation failed"),
+        "Expected output schema block, got: {}",
+        json
+    );
 }
 
 // ════════════════════════════════
@@ -3228,6 +3348,53 @@ async fn sse_headers_preserved() {
     assert_eq!(cc, "no-cache");
 
     assert!(resp.headers().get("mcp-session-id").is_some());
+}
+
+#[tokio::test]
+async fn sse_structured_content_schema_violation_is_blocked() {
+    // SECURITY: SSE streams that carry structuredContent must enforce outputSchema.
+    // This stream first registers a schema, then returns an invalid structuredContent
+    // payload without _meta.tool (must resolve via tracked request id).
+    let sse_body = concat!(
+        "event: message\n",
+        "data: {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"tools\":[{\"name\":\"read_file\",\"outputSchema\":{\"type\":\"object\",\"required\":[\"status\"],\"additionalProperties\":false,\"properties\":{\"status\":{\"type\":\"string\"}}}}]}}\n\n",
+        "event: message\n",
+        "data: {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"structuredContent\":{\"ok\":true}}}\n\n",
+    );
+    let upstream_url = start_sse_upstream(sse_body).await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_test_state(&upstream_url, &tmp);
+    let app = build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "tools/call",
+        "params": {"name": "read_file", "arguments": {"path": "/tmp/test"}}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = json_body(resp).await;
+    assert_eq!(json["error"]["code"], -32001);
+    assert!(
+        json["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("output schema validation failed"),
+        "Expected SSE schema-validation block, got: {}",
+        json
+    );
 }
 
 // ════════════════════════════════

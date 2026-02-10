@@ -1116,6 +1116,9 @@ pub async fn handle_mcp_post(
                             )
                         }
                     };
+                    // Track request->tool mapping so response validation can resolve
+                    // tool context even when upstream omits result._meta.tool.
+                    track_pending_tool_call(&state.sessions, &session_id, &id, &tool_name);
                     let response = forward_to_upstream(
                         &state,
                         &session_id,
@@ -2713,6 +2716,65 @@ fn extract_authority_from_origin(origin: &str) -> Option<String> {
 /// Maximum entries in action_history per session (memory bound).
 const MAX_ACTION_HISTORY: usize = 100;
 
+/// Maximum number of pending JSON-RPC tool call correlations per session.
+/// Bounds memory if responses are malformed or never returned.
+const MAX_PENDING_TOOL_CALLS: usize = 256;
+
+/// Maximum canonicalized JSON-RPC id key length.
+/// Oversized ids are ignored for request/response correlation.
+const MAX_JSONRPC_ID_KEY_LEN: usize = 256;
+
+/// Build a stable key for JSON-RPC id values used in request/response correlation.
+fn jsonrpc_id_key(id: &Value) -> Option<String> {
+    match id {
+        Value::String(s) if s.len() <= MAX_JSONRPC_ID_KEY_LEN => Some(format!("s:{s}")),
+        Value::Number(n) => {
+            let n_str = n.to_string();
+            if n_str.len() <= MAX_JSONRPC_ID_KEY_LEN {
+                Some(format!("n:{n_str}"))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Track an outbound tool call so response handling can recover the originating tool.
+fn track_pending_tool_call(
+    sessions: &SessionStore,
+    session_id: &str,
+    request_id: &Value,
+    tool_name: &str,
+) {
+    let Some(id_key) = jsonrpc_id_key(request_id) else {
+        return;
+    };
+    if let Some(mut session) = sessions.get_mut(session_id) {
+        // SECURITY: cap pending map to prevent unbounded growth on malformed traffic.
+        if session.pending_tool_calls.len() >= MAX_PENDING_TOOL_CALLS {
+            if let Some(oldest_key) = session.pending_tool_calls.keys().next().cloned() {
+                session.pending_tool_calls.remove(&oldest_key);
+            }
+        }
+        session
+            .pending_tool_calls
+            .insert(id_key, tool_name.to_string());
+    }
+}
+
+/// Resolve and consume the tracked tool name for a JSON-RPC response id.
+fn take_tracked_tool_call(
+    sessions: &SessionStore,
+    session_id: &str,
+    response_id: Option<&Value>,
+) -> Option<String> {
+    let id_key = response_id.and_then(jsonrpc_id_key)?;
+    sessions
+        .get_mut(session_id)
+        .and_then(|mut s| s.pending_tool_calls.remove(&id_key))
+}
+
 /// Build an `EvaluationContext` from the current session state.
 fn build_evaluation_context(
     sessions: &SessionStore,
@@ -3219,19 +3281,38 @@ async fn forward_to_upstream(
                         // Register output schemas from SSE tools/list responses.
                         register_schemas_from_sse(&sse_bytes, state);
 
+                        // Validate structuredContent in SSE responses against registered output schemas.
+                        let schema_violation_found =
+                            scan_sse_events_for_output_schema(&sse_bytes, session_id, state).await;
+
                         // SECURITY (R18-SSE-RUG): Rug-pull detection and manifest
                         // verification for SSE responses. Without this, a server
                         // returning tools/list via SSE would bypass both checks.
-                        // SECURITY (R27-PROXY-1, R32-PROXY-2): Pass injection AND DLP
-                        // flags so record_response is skipped for tainted SSE events.
+                        // SECURITY (R27-PROXY-1, R32-PROXY-2): Pass taint flags so
+                        // record_response is skipped for suspicious SSE events.
                         check_sse_for_rug_pull_and_manifest(
                             &sse_bytes,
                             session_id,
                             state,
                             injection_found,
                             dlp_found,
+                            schema_violation_found,
                         )
                         .await;
+
+                        if schema_violation_found {
+                            return (
+                                StatusCode::OK,
+                                Json(json!({
+                                    "jsonrpc": "2.0",
+                                    "error": {
+                                        "code": -32001,
+                                        "message": "SSE response blocked: output schema validation failed",
+                                    },
+                                })),
+                            )
+                                .into_response();
+                        }
 
                         // SECURITY (R12-RESP-10): Do NOT copy Mcp-Session-Id from upstream.
                         // The proxy is the session authority. Forwarding the upstream's
@@ -3301,6 +3382,15 @@ async fn forward_to_upstream(
                         // from being fingerprinted by the memory tracker.
                         let mut injection_detected = false;
                         if let Ok(response_json) = serde_json::from_slice::<Value>(&body_bytes) {
+                            // Consume tracked tool context for this response id (if any).
+                            // This closes a bypass where upstream omits result._meta.tool,
+                            // causing structuredContent validation to run as "unknown".
+                            let tracked_tool_name = take_tracked_tool_call(
+                                &state.sessions,
+                                session_id,
+                                response_json.get("id"),
+                            );
+
                             // Inspect for injection patterns in tool results
                             if let Some(result) = response_json.get("result") {
                                 let text_to_inspect = extract_text_from_result(result);
@@ -3465,14 +3555,28 @@ async fn forward_to_upstream(
 
                                 // MCP 2025-06-18: Validate structuredContent against registered schemas
                                 if let Some(structured) = result.get("structuredContent") {
-                                    // Try to extract tool name from request tracking (best-effort).
-                                    // For JSON responses we don't have request→response mapping here,
-                                    // so we log a warning if validation fails without a tool name.
-                                    let tool_name = result
+                                    let meta_tool_name = result
                                         .get("_meta")
                                         .and_then(|m| m.get("tool"))
-                                        .and_then(|t| t.as_str())
-                                        .unwrap_or("unknown");
+                                        .and_then(|t| t.as_str());
+                                    let tool_name = match (
+                                        meta_tool_name,
+                                        tracked_tool_name.as_deref(),
+                                    ) {
+                                        (Some(meta), Some(tracked))
+                                            if !meta.eq_ignore_ascii_case(tracked) =>
+                                        {
+                                            tracing::warn!(
+                                                "SECURITY: structuredContent tool mismatch (meta='{}', tracked='{}'); using tracked tool name",
+                                                meta,
+                                                tracked
+                                            );
+                                            tracked
+                                        }
+                                        (Some(meta), _) => meta,
+                                        (None, Some(tracked)) => tracked,
+                                        (None, None) => "unknown",
+                                    };
                                     match state
                                         .output_schema_registry
                                         .validate(tool_name, structured)
@@ -4321,6 +4425,8 @@ async fn check_sse_for_rug_pull_and_manifest(
     // SECURITY (R32-PROXY-2): Also skip recording when DLP found secrets,
     // not just when injection was detected.
     dlp_found: bool,
+    // SECURITY: Skip memory fingerprint recording when output-schema validation failed.
+    schema_violation_found: bool,
 ) {
     let sse_text = String::from_utf8_lossy(sse_bytes);
     let normalized = sse_text.replace("\r\n", "\n").replace('\r', "\n");
@@ -4383,7 +4489,8 @@ async fn check_sse_for_rug_pull_and_manifest(
             // parameter values that happened to appear in the injection-laced response.
             // SECURITY (R32-PROXY-2): Also skip when DLP found secrets — recording
             // fingerprints from secret-containing responses would poison the tracker.
-            if !injection_found && !dlp_found {
+            // SECURITY: Also skip when schema validation failed.
+            if !injection_found && !dlp_found && !schema_violation_found {
                 if let Some(mut session) = state.sessions.get_mut(session_id) {
                     session.memory_tracker.record_response(&json_val);
                 }
@@ -4438,6 +4545,118 @@ fn register_schemas_from_sse(sse_bytes: &[u8], state: &ProxyState) {
                 .register_from_tools_list(&json_val);
         }
     }
+}
+
+/// Validate `structuredContent` in SSE JSON-RPC payloads against registered output schemas.
+///
+/// Returns `true` when at least one schema violation is detected.
+async fn scan_sse_events_for_output_schema(
+    sse_bytes: &[u8],
+    session_id: &str,
+    state: &ProxyState,
+) -> bool {
+    // SECURITY (R11-RESP-5): Use lossy UTF-8 conversion to avoid silent bypass.
+    let sse_text = String::from_utf8_lossy(sse_bytes);
+    // SECURITY (R17-SSE-1): Normalize SSE line endings per W3C spec.
+    let normalized = sse_text.replace("\r\n", "\n").replace('\r', "\n");
+
+    let mut violation_found = false;
+    for event in normalized.split("\n\n") {
+        let mut data_parts: Vec<&str> = Vec::new();
+        for line in event.lines() {
+            let trimmed = line.trim_start_matches([' ', '\t', '\u{00A0}']);
+            if let Some(rest) = trimmed.strip_prefix("data:") {
+                data_parts.push(rest.trim_start());
+            }
+        }
+        if data_parts.is_empty() {
+            continue;
+        }
+
+        let data_payload = data_parts.join("\n");
+        if data_payload.trim().is_empty() || data_payload.len() > MAX_SSE_EVENT_SIZE {
+            continue;
+        }
+
+        let Ok(json_val) = serde_json::from_str::<Value>(&data_payload) else {
+            continue;
+        };
+        let Some(result) = json_val.get("result") else {
+            continue;
+        };
+        let Some(structured) = result.get("structuredContent") else {
+            continue;
+        };
+
+        // Consume tracked tool mapping for this response id when structuredContent appears.
+        let tracked_tool_name =
+            take_tracked_tool_call(&state.sessions, session_id, json_val.get("id"));
+        let meta_tool_name = result
+            .get("_meta")
+            .and_then(|m| m.get("tool"))
+            .and_then(|t| t.as_str());
+        let tool_name = match (meta_tool_name, tracked_tool_name.as_deref()) {
+            (Some(meta), Some(tracked)) if !meta.eq_ignore_ascii_case(tracked) => {
+                tracing::warn!(
+                    "SECURITY: SSE structuredContent tool mismatch (meta='{}', tracked='{}'); using tracked tool name",
+                    meta,
+                    tracked
+                );
+                tracked
+            }
+            (Some(meta), _) => meta,
+            (None, Some(tracked)) => tracked,
+            (None, None) => "unknown",
+        };
+
+        match state.output_schema_registry.validate(tool_name, structured) {
+            ValidationResult::Invalid { violations } => {
+                violation_found = true;
+                tracing::warn!(
+                    "SECURITY: SSE structuredContent validation failed for tool '{}': {:?}",
+                    tool_name,
+                    violations
+                );
+                let action = Action::new(
+                    "sentinel",
+                    "output_schema_violation",
+                    json!({
+                        "tool": tool_name,
+                        "violations": violations,
+                        "session": session_id,
+                        "transport": "sse",
+                    }),
+                );
+                if let Err(e) = state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Deny {
+                            reason: format!(
+                                "SSE structuredContent validation failed: {:?}",
+                                violations
+                            ),
+                        },
+                        json!({"source": "http_proxy", "event": "output_schema_violation_sse"}),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit SSE output schema violation: {}", e);
+                }
+            }
+            ValidationResult::Valid => {
+                tracing::debug!("SSE structuredContent validated for tool '{}'", tool_name);
+            }
+            ValidationResult::NoSchema => {
+                tracing::debug!(
+                    "No output schema registered for SSE tool '{}', skipping validation",
+                    tool_name
+                );
+            }
+        }
+    }
+
+    violation_found
 }
 
 /// Add the Mcp-Session-Id and MCP-Protocol-Version headers to a response.
@@ -4545,6 +4764,47 @@ mod tests {
         let action = extractor::extract_action("file:read", &json!({"path": "/tmp/test"}));
         assert_eq!(action.tool, "file:read");
         assert_eq!(action.function, "*");
+    }
+
+    #[test]
+    fn test_jsonrpc_id_key_supported_and_rejected_shapes() {
+        assert_eq!(jsonrpc_id_key(&json!("abc")), Some("s:abc".to_string()));
+        assert_eq!(jsonrpc_id_key(&json!(42)), Some("n:42".to_string()));
+        assert!(jsonrpc_id_key(&Value::Null).is_none());
+        assert!(jsonrpc_id_key(&json!({"id": 1})).is_none());
+    }
+
+    #[test]
+    fn test_track_and_take_pending_tool_call() {
+        let sessions = SessionStore::new(std::time::Duration::from_secs(300), 16);
+        let session_id = sessions.get_or_create(None);
+        let request_id = json!(7);
+
+        track_pending_tool_call(&sessions, &session_id, &request_id, "read_file");
+
+        let tracked = take_tracked_tool_call(&sessions, &session_id, Some(&request_id));
+        assert_eq!(tracked.as_deref(), Some("read_file"));
+
+        // Entry is consumed on first read to avoid stale correlation.
+        let tracked_again = take_tracked_tool_call(&sessions, &session_id, Some(&request_id));
+        assert!(tracked_again.is_none());
+    }
+
+    #[test]
+    fn test_pending_tool_call_tracking_is_bounded() {
+        let sessions = SessionStore::new(std::time::Duration::from_secs(300), 16);
+        let session_id = sessions.get_or_create(None);
+
+        for i in 0..(MAX_PENDING_TOOL_CALLS + 32) {
+            let request_id = json!(format!("id-{}", i));
+            track_pending_tool_call(&sessions, &session_id, &request_id, "read_file");
+        }
+
+        let session = sessions.get_mut(&session_id).expect("session must exist");
+        assert!(
+            session.pending_tool_calls.len() <= MAX_PENDING_TOOL_CALLS,
+            "pending tool call map must be bounded"
+        );
     }
 
     #[test]

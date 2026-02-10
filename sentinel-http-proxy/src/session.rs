@@ -52,6 +52,10 @@ pub struct SessionState {
     /// Number of elicitation requests processed in this session.
     /// Used for per-session rate limiting of `elicitation/create` requests.
     pub elicitation_count: u32,
+    /// Pending tool call correlation map: JSON-RPC response id key -> tool name.
+    /// Used to recover tool context for `structuredContent` validation when
+    /// upstream responses omit `result._meta.tool`.
+    pub pending_tool_calls: HashMap<String, String>,
     /// SECURITY (R15-OAUTH-4): Token expiry timestamp (Unix seconds).
     pub token_expires_at: Option<u64>,
     /// OWASP ASI08: Call chain for multi-agent communication monitoring.
@@ -83,6 +87,7 @@ impl SessionState {
             action_history: Vec::new(),
             memory_tracker: MemoryTracker::new(),
             elicitation_count: 0,
+            pending_tool_calls: HashMap::new(),
             token_expires_at: None,
             current_call_chain: Vec::new(),
             agent_identity: None,
@@ -322,6 +327,7 @@ mod tests {
     fn test_flagged_tools_empty_by_default() {
         let state = SessionState::new("test-session".to_string());
         assert!(state.flagged_tools.is_empty());
+        assert!(state.pending_tool_calls.is_empty());
     }
 
     #[test]
