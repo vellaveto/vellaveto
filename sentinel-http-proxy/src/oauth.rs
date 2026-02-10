@@ -213,6 +213,9 @@ pub enum OAuthError {
 
     #[error("token missing required 'aud' claim")]
     MissingAudience,
+
+    #[error("authorization server does not support PKCE (S256)")]
+    PkceNotSupported,
 }
 
 /// Cached JWKS key set with TTL-based refresh.
@@ -494,6 +497,51 @@ fn find_key_in_jwks(jwks: &JwkSet, kid: &str, alg: &Algorithm) -> Option<Decodin
     None
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PKCE Verification (MCP Spec Compliance)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Verify that the authorization server supports PKCE with S256 method.
+///
+/// PKCE (Proof Key for Code Exchange) prevents authorization code interception
+/// attacks. The MCP specification requires OAuth 2.1 flows, which mandate PKCE.
+/// This function checks the authorization server metadata to ensure S256 is
+/// supported before initiating an OAuth flow.
+///
+/// # Arguments
+/// * `metadata` - The authorization server metadata (from `.well-known/oauth-authorization-server`)
+///
+/// # Returns
+/// * `Ok(())` if S256 is supported
+/// * `Err(OAuthError::PkceNotSupported)` if S256 is not listed in `code_challenge_methods_supported`
+///
+/// # Example
+/// ```ignore
+/// use serde_json::json;
+/// use sentinel_http_proxy::oauth::verify_pkce_support;
+///
+/// let metadata = json!({
+///     "issuer": "https://auth.example.com",
+///     "code_challenge_methods_supported": ["S256", "plain"]
+/// });
+/// assert!(verify_pkce_support(&metadata).is_ok());
+///
+/// let no_pkce = json!({"issuer": "https://auth.example.com"});
+/// assert!(verify_pkce_support(&no_pkce).is_err());
+/// ```
+pub fn verify_pkce_support(metadata: &serde_json::Value) -> Result<(), OAuthError> {
+    let supported = metadata
+        .get("code_challenge_methods_supported")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().any(|m| m.as_str() == Some("S256")))
+        .unwrap_or(false);
+
+    if !supported {
+        return Err(OAuthError::PkceNotSupported);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -742,5 +790,64 @@ mod tests {
     fn test_missing_audience_error_display() {
         let err = OAuthError::MissingAudience;
         assert_eq!(err.to_string(), "token missing required 'aud' claim");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PKCE Verification Tests
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_verify_pkce_support_s256_supported() {
+        let metadata = serde_json::json!({
+            "issuer": "https://auth.example.com",
+            "code_challenge_methods_supported": ["S256", "plain"]
+        });
+        assert!(verify_pkce_support(&metadata).is_ok());
+    }
+
+    #[test]
+    fn test_verify_pkce_support_s256_only() {
+        let metadata = serde_json::json!({
+            "issuer": "https://auth.example.com",
+            "code_challenge_methods_supported": ["S256"]
+        });
+        assert!(verify_pkce_support(&metadata).is_ok());
+    }
+
+    #[test]
+    fn test_verify_pkce_support_missing_field() {
+        let metadata = serde_json::json!({
+            "issuer": "https://auth.example.com"
+        });
+        let result = verify_pkce_support(&metadata);
+        assert!(matches!(result, Err(OAuthError::PkceNotSupported)));
+    }
+
+    #[test]
+    fn test_verify_pkce_support_plain_only() {
+        // Plain is not secure - we require S256
+        let metadata = serde_json::json!({
+            "issuer": "https://auth.example.com",
+            "code_challenge_methods_supported": ["plain"]
+        });
+        let result = verify_pkce_support(&metadata);
+        assert!(matches!(result, Err(OAuthError::PkceNotSupported)));
+    }
+
+    #[test]
+    fn test_verify_pkce_support_empty_array() {
+        let metadata = serde_json::json!({
+            "issuer": "https://auth.example.com",
+            "code_challenge_methods_supported": []
+        });
+        let result = verify_pkce_support(&metadata);
+        assert!(matches!(result, Err(OAuthError::PkceNotSupported)));
+    }
+
+    #[test]
+    fn test_pkce_not_supported_error_display() {
+        let err = OAuthError::PkceNotSupported;
+        assert!(err.to_string().contains("PKCE"));
+        assert!(err.to_string().contains("S256"));
     }
 }
