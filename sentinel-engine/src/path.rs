@@ -162,7 +162,10 @@ mod tests {
     #[test]
     fn test_normalize_path_simple() {
         assert_eq!(normalize_path("/etc/passwd").unwrap(), "/etc/passwd");
-        assert_eq!(normalize_path("/home/user/file.txt").unwrap(), "/home/user/file.txt");
+        assert_eq!(
+            normalize_path("/home/user/file.txt").unwrap(),
+            "/home/user/file.txt"
+        );
     }
 
     #[test]

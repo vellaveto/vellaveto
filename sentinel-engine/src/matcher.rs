@@ -187,7 +187,10 @@ mod tests {
     #[test]
     fn test_compiled_tool_matcher_tool_and_function() {
         let matcher = CompiledToolMatcher::compile("filesystem:read*");
-        assert!(matches!(matcher, CompiledToolMatcher::ToolAndFunction(_, _)));
+        assert!(matches!(
+            matcher,
+            CompiledToolMatcher::ToolAndFunction(_, _)
+        ));
         assert!(matcher.matches(&make_action("filesystem", "read")));
         assert!(matcher.matches(&make_action("filesystem", "read_file")));
         assert!(!matcher.matches(&make_action("filesystem", "write")));

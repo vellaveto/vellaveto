@@ -4213,9 +4213,7 @@ mod tests {
         assert!(!empty_ctx.has_any_meaningful_fields());
 
         // Context with agent_id has meaningful fields
-        let ctx_with_agent = EvaluationContext::builder()
-            .agent_id("agent-1")
-            .build();
+        let ctx_with_agent = EvaluationContext::builder().agent_id("agent-1").build();
         assert!(ctx_with_agent.has_any_meaningful_fields());
 
         // Context with timestamp has meaningful fields

@@ -4766,8 +4766,7 @@ fn test_ip_rules_block_private_nat64_local_use() {
         ..Default::default()
     })];
     let engine = PolicyEngine::with_policies(false, &policies).unwrap();
-    let action =
-        action_with_resolved_ips(vec!["example.com"], vec!["64:ff9b:1:0:0:0:c0a8:0101"]);
+    let action = action_with_resolved_ips(vec!["example.com"], vec!["64:ff9b:1:0:0:0:c0a8:0101"]);
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
@@ -5258,15 +5257,13 @@ mod proptests {
     }
 
     fn arb_params() -> impl Strategy<Value = serde_json::Value> {
-        proptest::collection::vec(("[a-z_]{1,10}", "[a-zA-Z0-9_]{0,20}"), 0..=5).prop_map(
-            |pairs| {
-                let map: serde_json::Map<String, serde_json::Value> = pairs
-                    .into_iter()
-                    .map(|(k, v)| (k, serde_json::Value::String(v)))
-                    .collect();
-                serde_json::Value::Object(map)
-            },
-        )
+        proptest::collection::vec(("[a-z_]{1,10}", "[a-zA-Z0-9_]{0,20}"), 0..=5).prop_map(|pairs| {
+            let map: serde_json::Map<String, serde_json::Value> = pairs
+                .into_iter()
+                .map(|(k, v)| (k, serde_json::Value::String(v)))
+                .collect();
+            serde_json::Value::Object(map)
+        })
     }
 
     fn arb_action() -> impl Strategy<Value = Action> {

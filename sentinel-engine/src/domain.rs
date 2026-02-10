@@ -128,8 +128,7 @@ pub fn extract_domain(url: &str) -> String {
     // domain becomes "evil.com@blocked.com" instead of "blocked.com".
     // A standards-compliant parser decoding first would see userinfo="evil.com",
     // host="blocked.com", so we must decode before splitting on '@'.
-    let decoded_authority =
-        percent_encoding::percent_decode_str(authority_raw).decode_utf8_lossy();
+    let decoded_authority = percent_encoding::percent_decode_str(authority_raw).decode_utf8_lossy();
     // SECURITY (R37-ENG-1): Strip userinfo FIRST on the decoded authority,
     // BEFORE backslash normalization. A %2F in userinfo (e.g., "evil.com%2F@legit.com")
     // decodes to '/' which would cause a wrong split if we split on '/' first.
@@ -291,8 +290,7 @@ pub(crate) fn normalize_domain_for_match(s: &str) -> Option<Cow<'_, str>> {
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.' || b == b'_')
                 {
-                    let lowered =
-                        format!("{}{}", wildcard_prefix, idna_input.to_ascii_lowercase());
+                    let lowered = format!("{}{}", wildcard_prefix, idna_input.to_ascii_lowercase());
                     tracing::debug!(
                         domain = s,
                         "IDNA normalization failed but domain is ASCII — using lowercase fallback"
@@ -348,7 +346,10 @@ mod tests {
     #[test]
     fn test_extract_domain_simple() {
         assert_eq!(extract_domain("https://example.com/path"), "example.com");
-        assert_eq!(extract_domain("http://example.com:8080/path"), "example.com");
+        assert_eq!(
+            extract_domain("http://example.com:8080/path"),
+            "example.com"
+        );
         assert_eq!(extract_domain("example.com"), "example.com");
     }
 
@@ -385,7 +386,10 @@ mod tests {
     fn test_match_domain_pattern_wildcard() {
         assert!(match_domain_pattern("sub.example.com", "*.example.com"));
         assert!(match_domain_pattern("example.com", "*.example.com"));
-        assert!(!match_domain_pattern("example.com.evil.com", "*.example.com"));
+        assert!(!match_domain_pattern(
+            "example.com.evil.com",
+            "*.example.com"
+        ));
     }
 
     #[test]

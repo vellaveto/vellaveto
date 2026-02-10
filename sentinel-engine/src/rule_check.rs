@@ -77,7 +77,11 @@ impl PolicyEngine {
 
     /// Check action target_domains against compiled network rules.
     /// Returns Some(Deny) if any domain is blocked or not in the allowed set.
-    pub(crate) fn check_network_rules(&self, action: &Action, cp: &CompiledPolicy) -> Option<Verdict> {
+    pub(crate) fn check_network_rules(
+        &self,
+        action: &Action,
+        cp: &CompiledPolicy,
+    ) -> Option<Verdict> {
         let rules = match &cp.compiled_network_rules {
             Some(r) => r,
             None => return None,

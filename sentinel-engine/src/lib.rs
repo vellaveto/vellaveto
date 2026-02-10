@@ -1,6 +1,8 @@
 pub mod behavioral;
 pub mod circuit_breaker;
 mod compiled;
+mod constraint_eval;
+mod context_check;
 pub mod deputy;
 mod domain;
 mod error;
@@ -8,8 +10,6 @@ mod ip;
 mod legacy;
 mod matcher;
 mod path;
-mod constraint_eval;
-mod context_check;
 mod policy_compile;
 mod rule_check;
 mod traced;
@@ -22,9 +22,7 @@ pub use error::{EngineError, PolicyValidationError};
 pub use matcher::{CompiledToolMatcher, PatternMatcher};
 pub use path::DEFAULT_MAX_PATH_DECODE_ITERATIONS;
 
-use sentinel_types::{
-    Action, EvaluationContext, EvaluationTrace, Policy, PolicyType, Verdict,
-};
+use sentinel_types::{Action, EvaluationContext, EvaluationTrace, Policy, PolicyType, Verdict};
 
 use globset::{Glob, GlobMatcher};
 use regex::Regex;
@@ -899,7 +897,6 @@ impl PolicyEngine {
             .any(|cp| cp.compiled_ip_rules.is_some())
     }
 }
-
 
 #[cfg(test)]
 #[path = "engine_tests.rs"]

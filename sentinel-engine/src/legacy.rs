@@ -128,15 +128,15 @@ impl PolicyEngine {
         }
 
         for raw_path in &action.target_paths {
-            let normalized =
-                match normalize_path_bounded(raw_path, self.max_path_decode_iterations) {
-                    Ok(n) => n,
-                    Err(e) => {
-                        return Ok(Some(Verdict::Deny {
-                            reason: format!("Path normalization failed: {}", e),
-                        }))
-                    }
-                };
+            let normalized = match normalize_path_bounded(raw_path, self.max_path_decode_iterations)
+            {
+                Ok(n) => n,
+                Err(e) => {
+                    return Ok(Some(Verdict::Deny {
+                        reason: format!("Path normalization failed: {}", e),
+                    }))
+                }
+            };
 
             // Check blocked patterns first (blocked takes precedence)
             for pattern in &rules.blocked {
