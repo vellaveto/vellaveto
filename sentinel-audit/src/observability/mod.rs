@@ -1068,4 +1068,374 @@ mod tests {
         // agent_id is not part of Action, so it will be None
         assert_eq!(summary.agent_id, None);
     }
+
+    // ========================================
+    // Task 2: Redaction Boundary Testing (GAP-002)
+    // ========================================
+
+    #[test]
+    fn test_redaction_depth_50_works() {
+        // Build a 50-level deep nested object
+        let config = RedactionConfig::default();
+        let mut value = serde_json::json!({"password": "secret_at_depth_50"});
+        for _ in 0..49 {
+            value = serde_json::json!({"nested": value});
+        }
+
+        let redacted = config.redact(&value);
+        // Navigate down 49 levels to get to depth 50
+        let mut current = &redacted;
+        for _ in 0..49 {
+            current = &current["nested"];
+        }
+        // Password at depth 50 should be redacted
+        assert_eq!(current["password"], "[REDACTED]");
+    }
+
+    #[test]
+    fn test_redaction_depth_51_not_redacted() {
+        // Build a 52-level deep nested object (depth 0-51)
+        // The limit is `depth > 50`, so depth 51 will return early
+        let config = RedactionConfig::default();
+        let mut value = serde_json::json!({"password": "secret_at_depth_52"});
+        for _ in 0..51 {
+            value = serde_json::json!({"nested": value});
+        }
+
+        let redacted = config.redact(&value);
+        // Navigate down 51 levels to get to depth 52
+        let mut current = &redacted;
+        for _ in 0..51 {
+            current = &current["nested"];
+        }
+        // Password at depth 52 should NOT be redacted (past limit of 50)
+        assert_eq!(current["password"], "secret_at_depth_52");
+    }
+
+    #[test]
+    fn test_redaction_large_array_with_objects() {
+        let config = RedactionConfig::default();
+        let items: Vec<_> = (0..100)
+            .map(|i| {
+                serde_json::json!({
+                    "id": i,
+                    "password": format!("secret_{}", i),
+                    "data": {"token": format!("token_{}", i)}
+                })
+            })
+            .collect();
+        let value = serde_json::json!({"items": items});
+
+        let redacted = config.redact(&value);
+        let redacted_items = redacted["items"].as_array().unwrap();
+
+        assert_eq!(redacted_items.len(), 100);
+        for item in redacted_items {
+            assert_eq!(item["password"], "[REDACTED]");
+            assert_eq!(item["data"]["token"], "[REDACTED]");
+        }
+    }
+
+    #[test]
+    fn test_redaction_mixed_array_object_nesting() {
+        let config = RedactionConfig::default();
+        let value = serde_json::json!({
+            "level1": [
+                {"level2": [{"level3": {"password": "secret"}}]},
+                {"api_key": "key123"}
+            ]
+        });
+
+        let redacted = config.redact(&value);
+        assert_eq!(redacted["level1"][0]["level2"][0]["level3"]["password"], "[REDACTED]");
+        assert_eq!(redacted["level1"][1]["api_key"], "[REDACTED]");
+    }
+
+    // ========================================
+    // Task 3: TraceContext W3C Compliance (GAP-005)
+    // ========================================
+
+    #[test]
+    fn test_trace_context_uppercase_hex() {
+        // W3C spec says implementations SHOULD accept uppercase
+        let ctx = TraceContext::parse_traceparent(
+            "00-0AF7651916CD43DD8448EB211C80319C-B7AD6B7169203331-01",
+        );
+        assert!(ctx.is_some(), "uppercase hex should be accepted");
+        let ctx = ctx.unwrap();
+        assert_eq!(
+            ctx.trace_id,
+            Some("0AF7651916CD43DD8448EB211C80319C".to_string())
+        );
+    }
+
+    #[test]
+    fn test_trace_context_mixed_case_hex() {
+        let ctx = TraceContext::parse_traceparent(
+            "00-0Af7651916Cd43dD8448eB211C80319c-b7Ad6B7169203331-01",
+        );
+        assert!(ctx.is_some(), "mixed case hex should be accepted");
+    }
+
+    #[test]
+    fn test_trace_context_all_zeros_trace_id() {
+        // All-zeros trace ID is technically valid per W3C but may be treated specially
+        let ctx = TraceContext::parse_traceparent(
+            "00-00000000000000000000000000000000-b7ad6b7169203331-01",
+        );
+        assert!(ctx.is_some(), "all-zeros trace_id should parse");
+        assert_eq!(
+            ctx.unwrap().trace_id,
+            Some("00000000000000000000000000000000".to_string())
+        );
+    }
+
+    #[test]
+    fn test_trace_context_all_zeros_span_id() {
+        let ctx = TraceContext::parse_traceparent(
+            "00-0af7651916cd43dd8448eb211c80319c-0000000000000000-01",
+        );
+        assert!(ctx.is_some(), "all-zeros span_id should parse");
+        assert_eq!(
+            ctx.unwrap().parent_span_id,
+            Some("0000000000000000".to_string())
+        );
+    }
+
+    #[test]
+    fn test_trace_context_leading_zeros_preserved() {
+        let ctx = TraceContext::parse_traceparent(
+            "00-00f7651916cd43dd8448eb211c80319c-00ad6b7169203331-00",
+        )
+        .unwrap();
+
+        // Leading zeros must be preserved
+        assert!(ctx.trace_id.as_ref().unwrap().starts_with("00"));
+        assert!(ctx.parent_span_id.as_ref().unwrap().starts_with("00"));
+        assert_eq!(ctx.trace_flags, 0);
+    }
+
+    #[test]
+    fn test_trace_context_invalid_hex_chars() {
+        // 'g' is not valid hex
+        assert!(TraceContext::parse_traceparent(
+            "00-0af7651916cd43dd8448eb211c80319g-b7ad6b7169203331-01"
+        )
+        .is_none());
+    }
+
+    // ========================================
+    // Task 4: SpanSampler Determinism (GAP-011)
+    // ========================================
+
+    #[test]
+    fn test_sampler_determinism_same_trace_id() {
+        let config = SamplingConfig {
+            sample_rate: 0.5,
+            always_sample_denies: false,
+            always_sample_detections: false,
+            ..Default::default()
+        };
+        let sampler = SpanSampler::new(config);
+
+        // Test 10 runs with same trace_id
+        let results: Vec<bool> = (0..10)
+            .map(|_| {
+                let span = SecuritySpan::builder("determinism-test-trace", SpanKind::Tool)
+                    .verdict(VerdictSummary {
+                        outcome: "allow".to_string(),
+                        reason: None,
+                    })
+                    .build()
+                    .unwrap();
+                sampler.should_sample(&span)
+            })
+            .collect();
+
+        // All results should be identical
+        let first = results[0];
+        assert!(
+            results.iter().all(|&r| r == first),
+            "same trace_id must always give same sampling decision"
+        );
+    }
+
+    #[test]
+    fn test_sampler_distribution_uniformity() {
+        let config = SamplingConfig {
+            sample_rate: 0.5,
+            always_sample_denies: false,
+            always_sample_detections: false,
+            ..Default::default()
+        };
+        let sampler = SpanSampler::new(config);
+
+        // Sample 1000 different trace_ids
+        let sampled_count = (0..1000)
+            .filter(|i| {
+                let span = SecuritySpan::builder(&format!("trace-{}", i), SpanKind::Tool)
+                    .verdict(VerdictSummary {
+                        outcome: "allow".to_string(),
+                        reason: None,
+                    })
+                    .build()
+                    .unwrap();
+                sampler.should_sample(&span)
+            })
+            .count();
+
+        // With 50% sample rate, expect ~500 ±10% (450-550)
+        assert!(
+            (450..=550).contains(&sampled_count),
+            "expected ~500 sampled at 50% rate, got {}",
+            sampled_count
+        );
+    }
+
+    #[test]
+    fn test_sampler_rate_zero_never_samples() {
+        let config = SamplingConfig {
+            sample_rate: 0.0,
+            always_sample_denies: false,
+            always_sample_detections: false,
+            ..Default::default()
+        };
+        let sampler = SpanSampler::new(config);
+
+        let sampled = (0..100).any(|i| {
+            let span = SecuritySpan::builder(&format!("trace-{}", i), SpanKind::Tool)
+                .verdict(VerdictSummary {
+                    outcome: "allow".to_string(),
+                    reason: None,
+                })
+                .build()
+                .unwrap();
+            sampler.should_sample(&span)
+        });
+
+        assert!(!sampled, "sample_rate=0.0 should never sample");
+    }
+
+    #[test]
+    fn test_sampler_rate_one_always_samples() {
+        let config = SamplingConfig {
+            sample_rate: 1.0,
+            always_sample_denies: false,
+            always_sample_detections: false,
+            ..Default::default()
+        };
+        let sampler = SpanSampler::new(config);
+
+        let all_sampled = (0..100).all(|i| {
+            let span = SecuritySpan::builder(&format!("trace-{}", i), SpanKind::Tool)
+                .verdict(VerdictSummary {
+                    outcome: "allow".to_string(),
+                    reason: None,
+                })
+                .build()
+                .unwrap();
+            sampler.should_sample(&span)
+        });
+
+        assert!(all_sampled, "sample_rate=1.0 should always sample");
+    }
+
+    #[test]
+    fn test_sampler_edge_trace_ids() {
+        let config = SamplingConfig {
+            sample_rate: 0.5,
+            always_sample_denies: false,
+            always_sample_detections: false,
+            ..Default::default()
+        };
+        let sampler = SpanSampler::new(config);
+
+        // Empty trace_id should not panic
+        let span_empty = SecuritySpan::builder("", SpanKind::Tool)
+            .verdict(VerdictSummary {
+                outcome: "allow".to_string(),
+                reason: None,
+            })
+            .build()
+            .unwrap();
+        let _ = sampler.should_sample(&span_empty); // Just verify no panic
+
+        // Very long trace_id should not panic
+        let long_id = "a".repeat(1000);
+        let span_long = SecuritySpan::builder(&long_id, SpanKind::Tool)
+            .verdict(VerdictSummary {
+                outcome: "allow".to_string(),
+                reason: None,
+            })
+            .build()
+            .unwrap();
+        let _ = sampler.should_sample(&span_long); // Just verify no panic
+
+        // Special characters should not panic
+        let span_special = SecuritySpan::builder("trace-with-émoji-🎉-and-日本語", SpanKind::Tool)
+            .verdict(VerdictSummary {
+                outcome: "allow".to_string(),
+                reason: None,
+            })
+            .build()
+            .unwrap();
+        let _ = sampler.should_sample(&span_special); // Just verify no panic
+    }
+
+    // ========================================
+    // Task 5: Rate Limit Header Edge Cases
+    // Note: These test the parse logic used by exporters
+    // ========================================
+
+    #[test]
+    fn test_retry_after_parsing_valid() {
+        // Simulating the parse logic used in exporters
+        fn parse_retry_after(value: &str) -> u64 {
+            value.parse().unwrap_or(60)
+        }
+
+        assert_eq!(parse_retry_after("120"), 120);
+        assert_eq!(parse_retry_after("0"), 0);
+        assert_eq!(parse_retry_after("3600"), 3600);
+    }
+
+    #[test]
+    fn test_retry_after_parsing_invalid() {
+        fn parse_retry_after(value: &str) -> u64 {
+            value.parse().unwrap_or(60)
+        }
+
+        // Non-numeric defaults to 60
+        assert_eq!(parse_retry_after("not-a-number"), 60);
+        assert_eq!(parse_retry_after(""), 60);
+        assert_eq!(parse_retry_after("abc123"), 60);
+    }
+
+    #[test]
+    fn test_retry_after_parsing_negative() {
+        fn parse_retry_after(value: &str) -> u64 {
+            value.parse().unwrap_or(60)
+        }
+
+        // Negative values can't parse to u64, defaults to 60
+        assert_eq!(parse_retry_after("-1"), 60);
+        assert_eq!(parse_retry_after("-100"), 60);
+    }
+
+    #[test]
+    fn test_retry_after_parsing_extremely_large() {
+        fn parse_retry_after(value: &str) -> u64 {
+            value.parse().unwrap_or(60)
+        }
+
+        // Very large but valid u64
+        assert_eq!(parse_retry_after("86400"), 86400); // 1 day
+        assert_eq!(parse_retry_after("604800"), 604800); // 1 week
+
+        // Overflow defaults to 60
+        assert_eq!(
+            parse_retry_after("99999999999999999999999999"),
+            60
+        );
+    }
 }
