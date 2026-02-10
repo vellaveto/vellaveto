@@ -109,50 +109,98 @@ pub fn build_router(state: AppState) -> Router {
             post(super::circuit_breaker::reset_circuit),
         )
         // Shadow Agent Detection
-        .route("/api/shadow-agents", get(list_shadow_agents))
-        .route("/api/shadow-agents", post(register_shadow_agent))
-        .route("/api/shadow-agents/{id}", delete(remove_shadow_agent))
+        .route(
+            "/api/shadow-agents",
+            get(super::shadow_agent::list_shadow_agents),
+        )
+        .route(
+            "/api/shadow-agents",
+            post(super::shadow_agent::register_shadow_agent),
+        )
+        .route(
+            "/api/shadow-agents/{id}",
+            delete(super::shadow_agent::remove_shadow_agent),
+        )
         .route(
             "/api/shadow-agents/{id}/trust",
-            axum::routing::put(update_agent_trust),
+            axum::routing::put(super::shadow_agent::update_agent_trust),
         )
         // Schema Lineage (OWASP ASI05)
-        .route("/api/schema-lineage", get(list_schema_lineage))
-        .route("/api/schema-lineage/{tool}", get(get_schema_lineage))
+        .route(
+            "/api/schema-lineage",
+            get(super::schema_lineage::list_schema_lineage),
+        )
+        .route(
+            "/api/schema-lineage/{tool}",
+            get(super::schema_lineage::get_schema_lineage),
+        )
         .route(
             "/api/schema-lineage/{tool}/trust",
-            axum::routing::put(reset_schema_trust),
+            axum::routing::put(super::schema_lineage::reset_schema_trust),
         )
-        .route("/api/schema-lineage/{tool}", delete(remove_schema_lineage))
+        .route(
+            "/api/schema-lineage/{tool}",
+            delete(super::schema_lineage::remove_schema_lineage),
+        )
         // Task State (MCP 2025-11-25 Async Tasks)
-        .route("/api/tasks", get(list_tasks))
-        .route("/api/tasks/stats", get(task_stats))
-        .route("/api/tasks/{id}", get(get_task))
-        .route("/api/tasks/{id}/cancel", post(cancel_task))
+        .route("/api/tasks", get(super::task_state::list_tasks))
+        .route("/api/tasks/stats", get(super::task_state::task_stats))
+        .route("/api/tasks/{id}", get(super::task_state::get_task))
+        .route(
+            "/api/tasks/{id}/cancel",
+            post(super::task_state::cancel_task),
+        )
         // Auth Level (Step-Up Authentication)
-        .route("/api/auth-levels/{session}", get(get_auth_level))
+        .route(
+            "/api/auth-levels/{session}",
+            get(super::auth_level::get_auth_level),
+        )
         .route(
             "/api/auth-levels/{session}/upgrade",
-            post(upgrade_auth_level),
+            post(super::auth_level::upgrade_auth_level),
         )
-        .route("/api/auth-levels/{session}", delete(clear_auth_level))
+        .route(
+            "/api/auth-levels/{session}",
+            delete(super::auth_level::clear_auth_level),
+        )
         // Sampling Detection
-        .route("/api/sampling/stats", get(sampling_stats))
-        .route("/api/sampling/{session}/reset", post(reset_sampling_stats))
+        .route(
+            "/api/sampling/stats",
+            get(super::sampling::sampling_stats),
+        )
+        .route(
+            "/api/sampling/{session}/reset",
+            post(super::sampling::reset_sampling_stats),
+        )
         // Deputy Validation (OWASP ASI02)
-        .route("/api/deputy/delegations", get(list_delegations))
-        .route("/api/deputy/delegations", post(register_delegation))
+        .route(
+            "/api/deputy/delegations",
+            get(super::deputy::list_delegations),
+        )
+        .route(
+            "/api/deputy/delegations",
+            post(super::deputy::register_delegation),
+        )
         .route(
             "/api/deputy/delegations/{session}",
-            delete(remove_delegation),
+            delete(super::deputy::remove_delegation),
         )
         // ═══════════════════════════════════════════════════════════════════
         // Phase 6: Execution Graph Export
         // ═══════════════════════════════════════════════════════════════════
-        .route("/api/graphs", get(list_graphs))
-        .route("/api/graphs/{session}", get(get_graph))
-        .route("/api/graphs/{session}/dot", get(get_graph_dot))
-        .route("/api/graphs/{session}/stats", get(get_graph_stats))
+        .route("/api/graphs", get(super::exec_graph::list_graphs))
+        .route(
+            "/api/graphs/{session}",
+            get(super::exec_graph::get_graph),
+        )
+        .route(
+            "/api/graphs/{session}/dot",
+            get(super::exec_graph::get_graph_dot),
+        )
+        .route(
+            "/api/graphs/{session}/stats",
+            get(super::exec_graph::get_graph_stats),
+        )
         // ═══════════════════════════════════════════════════════════════════
         // Phase 8: ETDI Cryptographic Tool Security
         // ═══════════════════════════════════════════════════════════════════
@@ -2541,793 +2589,6 @@ async fn revoke_registry_tool(
 // ═══════════════════════════════════════════════════════════════════════════
 // Phase 3.1: Security Manager Admin API Handlers
 // ═══════════════════════════════════════════════════════════════════════════
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Shadow Agent Detection Handlers
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// List all known agents.
-///
-/// GET /api/shadow-agents
-async fn list_shadow_agents(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let detector = state.shadow_agent.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Shadow agent detection is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    let agent_ids = detector.known_ids();
-    let count = detector.known_count();
-
-    Ok(Json(json!({
-        "count": count,
-        "agent_ids": agent_ids,
-    })))
-}
-
-/// Register a known agent.
-///
-/// POST /api/shadow-agents
-#[derive(Deserialize)]
-struct RegisterAgentRequest {
-    agent_id: String,
-    fingerprint: sentinel_types::AgentFingerprint,
-}
-
-async fn register_shadow_agent(
-    State(state): State<AppState>,
-    Json(req): Json<RegisterAgentRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let detector = state.shadow_agent.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Shadow agent detection is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    detector.register_agent(req.fingerprint.clone(), &req.agent_id);
-
-    Ok(Json(json!({
-        "agent_id": req.agent_id,
-        "message": "Agent registered successfully",
-    })))
-}
-
-/// Remove a known agent.
-///
-/// DELETE /api/shadow-agents/{id}
-///
-/// Note: This endpoint removes the agent from tracking. The agent can be
-/// re-registered by calling POST /api/shadow-agents again.
-async fn remove_shadow_agent(
-    State(_state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    // Note: ShadowAgentDetector doesn't have a remove method.
-    // Agents are managed via trust level updates instead.
-    // This endpoint exists for API completeness but returns a message.
-    Ok(Json(json!({
-        "agent_id": id,
-        "message": "Agent removal is handled via trust level (set to 0 to distrust)",
-    })))
-}
-
-/// Update agent trust level.
-///
-/// PUT /api/shadow-agents/{id}/trust
-#[derive(Deserialize)]
-struct UpdateTrustRequest {
-    trust_level: u8,
-}
-
-async fn update_agent_trust(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-    Json(req): Json<UpdateTrustRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let _detector = state.shadow_agent.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Shadow agent detection is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    // Note: Trust updates require the fingerprint, not just the ID.
-    // This endpoint exists for API completeness. In practice, trust is
-    // updated automatically based on agent behavior.
-    let trust = sentinel_types::TrustLevel::from_u8(req.trust_level);
-
-    Ok(Json(json!({
-        "agent_id": id,
-        "requested_trust_level": format!("{:?}", trust),
-        "message": "Trust level updates require fingerprint; agent trust is managed automatically",
-    })))
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Schema Lineage Handlers (OWASP ASI05)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// List all tracked tool schemas.
-///
-/// GET /api/schema-lineage
-async fn list_schema_lineage(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let tracker = state.schema_lineage.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Schema lineage tracking is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    let count = tracker.tracked_count();
-
-    Ok(Json(json!({
-        "tracked_count": count,
-    })))
-}
-
-/// Get schema lineage for a specific tool.
-///
-/// GET /api/schema-lineage/{tool}
-async fn get_schema_lineage(
-    State(state): State<AppState>,
-    Path(tool): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let tracker = state.schema_lineage.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Schema lineage tracking is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    let lineage = tracker.get_lineage(&tool).ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: format!("No lineage found for tool '{}'", tool),
-            }),
-        )
-    })?;
-
-    let trust_score = tracker.get_trust_score(&tool);
-
-    Ok(Json(json!({
-        "tool": tool,
-        "schema_hash": lineage.schema_hash,
-        "first_seen": lineage.first_seen,
-        "last_seen": lineage.last_seen,
-        "version_count": lineage.version_history.len(),
-        "trust_score": trust_score,
-    })))
-}
-
-/// Reset trust score for a tool's schema.
-///
-/// PUT /api/schema-lineage/{tool}/trust
-#[derive(Deserialize)]
-struct ResetTrustRequest {
-    trust_score: f32,
-}
-
-async fn reset_schema_trust(
-    State(state): State<AppState>,
-    Path(tool): Path<String>,
-    Json(req): Json<ResetTrustRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let tracker = state.schema_lineage.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Schema lineage tracking is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    tracker.reset_trust(&tool, req.trust_score);
-
-    Ok(Json(json!({
-        "tool": tool,
-        "trust_score": req.trust_score,
-        "message": "Trust score reset",
-    })))
-}
-
-/// Remove schema lineage for a tool.
-///
-/// DELETE /api/schema-lineage/{tool}
-async fn remove_schema_lineage(
-    State(state): State<AppState>,
-    Path(tool): Path<String>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    let tracker = state.schema_lineage.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Schema lineage tracking is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    tracker.remove(&tool);
-
-    Ok(StatusCode::NO_CONTENT)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Task State Handlers (MCP 2025-11-25 Async Tasks)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// List task summary.
-///
-/// GET /api/tasks
-///
-/// Returns summary of tracked tasks. Use /api/tasks/stats for detailed statistics.
-async fn list_tasks(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let manager = state.task_state.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Task state management is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    let active_count = manager.active_count().await;
-
-    Ok(Json(json!({
-        "active_count": active_count,
-        "message": "Use /api/tasks/stats for detailed statistics or /api/tasks/{id} for specific task",
-    })))
-}
-
-/// Get task statistics.
-///
-/// GET /api/tasks/stats
-async fn task_stats(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let manager = state.task_state.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Task state management is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    let stats = manager.stats().await;
-
-    Ok(Json(json!({
-        "total": stats.total,
-        "pending": stats.pending,
-        "running": stats.running,
-        "completed": stats.completed,
-        "failed": stats.failed,
-        "cancelled": stats.cancelled,
-        "expired": stats.expired,
-        "active": stats.active(),
-    })))
-}
-
-/// Get a specific task.
-///
-/// GET /api/tasks/{id}
-async fn get_task(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let manager = state.task_state.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Task state management is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    let task = manager.get_task(&id).await.ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: format!("Task '{}' not found", id),
-            }),
-        )
-    })?;
-
-    Ok(Json(serde_json::to_value(task).unwrap_or(json!({}))))
-}
-
-/// Cancel a task.
-///
-/// POST /api/tasks/{id}/cancel
-async fn cancel_task(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let manager = state.task_state.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Task state management is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    manager
-        .update_status(&id, sentinel_types::TaskStatus::Cancelled)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
-
-    Ok(Json(json!({
-        "task_id": id,
-        "status": "cancelled",
-        "message": "Task cancelled successfully",
-    })))
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Auth Level Handlers (Step-Up Authentication)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Get auth level for a session.
-///
-/// GET /api/auth-levels/{session}
-async fn get_auth_level(
-    State(state): State<AppState>,
-    Path(session): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let tracker = state.auth_level.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Auth level tracking is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    let level = tracker.get_level(&session).await;
-    let info = tracker.get_session_info(&session).await;
-
-    Ok(Json(json!({
-        "session": session,
-        "level": format!("{:?}", level),
-        "info": info.map(|i| json!({
-            "level": format!("{:?}", i.level),
-            "age_secs": i.age.as_secs(),
-            "expires_in_secs": i.expires_in.map(|d| d.as_secs()),
-        })),
-    })))
-}
-
-/// Upgrade auth level for a session.
-///
-/// POST /api/auth-levels/{session}/upgrade
-#[derive(Deserialize)]
-struct UpgradeAuthRequest {
-    level: String,
-    #[serde(default)]
-    expires_secs: Option<u64>,
-}
-
-async fn upgrade_auth_level(
-    State(state): State<AppState>,
-    Path(session): Path<String>,
-    Json(req): Json<UpgradeAuthRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let tracker = state.auth_level.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Auth level tracking is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    let level = match req.level.to_lowercase().as_str() {
-        "none" => sentinel_types::AuthLevel::None,
-        "basic" => sentinel_types::AuthLevel::Basic,
-        "oauth" => sentinel_types::AuthLevel::OAuth,
-        "oauth_mfa" | "oauthmfa" => sentinel_types::AuthLevel::OAuthMfa,
-        "hardware_key" | "hardwarekey" => sentinel_types::AuthLevel::HardwareKey,
-        _ => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: format!(
-                        "Invalid auth level: {}. Valid levels: none, basic, oauth, oauth_mfa, hardware_key",
-                        req.level
-                    ),
-                }),
-            ))
-        }
-    };
-
-    let expires = req.expires_secs.map(std::time::Duration::from_secs);
-    tracker.upgrade(&session, level, expires).await;
-
-    Ok(Json(json!({
-        "session": session,
-        "level": format!("{:?}", level),
-        "message": "Auth level upgraded",
-    })))
-}
-
-/// Clear auth level for a session.
-///
-/// DELETE /api/auth-levels/{session}
-async fn clear_auth_level(
-    State(state): State<AppState>,
-    Path(session): Path<String>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    let tracker = state.auth_level.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Auth level tracking is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    tracker.remove(&session).await;
-
-    Ok(StatusCode::NO_CONTENT)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Sampling Detection Handlers
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Get sampling detection statistics.
-///
-/// GET /api/sampling/stats
-async fn sampling_stats(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let detector = state.sampling_detector.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Sampling detection is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    let session_count = detector.session_count();
-
-    Ok(Json(json!({
-        "session_count": session_count,
-        "message": "Use /api/sampling/{session}/reset to clear session stats",
-    })))
-}
-
-/// Reset sampling stats for a session.
-///
-/// POST /api/sampling/{session}/reset
-async fn reset_sampling_stats(
-    State(state): State<AppState>,
-    Path(session): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let detector = state.sampling_detector.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Sampling detection is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    detector.clear_session(&session);
-
-    Ok(Json(json!({
-        "session": session,
-        "message": "Sampling stats cleared",
-    })))
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Deputy Validation Handlers (OWASP ASI02)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// List active delegation count.
-///
-/// GET /api/deputy/delegations
-async fn list_delegations(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let deputy = state.deputy.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Deputy validation is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    let active_count = deputy.active_count();
-
-    Ok(Json(json!({
-        "active_count": active_count,
-    })))
-}
-
-/// Register a delegation.
-///
-/// POST /api/deputy/delegations
-#[derive(Deserialize)]
-struct RegisterDelegationRequest {
-    session_id: String,
-    from_principal: String,
-    to_principal: String,
-    allowed_tools: Vec<String>,
-    #[serde(default)]
-    expires_secs: Option<u64>,
-}
-
-async fn register_delegation(
-    State(state): State<AppState>,
-    Json(req): Json<RegisterDelegationRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let deputy = state.deputy.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Deputy validation is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    // Note: expires_secs is captured but not currently used by DeputyValidator.
-    // This allows future API compatibility if expiration is added.
-    let _expires = req.expires_secs.map(std::time::Duration::from_secs);
-
-    deputy
-        .register_delegation(
-            &req.session_id,
-            &req.from_principal,
-            &req.to_principal,
-            &req.allowed_tools,
-        )
-        .map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
-
-    Ok(Json(json!({
-        "session_id": req.session_id,
-        "from": req.from_principal,
-        "to": req.to_principal,
-        "allowed_tools": req.allowed_tools,
-        "message": "Delegation registered",
-    })))
-}
-
-/// Remove a delegation.
-///
-/// DELETE /api/deputy/delegations/{session}
-async fn remove_delegation(
-    State(state): State<AppState>,
-    Path(session): Path<String>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    let deputy = state.deputy.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Deputy validation is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    deputy.remove_context(&session);
-
-    Ok(StatusCode::NO_CONTENT)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Execution Graph Export Handlers (Phase 6)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Query parameters for graph listing.
-#[derive(Deserialize)]
-struct GraphListQuery {
-    /// Filter by tool name.
-    tool: Option<String>,
-    /// Maximum number of results.
-    limit: Option<usize>,
-    /// Offset for pagination.
-    offset: Option<usize>,
-}
-
-/// List all execution graph sessions.
-///
-/// GET /api/graphs
-async fn list_graphs(
-    State(state): State<AppState>,
-    Query(params): Query<GraphListQuery>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let store = state.exec_graph_store.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Execution graph tracking is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    let sessions = store.list_sessions().await;
-    let total = sessions.len();
-    let limit = params.limit.unwrap_or(100).min(1000);
-    let offset = params.offset.unwrap_or(0);
-
-    // If filtering by tool, we need to check each graph
-    let filtered: Vec<_> = if let Some(ref tool_filter) = params.tool {
-        let mut result = Vec::new();
-        for session_id in &sessions {
-            if let Some(graph) = store.get(session_id).await {
-                if graph.metadata.unique_tools.contains(tool_filter) {
-                    result.push(json!({
-                        "session_id": session_id,
-                        "node_count": graph.nodes.len(),
-                        "started_at": graph.metadata.started_at,
-                        "ended_at": graph.metadata.ended_at,
-                    }));
-                }
-            }
-        }
-        result.into_iter().skip(offset).take(limit).collect()
-    } else {
-        let mut result = Vec::new();
-        for session_id in sessions.iter().skip(offset).take(limit) {
-            if let Some(graph) = store.get(session_id).await {
-                result.push(json!({
-                    "session_id": session_id,
-                    "node_count": graph.nodes.len(),
-                    "started_at": graph.metadata.started_at,
-                    "ended_at": graph.metadata.ended_at,
-                }));
-            }
-        }
-        result
-    };
-
-    Ok(Json(json!({
-        "total": total,
-        "offset": offset,
-        "limit": limit,
-        "graphs": filtered,
-    })))
-}
-
-/// Get an execution graph in JSON format.
-///
-/// GET /api/graphs/{session}
-async fn get_graph(
-    State(state): State<AppState>,
-    Path(session): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let store = state.exec_graph_store.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Execution graph tracking is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    let graph = store.get(&session).await.ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: format!("Graph not found for session: {}", session),
-            }),
-        )
-    })?;
-
-    let json_value = serde_json::to_value(&graph).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Failed to serialize graph: {}", e),
-            }),
-        )
-    })?;
-
-    Ok(Json(json_value))
-}
-
-/// Get an execution graph in DOT (Graphviz) format.
-///
-/// GET /api/graphs/{session}/dot
-async fn get_graph_dot(
-    State(state): State<AppState>,
-    Path(session): Path<String>,
-) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    let store = state.exec_graph_store.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Execution graph tracking is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    let graph = store.get(&session).await.ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: format!("Graph not found for session: {}", session),
-            }),
-        )
-    })?;
-
-    let dot = graph.to_dot();
-
-    Ok((
-        StatusCode::OK,
-        [(header::CONTENT_TYPE, "text/vnd.graphviz")],
-        dot,
-    )
-        .into_response())
-}
-
-/// Get execution graph statistics.
-///
-/// GET /api/graphs/{session}/stats
-async fn get_graph_stats(
-    State(state): State<AppState>,
-    Path(session): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let store = state.exec_graph_store.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Execution graph tracking is not enabled".to_string(),
-            }),
-        )
-    })?;
-
-    let graph = store.get(&session).await.ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: format!("Graph not found for session: {}", session),
-            }),
-        )
-    })?;
-
-    let stats = graph.statistics();
-
-    Ok(Json(
-        serde_json::to_value(&stats).unwrap_or_else(|_| json!({})),
-    ))
-}
 
 /// Middleware that enforces per-category rate limits.
 ///
