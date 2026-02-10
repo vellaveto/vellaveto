@@ -2,6 +2,7 @@ pub mod dashboard;
 pub mod idempotency;
 pub mod jit;
 pub mod metrics;
+pub mod observability;
 pub mod opa;
 pub mod rbac;
 pub mod routes;
