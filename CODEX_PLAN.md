@@ -11,17 +11,29 @@
 
 | Agent | Tasks | Status |
 |-------|-------|--------|
-| **Claude (Main)** | Tasks 2-5 DONE, now Tasks 9-13 (P2 tests) | IN PROGRESS |
-| **Codex** | Task 1, Tasks 6-8 (P1 medium-effort) | ASSIGNED |
+| **Claude (Main)** | Tasks 2-5, 9-13 DONE | COMPLETE |
+| **Codex** | Task 1, Tasks 6-8, 14-15 (remaining P1/P2) | ASSIGNED |
 
-**Completed by Claude (commit 1a7ed86):**
+**Completed by Claude:**
+
+*Commit 1a7ed86 (P1 tests):*
 - [x] Task 2: Redaction boundary tests (depth 50/51, large arrays, mixed nesting)
 - [x] Task 3: TraceContext W3C tests (uppercase, mixed, all-zeros, leading zeros)
 - [x] Task 4: SpanSampler determinism (same ID, distribution, rate 0/1, edge IDs)
 - [x] Task 5: Rate limit header edge cases (invalid, negative, overflow)
 
-**Claude now working on:** Phase 16 - ArizeExporter, LangfuseExporter, Private IP, Builder tests
-**Codex should work on:** Task 1 (async integration tests), then Tasks 6-8 (logging, error handling, config)
+*Commit fa4e437 (P2 tests):*
+- [x] Task 9: ArizeExporter edge cases (timestamps, hex, field coverage, large attrs)
+- [x] Task 10: LangfuseExporter edge cases (Chain logic, event counts, verdict mapping)
+- [x] Task 11: Private IP validation (all IPv4/IPv6 reserved ranges)
+- [x] Task 12: SecuritySpanBuilder tests (IDs, timestamps, defaults)
+- [x] Task 13: has_enabled_exporters combinations
+
+**Codex should work on:**
+1. Task 1: Async integration tests for exporters (P1)
+2. Tasks 6-8: Logging, error handling, config validation (P1)
+3. Tasks 14-15: Documentation (P2)
+4. Tasks 16-18: Performance improvements (P2)
 
 ---
 
