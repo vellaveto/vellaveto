@@ -377,7 +377,11 @@ impl NhiManager {
         // Check tool call pattern
         if let Some(&expected_freq) = baseline.tool_call_patterns.get(tool_call) {
             // Tool is known - this is good
-            let _ = expected_freq; // We could check frequency here
+            // NOTE: Frequency deviation checking is deferred. The expected_freq
+            // represents the historical call rate, but comparing a single call's
+            // timing against a rate requires session-level call counting which
+            // is tracked elsewhere (behavioral.rs EMA-based detection).
+            let _ = expected_freq;
         } else {
             // Unknown tool - flag it
             deviations.push(NhiBehavioralDeviation {

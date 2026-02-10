@@ -1008,7 +1008,12 @@ pub fn spawn_config_watcher(state: AppState) -> Result<(), String> {
                                 p.file_name() == Some(config_filename_for_closure.as_os_str())
                             });
                             if is_config {
-                                let _ = tx.blocking_send(());
+                                if let Err(e) = tx.blocking_send(()) {
+                                    tracing::warn!(
+                                        "Config reload channel closed, stopping watcher: {}",
+                                        e
+                                    );
+                                }
                             }
                         }
                         _ => {}

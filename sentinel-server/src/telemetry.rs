@@ -325,7 +325,11 @@ impl Drop for TelemetryGuard {
     fn drop(&mut self) {
         if let Some(provider) = self.provider.take() {
             // Force flush any pending spans and shutdown
-            let _ = provider.shutdown();
+            if let Err(e) = provider.shutdown() {
+                // Log at debug level since this happens during shutdown
+                // and higher levels might not be visible
+                eprintln!("Warning: Telemetry provider shutdown error: {}", e);
+            }
         }
     }
 }

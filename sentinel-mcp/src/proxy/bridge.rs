@@ -2125,7 +2125,10 @@ impl ProxyBridge {
                                             "structuredContent present in response, {} schemas registered",
                                             self.output_schema_registry.len()
                                         );
-                                        let _ = structured; // Will be validated when tool tracking is wired
+                                        // TODO: Wire structured content validation when id→tool_name
+                                        // tracking is implemented. Currently we log presence but
+                                        // cannot validate without knowing which tool produced this.
+                                        let _ = structured;
                                     }
                                 }
                             }
