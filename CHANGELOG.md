@@ -118,12 +118,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Invalid regex patterns now fail startup instead of being silently skipped
 - Added `regex` dependency to `sentinel-config`
 
+#### Call Chain Security Hardening
+- Added `MAX_CALL_CHAIN_LENGTH` (20) and `MAX_CALL_CHAIN_HEADER_SIZE` (8KB) limits
+- New `validate_call_chain_header()` rejects oversized/malformed headers fail-closed
+- Prevents CPU exhaustion in privilege-escalation checks
+- Prevents memory exhaustion from oversized JSON header values
+
+#### A2A Proxy Security Improvements
+- Use shared injection/DLP scanners for consistency with MCP proxy
+- Handle `#[non_exhaustive]` Verdict fail-closed (unknown variants → deny)
+- Scan data/file/error-data text surfaces for injection
+
 ### Fixed
 
 - **Error Handling**: Added logging for previously silent error discards in:
   - Config reload channel send failures
   - Telemetry provider shutdown errors
   - Added TODO documentation for deferred structured content validation
+- **Zero unwrap() in library code**: Removed 2 remaining unwrap() calls:
+  - `injection.rs`: Replaced with safe if-let in emoji variation selector handling
+  - `idempotency.rs`: Replaced builder unwrap() with Response::new() in error fallback
 
 ### Security
 
