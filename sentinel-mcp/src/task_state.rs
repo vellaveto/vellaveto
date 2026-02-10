@@ -62,8 +62,13 @@ impl TaskStateManager {
     /// * `max_concurrent` - Maximum active tasks. 0 for unlimited.
     /// * `max_duration_secs` - Maximum task duration in seconds. 0 for unlimited.
     pub fn new(max_concurrent: usize, max_duration_secs: u64) -> Self {
+        let initial_task_capacity = if max_concurrent > 0 {
+            max_concurrent.min(1024)
+        } else {
+            256
+        };
         Self {
-            tasks: RwLock::new(HashMap::new()),
+            tasks: RwLock::new(HashMap::with_capacity(initial_task_capacity)),
             max_concurrent,
             max_duration_secs,
             require_self_cancel: true,
@@ -78,8 +83,13 @@ impl TaskStateManager {
         require_self_cancel: bool,
         allow_cancellation: Vec<String>,
     ) -> Self {
+        let initial_task_capacity = if max_concurrent > 0 {
+            max_concurrent.min(1024)
+        } else {
+            256
+        };
         Self {
-            tasks: RwLock::new(HashMap::new()),
+            tasks: RwLock::new(HashMap::with_capacity(initial_task_capacity)),
             max_concurrent,
             max_duration_secs,
             require_self_cancel,

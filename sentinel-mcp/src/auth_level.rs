@@ -61,11 +61,14 @@ pub struct AuthLevelTracker {
     default_expiry: Option<Duration>,
 }
 
+/// Initial capacity for tracked auth sessions.
+const INITIAL_AUTH_SESSION_CAPACITY: usize = 256;
+
 impl AuthLevelTracker {
     /// Create a new auth level tracker with no default expiry.
     pub fn new() -> Self {
         Self {
-            sessions: RwLock::new(HashMap::new()),
+            sessions: RwLock::new(HashMap::with_capacity(INITIAL_AUTH_SESSION_CAPACITY)),
             default_expiry: None,
         }
     }
@@ -73,7 +76,7 @@ impl AuthLevelTracker {
     /// Create a new auth level tracker with a default expiry duration.
     pub fn with_default_expiry(expiry: Duration) -> Self {
         Self {
-            sessions: RwLock::new(HashMap::new()),
+            sessions: RwLock::new(HashMap::with_capacity(INITIAL_AUTH_SESSION_CAPACITY)),
             default_expiry: Some(expiry),
         }
     }

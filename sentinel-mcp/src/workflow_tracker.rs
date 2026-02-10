@@ -208,8 +208,9 @@ impl WorkflowTracker {
 
     /// Create with custom configuration.
     pub fn with_config(config: WorkflowTrackerConfig) -> Self {
+        let initial_session_capacity = config.max_sessions.min(1024);
         Self {
-            sessions: RwLock::new(HashMap::new()),
+            sessions: RwLock::new(HashMap::with_capacity(initial_session_capacity)),
             config,
         }
     }
@@ -222,7 +223,7 @@ impl WorkflowTracker {
         let session = sessions
             .entry(session_id.to_string())
             .or_insert_with(|| SessionWorkflows {
-                workflows: HashMap::new(),
+                workflows: HashMap::with_capacity(self.config.max_workflows_per_session.min(64)),
                 recent_tools: VecDeque::with_capacity(20),
                 last_activity: Instant::now(),
                 total_steps: 0,
@@ -255,7 +256,7 @@ impl WorkflowTracker {
         let session = sessions.entry(session_id.to_string()).or_insert_with(|| {
             // Auto-create session with initial workflow
             let mut new_session = SessionWorkflows {
-                workflows: HashMap::new(),
+                workflows: HashMap::with_capacity(self.config.max_workflows_per_session.min(64)),
                 recent_tools: VecDeque::with_capacity(20),
                 last_activity: Instant::now(),
                 total_steps: 0,
@@ -371,7 +372,8 @@ impl WorkflowTracker {
         session_id: &str,
         session: &SessionWorkflows,
     ) -> Option<WorkflowAlert> {
-        let mut all_resources: HashMap<String, usize> = HashMap::new();
+        let mut all_resources: HashMap<String, usize> =
+            HashMap::with_capacity(session.total_steps.min(256));
 
         for workflow in session.workflows.values() {
             for action in &workflow.actions {
@@ -425,7 +427,7 @@ impl WorkflowTracker {
 
         // Analyze workflow patterns
         let mut risk_score: f32 = 0.0;
-        let mut reasoning_parts = Vec::new();
+        let mut reasoning_parts = Vec::with_capacity(8);
 
         // Check step count
         if session.total_steps > self.config.step_budget / 2 {

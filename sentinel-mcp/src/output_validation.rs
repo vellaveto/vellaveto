@@ -37,6 +37,8 @@ enum SchemaEntry {
 /// Prevents memory exhaustion from a malicious MCP server advertising
 /// thousands of tools with large outputSchema objects.
 const MAX_SCHEMA_ENTRIES: usize = 1000;
+/// Initial capacity for schema registry map.
+const INITIAL_SCHEMA_ENTRIES_CAPACITY: usize = 256;
 
 /// Maximum serialized size (bytes) of a single output schema.
 /// Schemas larger than this are silently dropped to prevent memory abuse.
@@ -57,7 +59,9 @@ impl OutputSchemaRegistry {
     /// Create an empty registry.
     pub fn new() -> Self {
         Self {
-            schemas: RwLock::new(HashMap::new()),
+            schemas: RwLock::new(HashMap::with_capacity(
+                MAX_SCHEMA_ENTRIES.min(INITIAL_SCHEMA_ENTRIES_CAPACITY),
+            )),
         }
     }
 

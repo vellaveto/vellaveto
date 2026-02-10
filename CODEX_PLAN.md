@@ -43,14 +43,13 @@
   - concurrent chunked exports
   - slow endpoint timeout handling
 
-*Tasks 16-18 (performance) — analysis completed:*
+*Tasks 16-18 (performance):*
 - [x] Task 16: GlobMatcher caching — **already optimized** at policy compile time
 - [x] Task 18: Domain normalization cache — **already optimized** with ASCII fast paths
-- [ ] Task 17: HashMap capacity hints — deferred (low priority, needs profiling)
+- [x] Task 17: HashMap capacity hints — applied in sentinel-mcp runtime/session maps (token security, task state, auth level, output schema registry, workflow tracker)
 
 **Deferred:**
 - Task 7: Response body error handling — existing `unwrap_or_default()` handles edge cases
-- Task 17: HashMap capacity hints — low priority, needs profiling to justify
 
 ---
 
@@ -290,8 +289,20 @@ Add doc comments:
 - Focus on hot paths: DLP/injection scanning, proxy/bridge
 - Expected: ~2-5% allocation overhead reduction
 
-**Analysis:** Most HashMaps are used for small collections (metadata, headers).
-Low priority unless profiling shows allocation as a bottleneck.
+**Status:** Completed with targeted, bounded capacity hints in runtime-heavy maps:
+- `sentinel-mcp/src/token_security.rs`
+- `sentinel-mcp/src/task_state.rs`
+- `sentinel-mcp/src/auth_level.rs`
+- `sentinel-mcp/src/output_validation.rs`
+- `sentinel-mcp/src/workflow_tracker.rs`
+
+Validation:
+- `cargo clippy -p sentinel-mcp --all-targets -- -D warnings` PASS
+- `cargo test -p sentinel-mcp token_security::tests:: -- --nocapture` PASS
+- `cargo test -p sentinel-mcp task_state::tests:: -- --nocapture` PASS
+- `cargo test -p sentinel-mcp auth_level::tests:: -- --nocapture` PASS
+- `cargo test -p sentinel-mcp output_validation::tests:: -- --nocapture` PASS
+- `cargo test -p sentinel-mcp workflow_tracker::tests:: -- --nocapture` PASS
 
 ### Task 18: ~~Domain Normalization Cache~~ ⚡ PARTIALLY OPTIMIZED
 **Effort:** Low (remaining) | **Impact:** Low | **Source:** IMP-012

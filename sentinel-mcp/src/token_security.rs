@@ -132,6 +132,9 @@ pub struct TokenSecurityAnalyzer {
     session_contexts: RwLock<HashMap<String, SessionContext>>,
 }
 
+/// Initial capacity for per-session token context tracking.
+const INITIAL_SESSION_CONTEXT_CAPACITY: usize = 256;
+
 /// A glitch token pattern.
 #[derive(Debug, Clone)]
 struct GlitchPattern {
@@ -155,7 +158,7 @@ impl TokenSecurityAnalyzer {
             config,
             glitch_patterns: Self::default_glitch_patterns(),
             special_tokens: Self::default_special_tokens(),
-            session_contexts: RwLock::new(HashMap::new()),
+            session_contexts: RwLock::new(HashMap::with_capacity(INITIAL_SESSION_CONTEXT_CAPACITY)),
         }
     }
 

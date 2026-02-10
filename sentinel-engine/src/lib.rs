@@ -635,7 +635,9 @@ impl PolicyEngine {
             trust_context_timestamps: false,
             max_path_decode_iterations: DEFAULT_MAX_PATH_DECODE_ITERATIONS,
             glob_matcher_cache: RwLock::new(HashMap::with_capacity(256)),
-            domain_norm_cache: RwLock::new(HashMap::with_capacity(512)),
+            domain_norm_cache: RwLock::new(HashMap::with_capacity(
+                MAX_DOMAIN_NORM_CACHE_ENTRIES.min(512),
+            )),
         }
     }
 
@@ -731,7 +733,9 @@ impl PolicyEngine {
             trust_context_timestamps: false,
             max_path_decode_iterations: DEFAULT_MAX_PATH_DECODE_ITERATIONS,
             glob_matcher_cache: RwLock::new(HashMap::with_capacity(256)),
-            domain_norm_cache: RwLock::new(HashMap::with_capacity(512)),
+            domain_norm_cache: RwLock::new(HashMap::with_capacity(
+                MAX_DOMAIN_NORM_CACHE_ENTRIES.min(512),
+            )),
         })
     }
 
