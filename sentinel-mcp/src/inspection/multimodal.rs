@@ -408,9 +408,7 @@ impl MultimodalScanner {
         &self,
         _data: &[u8],
     ) -> Result<(Option<String>, Option<f32>), MultimodalError> {
-        // Placeholder: PDF text extraction not yet implemented
-        // Would use pdf-extract or similar crate
-        Ok((None, None))
+        Err(MultimodalError::UnsupportedContentType(ContentType::Pdf))
     }
 
     /// Scan extracted text for injection patterns.
@@ -438,12 +436,9 @@ impl MultimodalScanner {
         _data: &[u8],
         _content_type: ContentType,
     ) -> Result<Vec<StegoIndicator>, MultimodalError> {
-        // Placeholder: Steganography detection not yet implemented
-        // Would analyze:
-        // - LSB patterns in images
-        // - Statistical anomalies
-        // - Known stego tool signatures
-        Ok(vec![])
+        Err(MultimodalError::StegoError(
+            "steganography backend not integrated yet".to_string(),
+        ))
     }
 }
 
@@ -766,11 +761,11 @@ mod tests {
         let base64_data =
             base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b"%PDF-1.4 test");
 
-        let result =
-            scan_blob_for_injection(&base64_data, Some("application/pdf"), &scanner).unwrap();
-        assert!(result.is_some());
-        let scan_result = result.unwrap();
-        assert_eq!(scan_result.content_type, ContentType::Pdf);
+        let result = scan_blob_for_injection(&base64_data, Some("application/pdf"), &scanner);
+        assert!(matches!(
+            result,
+            Err(MultimodalError::UnsupportedContentType(ContentType::Pdf))
+        ));
     }
 
     /// GAP-006: Test content type auto-detection in scan_content
@@ -791,8 +786,11 @@ mod tests {
 
         // PDF magic bytes
         let pdf_data = b"%PDF-1.4 test content";
-        let result = scanner.scan_content(pdf_data, None).unwrap();
-        assert_eq!(result.content_type, ContentType::Pdf);
+        let result = scanner.scan_content(pdf_data, None);
+        assert!(matches!(
+            result,
+            Err(MultimodalError::UnsupportedContentType(ContentType::Pdf))
+        ));
     }
 
     #[cfg(not(feature = "multimodal"))]
@@ -856,6 +854,39 @@ mod tests {
         assert!(result.scan_duration_ms < 1000); // Less than 1 second
         assert!(result.injection_findings.is_empty());
         assert!(result.stego_indicators.is_empty());
+    }
+
+    #[test]
+    fn test_pdf_scan_fails_closed_when_extractor_unavailable() {
+        let config = MultimodalConfig {
+            enabled: true,
+            content_types: vec![ContentType::Pdf],
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+
+        let pdf_data = b"%PDF-1.4 test content";
+        let result = scanner.scan_content(pdf_data, Some(ContentType::Pdf));
+        assert!(matches!(
+            result,
+            Err(MultimodalError::UnsupportedContentType(ContentType::Pdf))
+        ));
+    }
+
+    #[test]
+    fn test_stego_enabled_fails_closed_without_backend() {
+        let config = MultimodalConfig {
+            enabled: true,
+            enable_ocr: false,
+            enable_stego_detection: true,
+            content_types: vec![ContentType::Image],
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+
+        let png_data = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A];
+        let result = scanner.scan_content(&png_data, Some(ContentType::Image));
+        assert!(matches!(result, Err(MultimodalError::StegoError(_))));
     }
 
     /// GAP-006: Test with_injection_scanner constructor

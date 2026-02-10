@@ -398,7 +398,7 @@ impl NlPolicyBuilder {
     }
 
     /// Adds a policy to the builder.
-    pub fn add(mut self, policy: NlPolicy) -> Self {
+    pub fn with_policy(mut self, policy: NlPolicy) -> Self {
         self.policies.push(policy);
         self
     }
@@ -598,8 +598,8 @@ mod tests {
     #[test]
     fn test_nl_policy_builder() {
         let compiler = NlPolicyBuilder::new()
-            .add(NlPolicy::new("p1", "policy 1").with_pattern("*:*"))
-            .add(NlPolicy::new("p2", "policy 2").with_pattern("*:*"))
+            .with_policy(NlPolicy::new("p1", "policy 1").with_pattern("*:*"))
+            .with_policy(NlPolicy::new("p2", "policy 2").with_pattern("*:*"))
             .build();
 
         assert_eq!(compiler.len(), 2);

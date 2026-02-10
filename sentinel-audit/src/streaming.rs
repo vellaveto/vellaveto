@@ -1163,6 +1163,7 @@ impl SyslogExporter {
             sentinel_types::Verdict::RequireApproval { reason } => {
                 ("require_approval", Some(reason.as_str()))
             }
+            _ => ("unknown", None),
         }
     }
 

@@ -462,21 +462,16 @@ pub struct SemanticGuardrailsEvaluator<E: LlmEvaluator> {
 }
 
 /// Behavior when evaluation fails.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum FallbackBehavior {
     /// Deny the action (fail-closed, default).
+    #[default]
     Deny,
     /// Allow the action (fail-open, dangerous).
     Allow,
     /// Fall back to pattern-based matching.
     PatternMatch,
-}
-
-impl Default for FallbackBehavior {
-    fn default() -> Self {
-        FallbackBehavior::Deny
-    }
 }
 
 impl<E: LlmEvaluator> SemanticGuardrailsEvaluator<E> {

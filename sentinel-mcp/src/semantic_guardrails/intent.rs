@@ -38,7 +38,7 @@ use std::collections::HashMap;
 ///
 /// Each action is classified into one of these intent categories
 /// to enable semantic policy evaluation beyond pattern matching.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Intent {
     // ── Data Operations ─────────────────────────
@@ -87,6 +87,7 @@ pub enum Intent {
 
     // ── Default Categories ──────────────────────
     /// Intent could not be determined.
+    #[default]
     Unknown,
     /// No concerning intent detected (benign operation).
     Benign,
@@ -170,12 +171,6 @@ impl Intent {
             Intent::Unknown => "Intent could not be determined",
             Intent::Benign => "No concerning intent detected",
         }
-    }
-}
-
-impl Default for Intent {
-    fn default() -> Self {
-        Intent::Unknown
     }
 }
 
@@ -553,8 +548,10 @@ mod tests {
 
     #[test]
     fn test_intent_classification_is_suspicious() {
-        let mut classification = IntentClassification::default();
-        classification.primary_intent = Intent::Injection;
+        let mut classification = IntentClassification {
+            primary_intent: Intent::Injection,
+            ..Default::default()
+        };
         assert!(classification.is_suspicious());
 
         classification.primary_intent = Intent::DataRead;
