@@ -1098,6 +1098,7 @@ async fn cmd_check(
                     sentinel_types::PolicyType::Allow => "Allow",
                     sentinel_types::PolicyType::Deny => "Deny",
                     sentinel_types::PolicyType::Conditional { .. } => "Conditional",
+                    _ => "Unknown",
                 },
                 p.priority
             );

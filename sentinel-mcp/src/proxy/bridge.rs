@@ -580,6 +580,11 @@ impl ProxyBridge {
                 let response = make_approval_response(id, &reason);
                 ProxyDecision::Block(response, Verdict::RequireApproval { reason })
             }
+            // Handle future Verdict variants - fail closed (deny)
+            Ok((_, _trace)) => {
+                let reason = "Unknown verdict type - failing closed".to_string();
+                ProxyDecision::Block(make_denial_response(id, &reason), Verdict::Deny { reason })
+            }
             Err(e) => {
                 tracing::error!("Policy evaluation error for tool '{}': {}", tool_name, e);
                 let reason = "Policy evaluation failed".to_string();
@@ -629,6 +634,11 @@ impl ProxyBridge {
             Ok((Verdict::RequireApproval { reason }, _)) => {
                 let response = make_approval_response(id, &reason);
                 ProxyDecision::Block(response, Verdict::RequireApproval { reason })
+            }
+            // Handle future Verdict variants - fail closed (deny)
+            Ok((_, _)) => {
+                let reason = "Unknown verdict type - failing closed".to_string();
+                ProxyDecision::Block(make_denial_response(id, &reason), Verdict::Deny { reason })
             }
             Err(e) => {
                 tracing::error!("Policy evaluation error for resource '{}': {}", uri, e);
@@ -1529,6 +1539,25 @@ impl ProxyBridge {
                                             ).await {
                                                 tracing::warn!("Audit log failed: {}", e);
                                             }
+                                            write_message(&mut agent_writer, &response).await
+                                                .map_err(ProxyError::Framing)?;
+                                        }
+                                        // Handle future Verdict variants - fail closed (deny)
+                                        Ok((_, _)) => {
+                                            let reason = "Unknown verdict type - failing closed".to_string();
+                                            let verdict = Verdict::Deny { reason: reason.clone() };
+                                            if let Err(e) = self.audit.log_entry(
+                                                &action,
+                                                &verdict,
+                                                json!({
+                                                    "source": "proxy",
+                                                    "event": "task_request_unknown_verdict",
+                                                    "task_method": task_method,
+                                                }),
+                                            ).await {
+                                                tracing::warn!("Audit log failed: {}", e);
+                                            }
+                                            let response = make_denial_response(&id, &reason);
                                             write_message(&mut agent_writer, &response).await
                                                 .map_err(ProxyError::Framing)?;
                                         }

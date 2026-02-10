@@ -2163,6 +2163,8 @@ impl AuditLogger {
                 Verdict::Allow => allow_count += 1,
                 Verdict::Deny { .. } => deny_count += 1,
                 Verdict::RequireApproval { .. } => require_approval_count += 1,
+                // Handle future variants - count as deny (fail-closed)
+                _ => deny_count += 1,
             }
         }
 

@@ -196,6 +196,10 @@ fn test_empty_policy_list_strict_mode() {
         Ok(Verdict::RequireApproval { .. }) => {
             // Acceptable: require human approval when uncertain
         }
+        // Handle future Verdict variants - acceptable (fail closed)
+        Ok(_) => {
+            // Future variants would likely be some form of deny/restriction
+        }
         Err(_) => {
             // Acceptable: error on no matching policy
         }
@@ -219,6 +223,8 @@ fn test_no_matching_policy_non_strict() {
         Verdict::Allow | Verdict::Deny { .. } | Verdict::RequireApproval { .. } => {
             // All valid — we're documenting behavior, not prescribing it
         }
+        // Handle future variants
+        _ => {}
     }
 }
 

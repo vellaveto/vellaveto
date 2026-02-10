@@ -45,12 +45,16 @@ pub fn to_cef(entry: &AuditEntry) -> String {
         Verdict::Allow => "Allow",
         Verdict::Deny { .. } => "Deny",
         Verdict::RequireApproval { .. } => "RequireApproval",
+        // Handle future variants - treat as unknown
+        _ => "Unknown",
     };
 
     let severity = match &entry.verdict {
         Verdict::Allow => 1,
         Verdict::RequireApproval { .. } => 5,
         Verdict::Deny { .. } => 8,
+        // Handle future variants - treat as high severity (fail-closed)
+        _ => 8,
     };
 
     let tool_function_raw = format!(
@@ -91,6 +95,8 @@ pub fn to_cef(entry: &AuditEntry) -> String {
             format!(" cs2={} cs2Label=approvalReason", truncated)
         }
         Verdict::Allow => String::new(),
+        // Handle future variants - no reason available
+        _ => String::new(),
     };
 
     let rt_escaped = cef_escape_ext(&entry.timestamp);

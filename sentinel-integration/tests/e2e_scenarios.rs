@@ -90,6 +90,8 @@ fn scenario_developer_sandbox() {
                 Verdict::Allow => "Allow",
                 Verdict::Deny { .. } => "Deny",
                 Verdict::RequireApproval { .. } => "RequireApproval",
+                // Handle future variants
+                _ => "Unknown",
             };
             assert_eq!(
                 verdict_type, expected_verdicts[i],

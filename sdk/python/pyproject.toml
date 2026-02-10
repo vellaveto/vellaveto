@@ -1,0 +1,97 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sentinel-sdk"
+version = "0.1.0"
+description = "Python SDK for Sentinel MCP Firewall - AI agent security policy enforcement"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.9"
+authors = [
+    { name = "Paolo Vella", email = "paolo@example.com" }
+]
+keywords = [
+    "sentinel",
+    "mcp",
+    "security",
+    "ai",
+    "llm",
+    "langchain",
+    "langgraph",
+    "agent",
+    "firewall",
+    "policy",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = [
+    "httpx>=0.25.0",
+]
+
+[project.optional-dependencies]
+langchain = [
+    "langchain-core>=0.2.0",
+]
+langgraph = [
+    "langchain-core>=0.2.0",
+    "langgraph>=0.2.0",
+]
+all = [
+    "langchain-core>=0.2.0",
+    "langgraph>=0.2.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-httpx>=0.30.0",
+    "mypy>=1.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/paolovella/sentinel"
+Documentation = "https://github.com/paolovella/sentinel#python-sdk"
+Repository = "https://github.com/paolovella/sentinel"
+Issues = "https://github.com/paolovella/sentinel/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["sentinel"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

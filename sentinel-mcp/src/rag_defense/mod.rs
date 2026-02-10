@@ -6,6 +6,7 @@
 //! - **Document Injection**: Malicious content injected into knowledge base
 //! - **Embedding Manipulation**: Adversarial perturbations to embeddings
 //! - **Context Window Flooding**: Irrelevant data diluting real information
+//! - **Hallucination/Grounding**: LLM responses not supported by context
 //!
 //! # Architecture
 //!
@@ -20,6 +21,10 @@
 //! │  ┌─────────────────────────────────────────────────────────┐ │
 //! │  │              ContextBudgetTracker                       │ │
 //! │  │           (token limit enforcement)                     │ │
+//! │  └─────────────────────────────────────────────────────────┘ │
+//! │  ┌─────────────────────────────────────────────────────────┐ │
+//! │  │              GroundingChecker                           │ │
+//! │  │       (hallucination/grounding detection)               │ │
 //! │  └─────────────────────────────────────────────────────────┘ │
 //! └───────────────────────────────────────────────────────────────┘
 //! ```
@@ -68,6 +73,7 @@ pub mod context_budget;
 pub mod document;
 pub mod embedding;
 pub mod error;
+pub mod grounding;
 pub mod retrieval;
 
 // Re-export commonly used types
@@ -77,6 +83,10 @@ pub use document::{
 };
 pub use embedding::{AnomalyDetection, EmbeddingAnomalyDetector, EmbeddingBaseline, EmbeddingVector};
 pub use error::RagDefenseError;
+pub use grounding::{
+    Attribution, ClaimScore, Contradiction, GroundingChecker, GroundingConfig,
+    GroundingEnforcement, GroundingError, GroundingMethod, GroundingResult, NliLabel,
+};
 pub use retrieval::{RagDlpFinding, RetrievalInspection, RetrievalInspector, RetrievalResult};
 
 use sentinel_config::RagDefenseConfig;
@@ -88,13 +98,15 @@ use sentinel_config::RagDefenseConfig;
 /// High-level service for RAG poisoning defense.
 ///
 /// Combines document verification, retrieval inspection, embedding anomaly
-/// detection, and context budget enforcement into a single, easy-to-use service.
+/// detection, context budget enforcement, and grounding validation into a
+/// single, easy-to-use service.
 pub struct RagDefenseService {
     config: RagDefenseConfig,
     document_verifier: DocumentVerifier,
     retrieval_inspector: RetrievalInspector,
     embedding_detector: EmbeddingAnomalyDetector,
     budget_tracker: ContextBudgetTracker,
+    grounding_checker: GroundingChecker,
 }
 
 impl RagDefenseService {
@@ -105,6 +117,7 @@ impl RagDefenseService {
             retrieval_inspector: RetrievalInspector::new(config.retrieval_security.clone()),
             embedding_detector: EmbeddingAnomalyDetector::new(config.embedding_anomaly.clone()),
             budget_tracker: ContextBudgetTracker::new(config.context_budget.clone()),
+            grounding_checker: GroundingChecker::new(config.grounding.clone()),
             config,
         }
     }
@@ -117,6 +130,7 @@ impl RagDefenseService {
             retrieval_inspector: RetrievalInspector::disabled(),
             embedding_detector: EmbeddingAnomalyDetector::disabled(),
             budget_tracker: ContextBudgetTracker::disabled(),
+            grounding_checker: GroundingChecker::disabled(),
         }
     }
 

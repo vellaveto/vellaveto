@@ -223,6 +223,8 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
                             "verdict-approval",
                             format!("Approval: {}", truncate(reason, 50)),
                         ),
+                        // Handle future variants
+                        _ => ("verdict-deny", "Unknown".to_string()),
                     };
                     let verdict_escaped = html_escape(&verdict_text);
 
@@ -272,6 +274,8 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
                 sentinel_types::PolicyType::Allow => allow_count += 1,
                 sentinel_types::PolicyType::Deny => deny_count += 1,
                 sentinel_types::PolicyType::Conditional { .. } => conditional_count += 1,
+                // Handle future variants
+                _ => deny_count += 1,
             }
         }
 
@@ -300,6 +304,8 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
                 sentinel_types::PolicyType::Conditional { .. } => {
                     ("policy-approval", "Conditional")
                 }
+                // Handle future variants
+                _ => ("policy-deny", "Unknown"),
             };
 
             let _ = write!(

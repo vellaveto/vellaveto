@@ -2674,6 +2674,23 @@ impl PolicyConfig {
                 MAX_TRUSTED_KEYS
             ));
         }
+        // Validate Ed25519 key format: hex-encoded, 32 bytes (64 hex chars)
+        for (i, key) in self.manifest.trusted_keys.iter().enumerate() {
+            let key_trimmed = key.trim();
+            if key_trimmed.len() != 64 {
+                return Err(format!(
+                    "manifest.trusted_keys[{}] must be 64 hex characters (32 bytes), got {} characters",
+                    i,
+                    key_trimmed.len()
+                ));
+            }
+            if !key_trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(format!(
+                    "manifest.trusted_keys[{}] must be hex-encoded (0-9, a-f, A-F only)",
+                    i
+                ));
+            }
+        }
         if self.known_tool_names.len() > MAX_KNOWN_TOOL_NAMES {
             return Err(format!(
                 "known_tool_names has {} entries, max is {}",
@@ -4523,6 +4540,10 @@ pub struct RagDefenseConfig {
     #[serde(default)]
     pub context_budget: ContextBudgetConfig,
 
+    /// Grounding/hallucination detection configuration.
+    #[serde(default)]
+    pub grounding: GroundingConfig,
+
     /// Cache TTL in seconds. Default: 300 (5 minutes).
     #[serde(default = "default_rag_cache_ttl")]
     pub cache_ttl_secs: u64,
@@ -4553,6 +4574,7 @@ impl Default for RagDefenseConfig {
             retrieval_security: RetrievalSecurityConfig::default(),
             embedding_anomaly: EmbeddingAnomalyConfig::default(),
             context_budget: ContextBudgetConfig::default(),
+            grounding: GroundingConfig::default(),
             cache_ttl_secs: default_rag_cache_ttl(),
             cache_max_size: default_rag_cache_size(),
         }
@@ -4767,6 +4789,93 @@ impl Default for ContextBudgetConfig {
             max_total_context_tokens: default_budget_total(),
             enforcement: default_budget_enforcement(),
             alert_threshold: default_budget_alert(),
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════
+// GROUNDING/HALLUCINATION DETECTION CONFIGURATION
+// ═══════════════════════════════════════════════════
+
+/// Grounding/hallucination detection configuration.
+///
+/// Controls validation of LLM responses against retrieved context to detect
+/// hallucinations (claims not supported by the provided context).
+///
+/// # TOML Example
+///
+/// ```toml
+/// [rag_defense.grounding]
+/// enabled = true
+/// min_score = 0.7
+/// enforcement = "warn"
+/// use_llm_nli = false
+/// min_claim_length = 10
+/// max_claims = 20
+/// lexical_overlap_threshold = 0.3
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GroundingConfig {
+    /// Enable grounding validation. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Minimum groundedness score (0.0-1.0). Default: 0.7.
+    #[serde(default = "default_grounding_min_score")]
+    pub min_score: f32,
+
+    /// Enforcement mode: "warn", "block", "annotate". Default: "warn".
+    #[serde(default = "default_grounding_enforcement")]
+    pub enforcement: String,
+
+    /// Use LLM-based NLI for grounding check. Default: false.
+    /// Requires semantic-guardrails feature and configured LLM backend.
+    #[serde(default)]
+    pub use_llm_nli: bool,
+
+    /// Minimum claim length to check (shorter claims are ignored). Default: 10.
+    #[serde(default = "default_grounding_min_claim")]
+    pub min_claim_length: usize,
+
+    /// Maximum claims to check per response. Default: 20.
+    #[serde(default = "default_grounding_max_claims")]
+    pub max_claims: usize,
+
+    /// Lexical overlap threshold for fallback mode. Default: 0.3.
+    #[serde(default = "default_grounding_lexical_threshold")]
+    pub lexical_overlap_threshold: f32,
+}
+
+fn default_grounding_min_score() -> f32 {
+    0.7
+}
+
+fn default_grounding_enforcement() -> String {
+    "warn".to_string()
+}
+
+fn default_grounding_min_claim() -> usize {
+    10
+}
+
+fn default_grounding_max_claims() -> usize {
+    20
+}
+
+fn default_grounding_lexical_threshold() -> f32 {
+    0.3
+}
+
+impl Default for GroundingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            min_score: default_grounding_min_score(),
+            enforcement: default_grounding_enforcement(),
+            use_llm_nli: false,
+            min_claim_length: default_grounding_min_claim(),
+            max_claims: default_grounding_max_claims(),
+            lexical_overlap_threshold: default_grounding_lexical_threshold(),
         }
     }
 }

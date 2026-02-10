@@ -1203,6 +1203,21 @@ pub async fn handle_mcp_post(
                         &session_id,
                     )
                 }
+                // Handle future Verdict variants - fail closed (deny)
+                Ok((_, _trace)) => {
+                    let response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32001,
+                            "message": "Unknown verdict - failing closed"
+                        }
+                    });
+                    attach_session_header(
+                        (StatusCode::OK, Json(response)).into_response(),
+                        &session_id,
+                    )
+                }
                 Err(e) => {
                     tracing::error!("Policy evaluation error for tool '{}': {}", tool_name, e);
                     let response = json!({
@@ -1327,6 +1342,8 @@ pub async fn handle_mcp_post(
                         Verdict::Deny { reason } => (-32001, reason.clone()),
                         Verdict::RequireApproval { reason } => (-32002, reason.clone()),
                         Verdict::Allow => (-32001, "Unexpected Allow verdict".to_string()),
+                        // Handle future variants - fail closed
+                        _ => (-32001, "Unknown verdict - failing closed".to_string()),
                     };
 
                     // Create pending approval for RequireApproval verdicts
@@ -2001,6 +2018,21 @@ pub async fn handle_mcp_post(
                     if let Some(t) = trace {
                         response["trace"] = serde_json::to_value(t).unwrap_or(Value::Null);
                     }
+                    attach_session_header(
+                        (StatusCode::OK, Json(response)).into_response(),
+                        &session_id,
+                    )
+                }
+                // Handle future Verdict variants - fail closed (deny)
+                Ok((_, _trace)) => {
+                    let response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32001,
+                            "message": "Unknown verdict - failing closed"
+                        }
+                    });
                     attach_session_header(
                         (StatusCode::OK, Json(response)).into_response(),
                         &session_id,

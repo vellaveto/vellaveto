@@ -53,6 +53,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Detects Latin + Cyrillic, Latin + Greek, Latin + Mathematical combinations
 - Higher priority detection than homoglyph normalization
 
+#### Multimodal Content Safety (Phase 1)
+- `MultimodalScanner` for detecting injection attempts in non-text content
+- `ContentType` enum with magic byte and MIME type detection (Image, Audio, PDF, Video)
+- `scan_blob_for_injection()` for scanning MCP resource.blob fields
+- OCR integration placeholder (feature-gated with `multimodal` feature)
+- Steganography detection scaffolding
+
+#### Hallucination/Grounding Detection (Phase 1)
+- `GroundingChecker` for validating LLM responses against RAG context
+- Lexical overlap scoring (Jaccard similarity) as NLI fallback
+- `GroundingResult` with claim scores, contradictions, and source attributions
+- Sentence-based claim extraction with configurable min/max thresholds
+- `GroundingConfig` in `RagDefenseConfig` for runtime configuration
+
+#### Python SDK (Phase 1)
+- New `sdk/python/sentinel` package for LangChain/LangGraph integration
+- `SentinelClient` — Sync/async HTTP client supporting httpx and requests backends
+- `SentinelCallbackHandler` — LangChain callback for intercepting tool calls
+- `SentinelToolGuard` — Decorator for guarding individual tools
+- `create_guarded_toolkit()` — Wraps existing LangChain toolkits with Sentinel guards
+- `create_sentinel_node()` — LangGraph node factory for policy evaluation
+- `create_sentinel_tool_node()` — Combined tool execution + policy evaluation node
+
+#### API Stability (Phase 2)
+- Added `#[non_exhaustive]` to core enums for forward compatibility:
+  - `Verdict` — Allow/Deny/RequireApproval variants
+  - `PolicyType` — Allow/Deny/Conditional variants
+  - `ApprovalStatus` — Pending/Approved/Denied/Expired variants
+  - `SquattingKind` — Levenshtein/Homoglyph/MixedScript variants
+- All match statements updated with fail-closed wildcard patterns for unknown variants
+
+#### MCP Tasks Primitive Support (Phase 2)
+- Extended `MessageType::TaskRequest` classification to include:
+  - `tasks/list` — List active tasks
+  - `tasks/resubscribe` — Resume task event subscriptions
+- Full parity with MCP 2025-11-25 task primitives
+
+#### Configuration Validation (Phase 2)
+- Added Ed25519 public key format validation at config load time
+- Validates trusted_keys are exactly 64 hex characters (32 bytes)
+- Returns descriptive error messages for invalid key formats
+
 ### Fixed
 
 - **Error Handling**: Added logging for previously silent error discards in:

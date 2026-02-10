@@ -56,6 +56,8 @@ fn bench_evaluation(engine: &PolicyEngine, actions: &[Action], policies: &[Polic
             Ok(sentinel_types::Verdict::Allow) => allow_count += 1,
             Ok(sentinel_types::Verdict::Deny { .. }) => deny_count += 1,
             Ok(sentinel_types::Verdict::RequireApproval { .. }) => approval_count += 1,
+            // Handle future Verdict variants - count as deny
+            Ok(_) => deny_count += 1,
             Err(e) => eprintln!("Error: {}", e),
         }
     }

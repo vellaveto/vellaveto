@@ -1225,6 +1225,8 @@ async fn evaluate(
         Verdict::Allow => "allow",
         Verdict::Deny { .. } => "deny",
         Verdict::RequireApproval { .. } => "require_approval",
+        // Handle future variants
+        _ => "unknown",
     };
     crate::metrics::record_evaluation_verdict(verdict_label);
     crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());

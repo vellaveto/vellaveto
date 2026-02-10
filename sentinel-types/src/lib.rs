@@ -942,6 +942,7 @@ impl Action {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub enum Verdict {
     Allow,
     Deny { reason: String },
@@ -949,6 +950,7 @@ pub enum Verdict {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub enum PolicyType {
     Allow,
     Deny,

@@ -806,6 +806,15 @@ impl PolicyEngine {
             PolicyType::Conditional { conditions } => {
                 Self::compile_conditions(policy, conditions, strict_mode)?
             }
+            // Handle future variants - treat as Allow with no conditions
+            _ => CompiledConditions {
+                require_approval: false,
+                forbidden_parameters: Vec::new(),
+                required_parameters: Vec::new(),
+                constraints: Vec::new(),
+                on_no_match_continue: false,
+                context_conditions: Vec::new(),
+            },
         };
 
         let deny_reason = format!("Denied by policy '{}'", policy.name);
@@ -2282,6 +2291,10 @@ impl PolicyEngine {
                 reason: cp.deny_reason.clone(),
             })),
             PolicyType::Conditional { .. } => self.evaluate_compiled_conditions(action, cp),
+            // Handle future variants - fail closed (deny)
+            _ => Ok(Some(Verdict::Deny {
+                reason: format!("Unknown policy type for '{}'", cp.policy.name),
+            })),
         }
     }
 
@@ -3682,6 +3695,10 @@ impl PolicyEngine {
             PolicyType::Conditional { conditions } => {
                 self.evaluate_conditions(action, policy, conditions)
             }
+            // Handle future variants - fail closed (deny)
+            _ => Ok(Some(Verdict::Deny {
+                reason: format!("Unknown policy type for '{}'", policy.name),
+            })),
         }
     }
 
@@ -5621,6 +5638,13 @@ impl PolicyEngine {
                 Vec::new(),
             )),
             PolicyType::Conditional { .. } => self.evaluate_compiled_conditions_traced(action, cp),
+            // Handle future variants - fail closed (deny)
+            _ => Ok((
+                Some(Verdict::Deny {
+                    reason: format!("Unknown policy type for '{}'", cp.policy.name),
+                }),
+                Vec::new(),
+            )),
         }
     }
 
@@ -5839,6 +5863,8 @@ impl PolicyEngine {
             PolicyType::Allow => "allow".to_string(),
             PolicyType::Deny => "deny".to_string(),
             PolicyType::Conditional { .. } => "conditional".to_string(),
+            // Handle future variants
+            _ => "unknown".to_string(),
         }
     }
 

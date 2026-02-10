@@ -16,6 +16,7 @@ llm-local-onnx = ["semantic-guardrails"]
 semantic-guardrails-full = ["semantic-guardrails", "llm-cloud", "llm-local-gguf", "llm-local-onnx"]
 rag-defense = []
 a2a = []
+multimodal = ["image"]
 
 [dependencies]
 sentinel-types = { path = "../sentinel-types" }
@@ -52,6 +53,9 @@ async-trait = { workspace = true, optional = true }
 
 # Cloud LLM backends
 reqwest = { workspace = true, optional = true }
+
+# Multimodal content scanning
+image = { version = "0.25", optional = true }
 
 [dev-dependencies]
 proptest = "1.4"

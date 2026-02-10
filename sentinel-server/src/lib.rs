@@ -508,6 +508,10 @@ impl Metrics {
                 self.evaluations_require_approval
                     .fetch_add(1, Ordering::Relaxed);
             }
+            // Handle future variants - count as deny (fail-closed)
+            _ => {
+                self.evaluations_deny.fetch_add(1, Ordering::Relaxed);
+            }
         }
     }
 

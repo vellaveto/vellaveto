@@ -20,6 +20,7 @@ use std::collections::{HashMap, HashSet};
 
 /// Kind of tool squatting detected.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum SquattingKind {
     /// Tool name is within Levenshtein edit distance of a known tool.
     Levenshtein,

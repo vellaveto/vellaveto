@@ -78,6 +78,8 @@ fn all_three_verdict_types_are_logged_and_counted() {
                 Verdict::Allow => "Allow",
                 Verdict::Deny { .. } => "Deny",
                 Verdict::RequireApproval { .. } => "RequireApproval",
+                // Handle future variants
+                _ => "Unknown",
             };
             assert_eq!(tag, *expected_tag, "Wrong verdict for {:?}", action);
 

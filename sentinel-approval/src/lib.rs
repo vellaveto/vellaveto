@@ -30,6 +30,7 @@ pub enum ApprovalError {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub enum ApprovalStatus {
     Pending,
     Approved,

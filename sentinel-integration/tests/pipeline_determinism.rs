@@ -189,6 +189,8 @@ fn audit_report_consistent_with_engine_output() {
                 Verdict::Allow => allow_count += 1,
                 Verdict::Deny { .. } => deny_count += 1,
                 Verdict::RequireApproval { .. } => approval_count += 1,
+                // Handle future variants - count as deny
+                _ => deny_count += 1,
             }
             logger.log_entry(action, &verdict, json!({})).await.unwrap();
         }
