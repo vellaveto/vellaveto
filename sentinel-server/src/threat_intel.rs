@@ -317,7 +317,9 @@ impl ThreatIntelClient {
             return Ok(Vec::new());
         }
 
-        let indicators: Vec<ThreatIndicator> = response.json().await.unwrap_or_default();
+        let indicators: Vec<ThreatIndicator> = response.json().await.map_err(|e| {
+            ThreatIntelError::InvalidResponse(format!("custom provider JSON decode failed: {}", e))
+        })?;
         Ok(indicators)
     }
 
@@ -329,39 +331,60 @@ impl ThreatIntelClient {
         let objects = body
             .get("objects")
             .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
+            .ok_or_else(|| {
+                ThreatIntelError::InvalidResponse(
+                    "TAXII response missing required 'objects' array".to_string(),
+                )
+            })?;
 
         let mut indicators = Vec::new();
+        let mut saw_invalid_indicator = false;
 
         for obj in objects {
             if obj.get("type").and_then(|v| v.as_str()) == Some("indicator") {
-                if let Some(pattern) = obj.get("pattern").and_then(|v| v.as_str()) {
-                    let confidence =
-                        obj.get("confidence").and_then(|v| v.as_u64()).unwrap_or(50) as u8;
+                let Some(pattern) = obj
+                    .get("pattern")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                else {
+                    saw_invalid_indicator = true;
+                    continue;
+                };
 
-                    indicators.push(ThreatIndicator {
-                        indicator_type: IndicatorType::Unknown,
-                        value: pattern.to_string(),
-                        confidence,
-                        severity: Severity::Medium,
-                        source: "TAXII".to_string(),
-                        description: obj
-                            .get("description")
-                            .and_then(|v| v.as_str())
-                            .map(String::from),
-                        tags: Vec::new(),
-                        first_seen: obj
-                            .get("valid_from")
-                            .and_then(|v| v.as_str())
-                            .map(String::from),
-                        last_seen: obj
-                            .get("valid_until")
-                            .and_then(|v| v.as_str())
-                            .map(String::from),
-                    });
-                }
+                let confidence = obj
+                    .get("confidence")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v.min(100) as u8)
+                    .unwrap_or(50);
+
+                indicators.push(ThreatIndicator {
+                    indicator_type: IndicatorType::Unknown,
+                    value: pattern.to_string(),
+                    confidence,
+                    severity: Severity::Medium,
+                    source: "TAXII".to_string(),
+                    description: obj
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    tags: Vec::new(),
+                    first_seen: obj
+                        .get("valid_from")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    last_seen: obj
+                        .get("valid_until")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                });
             }
+        }
+
+        if indicators.is_empty() && saw_invalid_indicator {
+            return Err(ThreatIntelError::InvalidResponse(
+                "TAXII response contained indicator objects without valid 'pattern'".to_string(),
+            ));
         }
 
         Ok(indicators)
@@ -376,21 +399,29 @@ impl ThreatIntelClient {
             .get("response")
             .and_then(|v| v.get("Attribute"))
             .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
+            .ok_or_else(|| {
+                ThreatIntelError::InvalidResponse(
+                    "MISP response missing required 'response.Attribute' array".to_string(),
+                )
+            })?;
 
         let mut indicators = Vec::new();
+        let mut saw_invalid_attribute = false;
 
         for attr in attributes {
-            let value = attr
+            let Some(value) = attr
                 .get("value")
                 .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string();
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+            else {
+                saw_invalid_attribute = true;
+                continue;
+            };
 
             indicators.push(ThreatIndicator {
                 indicator_type: IndicatorType::Unknown,
-                value,
+                value: value.to_string(),
                 confidence: 70,
                 severity: Severity::Medium,
                 source: "MISP".to_string(),
@@ -405,6 +436,12 @@ impl ThreatIntelClient {
                     .map(String::from),
                 last_seen: None,
             });
+        }
+
+        if indicators.is_empty() && saw_invalid_attribute && !attributes.is_empty() {
+            return Err(ThreatIntelError::InvalidResponse(
+                "MISP response contained attributes without valid 'value'".to_string(),
+            ));
         }
 
         Ok(indicators)
@@ -468,6 +505,18 @@ fn indicator_type_to_string(t: IndicatorType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    fn test_client() -> ThreatIntelClient {
+        let config = ThreatIntelConfig {
+            enabled: true,
+            endpoint: Some("http://localhost".to_string()),
+            ..Default::default()
+        };
+        ThreatIntelClient::new(&config)
+            .expect("threat intel client should construct")
+            .expect("threat intel must be enabled for tests")
+    }
 
     #[test]
     fn test_threat_intel_disabled() {
@@ -527,5 +576,67 @@ mod tests {
         assert_eq!(indicator_type_to_stix(IndicatorType::Domain), "domain-name");
         assert_eq!(indicator_type_to_misp(IndicatorType::Domain), "domain");
         assert_eq!(indicator_type_to_string(IndicatorType::Domain), "domain");
+    }
+
+    #[test]
+    fn test_parse_stix_objects_missing_objects_array_errors() {
+        let client = test_client();
+        let result = client.parse_stix_objects(json!({"foo": "bar"}));
+        assert!(matches!(result, Err(ThreatIntelError::InvalidResponse(_))));
+    }
+
+    #[test]
+    fn test_parse_stix_objects_invalid_indicator_pattern_errors() {
+        let client = test_client();
+        let result = client.parse_stix_objects(json!({
+            "objects": [
+                {"type": "indicator", "pattern": ""}
+            ]
+        }));
+        assert!(matches!(result, Err(ThreatIntelError::InvalidResponse(_))));
+    }
+
+    #[test]
+    fn test_parse_stix_objects_confidence_is_clamped() {
+        let client = test_client();
+        let indicators = client
+            .parse_stix_objects(json!({
+                "objects": [
+                    {"type": "indicator", "pattern": "[domain-name:value = 'evil.test']", "confidence": 255}
+                ]
+            }))
+            .expect("valid STIX response should parse");
+        assert_eq!(indicators.len(), 1);
+        assert_eq!(indicators[0].confidence, 100);
+    }
+
+    #[test]
+    fn test_parse_misp_response_missing_attribute_array_errors() {
+        let client = test_client();
+        let result = client.parse_misp_response(json!({"response": {}}));
+        assert!(matches!(result, Err(ThreatIntelError::InvalidResponse(_))));
+    }
+
+    #[test]
+    fn test_parse_misp_response_invalid_attributes_error_when_non_empty() {
+        let client = test_client();
+        let result = client.parse_misp_response(json!({
+            "response": {
+                "Attribute": [
+                    {"value": ""},
+                    {"comment": "missing value"}
+                ]
+            }
+        }));
+        assert!(matches!(result, Err(ThreatIntelError::InvalidResponse(_))));
+    }
+
+    #[test]
+    fn test_parse_misp_response_empty_attribute_array_is_ok() {
+        let client = test_client();
+        let indicators = client
+            .parse_misp_response(json!({"response": {"Attribute": []}}))
+            .expect("empty result should be valid");
+        assert!(indicators.is_empty());
     }
 }
