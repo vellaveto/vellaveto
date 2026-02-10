@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **DELETE Session Termination**: Changed response from 200 OK to 204 No Content per MCP specification
 - **Memory Tracking Configuration**: `MAX_FINGERPRINTS` and `MIN_TRACKABLE_LENGTH` are now configurable via `MemorySecurityConfig.max_fingerprints` and `MemorySecurityConfig.min_trackable_length`
 - **Dependency Updates**:
-  - Upgraded `jsonwebtoken` from 9 to 10 with `rust_crypto` feature
+  - Upgraded `jsonwebtoken` from 9 to 10 with `aws_lc_rs` feature (FIPS-validated cryptography)
   - Upgraded `notify` from 7 to 8
   - Note: `rand` 0.8 → 0.9 blocked by ed25519-dalek incompatibility (deferred)
 
@@ -59,6 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Config reload channel send failures
   - Telemetry provider shutdown errors
   - Added TODO documentation for deferred structured content validation
+
+### Security
+
+- **RUSTSEC-2023-0071 (Marvin Attack)**: Switched `jsonwebtoken` from `rust_crypto` to `aws_lc_rs` backend to eliminate timing side-channel vulnerability in RSA PKCS#1 v1.5 decryption. The `rsa` crate (used by `rust_crypto`) was vulnerable to Marvin Attack timing oracle; AWS-LC provides constant-time RSA operations.
 
 ---
 
