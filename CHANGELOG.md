@@ -113,6 +113,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Increased Levenshtein distance threshold from 2 to 3 for tool names > 8 characters
 - Catches typosquats like `read_files` vs `read_file` or `write_filed` vs `write_file`
 
+#### DLP Pattern Validation at Config Load (FIND-002)
+- Added regex validation for `dlp.extra_patterns` at config load time
+- Invalid regex patterns now fail startup instead of being silently skipped
+- Added `regex` dependency to `sentinel-config`
+
 ### Fixed
 
 - **Error Handling**: Added logging for previously silent error discards in:

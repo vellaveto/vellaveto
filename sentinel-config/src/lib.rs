@@ -2660,6 +2660,24 @@ impl PolicyConfig {
                 MAX_DISABLED_INJECTION_PATTERNS
             ));
         }
+        // FIND-002: Validate DLP extra_patterns compile as valid regex at config load time.
+        // This ensures fail-closed behavior: invalid patterns are rejected upfront rather
+        // than silently skipped at runtime.
+        if self.dlp.extra_patterns.len() > MAX_EXTRA_INJECTION_PATTERNS {
+            return Err(format!(
+                "dlp.extra_patterns has {} entries, max is {}",
+                self.dlp.extra_patterns.len(),
+                MAX_EXTRA_INJECTION_PATTERNS
+            ));
+        }
+        for (i, (name, pattern)) in self.dlp.extra_patterns.iter().enumerate() {
+            if let Err(e) = regex::Regex::new(pattern) {
+                return Err(format!(
+                    "dlp.extra_patterns[{}] '{}' has invalid regex: {}",
+                    i, name, e
+                ));
+            }
+        }
         if self.audit.custom_pii_patterns.len() > MAX_CUSTOM_PII_PATTERNS {
             return Err(format!(
                 "audit.custom_pii_patterns has {} entries, max is {}",
@@ -5987,6 +6005,48 @@ policy_type = "Allow"
             .collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("extra_patterns"));
+    }
+
+    #[test]
+    fn test_validate_rejects_invalid_dlp_regex() {
+        // FIND-002: DLP extra_patterns with invalid regex should be rejected at config load
+        let mut config = PolicyConfig::from_toml(
+            r#"
+[[policies]]
+name = "t"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#,
+        )
+        .unwrap();
+        // Invalid regex: unclosed bracket
+        config.dlp.extra_patterns = vec![("bad_pattern".to_string(), "[unclosed".to_string())];
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("dlp.extra_patterns") && err.contains("invalid regex"),
+            "Error should mention dlp.extra_patterns and invalid regex: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_accepts_valid_dlp_regex() {
+        let mut config = PolicyConfig::from_toml(
+            r#"
+[[policies]]
+name = "t"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#,
+        )
+        .unwrap();
+        // Valid regex pattern
+        config.dlp.extra_patterns = vec![
+            ("my_token".to_string(), r"my_token_[A-Za-z0-9]{32}".to_string()),
+        ];
+        assert!(config.validate().is_ok());
     }
 
     #[test]
