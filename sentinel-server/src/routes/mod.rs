@@ -5,8 +5,10 @@
 //!
 //! Submodules:
 //! - `memory` - Memory Injection Defense (MINJA) handlers
+//! - `nhi` - Non-Human Identity (NHI) lifecycle handlers
 
 mod main;
 pub mod memory;
+pub mod nhi;
 
 pub use main::*;
