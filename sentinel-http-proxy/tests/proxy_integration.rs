@@ -4922,6 +4922,60 @@ async fn task_request_malformed_call_chain_header_rejected() {
 }
 
 #[tokio::test]
+async fn tool_call_excessive_call_chain_header_rejected() {
+    let upstream_url = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_test_state(&upstream_url, &tmp);
+    let app = build_router(state);
+
+    let entries: Vec<Value> = (0..30)
+        .map(|i| {
+            json!({
+                "agent_id": format!("agent-{i}"),
+                "tool": "orchestrate",
+                "function": "execute",
+                "timestamp": "2026-01-01T12:00:00Z"
+            })
+        })
+        .collect();
+    let chain_header = serde_json::to_string(&entries).unwrap();
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 17,
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"path": "/tmp/test"}
+        }
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("x-upstream-agents", chain_header)
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json_resp = json_body(resp).await;
+    assert_eq!(json_resp["error"]["code"], -32600);
+    assert!(
+        json_resp["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Invalid request"),
+        "Excessive call-chain header should be rejected: {}",
+        json_resp
+    );
+}
+
+#[tokio::test]
 async fn resource_read_malformed_call_chain_header_rejected() {
     let upstream_url = start_mock_upstream().await;
     let tmp = TempDir::new().unwrap();

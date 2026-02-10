@@ -128,6 +128,38 @@ fn check_invalid_toml_fails() {
 }
 
 #[test]
+fn check_with_opa_enabled_fails_closed() {
+    let tmp = TempDir::new().unwrap();
+    let config_path = write_toml_config(
+        tmp.path(),
+        r#"
+policies = []
+
+[opa]
+enabled = true
+endpoint = "http://localhost:8181"
+decision_path = "sentinel/allow"
+"#,
+    );
+
+    let output = sentinel_bin()
+        .args(["check", "--config", config_path.to_str().unwrap()])
+        .output()
+        .expect("failed to run sentinel check");
+
+    assert!(
+        !output.status.success(),
+        "check should fail closed when OPA is enabled but unsupported"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("OPA integration is configured"),
+        "Expected OPA fail-closed error. stderr: {}",
+        stderr
+    );
+}
+
+#[test]
 fn check_empty_policies_array_succeeds() {
     let tmp = TempDir::new().unwrap();
     // An empty file won't parse as PolicyConfig because `policies` field is required.

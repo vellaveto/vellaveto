@@ -1130,6 +1130,16 @@ async fn cmd_check(
     // Load the configuration
     let policy_config = PolicyConfig::load_file(&config)
         .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
+    // SECURITY: Fail closed during config validation when unsupported OPA
+    // runtime wiring is requested. This prevents "check passes, serve fails"
+    // drift and avoids false assurance.
+    if policy_config.opa.enabled {
+        anyhow::bail!(
+            "OPA integration is configured (`[opa].enabled = true`) but is not wired into \
+             sentinel-server request evaluation yet. Disable OPA in config or use a build/runtime \
+             that enforces OPA decisions."
+        );
+    }
 
     // Build the validator with options
     let mut validator = PolicyValidator::new();
