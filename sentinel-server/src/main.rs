@@ -735,18 +735,53 @@ async fn cmd_serve(
         },
         // Phase 6: Observability
         exec_graph_store: None,
-        // Phase 8: ETDI Cryptographic Tool Security — default: None (disabled)
-        // TODO: Initialize from PolicyConfig.etdi when enabled in configuration
-        etdi_store: None,
-        etdi_verifier: None,
-        etdi_attestations: None,
-        etdi_version_pins: None,
-        // Phase 9: Memory Injection Defense (MINJA) — default: None (disabled)
-        // TODO: Initialize from PolicyConfig.memory_security when enabled in configuration
-        memory_security: None,
-        // Phase 10: Non-Human Identity (NHI) Lifecycle — default: None (disabled)
-        // TODO: Initialize from PolicyConfig.nhi when enabled in configuration
-        nhi: None,
+        // Phase 8: ETDI Cryptographic Tool Security — initialized from PolicyConfig
+        etdi_store: if policy_config.etdi.enabled {
+            let data_path = policy_config.etdi.data_path.as_deref().unwrap_or("etdi_data");
+            Some(Arc::new(sentinel_mcp::etdi::EtdiStore::new(data_path)))
+        } else {
+            None
+        },
+        etdi_verifier: if policy_config.etdi.enabled {
+            Some(Arc::new(sentinel_mcp::etdi::ToolSignatureVerifier::new(
+                policy_config.etdi.allowed_signers.clone(),
+            )))
+        } else {
+            None
+        },
+        etdi_attestations: if policy_config.etdi.enabled && policy_config.etdi.attestation.enabled {
+            // AttestationChain requires the store, but we can't reference etdi_store here
+            // because struct initialization is unordered. We create a new store Arc.
+            let data_path = policy_config.etdi.data_path.as_deref().unwrap_or("etdi_data");
+            let store = Arc::new(sentinel_mcp::etdi::EtdiStore::new(data_path));
+            Some(Arc::new(sentinel_mcp::etdi::AttestationChain::new(store)))
+        } else {
+            None
+        },
+        etdi_version_pins: if policy_config.etdi.enabled && policy_config.etdi.version_pinning.enabled {
+            let data_path = policy_config.etdi.data_path.as_deref().unwrap_or("etdi_data");
+            let store = Arc::new(sentinel_mcp::etdi::EtdiStore::new(data_path));
+            let blocking = policy_config.etdi.version_pinning.enforcement == "block";
+            Some(Arc::new(sentinel_mcp::etdi::VersionPinManager::new(store, blocking)))
+        } else {
+            None
+        },
+        // Phase 9: Memory Injection Defense (MINJA) — initialized from PolicyConfig
+        memory_security: if policy_config.memory_security.enabled {
+            Some(Arc::new(sentinel_mcp::memory_security::MemorySecurityManager::new(
+                policy_config.memory_security.clone(),
+            )))
+        } else {
+            None
+        },
+        // Phase 10: Non-Human Identity (NHI) Lifecycle — initialized from PolicyConfig
+        nhi: if policy_config.nhi.enabled {
+            Some(Arc::new(sentinel_mcp::nhi::NhiManager::new(
+                policy_config.nhi.clone(),
+            )))
+        } else {
+            None
+        },
 
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: policy_config.metrics_require_auth,
