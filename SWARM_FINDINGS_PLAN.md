@@ -237,13 +237,15 @@ pub struct OpaConfig {
 - [ ] Add usage examples
 - [ ] Document configuration options
 
-### GAP-011: Circuit Breaker Metrics
+### GAP-011: Circuit Breaker Metrics ✅
 **Location:** `sentinel-engine/src/circuit_breaker.rs`
 
 **Tasks:**
-- [ ] Add histogram for check latency
-- [ ] Add counter for rejection reasons
-- [ ] Add gauge for time in each state
+- [x] Add histogram for check latency (`sentinel_circuit_breaker_check_duration_seconds`)
+- [x] Add counter for rejection reasons (`sentinel_circuit_breaker_rejections_total` with reason/tool labels)
+- [x] Add gauge for time in each state (`sentinel_circuit_breaker_state_current` and `sentinel_circuit_breaker_circuits_total`)
+- [x] Add `CircuitSummary::record_metrics()` method
+- [x] Add unit tests for metrics (3 new tests)
 
 ### Remaining P3 Gaps
 - [ ] GAP-004: Semantic guardrails backend mocked tests
@@ -305,7 +307,7 @@ sentinel-server/src/routes/
 | 2 | P1 (High) | 3 | ✅ Complete |
 | 3 | P2 (Medium) | 5 | 🔶 2/5 Complete |
 | 4 | P2 (Quick Wins) | 4 | 🔶 2/4 Complete |
-| 5 | P3 (Low) | 10 | ⬜ Not Started |
+| 5 | P3 (Low) | 10 | 🔶 1/10 Complete |
 | 6 | P3 (Architecture) | 2 | ⬜ Not Started |
 
 ### By Category

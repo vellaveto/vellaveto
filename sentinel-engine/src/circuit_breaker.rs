@@ -124,25 +124,46 @@ impl CircuitBreakerManager {
     /// SECURITY: This method is fail-closed. If the RwLock is poisoned or
     /// system time is unavailable, requests are denied to prevent cascading
     /// failures from bypassing circuit breaker protection.
+    ///
+    /// # Metrics (GAP-011)
+    ///
+    /// - `sentinel_circuit_breaker_check_duration_seconds`: Histogram of check latency
+    /// - `sentinel_circuit_breaker_rejections_total`: Counter of rejected requests
     pub fn can_proceed(&self, tool: &str) -> Result<(), String> {
+        let start = std::time::Instant::now();
+
         // SECURITY: Fail-closed on RwLock poisoning instead of recovering stale state.
         let circuits = self.circuits.read().map_err(|_| {
             tracing::error!(
                 "CRITICAL: Circuit breaker RwLock poisoned — failing closed for tool '{}'",
                 tool
             );
-            format!(
+            let reason =
+                format!(
                 "Circuit breaker unavailable for tool '{}' (internal error — failing closed)",
                 tool
+            );
+            // GAP-011: Record rejection metric
+            metrics::counter!(
+                "sentinel_circuit_breaker_rejections_total",
+                "tool" => tool.to_string(),
+                "reason" => "rwlock_poisoned"
             )
+            .increment(1);
+            reason
         })?;
 
         let stats = match circuits.get(tool) {
             Some(s) => s,
-            None => return Ok(()), // No circuit = closed
+            None => {
+                // GAP-011: Record successful check latency
+                metrics::histogram!("sentinel_circuit_breaker_check_duration_seconds")
+                    .record(start.elapsed().as_secs_f64());
+                return Ok(()); // No circuit = closed
+            }
         };
 
-        match stats.state {
+        let result = match stats.state {
             CircuitState::Closed => Ok(()),
             CircuitState::Open => {
                 // Check if it's time to transition to half-open
@@ -152,12 +173,20 @@ impl CircuitBreakerManager {
                     // Would transition to half-open, allow one request
                     Ok(())
                 } else {
-                    Err(format!(
+                    let reason = format!(
                         "Circuit breaker open for tool '{}' (failures: {}, opens in {}s)",
                         tool,
                         stats.failure_count,
                         (stats.last_state_change + self.open_duration_secs).saturating_sub(now)
-                    ))
+                    );
+                    // GAP-011: Record rejection metric
+                    metrics::counter!(
+                        "sentinel_circuit_breaker_rejections_total",
+                        "tool" => tool.to_string(),
+                        "reason" => "circuit_open"
+                    )
+                    .increment(1);
+                    Err(reason)
                 }
             }
             CircuitState::HalfOpen => {
@@ -165,13 +194,27 @@ impl CircuitBreakerManager {
                 if stats.success_count < self.half_open_max_requests {
                     Ok(())
                 } else {
-                    Err(format!(
+                    let reason = format!(
                         "Circuit breaker half-open for tool '{}' (testing recovery)",
                         tool
-                    ))
+                    );
+                    // GAP-011: Record rejection metric
+                    metrics::counter!(
+                        "sentinel_circuit_breaker_rejections_total",
+                        "tool" => tool.to_string(),
+                        "reason" => "half_open_limit"
+                    )
+                    .increment(1);
+                    Err(reason)
                 }
             }
-        }
+        };
+
+        // GAP-011: Record check latency
+        metrics::histogram!("sentinel_circuit_breaker_check_duration_seconds")
+            .record(start.elapsed().as_secs_f64());
+
+        result
     }
 
     /// Record a successful call.
@@ -483,6 +526,26 @@ pub struct CircuitSummary {
     pub half_open: usize,
 }
 
+impl CircuitSummary {
+    /// Record current state counts as gauge metrics (GAP-011).
+    ///
+    /// Call this periodically (e.g., every 10 seconds) to keep gauge values current.
+    ///
+    /// # Metrics
+    ///
+    /// - `sentinel_circuit_breaker_circuits_total`: Total circuits tracked
+    /// - `sentinel_circuit_breaker_state_current`: Current count by state
+    pub fn record_metrics(&self) {
+        metrics::gauge!("sentinel_circuit_breaker_circuits_total").set(self.total as f64);
+        metrics::gauge!("sentinel_circuit_breaker_state_current", "state" => "closed")
+            .set(self.closed as f64);
+        metrics::gauge!("sentinel_circuit_breaker_state_current", "state" => "open")
+            .set(self.open as f64);
+        metrics::gauge!("sentinel_circuit_breaker_state_current", "state" => "half_open")
+            .set(self.half_open as f64);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -587,5 +650,53 @@ mod tests {
         // Now a failure in half-open should reopen
         let state = manager.record_failure("my_tool");
         assert_eq!(state, CircuitState::Open);
+    }
+
+    // ========================================
+    // GAP-011: Circuit Breaker Metrics Tests
+    // ========================================
+
+    #[test]
+    fn test_summary_record_metrics_does_not_panic() {
+        let manager = CircuitBreakerManager::new(2, 2, 30);
+
+        manager.record_success("closed_tool");
+        manager.record_failure("open_tool");
+        manager.record_failure("open_tool");
+
+        let summary = manager.summary();
+
+        // Should not panic when recording metrics
+        summary.record_metrics();
+    }
+
+    #[test]
+    fn test_can_proceed_rejection_contains_tool_name() {
+        let manager = CircuitBreakerManager::new(2, 2, 30);
+
+        manager.record_failure("my_flaky_tool");
+        manager.record_failure("my_flaky_tool");
+
+        let result = manager.can_proceed("my_flaky_tool");
+        assert!(result.is_err());
+        let reason = result.unwrap_err();
+        assert!(
+            reason.contains("my_flaky_tool"),
+            "rejection reason should contain tool name"
+        );
+        assert!(
+            reason.contains("Circuit breaker open"),
+            "rejection reason should indicate circuit is open"
+        );
+    }
+
+    #[test]
+    fn test_can_proceed_success_does_not_panic() {
+        let manager = CircuitBreakerManager::new(5, 3, 30);
+
+        // Multiple successful can_proceed calls should work fine
+        for _ in 0..100 {
+            assert!(manager.can_proceed("healthy_tool").is_ok());
+        }
     }
 }
