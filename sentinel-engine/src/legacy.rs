@@ -20,7 +20,7 @@ impl PolicyEngine {
     /// Check if a policy matches an action.
     ///
     /// Policy ID convention: `"tool:function"`, `"tool:*"`, `"*:function"`, or `"*"`.
-    fn matches_action(&self, action: &Action, policy: &Policy) -> bool {
+    pub(crate) fn matches_action(&self, action: &Action, policy: &Policy) -> bool {
         let id = &policy.id;
 
         if id == "*" {
@@ -61,7 +61,7 @@ impl PolicyEngine {
     /// SECURITY (P0-FIX): This legacy path now checks path_rules, network_rules, and
     /// ip_rules before returning the verdict, matching the behavior of the compiled
     /// policy path. Previously, these checks were skipped, allowing policy bypass.
-    fn apply_policy(
+    pub(crate) fn apply_policy(
         &self,
         action: &Action,
         policy: &Policy,
@@ -232,7 +232,7 @@ impl PolicyEngine {
 
             // SECURITY (R30-ENG-2): Fail-closed for non-ASCII domains that fail
             // IDNA normalization.
-            if Self::normalize_domain_for_match(&domain).is_none() {
+            if normalize_domain_for_match(&domain).is_none() {
                 return Some(Verdict::Deny {
                     reason: format!(
                         "Domain '{}' cannot be normalized (IDNA failure) — blocked by policy '{}'",
@@ -243,7 +243,7 @@ impl PolicyEngine {
 
             // Check blocked domains first
             for pattern in &rules.blocked_domains {
-                if Self::match_domain_pattern(&domain, pattern) {
+                if match_domain_pattern(&domain, pattern) {
                     return Some(Verdict::Deny {
                         reason: format!(
                             "Domain '{}' blocked by pattern '{}' in policy '{}'",
@@ -258,7 +258,7 @@ impl PolicyEngine {
                 && !rules
                     .allowed_domains
                     .iter()
-                    .any(|p| Self::match_domain_pattern(&domain, p))
+                    .any(|p| match_domain_pattern(&domain, p))
             {
                 return Some(Verdict::Deny {
                     reason: format!(
@@ -819,10 +819,10 @@ impl PolicyEngine {
                 reason: "domain_match constraint missing 'pattern' string".to_string(),
             })?;
 
-        let domain = Self::extract_domain(raw);
+        let domain = extract_domain(raw);
 
         // SECURITY (R34-ENG-3): IDNA fail-closed guard matching compiled path (R31-ENG-1).
-        if !domain.is_ascii() && Self::normalize_domain_for_match(&domain).is_none() {
+        if !domain.is_ascii() && normalize_domain_for_match(&domain).is_none() {
             return Ok(Some(Self::make_constraint_verdict(
                 "deny",
                 &format!(
@@ -832,7 +832,7 @@ impl PolicyEngine {
             )?));
         }
 
-        if Self::match_domain_pattern(&domain, pattern) {
+        if match_domain_pattern(&domain, pattern) {
             Ok(Some(Self::make_constraint_verdict(
                 on_match,
                 &format!(
@@ -884,10 +884,10 @@ impl PolicyEngine {
                 reason: "domain_not_in constraint missing 'patterns' array".to_string(),
             })?;
 
-        let domain = Self::extract_domain(raw);
+        let domain = extract_domain(raw);
 
         // SECURITY (R34-ENG-3): IDNA fail-closed guard matching compiled path (R31-ENG-1).
-        if !domain.is_ascii() && Self::normalize_domain_for_match(&domain).is_none() {
+        if !domain.is_ascii() && normalize_domain_for_match(&domain).is_none() {
             return Ok(Some(Self::make_constraint_verdict(
                 "deny",
                 &format!(
@@ -904,7 +904,7 @@ impl PolicyEngine {
                     policy_id: policy.id.clone(),
                     reason: "domain_not_in patterns must be strings".to_string(),
                 })?;
-            if Self::match_domain_pattern(&domain, pat_str) {
+            if match_domain_pattern(&domain, pat_str) {
                 return Ok(None); // Matched allowlist
             }
         }
