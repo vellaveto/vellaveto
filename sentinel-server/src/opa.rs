@@ -21,9 +21,8 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::RwLock;
 
-/// Default cache size for OPA decisions.
-/// Using a const ensures compile-time validation of NonZeroUsize.
-const DEFAULT_CACHE_SIZE: usize = 1000;
+/// Fallback cache size for OPA decisions if configured size is zero.
+const FALLBACK_CACHE_SIZE: usize = 1000;
 
 /// Errors that can occur during OPA evaluation.
 #[derive(Debug, Error)]
@@ -110,8 +109,13 @@ impl OpaClient {
             .timeout(Duration::from_millis(config.timeout_ms))
             .build()?;
 
-        // SEC-002: Use compile-time validated cache size instead of runtime expect()
-        let cache_size = NonZeroUsize::new(DEFAULT_CACHE_SIZE).unwrap_or(NonZeroUsize::MIN);
+        // IMP-008: Use configurable cache size with fallback
+        let configured_size = if config.cache_size > 0 {
+            config.cache_size
+        } else {
+            FALLBACK_CACHE_SIZE
+        };
+        let cache_size = NonZeroUsize::new(configured_size).unwrap_or(NonZeroUsize::MIN);
         let cache = Arc::new(RwLock::new(LruCache::new(cache_size)));
 
         let opa_client = OpaClient {
@@ -576,5 +580,24 @@ mod tests {
         };
 
         assert_eq!(config.max_retries, 0);
+    }
+
+    #[test]
+    fn test_cache_size_default() {
+        let config = OpaConfig::default();
+        assert_eq!(config.cache_size, 1000);
+    }
+
+    #[test]
+    fn test_cache_size_custom() {
+        let config = OpaConfig {
+            enabled: true,
+            endpoint: Some("http://localhost:8181".to_string()),
+            decision_path: "sentinel/allow".to_string(),
+            cache_size: 5000,
+            ..Default::default()
+        };
+
+        assert_eq!(config.cache_size, 5000);
     }
 }

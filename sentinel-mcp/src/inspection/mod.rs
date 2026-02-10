@@ -20,6 +20,7 @@ pub mod dlp;
 pub mod injection;
 pub mod multimodal;
 pub mod tool_description;
+pub mod util;
 
 // Re-export all public items from submodules for backwards compatibility
 pub use dlp::{

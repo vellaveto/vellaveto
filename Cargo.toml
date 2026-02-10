@@ -31,7 +31,7 @@ anyhow = "1.0"
 tracing = "0.1"
 metrics = "0.24"
 async-trait = "0.1"
-reqwest = { version = "0.13", features = ["json", "query"] }
+reqwest = { version = "0.12", features = ["json"] }
 # OpenTelemetry (Phase 4) - v0.27+ uses tonic 0.12+ with http 1.x
 opentelemetry = "0.30"
 opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }

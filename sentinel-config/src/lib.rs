@@ -3552,6 +3552,15 @@ pub struct OpaConfig {
     /// Include full evaluation trace in audit log. Default: false.
     #[serde(default)]
     pub audit_decisions: bool,
+
+    /// Maximum number of decisions to cache. Default: 1000.
+    /// Higher values improve hit rate but use more memory.
+    #[serde(default = "default_opa_cache_size")]
+    pub cache_size: usize,
+}
+
+fn default_opa_cache_size() -> usize {
+    1000
 }
 
 impl Default for OpaConfig {
@@ -3568,6 +3577,7 @@ impl Default for OpaConfig {
             headers: std::collections::HashMap::new(),
             bundle_path: None,
             audit_decisions: false,
+            cache_size: default_opa_cache_size(),
         }
     }
 }

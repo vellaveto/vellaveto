@@ -10,7 +10,7 @@ use sentinel_engine::PolicyEngine;
 use sentinel_http_proxy::oauth::{default_allowed_algorithms, OAuthConfig, OAuthValidator};
 use sentinel_http_proxy::proxy::ProxyState;
 use sentinel_http_proxy::session::SessionStore;
-use sentinel_types::{Policy, PolicyType};
+use sentinel_types::{NetworkRules, Policy, PolicyType};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -240,6 +240,36 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
     }
 }
 
+fn build_domain_guard_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
+    let mut state = build_test_state(upstream_url, tmp);
+    let policies = vec![
+        Policy {
+            id: "read_file:*".to_string(),
+            name: "Allow read_file with strict network guard".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 20,
+            path_rules: None,
+            network_rules: Some(NetworkRules {
+                allowed_domains: vec!["api.example.com".to_string()],
+                blocked_domains: vec!["evil.example".to_string()],
+                ip_rules: None,
+            }),
+        },
+        Policy {
+            id: "bash:*".to_string(),
+            name: "Block bash".to_string(),
+            policy_type: PolicyType::Deny,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        },
+    ];
+
+    state.engine = Arc::new(PolicyEngine::with_policies(false, &policies).expect("compile"));
+    state.policies = Arc::new(policies);
+    state
+}
+
 fn build_router(state: ProxyState) -> axum::Router {
     axum::Router::new()
         .route(
@@ -276,6 +306,42 @@ async fn health_returns_ok() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
     assert_eq!(&body[..], b"ok");
+}
+
+// ════════════════════════════════
+// ORIGIN / CSRF
+// ════════════════════════════════
+
+#[tokio::test]
+async fn browser_request_with_foreign_origin_is_rejected() {
+    let upstream_url = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_test_state(&upstream_url, &tmp);
+    let app = build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 101,
+        "method": "initialize",
+        "params": {}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("origin", "http://evil.example")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    let json = json_body(resp).await;
+    assert_eq!(json["error"]["code"], -32001);
+    assert_eq!(json["error"]["message"], "Origin not allowed");
 }
 
 // ════════════════════════════════
@@ -322,6 +388,67 @@ async fn tool_call_allowed_forwards_to_upstream() {
         .as_str()
         .unwrap()
         .contains("read_file"));
+}
+
+#[tokio::test]
+async fn tool_call_with_blocked_target_domain_is_denied_before_upstream() {
+    let forwarded = Arc::new(AtomicUsize::new(0));
+    let forwarded_clone = forwarded.clone();
+    let upstream = axum::Router::new().route(
+        "/mcp",
+        axum::routing::post(move |_body: axum::body::Bytes| {
+            let forwarded = forwarded_clone.clone();
+            async move {
+                forwarded.fetch_add(1, Ordering::SeqCst);
+                axum::Json(json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": {"content": [{"type": "text", "text": "unexpected forward"}]}
+                }))
+            }
+        }),
+    );
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let upstream_url = format!("http://{}/mcp", addr);
+    tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let tmp = TempDir::new().unwrap();
+    let state = build_domain_guard_state(&upstream_url, &tmp);
+    let app = build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 102,
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"url": "https://evil.example/secrets"}
+        }
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = json_body(resp).await;
+    assert_eq!(json["id"], 102);
+    assert_eq!(json["error"]["code"], -32001);
+    assert_eq!(
+        forwarded.load(Ordering::SeqCst),
+        0,
+        "Blocked domain traffic must fail closed before forwarding",
+    );
 }
 
 #[tokio::test]
@@ -2333,6 +2460,16 @@ async fn start_mock_jwks_server() -> String {
 
 /// Create a signed JWT with the given claims.
 fn sign_test_jwt(sub: &str, scope: &str, exp_offset_secs: i64) -> String {
+    sign_test_jwt_with_resource(sub, scope, exp_offset_secs, None)
+}
+
+/// Create a signed JWT with optional RFC 8707 `resource` claim.
+fn sign_test_jwt_with_resource(
+    sub: &str,
+    scope: &str,
+    exp_offset_secs: i64,
+    resource: Option<&str>,
+) -> String {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 
     let now = std::time::SystemTime::now()
@@ -2346,7 +2483,7 @@ fn sign_test_jwt(sub: &str, scope: &str, exp_offset_secs: i64) -> String {
         now.saturating_sub((-exp_offset_secs) as u64)
     };
 
-    let claims = json!({
+    let mut claims = json!({
         "sub": sub,
         "iss": TEST_ISSUER,
         "aud": TEST_AUDIENCE,
@@ -2354,6 +2491,9 @@ fn sign_test_jwt(sub: &str, scope: &str, exp_offset_secs: i64) -> String {
         "iat": now,
         "scope": scope,
     });
+    if let Some(resource) = resource {
+        claims["resource"] = Value::String(resource.to_string());
+    }
 
     let mut header = Header::new(Algorithm::RS256);
     header.kid = Some("test-key-1".to_string());
@@ -2369,6 +2509,25 @@ fn build_oauth_test_state(
     tmp: &TempDir,
     required_scopes: Vec<String>,
     pass_through: bool,
+) -> ProxyState {
+    build_oauth_test_state_with_resource(
+        upstream_url,
+        jwks_url,
+        tmp,
+        required_scopes,
+        pass_through,
+        None,
+    )
+}
+
+/// Build a ProxyState with OAuth 2.1 enabled and optional expected resource indicator.
+fn build_oauth_test_state_with_resource(
+    upstream_url: &str,
+    jwks_url: &str,
+    tmp: &TempDir,
+    required_scopes: Vec<String>,
+    pass_through: bool,
+    expected_resource: Option<&str>,
 ) -> ProxyState {
     let policies = vec![
         Policy {
@@ -2399,7 +2558,7 @@ fn build_oauth_test_state(
         required_scopes,
         pass_through,
         allowed_algorithms: default_allowed_algorithms(),
-        expected_resource: None,
+        expected_resource: expected_resource.map(|v| v.to_string()),
         clock_skew_leeway: std::time::Duration::from_secs(30),
         require_audience: true,
     };
@@ -2569,6 +2728,93 @@ async fn oauth_enabled_valid_token_forwards_request() {
 
     let json = json_body(resp).await;
     assert_eq!(json["id"], 1);
+    assert!(json["result"].is_object());
+}
+
+#[tokio::test]
+async fn oauth_expected_resource_mismatch_returns_401() {
+    let jwks_url = start_mock_jwks_server().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_oauth_test_state_with_resource(
+        "http://localhost:9999/mcp",
+        &jwks_url,
+        &tmp,
+        vec![],
+        false,
+        Some("https://sentinel.example/resource"),
+    );
+    let app = build_router(state);
+
+    let token = sign_test_jwt_with_resource(
+        "user-123",
+        "tools.call",
+        300,
+        Some("https://other.example/resource"),
+    );
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "read_file", "arguments": {"path": "/tmp/test"}}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let json = json_body(resp).await;
+    assert_eq!(json["error"], "Invalid or expired token");
+}
+
+#[tokio::test]
+async fn oauth_expected_resource_match_allows_request() {
+    let upstream_url = start_mock_upstream().await;
+    let jwks_url = start_mock_jwks_server().await;
+    let tmp = TempDir::new().unwrap();
+    let expected_resource = "https://sentinel.example/resource";
+    let state = build_oauth_test_state_with_resource(
+        &upstream_url,
+        &jwks_url,
+        &tmp,
+        vec![],
+        false,
+        Some(expected_resource),
+    );
+    let app = build_router(state);
+
+    let token = sign_test_jwt_with_resource("user-123", "tools.call", 300, Some(expected_resource));
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "read_file", "arguments": {"path": "/tmp/test"}}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = json_body(resp).await;
     assert!(json["result"].is_object());
 }
 
@@ -2791,6 +3037,65 @@ async fn oauth_pass_through_forwards_auth_header() {
     // Verify the upstream received the Authorization header
     let forwarded = received_auth.lock().await;
     assert_eq!(forwarded.as_deref(), Some(bearer.as_str()));
+}
+
+#[tokio::test]
+async fn oauth_pass_through_invalid_token_not_forwarded() {
+    let forwarded = Arc::new(AtomicUsize::new(0));
+    let forwarded_clone = forwarded.clone();
+    let app = axum::Router::new().route(
+        "/mcp",
+        axum::routing::post(
+            move |_headers: axum::http::HeaderMap, _body: axum::body::Bytes| {
+                let forwarded = forwarded_clone.clone();
+                async move {
+                    forwarded.fetch_add(1, Ordering::SeqCst);
+                    axum::Json(json!({
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "result": {"content": [{"type": "text", "text": "should not be reached"}]}
+                    }))
+                }
+            },
+        ),
+    );
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let upstream_url = format!("http://{}/mcp", addr);
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let jwks_url = start_mock_jwks_server().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_oauth_test_state(&upstream_url, &jwks_url, &tmp, vec![], true);
+    let proxy_app = build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "read_file", "arguments": {"path": "/tmp/test"}}
+    }))
+    .unwrap();
+
+    let resp = proxy_app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer this.is.not.a.valid.jwt")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        forwarded.load(Ordering::SeqCst),
+        0,
+        "Invalid tokens must be rejected before pass-through forwarding",
+    );
 }
 
 #[tokio::test]

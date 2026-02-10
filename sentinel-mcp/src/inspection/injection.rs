@@ -766,33 +766,8 @@ fn scan_json_value_for_injection(
     }
 }
 
-/// Attempt base64 decoding across standard and URL-safe variants (with and without padding).
-/// Returns `Some(decoded_string)` on success, `None` if no variant produces valid UTF-8.
-///
-/// SECURITY (R40-MCP-1): Each variant is tried independently with its own UTF-8 check.
-/// Previously an `or_else` chain meant a STANDARD decode that succeeded but produced
-/// non-UTF-8 bytes would prevent URL_SAFE from being attempted, allowing attackers to
-/// evade DLP by encoding secrets with base64url (RFC 4648 §5).
-pub(crate) fn try_base64_decode(s: &str) -> Option<String> {
-    if s.len() <= 16 || s.contains(' ') {
-        return None;
-    }
-    use base64::Engine;
-    let engines = [
-        &base64::engine::general_purpose::STANDARD,
-        &base64::engine::general_purpose::URL_SAFE,
-        &base64::engine::general_purpose::STANDARD_NO_PAD,
-        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-    ];
-    for engine in engines {
-        if let Ok(bytes) = engine.decode(s) {
-            if let Ok(decoded) = std::str::from_utf8(&bytes) {
-                return Some(decoded.to_string());
-            }
-        }
-    }
-    None
-}
+// IMP-003: Use shared try_base64_decode from util module
+pub(crate) use super::util::try_base64_decode;
 
 #[cfg(test)]
 mod tests {
