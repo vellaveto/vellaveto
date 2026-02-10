@@ -1,6 +1,7 @@
 [package]
 name = "sentinel-proxy"
 version = "2.0.0"
+description = "MCP stdio proxy for command-line tool integration"
 edition = "2021"
 license.workspace = true
 repository.workspace = true

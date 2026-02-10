@@ -1,6 +1,7 @@
 [package]
 name = "sentinel-canonical"
 version = "2.0.0"
+description = "Canonical security policy presets for common scenarios"
 edition = "2021"
 license.workspace = true
 repository.workspace = true

@@ -1,6 +1,7 @@
 [package]
 name = "sentinel-approval"
 version = "2.0.0"
+description = "Human-in-the-loop approval workflow with deduplication"
 edition = "2021"
 license.workspace = true
 repository.workspace = true

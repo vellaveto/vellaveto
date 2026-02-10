@@ -1,6 +1,7 @@
 [package]
 name = "sentinel-mcp"
 version = "2.0.0"
+description = "MCP protocol security: DLP, injection detection, tool registry, and guardrails"
 edition = "2021"
 license.workspace = true
 repository.workspace = true

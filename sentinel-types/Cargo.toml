@@ -1,6 +1,7 @@
 [package]
 name = "sentinel-types"
 version = "2.0.0"
+description = "Core type definitions for Sentinel policy engine"
 edition = "2021"
 license.workspace = true
 repository.workspace = true

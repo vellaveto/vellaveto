@@ -1,6 +1,7 @@
 [package]
 name = "sentinel-integration"
 version = "2.0.0"
+description = "Integration test suite for Sentinel components"
 edition = "2021"
 license.workspace = true
 repository.workspace = true
