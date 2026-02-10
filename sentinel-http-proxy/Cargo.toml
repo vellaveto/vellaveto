@@ -34,7 +34,7 @@ chrono = { workspace = true }
 axum = "0.8"
 clap = { version = "4.0", features = ["derive"] }
 dashmap = "6"
-jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 reqwest = { workspace = true, features = ["stream"] }
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
