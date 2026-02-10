@@ -451,8 +451,7 @@ impl PolicyEngine {
             })
             .unwrap_or_default();
 
-        let mut constraints = Vec::new();
-        if let Some(constraint_arr) = conditions.get("parameter_constraints") {
+        let constraints = if let Some(constraint_arr) = conditions.get("parameter_constraints") {
             let arr = constraint_arr
                 .as_array()
                 .ok_or_else(|| PolicyValidationError {
@@ -461,24 +460,31 @@ impl PolicyEngine {
                     reason: "parameter_constraints must be an array".to_string(),
                 })?;
 
+            let mut constraints = Vec::with_capacity(arr.len());
             for constraint_val in arr {
                 constraints.push(Self::compile_constraint(policy, constraint_val)?);
             }
-        }
+            constraints
+        } else {
+            Vec::new()
+        };
 
         // Parse context conditions (session-level checks)
-        let mut context_conditions = Vec::new();
-        if let Some(ctx_arr) = conditions.get("context_conditions") {
+        let context_conditions = if let Some(ctx_arr) = conditions.get("context_conditions") {
             let arr = ctx_arr.as_array().ok_or_else(|| PolicyValidationError {
                 policy_id: policy.id.clone(),
                 policy_name: policy.name.clone(),
                 reason: "context_conditions must be an array".to_string(),
             })?;
 
+            let mut context_conditions = Vec::with_capacity(arr.len());
             for ctx_val in arr {
                 context_conditions.push(Self::compile_context_condition(policy, ctx_val)?);
             }
-        }
+            context_conditions
+        } else {
+            Vec::new()
+        };
 
         // Validate strict mode unknown keys
         if strict_mode {
@@ -4418,7 +4424,8 @@ impl PolicyEngine {
     ///
     /// Bounded by [`MAX_SCAN_VALUES`] total values and [`MAX_JSON_DEPTH`] nesting depth.
     fn collect_all_string_values(params: &serde_json::Value) -> Vec<(String, &str)> {
-        let mut results = Vec::new();
+        // Pre-allocate for typical parameter sizes; bounded by MAX_SCAN_VALUES
+        let mut results = Vec::with_capacity(16);
         // Stack: (value, current_path, depth)
         let mut stack: Vec<(&serde_json::Value, String, usize)> = vec![(params, String::new(), 0)];
 
@@ -4500,7 +4507,6 @@ impl PolicyEngine {
         action: &Action,
     ) -> Result<(Verdict, EvaluationTrace), EngineError> {
         let start = Instant::now();
-        let mut policy_matches: Vec<PolicyMatch> = Vec::new();
         let mut policies_checked: usize = 0;
         let mut final_verdict: Option<Verdict> = None;
 
@@ -4532,6 +4538,7 @@ impl PolicyEngine {
 
         // Walk compiled policies using the tool index (same order as evaluate_with_compiled)
         let indices = self.collect_candidate_indices(action);
+        let mut policy_matches: Vec<PolicyMatch> = Vec::with_capacity(indices.len());
 
         for idx in &indices {
             let cp = &self.compiled_policies[*idx];
@@ -4600,7 +4607,6 @@ impl PolicyEngine {
         context: Option<&EvaluationContext>,
     ) -> Result<(Verdict, EvaluationTrace), EngineError> {
         let start = Instant::now();
-        let mut policy_matches: Vec<PolicyMatch> = Vec::new();
         let mut policies_checked: usize = 0;
         let mut final_verdict: Option<Verdict> = None;
 
@@ -4631,6 +4637,7 @@ impl PolicyEngine {
         }
 
         let indices = self.collect_candidate_indices(action);
+        let mut policy_matches: Vec<PolicyMatch> = Vec::with_capacity(indices.len());
 
         for idx in &indices {
             let cp = &self.compiled_policies[*idx];
@@ -4814,7 +4821,7 @@ impl PolicyEngine {
         action: &Action,
         cp: &CompiledPolicy,
     ) -> Result<(Option<Verdict>, Vec<ConstraintResult>), EngineError> {
-        let mut results = Some(Vec::new());
+        let mut results = Some(Vec::with_capacity(cp.constraints.len()));
         let verdict = self.evaluate_compiled_conditions_core(action, cp, &mut results)?;
         Ok((verdict, results.unwrap_or_default()))
     }
@@ -4833,7 +4840,7 @@ impl PolicyEngine {
         // Wildcard param: scan all string values
         if param_name == "*" {
             let all_values = Self::collect_all_string_values(&action.parameters);
-            let mut results = Vec::new();
+            let mut results = Vec::with_capacity(all_values.len());
             if all_values.is_empty() {
                 if on_missing == "skip" {
                     return Ok((None, Vec::new()));
