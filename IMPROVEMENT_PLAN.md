@@ -222,22 +222,29 @@ The most critical issue is **observability blindness**: DLP findings, behavioral
 
 **Completed:** 2026-02-10
 
-### 5.2 Wire Phase 1-2 Security Managers
+### 5.2 Wire Phase 1-10 Security Managers ✅
 
-**Problem:** 4 TODO comments in main.rs for uninitialized security managers.
+**Problem:** ~~4 TODO comments in main.rs for uninitialized security managers.~~ **Fixed.**
 
-**File:** `sentinel-server/src/main.rs` (lines 671-691)
+**File:** `sentinel-server/src/main.rs`
+
+**Completed:** Commits `8719e2c` and `fbc320a` wired all Phase 1-10 security managers to PolicyConfig.
 
 **Tasks:**
 ```
-[ ] Initialize task_state manager from config
-[ ] Initialize circuit_breaker from CircuitBreakerConfig
-[ ] Initialize ETDI from config.etdi
-[ ] Initialize memory_security from config.memory_security
-[ ] Initialize NHI from config.nhi
+[x] Initialize task_state manager from config
+[x] Initialize circuit_breaker from CircuitBreakerConfig
+[x] Initialize auth_level from step_up_auth config
+[x] Initialize deputy from deputy config
+[x] Initialize shadow_agent from shadow_agent config
+[x] Initialize schema_lineage from schema_poisoning config
+[x] Initialize sampling_detector from sampling_detection config
+[x] Initialize ETDI from config.etdi
+[x] Initialize memory_security from config.memory_security
+[x] Initialize NHI from config.nhi
 ```
 
-**Effort:** 1 day
+**Completed:** 2026-02-10
 
 ### 5.3 Add Crate Descriptions
 
@@ -300,10 +307,10 @@ The most critical issue is **observability blindness**: DLP findings, behavioral
 | 2 | Security (replay, DoS protection) | P1 | 1 day | ✅ Complete |
 | 3 | Test Coverage (ETDI, memory, DLP) | P1 | 4 days | ✅ Complete |
 | 4 | Fuzz Targets | P2 | 2 days | ✅ Complete |
-| 5 | Code Quality (constants, TODOs, descriptions) | P3 | 2 days | ✅ Partial (5.1 done) |
+| 5 | Code Quality (constants, TODOs, descriptions) | P3 | 2 days | ✅ Partial (5.1, 5.2 done) |
 | 6 | Dependency Cleanup | P3 | 1 day | ✅ Partial (6.2 done) |
 
-**Remaining Effort:** ~2.5 days — P1 and P2 phases complete, P3 partially complete (5.1 done)
+**Remaining Effort:** ~1.5 days — P1 and P2 phases complete, P3 mostly complete (5.1, 5.2 done)
 
 ---
 
