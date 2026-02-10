@@ -254,7 +254,7 @@ pub struct OpaConfig {
 - [ ] GAP-009: Schema versioning concurrent tests
 - [ ] GAP-012: BehavioralTracker persistence integration test
 - [x] GAP-013: Agent card cache TTL expiration test ✅ (3 comprehensive tests added)
-- [ ] GAP-014: Webhook compression round-trip test
+- [x] GAP-014: Webhook compression round-trip test ✅ (3 tests: round-trip, empty batch, large payload)
 
 ---
 
@@ -307,7 +307,7 @@ sentinel-server/src/routes/
 | 2 | P1 (High) | 3 | ✅ Complete |
 | 3 | P2 (Medium) | 5 | 🔶 2/5 Complete |
 | 4 | P2 (Quick Wins) | 4 | 🔶 2/4 Complete |
-| 5 | P3 (Low) | 10 | 🔶 2/10 Complete |
+| 5 | P3 (Low) | 10 | 🔶 3/10 Complete |
 | 6 | P3 (Architecture) | 2 | ⬜ Not Started |
 
 ### By Category

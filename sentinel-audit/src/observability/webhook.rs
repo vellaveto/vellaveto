@@ -295,12 +295,14 @@ impl ObservabilityExporter for WebhookExporter {
 // ============================================================================
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(serde::Deserialize))]
 struct WebhookRequest {
     spans: Vec<SecuritySpan>,
     metadata: WebhookMetadata,
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(serde::Deserialize))]
 struct WebhookMetadata {
     service: String,
     version: String,
@@ -311,7 +313,7 @@ struct WebhookMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::observability::{ActionSummary, SpanKind, VerdictSummary};
+    use crate::observability::{ActionSummary, DetectionType, SecurityDetection, SpanKind, VerdictSummary};
 
     fn test_config() -> WebhookExporterConfig {
         WebhookExporterConfig::new("https://example.com/webhook")
@@ -402,5 +404,209 @@ mod tests {
 
         // Compressed should be smaller
         assert!(compressed.len() < json.len());
+    }
+
+    /// GAP-014: Comprehensive compression round-trip test
+    /// Verifies that data survives compress → decompress cycle unchanged.
+    #[test]
+    fn test_compression_round_trip() {
+        use flate2::read::GzDecoder;
+        use std::io::Read;
+
+        // Create a complex span with various data types
+        let mut attributes = HashMap::new();
+        attributes.insert("user_id".to_string(), serde_json::json!("user-123"));
+        attributes.insert("action_count".to_string(), serde_json::json!(42));
+        attributes.insert("nested".to_string(), serde_json::json!({
+            "deep": {
+                "value": "test data with unicode: 日本語 emoji: 🔐"
+            }
+        }));
+
+        let span = SecuritySpan {
+            span_id: "span-roundtrip".to_string(),
+            parent_span_id: Some("parent-span".to_string()),
+            trace_id: "trace-roundtrip".to_string(),
+            span_kind: SpanKind::Chain,
+            name: "roundtrip_test_span".to_string(),
+            start_time: "2024-06-15T10:30:00Z".to_string(),
+            end_time: "2024-06-15T10:30:05Z".to_string(),
+            duration_ms: 5000,
+            action: ActionSummary::new("security_tool", "validate"),
+            verdict: VerdictSummary {
+                outcome: "deny".to_string(),
+                reason: Some("Policy violation detected".to_string()),
+            },
+            matched_policy: Some("critical-policy-001".to_string()),
+            detections: vec![
+                SecurityDetection {
+                    detection_type: DetectionType::Dlp,
+                    severity: 8,
+                    description: "Credit card pattern detected".to_string(),
+                    pattern: Some("credit_card".to_string()),
+                    metadata: HashMap::new(),
+                },
+            ],
+            request_body: Some(serde_json::json!({
+                "payment_info": "4111-1111-1111-1111"
+            })),
+            response_body: None,
+            attributes,
+        };
+
+        let request = WebhookRequest {
+            spans: vec![span],
+            metadata: WebhookMetadata {
+                service: "sentinel-test".to_string(),
+                version: "2.0.0".to_string(),
+                batch_size: 1,
+                timestamp: "2024-06-15T10:30:05Z".to_string(),
+            },
+        };
+
+        // Serialize to JSON
+        let original_json = serde_json::to_vec(&request).unwrap();
+
+        // Compress
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&original_json).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        // Decompress
+        let mut decoder = GzDecoder::new(&compressed[..]);
+        let mut decompressed = Vec::new();
+        decoder.read_to_end(&mut decompressed).unwrap();
+
+        // Verify round-trip integrity
+        assert_eq!(
+            original_json, decompressed,
+            "Decompressed data should match original"
+        );
+
+        // Parse the decompressed JSON and verify structure
+        let parsed: WebhookRequest = serde_json::from_slice(&decompressed).unwrap();
+        assert_eq!(parsed.spans.len(), 1);
+        assert_eq!(parsed.spans[0].span_id, "span-roundtrip");
+        assert_eq!(parsed.spans[0].verdict.outcome, "deny");
+        assert_eq!(parsed.spans[0].detections.len(), 1);
+        assert_eq!(parsed.spans[0].detections[0].severity, 8);
+        assert_eq!(parsed.spans[0].detections[0].detection_type, DetectionType::Dlp);
+        assert_eq!(parsed.metadata.version, "2.0.0");
+    }
+
+    /// GAP-014: Test compression of empty batch (edge case)
+    #[test]
+    fn test_compression_empty_batch() {
+        use flate2::read::GzDecoder;
+        use std::io::Read;
+
+        let request = WebhookRequest {
+            spans: vec![],
+            metadata: WebhookMetadata {
+                service: "sentinel".to_string(),
+                version: "test".to_string(),
+                batch_size: 0,
+                timestamp: "2024-01-01T00:00:00Z".to_string(),
+            },
+        };
+
+        let original_json = serde_json::to_vec(&request).unwrap();
+
+        // Compress empty batch
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&original_json).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        // Decompress
+        let mut decoder = GzDecoder::new(&compressed[..]);
+        let mut decompressed = Vec::new();
+        decoder.read_to_end(&mut decompressed).unwrap();
+
+        // Verify round-trip
+        assert_eq!(original_json, decompressed);
+
+        let parsed: WebhookRequest = serde_json::from_slice(&decompressed).unwrap();
+        assert!(parsed.spans.is_empty());
+        assert_eq!(parsed.metadata.batch_size, 0);
+    }
+
+    /// GAP-014: Test compression with large payloads
+    #[test]
+    fn test_compression_large_payload() {
+        use flate2::read::GzDecoder;
+        use std::io::Read;
+
+        // Generate a large number of spans
+        let spans: Vec<SecuritySpan> = (0..100)
+            .map(|i| SecuritySpan {
+                span_id: format!("span-{}", i),
+                parent_span_id: if i > 0 {
+                    Some(format!("span-{}", i - 1))
+                } else {
+                    None
+                },
+                trace_id: "trace-large".to_string(),
+                span_kind: SpanKind::Tool,
+                name: format!("operation_{}", i),
+                start_time: "2024-01-01T00:00:00Z".to_string(),
+                end_time: "2024-01-01T00:00:01Z".to_string(),
+                duration_ms: 100 + i as u64,
+                action: ActionSummary::new(
+                    &format!("tool_{}", i % 10),
+                    &format!("func_{}", i % 5),
+                ),
+                verdict: VerdictSummary {
+                    outcome: if i % 3 == 0 { "deny" } else { "allow" }.to_string(),
+                    reason: if i % 3 == 0 {
+                        Some(format!("Reason for span {}", i))
+                    } else {
+                        None
+                    },
+                },
+                matched_policy: Some(format!("policy-{}", i % 5)),
+                detections: vec![],
+                request_body: Some(serde_json::json!({
+                    "iteration": i,
+                    "data": "x".repeat(100)  // Some repeated data for compression
+                })),
+                response_body: None,
+                attributes: HashMap::new(),
+            })
+            .collect();
+
+        let request = WebhookRequest {
+            spans,
+            metadata: WebhookMetadata {
+                service: "sentinel".to_string(),
+                version: "test".to_string(),
+                batch_size: 100,
+                timestamp: "2024-01-01T00:00:00Z".to_string(),
+            },
+        };
+
+        let original_json = serde_json::to_vec(&request).unwrap();
+
+        // Compress
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&original_json).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        // Compression should be effective for this repetitive data
+        let compression_ratio = compressed.len() as f64 / original_json.len() as f64;
+        assert!(
+            compression_ratio < 0.5,
+            "Compression ratio should be < 50% for repetitive data, got {:.1}%",
+            compression_ratio * 100.0
+        );
+
+        // Decompress and verify
+        let mut decoder = GzDecoder::new(&compressed[..]);
+        let mut decompressed = Vec::new();
+        decoder.read_to_end(&mut decompressed).unwrap();
+
+        let parsed: WebhookRequest = serde_json::from_slice(&decompressed).unwrap();
+        assert_eq!(parsed.spans.len(), 100);
+        assert_eq!(parsed.spans[0].span_id, "span-0");
+        assert_eq!(parsed.spans[99].span_id, "span-99");
     }
 }
