@@ -40,13 +40,22 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/policies", post(add_policy))
         .route("/api/policies/reload", post(reload_policies))
         .route("/api/policies/{id}", delete(remove_policy))
-        .route("/api/audit/entries", get(audit_entries))
-        .route("/api/audit/export", get(audit_export))
-        .route("/api/audit/report", get(audit_report))
-        .route("/api/audit/verify", get(audit_verify))
-        .route("/api/audit/checkpoints", get(list_checkpoints))
-        .route("/api/audit/checkpoints/verify", get(verify_checkpoints))
-        .route("/api/audit/checkpoint", post(create_checkpoint))
+        .route("/api/audit/entries", get(super::audit::audit_entries))
+        .route("/api/audit/export", get(super::audit::audit_export))
+        .route("/api/audit/report", get(super::audit::audit_report))
+        .route("/api/audit/verify", get(super::audit::audit_verify))
+        .route(
+            "/api/audit/checkpoints",
+            get(super::audit::list_checkpoints),
+        )
+        .route(
+            "/api/audit/checkpoints/verify",
+            get(super::audit::verify_checkpoints),
+        )
+        .route(
+            "/api/audit/checkpoint",
+            post(super::audit::create_checkpoint),
+        )
         .route("/api/approvals/pending", get(list_pending_approvals))
         .route("/api/approvals/{id}", get(get_approval))
         .route("/api/approvals/{id}/approve", post(approve_approval))
@@ -74,10 +83,16 @@ pub fn build_router(state: AppState) -> Router {
         // Phase 15: AI Observability Platform Integration
         .route(
             "/api/observability/exporters",
-            get(list_observability_exporters),
+            get(super::observability::list_observability_exporters),
         )
-        .route("/api/observability/stats", get(observability_stats))
-        .route("/api/observability/test", post(test_observability))
+        .route(
+            "/api/observability/stats",
+            get(super::observability::observability_stats),
+        )
+        .route(
+            "/api/observability/test",
+            post(super::observability::test_observability),
+        )
         // Admin dashboard (P3.2)
         .route("/dashboard", get(crate::dashboard::dashboard_page))
         .route(
@@ -164,10 +179,7 @@ pub fn build_router(state: AppState) -> Router {
             delete(super::auth_level::clear_auth_level),
         )
         // Sampling Detection
-        .route(
-            "/api/sampling/stats",
-            get(super::sampling::sampling_stats),
-        )
+        .route("/api/sampling/stats", get(super::sampling::sampling_stats))
         .route(
             "/api/sampling/{session}/reset",
             post(super::sampling::reset_sampling_stats),
@@ -189,10 +201,7 @@ pub fn build_router(state: AppState) -> Router {
         // Phase 6: Execution Graph Export
         // ═══════════════════════════════════════════════════════════════════
         .route("/api/graphs", get(super::exec_graph::list_graphs))
-        .route(
-            "/api/graphs/{session}",
-            get(super::exec_graph::get_graph),
-        )
+        .route("/api/graphs/{session}", get(super::exec_graph::get_graph))
         .route(
             "/api/graphs/{session}/dot",
             get(super::exec_graph::get_graph_dot),
@@ -1769,234 +1778,6 @@ async fn reload_policies(
     Ok(Json(json!({"reloaded": count, "status": "ok"})))
 }
 
-/// SECURITY (R16-AUDIT-5): Default and maximum page size for audit entry listing.
-/// Prevents memory DoS from loading the entire audit log into a single response.
-const DEFAULT_AUDIT_PAGE_SIZE: usize = 100;
-const MAX_AUDIT_PAGE_SIZE: usize = 1000;
-
-/// Query parameters for paginated audit entry listing.
-#[derive(Deserialize)]
-struct AuditEntriesQuery {
-    /// Maximum number of entries to return (default 100, max 1000).
-    #[serde(default)]
-    limit: Option<usize>,
-    /// Number of entries to skip from the end (most recent first).
-    #[serde(default)]
-    offset: Option<usize>,
-}
-
-#[tracing::instrument(name = "sentinel.audit_entries", skip(state, params))]
-async fn audit_entries(
-    State(state): State<AppState>,
-    Query(params): Query<AuditEntriesQuery>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let entries = state.audit.load_entries().await.map_err(|e| {
-        tracing::error!("Failed to load audit entries: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "Failed to load audit entries".to_string(),
-            }),
-        )
-    })?;
-
-    let total = entries.len();
-    let limit = params
-        .limit
-        .unwrap_or(DEFAULT_AUDIT_PAGE_SIZE)
-        .min(MAX_AUDIT_PAGE_SIZE);
-    let offset = params.offset.unwrap_or(0);
-
-    // Return the most recent entries (tail of the list), paginated.
-    let page: Vec<_> = entries.into_iter().rev().skip(offset).take(limit).collect();
-
-    Ok(Json(
-        json!({"total": total, "count": page.len(), "offset": offset, "limit": limit, "entries": page}),
-    ))
-}
-
-/// Query parameters for the audit export endpoint.
-#[derive(Deserialize)]
-struct AuditExportQuery {
-    /// Export format: "cef" or "jsonl". Default: "jsonl".
-    format: Option<String>,
-    /// Only include entries with timestamp >= this value (ISO 8601 string comparison).
-    since: Option<String>,
-    /// Maximum number of entries to export. Default: 100, max: 1000.
-    limit: Option<usize>,
-}
-
-/// Export audit entries in SIEM-compatible formats (CEF or JSON Lines).
-///
-/// Query parameters:
-/// - `format`: "cef" or "jsonl" (default: "jsonl")
-/// - `since`: ISO 8601 timestamp filter (entries >= this value)
-/// - `limit`: Maximum entries (default: 100, max: 1000)
-///
-/// Returns `text/plain` for CEF, `application/x-ndjson` for JSON Lines.
-async fn audit_export(
-    State(state): State<AppState>,
-    Query(query): Query<AuditExportQuery>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let format = query
-        .format
-        .as_deref()
-        .and_then(sentinel_audit::export::ExportFormat::parse_format)
-        .unwrap_or(sentinel_audit::export::ExportFormat::JsonLines);
-
-    let limit = query.limit.unwrap_or(100).min(1000); // Cap at 1000
-
-    let entries = state.audit.load_entries().await.map_err(|e| {
-        tracing::error!("Failed to load audit entries for export: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "Failed to load audit entries".to_string(),
-            }),
-        )
-    })?;
-
-    // Filter by `since` timestamp if provided (lexicographic comparison on ISO 8601)
-    let filtered: Vec<_> = if let Some(ref since) = query.since {
-        entries
-            .into_iter()
-            .filter(|e| e.timestamp.as_str() >= since.as_str())
-            .take(limit)
-            .collect()
-    } else {
-        entries.into_iter().take(limit).collect()
-    };
-
-    let body = sentinel_audit::export::format_entries(&filtered, format);
-
-    let content_type = match format {
-        sentinel_audit::export::ExportFormat::Cef => "text/plain",
-        sentinel_audit::export::ExportFormat::JsonLines => "application/x-ndjson",
-    };
-
-    Ok(([(header::CONTENT_TYPE, content_type)], body))
-}
-
-async fn audit_report(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let report = state.audit.generate_report().await.map_err(|e| {
-        tracing::error!("Failed to generate audit report: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "Failed to generate audit report".to_string(),
-            }),
-        )
-    })?;
-
-    // SECURITY (R16-AUDIT-5): Return summary statistics only, not the full
-    // entry list. The entries endpoint provides paginated access to individual
-    // entries. Embedding all entries in the report response could exhaust
-    // server memory with a large audit log.
-    Ok(Json(json!({
-        "total_entries": report.total_entries,
-        "allow_count": report.allow_count,
-        "deny_count": report.deny_count,
-        "require_approval_count": report.require_approval_count,
-    })))
-}
-
-async fn audit_verify(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let verification = state.audit.verify_chain().await.map_err(|e| {
-        tracing::error!("Failed to verify audit chain: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "Failed to verify audit chain".to_string(),
-            }),
-        )
-    })?;
-
-    let value = serde_json::to_value(verification).map_err(|e| {
-        tracing::error!("Audit verification serialization error: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "Internal server error".to_string(),
-            }),
-        )
-    })?;
-    Ok(Json(value))
-}
-
-// === Checkpoint Endpoints ===
-
-async fn list_checkpoints(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let checkpoints = state.audit.load_checkpoints().await.map_err(|e| {
-        tracing::error!("Failed to load checkpoints: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "Failed to load checkpoints".to_string(),
-            }),
-        )
-    })?;
-
-    Ok(Json(
-        json!({"count": checkpoints.len(), "checkpoints": checkpoints}),
-    ))
-}
-
-async fn verify_checkpoints(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let verification = state.audit.verify_checkpoints().await.map_err(|e| {
-        tracing::error!("Failed to verify checkpoints: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "Failed to verify checkpoints".to_string(),
-            }),
-        )
-    })?;
-
-    let value = serde_json::to_value(verification).map_err(|e| {
-        tracing::error!("Checkpoint verification serialization error: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "Internal server error".to_string(),
-            }),
-        )
-    })?;
-    Ok(Json(value))
-}
-
-async fn create_checkpoint(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let checkpoint = state.audit.create_checkpoint().await.map_err(|e| {
-        tracing::error!("Failed to create checkpoint: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "Failed to create checkpoint".to_string(),
-            }),
-        )
-    })?;
-
-    let value = serde_json::to_value(&checkpoint).map_err(|e| {
-        tracing::error!("Checkpoint serialization error: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "Internal server error".to_string(),
-            }),
-        )
-    })?;
-    Ok(Json(value))
-}
-
 // === Prometheus Metrics Endpoint ===
 
 /// Serve Prometheus text exposition format metrics.
@@ -2798,83 +2579,6 @@ fn categorize_rate_limit<'a>(
     } else {
         limits.readonly.as_ref()
     }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Phase 15: AI Observability Platform Integration
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Response for observability exporter list.
-#[derive(Debug, Serialize)]
-struct ObservabilityExporterResponse {
-    enabled: bool,
-    exporters: Vec<crate::observability::ExporterInfo>,
-}
-
-/// Response for observability stats.
-#[derive(Debug, Serialize)]
-struct ObservabilityStatsResponse {
-    enabled: bool,
-    stats: Option<crate::observability::ObservabilityStatsSnapshot>,
-    exporters: Vec<crate::observability::ExporterInfo>,
-}
-
-/// List configured observability exporters.
-#[tracing::instrument(name = "sentinel.observability.list_exporters", skip(state))]
-async fn list_observability_exporters(
-    State(state): State<crate::AppState>,
-) -> Json<ObservabilityExporterResponse> {
-    match &state.observability {
-        Some(obs) => Json(ObservabilityExporterResponse {
-            enabled: true,
-            exporters: obs.exporters().to_vec(),
-        }),
-        None => Json(ObservabilityExporterResponse {
-            enabled: false,
-            exporters: vec![],
-        }),
-    }
-}
-
-/// Get observability statistics.
-#[tracing::instrument(name = "sentinel.observability.stats", skip(state))]
-async fn observability_stats(
-    State(state): State<crate::AppState>,
-) -> Json<ObservabilityStatsResponse> {
-    match &state.observability {
-        Some(obs) => Json(ObservabilityStatsResponse {
-            enabled: true,
-            stats: Some(obs.stats()),
-            exporters: obs.exporters().to_vec(),
-        }),
-        None => Json(ObservabilityStatsResponse {
-            enabled: false,
-            stats: None,
-            exporters: vec![],
-        }),
-    }
-}
-
-/// Test observability exporter connectivity.
-#[tracing::instrument(name = "sentinel.observability.test", skip(state))]
-async fn test_observability(
-    State(state): State<crate::AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let Some(ref _obs) = state.observability else {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse {
-                error: "Observability not enabled".to_string(),
-            }),
-        ));
-    };
-
-    // For now, return success if observability is enabled.
-    // Full health check would require async health_check calls to each exporter.
-    Ok(Json(json!({
-        "status": "ok",
-        "message": "Observability manager is running"
-    })))
 }
 
 #[cfg(test)]

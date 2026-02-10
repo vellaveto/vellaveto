@@ -20,6 +20,33 @@ use serde_json::json;
 use crate::routes::ErrorResponse;
 use crate::AppState;
 
+const MAX_AGENT_ID_LEN: usize = 128;
+
+fn validate_agent_id(agent_id: &str) -> Result<(), &'static str> {
+    let trimmed = agent_id.trim();
+    if trimmed.is_empty() {
+        return Err("agent_id cannot be empty");
+    }
+    if trimmed.len() > MAX_AGENT_ID_LEN {
+        return Err("agent_id is too long");
+    }
+    if trimmed.chars().any(|c| c.is_control()) {
+        return Err("agent_id contains control characters");
+    }
+    Ok(())
+}
+
+fn parse_trust_level(value: u8) -> Option<sentinel_types::TrustLevel> {
+    match value {
+        0 => Some(sentinel_types::TrustLevel::Unknown),
+        1 => Some(sentinel_types::TrustLevel::Low),
+        2 => Some(sentinel_types::TrustLevel::Medium),
+        3 => Some(sentinel_types::TrustLevel::High),
+        4 => Some(sentinel_types::TrustLevel::Verified),
+        _ => None,
+    }
+}
+
 /// List all known agents.
 ///
 /// GET /api/shadow-agents
@@ -58,6 +85,15 @@ pub async fn register_shadow_agent(
     State(state): State<AppState>,
     Json(req): Json<RegisterAgentRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    if let Err(msg) = validate_agent_id(&req.agent_id) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: msg.to_string(),
+            }),
+        ));
+    }
+
     let detector = state.shadow_agent.as_ref().ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
@@ -82,9 +118,27 @@ pub async fn register_shadow_agent(
 /// Note: This endpoint removes the agent from tracking. The agent can be
 /// re-registered by calling POST /api/shadow-agents again.
 pub async fn remove_shadow_agent(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    if let Err(msg) = validate_agent_id(&id) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: msg.to_string(),
+            }),
+        ));
+    }
+
+    if state.shadow_agent.is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Shadow agent detection is not enabled".to_string(),
+            }),
+        ));
+    }
+
     // Note: ShadowAgentDetector doesn't have a remove method.
     // Agents are managed via trust level updates instead.
     // This endpoint exists for API completeness but returns a message.
@@ -108,6 +162,15 @@ pub async fn update_agent_trust(
     Path(id): Path<String>,
     Json(req): Json<UpdateTrustRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    if let Err(msg) = validate_agent_id(&id) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: msg.to_string(),
+            }),
+        ));
+    }
+
     let _detector = state.shadow_agent.as_ref().ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
@@ -117,14 +180,48 @@ pub async fn update_agent_trust(
         )
     })?;
 
+    let trust = parse_trust_level(req.trust_level).ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Invalid trust_level; expected 0..=4".to_string(),
+            }),
+        )
+    })?;
+
     // Note: Trust updates require the fingerprint, not just the ID.
     // This endpoint exists for API completeness. In practice, trust is
     // updated automatically based on agent behavior.
-    let trust = sentinel_types::TrustLevel::from_u8(req.trust_level);
-
     Ok(Json(json!({
         "agent_id": id,
         "requested_trust_level": format!("{:?}", trust),
         "message": "Trust level updates require fingerprint; agent trust is managed automatically",
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_agent_id_rejects_invalid_inputs() {
+        assert!(validate_agent_id("").is_err());
+        assert!(validate_agent_id("   ").is_err());
+        assert!(validate_agent_id("abc\nxyz").is_err());
+        assert!(validate_agent_id(&"a".repeat(MAX_AGENT_ID_LEN + 1)).is_err());
+    }
+
+    #[test]
+    fn validate_agent_id_accepts_normal_values() {
+        assert!(validate_agent_id("agent-1").is_ok());
+        assert!(validate_agent_id("team/service@prod").is_ok());
+    }
+
+    #[test]
+    fn parse_trust_level_rejects_out_of_range() {
+        assert!(parse_trust_level(0).is_some());
+        assert!(parse_trust_level(4).is_some());
+        assert!(parse_trust_level(5).is_none());
+        assert!(parse_trust_level(255).is_none());
+    }
 }
