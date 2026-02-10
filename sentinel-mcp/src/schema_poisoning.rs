@@ -533,4 +533,249 @@ mod tests {
         tracker.observe_schema("tool3", &json!({}));
         assert_eq!(tracker.tracked_count(), 2);
     }
+
+    // ═══════════════════════════════════════════════════
+    // GAP-009: Concurrent access tests
+    // ═══════════════════════════════════════════════════
+
+    /// GAP-009: Test concurrent reads don't deadlock
+    #[test]
+    fn test_concurrent_reads() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let tracker = Arc::new(SchemaLineageTracker::new(0.1, 3, 100));
+        let schema = json!({"type": "object"});
+
+        // Pre-populate with some data
+        tracker.observe_schema("tool1", &schema);
+        tracker.observe_schema("tool2", &schema);
+
+        // Spawn multiple reader threads
+        let mut handles = vec![];
+        for _ in 0..10 {
+            let tracker = Arc::clone(&tracker);
+            handles.push(thread::spawn(move || {
+                for _ in 0..100 {
+                    let _ = tracker.get_trust_score("tool1");
+                    let _ = tracker.get_lineage("tool2");
+                    let _ = tracker.tracked_count();
+                }
+            }));
+        }
+
+        // All threads should complete without deadlock
+        for handle in handles {
+            handle.join().expect("Thread should not panic");
+        }
+    }
+
+    /// GAP-009: Test concurrent writes don't corrupt state
+    #[test]
+    fn test_concurrent_writes() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let tracker = Arc::new(SchemaLineageTracker::new(0.1, 3, 1000));
+
+        // Spawn multiple writer threads, each writing to different tools
+        let mut handles = vec![];
+        for i in 0..10 {
+            let tracker = Arc::clone(&tracker);
+            handles.push(thread::spawn(move || {
+                for j in 0..20 {
+                    let tool = format!("tool_{}_{}", i, j);
+                    let schema = json!({"thread": i, "iteration": j});
+                    tracker.observe_schema(&tool, &schema);
+                }
+            }));
+        }
+
+        // All threads should complete
+        for handle in handles {
+            handle.join().expect("Thread should not panic");
+        }
+
+        // Should have tracked 200 schemas (10 threads * 20 tools each)
+        assert_eq!(tracker.tracked_count(), 200);
+    }
+
+    /// GAP-009: Test mixed read/write doesn't deadlock or corrupt
+    #[test]
+    fn test_concurrent_mixed_operations() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let tracker = Arc::new(SchemaLineageTracker::new(0.1, 3, 100));
+        let schema = json!({"type": "object"});
+
+        // Pre-populate
+        for i in 0..10 {
+            tracker.observe_schema(&format!("tool{}", i), &schema);
+        }
+
+        let mut handles = vec![];
+
+        // Writer threads
+        for i in 0..5 {
+            let tracker = Arc::clone(&tracker);
+            handles.push(thread::spawn(move || {
+                for j in 0..50 {
+                    let tool = format!("new_tool_{}_{}", i, j % 10);
+                    let schema = json!({"version": j});
+                    tracker.observe_schema(&tool, &schema);
+                }
+            }));
+        }
+
+        // Reader threads
+        for _ in 0..5 {
+            let tracker = Arc::clone(&tracker);
+            handles.push(thread::spawn(move || {
+                for i in 0..100 {
+                    let _ = tracker.get_trust_score(&format!("tool{}", i % 10));
+                    let _ = tracker.get_lineage(&format!("tool{}", i % 10));
+                }
+            }));
+        }
+
+        // All threads should complete without deadlock
+        for handle in handles {
+            handle.join().expect("Thread should not panic");
+        }
+    }
+
+    /// GAP-009: Test same tool updated from multiple threads
+    #[test]
+    fn test_concurrent_same_tool_updates() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let tracker = Arc::new(SchemaLineageTracker::new(0.5, 3, 100));
+
+        // Initial schema
+        let initial = json!({"version": 0});
+        tracker.observe_schema("shared_tool", &initial);
+
+        // Multiple threads try to update the same tool
+        let mut handles = vec![];
+        for i in 0..10 {
+            let tracker = Arc::clone(&tracker);
+            handles.push(thread::spawn(move || {
+                for j in 0..20 {
+                    let schema = json!({"version": i * 100 + j});
+                    tracker.observe_schema("shared_tool", &schema);
+                    // Small sleep to increase chance of interleaving
+                    std::thread::sleep(std::time::Duration::from_micros(10));
+                }
+            }));
+        }
+
+        for handle in handles {
+            handle.join().expect("Thread should not panic");
+        }
+
+        // Tool should exist and have a valid lineage
+        let lineage = tracker.get_lineage("shared_tool");
+        assert!(lineage.is_some());
+
+        // Should have multiple versions in history
+        let record = lineage.unwrap();
+        assert!(record.version_count() > 1);
+    }
+
+    /// GAP-009: Test concurrent trust score modifications
+    #[test]
+    fn test_concurrent_trust_modifications() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let tracker = Arc::new(SchemaLineageTracker::new(0.1, 3, 100));
+        let schema = json!({"type": "object"});
+        tracker.observe_schema("my_tool", &schema);
+
+        // Multiple threads increment trust
+        let mut handles = vec![];
+        for _ in 0..10 {
+            let tracker = Arc::clone(&tracker);
+            handles.push(thread::spawn(move || {
+                for _ in 0..10 {
+                    tracker.increment_trust("my_tool", 0.01);
+                }
+            }));
+        }
+
+        for handle in handles {
+            handle.join().expect("Thread should not panic");
+        }
+
+        // Trust should have been incremented (may not be exactly 1.0 due to concurrent updates)
+        let trust = tracker.get_trust_score("my_tool");
+        assert!(trust > 0.0);
+        assert!(trust <= 1.0);
+    }
+
+    /// GAP-009: Test concurrent detect_poisoning calls
+    #[test]
+    fn test_concurrent_detect_poisoning() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let tracker = Arc::new(SchemaLineageTracker::new(0.1, 3, 100));
+
+        // Build up history
+        for i in 0..5 {
+            let schema = json!({"version": i});
+            tracker.observe_schema("my_tool", &schema);
+            tracker.increment_trust("my_tool", 0.3);
+        }
+
+        let current_schema = json!({"version": 5});
+
+        // Multiple threads calling detect_poisoning
+        let mut handles = vec![];
+        for _ in 0..10 {
+            let tracker = Arc::clone(&tracker);
+            let schema = current_schema.clone();
+            handles.push(thread::spawn(move || {
+                for _ in 0..100 {
+                    let _ = tracker.detect_poisoning("my_tool", &schema);
+                }
+            }));
+        }
+
+        for handle in handles {
+            handle.join().expect("Thread should not panic");
+        }
+    }
+
+    /// GAP-009: Test eviction under concurrent load
+    #[test]
+    fn test_concurrent_eviction() {
+        use std::sync::Arc;
+        use std::thread;
+
+        // Small max to force frequent evictions
+        let tracker = Arc::new(SchemaLineageTracker::new(0.1, 3, 10));
+
+        // Multiple threads adding different tools
+        let mut handles = vec![];
+        for i in 0..5 {
+            let tracker = Arc::clone(&tracker);
+            handles.push(thread::spawn(move || {
+                for j in 0..50 {
+                    let tool = format!("tool_{}_{}", i, j);
+                    let schema = json!({"id": tool});
+                    tracker.observe_schema(&tool, &schema);
+                }
+            }));
+        }
+
+        for handle in handles {
+            handle.join().expect("Thread should not panic");
+        }
+
+        // Should never exceed max_schemas
+        assert!(tracker.tracked_count() <= 10);
+    }
 }
