@@ -412,6 +412,9 @@ async fn main() -> Result<()> {
         schema_lineage: None,
         auth_level: None,
         sampling_detector: None,
+
+        // Runtime limits from config
+        limits: policy_config.limits.clone(),
     };
 
     if state.canonicalize {

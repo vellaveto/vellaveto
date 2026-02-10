@@ -214,6 +214,9 @@ pub enum OAuthError {
     #[error("token missing required 'aud' claim")]
     MissingAudience,
 
+    #[error("token audience mismatch: expected '{expected}', found '{found}'")]
+    AudienceMismatch { expected: String, found: String },
+
     #[error("authorization server does not support PKCE (S256)")]
     PkceNotSupported,
 }
@@ -290,8 +293,15 @@ impl OAuthValidator {
         let token_data: TokenData<OAuthClaims> = decode(token, &decoding_key, &validation)?;
         let claims = token_data.claims;
 
-        if self.config.require_audience && claims.aud.is_empty() {
-            return Err(OAuthError::MissingAudience);
+        if claims.aud.is_empty() {
+            if self.config.require_audience {
+                return Err(OAuthError::MissingAudience);
+            }
+        } else if !claims.aud.iter().any(|aud| aud == &self.config.audience) {
+            return Err(OAuthError::AudienceMismatch {
+                expected: self.config.audience.clone(),
+                found: claims.aud.join(" "),
+            });
         }
 
         // Check required scopes
@@ -790,6 +800,18 @@ mod tests {
     fn test_missing_audience_error_display() {
         let err = OAuthError::MissingAudience;
         assert_eq!(err.to_string(), "token missing required 'aud' claim");
+    }
+
+    #[test]
+    fn test_audience_mismatch_error_display() {
+        let err = OAuthError::AudienceMismatch {
+            expected: "mcp-server".to_string(),
+            found: "other-aud".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("audience mismatch"));
+        assert!(msg.contains("mcp-server"));
+        assert!(msg.contains("other-aud"));
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

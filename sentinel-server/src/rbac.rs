@@ -427,6 +427,33 @@ pub enum JwtError {
     UnsupportedAlgorithm(jsonwebtoken::Algorithm),
 }
 
+fn extract_unverified_aud_claim(token: &str) -> Result<Vec<String>, JwtError> {
+    let token_data =
+        jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(token).map_err(|e| {
+            JwtError::ValidationFailed(format!("failed to inspect token claims: {}", e))
+        })?;
+    match token_data.claims.get("aud") {
+        None | Some(serde_json::Value::Null) => Ok(Vec::new()),
+        Some(serde_json::Value::String(aud)) => Ok(vec![aud.clone()]),
+        Some(serde_json::Value::Array(values)) => {
+            let mut out = Vec::with_capacity(values.len());
+            for value in values {
+                if let Some(s) = value.as_str() {
+                    out.push(s.to_string());
+                } else {
+                    return Err(JwtError::ValidationFailed(
+                        "invalid 'aud' claim type".to_string(),
+                    ));
+                }
+            }
+            Ok(out)
+        }
+        _ => Err(JwtError::ValidationFailed(
+            "invalid 'aud' claim type".to_string(),
+        )),
+    }
+}
+
 /// Extract and validate a JWT token from the Authorization header.
 ///
 /// Returns the extracted claims on success.
@@ -482,8 +509,21 @@ pub fn extract_jwt_claims(auth_header: &str, config: &JwtConfig) -> Result<RoleC
     // Decode and validate
     let token_data = decode::<RoleClaims>(token, &decoding_key, &validation)
         .map_err(|e| JwtError::ValidationFailed(e.to_string()))?;
+    let claims = token_data.claims;
 
-    Ok(token_data.claims)
+    // Defense in depth: independently inspect aud claim so audience
+    // enforcement remains strict even if library behavior changes.
+    if let Some(ref aud) = config.audience {
+        let token_aud = extract_unverified_aud_claim(token)?;
+        if token_aud.is_empty() || !token_aud.iter().any(|v| v == aud) {
+            return Err(JwtError::ValidationFailed(format!(
+                "token audience mismatch: expected '{}'",
+                aud
+            )));
+        }
+    }
+
+    Ok(claims)
 }
 
 /// Extract principal from a request using JWT validation.
@@ -1056,6 +1096,136 @@ mod tests {
 
         let result = extract_jwt_claims(&format!("Bearer {}", token), &config);
         assert!(matches!(result, Err(JwtError::UnsupportedAlgorithm(_))));
+    }
+
+    #[test]
+    fn test_extract_jwt_claims_audience_mismatch_fails() {
+        use jsonwebtoken::{encode, EncodingKey, Header};
+
+        #[derive(Debug, Serialize)]
+        struct AudienceStringClaims {
+            sub: Option<String>,
+            role: Option<String>,
+            exp: u64,
+            aud: String,
+        }
+
+        let secret = "test-secret";
+        let config = JwtConfig {
+            key: JwtKey::Secret(secret.into()),
+            algorithms: vec![jsonwebtoken::Algorithm::HS256],
+            issuer: None,
+            audience: Some("sentinel-api".into()),
+            leeway_seconds: 60,
+        };
+
+        let exp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 3600;
+
+        let claims = AudienceStringClaims {
+            sub: Some("user-1".into()),
+            role: Some("viewer".into()),
+            exp,
+            aud: "other-audience".into(),
+        };
+
+        let token = encode(
+            &Header::new(jsonwebtoken::Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .unwrap();
+
+        let result = extract_jwt_claims(&format!("Bearer {}", token), &config);
+        assert!(matches!(result, Err(JwtError::ValidationFailed(_))));
+    }
+
+    #[test]
+    fn test_extract_jwt_claims_missing_audience_fails_when_required() {
+        use jsonwebtoken::{encode, EncodingKey, Header};
+
+        let secret = "test-secret";
+        let config = JwtConfig {
+            key: JwtKey::Secret(secret.into()),
+            algorithms: vec![jsonwebtoken::Algorithm::HS256],
+            issuer: None,
+            audience: Some("sentinel-api".into()),
+            leeway_seconds: 60,
+        };
+
+        let exp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 3600;
+
+        let claims = TestClaims {
+            sub: Some("user-1".into()),
+            role: Some("viewer".into()),
+            exp,
+        };
+
+        let token = encode(
+            &Header::new(jsonwebtoken::Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .unwrap();
+
+        let result = extract_jwt_claims(&format!("Bearer {}", token), &config);
+        assert!(matches!(result, Err(JwtError::ValidationFailed(_))));
+    }
+
+    #[test]
+    fn test_extract_jwt_claims_audience_array_with_expected_succeeds() {
+        use jsonwebtoken::{encode, EncodingKey, Header};
+
+        #[derive(Debug, Serialize)]
+        struct AudienceArrayClaims {
+            sub: Option<String>,
+            role: Option<String>,
+            exp: u64,
+            aud: Vec<String>,
+        }
+
+        let secret = "test-secret";
+        let config = JwtConfig {
+            key: JwtKey::Secret(secret.into()),
+            algorithms: vec![jsonwebtoken::Algorithm::HS256],
+            issuer: None,
+            audience: Some("sentinel-api".into()),
+            leeway_seconds: 60,
+        };
+
+        let exp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 3600;
+
+        let claims = AudienceArrayClaims {
+            sub: Some("user-1".into()),
+            role: Some("operator".into()),
+            exp,
+            aud: vec!["other".into(), "sentinel-api".into()],
+        };
+
+        let token = encode(
+            &Header::new(jsonwebtoken::Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .unwrap();
+
+        let result = extract_jwt_claims(&format!("Bearer {}", token), &config);
+        assert!(
+            result.is_ok(),
+            "JWT audience array should validate: {:?}",
+            result
+        );
     }
 
     #[test]

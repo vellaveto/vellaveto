@@ -237,6 +237,7 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         schema_lineage: None,
         auth_level: None,
         sampling_detector: None,
+        limits: sentinel_config::LimitsConfig::default(),
     }
 }
 
@@ -1881,6 +1882,7 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         schema_lineage: None,
         auth_level: None,
         sampling_detector: None,
+        limits: sentinel_config::LimitsConfig::default(),
     };
     let sessions = state.sessions.clone();
     let app = build_router(state);
@@ -2266,6 +2268,7 @@ async fn trace_resource_read_denied_includes_trace() {
         schema_lineage: None,
         auth_level: None,
         sampling_detector: None,
+        limits: sentinel_config::LimitsConfig::default(),
     };
     let app = build_router(state);
 
@@ -2355,6 +2358,7 @@ async fn trace_constraint_details_visible() {
         schema_lineage: None,
         auth_level: None,
         sampling_detector: None,
+        limits: sentinel_config::LimitsConfig::default(),
     };
     let app = build_router(state);
 
@@ -2460,7 +2464,13 @@ async fn start_mock_jwks_server() -> String {
 
 /// Create a signed JWT with the given claims.
 fn sign_test_jwt(sub: &str, scope: &str, exp_offset_secs: i64) -> String {
-    sign_test_jwt_with_resource(sub, scope, exp_offset_secs, None)
+    sign_test_jwt_with_claims(
+        sub,
+        scope,
+        exp_offset_secs,
+        Some(Value::String(TEST_AUDIENCE.to_string())),
+        None,
+    )
 }
 
 /// Create a signed JWT with optional RFC 8707 `resource` claim.
@@ -2468,6 +2478,33 @@ fn sign_test_jwt_with_resource(
     sub: &str,
     scope: &str,
     exp_offset_secs: i64,
+    resource: Option<&str>,
+) -> String {
+    sign_test_jwt_with_claims(
+        sub,
+        scope,
+        exp_offset_secs,
+        Some(Value::String(TEST_AUDIENCE.to_string())),
+        resource,
+    )
+}
+
+/// Create a signed JWT with custom `aud` claim payload.
+/// `aud_claim = None` omits the claim entirely.
+fn sign_test_jwt_with_aud(
+    sub: &str,
+    scope: &str,
+    exp_offset_secs: i64,
+    aud_claim: Option<Value>,
+) -> String {
+    sign_test_jwt_with_claims(sub, scope, exp_offset_secs, aud_claim, None)
+}
+
+fn sign_test_jwt_with_claims(
+    sub: &str,
+    scope: &str,
+    exp_offset_secs: i64,
+    aud_claim: Option<Value>,
     resource: Option<&str>,
 ) -> String {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
@@ -2486,11 +2523,13 @@ fn sign_test_jwt_with_resource(
     let mut claims = json!({
         "sub": sub,
         "iss": TEST_ISSUER,
-        "aud": TEST_AUDIENCE,
         "exp": exp,
         "iat": now,
         "scope": scope,
     });
+    if let Some(aud_claim) = aud_claim {
+        claims["aud"] = aud_claim;
+    }
     if let Some(resource) = resource {
         claims["resource"] = Value::String(resource.to_string());
     }
@@ -2597,6 +2636,7 @@ fn build_oauth_test_state_with_resource(
         schema_lineage: None,
         auth_level: None,
         sampling_detector: None,
+        limits: sentinel_config::LimitsConfig::default(),
     }
 }
 
@@ -2691,6 +2731,117 @@ async fn oauth_enabled_expired_token_returns_401() {
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn oauth_wrong_audience_returns_401() {
+    let jwks_url = start_mock_jwks_server().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_oauth_test_state("http://localhost:9999/mcp", &jwks_url, &tmp, vec![], false);
+    let app = build_router(state);
+
+    let token = sign_test_jwt_with_aud(
+        "user-123",
+        "tools.call",
+        300,
+        Some(Value::String("other-audience".to_string())),
+    );
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "read_file", "arguments": {"path": "/tmp/test"}}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let json = json_body(resp).await;
+    assert_eq!(json["error"], "Invalid or expired token");
+}
+
+#[tokio::test]
+async fn oauth_missing_audience_returns_401_when_required() {
+    let jwks_url = start_mock_jwks_server().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_oauth_test_state("http://localhost:9999/mcp", &jwks_url, &tmp, vec![], false);
+    let app = build_router(state);
+
+    let token = sign_test_jwt_with_aud("user-123", "tools.call", 300, None);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "read_file", "arguments": {"path": "/tmp/test"}}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let json = json_body(resp).await;
+    assert_eq!(json["error"], "Invalid or expired token");
+}
+
+#[tokio::test]
+async fn oauth_audience_array_with_expected_allows_request() {
+    let upstream_url = start_mock_upstream().await;
+    let jwks_url = start_mock_jwks_server().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_oauth_test_state(&upstream_url, &jwks_url, &tmp, vec![], false);
+    let app = build_router(state);
+
+    let token = sign_test_jwt_with_aud(
+        "user-123",
+        "tools.call",
+        300,
+        Some(json!(["other-audience", TEST_AUDIENCE])),
+    );
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "read_file", "arguments": {"path": "/tmp/test"}}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token))
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = json_body(resp).await;
+    assert_eq!(json["id"], 1);
+    assert!(json["result"].is_object());
 }
 
 #[tokio::test]
@@ -3281,6 +3432,7 @@ fn build_api_key_test_state(
         schema_lineage: None,
         auth_level: None,
         sampling_detector: None,
+        limits: sentinel_config::LimitsConfig::default(),
     }
 }
 
@@ -3763,6 +3915,7 @@ fn build_test_state_deny_tasks(upstream_url: &str, tmp: &TempDir) -> ProxyState 
         schema_lineage: None,
         auth_level: None,
         sampling_detector: None,
+        limits: sentinel_config::LimitsConfig::default(),
     }
 }
 
@@ -3887,6 +4040,7 @@ async fn task_get_allowed_when_no_deny_policy() {
         schema_lineage: None,
         auth_level: None,
         sampling_detector: None,
+        limits: sentinel_config::LimitsConfig::default(),
     };
     let app = build_router(state);
 
@@ -3966,6 +4120,7 @@ async fn task_request_fail_closed_no_matching_policy() {
         schema_lineage: None,
         auth_level: None,
         sampling_detector: None,
+        limits: sentinel_config::LimitsConfig::default(),
     };
     let app = build_router(state);
 
@@ -4044,6 +4199,7 @@ async fn task_request_dlp_blocks_secret_in_task_id() {
         schema_lineage: None,
         auth_level: None,
         sampling_detector: None,
+        limits: sentinel_config::LimitsConfig::default(),
     };
     let app = build_router(state);
 
@@ -4129,6 +4285,7 @@ async fn task_request_clean_params_not_dlp_blocked() {
         schema_lineage: None,
         auth_level: None,
         sampling_detector: None,
+        limits: sentinel_config::LimitsConfig::default(),
     };
     let app = build_router(state);
 
@@ -4211,6 +4368,7 @@ async fn task_request_dlp_blocks_github_token_in_params() {
         schema_lineage: None,
         auth_level: None,
         sampling_detector: None,
+        limits: sentinel_config::LimitsConfig::default(),
     };
     let app = build_router(state);
 
@@ -4475,6 +4633,7 @@ fn build_chain_depth_test_state(upstream_url: &str, tmp: &TempDir, max_depth: us
         schema_lineage: None,
         auth_level: None,
         sampling_detector: None,
+        limits: sentinel_config::LimitsConfig::default(),
     }
 }
 
@@ -4869,6 +5028,7 @@ fn build_priv_escalation_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyS
         schema_lineage: None,
         auth_level: None,
         sampling_detector: None,
+        limits: sentinel_config::LimitsConfig::default(),
     }
 }
 
