@@ -8,12 +8,12 @@
 use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 
-/// Maximum number of fingerprints stored per session.
+/// Default maximum number of fingerprints stored per session.
 /// ~80KB memory per session (32 bytes per SHA-256 hash x 2500 + overhead).
-const MAX_FINGERPRINTS: usize = 2500;
+const DEFAULT_MAX_FINGERPRINTS: usize = 2500;
 
-/// Minimum string length to track (shorter strings cause too many false positives).
-const MIN_TRACKABLE_LENGTH: usize = 20;
+/// Default minimum string length to track (shorter strings cause too many false positives).
+const DEFAULT_MIN_TRACKABLE_LENGTH: usize = 20;
 
 /// A match found between a tool response fingerprint and a tool call parameter.
 #[derive(Debug, Clone)]
@@ -36,14 +36,34 @@ pub struct MemoryTracker {
     fingerprints: VecDeque<[u8; 32]>,
     /// Whether tracking is actively collecting fingerprints.
     enabled: bool,
+    /// Maximum fingerprints to track (configurable via MemorySecurityConfig).
+    max_fingerprints: usize,
+    /// Minimum string length to track (configurable via MemorySecurityConfig).
+    min_trackable_length: usize,
 }
 
 impl MemoryTracker {
-    /// Create a new enabled tracker.
+    /// Create a new enabled tracker with default configuration.
     pub fn new() -> Self {
         Self {
             fingerprints: VecDeque::with_capacity(256),
             enabled: true,
+            max_fingerprints: DEFAULT_MAX_FINGERPRINTS,
+            min_trackable_length: DEFAULT_MIN_TRACKABLE_LENGTH,
+        }
+    }
+
+    /// Create a tracker with custom limits.
+    ///
+    /// # Arguments
+    /// * `max_fingerprints` - Maximum fingerprints to track (default: 2500)
+    /// * `min_trackable_length` - Minimum string length to track (default: 20)
+    pub fn with_limits(max_fingerprints: usize, min_trackable_length: usize) -> Self {
+        Self {
+            fingerprints: VecDeque::with_capacity(256),
+            enabled: true,
+            max_fingerprints,
+            min_trackable_length,
         }
     }
 
@@ -52,6 +72,8 @@ impl MemoryTracker {
         Self {
             fingerprints: VecDeque::new(),
             enabled: false,
+            max_fingerprints: DEFAULT_MAX_FINGERPRINTS,
+            min_trackable_length: DEFAULT_MIN_TRACKABLE_LENGTH,
         }
     }
 
@@ -178,13 +200,13 @@ impl MemoryTracker {
     /// Extract notable substrings from text and store their fingerprints.
     fn extract_and_store(&mut self, text: &str) {
         // Store fingerprint of the full text if long enough
-        if text.len() >= MIN_TRACKABLE_LENGTH {
+        if text.len() >= self.min_trackable_length {
             self.store_fingerprint(text);
         }
 
         // Extract URL-like strings
         for word in text.split_whitespace() {
-            if word.len() >= MIN_TRACKABLE_LENGTH
+            if word.len() >= self.min_trackable_length
                 && (word.starts_with("http://")
                     || word.starts_with("https://")
                     || word.starts_with("file://")
@@ -198,7 +220,7 @@ impl MemoryTracker {
         // Extract line-by-line for multi-line responses
         for line in text.lines() {
             let trimmed = line.trim();
-            if trimmed.len() >= MIN_TRACKABLE_LENGTH {
+            if trimmed.len() >= self.min_trackable_length {
                 self.store_fingerprint(trimmed);
             }
         }
@@ -222,7 +244,7 @@ impl MemoryTracker {
         }
         match value {
             serde_json::Value::String(s) => {
-                if s.len() >= MIN_TRACKABLE_LENGTH {
+                if s.len() >= self.min_trackable_length {
                     self.store_fingerprint(s);
                 }
             }
@@ -247,7 +269,7 @@ impl MemoryTracker {
         if self.fingerprints.contains(&hash) {
             return;
         }
-        if self.fingerprints.len() >= MAX_FINGERPRINTS {
+        if self.fingerprints.len() >= self.max_fingerprints {
             self.fingerprints.pop_front();
         }
         self.fingerprints.push_back(hash);
@@ -275,7 +297,7 @@ impl MemoryTracker {
         }
         match value {
             serde_json::Value::String(s) => {
-                if s.len() >= MIN_TRACKABLE_LENGTH {
+                if s.len() >= self.min_trackable_length {
                     let hash = Self::hash(s);
                     if self.fingerprints.contains(&hash) {
                         // Use char boundary-safe truncation for preview
@@ -400,8 +422,8 @@ mod tests {
     fn test_memory_tracker_lru_eviction() {
         let mut tracker = MemoryTracker::new();
 
-        // Fill with MAX_FINGERPRINTS unique strings
-        for i in 0..MAX_FINGERPRINTS + 100 {
+        // Fill with DEFAULT_MAX_FINGERPRINTS unique strings
+        for i in 0..DEFAULT_MAX_FINGERPRINTS + 100 {
             let response = json!({
                 "result": {
                     "content": [{
@@ -413,10 +435,10 @@ mod tests {
             tracker.record_response(&response);
         }
 
-        // Should not exceed MAX_FINGERPRINTS
+        // Should not exceed DEFAULT_MAX_FINGERPRINTS
         assert!(
-            tracker.fingerprint_count() <= MAX_FINGERPRINTS,
-            "Should cap at MAX_FINGERPRINTS, got {}",
+            tracker.fingerprint_count() <= DEFAULT_MAX_FINGERPRINTS,
+            "Should cap at DEFAULT_MAX_FINGERPRINTS, got {}",
             tracker.fingerprint_count()
         );
     }
@@ -832,8 +854,8 @@ mod tests {
 
         // Verify encoded string is long enough to be tracked
         assert!(
-            encoded.len() >= MIN_TRACKABLE_LENGTH,
-            "Encoded string must be >= MIN_TRACKABLE_LENGTH for this test"
+            encoded.len() >= DEFAULT_MIN_TRACKABLE_LENGTH,
+            "Encoded string must be >= DEFAULT_MIN_TRACKABLE_LENGTH for this test"
         );
 
         let response = json!({

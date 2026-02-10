@@ -3755,6 +3755,16 @@ pub struct MemorySecurityConfig {
     /// Compute content hashes for integrity verification. Default: true.
     #[serde(default = "default_true")]
     pub content_hashing: bool,
+
+    /// Maximum fingerprints to track per session for memory poisoning detection.
+    /// Default: 2500 (~80KB memory per session).
+    #[serde(default = "default_max_fingerprints")]
+    pub max_fingerprints: usize,
+
+    /// Minimum string length to track for memory poisoning detection.
+    /// Shorter strings cause too many false positives. Default: 20.
+    #[serde(default = "default_min_trackable_length")]
+    pub min_trackable_length: usize,
 }
 
 fn default_trust_decay_rate() -> f64 {
@@ -3777,6 +3787,14 @@ fn default_max_provenance_nodes() -> usize {
     10000
 }
 
+fn default_max_fingerprints() -> usize {
+    2500
+}
+
+fn default_min_trackable_length() -> usize {
+    20
+}
+
 impl Default for MemorySecurityConfig {
     fn default() -> Self {
         Self {
@@ -3793,6 +3811,8 @@ impl Default for MemorySecurityConfig {
             namespaces: NamespaceConfig::default(),
             block_on_integrity_failure: true,
             content_hashing: true,
+            max_fingerprints: default_max_fingerprints(),
+            min_trackable_length: default_min_trackable_length(),
         }
     }
 }

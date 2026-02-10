@@ -804,6 +804,8 @@ mod tests {
             },
             block_on_integrity_failure: true,
             content_hashing: true,
+            max_fingerprints: 2500,
+            min_trackable_length: 20,
         }
     }
 
