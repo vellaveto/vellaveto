@@ -57,6 +57,15 @@ pub const DEFAULT_INJECTION_PATTERNS: &[&str] = &[
     // Alpaca-style instruction markers
     "### instruction:",
     "### response:",
+    // MCPTox directive insertion patterns (MCP-specific attack vectors)
+    // These words at line/sentence start often precede injected directives.
+    "important:",
+    "note:",
+    "required:",
+    "critical:",
+    "warning:",
+    "attention:",
+    "must:",
 ];
 
 /// Sentinel string returned when the injection detection automaton is unavailable.
@@ -385,9 +394,141 @@ pub fn sanitize_for_injection_scan(text: &str) -> String {
     result
 }
 
+/// NATO phonetic alphabet mapping to letters (MCPTox defense).
+///
+/// Used to detect injection attempts encoded using phonetic words
+/// (e.g., "alpha bravo charlie" → "abc").
+const PHONETIC_WORDS: &[(&str, &str)] = &[
+    ("alpha", "a"),
+    ("bravo", "b"),
+    ("charlie", "c"),
+    ("delta", "d"),
+    ("echo", "e"),
+    ("foxtrot", "f"),
+    ("golf", "g"),
+    ("hotel", "h"),
+    ("india", "i"),
+    ("juliet", "j"),
+    ("kilo", "k"),
+    ("lima", "l"),
+    ("mike", "m"),
+    ("november", "n"),
+    ("oscar", "o"),
+    ("papa", "p"),
+    ("quebec", "q"),
+    ("romeo", "r"),
+    ("sierra", "s"),
+    ("tango", "t"),
+    ("uniform", "u"),
+    ("victor", "v"),
+    ("whiskey", "w"),
+    ("xray", "x"),
+    ("x-ray", "x"),
+    ("yankee", "y"),
+    ("zulu", "z"),
+];
+
+/// Common emoji to command/action mapping (MCPTox defense).
+///
+/// Detects injection attempts encoded using emoji sequences
+/// (e.g., 🔥📁 → "delete file").
+const EMOJI_COMMANDS: &[(&str, &str)] = &[
+    ("🐱", "cat"),
+    ("📁", "file"),
+    ("📂", "folder"),
+    ("🔥", "delete"),
+    ("✂️", "cut"),
+    ("📋", "paste"),
+    ("💾", "save"),
+    ("⬇️", "download"),
+    ("⬆️", "upload"),
+    ("🔒", "lock"),
+    ("🔓", "unlock"),
+    ("🗑️", "trash"),
+    ("🗑", "trash"),
+    ("🖥️", "terminal"),
+    ("🖥", "terminal"),
+    ("💀", "kill"),
+    ("⚙️", "config"),
+    ("⚙", "config"),
+    ("🔧", "fix"),
+    ("🔨", "build"),
+    ("📤", "send"),
+    ("📥", "receive"),
+    ("🚀", "deploy"),
+    ("💣", "bomb"),
+    ("🔑", "key"),
+    ("🔐", "secret"),
+];
+
+/// Decode NATO phonetic alphabet to letters.
+///
+/// Converts phonetic words like "alpha bravo charlie" to "abc".
+/// Returns the decoded string if any phonetic words were found.
+fn decode_phonetic(text: &str) -> Option<String> {
+    let lower = text.to_lowercase();
+    let mut decoded = String::new();
+    let mut found_any = false;
+
+    for word in lower.split_whitespace() {
+        if let Some((_, letter)) = PHONETIC_WORDS.iter().find(|(phon, _)| *phon == word) {
+            decoded.push_str(letter);
+            found_any = true;
+        } else {
+            // Keep non-phonetic words with space
+            if !decoded.is_empty() && !decoded.ends_with(' ') {
+                decoded.push(' ');
+            }
+            decoded.push_str(word);
+        }
+    }
+
+    if found_any { Some(decoded) } else { None }
+}
+
+/// Decode common emoji commands to text.
+///
+/// Converts emoji like "🐱📁" to "cat file".
+/// Returns the decoded string if any emoji commands were found.
+fn decode_emoji(text: &str) -> Option<String> {
+    let mut decoded = String::new();
+    let mut found_any = false;
+    let mut chars = text.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        // Handle variation selectors (skip them as they're part of previous emoji)
+        if ('\u{FE00}'..='\u{FE0F}').contains(&c) {
+            continue;
+        }
+
+        let mut emoji_str = c.to_string();
+        // Check for emoji with variation selector
+        if let Some(&next) = chars.peek() {
+            if ('\u{FE00}'..='\u{FE0F}').contains(&next) {
+                emoji_str.push(chars.next().unwrap());
+            }
+        }
+
+        if let Some((_, command)) = EMOJI_COMMANDS.iter().find(|(emoji, _)| *emoji == emoji_str || emoji.starts_with(c)) {
+            if !decoded.is_empty() && !decoded.ends_with(' ') {
+                decoded.push(' ');
+            }
+            decoded.push_str(command);
+            found_any = true;
+        } else {
+            decoded.push(c);
+        }
+    }
+
+    if found_any { Some(decoded) } else { None }
+}
+
 /// Inspect response text for prompt injection using default patterns.
 ///
 /// Pre-processes text with Unicode sanitization to prevent evasion.
+/// Also decodes NATO phonetic alphabet and common emoji to detect
+/// encoded injection attempts (MCPTox defense).
+///
 /// Returns a list of matched pattern strings (empty if no injection detected).
 ///
 /// Uses [`DEFAULT_INJECTION_PATTERNS`]. For custom patterns, use
@@ -410,10 +551,34 @@ pub fn inspect_for_injection(text: &str) -> Vec<&'static str> {
     let sanitized = sanitize_for_injection_scan(text);
     let lower = sanitized.to_lowercase();
 
-    automaton
+    let mut all_matches: Vec<&'static str> = automaton
         .find_iter(&lower)
         .map(|m| DEFAULT_INJECTION_PATTERNS[m.pattern().as_usize()])
-        .collect()
+        .collect();
+
+    // MCPTox defense: Also scan phonetic-decoded text
+    if let Some(phonetic_decoded) = decode_phonetic(&lower) {
+        let phonetic_lower = phonetic_decoded.to_lowercase();
+        for m in automaton.find_iter(&phonetic_lower) {
+            let pattern = DEFAULT_INJECTION_PATTERNS[m.pattern().as_usize()];
+            if !all_matches.contains(&pattern) {
+                all_matches.push(pattern);
+            }
+        }
+    }
+
+    // MCPTox defense: Also scan emoji-decoded text
+    if let Some(emoji_decoded) = decode_emoji(&lower) {
+        let emoji_lower = emoji_decoded.to_lowercase();
+        for m in automaton.find_iter(&emoji_lower) {
+            let pattern = DEFAULT_INJECTION_PATTERNS[m.pattern().as_usize()];
+            if !all_matches.contains(&pattern) {
+                all_matches.push(pattern);
+            }
+        }
+    }
+
+    all_matches
 }
 
 /// Scan a JSON-RPC response for prompt injection in tool result and error content.
