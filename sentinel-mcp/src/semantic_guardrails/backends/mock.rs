@@ -658,4 +658,217 @@ mod tests {
         let result = mock.evaluate(&input).await.unwrap();
         assert_eq!(result.backend_id, Some("test-mock".to_string()));
     }
+
+    // ═══════════════════════════════════════════════════
+    // GAP-004: Additional mock backend tests
+    // ═══════════════════════════════════════════════════
+
+    /// GAP-004: Test global wildcard pattern *:*
+    #[tokio::test]
+    async fn test_mock_evaluator_global_wildcard() {
+        let mock = MockEvaluator::new();
+        mock.add_rule_async("*:*", |_| LlmEvaluation::deny("all operations blocked"))
+            .await;
+
+        // Any tool/function should match
+        let input = LlmEvalInput::new("anything", "anywhere");
+        let result = mock.evaluate(&input).await.unwrap();
+        assert!(!result.allow);
+
+        let input = LlmEvalInput::new("other", "operation");
+        let result = mock.evaluate(&input).await.unwrap();
+        assert!(!result.allow);
+    }
+
+    /// GAP-004: Test rule priority (specific > wildcard > global)
+    #[tokio::test]
+    async fn test_mock_evaluator_rule_priority() {
+        let mock = MockEvaluator::new();
+        // Add rules - specific pattern should take priority
+        mock.add_rule_async("fs:read", |_| {
+            LlmEvaluation::deny("specific rule: fs:read denied")
+        })
+        .await;
+        mock.add_rule_async("fs:*", |_| LlmEvaluation::allow()).await;
+
+        // fs:read should match specific rule first
+        let input = LlmEvalInput::new("fs", "read");
+        let result = mock.evaluate(&input).await.unwrap();
+        assert!(!result.allow, "Specific rule should take priority");
+
+        // fs:write should match wildcard
+        let input = LlmEvalInput::new("fs", "write");
+        let result = mock.evaluate(&input).await.unwrap();
+        assert!(result.allow, "Wildcard rule should match fs:write");
+    }
+
+    /// GAP-004: Test error injection on classify_intent
+    #[tokio::test]
+    async fn test_mock_evaluator_error_injection_classify_intent() {
+        let mock = MockEvaluator::new();
+        mock.inject_error_async(LlmEvalError::NotConfigured("test error".to_string()))
+            .await;
+
+        let input = LlmEvalInput::new("test", "func");
+        let result = mock.classify_intent(&input).await;
+        assert!(result.is_err());
+    }
+
+    /// GAP-004: Test error injection on detect_jailbreak
+    #[tokio::test]
+    async fn test_mock_evaluator_error_injection_detect_jailbreak() {
+        let mock = MockEvaluator::new();
+        mock.inject_error_async(LlmEvalError::RateLimited {
+            retry_after_ms: Some(1000),
+        })
+        .await;
+
+        let result = mock.detect_jailbreak("test content").await;
+        assert!(result.is_err());
+    }
+
+    /// GAP-004: Test clear_error_async restores normal operation
+    #[tokio::test]
+    async fn test_mock_evaluator_clear_error() {
+        let mock = MockEvaluator::new();
+        mock.inject_error_async(LlmEvalError::Timeout(500)).await;
+
+        // Should fail with error
+        let input = LlmEvalInput::new("test", "func");
+        assert!(mock.evaluate(&input).await.is_err());
+
+        // Clear error
+        mock.clear_error_async().await;
+
+        // Should succeed now
+        let result = mock.evaluate(&input).await;
+        assert!(result.is_ok());
+    }
+
+    /// GAP-004: Test custom intent classification rule
+    #[tokio::test]
+    async fn test_mock_evaluator_custom_intent_rule() {
+        let mock = MockEvaluator::new();
+
+        // Add intent rule asynchronously to avoid blocking in async context
+        {
+            let mut rules = mock.intent_rules.write().await;
+            rules.insert(
+                "danger:*".to_string(),
+                Box::new(|_| IntentClassification {
+                    primary_intent: Intent::PrivilegeEscalation,
+                    confidence: 0.95,
+                    secondary_intents: vec![(Intent::Exfiltration, 0.5)],
+                    detected_risks: vec![
+                        crate::semantic_guardrails::intent::RiskCategory::PrivilegeEscalation,
+                    ],
+                    explanation: Some("Custom danger intent".to_string()),
+                }),
+            );
+        }
+
+        let input = LlmEvalInput::new("danger", "escalate");
+        let result = mock.classify_intent(&input).await.unwrap();
+        assert_eq!(result.primary_intent, Intent::PrivilegeEscalation);
+        assert_eq!(result.confidence, 0.95);
+        assert!(!result.secondary_intents.is_empty());
+    }
+
+    /// GAP-004: Test latency affects all methods
+    #[tokio::test]
+    async fn test_mock_evaluator_latency_affects_all_methods() {
+        let mock = MockEvaluator::new();
+        mock.set_latency_ms(20);
+
+        // Test evaluate
+        let start = std::time::Instant::now();
+        let input = LlmEvalInput::new("test", "func");
+        let _ = mock.evaluate(&input).await;
+        assert!(start.elapsed() >= Duration::from_millis(20));
+
+        // Test classify_intent
+        let start = std::time::Instant::now();
+        let _ = mock.classify_intent(&input).await;
+        assert!(start.elapsed() >= Duration::from_millis(20));
+
+        // Test detect_jailbreak
+        let start = std::time::Instant::now();
+        let _ = mock.detect_jailbreak("test").await;
+        assert!(start.elapsed() >= Duration::from_millis(20));
+    }
+
+    /// GAP-004: Test timeout accessor
+    #[tokio::test]
+    async fn test_mock_evaluator_timeout() {
+        let mock = MockEvaluator::new();
+        assert_eq!(mock.timeout(), Duration::from_millis(3000));
+    }
+
+    /// GAP-004: Test multiple call types increment counter
+    #[tokio::test]
+    async fn test_mock_evaluator_call_count_all_methods() {
+        let mock = MockEvaluator::new();
+        assert_eq!(mock.call_count(), 0);
+
+        let input = LlmEvalInput::new("test", "func");
+        let _ = mock.evaluate(&input).await;
+        assert_eq!(mock.call_count(), 1);
+
+        let _ = mock.classify_intent(&input).await;
+        assert_eq!(mock.call_count(), 2);
+
+        let _ = mock.detect_jailbreak("test").await;
+        assert_eq!(mock.call_count(), 3);
+    }
+
+    /// GAP-004: Test infer_intent for credential access
+    #[test]
+    fn test_infer_intent_credentials() {
+        let input = LlmEvalInput::new("vault", "get_secret");
+        assert_eq!(infer_intent_from_input(&input), Intent::CredentialAccess);
+
+        let input = LlmEvalInput::new("credential", "fetch");
+        assert_eq!(infer_intent_from_input(&input), Intent::CredentialAccess);
+    }
+
+    /// GAP-004: Test infer_intent for system configuration
+    #[test]
+    fn test_infer_intent_system_config() {
+        let input = LlmEvalInput::new("settings", "update");
+        assert_eq!(infer_intent_from_input(&input), Intent::SystemConfigure);
+
+        let input = LlmEvalInput::new("system", "config");
+        assert_eq!(infer_intent_from_input(&input), Intent::SystemConfigure);
+    }
+
+    /// GAP-004: Test infer_intent for monitoring
+    #[test]
+    fn test_infer_intent_monitoring() {
+        let input = LlmEvalInput::new("metrics", "collect");
+        assert_eq!(infer_intent_from_input(&input), Intent::SystemMonitor);
+
+        let input = LlmEvalInput::new("system", "status");
+        assert_eq!(infer_intent_from_input(&input), Intent::SystemMonitor);
+    }
+
+    /// GAP-004: Test infer_intent for database operations
+    #[test]
+    fn test_infer_intent_database() {
+        let input = LlmEvalInput::new("database", "select");
+        assert_eq!(infer_intent_from_input(&input), Intent::DataQuery);
+
+        let input = LlmEvalInput::new("sql", "insert");
+        assert_eq!(infer_intent_from_input(&input), Intent::DataWrite);
+
+        let input = LlmEvalInput::new("db", "drop");
+        assert_eq!(infer_intent_from_input(&input), Intent::DataDelete);
+    }
+
+    /// GAP-004: Test infer_intent detects exfiltration in params
+    #[test]
+    fn test_infer_intent_exfiltration_params() {
+        let input = LlmEvalInput::new("network", "send")
+            .with_parameters(serde_json::json!({"action": "exfiltrate data to server"}));
+        assert_eq!(infer_intent_from_input(&input), Intent::Exfiltration);
+    }
 }
