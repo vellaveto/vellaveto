@@ -1,17 +1,74 @@
 //! Unit tests for HTTP routes using axum test utilities.
 
 use arc_swap::ArcSwap;
+use async_trait::async_trait;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use sentinel_approval::ApprovalStore;
+use sentinel_approval::{ApprovalStore, PendingApproval};
 use sentinel_audit::AuditLogger;
+use sentinel_cluster::{ClusterBackend, ClusterError};
 use sentinel_engine::PolicyEngine;
 use sentinel_server::{routes, AppState, Metrics, PolicySnapshot, RateLimits};
-use sentinel_types::{Policy, PolicyType};
+use sentinel_types::{Action, Policy, PolicyType};
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tower::ServiceExt;
+
+// ─── GAP-008: Mock cluster backend for testing degraded health state ───
+
+/// Mock cluster backend that always fails health checks.
+struct UnhealthyClusterBackend;
+
+#[async_trait]
+impl ClusterBackend for UnhealthyClusterBackend {
+    async fn approval_create(
+        &self,
+        _action: Action,
+        _reason: String,
+        _requested_by: Option<String>,
+    ) -> Result<String, ClusterError> {
+        Err(ClusterError::Connection("mock backend unavailable".to_string()))
+    }
+
+    async fn approval_get(&self, _id: &str) -> Result<PendingApproval, ClusterError> {
+        Err(ClusterError::Connection("mock backend unavailable".to_string()))
+    }
+
+    async fn approval_approve(&self, _id: &str, _by: &str) -> Result<PendingApproval, ClusterError> {
+        Err(ClusterError::Connection("mock backend unavailable".to_string()))
+    }
+
+    async fn approval_deny(&self, _id: &str, _by: &str) -> Result<PendingApproval, ClusterError> {
+        Err(ClusterError::Connection("mock backend unavailable".to_string()))
+    }
+
+    async fn approval_list_pending(&self) -> Result<Vec<PendingApproval>, ClusterError> {
+        Err(ClusterError::Connection("mock backend unavailable".to_string()))
+    }
+
+    async fn approval_pending_count(&self) -> Result<usize, ClusterError> {
+        Err(ClusterError::Connection("mock backend unavailable".to_string()))
+    }
+
+    async fn approval_expire_stale(&self) -> Result<usize, ClusterError> {
+        Err(ClusterError::Connection("mock backend unavailable".to_string()))
+    }
+
+    async fn rate_limit_check(
+        &self,
+        _category: &str,
+        _key: &str,
+        _rps: u32,
+        _burst: u32,
+    ) -> Result<bool, ClusterError> {
+        Err(ClusterError::Connection("mock backend unavailable".to_string()))
+    }
+
+    async fn health_check(&self) -> Result<(), ClusterError> {
+        Err(ClusterError::Connection("Redis connection refused".to_string()))
+    }
+}
 
 fn test_state() -> (AppState, TempDir) {
     let tmp = TempDir::new().unwrap();
@@ -1400,5 +1457,113 @@ async fn per_ip_rate_limit_429_response_body_format() {
     assert!(
         body["retry_after_seconds"].is_number(),
         "Response must include 'retry_after_seconds' number"
+    );
+}
+
+// ─── GAP-008: Health check degraded state tests ───
+
+/// GAP-008: Health endpoint returns "degraded" when cluster health check fails.
+#[tokio::test]
+async fn health_returns_degraded_when_cluster_unhealthy() {
+    let tmp = TempDir::new().unwrap();
+    let state = AppState {
+        policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![],
+        })),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("test-config.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: None,
+        rate_limits: Arc::new(RateLimits::disabled()),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
+        tool_registry: None,
+        // GAP-008: Use unhealthy cluster backend
+        cluster: Some(Arc::new(UnhealthyClusterBackend)),
+        rbac_config: sentinel_server::rbac::RbacConfig::default(),
+        tenant_config: sentinel_server::tenant::TenantConfig::default(),
+        tenant_store: None,
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(
+            sentinel_server::idempotency::IdempotencyConfig::default(),
+        ),
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
+        exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
+        memory_security: None,
+        nhi: None,
+        metrics_require_auth: true,
+        audit_strict_mode: false,
+    };
+
+    let app = routes::build_router(state);
+    let response = app
+        .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    // GAP-008: Verify degraded status and error message
+    assert_eq!(
+        json["status"], "degraded",
+        "Health should report degraded when cluster is unhealthy"
+    );
+    assert!(
+        json["cluster"].is_string(),
+        "Cluster field should contain error message"
+    );
+    let cluster_err = json["cluster"].as_str().unwrap();
+    assert!(
+        cluster_err.contains("unhealthy") || cluster_err.contains("Redis"),
+        "Error message should indicate cluster issue: {}",
+        cluster_err
+    );
+}
+
+/// GAP-008: Health endpoint returns "ok" when no cluster is configured.
+#[tokio::test]
+async fn health_returns_ok_when_no_cluster_configured() {
+    let (state, _tmp) = test_state();
+    assert!(
+        state.cluster.is_none(),
+        "test_state should have no cluster configured"
+    );
+
+    let app = routes::build_router(state);
+    let response = app
+        .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(json["status"], "ok");
+    assert!(
+        json.get("cluster").is_none() || json["cluster"].is_null(),
+        "Cluster field should not be present or be null when no cluster configured"
     );
 }

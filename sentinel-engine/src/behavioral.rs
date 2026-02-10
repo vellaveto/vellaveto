@@ -1183,6 +1183,178 @@ mod tests {
         ));
     }
 
+    // ── GAP-012: Persistence Integration Tests ────
+
+    /// GAP-012: Multi-agent snapshot roundtrip ensures all agents and their
+    /// tools are correctly persisted and restored.
+    #[test]
+    fn test_snapshot_multi_agent_roundtrip() {
+        let config = BehavioralConfig {
+            min_sessions: 2,
+            ..Default::default()
+        };
+        let mut tracker = BehavioralTracker::new(config.clone()).expect("valid config");
+
+        // Record sessions for multiple agents with different tool patterns
+        let agent1_tools = counts(&[("read_file", 10), ("write_file", 3)]);
+        let agent2_tools = counts(&[("list_dir", 50), ("delete_file", 2), ("chmod", 5)]);
+        let agent3_tools = counts(&[("network_call", 100)]);
+
+        for _ in 0..3 {
+            tracker.record_session("agent-1", &agent1_tools);
+            tracker.record_session("agent-2", &agent2_tools);
+            tracker.record_session("agent-3", &agent3_tools);
+        }
+
+        let snapshot = tracker.snapshot();
+
+        // Persist and restore
+        let json = serde_json::to_string(&snapshot).expect("serialize");
+        let restored_snap: BehavioralSnapshot = serde_json::from_str(&json).expect("deserialize");
+        let restored =
+            BehavioralTracker::from_snapshot(config, restored_snap).expect("valid snapshot");
+
+        // Verify all agents restored
+        assert_eq!(restored.agent_count(), 3);
+        assert_eq!(restored.agent_sessions("agent-1"), Some(3));
+        assert_eq!(restored.agent_sessions("agent-2"), Some(3));
+        assert_eq!(restored.agent_sessions("agent-3"), Some(3));
+
+        // Verify tool counts
+        assert_eq!(restored.tool_count("agent-1"), 2);
+        assert_eq!(restored.tool_count("agent-2"), 3);
+        assert_eq!(restored.tool_count("agent-3"), 1);
+
+        // Verify specific baselines exist
+        assert!(restored.get_baseline("agent-1", "read_file").is_some());
+        assert!(restored.get_baseline("agent-2", "list_dir").is_some());
+        assert!(restored.get_baseline("agent-3", "network_call").is_some());
+    }
+
+    /// GAP-012: Restored tracker produces identical anomaly detection results
+    /// as the original tracker.
+    #[test]
+    fn test_snapshot_restored_produces_same_alerts() {
+        let config = BehavioralConfig {
+            min_sessions: 3,
+            threshold: 10.0,
+            alpha: 0.3,
+            ..Default::default()
+        };
+        let mut tracker = BehavioralTracker::new(config.clone()).expect("valid config");
+
+        // Build up baseline
+        let normal = counts(&[("tool_a", 10), ("tool_b", 20)]);
+        for _ in 0..5 {
+            tracker.record_session("agent-1", &normal);
+        }
+
+        // Create anomalous input
+        let anomalous = counts(&[("tool_a", 500), ("tool_b", 20)]);
+
+        // Check alerts on original
+        let original_alerts = tracker.check_session("agent-1", &anomalous);
+
+        // Snapshot and restore
+        let snapshot = tracker.snapshot();
+        let json = serde_json::to_string(&snapshot).expect("serialize");
+        let restored_snap: BehavioralSnapshot = serde_json::from_str(&json).expect("deserialize");
+        let restored =
+            BehavioralTracker::from_snapshot(config, restored_snap).expect("valid snapshot");
+
+        // Check alerts on restored tracker
+        let restored_alerts = restored.check_session("agent-1", &anomalous);
+
+        // Should produce identical alerts
+        assert_eq!(original_alerts.len(), restored_alerts.len());
+        for (orig, rest) in original_alerts.iter().zip(restored_alerts.iter()) {
+            assert_eq!(orig.agent_id, rest.agent_id);
+            assert_eq!(orig.tool, rest.tool);
+            assert_eq!(orig.current_count, rest.current_count);
+            // EMA values should be identical
+            assert!(
+                (orig.baseline_ema - rest.baseline_ema).abs() < f64::EPSILON,
+                "EMA mismatch: {} vs {}",
+                orig.baseline_ema,
+                rest.baseline_ema
+            );
+        }
+    }
+
+    /// GAP-012: Large-scale snapshot handles many agents and tools efficiently.
+    #[test]
+    fn test_snapshot_large_scale() {
+        let config = BehavioralConfig {
+            min_sessions: 1,
+            max_agents: 100,
+            max_tools_per_agent: 50,
+            ..Default::default()
+        };
+        let mut tracker = BehavioralTracker::new(config.clone()).expect("valid config");
+
+        // Create 50 agents, each with 20 tools
+        for agent_id in 0..50 {
+            let tools: HashMap<String, u64> = (0..20)
+                .map(|tool_id| (format!("tool_{}", tool_id), (agent_id + tool_id + 1) as u64))
+                .collect();
+            for _ in 0..3 {
+                tracker.record_session(&format!("agent-{}", agent_id), &tools);
+            }
+        }
+
+        let snapshot = tracker.snapshot();
+
+        // Verify snapshot size is reasonable
+        let json = serde_json::to_string(&snapshot).expect("serialize");
+        assert!(json.len() > 1000, "Snapshot should contain substantial data");
+        assert!(
+            json.len() < 1_000_000,
+            "Snapshot should be reasonably sized"
+        );
+
+        // Restore and verify counts
+        let restored_snap: BehavioralSnapshot = serde_json::from_str(&json).expect("deserialize");
+        let restored =
+            BehavioralTracker::from_snapshot(config, restored_snap).expect("valid snapshot");
+
+        assert_eq!(restored.agent_count(), 50);
+        assert_eq!(restored.tool_count("agent-0"), 20);
+        assert_eq!(restored.agent_sessions("agent-49"), Some(3));
+    }
+
+    /// GAP-012: Update counter is preserved through persistence roundtrip.
+    #[test]
+    fn test_snapshot_preserves_update_counter() {
+        let config = BehavioralConfig::default();
+        let mut tracker = BehavioralTracker::new(config.clone()).expect("valid config");
+
+        // Record many sessions to increment update counter
+        for i in 0..10 {
+            tracker.record_session(&format!("agent-{}", i % 3), &counts(&[("tool", 5)]));
+        }
+
+        let snapshot = tracker.snapshot();
+        let original_counter = snapshot.update_counter;
+        assert!(original_counter >= 10, "Counter should track updates");
+
+        // Roundtrip
+        let json = serde_json::to_string(&snapshot).expect("serialize");
+        let restored_snap: BehavioralSnapshot = serde_json::from_str(&json).expect("deserialize");
+
+        assert_eq!(
+            restored_snap.update_counter, original_counter,
+            "Update counter must survive roundtrip"
+        );
+
+        let restored =
+            BehavioralTracker::from_snapshot(config, restored_snap).expect("valid snapshot");
+        let new_snapshot = restored.snapshot();
+        assert_eq!(
+            new_snapshot.update_counter, original_counter,
+            "Restored tracker preserves counter value"
+        );
+    }
+
     // ── Accessors ─────────────────────────────────
 
     #[test]

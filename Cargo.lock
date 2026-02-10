@@ -3031,6 +3031,7 @@ version = "2.0.0"
 dependencies = [
  "anyhow",
  "arc-swap",
+ "async-trait",
  "axum",
  "chrono",
  "clap",
