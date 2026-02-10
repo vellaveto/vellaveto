@@ -36,10 +36,16 @@ pub fn build_router(state: AppState) -> Router {
     let authenticated = Router::new()
         .route("/health", get(health))
         .route("/api/evaluate", post(evaluate))
-        .route("/api/policies", get(list_policies))
-        .route("/api/policies", post(add_policy))
-        .route("/api/policies/reload", post(reload_policies))
-        .route("/api/policies/{id}", delete(remove_policy))
+        .route("/api/policies", get(super::policy::list_policies))
+        .route("/api/policies", post(super::policy::add_policy))
+        .route(
+            "/api/policies/reload",
+            post(super::policy::reload_policies),
+        )
+        .route(
+            "/api/policies/{id}",
+            delete(super::policy::remove_policy),
+        )
         .route("/api/audit/entries", get(super::audit::audit_entries))
         .route("/api/audit/export", get(super::audit::audit_export))
         .route("/api/audit/report", get(super::audit::audit_report))
@@ -56,20 +62,32 @@ pub fn build_router(state: AppState) -> Router {
             "/api/audit/checkpoint",
             post(super::audit::create_checkpoint),
         )
-        .route("/api/approvals/pending", get(list_pending_approvals))
-        .route("/api/approvals/{id}", get(get_approval))
-        .route("/api/approvals/{id}/approve", post(approve_approval))
-        .route("/api/approvals/{id}/deny", post(deny_approval))
+        .route(
+            "/api/approvals/pending",
+            get(super::approval::list_pending_approvals),
+        )
+        .route("/api/approvals/{id}", get(super::approval::get_approval))
+        .route(
+            "/api/approvals/{id}/approve",
+            post(super::approval::approve_approval),
+        )
+        .route(
+            "/api/approvals/{id}/deny",
+            post(super::approval::deny_approval),
+        )
         .route("/api/metrics", get(metrics_json))
         // Tool registry endpoints (P2.1)
-        .route("/api/registry/tools", get(list_registry_tools))
+        .route(
+            "/api/registry/tools",
+            get(super::registry::list_registry_tools),
+        )
         .route(
             "/api/registry/tools/{name}/approve",
-            post(approve_registry_tool),
+            post(super::registry::approve_registry_tool),
         )
         .route(
             "/api/registry/tools/{name}/revoke",
-            post(revoke_registry_tool),
+            post(super::registry::revoke_registry_tool),
         )
         // Tenant management endpoints (Phase 3)
         .route("/api/tenants", get(super::tenant::list_tenants))
