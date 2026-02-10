@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Expanded `README.md` with a full workspace module architecture map and feature ownership matrix (owners, entrypoints, and primary tests).
   - Expanded `README.md` project structure coverage to include SDK, Helm, docs, policies, security testing, and local collaboration surfaces.
   - Updated `ROADMAP.md` with an explicit Phase 16.6 architecture split/modularization track.
+  - Added a post-quantum readiness section to `README.md` with standards status and migration milestones (2028/2031/2035 alignment).
+  - Added Phase 16.7 post-quantum cryptography transition track to `ROADMAP.md` with TLS policy, observability, and rollout tasks.
 
 ### Performance
 

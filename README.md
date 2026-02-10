@@ -51,6 +51,17 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 - Added full workspace architecture and feature ownership maps for module-split navigation.
 - See `CHANGELOG.md` for full release and patch details.
 
+## 🧪 Post-Quantum Readiness (Research Track)
+
+- Sentinel tracks NIST PQC standards: `FIPS 203 (ML-KEM)`, `FIPS 204 (ML-DSA)`, `FIPS 205 (SLH-DSA)`, plus migration guidance in `NIST SP 800-227` (finalized on 2025-08-13).
+- TLS post-quantum key exchange for TLS 1.3 is still draft-stage in IETF (hybrid and pure ML-KEM drafts), so Sentinel keeps a crypto-agile migration posture until RFCs and ecosystem support stabilize.
+- Planned migration work:
+  - Add configurable `tls.kex_policy` (`classical_only`, `hybrid_preferred`, `hybrid_required_when_supported`)
+  - Expose negotiated TLS handshake metadata (KEX group, protocol, cipher) in telemetry and audit logs
+  - Standardize outbound TLS backend policy for `reqwest` consumers
+  - Add a phased migration runbook with rollout and rollback gates
+- Sentinel roadmap now tracks external migration milestones (goals by 2028, high-priority migration by 2031, full migration by 2035). See `ROADMAP.md`.
+
 ## ❓ Why Sentinel?
 
 AI agents with tool access can read files, make HTTP requests, execute commands, and modify data. Without guardrails, a prompt injection or misbehaving agent can:

@@ -2,7 +2,7 @@
 
 > **Version:** 2.2.1 (Released)
 > **Generated:** 2026-02-10
-> **Status:** v2.2.1 released; v2.2 Phases 12-15 complete; Phase 16+ planned; architecture split track active
+> **Status:** v2.2.1 released; v2.2 Phases 12-15 complete; Phase 16+ planned; architecture split and post-quantum readiness tracks active
 > **Based on:** Multi-agent research (MCP spec 2025-11-25, OWASP ASI Top 10, enterprise patterns, competitor analysis)
 
 ---
@@ -16,6 +16,7 @@ Sentinel v2.2.1 is production-ready with 35 audit rounds and 3,700+ tests. This 
 3. **Standards Alignment** — MITRE ATLAS, OWASP ASI Top 10, NIST AI Profile
 4. **Enterprise Hardening** — mTLS/SPIFFE, OPA integration, threat intelligence
 5. **Architecture Split Readiness** — Module extraction guardrails, dependency boundaries, and regression gates
+6. **Post-Quantum Migration Readiness** — Crypto-agility planning for standards transition
 
 **Research Sources:**
 - MCP Specification 2025-11-25 updates
@@ -1583,6 +1584,22 @@ v2.2 Complete! Ready for v2.3 planning.
 | Define post-split contract checks for `sentinel-types` changes | P1 | 3 days | Planned |
 | Add module extraction playbook for contributors | P2 | 2 days | Planned |
 
+### 16.7 Post-Quantum Cryptography Transition (Planned)
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Add `tls.kex_policy` config surface (`classical_only`, `hybrid_preferred`, `hybrid_required_when_supported`) | P1 | 3 days | Planned |
+| Emit negotiated TLS metadata (KEX group, protocol, cipher) in telemetry and audit | P1 | 3 days | Planned |
+| Standardize outbound TLS backend strategy for workspace `reqwest` clients | P1 | 2 days | Planned |
+| Add hybrid/classical negotiation integration tests and failure-mode checks | P2 | 4 days | Planned |
+| Publish `docs/quantum-migration.md` rollout + rollback runbook | P2 | 2 days | Planned |
+| Track IETF TLS PQ drafts to RFC and tighten defaults when ecosystem support stabilizes | P1 | Ongoing | Active Research |
+
+**External milestones we align to (planning targets):**
+- Define migration goals and inventory by **2028**
+- Complete highest-priority migration activities by **2031**
+- Complete full migration by **2035**
+
 ---
 
 ## Research Bibliography
@@ -1597,3 +1614,8 @@ v2.2 Complete! Ready for v2.3 planning.
 8. **Runtime Risk to Real-Time Defense** — Microsoft Security Blog (2026)
 9. **Agent Security Bench: Evaluating LLM Agent Safety** — Stanford (2025)
 10. **Privilege Management in MCP** — arxiv:2507.06250 (2025)
+11. **NIST Post-Quantum Cryptography Project** — csrc.nist.gov/projects/post-quantum-cryptography
+12. **FIPS 203 (ML-KEM)** — csrc.nist.gov/pubs/fips/203/final
+13. **NIST SP 800-227 (KEM Guidance)** — csrc.nist.gov/pubs/sp/800/227/final
+14. **NCSC: Preparing for PQC Migration** — ncsc.gov.uk (2025)
+15. **NSA CNSA 2.0 PQ Transition FAQ** — media.defense.gov (2022)
