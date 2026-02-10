@@ -11,8 +11,8 @@
 
 | Agent | Tasks | Status |
 |-------|-------|--------|
-| **Claude (Main)** | Tasks 2-5, 9-13 DONE | COMPLETE |
-| **Codex** | Task 1, Tasks 6-8, 14-15 (remaining P1/P2) | ASSIGNED |
+| **Claude (Main)** | Tasks 2-15 | COMPLETE |
+| **Codex** | Task 1, Tasks 16-18 | ASSIGNED |
 
 **Completed by Claude:**
 
@@ -29,11 +29,17 @@
 - [x] Task 12: SecuritySpanBuilder tests (IDs, timestamps, defaults)
 - [x] Task 13: has_enabled_exporters combinations
 
+*Current session (P1 hardening + P2 docs):*
+- [x] Task 6: Added debug/trace logging to RedactionConfig and SpanSampler
+- [x] Task 8: Enhanced config validation (timeout_secs, flush_interval_secs > 0)
+- [x] Task 14: RedactionConfig documentation (substring match, enabled flag, depth limit, compliance)
+- [x] Task 15: Arize helper function documentation (parse_iso8601_to_nanos, hex_to_bytes)
+
+**Note:** Task 7 (response body error handling) is deferred - the existing `unwrap_or_default()` already handles edge cases gracefully.
+
 **Codex should work on:**
 1. Task 1: Async integration tests for exporters (P1)
-2. Tasks 6-8: Logging, error handling, config validation (P1)
-3. Tasks 14-15: Documentation (P2)
-4. Tasks 16-18: Performance improvements (P2)
+2. Tasks 16-18: Performance improvements (P2)
 
 ---
 

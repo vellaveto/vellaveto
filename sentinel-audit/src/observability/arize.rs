@@ -538,14 +538,64 @@ where
     serializer.serialize_str(&nanos.to_string())
 }
 
-/// Parse ISO 8601 timestamp to Unix nanoseconds.
+/// Parse ISO 8601 (RFC 3339) timestamp to Unix nanoseconds.
+///
+/// # Returns
+///
+/// - `Some(nanos)` for valid RFC 3339 timestamps
+/// - `None` for invalid timestamps (empty strings, malformed dates, etc.)
+///
+/// # Fallback Behavior
+///
+/// When used in `span_to_otlp`, a `None` result defaults to `0` nanoseconds.
+/// This ensures graceful handling of malformed span timestamps without panicking.
+///
+/// # Examples
+///
+/// ```ignore
+/// // Valid timestamps
+/// assert!(parse_iso8601_to_nanos("2024-01-01T00:00:00Z").is_some());
+/// assert!(parse_iso8601_to_nanos("1970-01-01T00:00:00Z") == Some(0));
+///
+/// // Invalid timestamps return None
+/// assert!(parse_iso8601_to_nanos("invalid").is_none());
+/// assert!(parse_iso8601_to_nanos("").is_none());
+/// ```
 fn parse_iso8601_to_nanos(timestamp: &str) -> Option<u64> {
     chrono::DateTime::parse_from_rfc3339(timestamp)
         .ok()
         .map(|dt| dt.timestamp_nanos_opt().unwrap_or(0) as u64)
 }
 
-/// Convert hex string to bytes (for trace/span IDs).
+/// Convert hex string to bytes for OTLP trace/span IDs.
+///
+/// # Behavior
+///
+/// - **Valid hex:** Decoded directly to bytes (e.g., `"abcd1234"` → `[0xab, 0xcd, 0x12, 0x34]`)
+/// - **Invalid hex:** Hashed via SHA-256 to produce consistent 16-byte output
+///
+/// # Fallback Rationale
+///
+/// When Sentinel receives non-standard trace IDs (e.g., UUIDs with hyphens,
+/// arbitrary strings), this function produces a deterministic byte representation
+/// using SHA-256 truncated to 16 bytes. This ensures:
+/// - Consistent output for the same input (idempotent)
+/// - Valid OTLP span/trace IDs that won't cause protocol errors
+/// - No panics on malformed input
+///
+/// # Examples
+///
+/// ```ignore
+/// // Valid hex
+/// let bytes = hex_to_bytes("abcd1234");
+/// assert_eq!(bytes.len(), 4);
+///
+/// // Invalid hex produces consistent hash
+/// let bytes1 = hex_to_bytes("not-valid-hex");
+/// let bytes2 = hex_to_bytes("not-valid-hex");
+/// assert_eq!(bytes1, bytes2);
+/// assert_eq!(bytes1.len(), 16);
+/// ```
 fn hex_to_bytes(hex: &str) -> Vec<u8> {
     hex::decode(hex).unwrap_or_else(|_| {
         // If hex decode fails, hash the input to get consistent bytes

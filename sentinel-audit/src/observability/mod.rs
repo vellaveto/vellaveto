@@ -11,6 +11,14 @@
 //! - **Sampling:** Configurable rate with always-sample-denies option
 //! - **Trace correlation:** W3C Trace Context propagation
 //!
+//! ## Sampling Behavior
+//!
+//! The [`SpanSampler`] uses deterministic sampling based on trace ID hashing:
+//! - Same `trace_id` always produces the same sampling decision
+//! - Uses `DefaultHasher` for consistent hash distribution
+//! - Hash is compared against `sample_rate * u64::MAX` threshold
+//! - At 50% sample rate, expect ~50% of distinct trace IDs to be sampled (±5%)
+//!
 //! ## Feature Gate
 //!
 //! Enable with `observability-exporters` feature:
@@ -32,6 +40,7 @@ use sentinel_types::Verdict;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
+use tracing::{debug, trace};
 
 /// Error type for observability export operations.
 #[derive(Debug, Error)]
@@ -613,9 +622,23 @@ impl SpanSampler {
     /// Decide whether to sample a span.
     ///
     /// Returns `true` if the span should be exported.
+    ///
+    /// # Sampling Algorithm
+    ///
+    /// 1. Force-sample denied requests if `always_sample_denies` is enabled
+    /// 2. Force-sample high-severity detections if `always_sample_detections` is enabled
+    /// 3. Apply probabilistic sampling using trace_id hash for determinism
+    ///
+    /// The probabilistic sampling ensures all spans from the same trace are
+    /// sampled together (or not), providing complete trace visibility.
     pub fn should_sample(&self, span: &SecuritySpan) -> bool {
         // Always sample denies if configured
         if self.config.always_sample_denies && span.is_denied() {
+            debug!(
+                trace_id = %span.trace_id,
+                verdict = "deny",
+                "force-sampling denied span"
+            );
             return true;
         }
 
@@ -624,21 +647,40 @@ impl SpanSampler {
             && span.has_detections()
             && span.max_severity() >= self.config.min_severity_to_sample
         {
+            debug!(
+                trace_id = %span.trace_id,
+                detection_count = span.detections.len(),
+                max_severity = span.max_severity(),
+                "force-sampling span with high-severity detections"
+            );
             return true;
         }
 
         // Apply probabilistic sampling
         if self.config.sample_rate >= 1.0 {
+            trace!(trace_id = %span.trace_id, "sample_rate=1.0, sampling all");
             return true;
         }
         if self.config.sample_rate <= 0.0 {
+            trace!(trace_id = %span.trace_id, "sample_rate=0.0, sampling none");
             return false;
         }
 
         // Use trace_id for deterministic sampling across spans in same trace
         let hash = Self::hash_trace_id(&span.trace_id);
         let threshold = (self.config.sample_rate * u64::MAX as f64) as u64;
-        hash < threshold
+        let sampled = hash < threshold;
+
+        trace!(
+            trace_id = %span.trace_id,
+            hash = hash,
+            threshold = threshold,
+            sample_rate = self.config.sample_rate,
+            sampled = sampled,
+            "probabilistic sampling decision"
+        );
+
+        sampled
     }
 
     /// Hash a trace ID for deterministic sampling.
@@ -747,21 +789,66 @@ impl TraceContext {
 }
 
 /// Redaction configuration for request/response bodies.
+///
+/// # Redaction Behavior
+///
+/// - **Substring Matching:** Field names are matched using case-insensitive substring
+///   matching. For example, `"password"` matches `"user_password"`, `"PASSWORD123"`, etc.
+/// - **Enabled Flag:** When `enabled = false`, redaction is completely bypassed and the
+///   original JSON is returned unchanged. All other configuration fields are ignored.
+/// - **Recursion Depth:** Redaction recurses up to 50 levels deep to prevent stack
+///   overflow on deeply nested JSON. Fields beyond depth 50 are returned unredacted.
+///
+/// # Performance
+///
+/// Redaction clones JSON values during traversal. For very large bodies (>100KB),
+/// consider using `max_body_size` to truncate before redaction.
+///
+/// # Compliance Notes
+///
+/// The `redaction_text` field is configurable to support compliance requirements
+/// that may specify particular replacement markers (e.g., `"***REDACTED***"`).
+///
+/// # Example
+///
+/// ```
+/// use sentinel_audit::observability::RedactionConfig;
+///
+/// let config = RedactionConfig::default();
+/// let input = serde_json::json!({
+///     "username": "alice",
+///     "password": "secret123",
+///     "nested": { "api_key": "sk-1234" }
+/// });
+///
+/// let redacted = config.redact(&input);
+/// assert_eq!(redacted["password"], "[REDACTED]");
+/// assert_eq!(redacted["nested"]["api_key"], "[REDACTED]");
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RedactionConfig {
-    /// Enable body capture.
+    /// Enable body capture and redaction.
+    ///
+    /// When `false`, `redact()` returns the input unchanged without any processing.
     #[serde(default = "default_true")]
     pub enabled: bool,
 
     /// Maximum body size to capture (bytes).
+    ///
+    /// Bodies exceeding this size are truncated via `truncate_body()`.
     #[serde(default = "default_max_body_size")]
     pub max_body_size: usize,
 
-    /// Fields to always redact (case-insensitive).
+    /// Fields to always redact (case-insensitive substring match).
+    ///
+    /// Each entry is matched against JSON object keys. A match occurs if the
+    /// key contains the redacted field as a case-insensitive substring.
     #[serde(default = "default_redacted_fields")]
     pub redacted_fields: Vec<String>,
 
     /// Replacement text for redacted values.
+    ///
+    /// Default: `"[REDACTED]"`. May be customized for compliance requirements.
     #[serde(default = "default_redaction_text")]
     pub redaction_text: String,
 }
@@ -809,8 +896,9 @@ impl RedactionConfig {
     }
 
     fn redact_recursive(&self, value: &serde_json::Value, depth: usize) -> serde_json::Value {
-        // Prevent stack overflow with deep recursion
+        // Prevent stack overflow with deep recursion (limit: 50)
         if depth > 50 {
+            trace!(depth = depth, "redaction depth limit exceeded, returning unredacted");
             return value.clone();
         }
 
@@ -825,6 +913,11 @@ impl RedactionConfig {
                         .any(|f| lower_key.contains(&f.to_lowercase()));
 
                     if should_redact {
+                        trace!(
+                            field = %key,
+                            depth = depth,
+                            "redacting sensitive field"
+                        );
                         redacted.insert(
                             key.clone(),
                             serde_json::Value::String(self.redaction_text.clone()),

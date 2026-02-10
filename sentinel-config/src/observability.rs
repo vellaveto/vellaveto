@@ -483,6 +483,16 @@ impl ObservabilityConfig {
                     self.langfuse.batch_size
                 ));
             }
+            if self.langfuse.timeout_secs == 0 {
+                return Err(
+                    "observability.langfuse.timeout_secs must be > 0".to_string(),
+                );
+            }
+            if self.langfuse.flush_interval_secs == 0 {
+                return Err(
+                    "observability.langfuse.flush_interval_secs must be > 0".to_string(),
+                );
+            }
         }
 
         // Validate Arize config
@@ -500,6 +510,16 @@ impl ObservabilityConfig {
                     self.arize.batch_size
                 ));
             }
+            if self.arize.timeout_secs == 0 {
+                return Err(
+                    "observability.arize.timeout_secs must be > 0".to_string(),
+                );
+            }
+            if self.arize.flush_interval_secs == 0 {
+                return Err(
+                    "observability.arize.flush_interval_secs must be > 0".to_string(),
+                );
+            }
         }
 
         // Validate Helicone config
@@ -516,6 +536,16 @@ impl ObservabilityConfig {
                     "observability.helicone.batch_size must be 1-10000, got {}",
                     self.helicone.batch_size
                 ));
+            }
+            if self.helicone.timeout_secs == 0 {
+                return Err(
+                    "observability.helicone.timeout_secs must be > 0".to_string(),
+                );
+            }
+            if self.helicone.flush_interval_secs == 0 {
+                return Err(
+                    "observability.helicone.flush_interval_secs must be > 0".to_string(),
+                );
             }
         }
 
@@ -536,6 +566,16 @@ impl ObservabilityConfig {
                     "observability.webhook.batch_size must be 1-10000, got {}",
                     self.webhook.batch_size
                 ));
+            }
+            if self.webhook.timeout_secs == 0 {
+                return Err(
+                    "observability.webhook.timeout_secs must be > 0".to_string(),
+                );
+            }
+            if self.webhook.flush_interval_secs == 0 {
+                return Err(
+                    "observability.webhook.flush_interval_secs must be > 0".to_string(),
+                );
             }
         }
 
@@ -974,5 +1014,145 @@ mod tests {
             config.has_enabled_exporters(),
             "master=true with multiple exporters should return true"
         );
+    }
+
+    // ========================================
+    // Task 8: Enhanced Config Validation (GAP-006)
+    // ========================================
+
+    #[test]
+    fn test_validate_langfuse_timeout_zero() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.langfuse.enabled = true;
+        config.langfuse.timeout_secs = 0;
+
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("timeout_secs must be > 0"),
+            "expected timeout error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_langfuse_flush_interval_zero() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.langfuse.enabled = true;
+        config.langfuse.flush_interval_secs = 0;
+
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("flush_interval_secs must be > 0"),
+            "expected flush_interval error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_arize_timeout_zero() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.arize.enabled = true;
+        config.arize.timeout_secs = 0;
+
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("timeout_secs must be > 0"),
+            "expected timeout error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_arize_flush_interval_zero() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.arize.enabled = true;
+        config.arize.flush_interval_secs = 0;
+
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("flush_interval_secs must be > 0"),
+            "expected flush_interval error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_helicone_timeout_zero() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.helicone.enabled = true;
+        config.helicone.timeout_secs = 0;
+
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("timeout_secs must be > 0"),
+            "expected timeout error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_helicone_flush_interval_zero() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.helicone.enabled = true;
+        config.helicone.flush_interval_secs = 0;
+
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("flush_interval_secs must be > 0"),
+            "expected flush_interval error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_webhook_timeout_zero() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+        config.webhook.endpoint = "https://api.example.com/webhook".to_string();
+        config.webhook.timeout_secs = 0;
+
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("timeout_secs must be > 0"),
+            "expected timeout error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_webhook_flush_interval_zero() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.webhook.enabled = true;
+        config.webhook.endpoint = "https://api.example.com/webhook".to_string();
+        config.webhook.flush_interval_secs = 0;
+
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("flush_interval_secs must be > 0"),
+            "expected flush_interval error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_valid_nonzero_configs() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.langfuse.enabled = true;
+        // Defaults should be valid (non-zero)
+        assert!(config.validate().is_ok(), "defaults should be valid");
+
+        // Explicit non-zero values should be valid
+        config.langfuse.timeout_secs = 30;
+        config.langfuse.flush_interval_secs = 5;
+        assert!(config.validate().is_ok(), "explicit non-zero values should be valid");
     }
 }
