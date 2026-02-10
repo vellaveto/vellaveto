@@ -2,7 +2,7 @@
 
 > **Version:** 2.2.1 (Released)
 > **Generated:** 2026-02-10
-> **Status:** v2.2.1 released; v2.2 Phases 12-15 complete; Phase 16+ planned
+> **Status:** v2.2.1 released; v2.2 Phases 12-15 complete; Phase 16+ planned; architecture split track active
 > **Based on:** Multi-agent research (MCP spec 2025-11-25, OWASP ASI Top 10, enterprise patterns, competitor analysis)
 
 ---
@@ -15,6 +15,7 @@ Sentinel v2.2.1 is production-ready with 35 audit rounds and 3,700+ tests. This 
 2. **Advanced Threat Detection** — Shadow agents, full schema poisoning, cascading failures
 3. **Standards Alignment** — MITRE ATLAS, OWASP ASI Top 10, NIST AI Profile
 4. **Enterprise Hardening** — mTLS/SPIFFE, OPA integration, threat intelligence
+5. **Architecture Split Readiness** — Module extraction guardrails, dependency boundaries, and regression gates
 
 **Research Sources:**
 - MCP Specification 2025-11-25 updates
@@ -1571,6 +1572,16 @@ v2.2 Complete! Ready for v2.3 planning.
 |------|---------|------------|
 | rand 0.8 → 0.9 | ed25519-dalek uses rand_core 0.6 | Wait for upstream update |
 | Consider ring → aws-lc-rs | Performance evaluation needed | Benchmark first |
+
+### 16.6 Architecture Split & Modularization (Active)
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Maintain crate-boundary architecture map (owners, interfaces, tests) | P2 | 2 days | Active |
+| Enforce split safety gates (`check`, `clippy`, workspace tests) per extraction step | P1 | Ongoing | Active |
+| Track formatting drift and non-functional deltas during split windows | P2 | Ongoing | Active |
+| Define post-split contract checks for `sentinel-types` changes | P1 | 3 days | Planned |
+| Add module extraction playbook for contributors | P2 | 2 days | Planned |
 
 ---
 

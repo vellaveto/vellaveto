@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Documentation Sync**:
   - Updated `README.md` to reflect v2.2.1 metadata, MCP `2025-11-25` support (with compatibility notes), current container tags, and roadmap link.
   - Updated `ROADMAP.md` to mark Phase 15 complete and v2.2 timeline complete.
+  - Expanded `README.md` with a full workspace module architecture map and feature ownership matrix (owners, entrypoints, and primary tests).
+  - Expanded `README.md` project structure coverage to include SDK, Helm, docs, policies, security testing, and local collaboration surfaces.
+  - Updated `ROADMAP.md` with an explicit Phase 16.6 architecture split/modularization track.
 
 ### Performance
 

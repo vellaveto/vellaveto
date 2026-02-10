@@ -48,6 +48,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 - Strengthened Streamable HTTP parity: SSE responses now enforce structured output schema validation fail-closed.
 - Expanded observability test coverage with async integration tests and property-based invariants.
 - Applied bounded runtime preallocation in `sentinel-mcp` session/state maps to reduce allocation churn on hot paths.
+- Added full workspace architecture and feature ownership maps for module-split navigation.
 - See `CHANGELOG.md` for full release and patch details.
 
 ## ❓ Why Sentinel?
@@ -906,6 +907,55 @@ sentinel-  sentinel- sentinel-
 server     proxy     http-proxy   HTTP API, stdio proxy, HTTP reverse proxy
 ```
 
+### Full Workspace Module Map (v2.2.1)
+
+| Module | Type | Path | Responsibility | Verify |
+|--------|------|------|----------------|--------|
+| `sentinel-types` | library | `sentinel-types/` | Shared contracts (`Action`, `Policy`, `Verdict`, context types) | `cargo test -p sentinel-types` |
+| `sentinel-engine` | library | `sentinel-engine/` | Policy compilation/evaluation, constraint matching, normalization | `cargo test -p sentinel-engine` |
+| `sentinel-config` | library | `sentinel-config/` | TOML/JSON config parsing, validation, safety defaults | `cargo test -p sentinel-config` |
+| `sentinel-canonical` | library | `sentinel-canonical/` | Built-in policy presets and deterministic serialization | `cargo test -p sentinel-canonical` |
+| `sentinel-audit` | library | `sentinel-audit/` | Tamper-evident audit chain, checkpoints, SIEM export, observability exporters | `cargo test -p sentinel-audit` |
+| `sentinel-approval` | library | `sentinel-approval/` | Human approval queue, deduplication, expiry, resolver audit hooks | `cargo test -p sentinel-approval` |
+| `sentinel-mcp` | library | `sentinel-mcp/` | MCP/A2A security managers, inspection, threat detection, ETDI/MINJA/NHI | `cargo test -p sentinel-mcp` |
+| `sentinel-cluster` | library | `sentinel-cluster/` | Shared runtime state backend (local and Redis-backed) | `cargo test -p sentinel-cluster` |
+| `sentinel-server` | binary | `sentinel-server/` | HTTP API/CLI runtime, RBAC, authn/authz, policy lifecycle endpoints | `cargo test -p sentinel-server` |
+| `sentinel-proxy` | binary | `sentinel-proxy/` | Stdio MCP proxy enforcement runtime | `cargo test -p sentinel-proxy` |
+| `sentinel-http-proxy` | binary | `sentinel-http-proxy/` | Streamable HTTP MCP reverse proxy with OAuth, session, SSE controls | `cargo test -p sentinel-http-proxy` |
+| `sentinel-integration` | test-suite | `sentinel-integration/` | Cross-crate regression, adversarial, and conformance tests | `cargo test -p sentinel-integration` |
+| `sdk/python` | sdk | `sdk/python/` | Python client + LangChain/LangGraph adapters | `cd sdk/python && pytest` |
+| `helm/sentinel` | deployment | `helm/sentinel/` | Kubernetes packaging and values templates | `helm lint helm/sentinel` |
+| `fuzz` | fuzzing | `fuzz/` | Fuzz targets for parser/protocol/security boundary hardening | `cd fuzz && cargo +nightly fuzz list` |
+| `security-testing` | security | `security-testing/` | Pentest harnesses and red-team scenarios | `bash security-testing/run-shannon-pentest.sh` |
+| `policies` | config samples | `policies/` | Example and baseline policy bundles | load with `--config policies/*.toml` |
+| `examples` | examples | `examples/` | Demo configs and workflows | run `sentinel serve --config examples/*.toml` |
+| `scripts` | tooling | `scripts/` | Automation helpers for local and CI checks | `bash scripts/<script>.sh` |
+| `docs` | docs | `docs/` | API, deployment, operations, security guidance | n/a |
+
+### Full Feature Ownership Map
+
+| Feature | Owning module(s) | Runtime entrypoint(s) | Primary tests |
+|--------|-------------------|-----------------------|---------------|
+| Policy evaluation and constraints | `sentinel-engine`, `sentinel-types` | `/api/evaluate`, `sentinel evaluate` | `sentinel-engine/tests/`, `sentinel-integration/tests/` |
+| Config parsing and policy loading | `sentinel-config`, `sentinel-canonical` | server/proxy startup + reload | `sentinel-config/tests/`, `sentinel-server/tests/test_config_*` |
+| Tamper-evident audit trail and SIEM export | `sentinel-audit`, `sentinel-server` | `/api/audit/*`, `sentinel verify` | `sentinel-audit/tests/`, `sentinel-integration/tests/audit_*` |
+| Human-in-the-loop approvals | `sentinel-approval`, `sentinel-server` | `/api/approvals/*` | `sentinel-approval/tests/`, `sentinel-server/tests/test_routes_*` |
+| MCP protocol guardrails and inspection | `sentinel-mcp`, `sentinel-proxy`, `sentinel-http-proxy` | stdio + HTTP proxy tool calls | `sentinel-mcp/tests/`, `sentinel-http-proxy/tests/proxy_integration.rs` |
+| Streaming SSE schema enforcement | `sentinel-http-proxy`, `sentinel-mcp` | Streamable HTTP responses | `sentinel-http-proxy/tests/proxy_integration.rs` |
+| OAuth/JWT and API auth controls | `sentinel-http-proxy`, `sentinel-server` | proxy auth middleware, server RBAC routes | `sentinel-http-proxy/tests/proxy_integration.rs`, `sentinel-server/tests/test_rbac.rs` |
+| Network/path/DNS rebinding defenses | `sentinel-engine`, `sentinel-server`, `sentinel-http-proxy` | path and domain constraints on evaluation | `sentinel-engine/src/domain.rs`, `sentinel-integration/tests/path_domain_security.rs` |
+| ETDI cryptographic tool trust | `sentinel-mcp`, `sentinel-server` | ETDI APIs and CLI signing/verification | `sentinel-integration/tests/etdi_test.rs` |
+| MINJA memory injection defense | `sentinel-mcp` | memory inspection managers in proxy bridge | `sentinel-integration/tests/minja_tests.rs` |
+| NHI lifecycle and behavioral attestation | `sentinel-mcp`, `sentinel-server` | NHI APIs and identity middleware | `sentinel-integration/tests/nhi_test.rs` |
+| Async task security primitives | `sentinel-mcp`, `sentinel-http-proxy` | `tasks/*` policy path enforcement | `sentinel-http-proxy/tests/proxy_integration.rs` |
+| Semantic guardrails (LLM-based) | `sentinel-mcp` | semantic evaluation pipeline | `sentinel-mcp/src/semantic/`, integration coverage in `sentinel-integration/tests/` |
+| RAG poisoning defense | `sentinel-mcp` | grounding/retrieval defense path | `sentinel-mcp/src/rag_defense/` tests |
+| A2A protocol security | `sentinel-mcp` | A2A message classification and proxy service | `sentinel-mcp/src/a2a.rs` tests, `sentinel-integration/tests/owasp_mcp_top10.rs` |
+| Enterprise controls (mTLS/SPIFFE/OPA/JIT/Threat Intel) | `sentinel-server`, `sentinel-mcp`, `sentinel-cluster` | server runtime integrations and policy hooks | `sentinel-server/src/threat_intel.rs` tests, `sentinel-server/tests/` |
+| Observability exporters and traces | `sentinel-audit`, `sentinel-integration` | exporter backends and trace propagation | `sentinel-integration/tests/observability_test.rs`, `sentinel-audit/tests/proptest_observability.rs` |
+| Python SDK integrations | `sdk/python` | SDK client APIs and middleware callbacks | `sdk/python` test suite |
+| Fuzzing and adversarial validation | `fuzz`, `security-testing`, `sentinel-integration` | fuzz targets + red-team scripts | `fuzz/*`, `sentinel-integration/tests/full_attack_battery.rs` |
+
 ### Design Principles
 
 - 🚪 **Fail-closed** — errors, missing policies, and missing parameters all result in denial
@@ -1022,24 +1072,29 @@ CI runs 6 parallel jobs on every push and pull request:
 
 ## 📁 Project Structure
 
-```
-sentinel/
-  sentinel-types/          Core shared types (Action, Policy, Verdict)
-  sentinel-engine/         Policy evaluation engine with pre-compiled patterns
-  sentinel-audit/          Tamper-evident audit logging + SIEM export
-  sentinel-approval/       Human-in-the-loop approval store
-  sentinel-config/         TOML/JSON config parser
-  sentinel-canonical/      Built-in policy presets
-  sentinel-mcp/            MCP protocol, injection/DLP scanning, rug-pull detection
-  sentinel-cluster/        Distributed state sharing (local + Redis backends)
-  sentinel-server/         HTTP API server + Prometheus metrics + admin dashboard
-  sentinel-proxy/          Stdio MCP proxy binary
-  sentinel-http-proxy/     Streamable HTTP reverse proxy binary
-  sentinel-integration/    Integration and E2E tests (98 test files)
-  fuzz/                    7 fuzz targets for parser boundary code
-  examples/                Example configs and demo scripts
-  scripts/                 Benchmark regression scripts
-```
+| Path | Role |
+|------|------|
+| `sentinel-types/` | Core contracts and shared runtime types |
+| `sentinel-engine/` | Policy evaluation and constraint execution |
+| `sentinel-audit/` | Audit chain, checkpoints, SIEM export, observability |
+| `sentinel-approval/` | Approval queue lifecycle and persistence |
+| `sentinel-config/` | Config parsing and validation |
+| `sentinel-canonical/` | Canonical policy presets |
+| `sentinel-mcp/` | MCP/A2A security managers and inspection |
+| `sentinel-cluster/` | Shared state backends (local/Redis) |
+| `sentinel-server/` | HTTP API server + CLI binary |
+| `sentinel-proxy/` | Stdio MCP proxy binary |
+| `sentinel-http-proxy/` | Streamable HTTP reverse proxy binary |
+| `sentinel-integration/` | Cross-crate adversarial and integration tests |
+| `sdk/python/` | Python SDK and framework adapters |
+| `policies/` | Policy samples and templates |
+| `examples/` | Demo workflows and reference configs |
+| `fuzz/` | Fuzzing harnesses and targets |
+| `security-testing/` | Security testing scripts and deliverables |
+| `helm/` | Kubernetes chart packaging |
+| `scripts/` | Project automation scripts |
+| `docs/` | Operations/API/security documentation |
+| `.collab/` | Local collaboration state and run logs (workspace-local) |
 
 ## 📚 Documentation
 
