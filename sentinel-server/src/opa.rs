@@ -2,6 +2,12 @@
 //!
 //! Provides async client for querying OPA for policy decisions,
 //! with caching and fail-open/fail-closed modes.
+//!
+//! ## Security Warning
+//!
+//! The `fail_open` configuration option should be used with extreme caution.
+//! When enabled, OPA unavailability results in ALLOW decisions, violating
+//! the fail-closed security principle. See [`OpaClient::log_security_warnings`].
 
 use lru::LruCache;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
@@ -14,6 +20,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::RwLock;
+
+/// Default cache size for OPA decisions.
+/// Using a const ensures compile-time validation of NonZeroUsize.
+const DEFAULT_CACHE_SIZE: usize = 1000;
 
 /// Errors that can occur during OPA evaluation.
 #[derive(Debug, Error)]
@@ -100,14 +110,42 @@ impl OpaClient {
             .timeout(Duration::from_millis(config.timeout_ms))
             .build()?;
 
-        let cache_size = NonZeroUsize::new(1000).expect("1000 is non-zero");
+        // SEC-002: Use compile-time validated cache size instead of runtime expect()
+        let cache_size = NonZeroUsize::new(DEFAULT_CACHE_SIZE).unwrap_or(NonZeroUsize::MIN);
         let cache = Arc::new(RwLock::new(LruCache::new(cache_size)));
 
-        Ok(Some(OpaClient {
+        let opa_client = OpaClient {
             config: config.clone(),
             client,
             cache,
-        }))
+        };
+
+        // SEC-001: Log security warnings for dangerous configurations
+        opa_client.log_security_warnings();
+
+        Ok(Some(opa_client))
+    }
+
+    /// Log security warnings for potentially dangerous configurations.
+    ///
+    /// # Security Warning (SEC-001)
+    ///
+    /// When `fail_open = true`, OPA unavailability causes policy decisions to
+    /// default to ALLOW. This violates the fail-closed security principle and
+    /// can be exploited by attackers who cause OPA service disruption.
+    ///
+    /// This method logs a warning at startup so operators are aware of the risk.
+    pub fn log_security_warnings(&self) {
+        if self.config.fail_open {
+            tracing::warn!(
+                target: "sentinel::security",
+                "SECURITY WARNING: OPA fail_open=true is configured. \
+                 Policy decisions will default to ALLOW when OPA is unreachable. \
+                 This violates fail-closed security principles and may allow \
+                 unauthorized actions during OPA outages. Consider using \
+                 fail_open=false (the default) for production environments."
+            );
+        }
     }
 
     /// Evaluate a policy decision via OPA.

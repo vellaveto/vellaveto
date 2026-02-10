@@ -23,8 +23,9 @@ pub mod tool_description;
 
 // Re-export all public items from submodules for backwards compatibility
 pub use dlp::{
-    scan_notification_for_secrets, scan_parameters_for_secrets, scan_response_for_secrets,
-    scan_text_for_secrets, DlpFinding, DLP_PATTERNS,
+    active_pattern_count, is_dlp_available, scan_notification_for_secrets,
+    scan_parameters_for_secrets, scan_response_for_secrets, scan_text_for_secrets,
+    validate_dlp_patterns, DlpFinding, DLP_PATTERNS,
 };
 pub use injection::{
     inspect_for_injection, sanitize_for_injection_scan, scan_notification_for_injection,

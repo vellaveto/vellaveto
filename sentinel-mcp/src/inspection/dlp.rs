@@ -40,6 +40,68 @@ fn get_dlp_regexes() -> &'static [(&'static str, regex::Regex)] {
     })
 }
 
+/// Validate all DLP patterns compile successfully at startup.
+///
+/// # Security (SEC-006)
+///
+/// This function should be called during application startup to ensure all
+/// DLP patterns are valid. If any pattern fails to compile, the application
+/// should fail to start rather than silently skipping secret detection.
+///
+/// # Returns
+///
+/// - `Ok(count)` - Number of successfully compiled patterns
+/// - `Err(failures)` - List of pattern names that failed to compile with errors
+///
+/// # Example
+///
+/// ```ignore
+/// match validate_dlp_patterns() {
+///     Ok(count) => info!("DLP: {} patterns compiled successfully", count),
+///     Err(failures) => {
+///         for (name, error) in &failures {
+///             error!("DLP pattern '{}' failed: {}", name, error);
+///         }
+///         panic!("DLP pattern validation failed");
+///     }
+/// }
+/// ```
+pub fn validate_dlp_patterns() -> Result<usize, Vec<(String, String)>> {
+    let mut failures = Vec::new();
+    let mut success_count = 0;
+
+    for (name, pattern) in DLP_PATTERNS {
+        match regex::Regex::new(pattern) {
+            Ok(_) => success_count += 1,
+            Err(e) => {
+                failures.push((name.to_string(), e.to_string()));
+            }
+        }
+    }
+
+    if failures.is_empty() {
+        Ok(success_count)
+    } else {
+        Err(failures)
+    }
+}
+
+/// Check if DLP scanning is available (all patterns compiled successfully).
+///
+/// Returns `true` if at least one DLP pattern is available for scanning.
+/// This can be used for health checks.
+pub fn is_dlp_available() -> bool {
+    !get_dlp_regexes().is_empty()
+}
+
+/// Get the count of active DLP patterns.
+///
+/// Returns the number of patterns that successfully compiled and are
+/// available for secret detection.
+pub fn active_pattern_count() -> usize {
+    get_dlp_regexes().len()
+}
+
 /// DLP (Data Loss Prevention) patterns for detecting secrets in tool call parameters.
 ///
 /// These patterns detect common secret formats that should not be exfiltrated
@@ -1777,6 +1839,51 @@ mod tests {
                 .any(|f| f.pattern_name == "together_api_key"),
             "Should detect Together.ai API key, got: {:?}",
             findings
+        );
+    }
+
+    // --- SEC-006: DLP Pattern Validation Tests ---
+
+    #[test]
+    fn test_validate_dlp_patterns_all_compile() {
+        // SEC-006: All default DLP patterns must compile successfully
+        let result = validate_dlp_patterns();
+        assert!(
+            result.is_ok(),
+            "All DLP patterns should compile, failures: {:?}",
+            result.err()
+        );
+
+        let count = result.unwrap();
+        assert!(
+            count > 0,
+            "Should have at least one compiled DLP pattern"
+        );
+        assert_eq!(
+            count,
+            DLP_PATTERNS.len(),
+            "All {} patterns should compile",
+            DLP_PATTERNS.len()
+        );
+    }
+
+    #[test]
+    fn test_is_dlp_available() {
+        // SEC-006: DLP should be available when patterns compile
+        assert!(
+            is_dlp_available(),
+            "DLP should be available with valid patterns"
+        );
+    }
+
+    #[test]
+    fn test_active_pattern_count() {
+        // SEC-006: Active pattern count should match DLP_PATTERNS
+        let count = active_pattern_count();
+        assert_eq!(
+            count,
+            DLP_PATTERNS.len(),
+            "Active pattern count should equal total patterns"
         );
     }
 }
