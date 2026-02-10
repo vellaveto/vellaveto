@@ -617,7 +617,7 @@ fn get_script(c: char) -> &'static str {
 ///
 /// Checks for:
 /// 1. **Mixed script**: Names containing characters from multiple Unicode scripts
-/// 2. **Levenshtein distance <= 2**: Tools within 2 edits of a known tool
+/// 2. **Levenshtein distance**: Tools within 2 edits (or 3 for names > 8 chars) of a known tool
 /// 3. **Homoglyph collision**: Tools that match a known tool after Unicode normalization
 ///
 /// Exact matches are NOT flagged (the tool IS the known tool).
@@ -686,13 +686,16 @@ pub fn detect_squatting(tool_name: &str, known_tools: &HashSet<String>) -> Vec<S
                 continue;
             }
             // Quick length check to skip obvious non-matches (char count, not byte length)
-            let len_diff =
-                (normalized_char_count as isize - known.chars().count() as isize).unsigned_abs();
-            if len_diff > 2 {
+            let known_len = known.chars().count();
+            let len_diff = (normalized_char_count as isize - known_len as isize).unsigned_abs();
+            // FIND-005: Use distance 3 for longer tool names (> 8 chars) to catch
+            // typosquats like "read_files" vs "read_file" or "write_filed" vs "write_file"
+            let max_distance = if known_len > 8 { 3 } else { 2 };
+            if len_diff > max_distance {
                 continue;
             }
             let dist = levenshtein(&normalized, known);
-            if dist > 0 && dist <= 2 {
+            if dist > 0 && dist <= max_distance {
                 alerts.push(SquattingAlert {
                     suspicious_tool: tool_name.to_string(),
                     similar_to: known.clone(),
@@ -1186,6 +1189,25 @@ mod tests {
         assert!(
             alerts.is_empty(),
             "Completely different name should not be flagged"
+        );
+    }
+
+    #[test]
+    fn test_squatting_levenshtein_distance_3_for_long_names() {
+        // FIND-005: For tool names > 8 chars, use distance 3 to catch typosquats
+        // like "read_files" (adds 's') or "write_filed" (adds 'd')
+        let known = build_known_tools(&["write_file".to_string()]);
+        // Distance 3 from "write_file" (10 chars) -> should be flagged
+        let alerts = detect_squatting("write_filed", &known); // "d" added at end = distance 1
+        assert!(
+            !alerts.is_empty(),
+            "write_filed should be flagged (distance 1 from write_file)"
+        );
+        // Distance 3 exactly from "read_file" (9 chars) -> should be flagged
+        let alerts2 = detect_squatting("read_files", &known);
+        assert!(
+            !alerts2.is_empty(),
+            "read_files should be flagged (distance 1 from read_file)"
         );
     }
 

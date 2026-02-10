@@ -109,6 +109,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DeepSeek format: `<|begin▁of▁sentence|>`, `<|end▁of▁sentence|>`
 - Command R format: `<|start_header_id|>`, `<|end_header_id|>`, `<|eot_id|>`
 
+#### Tool Squatting Detection Improvement (FIND-005)
+- Increased Levenshtein distance threshold from 2 to 3 for tool names > 8 characters
+- Catches typosquats like `read_files` vs `read_file` or `write_filed` vs `write_file`
+
 ### Fixed
 
 - **Error Handling**: Added logging for previously silent error discards in:
