@@ -35,8 +35,8 @@
 
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry::KeyValue;
-use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::trace::{Config, RandomIdGenerator, Sampler, TracerProvider};
+use opentelemetry_otlp::{SpanExporter, WithExportConfig};
+use opentelemetry_sdk::trace::{RandomIdGenerator, Sampler, SdkTracerProvider};
 use opentelemetry_sdk::Resource;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -185,19 +185,16 @@ pub fn init_telemetry(config: &TelemetryConfig) -> Result<TelemetryGuard, Teleme
     }
 
     // Build resource with service info
-    let resource = Resource::new(vec![
-        KeyValue::new(
-            opentelemetry_semantic_conventions::resource::SERVICE_NAME,
-            config.service_name.clone(),
-        ),
-        KeyValue::new(
+    let resource = Resource::builder()
+        .with_service_name(config.service_name.clone())
+        .with_attribute(KeyValue::new(
             opentelemetry_semantic_conventions::resource::SERVICE_VERSION,
             config
                 .service_version
                 .clone()
                 .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string()),
-        ),
-    ]);
+        ))
+        .build();
 
     // Build sampler
     let sampler = build_sampler(&config.sampling)?;
@@ -279,22 +276,19 @@ fn build_grpc_provider(
     config: &OtlpConfig,
     resource: Resource,
     sampler: Sampler,
-) -> Result<TracerProvider, TelemetryError> {
-    let exporter = opentelemetry_otlp::new_exporter()
-        .tonic()
+) -> Result<SdkTracerProvider, TelemetryError> {
+    let exporter = SpanExporter::builder()
+        .with_tonic()
         .with_endpoint(&config.endpoint)
         .with_timeout(Duration::from_secs(config.timeout_secs))
-        .build_span_exporter()
+        .build()
         .map_err(|e| TelemetryError::ExporterInit(e.to_string()))?;
 
-    let trace_config = Config::default()
+    let provider = SdkTracerProvider::builder()
+        .with_batch_exporter(exporter)
         .with_sampler(sampler)
         .with_id_generator(RandomIdGenerator::default())
-        .with_resource(resource);
-
-    let provider = TracerProvider::builder()
-        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
-        .with_config(trace_config)
+        .with_resource(resource)
         .build();
 
     Ok(provider)
@@ -304,22 +298,19 @@ fn build_http_provider(
     config: &OtlpConfig,
     resource: Resource,
     sampler: Sampler,
-) -> Result<TracerProvider, TelemetryError> {
-    let exporter = opentelemetry_otlp::new_exporter()
-        .http()
+) -> Result<SdkTracerProvider, TelemetryError> {
+    let exporter = SpanExporter::builder()
+        .with_http()
         .with_endpoint(&config.endpoint)
         .with_timeout(Duration::from_secs(config.timeout_secs))
-        .build_span_exporter()
+        .build()
         .map_err(|e| TelemetryError::ExporterInit(e.to_string()))?;
 
-    let trace_config = Config::default()
+    let provider = SdkTracerProvider::builder()
+        .with_batch_exporter(exporter)
         .with_sampler(sampler)
         .with_id_generator(RandomIdGenerator::default())
-        .with_resource(resource);
-
-    let provider = TracerProvider::builder()
-        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
-        .with_config(trace_config)
+        .with_resource(resource)
         .build();
 
     Ok(provider)
@@ -327,15 +318,14 @@ fn build_http_provider(
 
 /// Guard that shuts down the tracer provider when dropped.
 pub struct TelemetryGuard {
-    provider: Option<TracerProvider>,
+    provider: Option<SdkTracerProvider>,
 }
 
 impl Drop for TelemetryGuard {
     fn drop(&mut self) {
-        if self.provider.is_some() {
-            // Force flush any pending spans
-            // The TracerProvider will be dropped automatically which flushes spans
-            opentelemetry::global::shutdown_tracer_provider();
+        if let Some(provider) = self.provider.take() {
+            // Force flush any pending spans and shutdown
+            let _ = provider.shutdown();
         }
     }
 }
