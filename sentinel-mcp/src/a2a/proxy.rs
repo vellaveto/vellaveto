@@ -839,4 +839,98 @@ mod tests {
         let result = process_response(&response, false, true);
         assert!(matches!(result, Err(A2aError::InjectionDetected(_))));
     }
+
+    // ========================================
+    // GAP-007: A2A Proxy Timeout Configuration Tests
+    // ========================================
+
+    #[test]
+    fn test_config_default_timeout() {
+        let config = A2aProxyConfig::default();
+        assert_eq!(
+            config.request_timeout_ms, 30000,
+            "default timeout should be 30 seconds"
+        );
+    }
+
+    #[test]
+    fn test_config_custom_timeout() {
+        let config = A2aProxyConfig {
+            request_timeout_ms: 5000,
+            ..Default::default()
+        };
+        assert_eq!(config.request_timeout_ms, 5000);
+    }
+
+    #[test]
+    fn test_service_preserves_config_timeout() {
+        let config = A2aProxyConfig {
+            request_timeout_ms: 15000,
+            ..Default::default()
+        };
+        let engine = Arc::new(PolicyEngine::new(false));
+        let policies = Arc::new(vec![]);
+        let cache = Arc::new(AgentCardCache::default());
+
+        let service = A2aProxyService::new(config, engine, policies, cache);
+        assert_eq!(
+            service.config().request_timeout_ms, 15000,
+            "service should preserve custom timeout"
+        );
+    }
+
+    #[test]
+    fn test_config_all_security_features_enabled_by_default() {
+        let config = A2aProxyConfig::default();
+        assert!(config.enable_dlp_scanning, "DLP should be enabled by default");
+        assert!(
+            config.enable_injection_detection,
+            "injection detection should be enabled by default"
+        );
+        assert!(
+            config.enable_circuit_breaker,
+            "circuit breaker should be enabled by default"
+        );
+        assert!(
+            config.enable_shadow_agent_detection,
+            "shadow agent detection should be enabled by default"
+        );
+    }
+
+    #[test]
+    fn test_config_max_message_size_default() {
+        let config = A2aProxyConfig::default();
+        assert_eq!(
+            config.max_message_size,
+            10 * 1024 * 1024,
+            "default max message size should be 10MB"
+        );
+    }
+
+    #[test]
+    fn test_config_allowed_task_operations_empty_by_default() {
+        let config = A2aProxyConfig::default();
+        assert!(
+            config.allowed_task_operations.is_empty(),
+            "allowed_task_operations should be empty by default (allowing all)"
+        );
+    }
+
+    #[test]
+    fn test_service_config_accessor() {
+        let config = A2aProxyConfig {
+            require_agent_card: true,
+            max_message_size: 5 * 1024 * 1024,
+            ..Default::default()
+        };
+        let engine = Arc::new(PolicyEngine::new(false));
+        let policies = Arc::new(vec![]);
+        let cache = Arc::new(AgentCardCache::default());
+
+        let service = A2aProxyService::new(config, engine, policies, cache);
+        let retrieved = service.config();
+
+        assert!(retrieved.require_agent_card);
+        assert_eq!(retrieved.max_message_size, 5 * 1024 * 1024);
+    }
 }
