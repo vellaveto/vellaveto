@@ -90,7 +90,9 @@ fn check_valid_toml_config_succeeds() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("Policies loaded: 1") || stdout.contains("1 policies loaded") || stdout.contains("Config OK"),
+        stdout.contains("Policies loaded: 1")
+            || stdout.contains("1 policies loaded")
+            || stdout.contains("Config OK"),
         "check should report loaded policies. Got: {}",
         stdout
     );

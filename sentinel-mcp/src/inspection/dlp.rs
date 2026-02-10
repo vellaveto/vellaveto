@@ -753,7 +753,10 @@ mod tests {
             "data": "Token: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIiwicm9sZSI6ImFkbWluIn0"
         });
         let findings = scan_parameters_for_secrets(&params);
-        assert!(!findings.is_empty(), "Should detect 2-part JWT without signature");
+        assert!(
+            !findings.is_empty(),
+            "Should detect 2-part JWT without signature"
+        );
         assert!(findings.iter().any(|f| f.pattern_name == "jwt_token"));
     }
 
@@ -1674,7 +1677,9 @@ mod tests {
         let params = serde_json::json!({ "api_key": key });
         let findings = scan_parameters_for_secrets(&params);
         assert!(
-            findings.iter().any(|f| f.pattern_name == "anthropic_api_key"),
+            findings
+                .iter()
+                .any(|f| f.pattern_name == "anthropic_api_key"),
             "Should detect Anthropic API key, got: {:?}",
             findings
         );
@@ -1713,7 +1718,9 @@ mod tests {
         let params = serde_json::json!({ "token": token });
         let findings = scan_parameters_for_secrets(&params);
         assert!(
-            findings.iter().any(|f| f.pattern_name == "huggingface_token"),
+            findings
+                .iter()
+                .any(|f| f.pattern_name == "huggingface_token"),
             "Should detect HuggingFace token, got: {:?}",
             findings
         );
@@ -1765,7 +1772,9 @@ mod tests {
         let params = serde_json::json!({ "config": text });
         let findings = scan_parameters_for_secrets(&params);
         assert!(
-            findings.iter().any(|f| f.pattern_name == "together_api_key"),
+            findings
+                .iter()
+                .any(|f| f.pattern_name == "together_api_key"),
             "Should detect Together.ai API key, got: {:?}",
             findings
         );

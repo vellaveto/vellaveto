@@ -4,6 +4,7 @@
 //! with caching and fail-open/fail-closed modes.
 
 use lru::LruCache;
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::Client;
 use sentinel_config::OpaConfig;
 use serde::{Deserialize, Serialize};
@@ -149,13 +150,15 @@ impl OpaClient {
             .as_ref()
             .ok_or(OpaError::NotConfigured)?;
 
-        let url = format!("{}/v1/data/{}", endpoint, self.config.decision_path);
+        let url = self.build_query_url(endpoint);
 
         let body = serde_json::json!({ "input": input });
+        let headers = self.build_request_headers();
 
         let response = self
             .client
             .post(&url)
+            .headers(headers)
             .json(&body)
             .send()
             .await
@@ -178,6 +181,46 @@ impl OpaClient {
 
         // Parse the decision from the result
         self.parse_decision(opa_response.result)
+    }
+
+    /// Build the OPA query URL from endpoint config.
+    ///
+    /// Supports both:
+    /// - base endpoint (e.g. `http://opa:8181`) + decision path
+    /// - full data endpoint (e.g. `http://opa:8181/v1/data/sentinel/allow`)
+    fn build_query_url(&self, endpoint: &str) -> String {
+        let endpoint = endpoint.trim_end_matches('/');
+        if endpoint.contains("/v1/data/") || endpoint.ends_with("/v1/data") {
+            endpoint.to_string()
+        } else {
+            let decision_path = self.config.decision_path.trim_start_matches('/');
+            format!("{}/v1/data/{}", endpoint, decision_path)
+        }
+    }
+
+    /// Build HTTP headers for OPA requests from config.
+    ///
+    /// Invalid header names/values are skipped with a warning.
+    fn build_request_headers(&self) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for (name, value) in &self.config.headers {
+            let parsed_name = match HeaderName::from_bytes(name.as_bytes()) {
+                Ok(n) => n,
+                Err(_) => {
+                    tracing::warn!("Skipping invalid OPA header name: '{}'", name);
+                    continue;
+                }
+            };
+            let parsed_value = match HeaderValue::from_str(value) {
+                Ok(v) => v,
+                Err(_) => {
+                    tracing::warn!("Skipping invalid OPA header value for '{}'", name);
+                    continue;
+                }
+            };
+            headers.insert(parsed_name, parsed_value);
+        }
+        headers
     }
 
     /// Parse OPA result into a decision.
@@ -354,5 +397,62 @@ mod tests {
         };
         let key3 = client.cache_key(&changed_params);
         assert_ne!(key1, key3, "cache key must change when parameters change");
+    }
+
+    #[test]
+    fn test_build_request_headers_filters_invalid_entries() {
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("x-api-key".to_string(), "secret".to_string());
+        headers.insert("bad header".to_string(), "value".to_string());
+        headers.insert("x-bad-value".to_string(), "line\nbreak".to_string());
+
+        let config = OpaConfig {
+            enabled: true,
+            endpoint: Some("http://localhost:8181".to_string()),
+            decision_path: "sentinel/allow".to_string(),
+            headers,
+            ..Default::default()
+        };
+        let client = OpaClient::new(&config).unwrap().unwrap();
+
+        let request_headers = client.build_request_headers();
+        assert_eq!(
+            request_headers
+                .get("x-api-key")
+                .and_then(|v| v.to_str().ok()),
+            Some("secret")
+        );
+        assert!(request_headers.get("bad header").is_none());
+        assert!(request_headers.get("x-bad-value").is_none());
+    }
+
+    #[test]
+    fn test_build_query_url_with_base_endpoint() {
+        let config = OpaConfig {
+            enabled: true,
+            endpoint: Some("http://localhost:8181".to_string()),
+            decision_path: "sentinel/allow".to_string(),
+            ..Default::default()
+        };
+        let client = OpaClient::new(&config).unwrap().unwrap();
+        assert_eq!(
+            client.build_query_url("http://localhost:8181"),
+            "http://localhost:8181/v1/data/sentinel/allow"
+        );
+    }
+
+    #[test]
+    fn test_build_query_url_with_full_data_endpoint() {
+        let config = OpaConfig {
+            enabled: true,
+            endpoint: Some("http://opa:8181/v1/data/sentinel/allow".to_string()),
+            decision_path: "result.allow".to_string(),
+            ..Default::default()
+        };
+        let client = OpaClient::new(&config).unwrap().unwrap();
+        assert_eq!(
+            client.build_query_url("http://opa:8181/v1/data/sentinel/allow"),
+            "http://opa:8181/v1/data/sentinel/allow"
+        );
     }
 }

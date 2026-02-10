@@ -11,7 +11,9 @@
 //!
 //! Mitigates: ASI02 (Prompt Injection), ASI05 (Insufficient Access Controls)
 
-use crate::agent_trust::{AgentTrustGraph, EscalationAlert, EscalationAlertType, PrivilegeLevel, RequestChainEntry};
+use crate::agent_trust::{
+    AgentTrustGraph, EscalationAlert, EscalationAlertType, PrivilegeLevel, RequestChainEntry,
+};
 use sentinel_types::Action;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -151,7 +153,10 @@ impl EscalationDetector {
     }
 
     /// Create with custom configuration.
-    pub fn with_config(trust_graph: Arc<AgentTrustGraph>, config: EscalationDetectorConfig) -> Self {
+    pub fn with_config(
+        trust_graph: Arc<AgentTrustGraph>,
+        config: EscalationDetectorConfig,
+    ) -> Self {
         let patterns = vec![
             InjectionPattern {
                 name: "system_override",
@@ -225,8 +230,7 @@ impl EscalationDetector {
             // Determine severity based on alert type
             let is_high_severity = matches!(
                 alert.alert_type,
-                EscalationAlertType::UpwardDelegation
-                    | EscalationAlertType::CircularDelegation
+                EscalationAlertType::UpwardDelegation | EscalationAlertType::CircularDelegation
             );
 
             if is_high_severity {
@@ -332,9 +336,7 @@ impl EscalationDetector {
             .await;
 
         // Check if this is a known suspicious pair
-        let pair_suspicion = self
-            .get_pair_suspicion(source_agent, intermediary)
-            .await;
+        let pair_suspicion = self.get_pair_suspicion(source_agent, intermediary).await;
         let adjusted_confidence = (confidence + pair_suspicion * 0.1).min(1.0);
 
         // Check trust relationship (sync call)
@@ -348,7 +350,8 @@ impl EscalationDetector {
 
         if final_confidence >= self.config.deny_threshold {
             // Record suspicious pair
-            self.record_suspicious_pair(source_agent, intermediary).await;
+            self.record_suspicious_pair(source_agent, intermediary)
+                .await;
 
             return Err(InjectionAlert {
                 source_agent: source_agent.to_string(),
@@ -535,10 +538,7 @@ impl EscalationDetector {
             })
             .collect();
 
-        format!(
-            "Second-order injection detected: {}",
-            type_strs.join(", ")
-        )
+        format!("Second-order injection detected: {}", type_strs.join(", "))
     }
 
     /// Simple hash function for content caching.
@@ -609,10 +609,7 @@ impl EscalationDetector {
     /// Get all tracked suspicious pairs.
     pub async fn get_suspicious_pairs(&self) -> Vec<((String, String), u32)> {
         let pairs = self.suspicious_pairs.read().await;
-        pairs
-            .iter()
-            .map(|(k, v)| (k.clone(), *v))
-            .collect()
+        pairs.iter().map(|(k, v)| (k.clone(), *v)).collect()
     }
 
     /// Clear analysis cache (for testing or memory management).
@@ -796,9 +793,7 @@ mod tests {
 
         // Record multiple suspicious interactions
         for _ in 0..5 {
-            detector
-                .record_suspicious_pair("bad_agent", "victim")
-                .await;
+            detector.record_suspicious_pair("bad_agent", "victim").await;
         }
 
         let suspicion = detector.get_pair_suspicion("bad_agent", "victim").await;
@@ -858,7 +853,11 @@ mod tests {
         trust_graph.register_agent("low_agent", PrivilegeLevel::None);
         trust_graph.register_agent("high_agent", PrivilegeLevel::Admin);
 
-        let chain = vec![create_chain_entry("low_agent", "high_agent", "admin_action")];
+        let chain = vec![create_chain_entry(
+            "low_agent",
+            "high_agent",
+            "admin_action",
+        )];
 
         let result = detector.check_chain(&chain);
         // This should be denied due to upward delegation detection in trust graph

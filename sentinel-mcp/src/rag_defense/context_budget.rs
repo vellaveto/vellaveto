@@ -93,7 +93,9 @@ impl BudgetEnforcement {
     pub fn is_allowed(&self) -> bool {
         matches!(
             self,
-            BudgetEnforcement::Allowed | BudgetEnforcement::Truncated { .. } | BudgetEnforcement::Warning { .. }
+            BudgetEnforcement::Allowed
+                | BudgetEnforcement::Truncated { .. }
+                | BudgetEnforcement::Warning { .. }
         )
     }
 

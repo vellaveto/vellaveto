@@ -314,8 +314,7 @@ impl MemorySecurityManager {
         entries
             .values()
             .filter(|e| {
-                let session_match =
-                    session_id.is_none() || e.session_id.as_deref() == session_id;
+                let session_match = session_id.is_none() || e.session_id.as_deref() == session_id;
                 let quarantine_match = !quarantined_only || e.quarantined;
                 session_match && quarantine_match
             })
@@ -760,15 +759,24 @@ impl NamespaceManager {
 
         match access_type {
             NamespaceAccessType::Read => {
-                if !namespace.read_allowed.contains(&requester_agent.to_string()) {
+                if !namespace
+                    .read_allowed
+                    .contains(&requester_agent.to_string())
+                {
                     namespace.read_allowed.push(requester_agent.to_string());
                 }
             }
             NamespaceAccessType::Write | NamespaceAccessType::Full => {
-                if !namespace.read_allowed.contains(&requester_agent.to_string()) {
+                if !namespace
+                    .read_allowed
+                    .contains(&requester_agent.to_string())
+                {
                     namespace.read_allowed.push(requester_agent.to_string());
                 }
-                if !namespace.write_allowed.contains(&requester_agent.to_string()) {
+                if !namespace
+                    .write_allowed
+                    .contains(&requester_agent.to_string())
+                {
                     namespace.write_allowed.push(requester_agent.to_string());
                 }
             }
@@ -883,7 +891,11 @@ mod tests {
 
         // Quarantine the entry
         manager
-            .quarantine_entry(&entry_id, QuarantineDetection::InjectionPattern, Some("admin"))
+            .quarantine_entry(
+                &entry_id,
+                QuarantineDetection::InjectionPattern,
+                Some("admin"),
+            )
             .await
             .unwrap();
 
@@ -901,10 +913,7 @@ mod tests {
         let manager = MemorySecurityManager::new(test_config());
 
         // Create namespace
-        let ns = manager
-            .create_namespace("ns-1", "agent-1")
-            .await
-            .unwrap();
+        let ns = manager.create_namespace("ns-1", "agent-1").await.unwrap();
 
         assert_eq!(ns.owner_agent, "agent-1");
 

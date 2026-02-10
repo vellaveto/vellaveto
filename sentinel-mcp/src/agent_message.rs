@@ -100,7 +100,8 @@ impl SignedAgentMessage {
             .unwrap_or_default()
             .as_secs();
 
-        let message_bytes = Self::build_signing_input(sender_id, recipient, payload, &nonce, timestamp);
+        let message_bytes =
+            Self::build_signing_input(sender_id, recipient, payload, &nonce, timestamp);
         let signature = sender_key.sign(&message_bytes);
 
         Ok(Self {
@@ -235,11 +236,7 @@ impl NonceTracker {
         // Check capacity
         if seen.len() >= self.max_nonces {
             // Remove oldest nonce
-            if let Some(oldest_key) = seen
-                .iter()
-                .min_by_key(|(_, time)| *time)
-                .map(|(k, _)| *k)
-            {
+            if let Some(oldest_key) = seen.iter().min_by_key(|(_, time)| *time).map(|(k, _)| *k) {
                 seen.remove(&oldest_key);
             }
         }
@@ -325,7 +322,11 @@ impl AgentKeyPair {
     }
 
     /// Sign a message to another agent.
-    pub fn sign_message(&self, recipient: &str, payload: &[u8]) -> Result<SignedAgentMessage, MessageError> {
+    pub fn sign_message(
+        &self,
+        recipient: &str,
+        payload: &[u8],
+    ) -> Result<SignedAgentMessage, MessageError> {
         SignedAgentMessage::sign(&self.signing_key, &self.agent_id, recipient, payload)
     }
 

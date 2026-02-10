@@ -242,7 +242,9 @@ impl SplunkExporter {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.common.timeout_secs))
             .build()
-            .map_err(|e| ExportError::Configuration(format!("Failed to create HTTP client: {}", e)))?;
+            .map_err(|e| {
+                ExportError::Configuration(format!("Failed to create HTTP client: {}", e))
+            })?;
 
         Ok(Self {
             config,
@@ -472,7 +474,9 @@ impl WebhookExporter {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.common.timeout_secs))
             .build()
-            .map_err(|e| ExportError::Configuration(format!("Failed to create HTTP client: {}", e)))?;
+            .map_err(|e| {
+                ExportError::Configuration(format!("Failed to create HTTP client: {}", e))
+            })?;
 
         Ok(Self {
             config,
@@ -660,7 +664,9 @@ impl DatadogExporter {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.common.timeout_secs))
             .build()
-            .map_err(|e| ExportError::Configuration(format!("Failed to create HTTP client: {}", e)))?;
+            .map_err(|e| {
+                ExportError::Configuration(format!("Failed to create HTTP client: {}", e))
+            })?;
 
         Ok(Self {
             config,
@@ -703,8 +709,8 @@ impl SiemExporter for DatadogExporter {
             })
             .collect();
 
-        let body = serde_json::to_string(&logs)
-            .map_err(|e| ExportError::Serialization(e.to_string()))?;
+        let body =
+            serde_json::to_string(&logs).map_err(|e| ExportError::Serialization(e.to_string()))?;
 
         let response = self
             .client
@@ -744,7 +750,9 @@ impl SiemExporter for DatadogExporter {
             .map_err(|e| ExportError::HttpError(e.to_string()))?;
 
         if response.status() == reqwest::StatusCode::FORBIDDEN {
-            return Err(ExportError::AuthError("Invalid Datadog API key".to_string()));
+            return Err(ExportError::AuthError(
+                "Invalid Datadog API key".to_string(),
+            ));
         }
 
         Ok(())
@@ -841,7 +849,8 @@ impl ElasticsearchExporter {
                 .unwrap_or_default();
             let credentials = {
                 use base64::Engine;
-                base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", username, password))
+                base64::engine::general_purpose::STANDARD
+                    .encode(format!("{}:{}", username, password))
             };
             Some(format!("Basic {}", credentials))
         } else {
@@ -851,7 +860,9 @@ impl ElasticsearchExporter {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.common.timeout_secs))
             .build()
-            .map_err(|e| ExportError::Configuration(format!("Failed to create HTTP client: {}", e)))?;
+            .map_err(|e| {
+                ExportError::Configuration(format!("Failed to create HTTP client: {}", e))
+            })?;
 
         Ok(Self {
             config,
@@ -922,7 +933,11 @@ impl SiemExporter for ElasticsearchExporter {
                 .await
                 .map_err(|e| ExportError::Serialization(e.to_string()))?;
 
-            if body.get("errors").and_then(|v| v.as_bool()).unwrap_or(false) {
+            if body
+                .get("errors")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
                 // Some items failed, log but don't fail the whole batch
                 tracing::warn!(
                     exporter = "elasticsearch",
@@ -957,7 +972,9 @@ impl SiemExporter for ElasticsearchExporter {
             .map_err(|e| ExportError::HttpError(e.to_string()))?;
 
         if response.status() == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(ExportError::AuthError("Elasticsearch authentication failed".to_string()));
+            return Err(ExportError::AuthError(
+                "Elasticsearch authentication failed".to_string(),
+            ));
         }
 
         if !response.status().is_success() {
@@ -1193,14 +1210,7 @@ impl SyslogExporter {
         // <PRI>VERSION TIMESTAMP HOSTNAME APP-NAME PROCID MSGID [STRUCTURED-DATA] MSG
         format!(
             "<{}>1 {} {} {} {} {} {} {}",
-            pri,
-            timestamp,
-            self.hostname,
-            self.config.app_name,
-            procid,
-            msgid,
-            sd,
-            msg
+            pri, timestamp, self.hostname, self.config.app_name, procid, msgid, sd, msg
         )
     }
 
@@ -1506,7 +1516,7 @@ mod tests {
             id: "test".to_string(),
             timestamp: "2024-01-15T10:30:00Z".to_string(),
             action: Action {
-                tool: "test\"tool".to_string(), // Contains quote
+                tool: "test\"tool".to_string(),    // Contains quote
                 function: "func]tion".to_string(), // Contains bracket
                 parameters: Default::default(),
                 target_paths: vec!["/path\\with\\backslash".to_string()],

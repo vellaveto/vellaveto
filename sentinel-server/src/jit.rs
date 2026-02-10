@@ -174,7 +174,11 @@ impl JitAccessManager {
     }
 
     /// Approve a pending JIT session.
-    pub fn approve_session(&self, session_id: &str, approver: &str) -> Result<JitSession, JitError> {
+    pub fn approve_session(
+        &self,
+        session_id: &str,
+        approver: &str,
+    ) -> Result<JitSession, JitError> {
         let mut session = self
             .sessions
             .get_mut(session_id)
@@ -306,7 +310,8 @@ impl JitAccessManager {
 
         for session_id in expired {
             if let Some((_, session)) = self.sessions.remove(&session_id) {
-                if let Some(mut principal_sessions) = self.principal_sessions.get_mut(&session.principal)
+                if let Some(mut principal_sessions) =
+                    self.principal_sessions.get_mut(&session.principal)
                 {
                     principal_sessions.remove(&session_id);
                 }

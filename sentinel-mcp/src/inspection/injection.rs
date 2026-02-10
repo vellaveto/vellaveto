@@ -497,7 +497,11 @@ fn decode_phonetic(text: &str) -> Option<String> {
         }
     }
 
-    if found_any { Some(decoded) } else { None }
+    if found_any {
+        Some(decoded)
+    } else {
+        None
+    }
 }
 
 /// Decode common emoji commands to text.
@@ -526,7 +530,10 @@ fn decode_emoji(text: &str) -> Option<String> {
             }
         }
 
-        if let Some((_, command)) = EMOJI_COMMANDS.iter().find(|(emoji, _)| *emoji == emoji_str || emoji.starts_with(c)) {
+        if let Some((_, command)) = EMOJI_COMMANDS
+            .iter()
+            .find(|(emoji, _)| *emoji == emoji_str || emoji.starts_with(c))
+        {
             if !decoded.is_empty() && !decoded.ends_with(' ') {
                 decoded.push(' ');
             }
@@ -537,7 +544,11 @@ fn decode_emoji(text: &str) -> Option<String> {
         }
     }
 
-    if found_any { Some(decoded) } else { None }
+    if found_any {
+        Some(decoded)
+    } else {
+        None
+    }
 }
 
 /// Inspect response text for prompt injection using default patterns.

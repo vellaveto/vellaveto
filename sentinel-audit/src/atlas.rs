@@ -534,14 +534,8 @@ impl AtlasRegistry {
             SentinelDetection::ConfusedDeputy,
             vec!["AML.T0063", "AML.T0063.001"],
         );
-        self.map_detection(
-            SentinelDetection::UnauthorizedDelegation,
-            vec!["AML.T0063"],
-        );
-        self.map_detection(
-            SentinelDetection::PrivilegeEscalation,
-            vec!["AML.T0063"],
-        );
+        self.map_detection(SentinelDetection::UnauthorizedDelegation, vec!["AML.T0063"]);
+        self.map_detection(SentinelDetection::PrivilegeEscalation, vec!["AML.T0063"]);
 
         // Tool Manipulation mappings
         self.map_detection(
@@ -570,10 +564,7 @@ impl AtlasRegistry {
             SentinelDetection::CovertChannel,
             vec!["AML.T0064", "AML.T0064.001"],
         );
-        self.map_detection(
-            SentinelDetection::Steganography,
-            vec!["AML.T0064"],
-        );
+        self.map_detection(SentinelDetection::Steganography, vec!["AML.T0064"]);
 
         // Memory Poisoning mappings
         self.map_detection(SentinelDetection::DataLaundering, vec!["AML.T0062"]);
@@ -585,14 +576,8 @@ impl AtlasRegistry {
 
         // Excessive Agency mappings
         self.map_detection(SentinelDetection::ExcessiveAgency, vec!["AML.T0060"]);
-        self.map_detection(
-            SentinelDetection::WorkflowBudgetExceeded,
-            vec!["AML.T0060"],
-        );
-        self.map_detection(
-            SentinelDetection::UnauthorizedToolAccess,
-            vec!["AML.T0040"],
-        );
+        self.map_detection(SentinelDetection::WorkflowBudgetExceeded, vec!["AML.T0060"]);
+        self.map_detection(SentinelDetection::UnauthorizedToolAccess, vec!["AML.T0040"]);
 
         // Cascading Failure mappings (no direct ATLAS mapping yet)
         self.map_detection(SentinelDetection::CircuitBreakerTriggered, vec![]);
@@ -625,10 +610,8 @@ impl AtlasRegistry {
 
     /// Map a Sentinel detection to ATLAS techniques.
     fn map_detection(&mut self, detection: SentinelDetection, atlas_ids: Vec<&str>) {
-        self.detection_mappings.insert(
-            detection,
-            atlas_ids.into_iter().map(AtlasId::new).collect(),
-        );
+        self.detection_mappings
+            .insert(detection, atlas_ids.into_iter().map(AtlasId::new).collect());
     }
 
     /// Get technique by ID.
@@ -657,10 +640,7 @@ impl AtlasRegistry {
     }
 
     /// Get ATLAS technique IDs for a Sentinel detection.
-    pub fn get_technique_ids_for_detection(
-        &self,
-        detection: SentinelDetection,
-    ) -> Vec<AtlasId> {
+    pub fn get_technique_ids_for_detection(&self, detection: SentinelDetection) -> Vec<AtlasId> {
         self.detection_mappings
             .get(&detection)
             .cloned()
@@ -668,10 +648,7 @@ impl AtlasRegistry {
     }
 
     /// Get all Sentinel detections mapped to a specific ATLAS technique.
-    pub fn get_detections_for_technique(
-        &self,
-        atlas_id: &AtlasId,
-    ) -> Vec<SentinelDetection> {
+    pub fn get_detections_for_technique(&self, atlas_id: &AtlasId) -> Vec<SentinelDetection> {
         self.detection_mappings
             .iter()
             .filter_map(|(detection, ids)| {
@@ -796,9 +773,7 @@ pub fn add_atlas_metadata(
         if let serde_json::Value::Object(ref mut map) = metadata {
             map.insert(
                 "atlas_techniques".to_string(),
-                serde_json::Value::Array(
-                    ids.into_iter().map(serde_json::Value::String).collect(),
-                ),
+                serde_json::Value::Array(ids.into_iter().map(serde_json::Value::String).collect()),
             );
             map.insert(
                 "detection_type".to_string(),

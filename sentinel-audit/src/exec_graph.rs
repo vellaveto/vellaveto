@@ -63,12 +63,7 @@ pub enum NodeVerdict {
 
 impl ExecutionNode {
     /// Create a new execution node.
-    pub fn new(
-        id: NodeId,
-        session_id: SessionId,
-        tool: String,
-        function: String,
-    ) -> Self {
+    pub fn new(id: NodeId, session_id: SessionId, tool: String, function: String) -> Self {
         ExecutionNode {
             id,
             session_id,

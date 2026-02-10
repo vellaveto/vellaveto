@@ -112,10 +112,7 @@ fn load_certs(path: &Path) -> Result<Vec<CertificateDer<'static>>, TlsError> {
 fn load_private_key(path: &Path) -> Result<PrivateKeyDer<'static>, TlsError> {
     // PrivateKeyDer::from_pem_file handles PKCS#1, PKCS#8, and SEC1 key formats
     PrivateKeyDer::from_pem_file(path).map_err(|e| {
-        TlsError::PrivateKey(format!(
-            "Failed to read private key from {:?}: {}",
-            path, e
-        ))
+        TlsError::PrivateKey(format!("Failed to read private key from {:?}: {}", path, e))
     })
 }
 
@@ -125,9 +122,9 @@ fn load_client_ca(path: &Path) -> Result<RootCertStore, TlsError> {
     let mut roots = RootCertStore::empty();
 
     for cert in certs {
-        roots.add(cert).map_err(|e| {
-            TlsError::Certificate(format!("Failed to add CA certificate: {}", e))
-        })?;
+        roots
+            .add(cert)
+            .map_err(|e| TlsError::Certificate(format!("Failed to add CA certificate: {}", e)))?;
     }
 
     Ok(roots)
@@ -162,12 +159,16 @@ pub fn build_tls_acceptor(config: &TlsConfig) -> Result<Option<TlsAcceptor>, Tls
                 let client_verifier = if config.require_client_cert {
                     WebPkiClientVerifier::builder(Arc::new(client_ca))
                         .build()
-                        .map_err(|e| TlsError::Certificate(format!("Failed to build client verifier: {}", e)))?
+                        .map_err(|e| {
+                            TlsError::Certificate(format!("Failed to build client verifier: {}", e))
+                        })?
                 } else {
                     WebPkiClientVerifier::builder(Arc::new(client_ca))
                         .allow_unauthenticated()
                         .build()
-                        .map_err(|e| TlsError::Certificate(format!("Failed to build client verifier: {}", e)))?
+                        .map_err(|e| {
+                            TlsError::Certificate(format!("Failed to build client verifier: {}", e))
+                        })?
                 };
 
                 rustls::ServerConfig::builder()

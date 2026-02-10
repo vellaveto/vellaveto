@@ -117,24 +117,37 @@ impl EtdiStore {
     }
 
     /// Save a signature to the store.
-    pub async fn save_signature(&self, tool: &str, signature: ToolSignature) -> Result<(), EtdiError> {
+    pub async fn save_signature(
+        &self,
+        tool: &str,
+        signature: ToolSignature,
+    ) -> Result<(), EtdiError> {
         let entry = StoreEntry::Signature {
             tool: tool.to_string(),
             data: signature.clone(),
         };
         self.append_entry(&entry).await?;
-        self.signatures.write().await.insert(tool.to_string(), signature);
+        self.signatures
+            .write()
+            .await
+            .insert(tool.to_string(), signature);
         Ok(())
     }
 
     /// Save an attestation to the store.
-    pub async fn save_attestation(&self, tool: &str, attestation: ToolAttestation) -> Result<(), EtdiError> {
+    pub async fn save_attestation(
+        &self,
+        tool: &str,
+        attestation: ToolAttestation,
+    ) -> Result<(), EtdiError> {
         let entry = StoreEntry::Attestation {
             tool: tool.to_string(),
             data: attestation.clone(),
         };
         self.append_entry(&entry).await?;
-        self.attestations.write().await
+        self.attestations
+            .write()
+            .await
             .entry(tool.to_string())
             .or_default()
             .push(attestation);
@@ -446,7 +459,10 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let store = EtdiStore::new(dir.path());
 
-        store.save_signature("tool1", test_signature()).await.unwrap();
+        store
+            .save_signature("tool1", test_signature())
+            .await
+            .unwrap();
         let mut sig2 = test_signature();
         sig2.signature_id = "sig-2".to_string();
         store.save_signature("tool2", sig2).await.unwrap();

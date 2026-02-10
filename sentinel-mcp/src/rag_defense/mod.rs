@@ -81,7 +81,9 @@ pub use context_budget::{BudgetEnforcement, BudgetStats, BudgetUsage, ContextBud
 pub use document::{
     compute_content_hash, DocumentMetadata, DocumentTrustScore, DocumentVerifier, TrustFactor,
 };
-pub use embedding::{AnomalyDetection, EmbeddingAnomalyDetector, EmbeddingBaseline, EmbeddingVector};
+pub use embedding::{
+    AnomalyDetection, EmbeddingAnomalyDetector, EmbeddingBaseline, EmbeddingVector,
+};
 pub use error::RagDefenseError;
 pub use grounding::{
     Attribution, ClaimScore, Contradiction, GroundingChecker, GroundingConfig,

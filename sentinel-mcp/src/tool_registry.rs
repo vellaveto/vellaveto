@@ -54,6 +54,8 @@ pub const DEFAULT_TRUST_THRESHOLD: f32 = 0.3;
 /// Maximum number of entries in the tool registry.
 /// Prevents unbounded memory growth from auto-registration via evaluate endpoint.
 pub const MAX_REGISTRY_ENTRIES: usize = 10_000;
+/// Initial in-memory capacity for registry maps.
+const INITIAL_REGISTRY_CAPACITY: usize = 512;
 
 /// Result of checking a tool's trust level in the registry.
 #[derive(Debug, Clone, PartialEq)]
@@ -93,7 +95,6 @@ pub struct ToolEntry {
     // ═══════════════════════════════════════════════════
     // ETDI (Enhanced Tool Definition Interface) Fields
     // ═══════════════════════════════════════════════════
-
     /// ETDI signature for this tool (from tool provider).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<sentinel_types::ToolSignature>,
@@ -281,7 +282,7 @@ impl ToolRegistry {
     /// Create a new registry with the given persistence path.
     pub fn new(persistence_path: impl AsRef<Path>) -> Self {
         Self {
-            entries: RwLock::new(HashMap::new()),
+            entries: RwLock::new(HashMap::with_capacity(INITIAL_REGISTRY_CAPACITY)),
             persistence_path: persistence_path.as_ref().to_path_buf(),
             trust_threshold: DEFAULT_TRUST_THRESHOLD,
             hmac_key: None,
@@ -291,7 +292,7 @@ impl ToolRegistry {
     /// Create a new registry with a custom trust threshold.
     pub fn with_threshold(persistence_path: impl AsRef<Path>, threshold: f32) -> Self {
         Self {
-            entries: RwLock::new(HashMap::new()),
+            entries: RwLock::new(HashMap::with_capacity(INITIAL_REGISTRY_CAPACITY)),
             persistence_path: persistence_path.as_ref().to_path_buf(),
             trust_threshold: threshold.clamp(0.0, 1.0),
             hmac_key: None,
@@ -326,7 +327,7 @@ impl ToolRegistry {
         let file = tokio::fs::File::open(path).await?;
         let reader = BufReader::new(file);
         let mut lines = reader.lines();
-        let mut loaded = HashMap::new();
+        let mut loaded = HashMap::with_capacity(INITIAL_REGISTRY_CAPACITY);
         let mut rejected = 0usize;
 
         while let Some(raw_line) = lines.next_line().await? {

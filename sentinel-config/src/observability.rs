@@ -484,14 +484,10 @@ impl ObservabilityConfig {
                 ));
             }
             if self.langfuse.timeout_secs == 0 {
-                return Err(
-                    "observability.langfuse.timeout_secs must be > 0".to_string(),
-                );
+                return Err("observability.langfuse.timeout_secs must be > 0".to_string());
             }
             if self.langfuse.flush_interval_secs == 0 {
-                return Err(
-                    "observability.langfuse.flush_interval_secs must be > 0".to_string(),
-                );
+                return Err("observability.langfuse.flush_interval_secs must be > 0".to_string());
             }
         }
 
@@ -511,14 +507,10 @@ impl ObservabilityConfig {
                 ));
             }
             if self.arize.timeout_secs == 0 {
-                return Err(
-                    "observability.arize.timeout_secs must be > 0".to_string(),
-                );
+                return Err("observability.arize.timeout_secs must be > 0".to_string());
             }
             if self.arize.flush_interval_secs == 0 {
-                return Err(
-                    "observability.arize.flush_interval_secs must be > 0".to_string(),
-                );
+                return Err("observability.arize.flush_interval_secs must be > 0".to_string());
             }
         }
 
@@ -538,14 +530,10 @@ impl ObservabilityConfig {
                 ));
             }
             if self.helicone.timeout_secs == 0 {
-                return Err(
-                    "observability.helicone.timeout_secs must be > 0".to_string(),
-                );
+                return Err("observability.helicone.timeout_secs must be > 0".to_string());
             }
             if self.helicone.flush_interval_secs == 0 {
-                return Err(
-                    "observability.helicone.flush_interval_secs must be > 0".to_string(),
-                );
+                return Err("observability.helicone.flush_interval_secs must be > 0".to_string());
             }
         }
 
@@ -568,14 +556,10 @@ impl ObservabilityConfig {
                 ));
             }
             if self.webhook.timeout_secs == 0 {
-                return Err(
-                    "observability.webhook.timeout_secs must be > 0".to_string(),
-                );
+                return Err("observability.webhook.timeout_secs must be > 0".to_string());
             }
             if self.webhook.flush_interval_secs == 0 {
-                return Err(
-                    "observability.webhook.flush_interval_secs must be > 0".to_string(),
-                );
+                return Err("observability.webhook.flush_interval_secs must be > 0".to_string());
             }
         }
 
@@ -1153,6 +1137,9 @@ mod tests {
         // Explicit non-zero values should be valid
         config.langfuse.timeout_secs = 30;
         config.langfuse.flush_interval_secs = 5;
-        assert!(config.validate().is_ok(), "explicit non-zero values should be valid");
+        assert!(
+            config.validate().is_ok(),
+            "explicit non-zero values should be valid"
+        );
     }
 }

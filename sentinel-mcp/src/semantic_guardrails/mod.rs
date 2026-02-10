@@ -207,16 +207,21 @@ impl SemanticGuardrailsService {
         }
 
         // Check cache first
-        let cache_key = self
-            .cache
-            .compute_key(&input.tool, &input.function, &input.parameters, &input.nl_policies);
+        let cache_key = self.cache.compute_key(
+            &input.tool,
+            &input.function,
+            &input.parameters,
+            &input.nl_policies,
+        );
 
         if let Some(cached) = self.cache.get_async(&cache_key).await {
             return Ok(cached);
         }
 
         // Match NL policies
-        let matched_policies = self.nl_compiler.match_policies(&input.tool, &input.function);
+        let matched_policies = self
+            .nl_compiler
+            .match_policies(&input.tool, &input.function);
 
         // Call evaluator with timeout
         let start = std::time::Instant::now();
@@ -248,7 +253,10 @@ impl SemanticGuardrailsService {
         };
 
         evaluation.latency_ms = start.elapsed().as_millis() as u64;
-        evaluation.matched_policies = matched_policies.iter().map(|m| m.policy_id.clone()).collect();
+        evaluation.matched_policies = matched_policies
+            .iter()
+            .map(|m| m.policy_id.clone())
+            .collect();
 
         // Update intent chain if tracking enabled
         if self.config.track_intent_chains {

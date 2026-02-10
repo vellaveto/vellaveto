@@ -15,6 +15,7 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::path::{Component, PathBuf};
+use std::sync::RwLock;
 use std::time::Instant;
 
 #[derive(Error, Debug)]
@@ -384,7 +385,6 @@ pub enum CompiledContextCondition {
     // ═══════════════════════════════════════════════════
     // MCP 2025-11-25 CONTEXT CONDITIONS
     // ═══════════════════════════════════════════════════
-
     /// MCP 2025-11-25: Async task lifecycle policy.
     ///
     /// Controls the creation and cancellation of async MCP tasks. Policies can:
@@ -446,7 +446,6 @@ pub enum CompiledContextCondition {
     // ═══════════════════════════════════════════════════
     // PHASE 2: ADVANCED THREAT DETECTION CONDITIONS
     // ═══════════════════════════════════════════════════
-
     /// Circuit breaker check (OWASP ASI08).
     ///
     /// Prevents cascading failures by temporarily blocking requests to
@@ -548,6 +547,10 @@ pub struct CompiledPolicy {
 /// Default maximum percent-decoding iterations in [`PolicyEngine::normalize_path`].
 /// Paths requiring more iterations fail-closed to `"/"`.
 pub const DEFAULT_MAX_PATH_DECODE_ITERATIONS: u32 = 20;
+/// Maximum number of compiled glob matchers kept in the legacy runtime cache.
+const MAX_GLOB_MATCHER_CACHE_ENTRIES: usize = 2048;
+/// Maximum number of domain normalization results kept in the runtime cache.
+const MAX_DOMAIN_NORM_CACHE_ENTRIES: usize = 4096;
 
 /// The core policy evaluation engine.
 ///
@@ -576,6 +579,15 @@ pub struct PolicyEngine {
     /// Maximum percent-decoding iterations in `normalize_path` before
     /// fail-closing to `"/"`. Defaults to [`DEFAULT_MAX_PATH_DECODE_ITERATIONS`] (20).
     max_path_decode_iterations: u32,
+    /// Legacy runtime cache for glob matcher compilation.
+    ///
+    /// This cache is used by `glob_is_match` on the non-precompiled path.
+    glob_matcher_cache: RwLock<HashMap<String, GlobMatcher>>,
+    /// Runtime cache for domain normalization results.
+    ///
+    /// Caches both successful normalization (Some) and invalid domains (None)
+    /// to avoid repeated IDNA parsing on hot network/domain constraint paths.
+    domain_norm_cache: RwLock<HashMap<String, Option<String>>>,
 }
 
 impl std::fmt::Debug for PolicyEngine {
@@ -588,6 +600,22 @@ impl std::fmt::Debug for PolicyEngine {
             .field(
                 "max_path_decode_iterations",
                 &self.max_path_decode_iterations,
+            )
+            .field(
+                "glob_matcher_cache_size",
+                &self
+                    .glob_matcher_cache
+                    .read()
+                    .map(|c| c.len())
+                    .unwrap_or_default(),
+            )
+            .field(
+                "domain_norm_cache_size",
+                &self
+                    .domain_norm_cache
+                    .read()
+                    .map(|c| c.len())
+                    .unwrap_or_default(),
             )
             .finish()
     }
@@ -606,6 +634,8 @@ impl PolicyEngine {
             always_check: Vec::new(),
             trust_context_timestamps: false,
             max_path_decode_iterations: DEFAULT_MAX_PATH_DECODE_ITERATIONS,
+            glob_matcher_cache: RwLock::new(HashMap::with_capacity(256)),
+            domain_norm_cache: RwLock::new(HashMap::with_capacity(512)),
         }
     }
 
@@ -662,8 +692,7 @@ impl PolicyEngine {
                 let truncated: String = label.chars().take(20).collect();
                 return Err(format!(
                     "Label '{}...' in domain '{}' exceeds maximum length of 63 characters",
-                    truncated,
-                    pattern
+                    truncated, pattern
                 ));
             }
             if label.starts_with('-') || label.ends_with('-') {
@@ -701,6 +730,8 @@ impl PolicyEngine {
             always_check,
             trust_context_timestamps: false,
             max_path_decode_iterations: DEFAULT_MAX_PATH_DECODE_ITERATIONS,
+            glob_matcher_cache: RwLock::new(HashMap::with_capacity(256)),
+            domain_norm_cache: RwLock::new(HashMap::with_capacity(512)),
         })
     }
 
@@ -724,8 +755,8 @@ impl PolicyEngine {
 
     /// Build a tool-name index for O(matching) evaluation.
     fn build_tool_index(compiled: &[CompiledPolicy]) -> (HashMap<String, Vec<usize>>, Vec<usize>) {
-        let mut index: HashMap<String, Vec<usize>> = HashMap::new();
-        let mut always_check = Vec::new();
+        let mut index: HashMap<String, Vec<usize>> = HashMap::with_capacity(compiled.len());
+        let mut always_check = Vec::with_capacity(compiled.len());
         for (i, cp) in compiled.iter().enumerate() {
             match &cp.tool_matcher {
                 CompiledToolMatcher::Universal => always_check.push(i),
@@ -1681,7 +1712,6 @@ impl PolicyEngine {
             // ═══════════════════════════════════════════════════
             // MCP 2025-11-25 CONTEXT CONDITIONS
             // ═══════════════════════════════════════════════════
-
             "async_task_policy" => {
                 // MCP 2025-11-25: Async task lifecycle policy
                 let max_concurrent = obj
@@ -1700,10 +1730,8 @@ impl PolicyEngine {
                     .and_then(|v| v.as_bool())
                     .unwrap_or(true); // Default: only creator can cancel
 
-                let deny_reason = format!(
-                    "Async task policy violated for policy '{}'",
-                    policy.name
-                );
+                let deny_reason =
+                    format!("Async task policy violated for policy '{}'", policy.name);
 
                 Ok(CompiledContextCondition::AsyncTaskPolicy {
                     max_concurrent,
@@ -1816,7 +1844,6 @@ impl PolicyEngine {
             // ═══════════════════════════════════════════════════
             // PHASE 2: ADVANCED THREAT DETECTION CONDITIONS
             // ═══════════════════════════════════════════════════
-
             "circuit_breaker" => {
                 // OWASP ASI08: Cascading failure protection
                 let tool_pattern = obj
@@ -1862,10 +1889,7 @@ impl PolicyEngine {
 
                 let max_delegation_depth = max_delegation_depth_u64 as u8;
 
-                let deny_reason = format!(
-                    "Deputy validation failed for policy '{}'",
-                    policy.name
-                );
+                let deny_reason = format!("Deputy validation failed for policy '{}'", policy.name);
 
                 Ok(CompiledContextCondition::DeputyValidation {
                     require_principal,
@@ -1900,10 +1924,7 @@ impl PolicyEngine {
 
                 let min_trust_level = min_trust_level_u64 as u8;
 
-                let deny_reason = format!(
-                    "Shadow agent check failed for policy '{}'",
-                    policy.name
-                );
+                let deny_reason = format!("Shadow agent check failed for policy '{}'", policy.name);
 
                 Ok(CompiledContextCondition::ShadowAgentCheck {
                     require_known_fingerprint,
@@ -1932,10 +1953,7 @@ impl PolicyEngine {
                     });
                 }
 
-                let deny_reason = format!(
-                    "Schema poisoning detected for policy '{}'",
-                    policy.name
-                );
+                let deny_reason = format!("Schema poisoning detected for policy '{}'", policy.name);
 
                 Ok(CompiledContextCondition::SchemaPoisoningCheck {
                     mutation_threshold,
@@ -2657,7 +2675,6 @@ impl PolicyEngine {
                 // ═══════════════════════════════════════════════════
                 // MCP 2025-11-25 CONTEXT CONDITIONS EVALUATION
                 // ═══════════════════════════════════════════════════
-
                 CompiledContextCondition::AsyncTaskPolicy {
                     max_concurrent,
                     max_duration_secs: _,
@@ -2798,7 +2815,6 @@ impl PolicyEngine {
                 // ═══════════════════════════════════════════════════
                 // PHASE 2: ADVANCED THREAT DETECTION CONDITION CHECKS
                 // ═══════════════════════════════════════════════════
-
                 CompiledContextCondition::CircuitBreaker {
                     tool_pattern: _,
                     deny_reason: _,
@@ -2827,8 +2843,8 @@ impl PolicyEngine {
                     // OWASP ASI02: Confused deputy prevention
                     // Check principal context if available
                     // Principal context is stored in agent_identity claims
-                    let has_principal = context.agent_identity.is_some()
-                        || context.agent_id.is_some();
+                    let has_principal =
+                        context.agent_identity.is_some() || context.agent_id.is_some();
 
                     if *require_principal && !has_principal {
                         return Some(Verdict::Deny {
@@ -3911,7 +3927,10 @@ impl PolicyEngine {
                 Ok(ip) => ip,
                 Err(_) => {
                     return Some(Verdict::Deny {
-                        reason: format!("Invalid resolved IP '{}' in policy '{}'", ip_str, policy.name),
+                        reason: format!(
+                            "Invalid resolved IP '{}' in policy '{}'",
+                            ip_str, policy.name
+                        ),
                     })
                 }
             };
@@ -5134,13 +5153,28 @@ impl PolicyEngine {
         input: &str,
         policy_id: &str,
     ) -> Result<bool, EngineError> {
+        if let Ok(cache) = self.glob_matcher_cache.read() {
+            if let Some(matcher) = cache.get(pattern) {
+                return Ok(matcher.is_match(input));
+            }
+        }
+
         let matcher = Glob::new(pattern)
             .map_err(|e| EngineError::InvalidCondition {
                 policy_id: policy_id.to_string(),
                 reason: format!("Invalid glob pattern '{}': {}", pattern, e),
             })?
             .compile_matcher();
-        Ok(matcher.is_match(input))
+        let is_match = matcher.is_match(input);
+
+        if let Ok(mut cache) = self.glob_matcher_cache.write() {
+            if cache.len() >= MAX_GLOB_MATCHER_CACHE_ENTRIES {
+                cache.clear();
+            }
+            cache.insert(pattern.to_string(), matcher);
+        }
+
+        Ok(is_match)
     }
 
     /// Retrieve a parameter value by dot-separated path.

@@ -707,20 +707,25 @@ impl ProxyBridge {
         // Track pending request IDs for timeout detection and circuit breaker recording.
         // Key: serialized JSON-RPC id, Value: (timestamp, tool_name).
         // Tool name is needed for circuit breaker success/failure recording on response.
-        let mut pending_requests: HashMap<String, (Instant, String)> = HashMap::new();
+        const INITIAL_PENDING_REQUEST_CAPACITY: usize = 256;
+        const INITIAL_TOOL_STATE_CAPACITY: usize = 128;
+        const INITIAL_CALL_COUNTS_CAPACITY: usize = 128;
+        let mut pending_requests: HashMap<String, (Instant, String)> =
+            HashMap::with_capacity(INITIAL_PENDING_REQUEST_CAPACITY);
         // SECURITY (R8-MCP-8): Maximum number of pending (in-flight) requests.
         // Prevents OOM if an agent sends requests faster than the server responds.
         const MAX_PENDING_REQUESTS: usize = 1000;
 
         // C-8.2: Track tools/list request IDs so we can intercept responses.
         let mut tools_list_request_ids: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+            std::collections::HashSet::with_capacity(INITIAL_PENDING_REQUEST_CAPACITY);
         // Store known tool annotations for rug-pull detection.
-        let mut known_tool_annotations: HashMap<String, ToolAnnotations> = HashMap::new();
+        let mut known_tool_annotations: HashMap<String, ToolAnnotations> =
+            HashMap::with_capacity(INITIAL_TOOL_STATE_CAPACITY);
 
         // C-8.4: Track initialize request IDs and negotiated protocol version.
         let mut initialize_request_ids: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+            std::collections::HashSet::with_capacity(INITIAL_PENDING_REQUEST_CAPACITY);
         let mut negotiated_protocol_version: Option<String> = None;
 
         // C-15 Exploit #9: Track rug-pulled tools for blocking.
@@ -738,9 +743,10 @@ impl ProxyBridge {
         let mut memory_tracker = crate::memory_tracking::MemoryTracker::new();
 
         // Context-aware evaluation tracking.
-        let mut call_counts: HashMap<String, u64> = HashMap::new();
-        let mut action_history: Vec<String> = Vec::new();
+        let mut call_counts: HashMap<String, u64> =
+            HashMap::with_capacity(INITIAL_CALL_COUNTS_CAPACITY);
         const MAX_ACTION_HISTORY: usize = 100;
+        let mut action_history: Vec<String> = Vec::with_capacity(MAX_ACTION_HISTORY);
 
         // Elicitation rate limiting counter (per session/proxy lifetime).
         let mut elicitation_count: u32 = 0;
@@ -2159,10 +2165,59 @@ impl ProxyBridge {
                                                 );
                                             }
                                             ValidationResult::NoSchema => {
-                                                tracing::debug!(
-                                                    "No output schema registered for tool '{}', skipping validation",
-                                                    tool_name
-                                                );
+                                                if self.output_schema_blocking {
+                                                    tracing::warn!(
+                                                        "SECURITY: No output schema registered for tool '{}' \
+                                                         while output_schema_blocking=true; blocking response",
+                                                        tool_name
+                                                    );
+                                                    let action = sentinel_types::Action::new(
+                                                        "sentinel",
+                                                        "output_schema_violation",
+                                                        json!({
+                                                            "tool": tool_name,
+                                                            "violations": ["no output schema registered for tool"],
+                                                            "response_id": msg.get("id"),
+                                                        }),
+                                                    );
+                                                    if let Err(e) = self
+                                                        .audit
+                                                        .log_entry(
+                                                            &action,
+                                                            &Verdict::Deny {
+                                                                reason: format!(
+                                                                    "structuredContent schema validation blocked: no schema registered for tool '{}'",
+                                                                    tool_name
+                                                                ),
+                                                            },
+                                                            json!({"source": "proxy", "event": "output_schema_violation"}),
+                                                        )
+                                                        .await
+                                                    {
+                                                        tracing::warn!(
+                                                            "Failed to audit output schema missing-schema violation: {}",
+                                                            e
+                                                        );
+                                                    }
+
+                                                    let blocked_response = json!({
+                                                        "jsonrpc": "2.0",
+                                                        "id": msg.get("id").cloned().unwrap_or(Value::Null),
+                                                        "error": {
+                                                            "code": -32005,
+                                                            "message": "Response blocked: no output schema registered for structuredContent validation"
+                                                        }
+                                                    });
+                                                    write_message(&mut agent_writer, &blocked_response)
+                                                        .await
+                                                        .map_err(ProxyError::Framing)?;
+                                                    continue;
+                                                } else {
+                                                    tracing::debug!(
+                                                        "No output schema registered for tool '{}', skipping validation",
+                                                        tool_name
+                                                    );
+                                                }
                                             }
                                             ValidationResult::Invalid { violations } => {
                                                 tracing::warn!(
@@ -2215,6 +2270,49 @@ impl ProxyBridge {
                                                 }
                                             }
                                         }
+                                    } else if self.output_schema_blocking {
+                                        tracing::warn!(
+                                            "SECURITY: structuredContent present but tool context unavailable \
+                                             while output_schema_blocking=true; blocking response"
+                                        );
+                                        let action = sentinel_types::Action::new(
+                                            "sentinel",
+                                            "output_schema_violation",
+                                            json!({
+                                                "tool": Value::Null,
+                                                "violations": ["tool context unavailable for structuredContent schema validation"],
+                                                "response_id": msg.get("id"),
+                                            }),
+                                        );
+                                        if let Err(e) = self
+                                            .audit
+                                            .log_entry(
+                                                &action,
+                                                &Verdict::Deny {
+                                                    reason: "structuredContent schema validation blocked: tool context unavailable".to_string(),
+                                                },
+                                                json!({"source": "proxy", "event": "output_schema_violation"}),
+                                            )
+                                            .await
+                                        {
+                                            tracing::warn!(
+                                                "Failed to audit output schema context violation: {}",
+                                                e
+                                            );
+                                        }
+
+                                        let blocked_response = json!({
+                                            "jsonrpc": "2.0",
+                                            "id": msg.get("id").cloned().unwrap_or(Value::Null),
+                                            "error": {
+                                                "code": -32005,
+                                                "message": "Response blocked: structuredContent schema validation unavailable (missing tool context)"
+                                            }
+                                        });
+                                        write_message(&mut agent_writer, &blocked_response)
+                                            .await
+                                            .map_err(ProxyError::Framing)?;
+                                        continue;
                                     } else {
                                         tracing::debug!(
                                             "structuredContent present but tool context unavailable; skipping schema validation"

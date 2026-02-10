@@ -24,7 +24,13 @@ use crate::extractor::normalize_method;
 /// Populated from `tools/list` responses that pass through the proxy.
 /// Thread-safe for concurrent read access with infrequent writes.
 pub struct OutputSchemaRegistry {
-    schemas: RwLock<HashMap<String, Value>>,
+    schemas: RwLock<HashMap<String, SchemaEntry>>,
+}
+
+#[derive(Clone)]
+enum SchemaEntry {
+    Valid(Value),
+    Rejected(String),
 }
 
 /// Maximum number of tool schemas stored in the registry.
@@ -89,25 +95,26 @@ impl OutputSchemaRegistry {
             let schema = tool.get("outputSchema");
 
             if let (Some(name), Some(schema)) = (name, schema) {
-                if schema.is_object() {
-                    // SECURITY (R34-MCP-4): Normalize tool name to match how the proxy
-                    // normalizes names in classify_message(). Without this, a tool
-                    // registered as "ReadFile" would not be found when looked up as
-                    // "readfile" after normalization, silently skipping validation.
-                    let normalized_name = normalize_method(name);
-                    // SECURITY: Reject oversized schemas to prevent memory exhaustion
-                    if let Ok(serialized) = serde_json::to_string(schema) {
-                        if serialized.len() > MAX_SCHEMA_SIZE {
-                            continue;
-                        }
+                // SECURITY (R34-MCP-4): Normalize tool name to match how the proxy
+                // normalizes names in classify_message(). Without this, a tool
+                // registered as "ReadFile" would not be found when looked up as
+                // "readfile" after normalization, silently skipping validation.
+                let normalized_name = normalize_method(name);
+
+                // SECURITY: Cap total registry size
+                if schemas.len() >= MAX_SCHEMA_ENTRIES && !schemas.contains_key(&normalized_name) {
+                    continue;
+                }
+
+                match validate_declared_schema(schema) {
+                    Ok(()) => {
+                        schemas.insert(normalized_name, SchemaEntry::Valid(schema.clone()));
                     }
-                    // SECURITY: Cap total registry size
-                    if schemas.len() >= MAX_SCHEMA_ENTRIES
-                        && !schemas.contains_key(&normalized_name)
-                    {
-                        continue;
+                    Err(reason) => {
+                        // Fail-closed marker: an explicitly declared but invalid schema
+                        // should not degrade to NoSchema (which would skip validation).
+                        schemas.insert(normalized_name, SchemaEntry::Rejected(reason));
                     }
-                    schemas.insert(normalized_name, schema.clone());
                 }
             }
         }
@@ -130,17 +137,19 @@ impl OutputSchemaRegistry {
                 return;
             }
         };
-        // SECURITY: Reject oversized schemas
-        if let Ok(serialized) = serde_json::to_string(&schema) {
-            if serialized.len() > MAX_SCHEMA_SIZE {
-                return;
-            }
-        }
         // SECURITY: Cap total registry size
         if schemas.len() >= MAX_SCHEMA_ENTRIES && !schemas.contains_key(&normalized_name) {
             return;
         }
-        schemas.insert(normalized_name, schema);
+        match validate_declared_schema(&schema) {
+            Ok(()) => {
+                schemas.insert(normalized_name, SchemaEntry::Valid(schema));
+            }
+            Err(reason) => {
+                // Keep a rejection marker so validation can fail-closed later.
+                schemas.insert(normalized_name, SchemaEntry::Rejected(reason));
+            }
+        }
     }
 
     /// Check if a schema is registered for the given tool.
@@ -150,7 +159,7 @@ impl OutputSchemaRegistry {
         let normalized_name = normalize_method(tool_name);
         self.schemas
             .read()
-            .map(|s| s.contains_key(&normalized_name))
+            .map(|s| matches!(s.get(&normalized_name), Some(SchemaEntry::Valid(_))))
             .unwrap_or(false)
     }
 
@@ -176,7 +185,12 @@ impl OutputSchemaRegistry {
         };
 
         let schema = match schemas.get(&normalized_name) {
-            Some(s) => s.clone(),
+            Some(SchemaEntry::Valid(s)) => s.clone(),
+            Some(SchemaEntry::Rejected(reason)) => {
+                return ValidationResult::Invalid {
+                    violations: vec![format!("Declared outputSchema rejected: {}", reason)],
+                };
+            }
             None => return ValidationResult::NoSchema,
         };
         drop(schemas); // Release lock before validation
@@ -193,7 +207,14 @@ impl OutputSchemaRegistry {
 
     /// Return the number of registered schemas.
     pub fn len(&self) -> usize {
-        self.schemas.read().map(|s| s.len()).unwrap_or(0)
+        self.schemas
+            .read()
+            .map(|s| {
+                s.values()
+                    .filter(|entry| matches!(entry, SchemaEntry::Valid(_)))
+                    .count()
+            })
+            .unwrap_or(0)
     }
 
     /// Check if the registry is empty.
@@ -206,6 +227,22 @@ impl Default for OutputSchemaRegistry {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn validate_declared_schema(schema: &Value) -> Result<(), String> {
+    if !schema.is_object() {
+        return Err("outputSchema must be a JSON object".to_string());
+    }
+    let serialized = serde_json::to_string(schema)
+        .map_err(|e| format!("outputSchema serialization failed: {}", e))?;
+    if serialized.len() > MAX_SCHEMA_SIZE {
+        return Err(format!(
+            "outputSchema exceeds size limit ({} > {} bytes)",
+            serialized.len(),
+            MAX_SCHEMA_SIZE
+        ));
+    }
+    Ok(())
 }
 
 /// Maximum schema validation depth to prevent stack overflow from deeply nested schemas.
@@ -687,6 +724,19 @@ mod tests {
             !registry.has_schema("big_tool"),
             "Oversized schema should be rejected"
         );
+        match registry.validate("big_tool", &json!({"k": "v"})) {
+            ValidationResult::Invalid { violations } => {
+                assert!(
+                    violations.iter().any(|v| v.contains("exceeds size limit")),
+                    "Expected rejection reason for oversized schema, got: {:?}",
+                    violations
+                );
+            }
+            other => panic!(
+                "Expected Invalid for oversized schema declaration, got {:?}",
+                other
+            ),
+        }
     }
 
     #[test]
@@ -823,5 +873,43 @@ mod tests {
             registry.validate("get\u{200B}_weather", &valid),
             ValidationResult::Valid
         );
+    }
+
+    #[test]
+    fn test_tools_list_invalid_schema_type_is_rejected_fail_closed() {
+        let registry = OutputSchemaRegistry::new();
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "tools": [
+                    {
+                        "name": "SearchWeb",
+                        "outputSchema": "not-an-object"
+                    }
+                ]
+            }
+        });
+
+        registry.register_from_tools_list(&response);
+        assert!(
+            !registry.has_schema("searchweb"),
+            "Malformed schema must not be treated as a valid registered schema"
+        );
+        match registry.validate("searchweb", &json!({"results": ["a"]})) {
+            ValidationResult::Invalid { violations } => {
+                assert!(
+                    violations
+                        .iter()
+                        .any(|v| v.contains("must be a JSON object")),
+                    "Expected invalid schema type reason, got {:?}",
+                    violations
+                );
+            }
+            other => panic!(
+                "Expected Invalid (fail-closed) for malformed outputSchema declaration, got {:?}",
+                other
+            ),
+        }
     }
 }

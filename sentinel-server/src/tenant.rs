@@ -696,7 +696,10 @@ mod tests {
         );
 
         // Policy without colons gets namespaced
-        assert_eq!(context.namespace_policy("dangerous_block"), "acme:dangerous_block");
+        assert_eq!(
+            context.namespace_policy("dangerous_block"),
+            "acme:dangerous_block"
+        );
 
         // Global policy stays as-is
         assert_eq!(
@@ -725,8 +728,8 @@ mod tests {
         assert!(!context.policy_matches("competitor:file_system:write"));
 
         // Matches legacy policies (0-1 colons for backwards compatibility)
-        assert!(context.policy_matches("file:read"));  // 1 colon - legacy
-        assert!(context.policy_matches("dangerous_block"));  // 0 colons - legacy
+        assert!(context.policy_matches("file:read")); // 1 colon - legacy
+        assert!(context.policy_matches("dangerous_block")); // 0 colons - legacy
     }
 
     #[test]

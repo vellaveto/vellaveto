@@ -215,7 +215,10 @@ impl ToolNamespaceRegistry {
         }
 
         // Check for trust violation on protected names
-        let protected = self.protected_names.read().unwrap_or_else(|e| e.into_inner());
+        let protected = self
+            .protected_names
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         if !source.trusted && protected.iter().any(|p| normalized_name.contains(p)) {
             return Err(NamespaceError::Collision(Box::new(CollisionAlert {
                 tool_name: tool_name.to_string(),
@@ -363,7 +366,9 @@ impl ToolNamespaceRegistry {
     pub fn get_source(&self, tool_name: &str) -> Option<ToolSource> {
         let normalized_name = tool_name.to_lowercase();
         let tools = self.tools.read().unwrap_or_else(|e| e.into_inner());
-        tools.get(&normalized_name).map(|e| e.primary_source.clone())
+        tools
+            .get(&normalized_name)
+            .map(|e| e.primary_source.clone())
     }
 
     /// Remove a tool from the registry.
@@ -375,7 +380,10 @@ impl ToolNamespaceRegistry {
 
     /// Add a protected name pattern.
     pub fn add_protected_name(&self, pattern: &str) {
-        let mut protected = self.protected_names.write().unwrap_or_else(|e| e.into_inner());
+        let mut protected = self
+            .protected_names
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         protected.push(pattern.to_lowercase());
     }
 

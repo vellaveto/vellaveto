@@ -430,10 +430,7 @@ pub enum JwtError {
 /// Extract and validate a JWT token from the Authorization header.
 ///
 /// Returns the extracted claims on success.
-pub fn extract_jwt_claims(
-    auth_header: &str,
-    config: &JwtConfig,
-) -> Result<RoleClaims, JwtError> {
+pub fn extract_jwt_claims(auth_header: &str, config: &JwtConfig) -> Result<RoleClaims, JwtError> {
     use jsonwebtoken::{decode, decode_header, DecodingKey, Validation};
 
     // Extract Bearer token
@@ -688,11 +685,7 @@ mod tests {
     fn test_admin_has_all_permissions() {
         let admin_perms = Role::Admin.permissions();
         for perm in Permission::all() {
-            assert!(
-                admin_perms.contains(perm),
-                "Admin should have {:?}",
-                perm
-            );
+            assert!(admin_perms.contains(perm), "Admin should have {:?}", perm);
         }
     }
 

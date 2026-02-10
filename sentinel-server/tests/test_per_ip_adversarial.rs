@@ -58,7 +58,9 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
-        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(
+            sentinel_server::idempotency::IdempotencyConfig::default(),
+        ),
         task_state: None,
         auth_level: None,
         circuit_breaker: None,
@@ -417,7 +419,9 @@ async fn regression_24_error_message_does_not_leak_architecture() {
         rbac_config: sentinel_server::rbac::RbacConfig::default(),
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
-        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(
+            sentinel_server::idempotency::IdempotencyConfig::default(),
+        ),
         task_state: None,
         auth_level: None,
         circuit_breaker: None,

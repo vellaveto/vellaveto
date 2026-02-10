@@ -31,7 +31,6 @@ pub enum TaskStatus {
     Expired,
 }
 
-
 impl fmt::Display for TaskStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -79,7 +78,10 @@ impl TrackedTask {
     pub fn is_terminal(&self) -> bool {
         matches!(
             self.status,
-            TaskStatus::Completed | TaskStatus::Failed { .. } | TaskStatus::Cancelled | TaskStatus::Expired
+            TaskStatus::Completed
+                | TaskStatus::Failed { .. }
+                | TaskStatus::Cancelled
+                | TaskStatus::Expired
         )
     }
 
@@ -282,7 +284,9 @@ pub struct SecureTaskStats {
 ///
 /// Step-up auth allows policies to require stronger authentication
 /// for sensitive operations. Levels are ordered by strength.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Default,
+)]
 #[serde(rename_all = "snake_case")]
 #[repr(u8)]
 pub enum AuthLevel {
@@ -298,7 +302,6 @@ pub enum AuthLevel {
     /// Hardware key authentication (WebAuthn, FIDO2).
     HardwareKey = 4,
 }
-
 
 impl fmt::Display for AuthLevel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -616,8 +619,7 @@ impl SchemaRecord {
 ///
 /// Tracks the delegation chain to prevent unauthorized tool access
 /// via confused deputy attacks (OWASP ASI02).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct PrincipalContext {
     /// The original principal that initiated the request.
     pub original_principal: String,
@@ -633,7 +635,6 @@ pub struct PrincipalContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delegation_expires: Option<u64>,
 }
-
 
 impl PrincipalContext {
     /// Create a new context for a direct (non-delegated) principal.
@@ -1120,7 +1121,9 @@ pub struct ToolSignature {
 impl ToolSignature {
     /// Returns true if the signature has expired.
     pub fn is_expired(&self, now: &str) -> bool {
-        self.expires_at.as_ref().is_some_and(|exp| now >= exp.as_str())
+        self.expires_at
+            .as_ref()
+            .is_some_and(|exp| now >= exp.as_str())
     }
 }
 
@@ -1863,14 +1866,12 @@ impl MemoryNamespace {
 
     /// Check if an agent can read from this namespace.
     pub fn can_read(&self, agent_id: &str) -> bool {
-        self.owner_agent == agent_id
-            || self.read_allowed.iter().any(|a| a == agent_id || a == "*")
+        self.owner_agent == agent_id || self.read_allowed.iter().any(|a| a == agent_id || a == "*")
     }
 
     /// Check if an agent can write to this namespace.
     pub fn can_write(&self, agent_id: &str) -> bool {
-        self.owner_agent == agent_id
-            || self.write_allowed.iter().any(|a| a == agent_id || a == "*")
+        self.owner_agent == agent_id || self.write_allowed.iter().any(|a| a == agent_id || a == "*")
     }
 }
 
@@ -2054,8 +2055,7 @@ impl fmt::Display for NhiIdentityStatus {
 /// - Attestation type and credentials
 /// - Behavioral baseline for continuous authentication
 /// - Credential rotation and expiration
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct NhiAgentIdentity {
     /// Unique agent identifier.
     pub id: String,
@@ -2094,7 +2094,6 @@ pub struct NhiAgentIdentity {
     #[serde(default)]
     pub metadata: HashMap<String, String>,
 }
-
 
 /// Behavioral baseline for continuous agent authentication.
 ///
@@ -3104,7 +3103,9 @@ mod tests {
             TaskStatus::Pending,
             TaskStatus::Running,
             TaskStatus::Completed,
-            TaskStatus::Failed { reason: "timeout".to_string() },
+            TaskStatus::Failed {
+                reason: "timeout".to_string(),
+            },
             TaskStatus::Cancelled,
             TaskStatus::Expired,
         ];
@@ -3121,7 +3122,10 @@ mod tests {
         assert_eq!(TaskStatus::Running.to_string(), "running");
         assert_eq!(TaskStatus::Completed.to_string(), "completed");
         assert_eq!(
-            TaskStatus::Failed { reason: "error".to_string() }.to_string(),
+            TaskStatus::Failed {
+                reason: "error".to_string()
+            }
+            .to_string(),
             "failed: error"
         );
         assert_eq!(TaskStatus::Cancelled.to_string(), "cancelled");
@@ -3158,7 +3162,9 @@ mod tests {
         assert!(!completed.is_active());
 
         let failed = TrackedTask {
-            status: TaskStatus::Failed { reason: "error".to_string() },
+            status: TaskStatus::Failed {
+                reason: "error".to_string(),
+            },
             ..pending.clone()
         };
         assert!(failed.is_terminal());
@@ -3285,7 +3291,11 @@ mod tests {
 
     #[test]
     fn test_circuit_state_serialization() {
-        let states = vec![CircuitState::Closed, CircuitState::Open, CircuitState::HalfOpen];
+        let states = vec![
+            CircuitState::Closed,
+            CircuitState::Open,
+            CircuitState::HalfOpen,
+        ];
         for state in states {
             let json_str = serde_json::to_string(&state).unwrap();
             let deserialized: CircuitState = serde_json::from_str(&json_str).unwrap();
@@ -3425,7 +3435,9 @@ mod tests {
         assert!(record_same.is_stable()); // Same hash in history = stable
 
         let mut record_diff = record.clone();
-        record_diff.version_history.push("different_hash".to_string());
+        record_diff
+            .version_history
+            .push("different_hash".to_string());
         assert!(!record_diff.is_stable()); // Different hash in history = unstable
     }
 
@@ -3447,7 +3459,8 @@ mod tests {
 
     #[test]
     fn test_schema_record_new_with_content() {
-        let schema = serde_json::json!({"type": "object", "properties": {"name": {"type": "string"}}});
+        let schema =
+            serde_json::json!({"type": "object", "properties": {"name": {"type": "string"}}});
         let record = SchemaRecord::new_with_content("test_tool", "hash123", &schema, 1000);
         assert_eq!(record.tool_name, "test_tool");
         assert_eq!(record.schema_hash, "hash123");
@@ -3948,8 +3961,14 @@ mod tests {
     #[test]
     fn test_nhi_behavioral_recommendation_display() {
         assert_eq!(NhiBehavioralRecommendation::Allow.to_string(), "allow");
-        assert_eq!(NhiBehavioralRecommendation::AllowWithLogging.to_string(), "allow_with_logging");
-        assert_eq!(NhiBehavioralRecommendation::StepUpAuth.to_string(), "step_up_auth");
+        assert_eq!(
+            NhiBehavioralRecommendation::AllowWithLogging.to_string(),
+            "allow_with_logging"
+        );
+        assert_eq!(
+            NhiBehavioralRecommendation::StepUpAuth.to_string(),
+            "step_up_auth"
+        );
         assert_eq!(NhiBehavioralRecommendation::Suspend.to_string(), "suspend");
         assert_eq!(NhiBehavioralRecommendation::Revoke.to_string(), "revoke");
     }
@@ -3991,18 +4010,16 @@ mod tests {
     #[test]
     fn test_nhi_delegation_chain_exceeds_max() {
         let chain = NhiDelegationChain {
-            chain: vec![
-                NhiDelegationLink {
-                    from_agent: "a".to_string(),
-                    to_agent: "b".to_string(),
-                    permissions: vec![],
-                    scope_constraints: vec![],
-                    created_at: "".to_string(),
-                    expires_at: "".to_string(),
-                    active: true,
-                    reason: None,
-                },
-            ],
+            chain: vec![NhiDelegationLink {
+                from_agent: "a".to_string(),
+                to_agent: "b".to_string(),
+                permissions: vec![],
+                scope_constraints: vec![],
+                created_at: "".to_string(),
+                expires_at: "".to_string(),
+                active: true,
+                reason: None,
+            }],
             max_depth: 0, // Max depth of 0 means no delegation allowed
             resolved_at: "".to_string(),
         };

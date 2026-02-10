@@ -193,13 +193,15 @@ impl CircuitBreakerManager {
         };
         let now = Self::now_or_zero();
 
-        let stats = circuits.entry(tool.to_string()).or_insert_with(|| CircuitStats {
-            state: CircuitState::Closed,
-            failure_count: 0,
-            success_count: 0,
-            last_failure: None,
-            last_state_change: now,
-        });
+        let stats = circuits
+            .entry(tool.to_string())
+            .or_insert_with(|| CircuitStats {
+                state: CircuitState::Closed,
+                failure_count: 0,
+                success_count: 0,
+                last_failure: None,
+                last_state_change: now,
+            });
 
         match stats.state {
             CircuitState::Closed => {
@@ -269,13 +271,15 @@ impl CircuitBreakerManager {
         };
         let now = Self::now_or_zero();
 
-        let stats = circuits.entry(tool.to_string()).or_insert_with(|| CircuitStats {
-            state: CircuitState::Closed,
-            failure_count: 0,
-            success_count: 0,
-            last_failure: None,
-            last_state_change: now,
-        });
+        let stats = circuits
+            .entry(tool.to_string())
+            .or_insert_with(|| CircuitStats {
+                state: CircuitState::Closed,
+                failure_count: 0,
+                success_count: 0,
+                last_failure: None,
+                last_state_change: now,
+            });
 
         stats.last_failure = Some(now);
 
@@ -412,7 +416,10 @@ impl CircuitBreakerManager {
         let circuits = match self.circuits.read() {
             Ok(c) => c,
             Err(e) => {
-                tracing::error!("CRITICAL: Circuit breaker RwLock poisoned in tracked_tools: {}", e);
+                tracing::error!(
+                    "CRITICAL: Circuit breaker RwLock poisoned in tracked_tools: {}",
+                    e
+                );
                 return Vec::new();
             }
         };
@@ -426,7 +433,10 @@ impl CircuitBreakerManager {
         let circuits = match self.circuits.read() {
             Ok(c) => c,
             Err(e) => {
-                tracing::error!("CRITICAL: Circuit breaker RwLock poisoned in summary: {}", e);
+                tracing::error!(
+                    "CRITICAL: Circuit breaker RwLock poisoned in summary: {}",
+                    e
+                );
                 return CircuitSummary {
                     total: 0,
                     closed: 0,

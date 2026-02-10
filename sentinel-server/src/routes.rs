@@ -20,7 +20,7 @@ use governor::clock::Clock;
 use subtle::ConstantTimeEq;
 
 use crate::rbac::{rbac_middleware, RbacState};
-use crate::tenant::{TenantContext, TenantState, tenant_middleware};
+use crate::tenant::{tenant_middleware, TenantContext, TenantState};
 use crate::AppState;
 
 pub fn build_router(state: AppState) -> Router {
@@ -86,11 +86,17 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/shadow-agents", get(list_shadow_agents))
         .route("/api/shadow-agents", post(register_shadow_agent))
         .route("/api/shadow-agents/{id}", delete(remove_shadow_agent))
-        .route("/api/shadow-agents/{id}/trust", axum::routing::put(update_agent_trust))
+        .route(
+            "/api/shadow-agents/{id}/trust",
+            axum::routing::put(update_agent_trust),
+        )
         // Schema Lineage (OWASP ASI05)
         .route("/api/schema-lineage", get(list_schema_lineage))
         .route("/api/schema-lineage/{tool}", get(get_schema_lineage))
-        .route("/api/schema-lineage/{tool}/trust", axum::routing::put(reset_schema_trust))
+        .route(
+            "/api/schema-lineage/{tool}/trust",
+            axum::routing::put(reset_schema_trust),
+        )
         .route("/api/schema-lineage/{tool}", delete(remove_schema_lineage))
         // Task State (MCP 2025-11-25 Async Tasks)
         .route("/api/tasks", get(list_tasks))
@@ -99,7 +105,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/tasks/{id}/cancel", post(cancel_task))
         // Auth Level (Step-Up Authentication)
         .route("/api/auth-levels/{session}", get(get_auth_level))
-        .route("/api/auth-levels/{session}/upgrade", post(upgrade_auth_level))
+        .route(
+            "/api/auth-levels/{session}/upgrade",
+            post(upgrade_auth_level),
+        )
         .route("/api/auth-levels/{session}", delete(clear_auth_level))
         // Sampling Detection
         .route("/api/sampling/stats", get(sampling_stats))
@@ -107,7 +116,10 @@ pub fn build_router(state: AppState) -> Router {
         // Deputy Validation (OWASP ASI02)
         .route("/api/deputy/delegations", get(list_delegations))
         .route("/api/deputy/delegations", post(register_delegation))
-        .route("/api/deputy/delegations/{session}", delete(remove_delegation))
+        .route(
+            "/api/deputy/delegations/{session}",
+            delete(remove_delegation),
+        )
         // ═══════════════════════════════════════════════════════════════════
         // Phase 6: Execution Graph Export
         // ═══════════════════════════════════════════════════════════════════
@@ -121,11 +133,17 @@ pub fn build_router(state: AppState) -> Router {
         // Tool Signatures
         .route("/api/etdi/signatures", get(list_tool_signatures))
         .route("/api/etdi/signatures/{tool}", get(get_tool_signature))
-        .route("/api/etdi/signatures/{tool}/verify", post(verify_tool_signature))
+        .route(
+            "/api/etdi/signatures/{tool}/verify",
+            post(verify_tool_signature),
+        )
         // Attestation Chain
         .route("/api/etdi/attestations", get(list_attestations))
         .route("/api/etdi/attestations/{tool}", get(get_tool_attestations))
-        .route("/api/etdi/attestations/{tool}/verify", get(verify_attestation_chain))
+        .route(
+            "/api/etdi/attestations/{tool}/verify",
+            get(verify_attestation_chain),
+        )
         // Version Pins
         .route("/api/etdi/pins", get(list_version_pins))
         .route("/api/etdi/pins/{tool}", get(get_version_pin))
@@ -136,13 +154,25 @@ pub fn build_router(state: AppState) -> Router {
         // ═══════════════════════════════════════════════════════════════════
         .route("/api/memory/entries", get(list_memory_entries))
         .route("/api/memory/entries/{id}", get(get_memory_entry))
-        .route("/api/memory/entries/{id}/quarantine", post(quarantine_memory_entry))
-        .route("/api/memory/entries/{id}/release", post(release_memory_entry))
-        .route("/api/memory/integrity/{session}", get(verify_memory_integrity))
+        .route(
+            "/api/memory/entries/{id}/quarantine",
+            post(quarantine_memory_entry),
+        )
+        .route(
+            "/api/memory/entries/{id}/release",
+            post(release_memory_entry),
+        )
+        .route(
+            "/api/memory/integrity/{session}",
+            get(verify_memory_integrity),
+        )
         .route("/api/memory/provenance/{id}", get(get_memory_provenance))
         .route("/api/memory/namespaces", get(list_memory_namespaces))
         .route("/api/memory/namespaces", post(create_memory_namespace))
-        .route("/api/memory/namespaces/{id}/share", post(share_memory_namespace))
+        .route(
+            "/api/memory/namespaces/{id}/share",
+            post(share_memory_namespace),
+        )
         .route("/api/memory/stats", get(memory_security_stats))
         // ═══════════════════════════════════════════════════════════════════
         // Phase 10: Non-Human Identity (NHI) Lifecycle
@@ -161,8 +191,14 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/nhi/delegations", get(list_nhi_delegations))
         .route("/api/nhi/delegations", post(create_nhi_delegation))
         .route("/api/nhi/delegations/{from}/{to}", get(get_nhi_delegation))
-        .route("/api/nhi/delegations/{from}/{to}", delete(revoke_nhi_delegation))
-        .route("/api/nhi/delegations/{id}/chain", get(get_nhi_delegation_chain))
+        .route(
+            "/api/nhi/delegations/{from}/{to}",
+            delete(revoke_nhi_delegation),
+        )
+        .route(
+            "/api/nhi/delegations/{id}/chain",
+            get(get_nhi_delegation_chain),
+        )
         // Credentials
         .route("/api/nhi/agents/{id}/rotate", post(rotate_nhi_credentials))
         .route("/api/nhi/expiring", get(get_expiring_nhi_identities))
@@ -2419,7 +2455,9 @@ async fn create_tenant(
     if let Err(e) = crate::tenant::validate_tenant_id(&req.id) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse { error: e.to_string() }),
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
         ));
     }
 
@@ -2444,10 +2482,9 @@ async fn create_tenant(
     };
 
     store.create_tenant(tenant.clone()).map_err(|e| match e {
-        crate::tenant::TenantError::InvalidTenantId(msg) => (
-            StatusCode::CONFLICT,
-            Json(ErrorResponse { error: msg }),
-        ),
+        crate::tenant::TenantError::InvalidTenantId(msg) => {
+            (StatusCode::CONFLICT, Json(ErrorResponse { error: msg }))
+        }
         _ => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -3460,7 +3497,9 @@ async fn get_graph_stats(
 
     let stats = graph.statistics();
 
-    Ok(Json(serde_json::to_value(&stats).unwrap_or_else(|_| json!({}))))
+    Ok(Json(
+        serde_json::to_value(&stats).unwrap_or_else(|_| json!({})),
+    ))
 }
 
 /// Middleware that enforces per-category rate limits.
@@ -3895,11 +3934,17 @@ async fn create_version_pin(
     };
 
     let result = if let Some(version) = req.version {
-        pin_manager.pin_version(&tool, &version, &req.definition_hash, "api").await
+        pin_manager
+            .pin_version(&tool, &version, &req.definition_hash, "api")
+            .await
     } else if let Some(constraint) = req.constraint {
-        pin_manager.pin_constraint(&tool, &constraint, &req.definition_hash, "api").await
+        pin_manager
+            .pin_constraint(&tool, &constraint, &req.definition_hash, "api")
+            .await
     } else {
-        pin_manager.pin_hash(&tool, &req.definition_hash, "api").await
+        pin_manager
+            .pin_hash(&tool, &req.definition_hash, "api")
+            .await
     };
 
     match result {
@@ -3972,7 +4017,12 @@ async fn list_memory_entries(
     let quarantined_only = params.quarantined_only.unwrap_or(false);
 
     let entries = manager
-        .list_entries(params.session_id.as_deref(), quarantined_only, limit, offset)
+        .list_entries(
+            params.session_id.as_deref(),
+            quarantined_only,
+            limit,
+            offset,
+        )
         .await;
 
     Ok(Json(json!({
@@ -4169,10 +4219,9 @@ async fn create_memory_namespace(
             StatusCode::CONFLICT,
             Json(json!({"error": format!("Namespace '{}' already exists", id)})),
         )),
-        Err(sentinel_mcp::memory_security::MemorySecurityError::CapacityExceeded(msg)) => Err((
-            StatusCode::TOO_MANY_REQUESTS,
-            Json(json!({"error": msg})),
-        )),
+        Err(sentinel_mcp::memory_security::MemorySecurityError::CapacityExceeded(msg)) => {
+            Err((StatusCode::TOO_MANY_REQUESTS, Json(json!({"error": msg}))))
+        }
         Err(sentinel_mcp::memory_security::MemorySecurityError::NamespacesDisabled) => Err((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({"error": "Namespaces are disabled"})),
@@ -4310,7 +4359,11 @@ async fn register_nhi_agent(
     let ttl_secs = body["ttl_secs"].as_u64();
     let tags: Vec<String> = body["tags"]
         .as_array()
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
     let metadata: std::collections::HashMap<String, String> = body["metadata"]
         .as_object()
@@ -4322,11 +4375,23 @@ async fn register_nhi_agent(
         .unwrap_or_default();
 
     match manager
-        .register_identity(name, attestation_type, spiffe_id, public_key, key_algorithm, ttl_secs, tags, metadata)
+        .register_identity(
+            name,
+            attestation_type,
+            spiffe_id,
+            public_key,
+            key_algorithm,
+            ttl_secs,
+            tags,
+            metadata,
+        )
         .await
     {
         Ok(id) => Ok(Json(json!({"id": id, "status": "registered"}))),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()})))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": e.to_string()})),
+        )),
     }
 }
 
@@ -4344,7 +4409,10 @@ async fn get_nhi_agent(
 
     match manager.get_identity(&id).await {
         Some(agent) => Ok(Json(json!({"agent": agent}))),
-        None => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Agent not found"})))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Agent not found"})),
+        )),
     }
 }
 
@@ -4360,9 +4428,15 @@ async fn revoke_nhi_agent(
         ));
     };
 
-    match manager.update_status(&id, sentinel_types::NhiIdentityStatus::Revoked).await {
+    match manager
+        .update_status(&id, sentinel_types::NhiIdentityStatus::Revoked)
+        .await
+    {
         Ok(()) => Ok(Json(json!({"status": "revoked"}))),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()})))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": e.to_string()})),
+        )),
     }
 }
 
@@ -4380,7 +4454,10 @@ async fn activate_nhi_agent(
 
     match manager.activate_identity(&id).await {
         Ok(()) => Ok(Json(json!({"status": "active"}))),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()})))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": e.to_string()})),
+        )),
     }
 }
 
@@ -4396,9 +4473,15 @@ async fn suspend_nhi_agent(
         ));
     };
 
-    match manager.update_status(&id, sentinel_types::NhiIdentityStatus::Suspended).await {
+    match manager
+        .update_status(&id, sentinel_types::NhiIdentityStatus::Suspended)
+        .await
+    {
         Ok(()) => Ok(Json(json!({"status": "suspended"}))),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()})))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": e.to_string()})),
+        )),
     }
 }
 
@@ -4416,7 +4499,10 @@ async fn get_nhi_baseline(
 
     match manager.get_baseline(&id).await {
         Some(baseline) => Ok(Json(json!({"baseline": baseline}))),
-        None => Err((StatusCode::NOT_FOUND, Json(json!({"error": "No baseline for agent"})))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "No baseline for agent"})),
+        )),
     }
 }
 
@@ -4437,7 +4523,9 @@ async fn check_nhi_behavior(
     let request_interval = body["request_interval_secs"].as_f64();
     let source_ip = body["source_ip"].as_str();
 
-    let result = manager.check_behavior(&id, tool_call, request_interval, source_ip).await;
+    let result = manager
+        .check_behavior(&id, tool_call, request_interval, source_ip)
+        .await;
     Ok(Json(json!({"result": result})))
 }
 
@@ -4477,28 +4565,52 @@ async fn create_nhi_delegation(
     };
 
     let from_agent = body["from_agent"].as_str().ok_or_else(|| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "from_agent required"})))
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "from_agent required"})),
+        )
     })?;
     let to_agent = body["to_agent"].as_str().ok_or_else(|| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "to_agent required"})))
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "to_agent required"})),
+        )
     })?;
     let permissions: Vec<String> = body["permissions"]
         .as_array()
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
     let scope_constraints: Vec<String> = body["scope_constraints"]
         .as_array()
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
     let ttl_secs = body["ttl_secs"].as_u64().unwrap_or(3600);
     let reason = body["reason"].as_str().map(|s| s.to_string());
 
     match manager
-        .create_delegation(from_agent, to_agent, permissions, scope_constraints, ttl_secs, reason)
+        .create_delegation(
+            from_agent,
+            to_agent,
+            permissions,
+            scope_constraints,
+            ttl_secs,
+            reason,
+        )
         .await
     {
         Ok(delegation) => Ok(Json(json!({"delegation": delegation}))),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()})))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": e.to_string()})),
+        )),
     }
 }
 
@@ -4516,7 +4628,10 @@ async fn get_nhi_delegation(
 
     match manager.get_delegation(&from, &to).await {
         Some(delegation) => Ok(Json(json!({"delegation": delegation}))),
-        None => Err((StatusCode::NOT_FOUND, Json(json!({"error": "Delegation not found"})))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Delegation not found"})),
+        )),
     }
 }
 
@@ -4534,7 +4649,10 @@ async fn revoke_nhi_delegation(
 
     match manager.revoke_delegation(&from, &to).await {
         Ok(()) => Ok(Json(json!({"status": "revoked"}))),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()})))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": e.to_string()})),
+        )),
     }
 }
 
@@ -4568,18 +4686,30 @@ async fn rotate_nhi_credentials(
     };
 
     let new_public_key = body["new_public_key"].as_str().ok_or_else(|| {
-        (StatusCode::BAD_REQUEST, Json(json!({"error": "new_public_key required"})))
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "new_public_key required"})),
+        )
     })?;
     let new_key_algorithm = body["new_key_algorithm"].as_str();
     let trigger = body["trigger"].as_str().unwrap_or("manual");
     let new_ttl_secs = body["new_ttl_secs"].as_u64();
 
     match manager
-        .rotate_credentials(&id, new_public_key, new_key_algorithm, trigger, new_ttl_secs)
+        .rotate_credentials(
+            &id,
+            new_public_key,
+            new_key_algorithm,
+            trigger,
+            new_ttl_secs,
+        )
         .await
     {
         Ok(rotation) => Ok(Json(json!({"rotation": rotation}))),
-        Err(e) => Err((StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()})))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": e.to_string()})),
+        )),
     }
 }
 
@@ -5249,8 +5379,9 @@ mod tests {
     fn test_endpoint_limit_takes_priority() {
         use std::num::NonZeroU32;
 
-        let limits = crate::RateLimits::new_with_burst(Some(100), None, Some(50), None, Some(25), None)
-            .with_endpoint_limit("/api/special", NonZeroU32::new(10).unwrap(), None);
+        let limits =
+            crate::RateLimits::new_with_burst(Some(100), None, Some(50), None, Some(25), None)
+                .with_endpoint_limit("/api/special", NonZeroU32::new(10).unwrap(), None);
 
         // Endpoint-specific limit should be returned
         let limiter = categorize_rate_limit(&limits, &Method::POST, "/api/special");
@@ -5265,8 +5396,9 @@ mod tests {
     fn test_endpoint_limit_prefix_matching() {
         use std::num::NonZeroU32;
 
-        let limits = crate::RateLimits::new_with_burst(Some(100), None, Some(50), None, Some(25), None)
-            .with_endpoint_limit("/api/audit", NonZeroU32::new(10).unwrap(), None);
+        let limits =
+            crate::RateLimits::new_with_burst(Some(100), None, Some(50), None, Some(25), None)
+                .with_endpoint_limit("/api/audit", NonZeroU32::new(10).unwrap(), None);
 
         // Exact match
         assert!(limits.get_endpoint_limiter("/api/audit").is_some());
@@ -5297,6 +5429,9 @@ mod tests {
         assert!(l3.is_some());
 
         // Pointers should be different (different limiters)
-        assert!(!std::ptr::eq(l1.unwrap() as *const _, l2.unwrap() as *const _));
+        assert!(!std::ptr::eq(
+            l1.unwrap() as *const _,
+            l2.unwrap() as *const _
+        ));
     }
 }

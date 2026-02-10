@@ -131,9 +131,7 @@ impl ThreatIntelClient {
             return Err(ThreatIntelError::NotConfigured);
         }
 
-        let client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()?;
+        let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
 
         let cache_size = NonZeroUsize::new(100).expect("100 is non-zero");
         let details_size = NonZeroUsize::new(10000).expect("10000 is non-zero");
@@ -232,9 +230,15 @@ impl ThreatIntelClient {
             .ok_or(ThreatIntelError::NotConfigured)?;
 
         match self.config.provider {
-            Some(ThreatIntelProvider::Taxii) => self.query_taxii(endpoint, indicator_type, value).await,
-            Some(ThreatIntelProvider::Misp) => self.query_misp(endpoint, indicator_type, value).await,
-            Some(ThreatIntelProvider::Custom) | None => self.query_custom(endpoint, indicator_type, value).await,
+            Some(ThreatIntelProvider::Taxii) => {
+                self.query_taxii(endpoint, indicator_type, value).await
+            }
+            Some(ThreatIntelProvider::Misp) => {
+                self.query_misp(endpoint, indicator_type, value).await
+            }
+            Some(ThreatIntelProvider::Custom) | None => {
+                self.query_custom(endpoint, indicator_type, value).await
+            }
         }
     }
 
@@ -332,10 +336,8 @@ impl ThreatIntelClient {
         for obj in objects {
             if obj.get("type").and_then(|v| v.as_str()) == Some("indicator") {
                 if let Some(pattern) = obj.get("pattern").and_then(|v| v.as_str()) {
-                    let confidence = obj
-                        .get("confidence")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(50) as u8;
+                    let confidence =
+                        obj.get("confidence").and_then(|v| v.as_u64()).unwrap_or(50) as u8;
 
                     indicators.push(ThreatIndicator {
                         indicator_type: IndicatorType::Unknown,
@@ -343,10 +345,19 @@ impl ThreatIntelClient {
                         confidence,
                         severity: Severity::Medium,
                         source: "TAXII".to_string(),
-                        description: obj.get("description").and_then(|v| v.as_str()).map(String::from),
+                        description: obj
+                            .get("description")
+                            .and_then(|v| v.as_str())
+                            .map(String::from),
                         tags: Vec::new(),
-                        first_seen: obj.get("valid_from").and_then(|v| v.as_str()).map(String::from),
-                        last_seen: obj.get("valid_until").and_then(|v| v.as_str()).map(String::from),
+                        first_seen: obj
+                            .get("valid_from")
+                            .and_then(|v| v.as_str())
+                            .map(String::from),
+                        last_seen: obj
+                            .get("valid_until")
+                            .and_then(|v| v.as_str())
+                            .map(String::from),
                     });
                 }
             }
@@ -382,9 +393,15 @@ impl ThreatIntelClient {
                 confidence: 70,
                 severity: Severity::Medium,
                 source: "MISP".to_string(),
-                description: attr.get("comment").and_then(|v| v.as_str()).map(String::from),
+                description: attr
+                    .get("comment")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
                 tags: Vec::new(),
-                first_seen: attr.get("timestamp").and_then(|v| v.as_str()).map(String::from),
+                first_seen: attr
+                    .get("timestamp")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
                 last_seen: None,
             });
         }

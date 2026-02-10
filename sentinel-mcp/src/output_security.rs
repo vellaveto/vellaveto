@@ -484,7 +484,7 @@ impl OutputSecurityAnalyzer {
         }
 
         // Count character frequencies
-        let mut freq: HashMap<char, u32> = HashMap::new();
+        let mut freq: HashMap<char, u32> = HashMap::with_capacity(data.len().min(256));
         let mut total = 0u32;
 
         for c in data.chars() {

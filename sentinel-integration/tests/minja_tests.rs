@@ -168,12 +168,7 @@ fn test_trust_decay_calculation() {
 
         let content = "Some content that will decay in trust over time period";
         manager
-            .record_response(
-                content,
-                "test_tool",
-                Some("session-1"),
-                Some("agent-1"),
-            )
+            .record_response(content, "test_tool", Some("session-1"), Some("agent-1"))
             .await
             .expect("Should record response");
 
@@ -211,7 +206,11 @@ fn test_quarantine_blocks_access() {
 
         // Quarantine the entry
         manager
-            .quarantine_entry(&entry_id, QuarantineDetection::InjectionPattern, Some("admin"))
+            .quarantine_entry(
+                &entry_id,
+                QuarantineDetection::InjectionPattern,
+                Some("admin"),
+            )
             .await
             .expect("Should quarantine entry");
 
@@ -233,12 +232,7 @@ fn test_quarantine_release() {
 
         let content = "Falsely quarantined content that should be released";
         let entry_id = manager
-            .record_response(
-                content,
-                "test_tool",
-                Some("session-1"),
-                Some("agent-1"),
-            )
+            .record_response(content, "test_tool", Some("session-1"), Some("agent-1"))
             .await
             .expect("Should record response");
 
@@ -355,12 +349,7 @@ fn test_provenance_chain_tracking() {
 
         let content = "Content with provenance tracking for lineage verification";
         let entry_id = manager
-            .record_response(
-                content,
-                "source_tool",
-                Some("session-1"),
-                Some("agent-1"),
-            )
+            .record_response(content, "source_tool", Some("session-1"), Some("agent-1"))
             .await
             .expect("Should record response");
 
@@ -464,12 +453,7 @@ fn test_disabled_manager_is_noop() {
 
         let content = "This should not be tracked even though it is long enough";
         let result = manager
-            .record_response(
-                content,
-                "test_tool",
-                Some("session-1"),
-                Some("agent-1"),
-            )
+            .record_response(content, "test_tool", Some("session-1"), Some("agent-1"))
             .await;
 
         assert!(result.is_none());
@@ -534,7 +518,12 @@ fn test_integrity_verification() {
         for i in 0..3 {
             let content = format!("Content for integrity verification test number {}", i);
             manager
-                .record_response(&content, "test_tool", Some("integrity-session"), Some("agent-1"))
+                .record_response(
+                    &content,
+                    "test_tool",
+                    Some("integrity-session"),
+                    Some("agent-1"),
+                )
                 .await;
         }
 

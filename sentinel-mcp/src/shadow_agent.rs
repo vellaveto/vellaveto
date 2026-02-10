@@ -158,14 +158,20 @@ impl ShadowAgentDetector {
         let now = Self::now();
 
         let mut agents = self.known_agents.write().unwrap_or_else(|p| p.into_inner());
-        let mut index = self.fingerprint_index.write().unwrap_or_else(|p| p.into_inner());
+        let mut index = self
+            .fingerprint_index
+            .write()
+            .unwrap_or_else(|p| p.into_inner());
 
         // Evict if at capacity
         if agents.len() >= self.max_agents {
             self.evict_oldest_internal(&mut agents, &mut index);
         }
 
-        agents.insert(claimed_id.to_string(), AgentRecord::new(fingerprint.clone(), now));
+        agents.insert(
+            claimed_id.to_string(),
+            AgentRecord::new(fingerprint.clone(), now),
+        );
         index.insert(fingerprint, claimed_id.to_string());
 
         tracing::debug!(
@@ -180,8 +186,10 @@ impl ShadowAgentDetector {
         agents: &mut HashMap<String, AgentRecord>,
         index: &mut HashMap<AgentFingerprint, String>,
     ) {
-        if let Some((oldest_id, oldest_record)) =
-            agents.iter().min_by_key(|(_, r)| r.last_seen).map(|(k, v)| (k.clone(), v.clone()))
+        if let Some((oldest_id, oldest_record)) = agents
+            .iter()
+            .min_by_key(|(_, r)| r.last_seen)
+            .map(|(k, v)| (k.clone(), v.clone()))
         {
             agents.remove(&oldest_id);
             index.remove(&oldest_record.fingerprint);
@@ -197,7 +205,10 @@ impl ShadowAgentDetector {
     ///
     /// Returns the agent record if the fingerprint matches a known agent.
     pub fn identify_agent(&self, fingerprint: &AgentFingerprint) -> Option<AgentRecord> {
-        let index = self.fingerprint_index.read().unwrap_or_else(|p| p.into_inner());
+        let index = self
+            .fingerprint_index
+            .read()
+            .unwrap_or_else(|p| p.into_inner());
         let agents = self.known_agents.read().unwrap_or_else(|p| p.into_inner());
 
         index
@@ -275,7 +286,10 @@ impl ShadowAgentDetector {
 
     /// Upgrade the trust level for an agent.
     pub fn upgrade_trust(&self, fingerprint: &AgentFingerprint, level: TrustLevel) {
-        let index = self.fingerprint_index.read().unwrap_or_else(|p| p.into_inner());
+        let index = self
+            .fingerprint_index
+            .read()
+            .unwrap_or_else(|p| p.into_inner());
         let mut agents = self.known_agents.write().unwrap_or_else(|p| p.into_inner());
 
         if let Some(id) = index.get(fingerprint) {
@@ -292,7 +306,10 @@ impl ShadowAgentDetector {
 
     /// Get the trust level for a fingerprint.
     pub fn get_trust_level(&self, fingerprint: &AgentFingerprint) -> TrustLevel {
-        let index = self.fingerprint_index.read().unwrap_or_else(|p| p.into_inner());
+        let index = self
+            .fingerprint_index
+            .read()
+            .unwrap_or_else(|p| p.into_inner());
         let agents = self.known_agents.read().unwrap_or_else(|p| p.into_inner());
 
         index

@@ -106,10 +106,7 @@ impl GroundingResult {
 
     /// Get claims with potential hallucination (score < 0.5).
     pub fn hallucinated_claims(&self) -> Vec<&ClaimScore> {
-        self.claim_scores
-            .iter()
-            .filter(|c| c.score < 0.5)
-            .collect()
+        self.claim_scores.iter().filter(|c| c.score < 0.5).collect()
     }
 }
 
@@ -452,9 +449,7 @@ mod tests {
     #[test]
     fn test_grounding_disabled() {
         let checker = GroundingChecker::disabled();
-        let result = checker
-            .check_grounding(&["Context"], "Response")
-            .unwrap();
+        let result = checker.check_grounding(&["Context"], "Response").unwrap();
         assert!(result.is_grounded());
         assert_eq!(result.score, 1.0);
     }
@@ -542,9 +537,6 @@ mod tests {
 
     #[test]
     fn test_enforcement_modes() {
-        assert_eq!(
-            GroundingEnforcement::default(),
-            GroundingEnforcement::Warn
-        );
+        assert_eq!(GroundingEnforcement::default(), GroundingEnforcement::Warn);
     }
 }

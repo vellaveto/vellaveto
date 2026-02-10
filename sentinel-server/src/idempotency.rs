@@ -355,7 +355,10 @@ mod tests {
         let store = IdempotencyStore::new(test_config());
         let mut headers = HeaderMap::new();
         let long_key = "a".repeat(100);
-        headers.insert(IDEMPOTENCY_KEY_HEADER, HeaderValue::from_str(&long_key).unwrap());
+        headers.insert(
+            IDEMPOTENCY_KEY_HEADER,
+            HeaderValue::from_str(&long_key).unwrap(),
+        );
 
         let result = store.extract_key(&headers);
         assert!(matches!(result, Err(IdempotencyError::InvalidKey(_))));

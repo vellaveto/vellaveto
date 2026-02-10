@@ -18,12 +18,12 @@
 //! - Tamper-evident: Attestation chains detect unauthorized modifications
 //! - Observable: All verification results are logged for audit
 
-pub mod signature;
 pub mod attestation;
-pub mod version_pin;
+pub mod signature;
 pub mod store;
+pub mod version_pin;
 
-pub use signature::{EtdiError, ToolSignatureVerifier, ToolSigner};
 pub use attestation::AttestationChain;
-pub use version_pin::VersionPinManager;
+pub use signature::{EtdiError, ToolSignatureVerifier, ToolSigner};
 pub use store::EtdiStore;
+pub use version_pin::VersionPinManager;

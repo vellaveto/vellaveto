@@ -898,7 +898,10 @@ impl RedactionConfig {
     fn redact_recursive(&self, value: &serde_json::Value, depth: usize) -> serde_json::Value {
         // Prevent stack overflow with deep recursion (limit: 50)
         if depth > 50 {
-            trace!(depth = depth, "redaction depth limit exceeded, returning unredacted");
+            trace!(
+                depth = depth,
+                "redaction depth limit exceeded, returning unredacted"
+            );
             return value.clone();
         }
 

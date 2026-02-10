@@ -115,7 +115,13 @@ fn bench_rug_pull_detection(c: &mut Criterion) {
 
     group.bench_function("detect_first_list", |b| {
         let empty_known: HashMap<String, ToolAnnotations> = HashMap::new();
-        b.iter(|| detect_rug_pull(black_box(&response), black_box(&empty_known), black_box(true)))
+        b.iter(|| {
+            detect_rug_pull(
+                black_box(&response),
+                black_box(&empty_known),
+                black_box(true),
+            )
+        })
     });
 
     // Response with a tool that changed annotations (rug-pull)
@@ -164,7 +170,13 @@ fn bench_rug_pull_detection(c: &mut Criterion) {
 
     group.bench_function("detect_20_tools", |b| {
         let empty_known: HashMap<String, ToolAnnotations> = HashMap::new();
-        b.iter(|| detect_rug_pull(black_box(&large_response), black_box(&empty_known), black_box(true)))
+        b.iter(|| {
+            detect_rug_pull(
+                black_box(&large_response),
+                black_box(&empty_known),
+                black_box(true),
+            )
+        })
     });
 
     group.finish();
@@ -194,7 +206,12 @@ fn bench_squatting_detection(c: &mut Criterion) {
     });
 
     group.bench_function("no_squatting_unrelated", |b| {
-        b.iter(|| detect_squatting(black_box("completely_different_tool"), black_box(&known_tools)))
+        b.iter(|| {
+            detect_squatting(
+                black_box("completely_different_tool"),
+                black_box(&known_tools),
+            )
+        })
     });
 
     group.bench_function("squatting_typosquat", |b| {

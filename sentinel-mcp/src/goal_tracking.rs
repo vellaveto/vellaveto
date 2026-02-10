@@ -335,10 +335,22 @@ impl GoalTracker {
 
         // Common tool-related keywords
         let tool_patterns = [
-            ("file", vec!["file", "read", "write", "save", "open", "create"]),
-            ("bash", vec!["run", "execute", "command", "shell", "terminal"]),
-            ("http", vec!["fetch", "request", "api", "url", "download", "web"]),
-            ("database", vec!["query", "sql", "database", "table", "record"]),
+            (
+                "file",
+                vec!["file", "read", "write", "save", "open", "create"],
+            ),
+            (
+                "bash",
+                vec!["run", "execute", "command", "shell", "terminal"],
+            ),
+            (
+                "http",
+                vec!["fetch", "request", "api", "url", "download", "web"],
+            ),
+            (
+                "database",
+                vec!["query", "sql", "database", "table", "record"],
+            ),
             ("search", vec!["search", "find", "lookup", "query"]),
         ];
 
@@ -417,7 +429,8 @@ impl GoalTracker {
     /// Clean up expired sessions.
     fn cleanup_expired_sessions(&self, sessions: &mut HashMap<String, SessionGoalState>) {
         let now = Instant::now();
-        sessions.retain(|_, state| now.duration_since(state.last_activity) < self.config.session_ttl);
+        sessions
+            .retain(|_, state| now.duration_since(state.last_activity) < self.config.session_ttl);
     }
 }
 
@@ -485,11 +498,7 @@ mod tests {
 
         tracker.set_initial_goal("session1", "Read the file /tmp/data.txt and summarize it");
 
-        let action = create_action(
-            "file",
-            "read",
-            json!({ "path": "/tmp/data.txt" }),
-        );
+        let action = create_action("file", "read", json!({ "path": "/tmp/data.txt" }));
 
         let result = tracker.check_goal_alignment("session1", &action);
         assert!(matches!(result, GoalAlignmentResult::Aligned));
@@ -525,10 +534,16 @@ mod tests {
     fn test_no_drift_for_similar_goal() {
         let tracker = GoalTracker::new();
 
-        tracker.set_initial_goal("session1", "Read the configuration file and show the settings to the user");
+        tracker.set_initial_goal(
+            "session1",
+            "Read the configuration file and show the settings to the user",
+        );
 
         // Very similar goal with same key words
-        let drift = tracker.detect_drift("session1", "Read the configuration file and show the settings");
+        let drift = tracker.detect_drift(
+            "session1",
+            "Read the configuration file and show the settings",
+        );
 
         // Should not detect drift for similar goals
         assert!(drift.is_none());

@@ -219,14 +219,14 @@ impl WorkflowTracker {
         let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
 
         // Ensure session exists
-        let session = sessions.entry(session_id.to_string()).or_insert_with(|| {
-            SessionWorkflows {
+        let session = sessions
+            .entry(session_id.to_string())
+            .or_insert_with(|| SessionWorkflows {
                 workflows: HashMap::new(),
                 recent_tools: VecDeque::with_capacity(20),
                 last_activity: Instant::now(),
                 total_steps: 0,
-            }
-        });
+            });
 
         // Check workflow limit
         if session.workflows.len() >= self.config.max_workflows_per_session {
@@ -248,12 +248,7 @@ impl WorkflowTracker {
     }
 
     /// Record a workflow step.
-    pub fn record_step(
-        &self,
-        session_id: &str,
-        workflow_id: &str,
-        action: &Action,
-    ) -> StepResult {
+    pub fn record_step(&self, session_id: &str, workflow_id: &str, action: &Action) -> StepResult {
         let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
 
         // SECURITY (FIND-027): Use entry API to avoid unwrap() after insert.
@@ -273,7 +268,9 @@ impl WorkflowTracker {
                 active: true,
                 custom_budget: None,
             };
-            new_session.workflows.insert(workflow_id.to_string(), workflow);
+            new_session
+                .workflows
+                .insert(workflow_id.to_string(), workflow);
             new_session
         });
 
@@ -329,10 +326,7 @@ impl WorkflowTracker {
         let step_count = workflow.actions.len();
 
         if step_count > budget {
-            StepResult::BudgetExceeded {
-                step_count,
-                budget,
-            }
+            StepResult::BudgetExceeded { step_count, budget }
         } else {
             StepResult::Recorded {
                 step_count,
@@ -577,7 +571,11 @@ fn default_suspicious_patterns() -> Vec<SuspiciousPattern> {
         },
         SuspiciousPattern {
             name: "Credential-access-chain".to_string(),
-            tool_sequence: vec!["file".to_string(), "file".to_string(), "network".to_string()],
+            tool_sequence: vec![
+                "file".to_string(),
+                "file".to_string(),
+                "network".to_string(),
+            ],
             alert_type: WorkflowAlertType::ExfiltrationChain,
             severity: 4,
         },
@@ -638,9 +636,7 @@ mod tests {
         // Record steps up to budget
         for i in 1..=3 {
             let result = tracker.record_step("session1", "workflow1", &action);
-            assert!(
-                matches!(result, StepResult::Recorded { step_count, .. } if step_count == i)
-            );
+            assert!(matches!(result, StepResult::Recorded { step_count, .. } if step_count == i));
         }
 
         // Next step should exceed budget
@@ -755,10 +751,7 @@ mod tests {
         let result = tracker.record_step("session1", "workflow1", &action);
         assert!(matches!(
             result,
-            StepResult::BudgetExceeded {
-                budget: 2,
-                ..
-            }
+            StepResult::BudgetExceeded { budget: 2, .. }
         ));
     }
 

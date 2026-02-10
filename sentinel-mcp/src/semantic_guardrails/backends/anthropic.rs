@@ -72,7 +72,9 @@ impl AnthropicBackend {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_millis(config.timeout_ms))
             .build()
-            .map_err(|e| LlmEvalError::RequestFailed(format!("failed to create HTTP client: {}", e)))?;
+            .map_err(|e| {
+                LlmEvalError::RequestFailed(format!("failed to create HTTP client: {}", e))
+            })?;
 
         Ok(Self {
             config,
@@ -131,8 +133,9 @@ impl AnthropicBackend {
             response
         };
 
-        let parsed: serde_json::Value = serde_json::from_str(json_str)
-            .map_err(|e| LlmEvalError::InvalidResponse(format!("failed to parse response: {}", e)))?;
+        let parsed: serde_json::Value = serde_json::from_str(json_str).map_err(|e| {
+            LlmEvalError::InvalidResponse(format!("failed to parse response: {}", e))
+        })?;
 
         let allow = parsed["allow"].as_bool().unwrap_or(false);
         let confidence = parsed["confidence"].as_f64().unwrap_or(0.5);
@@ -206,7 +209,9 @@ impl LlmEvaluator for AnthropicBackend {
 
         let content = response_body["content"][0]["text"]
             .as_str()
-            .ok_or_else(|| LlmEvalError::InvalidResponse("missing content in response".to_string()))?;
+            .ok_or_else(|| {
+                LlmEvalError::InvalidResponse("missing content in response".to_string())
+            })?;
 
         self.healthy
             .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -270,7 +275,9 @@ impl LlmEvaluator for AnthropicBackend {
 
         let content_str = response_body["content"][0]["text"]
             .as_str()
-            .ok_or_else(|| LlmEvalError::InvalidResponse("missing content in response".to_string()))?;
+            .ok_or_else(|| {
+                LlmEvalError::InvalidResponse("missing content in response".to_string())
+            })?;
 
         // Parse the JSON response
         let json_str = if let Some(start) = content_str.find('{') {
@@ -283,8 +290,9 @@ impl LlmEvaluator for AnthropicBackend {
             content_str
         };
 
-        let parsed: serde_json::Value = serde_json::from_str(json_str)
-            .map_err(|e| LlmEvalError::InvalidResponse(format!("failed to parse response: {}", e)))?;
+        let parsed: serde_json::Value = serde_json::from_str(json_str).map_err(|e| {
+            LlmEvalError::InvalidResponse(format!("failed to parse response: {}", e))
+        })?;
 
         let is_jailbreak = parsed["is_jailbreak"].as_bool().unwrap_or(false);
         let confidence = parsed["confidence"].as_f64().unwrap_or(0.5);

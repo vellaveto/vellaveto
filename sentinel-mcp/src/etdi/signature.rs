@@ -164,15 +164,15 @@ impl ToolSignatureVerifier {
             )));
         }
 
-        let key_array: [u8; 32] = key_bytes.try_into().map_err(|_| {
-            EtdiError::InvalidPublicKey("Failed to convert to array".to_string())
-        })?;
+        let key_array: [u8; 32] = key_bytes
+            .try_into()
+            .map_err(|_| EtdiError::InvalidPublicKey("Failed to convert to array".to_string()))?;
         let verifying_key = VerifyingKey::from_bytes(&key_array)
             .map_err(|e| EtdiError::InvalidPublicKey(e.to_string()))?;
 
-        let sig_array: [u8; 64] = sig_bytes.try_into().map_err(|_| {
-            EtdiError::InvalidSignature("Failed to convert to array".to_string())
-        })?;
+        let sig_array: [u8; 64] = sig_bytes
+            .try_into()
+            .map_err(|_| EtdiError::InvalidSignature("Failed to convert to array".to_string()))?;
         let signature = Signature::from_bytes(&sig_array);
 
         verifying_key
@@ -256,7 +256,10 @@ impl ToolSigner {
     }
 
     /// Create a signer from a hex-encoded private key.
-    pub fn from_private_key_hex(key_hex: &str, signer_identity: Option<String>) -> Result<Self, EtdiError> {
+    pub fn from_private_key_hex(
+        key_hex: &str,
+        signer_identity: Option<String>,
+    ) -> Result<Self, EtdiError> {
         let key_bytes = hex::decode(key_hex)?;
         if key_bytes.len() != 32 {
             return Err(EtdiError::InvalidPublicKey(format!(
@@ -264,9 +267,9 @@ impl ToolSigner {
                 key_bytes.len()
             )));
         }
-        let key_array: [u8; 32] = key_bytes.try_into().map_err(|_| {
-            EtdiError::InvalidPublicKey("Failed to convert to array".to_string())
-        })?;
+        let key_array: [u8; 32] = key_bytes
+            .try_into()
+            .map_err(|_| EtdiError::InvalidPublicKey("Failed to convert to array".to_string()))?;
         let signing_key = SigningKey::from_bytes(&key_array);
         Ok(Self::new(signing_key, signer_identity))
     }
@@ -297,9 +300,8 @@ impl ToolSigner {
         let signature = self.signing_key.sign(tool_hash.as_bytes());
 
         let now = Utc::now();
-        let expires_at = expires_in_days.map(|days| {
-            (now + chrono::Duration::days(i64::from(days))).to_rfc3339()
-        });
+        let expires_at = expires_in_days
+            .map(|days| (now + chrono::Duration::days(i64::from(days))).to_rfc3339());
 
         ToolSignature {
             signature_id: format!("sig-{}", uuid::Uuid::new_v4()),

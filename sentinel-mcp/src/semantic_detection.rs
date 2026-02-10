@@ -220,7 +220,8 @@ const SYNONYM_GROUPS: &[&[&str]] = &[
 
 /// Build a synonym lookup table: word → canonical form.
 fn build_synonym_map() -> HashMap<&'static str, &'static str> {
-    let mut map = HashMap::new();
+    let total_words: usize = SYNONYM_GROUPS.iter().map(|group| group.len()).sum();
+    let mut map = HashMap::with_capacity(total_words);
     for group in SYNONYM_GROUPS {
         if let Some(&canonical) = group.first() {
             for &word in group.iter() {
@@ -281,8 +282,11 @@ const MAX_NGRAM: usize = 4;
 
 /// Extract character n-grams from text and return counts.
 fn extract_ngrams(text: &str) -> HashMap<String, u32> {
-    let mut counts: HashMap<String, u32> = HashMap::new();
     let chars: Vec<char> = text.chars().collect();
+    let ngram_widths = MAX_NGRAM - MIN_NGRAM + 1;
+    // Cap preallocation to avoid over-reserving on very long inputs.
+    let estimated = chars.len().saturating_mul(ngram_widths).min(4096);
+    let mut counts: HashMap<String, u32> = HashMap::with_capacity(estimated);
     for n in MIN_NGRAM..=MAX_NGRAM {
         if chars.len() < n {
             continue;
@@ -414,7 +418,8 @@ impl SemanticScanner {
         }
 
         // Normalize and extract n-grams for each template
-        let mut template_ngrams: Vec<(String, HashMap<String, u32>)> = Vec::new();
+        let mut template_ngrams: Vec<(String, HashMap<String, u32>)> =
+            Vec::with_capacity(raw_templates.len());
         for template in &raw_templates {
             let normalized = normalize_text(template, &synonym_map);
             if normalized.len() < MIN_NGRAM {
@@ -432,7 +437,8 @@ impl SemanticScanner {
 
         // Compute IDF: log(N / df) where df = number of templates containing the n-gram
         let n_docs = template_ngrams.len() as f64;
-        let mut doc_freq: HashMap<String, u32> = HashMap::new();
+        let mut doc_freq: HashMap<String, u32> =
+            HashMap::with_capacity(template_ngrams.len().saturating_mul(32));
         for (_, ngrams) in &template_ngrams {
             // Each n-gram counts once per document
             let unique: HashSet<&String> = ngrams.keys().collect();

@@ -7,9 +7,7 @@
 //!
 //! Requires `observability-exporters` feature.
 
-use super::{
-    ObservabilityError, ObservabilityExporter, ObservabilityExporterConfig, SecuritySpan,
-};
+use super::{ObservabilityError, ObservabilityExporter, ObservabilityExporterConfig, SecuritySpan};
 use async_trait::async_trait;
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -47,7 +45,10 @@ impl WebhookExporterConfig {
     }
 
     /// Load auth header from environment variable.
-    pub fn from_env(endpoint: impl Into<String>, auth_env: &str) -> Result<Self, ObservabilityError> {
+    pub fn from_env(
+        endpoint: impl Into<String>,
+        auth_env: &str,
+    ) -> Result<Self, ObservabilityError> {
         let auth_header = std::env::var(auth_env).ok();
         let mut config = Self::new(endpoint);
         config.auth_header = auth_header;
@@ -111,12 +112,12 @@ impl WebhookExporter {
         // Optionally compress
         let (body, content_encoding) = if self.config.compress {
             let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-            encoder
-                .write_all(&json)
-                .map_err(|e| ObservabilityError::Serialization(format!("Compression failed: {}", e)))?;
-            let compressed = encoder
-                .finish()
-                .map_err(|e| ObservabilityError::Serialization(format!("Compression failed: {}", e)))?;
+            encoder.write_all(&json).map_err(|e| {
+                ObservabilityError::Serialization(format!("Compression failed: {}", e))
+            })?;
+            let compressed = encoder.finish().map_err(|e| {
+                ObservabilityError::Serialization(format!("Compression failed: {}", e))
+            })?;
             (compressed, Some("gzip"))
         } else {
             (json, None)

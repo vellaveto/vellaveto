@@ -252,9 +252,7 @@ impl LlmEvaluator for MockEvaluator {
             let injected = self.injected_error.read().await;
             if let Some(ref _err) = *injected {
                 // Can't clone LlmEvalError, so recreate a similar error
-                return Err(LlmEvalError::RequestFailed(
-                    "injected error".to_string(),
-                ));
+                return Err(LlmEvalError::RequestFailed("injected error".to_string()));
             }
         }
 
@@ -293,9 +291,7 @@ impl LlmEvaluator for MockEvaluator {
         {
             let injected = self.injected_error.read().await;
             if injected.is_some() {
-                return Err(LlmEvalError::RequestFailed(
-                    "injected error".to_string(),
-                ));
+                return Err(LlmEvalError::RequestFailed("injected error".to_string()));
             }
         }
 
@@ -326,9 +322,7 @@ impl LlmEvaluator for MockEvaluator {
         {
             let injected = self.injected_error.read().await;
             if injected.is_some() {
-                return Err(LlmEvalError::RequestFailed(
-                    "injected error".to_string(),
-                ));
+                return Err(LlmEvalError::RequestFailed("injected error".to_string()));
             }
         }
 
@@ -505,10 +499,8 @@ mod tests {
     #[tokio::test]
     async fn test_mock_evaluator_with_rule() {
         let mock = MockEvaluator::new();
-        mock.add_rule_async("fs:delete", |_| {
-            LlmEvaluation::deny("deletion not allowed")
-        })
-        .await;
+        mock.add_rule_async("fs:delete", |_| LlmEvaluation::deny("deletion not allowed"))
+            .await;
 
         // Should match rule
         let input = LlmEvalInput::new("fs", "delete");
@@ -524,10 +516,8 @@ mod tests {
     #[tokio::test]
     async fn test_mock_evaluator_wildcard_rule() {
         let mock = MockEvaluator::new();
-        mock.add_rule_async("shell:*", |_| {
-            LlmEvaluation::deny("shell commands blocked")
-        })
-        .await;
+        mock.add_rule_async("shell:*", |_| LlmEvaluation::deny("shell commands blocked"))
+            .await;
 
         let input = LlmEvalInput::new("shell", "execute");
         let result = mock.evaluate(&input).await.unwrap();

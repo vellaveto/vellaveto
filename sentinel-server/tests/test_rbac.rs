@@ -82,7 +82,9 @@ fn test_state_with_rbac(rbac_config: RbacConfig) -> (AppState, TempDir) {
         rbac_config,
         tenant_config: sentinel_server::tenant::TenantConfig::default(),
         tenant_store: None,
-        idempotency: sentinel_server::idempotency::IdempotencyStore::new(sentinel_server::idempotency::IdempotencyConfig::default()),
+        idempotency: sentinel_server::idempotency::IdempotencyStore::new(
+            sentinel_server::idempotency::IdempotencyConfig::default(),
+        ),
         task_state: None,
         auth_level: None,
         circuit_breaker: None,
@@ -155,7 +157,9 @@ async fn header_role_admin_can_access_all() {
                 .uri("/api/policies")
                 .header("x-sentinel-role", "admin")
                 .header("content-type", "application/json")
-                .body(Body::from(r#"{"id":"new","name":"New","policy_type":"allow","priority":1}"#))
+                .body(Body::from(
+                    r#"{"id":"new","name":"New","policy_type":"allow","priority":1}"#,
+                ))
                 .unwrap(),
         )
         .await
@@ -184,7 +188,9 @@ async fn header_role_viewer_denied_write() {
                 .uri("/api/policies")
                 .header("x-sentinel-role", "viewer")
                 .header("content-type", "application/json")
-                .body(Body::from(r#"{"id":"new","name":"New","policy_type":"allow","priority":1}"#))
+                .body(Body::from(
+                    r#"{"id":"new","name":"New","policy_type":"allow","priority":1}"#,
+                ))
                 .unwrap(),
         )
         .await
@@ -294,7 +300,9 @@ async fn header_role_auditor_denied_evaluate() {
                 .uri("/api/evaluate")
                 .header("x-sentinel-role", "auditor")
                 .header("content-type", "application/json")
-                .body(Body::from(r#"{"tool":"test","function":"test","parameters":{}}"#))
+                .body(Body::from(
+                    r#"{"tool":"test","function":"test","parameters":{}}"#,
+                ))
                 .unwrap(),
         )
         .await
@@ -325,7 +333,9 @@ async fn default_role_applied_when_no_header() {
                 .method("POST")
                 .uri("/api/policies")
                 .header("content-type", "application/json")
-                .body(Body::from(r#"{"id":"new","name":"New","policy_type":"allow","priority":1}"#))
+                .body(Body::from(
+                    r#"{"id":"new","name":"New","policy_type":"allow","priority":1}"#,
+                ))
                 .unwrap(),
         )
         .await
@@ -392,7 +402,9 @@ async fn jwt_admin_role_can_write() {
                 .uri("/api/policies")
                 .header("authorization", format!("Bearer {}", token))
                 .header("content-type", "application/json")
-                .body(Body::from(r#"{"id":"new","name":"New","policy_type":"allow","priority":1}"#))
+                .body(Body::from(
+                    r#"{"id":"new","name":"New","policy_type":"allow","priority":1}"#,
+                ))
                 .unwrap(),
         )
         .await
@@ -428,7 +440,9 @@ async fn jwt_viewer_role_denied_write() {
                 .uri("/api/policies")
                 .header("authorization", format!("Bearer {}", token))
                 .header("content-type", "application/json")
-                .body(Body::from(r#"{"id":"new","name":"New","policy_type":"allow","priority":1}"#))
+                .body(Body::from(
+                    r#"{"id":"new","name":"New","policy_type":"allow","priority":1}"#,
+                ))
                 .unwrap(),
         )
         .await
@@ -463,7 +477,9 @@ async fn jwt_operator_can_evaluate() {
                 .uri("/api/evaluate")
                 .header("authorization", format!("Bearer {}", token))
                 .header("content-type", "application/json")
-                .body(Body::from(r#"{"tool":"test","function":"test","parameters":{}}"#))
+                .body(Body::from(
+                    r#"{"tool":"test","function":"test","parameters":{}}"#,
+                ))
                 .unwrap(),
         )
         .await
@@ -500,7 +516,9 @@ async fn jwt_invalid_token_uses_default_role() {
                 .uri("/api/policies")
                 .header("authorization", format!("Bearer {}", token))
                 .header("content-type", "application/json")
-                .body(Body::from(r#"{"id":"new","name":"New","policy_type":"allow","priority":1}"#))
+                .body(Body::from(
+                    r#"{"id":"new","name":"New","policy_type":"allow","priority":1}"#,
+                ))
                 .unwrap(),
         )
         .await
@@ -617,13 +635,13 @@ async fn permission_matrix_operator() {
     // Operator permissions: PolicyRead, PolicyReload, ApprovalRead, ApprovalResolve,
     // AuditRead, MetricsRead, DashboardAccess, Evaluate, ToolRegistryRead
     let tests = vec![
-        ("GET", "/api/policies", true),           // PolicyRead - allowed
-        ("POST", "/api/policies", false),         // PolicyWrite - denied
-        ("GET", "/api/audit/entries", true),      // AuditRead - allowed
-        ("GET", "/api/audit/export", false),      // AuditExport - denied
-        ("POST", "/api/evaluate", true),          // Evaluate - allowed
-        ("GET", "/api/approvals/pending", true),  // ApprovalRead - allowed
-        ("GET", "/metrics", true),                // MetricsRead - allowed
+        ("GET", "/api/policies", true),          // PolicyRead - allowed
+        ("POST", "/api/policies", false),        // PolicyWrite - denied
+        ("GET", "/api/audit/entries", true),     // AuditRead - allowed
+        ("GET", "/api/audit/export", false),     // AuditExport - denied
+        ("POST", "/api/evaluate", true),         // Evaluate - allowed
+        ("GET", "/api/approvals/pending", true), // ApprovalRead - allowed
+        ("GET", "/metrics", true),               // MetricsRead - allowed
     ];
 
     for (method, path, should_succeed) in tests {

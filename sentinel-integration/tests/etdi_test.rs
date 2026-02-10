@@ -8,10 +8,10 @@
 //! - Store persistence
 
 use sentinel_config::AllowedSignersConfig;
+use sentinel_mcp::etdi::version_pin::PinCheckResult;
 use sentinel_mcp::etdi::{
     AttestationChain, EtdiStore, ToolSignatureVerifier, ToolSigner, VersionPinManager,
 };
-use sentinel_mcp::etdi::version_pin::PinCheckResult;
 use sentinel_types::SignatureAlgorithm;
 use serde_json::json;
 use std::sync::Arc;
@@ -88,7 +88,10 @@ fn test_signature_wrong_schema_fails() {
     // Try to verify with different schema
     let different_schema = json!({"type": "string"});
     let result = verifier.verify_tool_signature("my_tool", &different_schema, &signature);
-    assert!(!result.valid, "Signature should be invalid for different schema");
+    assert!(
+        !result.valid,
+        "Signature should be invalid for different schema"
+    );
 }
 
 #[test]
@@ -105,7 +108,10 @@ fn test_signature_wrong_tool_name_fails() {
 
     // Try to verify with different tool name
     let result = verifier.verify_tool_signature("tool_b", &schema, &signature);
-    assert!(!result.valid, "Signature should be invalid for different tool name");
+    assert!(
+        !result.valid,
+        "Signature should be invalid for different tool name"
+    );
 }
 
 #[test]
@@ -147,8 +153,9 @@ fn test_signature_expired() {
 
 #[test]
 fn test_spiffe_trust() {
-    let signer = ToolSigner::generate_with_identity(Some("spiffe://example.org/tool-provider".to_string()))
-        .expect("Should generate keypair");
+    let signer =
+        ToolSigner::generate_with_identity(Some("spiffe://example.org/tool-provider".to_string()))
+            .expect("Should generate keypair");
     let schema = test_schema();
     let signature = signer.sign_tool("my_tool", &schema, None);
 
@@ -160,7 +167,10 @@ fn test_spiffe_trust() {
     let verifier = ToolSignatureVerifier::new(allowed);
 
     let result = verifier.verify_tool_signature("my_tool", &schema, &signature);
-    assert!(result.is_fully_verified(), "Should be trusted via SPIFFE ID");
+    assert!(
+        result.is_fully_verified(),
+        "Should be trusted via SPIFFE ID"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -179,7 +189,10 @@ fn test_store_signature_persistence() {
         let signature = signer.sign_tool("test_tool", &schema, None);
 
         // Save signature
-        store.save_signature("test_tool", signature.clone()).await.unwrap();
+        store
+            .save_signature("test_tool", signature.clone())
+            .await
+            .unwrap();
 
         // Create new store and load
         let store2 = EtdiStore::new(tmp.path());
@@ -280,9 +293,15 @@ fn test_attestation_chain_verification() {
         let signer = ToolSigner::generate().unwrap();
         let schema = test_schema();
 
-        chain.create_initial("test_tool", &schema, "admin", &signer).await.unwrap();
+        chain
+            .create_initial("test_tool", &schema, "admin", &signer)
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        chain.create_update("test_tool", &schema, "admin", &signer).await.unwrap();
+        chain
+            .create_update("test_tool", &schema, "admin", &signer)
+            .await
+            .unwrap();
 
         let result = chain.verify_chain("test_tool").await;
         assert!(result.valid, "Chain should be valid: {:?}", result.issues);
@@ -300,7 +319,10 @@ fn test_attestation_hash_verification() {
         let signer = ToolSigner::generate().unwrap();
         let schema = test_schema();
 
-        chain.create_initial("test_tool", &schema, "admin", &signer).await.unwrap();
+        chain
+            .create_initial("test_tool", &schema, "admin", &signer)
+            .await
+            .unwrap();
 
         // Verify matching schema
         assert!(chain.verify_hash("test_tool", &schema).await);
@@ -326,7 +348,9 @@ fn test_version_pin_exact() {
         let schema = test_schema();
         let hash = sentinel_mcp::etdi::signature::compute_tool_hash("test_tool", &schema);
 
-        pins.pin_version("test_tool", "1.0.0", &hash, "admin").await.unwrap();
+        pins.pin_version("test_tool", "1.0.0", &hash, "admin")
+            .await
+            .unwrap();
 
         // Check matching version
         let result = pins.check_pin("test_tool", Some("1.0.0"), &schema).await;
@@ -349,7 +373,9 @@ fn test_version_pin_constraint() {
         let schema = test_schema();
         let hash = sentinel_mcp::etdi::signature::compute_tool_hash("test_tool", &schema);
 
-        pins.pin_constraint("test_tool", "^1.0.0", &hash, "admin").await.unwrap();
+        pins.pin_constraint("test_tool", "^1.0.0", &hash, "admin")
+            .await
+            .unwrap();
 
         // 1.2.3 matches ^1.0.0
         let result = pins.check_pin("test_tool", Some("1.2.3"), &schema).await;
@@ -372,11 +398,15 @@ fn test_version_pin_hash_drift() {
         let schema = test_schema();
         let hash = sentinel_mcp::etdi::signature::compute_tool_hash("test_tool", &schema);
 
-        pins.pin_version("test_tool", "1.0.0", &hash, "admin").await.unwrap();
+        pins.pin_version("test_tool", "1.0.0", &hash, "admin")
+            .await
+            .unwrap();
 
         // Same version but different schema
         let different_schema = json!({"type": "string"});
-        let result = pins.check_pin("test_tool", Some("1.0.0"), &different_schema).await;
+        let result = pins
+            .check_pin("test_tool", Some("1.0.0"), &different_schema)
+            .await;
 
         match result {
             PinCheckResult::HashDrift(alert) => {
@@ -396,7 +426,9 @@ fn test_version_pin_unpin() {
         let store = Arc::new(EtdiStore::new(tmp.path()));
         let pins = VersionPinManager::new(store, false);
 
-        pins.pin_version("test_tool", "1.0.0", "hash", "admin").await.unwrap();
+        pins.pin_version("test_tool", "1.0.0", "hash", "admin")
+            .await
+            .unwrap();
         assert!(pins.get_pin("test_tool").await.is_some());
 
         pins.unpin("test_tool").await.unwrap();
@@ -412,7 +444,9 @@ fn test_version_pin_no_pin_exists() {
         let store = Arc::new(EtdiStore::new(tmp.path()));
         let pins = VersionPinManager::new(store, false);
 
-        let result = pins.check_pin("unknown_tool", Some("1.0.0"), &test_schema()).await;
+        let result = pins
+            .check_pin("unknown_tool", Some("1.0.0"), &test_schema())
+            .await;
         assert_eq!(result, PinCheckResult::NoPinExists);
     });
 }
@@ -434,7 +468,10 @@ fn test_e2e_sign_verify_attest_pin() {
 
         // 2. Store signature
         let store = Arc::new(EtdiStore::new(tmp.path()));
-        store.save_signature("secure_tool", signature.clone()).await.unwrap();
+        store
+            .save_signature("secure_tool", signature.clone())
+            .await
+            .unwrap();
 
         // 3. Verify signature
         let allowed = AllowedSignersConfig {

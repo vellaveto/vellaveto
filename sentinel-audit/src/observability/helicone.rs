@@ -7,9 +7,7 @@
 //!
 //! Requires `observability-exporters` feature.
 
-use super::{
-    ObservabilityError, ObservabilityExporter, ObservabilityExporterConfig, SecuritySpan,
-};
+use super::{ObservabilityError, ObservabilityExporter, ObservabilityExporterConfig, SecuritySpan};
 use async_trait::async_trait;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -86,10 +84,19 @@ impl HeliconeExporter {
 
         // Add security-specific properties
         properties.insert("sentinel_tool".to_string(), span.action.tool.clone());
-        properties.insert("sentinel_function".to_string(), span.action.function.clone());
+        properties.insert(
+            "sentinel_function".to_string(),
+            span.action.function.clone(),
+        );
         properties.insert("sentinel_verdict".to_string(), span.verdict.outcome.clone());
-        properties.insert("sentinel_span_kind".to_string(), span.span_kind.as_str().to_string());
-        properties.insert("sentinel_duration_ms".to_string(), span.duration_ms.to_string());
+        properties.insert(
+            "sentinel_span_kind".to_string(),
+            span.span_kind.as_str().to_string(),
+        );
+        properties.insert(
+            "sentinel_duration_ms".to_string(),
+            span.duration_ms.to_string(),
+        );
 
         if let Some(reason) = &span.verdict.reason {
             properties.insert("sentinel_verdict_reason".to_string(), reason.clone());

@@ -44,7 +44,11 @@ pub struct DocumentMetadata {
 
 impl DocumentMetadata {
     /// Creates new document metadata.
-    pub fn new(id: impl Into<String>, content_hash: impl Into<String>, source: impl Into<String>) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        content_hash: impl Into<String>,
+        source: impl Into<String>,
+    ) -> Self {
         let now = Utc::now();
         Self {
             id: id.into(),
@@ -376,8 +380,7 @@ mod tests {
 
     #[test]
     fn test_document_with_admin_approval() {
-        let doc = DocumentMetadata::new("doc1", "abc123", "source")
-            .with_admin_approval();
+        let doc = DocumentMetadata::new("doc1", "abc123", "source").with_admin_approval();
         assert!(doc.admin_approved);
     }
 
@@ -415,8 +418,7 @@ mod tests {
         let config = DocumentVerificationConfig::default();
         let verifier = DocumentVerifier::new(config);
 
-        let doc = DocumentMetadata::new("doc1", "abc123", "source")
-            .with_signature("ed25519sig");
+        let doc = DocumentMetadata::new("doc1", "abc123", "source").with_signature("ed25519sig");
         let score = verifier.compute_trust_score(&doc);
 
         assert!(score.score >= 0.7);

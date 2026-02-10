@@ -9,7 +9,7 @@ repository.workspace = true
 [dependencies]
 sentinel-types = { path = "../sentinel-types" }
 sentinel-engine = { path = "../sentinel-engine" }
-sentinel-audit = { path = "../sentinel-audit" }
+sentinel-audit = { path = "../sentinel-audit", features = ["observability-exporters"] }
 sentinel-config = { path = "../sentinel-config" }
 sentinel-approval = { path = "../sentinel-approval" }
 sentinel-mcp = { path = "../sentinel-mcp" }
@@ -21,3 +21,6 @@ tempfile = "3.0"
 arc-swap = "1"
 axum = "0.8"
 tower = "0.5"
+
+[dev-dependencies]
+flate2 = "1.1"

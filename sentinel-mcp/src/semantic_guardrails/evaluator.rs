@@ -532,9 +532,7 @@ impl<E: LlmEvaluator> SemanticGuardrailsEvaluator<E> {
     /// Handles evaluation errors according to fallback behavior.
     pub fn handle_error(&self, error: &LlmEvalError) -> LlmEvaluation {
         match self.fallback_on_error {
-            FallbackBehavior::Deny => {
-                LlmEvaluation::deny(format!("Evaluation failed: {}", error))
-            }
+            FallbackBehavior::Deny => LlmEvaluation::deny(format!("Evaluation failed: {}", error)),
             FallbackBehavior::Allow => {
                 let mut eval = LlmEvaluation::allow();
                 eval.explanation = Some(format!("Allowed due to fallback (error: {})", error));

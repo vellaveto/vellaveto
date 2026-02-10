@@ -10,9 +10,7 @@
 
 use sentinel_config::NhiConfig;
 use sentinel_mcp::nhi::{NhiError, NhiManager};
-use sentinel_types::{
-    NhiAttestationType, NhiBehavioralRecommendation, NhiIdentityStatus,
-};
+use sentinel_types::{NhiAttestationType, NhiBehavioralRecommendation, NhiIdentityStatus};
 use std::collections::HashMap;
 
 fn runtime() -> tokio::runtime::Runtime {
@@ -52,7 +50,10 @@ fn test_register_jwt_identity() {
             .await
             .expect("Should register identity");
 
-        let identity = manager.get_identity(&id).await.expect("Should find identity");
+        let identity = manager
+            .get_identity(&id)
+            .await
+            .expect("Should find identity");
         assert_eq!(identity.name, "Test JWT Agent");
         assert_eq!(identity.attestation_type, NhiAttestationType::Jwt);
         assert_eq!(identity.status, NhiIdentityStatus::Probationary);
@@ -81,7 +82,10 @@ fn test_register_spiffe_identity() {
             .expect("Should register SPIFFE identity");
 
         let identity = manager.get_identity(&id).await.unwrap();
-        assert_eq!(identity.spiffe_id, Some("spiffe://example.org/service/api".to_string()));
+        assert_eq!(
+            identity.spiffe_id,
+            Some("spiffe://example.org/service/api".to_string())
+        );
     });
 }
 
@@ -115,7 +119,16 @@ fn test_identity_lifecycle_probationary_to_active() {
         let manager = NhiManager::new(enabled_config());
 
         let id = manager
-            .register_identity("Lifecycle Test", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new())
+            .register_identity(
+                "Lifecycle Test",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
             .await
             .unwrap();
 
@@ -124,7 +137,10 @@ fn test_identity_lifecycle_probationary_to_active() {
         assert_eq!(identity.status, NhiIdentityStatus::Probationary);
 
         // Activate
-        manager.activate_identity(&id).await.expect("Should activate");
+        manager
+            .activate_identity(&id)
+            .await
+            .expect("Should activate");
         let identity = manager.get_identity(&id).await.unwrap();
         assert_eq!(identity.status, NhiIdentityStatus::Active);
     });
@@ -136,19 +152,34 @@ fn test_identity_lifecycle_suspend_and_revoke() {
         let manager = NhiManager::new(enabled_config());
 
         let id = manager
-            .register_identity("Suspend Test", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new())
+            .register_identity(
+                "Suspend Test",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
             .await
             .unwrap();
 
         manager.activate_identity(&id).await.unwrap();
 
         // Suspend
-        manager.update_status(&id, NhiIdentityStatus::Suspended).await.unwrap();
+        manager
+            .update_status(&id, NhiIdentityStatus::Suspended)
+            .await
+            .unwrap();
         let identity = manager.get_identity(&id).await.unwrap();
         assert_eq!(identity.status, NhiIdentityStatus::Suspended);
 
         // Revoke
-        manager.update_status(&id, NhiIdentityStatus::Revoked).await.unwrap();
+        manager
+            .update_status(&id, NhiIdentityStatus::Revoked)
+            .await
+            .unwrap();
         let identity = manager.get_identity(&id).await.unwrap();
         assert_eq!(identity.status, NhiIdentityStatus::Revoked);
         assert!(manager.is_revoked(&id).await);
@@ -161,7 +192,16 @@ fn test_cannot_activate_non_probationary() {
         let manager = NhiManager::new(enabled_config());
 
         let id = manager
-            .register_identity("Already Active", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new())
+            .register_identity(
+                "Already Active",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
             .await
             .unwrap();
 
@@ -169,7 +209,10 @@ fn test_cannot_activate_non_probationary() {
 
         // Try to activate again
         let result = manager.activate_identity(&id).await;
-        assert!(matches!(result, Err(NhiError::InvalidStatusTransition { .. })));
+        assert!(matches!(
+            result,
+            Err(NhiError::InvalidStatusTransition { .. })
+        ));
     });
 }
 
@@ -179,7 +222,16 @@ fn test_record_auth_increments_counter() {
         let manager = NhiManager::new(enabled_config());
 
         let id = manager
-            .register_identity("Auth Counter", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new())
+            .register_identity(
+                "Auth Counter",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
             .await
             .unwrap();
 
@@ -199,18 +251,61 @@ fn test_list_identities_with_status_filter() {
         let manager = NhiManager::new(enabled_config());
 
         // Register multiple agents with different statuses
-        let id1 = manager.register_identity("Agent 1", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
-        let id2 = manager.register_identity("Agent 2", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
-        let _id3 = manager.register_identity("Agent 3", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
+        let id1 = manager
+            .register_identity(
+                "Agent 1",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let id2 = manager
+            .register_identity(
+                "Agent 2",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let _id3 = manager
+            .register_identity(
+                "Agent 3",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
 
         manager.activate_identity(&id1).await.unwrap();
-        manager.update_status(&id2, NhiIdentityStatus::Suspended).await.unwrap();
+        manager
+            .update_status(&id2, NhiIdentityStatus::Suspended)
+            .await
+            .unwrap();
 
-        let active = manager.list_identities(Some(NhiIdentityStatus::Active)).await;
+        let active = manager
+            .list_identities(Some(NhiIdentityStatus::Active))
+            .await;
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].name, "Agent 1");
 
-        let suspended = manager.list_identities(Some(NhiIdentityStatus::Suspended)).await;
+        let suspended = manager
+            .list_identities(Some(NhiIdentityStatus::Suspended))
+            .await;
         assert_eq!(suspended.len(), 1);
 
         let all = manager.list_identities(None).await;
@@ -233,7 +328,16 @@ fn test_behavioral_baseline_creation() {
         let manager = NhiManager::new(config);
 
         let id = manager
-            .register_identity("Baseline Test", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new())
+            .register_identity(
+                "Baseline Test",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
             .await
             .unwrap();
 
@@ -242,14 +346,22 @@ fn test_behavioral_baseline_creation() {
 
         // Build baseline
         for _ in 0..15 {
-            manager.update_baseline(&id, "file:read", Some(1.0), Some("10.0.0.1")).await.unwrap();
+            manager
+                .update_baseline(&id, "file:read", Some(1.0), Some("10.0.0.1"))
+                .await
+                .unwrap();
         }
 
-        let baseline = manager.get_baseline(&id).await.expect("Should have baseline");
+        let baseline = manager
+            .get_baseline(&id)
+            .await
+            .expect("Should have baseline");
         assert_eq!(baseline.observation_count, 15);
         assert!(baseline.confidence >= 1.0);
         assert!(baseline.tool_call_patterns.contains_key("file:read"));
-        assert!(baseline.typical_source_ips.contains(&"10.0.0.1".to_string()));
+        assert!(baseline
+            .typical_source_ips
+            .contains(&"10.0.0.1".to_string()));
     });
 }
 
@@ -264,17 +376,31 @@ fn test_behavioral_check_within_baseline() {
         let manager = NhiManager::new(config);
 
         let id = manager
-            .register_identity("Check Test", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new())
+            .register_identity(
+                "Check Test",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
             .await
             .unwrap();
 
         // Build baseline
         for _ in 0..20 {
-            manager.update_baseline(&id, "file:read", Some(1.0), Some("10.0.0.1")).await.unwrap();
+            manager
+                .update_baseline(&id, "file:read", Some(1.0), Some("10.0.0.1"))
+                .await
+                .unwrap();
         }
 
         // Check normal behavior
-        let result = manager.check_behavior(&id, "file:read", Some(1.0), Some("10.0.0.1")).await;
+        let result = manager
+            .check_behavior(&id, "file:read", Some(1.0), Some("10.0.0.1"))
+            .await;
         assert!(result.within_baseline);
         assert_eq!(result.recommendation, NhiBehavioralRecommendation::Allow);
     });
@@ -292,17 +418,31 @@ fn test_behavioral_check_anomaly_unknown_tool() {
         let manager = NhiManager::new(config);
 
         let id = manager
-            .register_identity("Anomaly Test", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new())
+            .register_identity(
+                "Anomaly Test",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
             .await
             .unwrap();
 
         // Build baseline with specific tools
         for _ in 0..20 {
-            manager.update_baseline(&id, "file:read", Some(1.0), Some("10.0.0.1")).await.unwrap();
+            manager
+                .update_baseline(&id, "file:read", Some(1.0), Some("10.0.0.1"))
+                .await
+                .unwrap();
         }
 
         // Use unknown tool
-        let result = manager.check_behavior(&id, "bash:execute", Some(1.0), Some("10.0.0.1")).await;
+        let result = manager
+            .check_behavior(&id, "bash:execute", Some(1.0), Some("10.0.0.1"))
+            .await;
         assert!(!result.deviations.is_empty());
         assert!(result.anomaly_score > 0.0);
     });
@@ -319,17 +459,31 @@ fn test_behavioral_check_during_learning() {
         let manager = NhiManager::new(config);
 
         let id = manager
-            .register_identity("Learning Test", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new())
+            .register_identity(
+                "Learning Test",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
             .await
             .unwrap();
 
         // Only a few observations (still learning)
         for _ in 0..5 {
-            manager.update_baseline(&id, "file:read", Some(1.0), Some("10.0.0.1")).await.unwrap();
+            manager
+                .update_baseline(&id, "file:read", Some(1.0), Some("10.0.0.1"))
+                .await
+                .unwrap();
         }
 
         // During learning period, allow anything
-        let result = manager.check_behavior(&id, "unknown:tool", Some(100.0), Some("1.2.3.4")).await;
+        let result = manager
+            .check_behavior(&id, "unknown:tool", Some(100.0), Some("1.2.3.4"))
+            .await;
         assert!(result.within_baseline);
         assert_eq!(result.recommendation, NhiBehavioralRecommendation::Allow);
     });
@@ -344,8 +498,32 @@ fn test_create_delegation() {
     runtime().block_on(async {
         let manager = NhiManager::new(enabled_config());
 
-        let agent_a = manager.register_identity("Agent A", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
-        let agent_b = manager.register_identity("Agent B", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
+        let agent_a = manager
+            .register_identity(
+                "Agent A",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_b = manager
+            .register_identity(
+                "Agent B",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
 
         let delegation = manager
             .create_delegation(
@@ -362,7 +540,9 @@ fn test_create_delegation() {
         assert_eq!(delegation.from_agent, agent_a);
         assert_eq!(delegation.to_agent, agent_b);
         assert!(delegation.permissions.contains(&"read".to_string()));
-        assert!(delegation.scope_constraints.contains(&"tools:file_*".to_string()));
+        assert!(delegation
+            .scope_constraints
+            .contains(&"tools:file_*".to_string()));
         assert!(delegation.active);
     });
 }
@@ -372,7 +552,19 @@ fn test_delegation_requires_existing_agents() {
     runtime().block_on(async {
         let manager = NhiManager::new(enabled_config());
 
-        let agent_a = manager.register_identity("Agent A", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
+        let agent_a = manager
+            .register_identity(
+                "Agent A",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
 
         let result = manager
             .create_delegation(&agent_a, "nonexistent", vec![], vec![], 3600, None)
@@ -388,12 +580,68 @@ fn test_delegation_chain_resolution() {
         let manager = NhiManager::new(enabled_config());
 
         // Create chain: A -> B -> C
-        let agent_a = manager.register_identity("Agent A", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
-        let agent_b = manager.register_identity("Agent B", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
-        let agent_c = manager.register_identity("Agent C", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
+        let agent_a = manager
+            .register_identity(
+                "Agent A",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_b = manager
+            .register_identity(
+                "Agent B",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_c = manager
+            .register_identity(
+                "Agent C",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
 
-        manager.create_delegation(&agent_a, &agent_b, vec!["admin".to_string()], vec![], 3600, None).await.unwrap();
-        manager.create_delegation(&agent_b, &agent_c, vec!["read".to_string()], vec![], 3600, None).await.unwrap();
+        manager
+            .create_delegation(
+                &agent_a,
+                &agent_b,
+                vec!["admin".to_string()],
+                vec![],
+                3600,
+                None,
+            )
+            .await
+            .unwrap();
+        manager
+            .create_delegation(
+                &agent_b,
+                &agent_c,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
+            .await
+            .unwrap();
 
         let chain = manager.resolve_delegation_chain(&agent_c).await;
         assert_eq!(chain.depth(), 2);
@@ -408,10 +656,37 @@ fn test_revoke_delegation() {
     runtime().block_on(async {
         let manager = NhiManager::new(enabled_config());
 
-        let agent_a = manager.register_identity("Agent A", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
-        let agent_b = manager.register_identity("Agent B", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
+        let agent_a = manager
+            .register_identity(
+                "Agent A",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_b = manager
+            .register_identity(
+                "Agent B",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
 
-        manager.create_delegation(&agent_a, &agent_b, vec![], vec![], 3600, None).await.unwrap();
+        manager
+            .create_delegation(&agent_a, &agent_b, vec![], vec![], 3600, None)
+            .await
+            .unwrap();
 
         // Revoke
         manager.revoke_delegation(&agent_a, &agent_b).await.unwrap();
@@ -426,12 +701,54 @@ fn test_list_delegations_for_agent() {
     runtime().block_on(async {
         let manager = NhiManager::new(enabled_config());
 
-        let agent_a = manager.register_identity("Agent A", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
-        let agent_b = manager.register_identity("Agent B", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
-        let agent_c = manager.register_identity("Agent C", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
+        let agent_a = manager
+            .register_identity(
+                "Agent A",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_b = manager
+            .register_identity(
+                "Agent B",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_c = manager
+            .register_identity(
+                "Agent C",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
 
-        manager.create_delegation(&agent_a, &agent_b, vec![], vec![], 3600, None).await.unwrap();
-        manager.create_delegation(&agent_a, &agent_c, vec![], vec![], 3600, None).await.unwrap();
+        manager
+            .create_delegation(&agent_a, &agent_b, vec![], vec![], 3600, None)
+            .await
+            .unwrap();
+        manager
+            .create_delegation(&agent_a, &agent_c, vec![], vec![], 3600, None)
+            .await
+            .unwrap();
 
         let delegations = manager.list_delegations(&agent_a).await;
         assert_eq!(delegations.len(), 2);
@@ -448,7 +765,16 @@ fn test_credential_rotation() {
         let manager = NhiManager::new(enabled_config());
 
         let id = manager
-            .register_identity("Rotation Test", NhiAttestationType::Jwt, None, Some("old-key"), Some("Ed25519"), None, vec![], HashMap::new())
+            .register_identity(
+                "Rotation Test",
+                NhiAttestationType::Jwt,
+                None,
+                Some("old-key"),
+                Some("Ed25519"),
+                None,
+                vec![],
+                HashMap::new(),
+            )
             .await
             .unwrap();
 
@@ -492,7 +818,16 @@ fn test_get_expiring_identities() {
         let manager = NhiManager::new(config);
 
         let id = manager
-            .register_identity("Expiring Soon", NhiAttestationType::Jwt, None, None, None, Some(10), vec![], HashMap::new())
+            .register_identity(
+                "Expiring Soon",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                Some(10),
+                vec![],
+                HashMap::new(),
+            )
             .await
             .unwrap();
 
@@ -532,13 +867,43 @@ fn test_stats_tracking() {
     runtime().block_on(async {
         let manager = NhiManager::new(enabled_config());
 
-        let id1 = manager.register_identity("Agent 1", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
-        let id2 = manager.register_identity("Agent 2", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
+        let id1 = manager
+            .register_identity(
+                "Agent 1",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let id2 = manager
+            .register_identity(
+                "Agent 2",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
 
         manager.activate_identity(&id1).await.unwrap();
-        manager.update_status(&id2, NhiIdentityStatus::Suspended).await.unwrap();
+        manager
+            .update_status(&id2, NhiIdentityStatus::Suspended)
+            .await
+            .unwrap();
 
-        manager.create_delegation(&id1, &id2, vec![], vec![], 3600, None).await.unwrap();
+        manager
+            .create_delegation(&id1, &id2, vec![], vec![], 3600, None)
+            .await
+            .unwrap();
 
         let stats = manager.stats().await;
         assert_eq!(stats.total_identities, 2);
@@ -558,7 +923,16 @@ fn test_disabled_manager_rejects_operations() {
         let manager = NhiManager::new(NhiConfig::default()); // Disabled
 
         let result = manager
-            .register_identity("Should Fail", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new())
+            .register_identity(
+                "Should Fail",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
             .await;
 
         assert!(matches!(result, Err(NhiError::Disabled)));
@@ -576,7 +950,16 @@ fn test_ttl_exceeds_max_rejected() {
         let manager = NhiManager::new(config);
 
         let result = manager
-            .register_identity("Long TTL", NhiAttestationType::Jwt, None, None, None, Some(86400), vec![], HashMap::new())
+            .register_identity(
+                "Long TTL",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                Some(86400),
+                vec![],
+                HashMap::new(),
+            )
             .await;
 
         assert!(matches!(result, Err(NhiError::TtlExceedsMax { .. })));
@@ -593,10 +976,45 @@ fn test_capacity_limits() {
         };
         let manager = NhiManager::new(config);
 
-        manager.register_identity("Agent 1", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
-        manager.register_identity("Agent 2", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
+        manager
+            .register_identity(
+                "Agent 1",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        manager
+            .register_identity(
+                "Agent 2",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
 
-        let result = manager.register_identity("Agent 3", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await;
+        let result = manager
+            .register_identity(
+                "Agent 3",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await;
         assert!(matches!(result, Err(NhiError::CapacityExceeded(_))));
     });
 }
@@ -616,7 +1034,16 @@ fn test_cleanup_expired() {
         let manager = NhiManager::new(config);
 
         let id = manager
-            .register_identity("Expire Soon", NhiAttestationType::Jwt, None, None, None, Some(1), vec![], HashMap::new())
+            .register_identity(
+                "Expire Soon",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                Some(1),
+                vec![],
+                HashMap::new(),
+            )
             .await
             .unwrap();
 

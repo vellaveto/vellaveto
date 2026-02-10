@@ -92,8 +92,9 @@ impl VersionPinManager {
         pinned_by: &str,
     ) -> Result<ToolVersionPin, EtdiError> {
         // Validate constraint syntax
-        semver::VersionReq::parse(constraint)
-            .map_err(|e| EtdiError::InvalidSignature(format!("Invalid semver constraint: {}", e)))?;
+        semver::VersionReq::parse(constraint).map_err(|e| {
+            EtdiError::InvalidSignature(format!("Invalid semver constraint: {}", e))
+        })?;
 
         let pin = ToolVersionPin {
             tool_name: tool_name.to_string(),
@@ -293,9 +294,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = manager
-            .check_pin("test_tool", Some("1.0.0"), &schema)
-            .await;
+        let result = manager.check_pin("test_tool", Some("1.0.0"), &schema).await;
         assert_eq!(result, PinCheckResult::Matches);
     }
 
@@ -337,9 +336,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = manager
-            .check_pin("test_tool", Some("2.0.0"), &schema)
-            .await;
+        let result = manager.check_pin("test_tool", Some("2.0.0"), &schema).await;
 
         match result {
             PinCheckResult::VersionDrift(alert) => {
@@ -364,9 +361,7 @@ mod tests {
             .unwrap();
 
         // 1.2.3 matches ^1.0.0
-        let result = manager
-            .check_pin("test_tool", Some("1.2.3"), &schema)
-            .await;
+        let result = manager.check_pin("test_tool", Some("1.2.3"), &schema).await;
         assert_eq!(result, PinCheckResult::Matches);
     }
 
@@ -383,9 +378,7 @@ mod tests {
             .unwrap();
 
         // 2.0.0 does NOT match ^1.0.0
-        let result = manager
-            .check_pin("test_tool", Some("2.0.0"), &schema)
-            .await;
+        let result = manager.check_pin("test_tool", Some("2.0.0"), &schema).await;
 
         match result {
             PinCheckResult::VersionDrift(alert) => {

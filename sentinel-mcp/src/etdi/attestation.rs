@@ -70,7 +70,9 @@ impl AttestationChain {
             transparency_log_entry: None,
         };
 
-        self.store.save_attestation(tool_name, attestation.clone()).await?;
+        self.store
+            .save_attestation(tool_name, attestation.clone())
+            .await?;
         Ok(attestation)
     }
 
@@ -110,7 +112,9 @@ impl AttestationChain {
             transparency_log_entry: None,
         };
 
-        self.store.save_attestation(tool_name, attestation.clone()).await?;
+        self.store
+            .save_attestation(tool_name, attestation.clone())
+            .await?;
         Ok(attestation)
     }
 
@@ -147,9 +151,7 @@ impl AttestationChain {
             if current.previous_attestation.as_ref() != Some(&previous.attestation_id) {
                 issues.push(format!(
                     "Attestation {} has incorrect previous reference (expected {}, got {:?})",
-                    current.attestation_id,
-                    previous.attestation_id,
-                    current.previous_attestation
+                    current.attestation_id, previous.attestation_id, current.previous_attestation
                 ));
             }
 

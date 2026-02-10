@@ -258,7 +258,9 @@ impl BackendBuilder {
 
                 let config = anthropic::AnthropicConfig {
                     api_key,
-                    model: self.model.unwrap_or_else(|| "claude-3-haiku-20240307".to_string()),
+                    model: self
+                        .model
+                        .unwrap_or_else(|| "claude-3-haiku-20240307".to_string()),
                     timeout_ms: if self.timeout_ms > 0 {
                         self.timeout_ms
                     } else {

@@ -39,7 +39,9 @@ pub enum RagDefenseError {
     },
 
     /// Embedding anomaly detected.
-    #[error("Embedding anomaly detected: similarity {similarity:.3} below threshold {threshold:.3}")]
+    #[error(
+        "Embedding anomaly detected: similarity {similarity:.3} below threshold {threshold:.3}"
+    )]
     EmbeddingAnomaly {
         /// Actual similarity to baseline.
         similarity: f64,
@@ -174,7 +176,9 @@ mod tests {
         }
         .is_security_violation());
 
-        assert!(!RagDefenseError::RetrievalLimitExceeded { count: 25, max: 20 }.is_security_violation());
+        assert!(
+            !RagDefenseError::RetrievalLimitExceeded { count: 25, max: 20 }.is_security_violation()
+        );
     }
 
     #[test]

@@ -393,7 +393,10 @@ mod tests {
 
         // Allowed agents can cancel
         assert!(manager.can_cancel("task-1", Some("admin")).await.unwrap());
-        assert!(manager.can_cancel("task-1", Some("operator")).await.unwrap());
+        assert!(manager
+            .can_cancel("task-1", Some("operator"))
+            .await
+            .unwrap());
 
         // Non-allowed agent cannot cancel
         assert!(!manager.can_cancel("task-1", Some("agent-1")).await.unwrap());

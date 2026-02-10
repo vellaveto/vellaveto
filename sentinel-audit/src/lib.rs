@@ -23,13 +23,13 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-pub use pii::{validate_regex_safety, CustomPiiPattern, PiiScanner};
 pub use observability::{
     ActionSummary, DetectionType, ObservabilityError, ObservabilityExporter,
     ObservabilityExporterConfig, RedactionConfig, SamplingConfig as ObservabilitySamplingConfig,
     SecurityDetection, SecuritySpan, SecuritySpanBuilder, SpanKind, SpanSampler, TraceContext,
     VerdictSummary,
 };
+pub use pii::{validate_regex_safety, CustomPiiPattern, PiiScanner};
 
 #[derive(Error, Debug)]
 pub enum AuditError {

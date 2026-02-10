@@ -267,16 +267,11 @@ pub fn supports_streaming(card: &AgentCard) -> bool {
 }
 
 /// Validate that a request method is supported by the agent's capabilities.
-pub fn validate_request_method(
-    card: &AgentCard,
-    method: &str,
-) -> Result<(), A2aError> {
+pub fn validate_request_method(card: &AgentCard, method: &str) -> Result<(), A2aError> {
     match method {
-        "message/stream" if !card.capabilities.streaming => {
-            Err(A2aError::AgentCardInvalid(
-                "Agent does not support streaming".to_string(),
-            ))
-        }
+        "message/stream" if !card.capabilities.streaming => Err(A2aError::AgentCardInvalid(
+            "Agent does not support streaming".to_string(),
+        )),
         _ => Ok(()),
     }
 }

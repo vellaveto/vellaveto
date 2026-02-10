@@ -60,7 +60,11 @@ impl std::fmt::Display for DeputyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DeputyError::UnauthorizedDelegation { from, to } => {
-                write!(f, "Delegation from '{}' to '{}' is not authorized", from, to)
+                write!(
+                    f,
+                    "Delegation from '{}' to '{}' is not authorized",
+                    from, to
+                )
             }
             DeputyError::DelegationDepthExceeded { depth, max } => {
                 write!(f, "Delegation depth {} exceeds maximum {}", depth, max)
@@ -467,10 +471,7 @@ mod tests {
         // Different worker tries to use it
         let result = validator.validate_action("session-1", "read_file", "worker-2");
 
-        assert!(matches!(
-            result,
-            Err(DeputyError::PrincipalMismatch { .. })
-        ));
+        assert!(matches!(result, Err(DeputyError::PrincipalMismatch { .. })));
     }
 
     #[test]

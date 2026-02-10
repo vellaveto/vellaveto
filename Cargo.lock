@@ -3008,6 +3008,7 @@ version = "2.0.0"
 dependencies = [
  "arc-swap",
  "axum",
+ "flate2",
  "sentinel-approval",
  "sentinel-audit",
  "sentinel-config",

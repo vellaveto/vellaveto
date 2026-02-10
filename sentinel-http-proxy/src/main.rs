@@ -499,8 +499,7 @@ async fn main() -> Result<()> {
     if heartbeat_interval > 0 {
         let heartbeat_audit = shutdown_audit.clone();
         tokio::spawn(async move {
-            let mut interval =
-                tokio::time::interval(Duration::from_secs(heartbeat_interval));
+            let mut interval = tokio::time::interval(Duration::from_secs(heartbeat_interval));
             let mut sequence: u64 = 0;
             // Skip the first immediate tick — heartbeat starts after first interval
             interval.tick().await;

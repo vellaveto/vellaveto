@@ -312,8 +312,7 @@ impl IntentClassification {
 
     /// Returns true if any malicious intent or high-severity risk is detected.
     pub fn is_suspicious(&self) -> bool {
-        self.primary_intent.is_malicious()
-            || self.detected_risks.iter().any(|r| r.severity() >= 80)
+        self.primary_intent.is_malicious() || self.detected_risks.iter().any(|r| r.severity() >= 80)
     }
 }
 
@@ -597,7 +596,9 @@ mod tests {
 
         let patterns = chain.detect_suspicious_patterns();
         assert!(!patterns.is_empty());
-        assert!(patterns.iter().any(|p| p.pattern_type == "exfiltration_chain"));
+        assert!(patterns
+            .iter()
+            .any(|p| p.pattern_type == "exfiltration_chain"));
     }
 
     #[test]

@@ -307,7 +307,11 @@ mod tests {
 
         // Upgrade with very short expiry
         tracker
-            .upgrade("session-1", AuthLevel::OAuth, Some(Duration::from_millis(10)))
+            .upgrade(
+                "session-1",
+                AuthLevel::OAuth,
+                Some(Duration::from_millis(10)),
+            )
             .await;
         assert_eq!(tracker.get_level("session-1").await, AuthLevel::OAuth);
 
@@ -324,7 +328,11 @@ mod tests {
 
         // Add sessions with different expiries
         tracker
-            .upgrade("session-1", AuthLevel::OAuth, Some(Duration::from_millis(10)))
+            .upgrade(
+                "session-1",
+                AuthLevel::OAuth,
+                Some(Duration::from_millis(10)),
+            )
             .await;
         tracker.upgrade("session-2", AuthLevel::OAuth, None).await; // No expiry
 
@@ -355,11 +363,7 @@ mod tests {
         let tracker = AuthLevelTracker::new();
 
         tracker
-            .upgrade(
-                "session-1",
-                AuthLevel::OAuth,
-                Some(Duration::from_secs(60)),
-            )
+            .upgrade("session-1", AuthLevel::OAuth, Some(Duration::from_secs(60)))
             .await;
 
         let info = tracker.get_session_info("session-1").await.unwrap();

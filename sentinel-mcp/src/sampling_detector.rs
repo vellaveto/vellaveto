@@ -37,7 +37,11 @@ impl std::fmt::Display for SamplingDenied {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SamplingDenied::RateLimitExceeded { count, limit } => {
-                write!(f, "Rate limit exceeded: {} requests (limit: {})", count, limit)
+                write!(
+                    f,
+                    "Rate limit exceeded: {} requests (limit: {})",
+                    count, limit
+                )
             }
             SamplingDenied::PromptTooLong { length, max } => {
                 write!(f, "Prompt too long: {} characters (max: {})", length, max)
@@ -369,15 +373,22 @@ mod tests {
         let detector = SamplingDetector::new(2, 60, 10000);
 
         // First two requests OK
-        detector.check_request("session-1", "claude-3", "Hello").unwrap();
+        detector
+            .check_request("session-1", "claude-3", "Hello")
+            .unwrap();
         detector.record_request("session-1");
 
-        detector.check_request("session-1", "claude-3", "Hello").unwrap();
+        detector
+            .check_request("session-1", "claude-3", "Hello")
+            .unwrap();
         detector.record_request("session-1");
 
         // Third request exceeds limit
         let result = detector.check_request("session-1", "claude-3", "Hello");
-        assert!(matches!(result, Err(SamplingDenied::RateLimitExceeded { .. })));
+        assert!(matches!(
+            result,
+            Err(SamplingDenied::RateLimitExceeded { .. })
+        ));
     }
 
     #[test]
@@ -392,16 +403,14 @@ mod tests {
 
     #[test]
     fn test_model_not_allowed() {
-        let detector = SamplingDetector::with_config(
-            10,
-            60,
-            10000,
-            vec!["claude-*".to_string()],
-            false,
-        );
+        let detector =
+            SamplingDetector::with_config(10, 60, 10000, vec!["claude-*".to_string()], false);
 
         let result = detector.check_request("session-1", "gpt-4", "Hello");
-        assert!(matches!(result, Err(SamplingDenied::ModelNotAllowed { .. })));
+        assert!(matches!(
+            result,
+            Err(SamplingDenied::ModelNotAllowed { .. })
+        ));
 
         let result = detector.check_request("session-1", "claude-3", "Hello");
         assert!(result.is_ok());
@@ -418,13 +427,18 @@ mod tests {
         );
 
         let result = detector.check_request("session-1", "claude-3", "What is my password?");
-        assert!(matches!(result, Err(SamplingDenied::SensitiveContent { .. })));
+        assert!(matches!(
+            result,
+            Err(SamplingDenied::SensitiveContent { .. })
+        ));
     }
 
     #[test]
     fn test_validate_model_wildcard() {
         let detector = SamplingDetector::with_config(
-            10, 60, 10000,
+            10,
+            60,
+            10000,
             vec!["claude-*".to_string(), "gpt-4*".to_string()],
             false,
         );
@@ -442,7 +456,9 @@ mod tests {
 
         assert_eq!(detector.remaining_requests("session-1"), 10);
 
-        detector.check_request("session-1", "model", "prompt").unwrap();
+        detector
+            .check_request("session-1", "model", "prompt")
+            .unwrap();
         detector.record_request("session-1");
 
         assert_eq!(detector.remaining_requests("session-1"), 9);
@@ -460,7 +476,9 @@ mod tests {
     fn test_clear_session() {
         let detector = SamplingDetector::new(10, 60, 10000);
 
-        detector.check_request("session-1", "model", "prompt").unwrap();
+        detector
+            .check_request("session-1", "model", "prompt")
+            .unwrap();
         detector.record_request("session-1");
         assert_eq!(detector.session_count(), 1);
 
@@ -473,15 +491,23 @@ mod tests {
         let detector = SamplingDetector::new(2, 60, 10000);
 
         // Session 1 uses quota
-        detector.check_request("session-1", "model", "prompt").unwrap();
+        detector
+            .check_request("session-1", "model", "prompt")
+            .unwrap();
         detector.record_request("session-1");
-        detector.check_request("session-1", "model", "prompt").unwrap();
+        detector
+            .check_request("session-1", "model", "prompt")
+            .unwrap();
         detector.record_request("session-1");
 
         // Session 1 is now limited
-        assert!(detector.check_request("session-1", "model", "prompt").is_err());
+        assert!(detector
+            .check_request("session-1", "model", "prompt")
+            .is_err());
 
         // Session 2 still has quota
-        assert!(detector.check_request("session-2", "model", "prompt").is_ok());
+        assert!(detector
+            .check_request("session-2", "model", "prompt")
+            .is_ok());
     }
 }

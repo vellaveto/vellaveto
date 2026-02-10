@@ -488,10 +488,7 @@ mod tests {
         assert_eq!(ContentType::from_mime("audio/wav"), ContentType::Audio);
         assert_eq!(ContentType::from_mime("application/pdf"), ContentType::Pdf);
         assert_eq!(ContentType::from_mime("video/mp4"), ContentType::Video);
-        assert_eq!(
-            ContentType::from_mime("text/plain"),
-            ContentType::Unknown
-        );
+        assert_eq!(ContentType::from_mime("text/plain"), ContentType::Unknown);
     }
 
     #[test]
@@ -509,10 +506,7 @@ mod tests {
         );
 
         // PDF
-        assert_eq!(
-            ContentType::from_magic_bytes(b"%PDF-1.4"),
-            ContentType::Pdf
-        );
+        assert_eq!(ContentType::from_magic_bytes(b"%PDF-1.4"), ContentType::Pdf);
 
         // Unknown
         assert_eq!(

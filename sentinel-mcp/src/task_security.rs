@@ -193,8 +193,11 @@ impl SecureTaskManager {
         }
 
         // Record state transition
-        let transition =
-            self.create_transition(task, new_status.clone(), triggered_by.map(|s| s.to_string()));
+        let transition = self.create_transition(
+            task,
+            new_status.clone(),
+            triggered_by.map(|s| s.to_string()),
+        );
         task.state_chain.push(transition);
         task.task.status = new_status;
 
@@ -275,7 +278,10 @@ impl SecureTaskManager {
     }
 
     /// Verify the integrity of a task's state chain.
-    pub async fn verify_integrity(&self, task_id: &str) -> Result<TaskIntegrityResult, TaskSecurityError> {
+    pub async fn verify_integrity(
+        &self,
+        task_id: &str,
+    ) -> Result<TaskIntegrityResult, TaskSecurityError> {
         let tasks = self.tasks.read().await;
 
         let task = tasks
@@ -296,10 +302,9 @@ impl SecureTaskManager {
         &self,
         task_id: &str,
     ) -> Result<TaskCheckpoint, TaskSecurityError> {
-        let signing_key = self
-            .signing_key
-            .as_ref()
-            .ok_or_else(|| TaskSecurityError::InvalidKey("No signing key configured".to_string()))?;
+        let signing_key = self.signing_key.as_ref().ok_or_else(|| {
+            TaskSecurityError::InvalidKey("No signing key configured".to_string())
+        })?;
 
         let tasks = self.tasks.read().await;
         let task = tasks
@@ -338,7 +343,10 @@ impl SecureTaskManager {
     }
 
     /// Verify a checkpoint's signature.
-    pub fn verify_checkpoint(&self, checkpoint: &TaskCheckpoint) -> Result<bool, TaskSecurityError> {
+    pub fn verify_checkpoint(
+        &self,
+        checkpoint: &TaskCheckpoint,
+    ) -> Result<bool, TaskSecurityError> {
         let public_key_bytes = hex::decode(&checkpoint.public_key)
             .map_err(|e| TaskSecurityError::CheckpointVerificationFailed(e.to_string()))?;
 
@@ -423,7 +431,10 @@ impl SecureTaskManager {
     pub async fn stats(&self) -> SecureTaskStats {
         let tasks = self.tasks.read().await;
 
-        let encrypted_count = tasks.values().filter(|t| t.encrypted_state.is_some()).count();
+        let encrypted_count = tasks
+            .values()
+            .filter(|t| t.encrypted_state.is_some())
+            .count();
         let total_transitions: u64 = tasks.values().map(|t| t.state_chain.len() as u64).sum();
 
         SecureTaskStats {
@@ -488,10 +499,12 @@ impl SecureTaskManager {
         ciphertext_b64: &str,
         nonce_b64: &str,
     ) -> Result<serde_json::Value, TaskSecurityError> {
-        let ciphertext = BASE64.decode(ciphertext_b64)
+        let ciphertext = BASE64
+            .decode(ciphertext_b64)
             .map_err(|e| TaskSecurityError::DecryptionFailed(e.to_string()))?;
 
-        let nonce_bytes = BASE64.decode(nonce_b64)
+        let nonce_bytes = BASE64
+            .decode(nonce_b64)
             .map_err(|e| TaskSecurityError::DecryptionFailed(e.to_string()))?;
 
         if nonce_bytes.len() != 12 {
@@ -672,7 +685,10 @@ mod tests {
         let task = make_task("task-1");
         let state = json!({"progress": 0, "data": "test"});
 
-        let secure = manager.create_secure_task(task, Some(&state)).await.unwrap();
+        let secure = manager
+            .create_secure_task(task, Some(&state))
+            .await
+            .unwrap();
 
         assert!(secure.resume_token.is_some());
         assert!(secure.encrypted_state.is_some());
@@ -688,7 +704,10 @@ mod tests {
         let task = make_task("task-1");
         let state = json!({"secret": "confidential", "numbers": [1, 2, 3]});
 
-        let secure = manager.create_secure_task(task, Some(&state)).await.unwrap();
+        let secure = manager
+            .create_secure_task(task, Some(&state))
+            .await
+            .unwrap();
 
         // Decrypt via resume
         let resume_req = TaskResumeRequest {
@@ -745,7 +764,10 @@ mod tests {
 
         // Replay with same nonce fails
         let replay_result = manager.resume_task(&resume_req).await;
-        assert!(matches!(replay_result, Err(TaskSecurityError::ReplayDetected)));
+        assert!(matches!(
+            replay_result,
+            Err(TaskSecurityError::ReplayDetected)
+        ));
     }
 
     #[tokio::test]

@@ -12,9 +12,8 @@
 use sentinel_config::NhiConfig;
 use sentinel_types::{
     NhiAgentIdentity, NhiAttestationType, NhiBehavioralBaseline, NhiBehavioralCheckResult,
-    NhiBehavioralDeviation, NhiBehavioralRecommendation, NhiCredentialRotation,
-    NhiDelegationChain, NhiDelegationLink, NhiDpopProof, NhiDpopVerificationResult,
-    NhiIdentityStatus, NhiStats,
+    NhiBehavioralDeviation, NhiBehavioralRecommendation, NhiCredentialRotation, NhiDelegationChain,
+    NhiDelegationLink, NhiDpopProof, NhiDpopVerificationResult, NhiIdentityStatus, NhiStats,
 };
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -101,7 +100,12 @@ impl NhiManager {
 
         // Validate attestation type is allowed
         let atype_str = attestation_type.to_string();
-        if !self.config.attestation_types.iter().any(|t| t.eq_ignore_ascii_case(&atype_str)) {
+        if !self
+            .config
+            .attestation_types
+            .iter()
+            .any(|t| t.eq_ignore_ascii_case(&atype_str))
+        {
             return Err(NhiError::AttestationTypeNotAllowed(atype_str));
         }
 
@@ -150,7 +154,9 @@ impl NhiManager {
         stats.total_identities = identities.len() as u64;
         stats.active_identities = identities
             .values()
-            .filter(|i| i.status == NhiIdentityStatus::Active || i.status == NhiIdentityStatus::Probationary)
+            .filter(|i| {
+                i.status == NhiIdentityStatus::Active || i.status == NhiIdentityStatus::Probationary
+            })
             .count() as u64;
 
         Ok(id)
@@ -163,7 +169,10 @@ impl NhiManager {
     }
 
     /// List all identities (with optional status filter).
-    pub async fn list_identities(&self, status_filter: Option<NhiIdentityStatus>) -> Vec<NhiAgentIdentity> {
+    pub async fn list_identities(
+        &self,
+        status_filter: Option<NhiIdentityStatus>,
+    ) -> Vec<NhiAgentIdentity> {
         let identities = self.identities.read().await;
         identities
             .values()
@@ -173,9 +182,15 @@ impl NhiManager {
     }
 
     /// Update identity status.
-    pub async fn update_status(&self, id: &str, new_status: NhiIdentityStatus) -> Result<(), NhiError> {
+    pub async fn update_status(
+        &self,
+        id: &str,
+        new_status: NhiIdentityStatus,
+    ) -> Result<(), NhiError> {
         let mut identities = self.identities.write().await;
-        let identity = identities.get_mut(id).ok_or_else(|| NhiError::IdentityNotFound(id.to_string()))?;
+        let identity = identities
+            .get_mut(id)
+            .ok_or_else(|| NhiError::IdentityNotFound(id.to_string()))?;
 
         let old_status = identity.status;
         identity.status = new_status;
@@ -192,12 +207,20 @@ impl NhiManager {
             NhiIdentityStatus::Active | NhiIdentityStatus::Probationary => {
                 stats.active_identities = stats.active_identities.saturating_sub(1);
             }
-            NhiIdentityStatus::Suspended => stats.suspended_identities = stats.suspended_identities.saturating_sub(1),
-            NhiIdentityStatus::Revoked => stats.revoked_identities = stats.revoked_identities.saturating_sub(1),
-            NhiIdentityStatus::Expired => stats.expired_identities = stats.expired_identities.saturating_sub(1),
+            NhiIdentityStatus::Suspended => {
+                stats.suspended_identities = stats.suspended_identities.saturating_sub(1)
+            }
+            NhiIdentityStatus::Revoked => {
+                stats.revoked_identities = stats.revoked_identities.saturating_sub(1)
+            }
+            NhiIdentityStatus::Expired => {
+                stats.expired_identities = stats.expired_identities.saturating_sub(1)
+            }
         }
         match new_status {
-            NhiIdentityStatus::Active | NhiIdentityStatus::Probationary => stats.active_identities += 1,
+            NhiIdentityStatus::Active | NhiIdentityStatus::Probationary => {
+                stats.active_identities += 1
+            }
             NhiIdentityStatus::Suspended => stats.suspended_identities += 1,
             NhiIdentityStatus::Revoked => stats.revoked_identities += 1,
             NhiIdentityStatus::Expired => stats.expired_identities += 1,
@@ -215,7 +238,9 @@ impl NhiManager {
     /// Activate an identity (transition from probationary to active).
     pub async fn activate_identity(&self, id: &str) -> Result<(), NhiError> {
         let mut identities = self.identities.write().await;
-        let identity = identities.get_mut(id).ok_or_else(|| NhiError::IdentityNotFound(id.to_string()))?;
+        let identity = identities
+            .get_mut(id)
+            .ok_or_else(|| NhiError::IdentityNotFound(id.to_string()))?;
 
         if identity.status != NhiIdentityStatus::Probationary {
             return Err(NhiError::InvalidStatusTransition {
@@ -236,7 +261,9 @@ impl NhiManager {
     /// Record a successful authentication.
     pub async fn record_auth(&self, id: &str) -> Result<(), NhiError> {
         let mut identities = self.identities.write().await;
-        let identity = identities.get_mut(id).ok_or_else(|| NhiError::IdentityNotFound(id.to_string()))?;
+        let identity = identities
+            .get_mut(id)
+            .ok_or_else(|| NhiError::IdentityNotFound(id.to_string()))?;
 
         identity.auth_count += 1;
         identity.last_auth = Some(chrono::Utc::now().to_rfc3339());
@@ -266,30 +293,37 @@ impl NhiManager {
         let now = chrono::Utc::now();
         let mut baselines = self.baselines.write().await;
 
-        let baseline = baselines.entry(agent_id.to_string()).or_insert_with(|| {
-            NhiBehavioralBaseline {
-                agent_id: agent_id.to_string(),
-                tool_call_patterns: HashMap::new(),
-                avg_request_interval_secs: 0.0,
-                request_interval_stddev: 0.0,
-                typical_session_duration_secs: 0.0,
-                observation_count: 0,
-                created_at: now.to_rfc3339(),
-                last_updated: now.to_rfc3339(),
-                confidence: 0.0,
-                typical_source_ips: Vec::new(),
-                active_hours: Vec::new(),
-            }
-        });
+        let baseline =
+            baselines
+                .entry(agent_id.to_string())
+                .or_insert_with(|| NhiBehavioralBaseline {
+                    agent_id: agent_id.to_string(),
+                    tool_call_patterns: HashMap::new(),
+                    avg_request_interval_secs: 0.0,
+                    request_interval_stddev: 0.0,
+                    typical_session_duration_secs: 0.0,
+                    observation_count: 0,
+                    created_at: now.to_rfc3339(),
+                    last_updated: now.to_rfc3339(),
+                    confidence: 0.0,
+                    typical_source_ips: Vec::new(),
+                    active_hours: Vec::new(),
+                });
 
         baseline.observation_count += 1;
         baseline.last_updated = now.to_rfc3339();
 
         // Update tool call frequency (exponential moving average)
         let alpha = 0.1; // Smoothing factor
-        let current = baseline.tool_call_patterns.get(tool_call).copied().unwrap_or(0.0);
+        let current = baseline
+            .tool_call_patterns
+            .get(tool_call)
+            .copied()
+            .unwrap_or(0.0);
         let new_value = alpha + (1.0 - alpha) * current;
-        baseline.tool_call_patterns.insert(tool_call.to_string(), new_value);
+        baseline
+            .tool_call_patterns
+            .insert(tool_call.to_string(), new_value);
 
         // Update request interval if provided
         if let Some(interval) = request_interval_secs {
@@ -301,17 +335,20 @@ impl NhiManager {
                 // Welford's algorithm for online variance
                 let delta2 = interval - baseline.avg_request_interval_secs;
                 let variance_update = delta * delta2;
-                let variance = baseline.request_interval_stddev.powi(2) * ((baseline.observation_count - 1) as f64);
-                baseline.request_interval_stddev = ((variance + variance_update) / (baseline.observation_count as f64)).sqrt();
+                let variance = baseline.request_interval_stddev.powi(2)
+                    * ((baseline.observation_count - 1) as f64);
+                baseline.request_interval_stddev =
+                    ((variance + variance_update) / (baseline.observation_count as f64)).sqrt();
             }
         }
 
         // Update source IPs
         if let Some(ip) = source_ip {
             if !baseline.typical_source_ips.contains(&ip.to_string())
-                && baseline.typical_source_ips.len() < 100 {
-                    baseline.typical_source_ips.push(ip.to_string());
-                }
+                && baseline.typical_source_ips.len() < 100
+            {
+                baseline.typical_source_ips.push(ip.to_string());
+            }
         }
 
         // Update active hours
@@ -387,7 +424,10 @@ impl NhiManager {
             deviations.push(NhiBehavioralDeviation {
                 deviation_type: "unknown_tool".to_string(),
                 observed: tool_call.to_string(),
-                expected: format!("one of {:?}", baseline.tool_call_patterns.keys().collect::<Vec<_>>()),
+                expected: format!(
+                    "one of {:?}",
+                    baseline.tool_call_patterns.keys().collect::<Vec<_>>()
+                ),
                 severity: 0.3,
             });
             total_severity += 0.3;
@@ -402,7 +442,10 @@ impl NhiManager {
                     deviations.push(NhiBehavioralDeviation {
                         deviation_type: "request_interval".to_string(),
                         observed: format!("{:.2}s", interval),
-                        expected: format!("{:.2}s ± {:.2}s", baseline.avg_request_interval_secs, baseline.request_interval_stddev),
+                        expected: format!(
+                            "{:.2}s ± {:.2}s",
+                            baseline.avg_request_interval_secs, baseline.request_interval_stddev
+                        ),
                         severity: (z_score / 10.0).min(0.5),
                     });
                     total_severity += (z_score / 10.0).min(0.5);
@@ -412,7 +455,9 @@ impl NhiManager {
 
         // Check source IP
         if let Some(ip) = source_ip {
-            if !baseline.typical_source_ips.is_empty() && !baseline.typical_source_ips.contains(&ip.to_string()) {
+            if !baseline.typical_source_ips.is_empty()
+                && !baseline.typical_source_ips.contains(&ip.to_string())
+            {
                 deviations.push(NhiBehavioralDeviation {
                     deviation_type: "source_ip".to_string(),
                     observed: ip.to_string(),
@@ -641,9 +686,15 @@ impl NhiManager {
     }
 
     /// Get delegation between two agents.
-    pub async fn get_delegation(&self, from_agent: &str, to_agent: &str) -> Option<NhiDelegationLink> {
+    pub async fn get_delegation(
+        &self,
+        from_agent: &str,
+        to_agent: &str,
+    ) -> Option<NhiDelegationLink> {
         let delegations = self.delegations.read().await;
-        delegations.get(&(from_agent.to_string(), to_agent.to_string())).cloned()
+        delegations
+            .get(&(from_agent.to_string(), to_agent.to_string()))
+            .cloned()
     }
 
     /// List delegations for an agent (as delegator or delegatee).
@@ -657,7 +708,11 @@ impl NhiManager {
     }
 
     /// Revoke a delegation.
-    pub async fn revoke_delegation(&self, from_agent: &str, to_agent: &str) -> Result<(), NhiError> {
+    pub async fn revoke_delegation(
+        &self,
+        from_agent: &str,
+        to_agent: &str,
+    ) -> Result<(), NhiError> {
         let mut delegations = self.delegations.write().await;
         let key = (from_agent.to_string(), to_agent.to_string());
 
@@ -684,7 +739,10 @@ impl NhiManager {
         let mut current = agent_id.to_string();
 
         // Walk backwards through delegation chain
-        while let Some(link) = delegations.values().find(|d| d.to_agent == current && d.active) {
+        while let Some(link) = delegations
+            .values()
+            .find(|d| d.to_agent == current && d.active)
+        {
             if visited.contains(&link.from_agent) {
                 break; // Prevent cycles
             }
@@ -720,10 +778,14 @@ impl NhiManager {
         new_ttl_secs: Option<u64>,
     ) -> Result<NhiCredentialRotation, NhiError> {
         let mut identities = self.identities.write().await;
-        let identity = identities.get_mut(agent_id)
+        let identity = identities
+            .get_mut(agent_id)
             .ok_or_else(|| NhiError::IdentityNotFound(agent_id.to_string()))?;
 
-        let previous_thumbprint = identity.public_key.as_ref().map(|k| Self::compute_thumbprint(k));
+        let previous_thumbprint = identity
+            .public_key
+            .as_ref()
+            .map(|k| Self::compute_thumbprint(k));
         let new_thumbprint = Self::compute_thumbprint(new_public_key);
 
         let now = chrono::Utc::now();
@@ -816,7 +878,9 @@ impl NhiManager {
             let mut identities = self.identities.write().await;
             for identity in identities.values_mut() {
                 if let Ok(expires) = chrono::DateTime::parse_from_rfc3339(&identity.expires_at) {
-                    if expires.with_timezone(&chrono::Utc) <= now && identity.status == NhiIdentityStatus::Active {
+                    if expires.with_timezone(&chrono::Utc) <= now
+                        && identity.status == NhiIdentityStatus::Active
+                    {
                         identity.status = NhiIdentityStatus::Expired;
                     }
                 }
@@ -840,10 +904,14 @@ impl NhiManager {
         let delegations = self.delegations.read().await;
         let mut stats = self.stats.write().await;
         stats.total_identities = identities.len() as u64;
-        stats.active_identities = identities.values()
-            .filter(|i| i.status == NhiIdentityStatus::Active || i.status == NhiIdentityStatus::Probationary)
+        stats.active_identities = identities
+            .values()
+            .filter(|i| {
+                i.status == NhiIdentityStatus::Active || i.status == NhiIdentityStatus::Probationary
+            })
             .count() as u64;
-        stats.expired_identities = identities.values()
+        stats.expired_identities = identities
+            .values()
             .filter(|i| i.status == NhiIdentityStatus::Expired)
             .count() as u64;
         stats.active_delegations = delegations.values().filter(|d| d.active).count() as u64;
@@ -882,7 +950,8 @@ impl DpopNonceTracker {
         let now = chrono::Utc::now().timestamp() as u64;
 
         // Cleanup old nonces
-        self.nonces.retain(|_, ts| now.saturating_sub(*ts) < self.ttl_secs);
+        self.nonces
+            .retain(|_, ts| now.saturating_sub(*ts) < self.ttl_secs);
 
         self.nonces.insert(nonce.clone(), now);
         nonce
@@ -916,7 +985,10 @@ pub enum NhiError {
     /// Capacity limit exceeded.
     CapacityExceeded(String),
     /// Invalid status transition.
-    InvalidStatusTransition { from: NhiIdentityStatus, to: NhiIdentityStatus },
+    InvalidStatusTransition {
+        from: NhiIdentityStatus,
+        to: NhiIdentityStatus,
+    },
     /// Delegation not found.
     DelegationNotFound { from: String, to: String },
     /// Delegation chain too deep.
@@ -928,7 +1000,9 @@ impl std::fmt::Display for NhiError {
         match self {
             NhiError::Disabled => write!(f, "NHI manager is disabled"),
             NhiError::IdentityNotFound(id) => write!(f, "Identity not found: {}", id),
-            NhiError::AttestationTypeNotAllowed(t) => write!(f, "Attestation type not allowed: {}", t),
+            NhiError::AttestationTypeNotAllowed(t) => {
+                write!(f, "Attestation type not allowed: {}", t)
+            }
             NhiError::TtlExceedsMax { requested, max } => {
                 write!(f, "Requested TTL {} exceeds maximum {}", requested, max)
             }
@@ -940,7 +1014,11 @@ impl std::fmt::Display for NhiError {
                 write!(f, "Delegation not found: {} -> {}", from, to)
             }
             NhiError::ChainTooDeep { depth, max } => {
-                write!(f, "Delegation chain depth {} exceeds maximum {}", depth, max)
+                write!(
+                    f,
+                    "Delegation chain depth {} exceeds maximum {}",
+                    depth, max
+                )
             }
         }
     }
@@ -963,16 +1041,19 @@ mod tests {
     async fn test_register_identity() {
         let manager = NhiManager::new(enabled_config());
 
-        let id = manager.register_identity(
-            "Test Agent",
-            NhiAttestationType::Jwt,
-            None,
-            Some("public-key"),
-            Some("Ed25519"),
-            None,
-            vec!["production".to_string()],
-            HashMap::new(),
-        ).await.unwrap();
+        let id = manager
+            .register_identity(
+                "Test Agent",
+                NhiAttestationType::Jwt,
+                None,
+                Some("public-key"),
+                Some("Ed25519"),
+                None,
+                vec!["production".to_string()],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
 
         assert!(!id.is_empty());
 
@@ -985,16 +1066,19 @@ mod tests {
     async fn test_identity_lifecycle() {
         let manager = NhiManager::new(enabled_config());
 
-        let id = manager.register_identity(
-            "Lifecycle Test",
-            NhiAttestationType::Spiffe,
-            Some("spiffe://example.org/agent"),
-            None,
-            None,
-            Some(3600),
-            vec![],
-            HashMap::new(),
-        ).await.unwrap();
+        let id = manager
+            .register_identity(
+                "Lifecycle Test",
+                NhiAttestationType::Spiffe,
+                Some("spiffe://example.org/agent"),
+                None,
+                None,
+                Some(3600),
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
 
         // Activate
         manager.activate_identity(&id).await.unwrap();
@@ -1007,12 +1091,18 @@ mod tests {
         assert_eq!(identity.auth_count, 1);
 
         // Suspend
-        manager.update_status(&id, NhiIdentityStatus::Suspended).await.unwrap();
+        manager
+            .update_status(&id, NhiIdentityStatus::Suspended)
+            .await
+            .unwrap();
         let identity = manager.get_identity(&id).await.unwrap();
         assert_eq!(identity.status, NhiIdentityStatus::Suspended);
 
         // Revoke
-        manager.update_status(&id, NhiIdentityStatus::Revoked).await.unwrap();
+        manager
+            .update_status(&id, NhiIdentityStatus::Revoked)
+            .await
+            .unwrap();
         assert!(manager.is_revoked(&id).await);
     }
 
@@ -1020,20 +1110,31 @@ mod tests {
     async fn test_behavioral_baseline() {
         let manager = NhiManager::new(enabled_config());
 
-        let id = manager.register_identity(
-            "Behavioral Test",
-            NhiAttestationType::Jwt,
-            None,
-            None,
-            None,
-            None,
-            vec![],
-            HashMap::new(),
-        ).await.unwrap();
+        let id = manager
+            .register_identity(
+                "Behavioral Test",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
 
         // Update baseline multiple times
         for i in 0..100 {
-            manager.update_baseline(&id, "file:read", Some(1.0 + (i as f64 * 0.01)), Some("10.0.0.1")).await.unwrap();
+            manager
+                .update_baseline(
+                    &id,
+                    "file:read",
+                    Some(1.0 + (i as f64 * 0.01)),
+                    Some("10.0.0.1"),
+                )
+                .await
+                .unwrap();
         }
 
         let baseline = manager.get_baseline(&id).await.unwrap();
@@ -1048,29 +1149,39 @@ mod tests {
         config.min_baseline_observations = 10;
         let manager = NhiManager::new(config);
 
-        let id = manager.register_identity(
-            "Check Test",
-            NhiAttestationType::Jwt,
-            None,
-            None,
-            None,
-            None,
-            vec![],
-            HashMap::new(),
-        ).await.unwrap();
+        let id = manager
+            .register_identity(
+                "Check Test",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
 
         // Build baseline
         for _ in 0..20 {
-            manager.update_baseline(&id, "file:read", Some(1.0), Some("10.0.0.1")).await.unwrap();
+            manager
+                .update_baseline(&id, "file:read", Some(1.0), Some("10.0.0.1"))
+                .await
+                .unwrap();
         }
 
         // Check normal behavior
-        let result = manager.check_behavior(&id, "file:read", Some(1.0), Some("10.0.0.1")).await;
+        let result = manager
+            .check_behavior(&id, "file:read", Some(1.0), Some("10.0.0.1"))
+            .await;
         assert!(result.within_baseline);
         assert_eq!(result.recommendation, NhiBehavioralRecommendation::Allow);
 
         // Check anomalous behavior (unknown tool)
-        let result = manager.check_behavior(&id, "bash:execute", Some(1.0), Some("10.0.0.1")).await;
+        let result = manager
+            .check_behavior(&id, "bash:execute", Some(1.0), Some("10.0.0.1"))
+            .await;
         assert!(!result.within_baseline || result.anomaly_score > 0.0);
     }
 
@@ -1079,13 +1190,69 @@ mod tests {
         let manager = NhiManager::new(enabled_config());
 
         // Register three agents
-        let agent_a = manager.register_identity("Agent A", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
-        let agent_b = manager.register_identity("Agent B", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
-        let agent_c = manager.register_identity("Agent C", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
+        let agent_a = manager
+            .register_identity(
+                "Agent A",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_b = manager
+            .register_identity(
+                "Agent B",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_c = manager
+            .register_identity(
+                "Agent C",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
 
         // Create delegation chain: A -> B -> C
-        manager.create_delegation(&agent_a, &agent_b, vec!["read".to_string()], vec![], 3600, None).await.unwrap();
-        manager.create_delegation(&agent_b, &agent_c, vec!["read".to_string()], vec![], 3600, None).await.unwrap();
+        manager
+            .create_delegation(
+                &agent_a,
+                &agent_b,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
+            .await
+            .unwrap();
+        manager
+            .create_delegation(
+                &agent_b,
+                &agent_c,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
+            .await
+            .unwrap();
 
         // Resolve chain from C
         let chain = manager.resolve_delegation_chain(&agent_c).await;
@@ -1098,18 +1265,24 @@ mod tests {
     async fn test_credential_rotation() {
         let manager = NhiManager::new(enabled_config());
 
-        let id = manager.register_identity(
-            "Rotation Test",
-            NhiAttestationType::Jwt,
-            None,
-            Some("old-key"),
-            Some("Ed25519"),
-            None,
-            vec![],
-            HashMap::new(),
-        ).await.unwrap();
+        let id = manager
+            .register_identity(
+                "Rotation Test",
+                NhiAttestationType::Jwt,
+                None,
+                Some("old-key"),
+                Some("Ed25519"),
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
 
-        let rotation = manager.rotate_credentials(&id, "new-key", Some("Ed25519"), "scheduled", None).await.unwrap();
+        let rotation = manager
+            .rotate_credentials(&id, "new-key", Some("Ed25519"), "scheduled", None)
+            .await
+            .unwrap();
 
         assert!(rotation.previous_thumbprint.is_some());
         assert!(!rotation.new_thumbprint.is_empty());
@@ -1138,16 +1311,18 @@ mod tests {
     async fn test_disabled_manager() {
         let manager = NhiManager::new(NhiConfig::default()); // Disabled by default
 
-        let result = manager.register_identity(
-            "Should Fail",
-            NhiAttestationType::Jwt,
-            None,
-            None,
-            None,
-            None,
-            vec![],
-            HashMap::new(),
-        ).await;
+        let result = manager
+            .register_identity(
+                "Should Fail",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await;
 
         assert!(matches!(result, Err(NhiError::Disabled)));
     }
@@ -1156,8 +1331,32 @@ mod tests {
     async fn test_stats() {
         let manager = NhiManager::new(enabled_config());
 
-        manager.register_identity("Test 1", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
-        manager.register_identity("Test 2", NhiAttestationType::Jwt, None, None, None, None, vec![], HashMap::new()).await.unwrap();
+        manager
+            .register_identity(
+                "Test 1",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        manager
+            .register_identity(
+                "Test 2",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
 
         let stats = manager.stats().await;
         assert_eq!(stats.total_identities, 2);

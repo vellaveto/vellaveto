@@ -212,252 +212,470 @@ impl Iso27090Registry {
 
     fn populate_controls(&mut self) {
         // Data Security controls
-        self.add_control(ControlDomain::DataSecurity, 1, None,
+        self.add_control(
+            ControlDomain::DataSecurity,
+            1,
+            None,
             "Data Classification",
             "Classification scheme for AI training and inference data",
-            "Ensure all data used in AI systems is classified according to sensitivity");
+            "Ensure all data used in AI systems is classified according to sensitivity",
+        );
 
-        self.add_control(ControlDomain::DataSecurity, 2, None,
+        self.add_control(
+            ControlDomain::DataSecurity,
+            2,
+            None,
             "Data Leakage Prevention",
             "Controls to prevent unauthorized data exfiltration",
-            "Prevent sensitive data from being leaked through AI inputs or outputs");
+            "Prevent sensitive data from being leaked through AI inputs or outputs",
+        );
 
-        self.add_control(ControlDomain::DataSecurity, 3, None,
+        self.add_control(
+            ControlDomain::DataSecurity,
+            3,
+            None,
             "Input Validation",
             "Validation of all inputs to AI systems",
-            "Ensure all inputs are validated before processing by AI models");
+            "Ensure all inputs are validated before processing by AI models",
+        );
 
-        self.add_control(ControlDomain::DataSecurity, 4, None,
+        self.add_control(
+            ControlDomain::DataSecurity,
+            4,
+            None,
             "Output Sanitization",
             "Sanitization of AI system outputs",
-            "Ensure outputs do not contain sensitive or harmful content");
+            "Ensure outputs do not contain sensitive or harmful content",
+        );
 
-        self.add_control(ControlDomain::DataSecurity, 5, None,
+        self.add_control(
+            ControlDomain::DataSecurity,
+            5,
+            None,
             "Data Encryption",
             "Encryption of data at rest and in transit",
-            "Protect AI data through cryptographic controls");
+            "Protect AI data through cryptographic controls",
+        );
 
         // Model Security controls
-        self.add_control(ControlDomain::ModelSecurity, 1, None,
+        self.add_control(
+            ControlDomain::ModelSecurity,
+            1,
+            None,
             "Model Access Control",
             "Access control for AI models and configurations",
-            "Restrict access to AI models based on authorization");
+            "Restrict access to AI models based on authorization",
+        );
 
-        self.add_control(ControlDomain::ModelSecurity, 2, None,
+        self.add_control(
+            ControlDomain::ModelSecurity,
+            2,
+            None,
             "Model Integrity",
             "Integrity verification of AI models",
-            "Detect unauthorized modifications to AI models");
+            "Detect unauthorized modifications to AI models",
+        );
 
-        self.add_control(ControlDomain::ModelSecurity, 3, None,
+        self.add_control(
+            ControlDomain::ModelSecurity,
+            3,
+            None,
             "Model Versioning",
             "Version control for AI models",
-            "Track and manage changes to AI models over time");
+            "Track and manage changes to AI models over time",
+        );
 
-        self.add_control(ControlDomain::ModelSecurity, 4, None,
+        self.add_control(
+            ControlDomain::ModelSecurity,
+            4,
+            None,
             "Adversarial Defense",
             "Protection against adversarial inputs",
-            "Detect and mitigate adversarial attacks on AI models");
+            "Detect and mitigate adversarial attacks on AI models",
+        );
 
-        self.add_control(ControlDomain::ModelSecurity, 5, None,
+        self.add_control(
+            ControlDomain::ModelSecurity,
+            5,
+            None,
             "Anomaly Detection",
             "Detection of anomalous model behavior",
-            "Identify when AI models exhibit unexpected behavior");
+            "Identify when AI models exhibit unexpected behavior",
+        );
 
         // Operational Security controls
-        self.add_control(ControlDomain::OperationalSecurity, 1, None,
+        self.add_control(
+            ControlDomain::OperationalSecurity,
+            1,
+            None,
             "Audit Logging",
             "Comprehensive logging of AI system activities",
-            "Maintain tamper-evident audit trails of all AI operations");
+            "Maintain tamper-evident audit trails of all AI operations",
+        );
 
-        self.add_control(ControlDomain::OperationalSecurity, 2, None,
+        self.add_control(
+            ControlDomain::OperationalSecurity,
+            2,
+            None,
             "Real-time Monitoring",
             "Continuous monitoring of AI system behavior",
-            "Detect security events and anomalies in real-time");
+            "Detect security events and anomalies in real-time",
+        );
 
-        self.add_control(ControlDomain::OperationalSecurity, 3, None,
+        self.add_control(
+            ControlDomain::OperationalSecurity,
+            3,
+            None,
             "Incident Response",
             "Response procedures for AI security incidents",
-            "Enable rapid response to AI-related security incidents");
+            "Enable rapid response to AI-related security incidents",
+        );
 
-        self.add_control(ControlDomain::OperationalSecurity, 4, None,
+        self.add_control(
+            ControlDomain::OperationalSecurity,
+            4,
+            None,
             "Policy Enforcement",
             "Enforcement of security policies on AI operations",
-            "Ensure AI operations comply with organizational policies");
+            "Ensure AI operations comply with organizational policies",
+        );
 
-        self.add_control(ControlDomain::OperationalSecurity, 5, None,
+        self.add_control(
+            ControlDomain::OperationalSecurity,
+            5,
+            None,
             "Emergency Controls",
             "Emergency shutdown and recovery capabilities",
-            "Ability to quickly disable AI systems when needed");
+            "Ability to quickly disable AI systems when needed",
+        );
 
         // Supply Chain Security controls
-        self.add_control(ControlDomain::SupplyChainSecurity, 1, None,
+        self.add_control(
+            ControlDomain::SupplyChainSecurity,
+            1,
+            None,
             "Third-party Validation",
             "Validation of third-party AI components",
-            "Verify the security of AI components from external sources");
+            "Verify the security of AI components from external sources",
+        );
 
-        self.add_control(ControlDomain::SupplyChainSecurity, 2, None,
+        self.add_control(
+            ControlDomain::SupplyChainSecurity,
+            2,
+            None,
             "Tool Attestation",
             "Attestation of AI tool authenticity",
-            "Verify that AI tools are from legitimate sources");
+            "Verify that AI tools are from legitimate sources",
+        );
 
-        self.add_control(ControlDomain::SupplyChainSecurity, 3, None,
+        self.add_control(
+            ControlDomain::SupplyChainSecurity,
+            3,
+            None,
             "Dependency Management",
             "Management of AI system dependencies",
-            "Track and secure dependencies in AI systems");
+            "Track and secure dependencies in AI systems",
+        );
 
-        self.add_control(ControlDomain::SupplyChainSecurity, 4, None,
+        self.add_control(
+            ControlDomain::SupplyChainSecurity,
+            4,
+            None,
             "Supply Chain Threats",
             "Detection of supply chain attacks",
-            "Identify rug pulls, tool squatting, and other supply chain threats");
+            "Identify rug pulls, tool squatting, and other supply chain threats",
+        );
 
         // Privacy & Ethics controls
-        self.add_control(ControlDomain::PrivacyEthics, 1, None,
+        self.add_control(
+            ControlDomain::PrivacyEthics,
+            1,
+            None,
             "Consent Management",
             "Management of data subject consent",
-            "Ensure proper consent is obtained for AI data processing");
+            "Ensure proper consent is obtained for AI data processing",
+        );
 
-        self.add_control(ControlDomain::PrivacyEthics, 2, None,
+        self.add_control(
+            ControlDomain::PrivacyEthics,
+            2,
+            None,
             "Bias Detection",
             "Detection of bias in AI systems",
-            "Identify and mitigate bias in AI decision-making");
+            "Identify and mitigate bias in AI decision-making",
+        );
 
-        self.add_control(ControlDomain::PrivacyEthics, 3, None,
+        self.add_control(
+            ControlDomain::PrivacyEthics,
+            3,
+            None,
             "Explainability",
             "Explainability of AI decisions",
-            "Provide explanations for AI system decisions");
+            "Provide explanations for AI system decisions",
+        );
 
-        self.add_control(ControlDomain::PrivacyEthics, 4, None,
+        self.add_control(
+            ControlDomain::PrivacyEthics,
+            4,
+            None,
             "Human Oversight",
             "Human oversight of AI systems",
-            "Ensure human review and approval of critical AI decisions");
+            "Ensure human review and approval of critical AI decisions",
+        );
 
-        self.add_control(ControlDomain::PrivacyEthics, 5, None,
+        self.add_control(
+            ControlDomain::PrivacyEthics,
+            5,
+            None,
             "Transparency",
             "Transparency reporting for AI systems",
-            "Report on AI system behavior and decisions");
+            "Report on AI system behavior and decisions",
+        );
     }
 
-    fn add_control(&mut self, domain: ControlDomain, category: u8, control: Option<u8>,
-                   name: &str, description: &str, objective: &str) {
+    fn add_control(
+        &mut self,
+        domain: ControlDomain,
+        category: u8,
+        control: Option<u8>,
+        name: &str,
+        description: &str,
+        objective: &str,
+    ) {
         let id = ControlId::new(domain, category, control);
-        self.controls.insert(id.clone(), ExpectedControl {
-            id,
-            domain,
-            name: name.to_string(),
-            description: description.to_string(),
-            objective: objective.to_string(),
-        });
+        self.controls.insert(
+            id.clone(),
+            ExpectedControl {
+                id,
+                domain,
+                name: name.to_string(),
+                description: description.to_string(),
+                objective: objective.to_string(),
+            },
+        );
     }
 
     fn populate_mappings(&mut self) {
         // Data Security mappings
-        self.add_mapping("DS.1", SecurityCapability::DataClassification, ReadinessLevel::Developing,
+        self.add_mapping(
+            "DS.1",
+            SecurityCapability::DataClassification,
+            ReadinessLevel::Developing,
             Some("PII scanner classifies sensitive data types"),
-            vec!["No formal data classification taxonomy".to_string()]);
+            vec!["No formal data classification taxonomy".to_string()],
+        );
 
-        self.add_mapping("DS.2", SecurityCapability::DataLeakagePrevention, ReadinessLevel::Managed,
+        self.add_mapping(
+            "DS.2",
+            SecurityCapability::DataLeakagePrevention,
+            ReadinessLevel::Managed,
             Some("DLP scanning with 5-layer decode, cross-request flow tracking"),
-            vec![]);
+            vec![],
+        );
 
-        self.add_mapping("DS.3", SecurityCapability::InputValidation, ReadinessLevel::Managed,
+        self.add_mapping(
+            "DS.3",
+            SecurityCapability::InputValidation,
+            ReadinessLevel::Managed,
             Some("Injection detection, parameter constraints, path/network rules"),
-            vec![]);
+            vec![],
+        );
 
-        self.add_mapping("DS.4", SecurityCapability::OutputSanitization, ReadinessLevel::Managed,
+        self.add_mapping(
+            "DS.4",
+            SecurityCapability::OutputSanitization,
+            ReadinessLevel::Managed,
             Some("Output validation, schema registry, steganography detection"),
-            vec![]);
+            vec![],
+        );
 
-        self.add_mapping("DS.5", SecurityCapability::EncryptionInTransit, ReadinessLevel::Managed,
+        self.add_mapping(
+            "DS.5",
+            SecurityCapability::EncryptionInTransit,
+            ReadinessLevel::Managed,
             Some("TLS required for all external communications"),
-            vec![]);
+            vec![],
+        );
 
         // Model Security mappings
-        self.add_mapping("MS.1", SecurityCapability::ModelAccessControl, ReadinessLevel::Managed,
+        self.add_mapping(
+            "MS.1",
+            SecurityCapability::ModelAccessControl,
+            ReadinessLevel::Managed,
             Some("OAuth 2.1, JWT validation, agent attestation"),
-            vec![]);
+            vec![],
+        );
 
-        self.add_mapping("MS.2", SecurityCapability::SchemaIntegrityChecking, ReadinessLevel::Managed,
+        self.add_mapping(
+            "MS.2",
+            SecurityCapability::SchemaIntegrityChecking,
+            ReadinessLevel::Managed,
             Some("Schema lineage tracking, mutation detection, poisoning alerts"),
-            vec![]);
+            vec![],
+        );
 
-        self.add_mapping("MS.3", SecurityCapability::VersionTracking, ReadinessLevel::Developing,
+        self.add_mapping(
+            "MS.3",
+            SecurityCapability::VersionTracking,
+            ReadinessLevel::Developing,
             Some("Tool registry with version tracking"),
-            vec!["No model versioning in proxy mode".to_string()]);
+            vec!["No model versioning in proxy mode".to_string()],
+        );
 
-        self.add_mapping("MS.4", SecurityCapability::AdversarialInputDetection, ReadinessLevel::Managed,
+        self.add_mapping(
+            "MS.4",
+            SecurityCapability::AdversarialInputDetection,
+            ReadinessLevel::Managed,
             Some("Injection detection, token smuggling, semantic analysis"),
-            vec![]);
+            vec![],
+        );
 
-        self.add_mapping("MS.5", SecurityCapability::AnomalyDetection, ReadinessLevel::Managed,
+        self.add_mapping(
+            "MS.5",
+            SecurityCapability::AnomalyDetection,
+            ReadinessLevel::Managed,
             Some("Behavioral anomaly detection, goal drift, shadow agents"),
-            vec![]);
+            vec![],
+        );
 
         // Operational Security mappings
-        self.add_mapping("OS.1", SecurityCapability::AuditLogging, ReadinessLevel::Optimizing,
+        self.add_mapping(
+            "OS.1",
+            SecurityCapability::AuditLogging,
+            ReadinessLevel::Optimizing,
             Some("Tamper-evident audit log with SHA-256 chain, Ed25519 checkpoints"),
-            vec![]);
+            vec![],
+        );
 
-        self.add_mapping("OS.2", SecurityCapability::RealTimeMonitoring, ReadinessLevel::Managed,
+        self.add_mapping(
+            "OS.2",
+            SecurityCapability::RealTimeMonitoring,
+            ReadinessLevel::Managed,
             Some("Prometheus metrics, behavioral tracking, workflow monitoring"),
-            vec![]);
+            vec![],
+        );
 
-        self.add_mapping("OS.3", SecurityCapability::IncidentResponse, ReadinessLevel::Managed,
+        self.add_mapping(
+            "OS.3",
+            SecurityCapability::IncidentResponse,
+            ReadinessLevel::Managed,
             Some("Circuit breaker, kill switch, audit export to SIEM"),
-            vec![]);
+            vec![],
+        );
 
-        self.add_mapping("OS.4", SecurityCapability::PolicyEnforcement, ReadinessLevel::Optimizing,
+        self.add_mapping(
+            "OS.4",
+            SecurityCapability::PolicyEnforcement,
+            ReadinessLevel::Optimizing,
             Some("Policy engine with hot reload, context conditions, parameter constraints"),
-            vec![]);
+            vec![],
+        );
 
-        self.add_mapping("OS.5", SecurityCapability::KillSwitch, ReadinessLevel::Managed,
+        self.add_mapping(
+            "OS.5",
+            SecurityCapability::KillSwitch,
+            ReadinessLevel::Managed,
             Some("Emergency kill switch for immediate session termination"),
-            vec![]);
+            vec![],
+        );
 
         // Supply Chain Security mappings
-        self.add_mapping("SC.1", SecurityCapability::ThirdPartyValidation, ReadinessLevel::Managed,
+        self.add_mapping(
+            "SC.1",
+            SecurityCapability::ThirdPartyValidation,
+            ReadinessLevel::Managed,
             Some("Tool registry with trust scoring, schema validation"),
-            vec![]);
+            vec![],
+        );
 
-        self.add_mapping("SC.2", SecurityCapability::ToolAttestation, ReadinessLevel::Managed,
+        self.add_mapping(
+            "SC.2",
+            SecurityCapability::ToolAttestation,
+            ReadinessLevel::Managed,
             Some("Agent identity attestation via signed JWTs"),
-            vec![]);
+            vec![],
+        );
 
-        self.add_mapping("SC.3", SecurityCapability::DependencyScanning, ReadinessLevel::Developing,
+        self.add_mapping(
+            "SC.3",
+            SecurityCapability::DependencyScanning,
+            ReadinessLevel::Developing,
             Some("cargo audit in CI"),
-            vec!["No runtime dependency validation".to_string()]);
+            vec!["No runtime dependency validation".to_string()],
+        );
 
-        self.add_mapping("SC.4", SecurityCapability::RugPullDetection, ReadinessLevel::Managed,
+        self.add_mapping(
+            "SC.4",
+            SecurityCapability::RugPullDetection,
+            ReadinessLevel::Managed,
             Some("Rug pull detection with annotation/schema mutation tracking"),
-            vec![]);
+            vec![],
+        );
 
-        self.add_mapping("SC.4", SecurityCapability::ToolSquattingDetection, ReadinessLevel::Managed,
+        self.add_mapping(
+            "SC.4",
+            SecurityCapability::ToolSquattingDetection,
+            ReadinessLevel::Managed,
             Some("Levenshtein + homoglyph detection for tool squatting"),
-            vec![]);
+            vec![],
+        );
 
         // Privacy & Ethics mappings
-        self.add_mapping("PE.1", SecurityCapability::ConsentManagement, ReadinessLevel::Initial,
+        self.add_mapping(
+            "PE.1",
+            SecurityCapability::ConsentManagement,
+            ReadinessLevel::Initial,
             Some("Human approval flow for sensitive operations"),
-            vec!["No formal consent tracking".to_string(), "No data subject rights management".to_string()]);
+            vec![
+                "No formal consent tracking".to_string(),
+                "No data subject rights management".to_string(),
+            ],
+        );
 
-        self.add_mapping("PE.2", SecurityCapability::BiasDetection, ReadinessLevel::NotStarted,
+        self.add_mapping(
+            "PE.2",
+            SecurityCapability::BiasDetection,
+            ReadinessLevel::NotStarted,
             None,
-            vec!["Bias detection not implemented".to_string(), "Out of scope for security proxy".to_string()]);
+            vec![
+                "Bias detection not implemented".to_string(),
+                "Out of scope for security proxy".to_string(),
+            ],
+        );
 
-        self.add_mapping("PE.3", SecurityCapability::ExplainabilitySupport, ReadinessLevel::Developing,
+        self.add_mapping(
+            "PE.3",
+            SecurityCapability::ExplainabilitySupport,
+            ReadinessLevel::Developing,
             Some("Detailed deny reasons in verdicts, audit metadata"),
-            vec!["No formal explainability framework".to_string()]);
+            vec!["No formal explainability framework".to_string()],
+        );
 
-        self.add_mapping("PE.4", SecurityCapability::HumanOversight, ReadinessLevel::Managed,
+        self.add_mapping(
+            "PE.4",
+            SecurityCapability::HumanOversight,
+            ReadinessLevel::Managed,
             Some("Human-in-the-loop approvals with deduplication"),
-            vec![]);
+            vec![],
+        );
 
-        self.add_mapping("PE.5", SecurityCapability::TransparencyReporting, ReadinessLevel::Developing,
+        self.add_mapping(
+            "PE.5",
+            SecurityCapability::TransparencyReporting,
+            ReadinessLevel::Developing,
             Some("Audit log export, metrics dashboard"),
-            vec!["No automated compliance reporting".to_string()]);
+            vec!["No automated compliance reporting".to_string()],
+        );
     }
 
-    fn add_mapping(&mut self, control_id: &str, capability: SecurityCapability,
-                   readiness: ReadinessLevel, evidence: Option<&str>, gaps: Vec<String>) {
+    fn add_mapping(
+        &mut self,
+        control_id: &str,
+        capability: SecurityCapability,
+        readiness: ReadinessLevel,
+        evidence: Option<&str>,
+        gaps: Vec<String>,
+    ) {
         self.mappings.push(ControlMapping {
             control_id: ControlId(control_id.to_string()),
             capability,
@@ -495,7 +713,9 @@ impl Iso27090Registry {
 
     /// Calculate readiness score for a domain.
     pub fn domain_readiness(&self, domain: ControlDomain) -> DomainReadiness {
-        let domain_controls: Vec<_> = self.controls.values()
+        let domain_controls: Vec<_> = self
+            .controls
+            .values()
             .filter(|c| c.domain == domain)
             .collect();
 
@@ -511,7 +731,8 @@ impl Iso27090Registry {
                 gaps.push(format!("{}: No mapping", control.id));
             } else {
                 // Use highest readiness among mappings for this control
-                let best = mappings.iter()
+                let best = mappings
+                    .iter()
                     .map(|m| m.readiness.score())
                     .max()
                     .unwrap_or(0);
@@ -565,12 +786,15 @@ impl Iso27090Registry {
             0.0
         };
 
-        let all_gaps: Vec<_> = domain_scores.values()
+        let all_gaps: Vec<_> = domain_scores
+            .values()
             .flat_map(|d| d.gaps.clone())
             .collect();
 
-        let certification_ready = overall_percentage >= 80.0 &&
-            domain_scores.values().all(|d| d.readiness_percentage >= 60.0);
+        let certification_ready = overall_percentage >= 80.0
+            && domain_scores
+                .values()
+                .all(|d| d.readiness_percentage >= 60.0);
 
         ReadinessAssessment {
             generated_at: chrono::Utc::now().to_rfc3339(),
@@ -579,7 +803,8 @@ impl Iso27090Registry {
             overall_percentage,
             domain_scores,
             total_gaps: all_gaps.len(),
-            critical_gaps: all_gaps.iter()
+            critical_gaps: all_gaps
+                .iter()
                 .filter(|g| g.contains("No mapping") || g.contains("not implemented"))
                 .cloned()
                 .collect(),
@@ -624,10 +849,18 @@ impl ReadinessAssessment {
         output.push_str("ISO/IEC 27090 Readiness Assessment\n");
         output.push_str("===================================\n\n");
         output.push_str(&format!("Generated: {}\n", self.generated_at));
-        output.push_str(&format!("Overall Readiness: {:.1}% ({}/{})\n",
-            self.overall_percentage, self.overall_score, self.overall_max_score));
-        output.push_str(&format!("Certification Ready: {}\n\n",
-            if self.certification_ready { "Yes" } else { "No" }));
+        output.push_str(&format!(
+            "Overall Readiness: {:.1}% ({}/{})\n",
+            self.overall_percentage, self.overall_score, self.overall_max_score
+        ));
+        output.push_str(&format!(
+            "Certification Ready: {}\n\n",
+            if self.certification_ready {
+                "Yes"
+            } else {
+                "No"
+            }
+        ));
 
         output.push_str("Domain Scores:\n");
         for domain in [
@@ -638,9 +871,10 @@ impl ReadinessAssessment {
             ControlDomain::PrivacyEthics,
         ] {
             if let Some(score) = self.domain_scores.get(&domain) {
-                output.push_str(&format!("  {}: {:.1}% ({}/{})\n",
-                    domain, score.readiness_percentage,
-                    score.readiness_score, score.max_score));
+                output.push_str(&format!(
+                    "  {}: {:.1}% ({}/{})\n",
+                    domain, score.readiness_percentage, score.readiness_score, score.max_score
+                ));
             }
         }
 
@@ -665,16 +899,20 @@ impl ReadinessAssessment {
                 recommendations.push(Recommendation {
                     priority: Priority::High,
                     domain: *domain,
-                    description: format!("Improve {} readiness from {:.0}% to at least 60%",
-                        domain, score.readiness_percentage),
+                    description: format!(
+                        "Improve {} readiness from {:.0}% to at least 60%",
+                        domain, score.readiness_percentage
+                    ),
                     suggested_actions: score.gaps.clone(),
                 });
             } else if score.readiness_percentage < 80.0 {
                 recommendations.push(Recommendation {
                     priority: Priority::Medium,
                     domain: *domain,
-                    description: format!("Enhance {} readiness from {:.0}% to 80%+",
-                        domain, score.readiness_percentage),
+                    description: format!(
+                        "Enhance {} readiness from {:.0}% to 80%+",
+                        domain, score.readiness_percentage
+                    ),
                     suggested_actions: score.gaps.clone(),
                 });
             }
@@ -745,14 +983,14 @@ pub fn add_iso27090_metadata(
 ) {
     let mappings = registry.mappings_for_capability(capability);
     if !mappings.is_empty() {
-        let controls: Vec<String> = mappings
-            .iter()
-            .map(|m| m.control_id.0.clone())
-            .collect();
+        let controls: Vec<String> = mappings.iter().map(|m| m.control_id.0.clone()).collect();
 
         if let serde_json::Value::Object(ref mut map) = metadata {
             map.insert("iso27090_controls".to_string(), serde_json::json!(controls));
-            map.insert("iso27090_capability".to_string(), serde_json::json!(capability.to_string()));
+            map.insert(
+                "iso27090_capability".to_string(),
+                serde_json::json!(capability.to_string()),
+            );
         }
     }
 }
@@ -782,7 +1020,10 @@ mod tests {
     #[test]
     fn test_domain_display() {
         assert_eq!(format!("{}", ControlDomain::DataSecurity), "Data Security");
-        assert_eq!(format!("{}", ControlDomain::OperationalSecurity), "Operational Security");
+        assert_eq!(
+            format!("{}", ControlDomain::OperationalSecurity),
+            "Operational Security"
+        );
     }
 
     #[test]
@@ -851,7 +1092,9 @@ mod tests {
         let mappings = registry.mappings_for_capability(SecurityCapability::AuditLogging);
 
         assert!(!mappings.is_empty());
-        assert!(mappings.iter().any(|m| m.readiness == ReadinessLevel::Optimizing));
+        assert!(mappings
+            .iter()
+            .any(|m| m.readiness == ReadinessLevel::Optimizing));
     }
 
     #[test]
@@ -859,7 +1102,11 @@ mod tests {
         let registry = Iso27090Registry::new();
         let mut metadata = serde_json::json!({});
 
-        add_iso27090_metadata(&mut metadata, SecurityCapability::PolicyEnforcement, &registry);
+        add_iso27090_metadata(
+            &mut metadata,
+            SecurityCapability::PolicyEnforcement,
+            &registry,
+        );
 
         assert!(metadata.get("iso27090_controls").is_some());
         assert!(metadata.get("iso27090_capability").is_some());

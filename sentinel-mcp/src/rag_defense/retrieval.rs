@@ -276,7 +276,12 @@ impl RetrievalInspector {
 
         results
             .into_iter()
-            .filter(|r| !inspection.blocked_results.iter().any(|b| b.contains(&r.doc_id)))
+            .filter(|r| {
+                !inspection
+                    .blocked_results
+                    .iter()
+                    .any(|b| b.contains(&r.doc_id))
+            })
             .collect()
     }
 }
@@ -413,7 +418,10 @@ mod tests {
         ];
 
         let diversity = inspector.check_diversity(&results);
-        assert!(diversity < 0.1, "Identical results should have low diversity");
+        assert!(
+            diversity < 0.1,
+            "Identical results should have low diversity"
+        );
     }
 
     #[test]

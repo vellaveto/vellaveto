@@ -138,10 +138,18 @@ impl SchemaLineageTracker {
         }
 
         // Calculate Jaccard similarity on character trigrams
-        let old_trigrams: std::collections::HashSet<_> =
-            old_str.chars().collect::<Vec<_>>().windows(3).map(|w| (w[0], w[1], w[2])).collect();
-        let new_trigrams: std::collections::HashSet<_> =
-            new_str.chars().collect::<Vec<_>>().windows(3).map(|w| (w[0], w[1], w[2])).collect();
+        let old_trigrams: std::collections::HashSet<_> = old_str
+            .chars()
+            .collect::<Vec<_>>()
+            .windows(3)
+            .map(|w| (w[0], w[1], w[2]))
+            .collect();
+        let new_trigrams: std::collections::HashSet<_> = new_str
+            .chars()
+            .collect::<Vec<_>>()
+            .windows(3)
+            .map(|w| (w[0], w[1], w[2]))
+            .collect();
 
         if old_trigrams.is_empty() && new_trigrams.is_empty() {
             return 1.0;
@@ -278,7 +286,11 @@ impl SchemaLineageTracker {
 
     /// Evict the oldest (least recently seen) schema.
     fn evict_oldest_internal(&self, schemas: &mut HashMap<String, SchemaRecord>) {
-        if let Some((oldest_tool, _)) = schemas.iter().min_by_key(|(_, r)| r.last_seen).map(|(k, v)| (k.clone(), v.clone())) {
+        if let Some((oldest_tool, _)) = schemas
+            .iter()
+            .min_by_key(|(_, r)| r.last_seen)
+            .map(|(k, v)| (k.clone(), v.clone()))
+        {
             schemas.remove(&oldest_tool);
             tracing::debug!(
                 tool = %oldest_tool,

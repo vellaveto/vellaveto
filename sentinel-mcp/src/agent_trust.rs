@@ -13,7 +13,9 @@ use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
 /// Privilege level assigned to an agent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
 pub enum PrivilegeLevel {
     /// No privileges - can only read public data
     #[default]
@@ -122,10 +124,16 @@ impl AgentTrustGraph {
 
     /// Register an agent with a privilege level.
     pub fn register_agent(&self, agent_id: &str, level: PrivilegeLevel) {
-        let mut levels = self.privilege_levels.write().unwrap_or_else(|e| e.into_inner());
+        let mut levels = self
+            .privilege_levels
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         levels.insert(agent_id.to_string(), level);
 
-        let mut activity = self.last_activity.write().unwrap_or_else(|e| e.into_inner());
+        let mut activity = self
+            .last_activity
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         activity.insert(agent_id.to_string(), Instant::now());
     }
 
@@ -148,7 +156,10 @@ impl AgentTrustGraph {
 
     /// Mark an agent as globally trusted.
     pub fn add_trusted_agent(&self, agent_id: &str) {
-        let mut trusted = self.trusted_agents.write().unwrap_or_else(|e| e.into_inner());
+        let mut trusted = self
+            .trusted_agents
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         trusted.insert(agent_id.to_string());
     }
 
@@ -160,7 +171,10 @@ impl AgentTrustGraph {
     /// 3. agent_a's privilege level can delegate to agent_b's level
     pub fn can_delegate(&self, from_agent: &str, to_agent: &str) -> bool {
         // Check if to_agent is globally trusted
-        let trusted = self.trusted_agents.read().unwrap_or_else(|e| e.into_inner());
+        let trusted = self
+            .trusted_agents
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         if trusted.contains(to_agent) {
             return true;
         }
@@ -177,21 +191,24 @@ impl AgentTrustGraph {
         }
 
         // Check privilege levels
-        let levels = self.privilege_levels.read().unwrap_or_else(|e| e.into_inner());
-        let from_level = levels.get(from_agent).copied().unwrap_or(PrivilegeLevel::None);
-        let to_level = levels.get(to_agent).copied().unwrap_or(PrivilegeLevel::None);
+        let levels = self
+            .privilege_levels
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        let from_level = levels
+            .get(from_agent)
+            .copied()
+            .unwrap_or(PrivilegeLevel::None);
+        let to_level = levels
+            .get(to_agent)
+            .copied()
+            .unwrap_or(PrivilegeLevel::None);
 
         from_level.can_delegate_to(to_level)
     }
 
     /// Record an inter-agent request.
-    pub fn record_request(
-        &self,
-        session_id: &str,
-        from_agent: &str,
-        to_agent: &str,
-        action: &str,
-    ) {
+    pub fn record_request(&self, session_id: &str, from_agent: &str, to_agent: &str, action: &str) {
         let entry = RequestChainEntry {
             from_agent: from_agent.to_string(),
             to_agent: to_agent.to_string(),
@@ -203,20 +220,29 @@ impl AgentTrustGraph {
             session_id: session_id.to_string(),
         };
 
-        let mut chains = self.request_chains.write().unwrap_or_else(|e| e.into_inner());
+        let mut chains = self
+            .request_chains
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         chains
             .entry(session_id.to_string())
             .or_default()
             .push(entry);
 
-        let mut activity = self.last_activity.write().unwrap_or_else(|e| e.into_inner());
+        let mut activity = self
+            .last_activity
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         activity.insert(from_agent.to_string(), Instant::now());
         activity.insert(to_agent.to_string(), Instant::now());
     }
 
     /// Get the request chain for a session.
     pub fn get_chain(&self, session_id: &str) -> Vec<RequestChainEntry> {
-        let chains = self.request_chains.read().unwrap_or_else(|e| e.into_inner());
+        let chains = self
+            .request_chains
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         chains.get(session_id).cloned().unwrap_or_default()
     }
 
@@ -235,7 +261,10 @@ impl AgentTrustGraph {
         if chain.len() > self.max_chain_depth {
             return Some(EscalationAlert {
                 alert_type: EscalationAlertType::ChainDepthExceeded,
-                source_agent: chain.first().map(|e| e.from_agent.clone()).unwrap_or_default(),
+                source_agent: chain
+                    .first()
+                    .map(|e| e.from_agent.clone())
+                    .unwrap_or_default(),
                 target_agent: chain.last().map(|e| e.to_agent.clone()),
                 chain: chain.to_vec(),
                 description: format!(
@@ -247,8 +276,14 @@ impl AgentTrustGraph {
             });
         }
 
-        let levels = self.privilege_levels.read().unwrap_or_else(|e| e.into_inner());
-        let trusted = self.trusted_agents.read().unwrap_or_else(|e| e.into_inner());
+        let levels = self
+            .privilege_levels
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        let trusted = self
+            .trusted_agents
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
 
         // Track visited agents for circular delegation detection
         let mut visited = HashSet::new();
@@ -271,8 +306,14 @@ impl AgentTrustGraph {
             visited.insert(entry.from_agent.clone());
 
             // Check for untrusted agent
-            let from_level = levels.get(&entry.from_agent).copied().unwrap_or(PrivilegeLevel::None);
-            let to_level = levels.get(&entry.to_agent).copied().unwrap_or(PrivilegeLevel::None);
+            let from_level = levels
+                .get(&entry.from_agent)
+                .copied()
+                .unwrap_or(PrivilegeLevel::None);
+            let to_level = levels
+                .get(&entry.to_agent)
+                .copied()
+                .unwrap_or(PrivilegeLevel::None);
 
             // Skip trusted agents
             if trusted.contains(&entry.from_agent) {
@@ -321,22 +362,37 @@ impl AgentTrustGraph {
 
     /// Get the privilege level for an agent.
     pub fn get_privilege_level(&self, agent: &str) -> PrivilegeLevel {
-        let levels = self.privilege_levels.read().unwrap_or_else(|e| e.into_inner());
+        let levels = self
+            .privilege_levels
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         levels.get(agent).copied().unwrap_or(PrivilegeLevel::None)
     }
 
     /// Check if an agent is registered.
     pub fn is_registered(&self, agent: &str) -> bool {
-        let levels = self.privilege_levels.read().unwrap_or_else(|e| e.into_inner());
+        let levels = self
+            .privilege_levels
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         levels.contains_key(agent)
     }
 
     /// Get statistics about the trust graph.
     pub fn stats(&self) -> TrustGraphStats {
         let edges = self.trust_edges.read().unwrap_or_else(|e| e.into_inner());
-        let levels = self.privilege_levels.read().unwrap_or_else(|e| e.into_inner());
-        let chains = self.request_chains.read().unwrap_or_else(|e| e.into_inner());
-        let trusted = self.trusted_agents.read().unwrap_or_else(|e| e.into_inner());
+        let levels = self
+            .privilege_levels
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        let chains = self
+            .request_chains
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        let trusted = self
+            .trusted_agents
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
 
         let total_edges: usize = edges.values().map(|s| s.len()).sum();
 
@@ -354,11 +410,14 @@ impl AgentTrustGraph {
         let now = Instant::now();
 
         // Clean up old chains
-        let mut chains = self.request_chains.write().unwrap_or_else(|e| e.into_inner());
+        let mut chains = self
+            .request_chains
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         chains.retain(|_, entries| {
             if let Some(last) = entries.last() {
-                let entry_time = std::time::UNIX_EPOCH
-                    + std::time::Duration::from_secs(last.timestamp);
+                let entry_time =
+                    std::time::UNIX_EPOCH + std::time::Duration::from_secs(last.timestamp);
                 if let Ok(elapsed) = std::time::SystemTime::now().duration_since(entry_time) {
                     elapsed < self.chain_ttl
                 } else {
@@ -370,18 +429,36 @@ impl AgentTrustGraph {
         });
 
         // Clean up inactive agents
-        let mut activity = self.last_activity.write().unwrap_or_else(|e| e.into_inner());
+        let mut activity = self
+            .last_activity
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         activity.retain(|_, last| now.duration_since(*last) < self.chain_ttl);
     }
 
     /// Clear all data (for testing).
     #[cfg(test)]
     pub fn clear(&self) {
-        self.trust_edges.write().unwrap_or_else(|e| e.into_inner()).clear();
-        self.privilege_levels.write().unwrap_or_else(|e| e.into_inner()).clear();
-        self.request_chains.write().unwrap_or_else(|e| e.into_inner()).clear();
-        self.trusted_agents.write().unwrap_or_else(|e| e.into_inner()).clear();
-        self.last_activity.write().unwrap_or_else(|e| e.into_inner()).clear();
+        self.trust_edges
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        self.privilege_levels
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        self.request_chains
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        self.trusted_agents
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        self.last_activity
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 }
 
@@ -520,7 +597,10 @@ mod tests {
 
         let alert = graph.detect_privilege_escalation(&chain);
         assert!(alert.is_some());
-        assert_eq!(alert.unwrap().alert_type, EscalationAlertType::ChainDepthExceeded);
+        assert_eq!(
+            alert.unwrap().alert_type,
+            EscalationAlertType::ChainDepthExceeded
+        );
     }
 
     #[test]
@@ -540,7 +620,10 @@ mod tests {
 
         let alert = graph.detect_privilege_escalation(&chain);
         assert!(alert.is_some());
-        assert_eq!(alert.unwrap().alert_type, EscalationAlertType::UpwardDelegation);
+        assert_eq!(
+            alert.unwrap().alert_type,
+            EscalationAlertType::UpwardDelegation
+        );
     }
 
     #[test]
@@ -577,7 +660,10 @@ mod tests {
 
         let alert = graph.detect_privilege_escalation(&chain);
         assert!(alert.is_some());
-        assert_eq!(alert.unwrap().alert_type, EscalationAlertType::CircularDelegation);
+        assert_eq!(
+            alert.unwrap().alert_type,
+            EscalationAlertType::CircularDelegation
+        );
     }
 
     #[test]

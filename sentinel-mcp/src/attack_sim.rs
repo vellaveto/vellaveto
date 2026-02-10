@@ -62,17 +62,27 @@ impl AttackCategory {
     /// Returns a description of the attack category.
     pub fn description(&self) -> &'static str {
         match self {
-            Self::PromptInjection => "Manipulating agent behavior through malicious input injection",
-            Self::SensitiveDataDisclosure => "Extracting confidential information through agent interactions",
-            Self::InadequateSandboxing => "Escaping execution boundaries to access restricted resources",
+            Self::PromptInjection => {
+                "Manipulating agent behavior through malicious input injection"
+            }
+            Self::SensitiveDataDisclosure => {
+                "Extracting confidential information through agent interactions"
+            }
+            Self::InadequateSandboxing => {
+                "Escaping execution boundaries to access restricted resources"
+            }
             Self::UnauthorizedActions => "Performing actions beyond authorized scope",
             Self::ExcessiveAgency => "Accumulating capabilities beyond intended design",
             Self::TrustBoundaryViolation => "Exploiting trust relationships between agents",
-            Self::ImproperMultiAgentCoordination => "Exploiting multi-agent communication vulnerabilities",
+            Self::ImproperMultiAgentCoordination => {
+                "Exploiting multi-agent communication vulnerabilities"
+            }
             Self::UnsafeOutputHandling => "Injecting malicious content via agent outputs",
             Self::InsufficientLogging => "Evading detection through logging gaps",
             Self::LackOfKillSwitch => "Preventing or bypassing termination controls",
-            Self::ToolSquatting => "Impersonating legitimate tools through name/namespace collision",
+            Self::ToolSquatting => {
+                "Impersonating legitimate tools through name/namespace collision"
+            }
             Self::DataExfiltration => "Covert extraction of sensitive data",
             Self::SchemaPoisoning => "Mutating tool schemas to inject malicious capabilities",
             Self::RugPull => "Malicious capability changes after initial trust establishment",
@@ -140,9 +150,7 @@ pub enum AttackContent {
         mutated_schema: serde_json::Value,
     },
     /// Multi-step attack sequence
-    Sequence {
-        steps: Vec<AttackStep>,
-    },
+    Sequence { steps: Vec<AttackStep> },
     /// Raw request for custom attacks
     RawRequest {
         method: String,
@@ -470,7 +478,8 @@ impl AttackSimulator {
         vec![AttackScenario {
             id: "DD-001".to_string(),
             name: "Sensitive Data Extraction".to_string(),
-            description: "Attempts to extract sensitive data through agent interactions".to_string(),
+            description: "Attempts to extract sensitive data through agent interactions"
+                .to_string(),
             category: AttackCategory::SensitiveDataDisclosure,
             severity: AttackSeverity::High,
             payloads: vec![
@@ -713,9 +722,7 @@ impl AttackSimulator {
                     tags: vec!["namespace".to_string()],
                 },
             ],
-            references: vec![
-                "https://arxiv.org/abs/2506.01333".to_string(),
-            ],
+            references: vec!["https://arxiv.org/abs/2506.01333".to_string()],
             mitre_tactics: vec!["TA0001".to_string()],
         }]
     }
@@ -836,9 +843,7 @@ impl AttackSimulator {
                     tags: vec!["schema".to_string(), "description".to_string()],
                 },
             ],
-            references: vec![
-                "https://arxiv.org/abs/2506.01333".to_string(),
-            ],
+            references: vec!["https://arxiv.org/abs/2506.01333".to_string()],
             mitre_tactics: vec!["TA0005".to_string()],
         }]
     }
@@ -908,9 +913,7 @@ impl AttackSimulator {
                     tags: vec!["traversal".to_string(), "null-byte".to_string()],
                 },
             ],
-            references: vec![
-                "https://owasp.org/www-community/attacks/Path_Traversal".to_string(),
-            ],
+            references: vec!["https://owasp.org/www-community/attacks/Path_Traversal".to_string()],
             mitre_tactics: vec!["TA0009".to_string()],
         }]
     }
@@ -1009,7 +1012,7 @@ impl AttackSimulator {
                 },
             ],
             references: vec![
-                "https://owasp.org/www-community/attacks/Command_Injection".to_string(),
+                "https://owasp.org/www-community/attacks/Command_Injection".to_string()
             ],
             mitre_tactics: vec!["TA0002".to_string()],
         }]
@@ -1033,7 +1036,10 @@ mod tests {
     #[test]
     fn test_attack_category_asi_id() {
         assert_eq!(AttackCategory::PromptInjection.asi_id(), Some("ASI01"));
-        assert_eq!(AttackCategory::SensitiveDataDisclosure.asi_id(), Some("ASI02"));
+        assert_eq!(
+            AttackCategory::SensitiveDataDisclosure.asi_id(),
+            Some("ASI02")
+        );
         assert_eq!(AttackCategory::LackOfKillSwitch.asi_id(), Some("ASI10"));
         assert_eq!(AttackCategory::ToolSquatting.asi_id(), None);
     }
@@ -1047,14 +1053,20 @@ mod tests {
     #[test]
     fn test_attack_simulator_empty() {
         let sim = AttackSimulator::empty();
-        assert!(sim.scenarios().is_empty(), "Empty simulator should have no scenarios");
+        assert!(
+            sim.scenarios().is_empty(),
+            "Empty simulator should have no scenarios"
+        );
     }
 
     #[test]
     fn test_scenarios_by_category() {
         let sim = AttackSimulator::new();
         let pi_scenarios = sim.scenarios_by_category(AttackCategory::PromptInjection);
-        assert!(!pi_scenarios.is_empty(), "Should have prompt injection scenarios");
+        assert!(
+            !pi_scenarios.is_empty(),
+            "Should have prompt injection scenarios"
+        );
         for scenario in pi_scenarios {
             assert_eq!(scenario.category, AttackCategory::PromptInjection);
         }
@@ -1064,7 +1076,10 @@ mod tests {
     fn test_scenarios_by_severity() {
         let sim = AttackSimulator::new();
         let critical = sim.scenarios_by_severity(AttackSeverity::Critical);
-        assert!(!critical.is_empty(), "Should have critical severity scenarios");
+        assert!(
+            !critical.is_empty(),
+            "Should have critical severity scenarios"
+        );
         for scenario in critical {
             assert_eq!(scenario.severity, AttackSeverity::Critical);
         }

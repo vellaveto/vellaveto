@@ -1620,7 +1620,8 @@ mod tests {
         assert!(
             alerts.iter().any(|a| {
                 a.similar_to == "read_file"
-                    && (a.kind == SquattingKind::Levenshtein || a.kind == SquattingKind::MixedScript)
+                    && (a.kind == SquattingKind::Levenshtein
+                        || a.kind == SquattingKind::MixedScript)
             }),
             "Expected Levenshtein or MixedScript alert against 'read_file', got: {:?}",
             alerts

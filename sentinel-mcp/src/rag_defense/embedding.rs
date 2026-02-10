@@ -183,7 +183,9 @@ impl EmbeddingAnomalyDetector {
 
         // Add to recent embeddings
         if let Ok(mut recent) = self.recent_embeddings.write() {
-            let queue = recent.entry(agent_id.to_string()).or_insert_with(VecDeque::new);
+            let queue = recent
+                .entry(agent_id.to_string())
+                .or_insert_with(VecDeque::new);
 
             // Keep limited history
             if queue.len() >= self.config.max_embeddings_per_agent {
@@ -492,7 +494,10 @@ mod tests {
         let test_emb = make_embedding("test", &[0.0, 1.0, 0.0]);
         let result = detector.detect_anomaly("agent1", &test_emb);
 
-        assert!(matches!(result, Err(RagDefenseError::EmbeddingAnomaly { .. })));
+        assert!(matches!(
+            result,
+            Err(RagDefenseError::EmbeddingAnomaly { .. })
+        ));
     }
 
     #[test]
