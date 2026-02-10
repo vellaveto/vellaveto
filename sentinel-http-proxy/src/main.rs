@@ -458,6 +458,11 @@ async fn main() -> Result<()> {
             axum::routing::post(proxy::handle_mcp_post).delete(proxy::handle_mcp_delete),
         )
         .route("/health", axum::routing::get(health))
+        // RFC 9728: Protected Resource Metadata endpoint for OAuth discovery
+        .route(
+            "/.well-known/oauth-protected-resource",
+            axum::routing::get(proxy::handle_protected_resource_metadata),
+        )
         .layer(axum::extract::DefaultBodyLimit::max(1_048_576))
         .layer(axum::middleware::from_fn(security_headers))
         .layer(axum::middleware::from_fn(request_id))
