@@ -307,10 +307,10 @@ pub fn build_cached_response(cached: &CachedResponse) -> Response<Body> {
     response
         .body(Body::from(cached.body.clone()))
         .unwrap_or_else(|_| {
-            Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from("failed to build cached response"))
-                .unwrap()
+            // Construct fallback without builder to avoid unwrap()
+            let mut resp = Response::new(Body::from("failed to build cached response"));
+            *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+            resp
         })
 }
 

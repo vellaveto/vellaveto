@@ -519,7 +519,10 @@ fn decode_emoji(text: &str) -> Option<String> {
         // Check for emoji with variation selector
         if let Some(&next) = chars.peek() {
             if ('\u{FE00}'..='\u{FE0F}').contains(&next) {
-                emoji_str.push(chars.next().unwrap());
+                // Safe: peek() confirmed the character exists
+                if let Some(selector) = chars.next() {
+                    emoji_str.push(selector);
+                }
             }
         }
 
