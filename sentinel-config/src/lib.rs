@@ -1,5 +1,9 @@
+pub mod observability;
 pub mod validation;
 
+pub use observability::{
+    ArizeConfig, HeliconeConfig, LangfuseConfig, ObservabilityConfig, WebhookExporterConfig,
+};
 use sentinel_types::{NetworkRules, PathRules, Policy, PolicyType, SignatureAlgorithm};
 use serde::{Deserialize, Serialize};
 
@@ -1656,6 +1660,15 @@ pub struct PolicyConfig {
     pub a2a: A2aConfig,
 
     // ═══════════════════════════════════════════════════
+    // PHASE 15: OBSERVABILITY PLATFORM INTEGRATION
+    // ═══════════════════════════════════════════════════
+    /// AI observability platform integration configuration.
+    /// Enables deep integration with platforms like Langfuse, Arize, and Helicone
+    /// for tracing, evaluation, and observability of security decisions.
+    #[serde(default)]
+    pub observability: ObservabilityConfig,
+
+    // ═══════════════════════════════════════════════════
     // SERVER CONFIGURATION
     // ═══════════════════════════════════════════════════
     /// Metrics endpoint authentication (FIND-004).
@@ -3275,6 +3288,11 @@ impl PolicyConfig {
                 return Err("jit_access.max_sessions_per_principal must be > 0".to_string());
             }
         }
+
+        // ═══════════════════════════════════════════════════
+        // PHASE 15: OBSERVABILITY VALIDATION
+        // ═══════════════════════════════════════════════════
+        self.observability.validate()?;
 
         Ok(())
     }
@@ -6130,6 +6148,7 @@ policy_type = "Allow"
             nhi: NhiConfig::default(),
             rag_defense: RagDefenseConfig::default(),
             a2a: A2aConfig::default(),
+            observability: ObservabilityConfig::default(),
             metrics_require_auth: true,
         };
         config.policies = (0..=MAX_POLICIES)

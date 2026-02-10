@@ -4,6 +4,7 @@ pub mod exec_graph;
 pub mod export;
 pub mod iso27090;
 pub mod nist_rmf;
+pub mod observability;
 pub mod pii;
 pub mod streaming;
 
@@ -23,6 +24,12 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 pub use pii::{validate_regex_safety, CustomPiiPattern, PiiScanner};
+pub use observability::{
+    ActionSummary, DetectionType, ObservabilityError, ObservabilityExporter,
+    ObservabilityExporterConfig, RedactionConfig, SamplingConfig as ObservabilitySamplingConfig,
+    SecurityDetection, SecuritySpan, SecuritySpanBuilder, SpanKind, SpanSampler, TraceContext,
+    VerdictSummary,
+};
 
 #[derive(Error, Debug)]
 pub enum AuditError {
@@ -2263,11 +2270,15 @@ impl AuditLogger {
         signer: &str,
         trusted: bool,
     ) -> Result<(), AuditError> {
-        let action = Action::new("sentinel", "etdi_signature_verified", serde_json::json!({
-            "tool": tool,
-            "signer": signer,
-            "trusted": trusted,
-        }));
+        let action = Action::new(
+            "sentinel",
+            "etdi_signature_verified",
+            serde_json::json!({
+                "tool": tool,
+                "signer": signer,
+                "trusted": trusted,
+            }),
+        );
         let verdict = if trusted {
             Verdict::Allow
         } else {
@@ -2275,10 +2286,15 @@ impl AuditLogger {
                 reason: "Signer not in trusted list".to_string(),
             }
         };
-        self.log_entry(&action, &verdict, serde_json::json!({
-            "source": "etdi",
-            "event": "signature_verified",
-        })).await
+        self.log_entry(
+            &action,
+            &verdict,
+            serde_json::json!({
+                "source": "etdi",
+                "event": "signature_verified",
+            }),
+        )
+        .await
     }
 
     /// Log a failed ETDI signature verification.
@@ -2287,17 +2303,26 @@ impl AuditLogger {
         tool: &str,
         reason: &str,
     ) -> Result<(), AuditError> {
-        let action = Action::new("sentinel", "etdi_signature_verification", serde_json::json!({
-            "tool": tool,
-        }));
+        let action = Action::new(
+            "sentinel",
+            "etdi_signature_verification",
+            serde_json::json!({
+                "tool": tool,
+            }),
+        );
         let verdict = Verdict::Deny {
             reason: format!("Signature verification failed: {}", reason),
         };
-        self.log_entry(&action, &verdict, serde_json::json!({
-            "source": "etdi",
-            "event": "signature_failed",
-            "failure_reason": reason,
-        })).await
+        self.log_entry(
+            &action,
+            &verdict,
+            serde_json::json!({
+                "source": "etdi",
+                "event": "signature_failed",
+                "failure_reason": reason,
+            }),
+        )
+        .await
     }
 
     /// Log an unsigned tool detection (blocked or allowed based on config).
@@ -2306,9 +2331,13 @@ impl AuditLogger {
         tool: &str,
         blocked: bool,
     ) -> Result<(), AuditError> {
-        let action = Action::new("sentinel", "etdi_unsigned_tool", serde_json::json!({
-            "tool": tool,
-        }));
+        let action = Action::new(
+            "sentinel",
+            "etdi_unsigned_tool",
+            serde_json::json!({
+                "tool": tool,
+            }),
+        );
         let verdict = if blocked {
             Verdict::Deny {
                 reason: "Tool has no ETDI signature".to_string(),
@@ -2316,10 +2345,15 @@ impl AuditLogger {
         } else {
             Verdict::Allow
         };
-        self.log_entry(&action, &verdict, serde_json::json!({
-            "source": "etdi",
-            "event": if blocked { "unsigned_tool_blocked" } else { "unsigned_tool_allowed" },
-        })).await
+        self.log_entry(
+            &action,
+            &verdict,
+            serde_json::json!({
+                "source": "etdi",
+                "event": if blocked { "unsigned_tool_blocked" } else { "unsigned_tool_allowed" },
+            }),
+        )
+        .await
     }
 
     /// Log a version drift detection.
@@ -2327,12 +2361,16 @@ impl AuditLogger {
         &self,
         alert: &sentinel_types::VersionDriftAlert,
     ) -> Result<(), AuditError> {
-        let action = Action::new("sentinel", "etdi_version_drift", serde_json::json!({
-            "tool": alert.tool,
-            "expected": alert.expected_version,
-            "actual": alert.actual_version,
-            "drift_type": alert.drift_type,
-        }));
+        let action = Action::new(
+            "sentinel",
+            "etdi_version_drift",
+            serde_json::json!({
+                "tool": alert.tool,
+                "expected": alert.expected_version,
+                "actual": alert.actual_version,
+                "drift_type": alert.drift_type,
+            }),
+        );
         let verdict = if alert.blocking {
             Verdict::Deny {
                 reason: format!(
@@ -2343,12 +2381,17 @@ impl AuditLogger {
         } else {
             Verdict::Allow
         };
-        self.log_entry(&action, &verdict, serde_json::json!({
-            "source": "etdi",
-            "event": "version_drift",
-            "blocking": alert.blocking,
-            "detected_at": alert.detected_at,
-        })).await
+        self.log_entry(
+            &action,
+            &verdict,
+            serde_json::json!({
+                "source": "etdi",
+                "event": "version_drift",
+                "blocking": alert.blocking,
+                "detected_at": alert.detected_at,
+            }),
+        )
+        .await
     }
 }
 
@@ -4859,10 +4902,24 @@ mod tests {
         assert_eq!(entries.len(), 1);
         let entry = &entries[0];
         assert!(matches!(entry.verdict, Verdict::Allow));
-        let event = entry.metadata.get("event").and_then(|v| v.as_str()).unwrap();
+        let event = entry
+            .metadata
+            .get("event")
+            .and_then(|v| v.as_str())
+            .unwrap();
         assert_eq!(event, "circuit_breaker.opened");
-        assert_eq!(entry.metadata.get("tool").and_then(|v| v.as_str()).unwrap(), "test_tool");
-        assert_eq!(entry.metadata.get("failure_count").and_then(|v| v.as_u64()).unwrap(), 5);
+        assert_eq!(
+            entry.metadata.get("tool").and_then(|v| v.as_str()).unwrap(),
+            "test_tool"
+        );
+        assert_eq!(
+            entry
+                .metadata
+                .get("failure_count")
+                .and_then(|v| v.as_u64())
+                .unwrap(),
+            5
+        );
     }
 
     #[tokio::test]
@@ -4882,7 +4939,9 @@ mod tests {
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
-        assert!(matches!(&entries[0].verdict, Verdict::Deny { reason } if reason.contains("Circuit breaker open")));
+        assert!(
+            matches!(&entries[0].verdict, Verdict::Deny { reason } if reason.contains("Circuit breaker open"))
+        );
     }
 
     #[tokio::test]
@@ -4907,7 +4966,11 @@ mod tests {
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
         assert!(matches!(&entries[0].verdict, Verdict::Deny { .. }));
-        let event = entries[0].metadata.get("event").and_then(|v| v.as_str()).unwrap();
+        let event = entries[0]
+            .metadata
+            .get("event")
+            .and_then(|v| v.as_str())
+            .unwrap();
         assert_eq!(event, "deputy.validation_failed");
     }
 
@@ -4932,8 +4995,14 @@ mod tests {
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
-        assert!(matches!(&entries[0].verdict, Verdict::Deny { reason } if reason.contains("Shadow agent detected")));
-        let event = entries[0].metadata.get("event").and_then(|v| v.as_str()).unwrap();
+        assert!(
+            matches!(&entries[0].verdict, Verdict::Deny { reason } if reason.contains("Shadow agent detected"))
+        );
+        let event = entries[0]
+            .metadata
+            .get("event")
+            .and_then(|v| v.as_str())
+            .unwrap();
         assert_eq!(event, "shadow_agent.detected");
     }
 
@@ -4959,7 +5028,11 @@ mod tests {
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
         assert!(matches!(&entries[0].verdict, Verdict::Deny { .. }));
-        let event = entries[0].metadata.get("event").and_then(|v| v.as_str()).unwrap();
+        let event = entries[0]
+            .metadata
+            .get("event")
+            .and_then(|v| v.as_str())
+            .unwrap();
         assert_eq!(event, "schema.poisoning_alert");
     }
 
@@ -4985,7 +5058,11 @@ mod tests {
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
         assert!(matches!(entries[0].verdict, Verdict::Allow));
-        let event = entries[0].metadata.get("event").and_then(|v| v.as_str()).unwrap();
+        let event = entries[0]
+            .metadata
+            .get("event")
+            .and_then(|v| v.as_str())
+            .unwrap();
         assert_eq!(event, "task.created");
     }
 
@@ -5009,7 +5086,9 @@ mod tests {
 
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
-        assert!(matches!(&entries[0].verdict, Verdict::Deny { reason } if reason.contains("Step-up authentication")));
+        assert!(
+            matches!(&entries[0].verdict, Verdict::Deny { reason } if reason.contains("Step-up authentication"))
+        );
     }
 
     #[tokio::test]
@@ -5033,7 +5112,11 @@ mod tests {
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
         assert!(matches!(&entries[0].verdict, Verdict::Deny { .. }));
-        let event = entries[0].metadata.get("event").and_then(|v| v.as_str()).unwrap();
+        let event = entries[0]
+            .metadata
+            .get("event")
+            .and_then(|v| v.as_str())
+            .unwrap();
         assert_eq!(event, "sampling.rate_limit_exceeded");
     }
 }

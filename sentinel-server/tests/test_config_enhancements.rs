@@ -181,6 +181,7 @@ fn to_policies_produces_correct_policy_structs() {
         nhi: Default::default(),
         rag_defense: Default::default(),
         a2a: Default::default(),
+        observability: Default::default(),
         metrics_require_auth: true,
     };
     let policies = config.to_policies();
@@ -244,6 +245,7 @@ fn to_policies_uses_default_priority_when_none() {
         nhi: Default::default(),
         rag_defense: Default::default(),
         a2a: Default::default(),
+        observability: Default::default(),
         metrics_require_auth: true,
     };
     let policies = config.to_policies();
@@ -413,6 +415,7 @@ fn policy_config_toml_roundtrip() {
         nhi: Default::default(),
         rag_defense: Default::default(),
         a2a: Default::default(),
+        observability: Default::default(),
         metrics_require_auth: true,
     };
     let toml_str = toml::to_string(&original).unwrap();

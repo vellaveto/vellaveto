@@ -1,5 +1,6 @@
 pub mod dashboard;
 pub mod idempotency;
+pub mod jit;
 pub mod metrics;
 pub mod opa;
 pub mod rbac;
@@ -8,7 +9,6 @@ pub mod telemetry;
 pub mod tenant;
 pub mod threat_intel;
 pub mod tls;
-pub mod jit;
 
 /// Re-export for fuzz testing — not part of the public API.
 #[doc(hidden)]
@@ -587,7 +587,6 @@ pub struct AppState {
     // ═══════════════════════════════════════════════════════════════════
     // Phase 1 & 2 Security Managers (Phase 3.1 Integration)
     // ═══════════════════════════════════════════════════════════════════
-
     /// Task state manager for async task lifecycle tracking (Phase 1).
     /// None when async task tracking is disabled.
     pub task_state: Option<Arc<TaskStateManager>>,
@@ -619,7 +618,6 @@ pub struct AppState {
     // ═══════════════════════════════════════════════════════════════════
     // Phase 6: Observability & Tooling
     // ═══════════════════════════════════════════════════════════════════
-
     /// Execution graph store for visualizing agent call chains (Phase 6).
     /// None when execution graph tracking is disabled.
     pub exec_graph_store: Option<Arc<sentinel_audit::exec_graph::ExecutionGraphStore>>,
@@ -627,7 +625,6 @@ pub struct AppState {
     // ═══════════════════════════════════════════════════════════════════
     // Phase 8: ETDI Cryptographic Tool Security
     // ═══════════════════════════════════════════════════════════════════
-
     /// ETDI store for persistent signature, attestation, and pin state.
     /// None when ETDI is disabled.
     pub etdi_store: Option<Arc<sentinel_mcp::etdi::EtdiStore>>,
@@ -647,7 +644,6 @@ pub struct AppState {
     // ═══════════════════════════════════════════════════════════════════
     // Phase 9: Memory Injection Defense (MINJA)
     // ═══════════════════════════════════════════════════════════════════
-
     /// Memory security manager for MINJA defense.
     /// None when memory security is disabled.
     pub memory_security: Option<Arc<sentinel_mcp::memory_security::MemorySecurityManager>>,
@@ -655,7 +651,6 @@ pub struct AppState {
     // ═══════════════════════════════════════════════════════════════════
     // Phase 10: Non-Human Identity (NHI) Lifecycle
     // ═══════════════════════════════════════════════════════════════════
-
     /// NHI manager for agent identity lifecycle management.
     /// None when NHI is disabled.
     pub nhi: Option<Arc<sentinel_mcp::nhi::NhiManager>>,
@@ -663,7 +658,6 @@ pub struct AppState {
     // ═══════════════════════════════════════════════════════════════════
     // Server Configuration (FIND-004, FIND-005)
     // ═══════════════════════════════════════════════════════════════════
-
     /// When true, `/metrics` and `/api/metrics` require authentication (FIND-004).
     /// Default: true (secure by default).
     pub metrics_require_auth: bool,
@@ -879,6 +873,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             nhi: Default::default(),
             rag_defense: Default::default(),
             a2a: Default::default(),
+            observability: Default::default(),
             metrics_require_auth: true,
         };
         let mut changed_sections = Vec::new();

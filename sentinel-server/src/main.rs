@@ -170,7 +170,16 @@ async fn main() -> Result<()> {
             format,
             no_best_practices,
             no_security_checks,
-        } => cmd_check(config, strict, format, no_best_practices, no_security_checks).await,
+        } => {
+            cmd_check(
+                config,
+                strict,
+                format,
+                no_best_practices,
+                no_security_checks,
+            )
+            .await
+        }
         Commands::Policies { preset } => cmd_policies(preset),
         Commands::Verify {
             audit,
@@ -669,12 +678,14 @@ async fn cmd_serve(
 
         // Phase 1 & 2 Security Managers — initialized from PolicyConfig
         task_state: if policy_config.async_tasks.enabled {
-            Some(Arc::new(sentinel_mcp::task_state::TaskStateManager::with_config(
-                policy_config.async_tasks.max_concurrent_tasks,
-                policy_config.async_tasks.max_task_duration_secs,
-                policy_config.async_tasks.require_self_cancel,
-                policy_config.async_tasks.allow_cancellation.clone(),
-            )))
+            Some(Arc::new(
+                sentinel_mcp::task_state::TaskStateManager::with_config(
+                    policy_config.async_tasks.max_concurrent_tasks,
+                    policy_config.async_tasks.max_task_duration_secs,
+                    policy_config.async_tasks.require_self_cancel,
+                    policy_config.async_tasks.allow_cancellation.clone(),
+                ),
+            ))
         } else {
             None
         },
@@ -707,29 +718,35 @@ async fn cmd_serve(
             None
         },
         shadow_agent: if policy_config.shadow_agent.enabled {
-            Some(Arc::new(sentinel_mcp::shadow_agent::ShadowAgentDetector::new(
-                policy_config.shadow_agent.max_known_agents,
-            )))
+            Some(Arc::new(
+                sentinel_mcp::shadow_agent::ShadowAgentDetector::new(
+                    policy_config.shadow_agent.max_known_agents,
+                ),
+            ))
         } else {
             None
         },
         schema_lineage: if policy_config.schema_poisoning.enabled {
-            Some(Arc::new(sentinel_mcp::schema_poisoning::SchemaLineageTracker::new(
-                policy_config.schema_poisoning.mutation_threshold,
-                policy_config.schema_poisoning.min_observations,
-                policy_config.schema_poisoning.max_tracked_schemas,
-            )))
+            Some(Arc::new(
+                sentinel_mcp::schema_poisoning::SchemaLineageTracker::new(
+                    policy_config.schema_poisoning.mutation_threshold,
+                    policy_config.schema_poisoning.min_observations,
+                    policy_config.schema_poisoning.max_tracked_schemas,
+                ),
+            ))
         } else {
             None
         },
         sampling_detector: if policy_config.sampling_detection.enabled {
-            Some(Arc::new(sentinel_mcp::sampling_detector::SamplingDetector::with_config(
-                policy_config.sampling_detection.max_requests_per_window,
-                policy_config.sampling_detection.window_secs,
-                policy_config.sampling_detection.max_prompt_length,
-                policy_config.sampling_detection.allowed_models.clone(),
-                policy_config.sampling_detection.block_sensitive_patterns,
-            )))
+            Some(Arc::new(
+                sentinel_mcp::sampling_detector::SamplingDetector::with_config(
+                    policy_config.sampling_detection.max_requests_per_window,
+                    policy_config.sampling_detection.window_secs,
+                    policy_config.sampling_detection.max_prompt_length,
+                    policy_config.sampling_detection.allowed_models.clone(),
+                    policy_config.sampling_detection.block_sensitive_patterns,
+                ),
+            ))
         } else {
             None
         },
@@ -737,7 +754,11 @@ async fn cmd_serve(
         exec_graph_store: None,
         // Phase 8: ETDI Cryptographic Tool Security — initialized from PolicyConfig
         etdi_store: if policy_config.etdi.enabled {
-            let data_path = policy_config.etdi.data_path.as_deref().unwrap_or("etdi_data");
+            let data_path = policy_config
+                .etdi
+                .data_path
+                .as_deref()
+                .unwrap_or("etdi_data");
             Some(Arc::new(sentinel_mcp::etdi::EtdiStore::new(data_path)))
         } else {
             None
@@ -752,25 +773,39 @@ async fn cmd_serve(
         etdi_attestations: if policy_config.etdi.enabled && policy_config.etdi.attestation.enabled {
             // AttestationChain requires the store, but we can't reference etdi_store here
             // because struct initialization is unordered. We create a new store Arc.
-            let data_path = policy_config.etdi.data_path.as_deref().unwrap_or("etdi_data");
+            let data_path = policy_config
+                .etdi
+                .data_path
+                .as_deref()
+                .unwrap_or("etdi_data");
             let store = Arc::new(sentinel_mcp::etdi::EtdiStore::new(data_path));
             Some(Arc::new(sentinel_mcp::etdi::AttestationChain::new(store)))
         } else {
             None
         },
-        etdi_version_pins: if policy_config.etdi.enabled && policy_config.etdi.version_pinning.enabled {
-            let data_path = policy_config.etdi.data_path.as_deref().unwrap_or("etdi_data");
+        etdi_version_pins: if policy_config.etdi.enabled
+            && policy_config.etdi.version_pinning.enabled
+        {
+            let data_path = policy_config
+                .etdi
+                .data_path
+                .as_deref()
+                .unwrap_or("etdi_data");
             let store = Arc::new(sentinel_mcp::etdi::EtdiStore::new(data_path));
             let blocking = policy_config.etdi.version_pinning.enforcement == "block";
-            Some(Arc::new(sentinel_mcp::etdi::VersionPinManager::new(store, blocking)))
+            Some(Arc::new(sentinel_mcp::etdi::VersionPinManager::new(
+                store, blocking,
+            )))
         } else {
             None
         },
         // Phase 9: Memory Injection Defense (MINJA) — initialized from PolicyConfig
         memory_security: if policy_config.memory_security.enabled {
-            Some(Arc::new(sentinel_mcp::memory_security::MemorySecurityManager::new(
-                policy_config.memory_security.clone(),
-            )))
+            Some(Arc::new(
+                sentinel_mcp::memory_security::MemorySecurityManager::new(
+                    policy_config.memory_security.clone(),
+                ),
+            ))
         } else {
             None
         },
@@ -1107,7 +1142,10 @@ async fn cmd_check(
 
     // Exit with error code if invalid
     if result.has_errors() {
-        anyhow::bail!("Configuration validation failed with {} errors", result.summary.errors);
+        anyhow::bail!(
+            "Configuration validation failed with {} errors",
+            result.summary.errors
+        );
     }
 
     Ok(())
@@ -1183,6 +1221,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         nhi: Default::default(),
         rag_defense: Default::default(),
         a2a: Default::default(),
+        observability: Default::default(),
         metrics_require_auth: true,
     };
     let toml_str =
@@ -1382,17 +1421,15 @@ fn cmd_generate_key(
 ) -> Result<()> {
     use sentinel_mcp::etdi::ToolSigner;
 
-    let signer = ToolSigner::generate()
-        .map_err(|e| anyhow::anyhow!("Key generation failed: {}", e))?;
+    let signer =
+        ToolSigner::generate().map_err(|e| anyhow::anyhow!("Key generation failed: {}", e))?;
 
     let private_key = signer.private_key_hex();
     let public_key = signer.public_key_hex();
     let fingerprint = signer.fingerprint();
 
-    std::fs::write(&private_key_path, &private_key)
-        .context("Failed to write private key")?;
-    std::fs::write(&public_key_path, public_key)
-        .context("Failed to write public key")?;
+    std::fs::write(&private_key_path, &private_key).context("Failed to write private key")?;
+    std::fs::write(&public_key_path, public_key).context("Failed to write public key")?;
 
     println!("Generated Ed25519 keypair:");
     println!("  Private key: {}", private_key_path.display());
@@ -1456,8 +1493,8 @@ async fn cmd_verify_signature(
     definition_path: std::path::PathBuf,
     signature_path: std::path::PathBuf,
 ) -> Result<()> {
-    use sentinel_mcp::etdi::ToolSignatureVerifier;
     use sentinel_config::AllowedSignersConfig;
+    use sentinel_mcp::etdi::ToolSignatureVerifier;
 
     // Read definition
     let definition_json = std::fs::read_to_string(&definition_path)
