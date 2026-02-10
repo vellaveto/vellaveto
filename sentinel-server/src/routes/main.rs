@@ -163,28 +163,46 @@ pub fn build_router(state: AppState) -> Router {
         // ═══════════════════════════════════════════════════════════════════
         // Phase 9: Memory Injection Defense (MINJA)
         // ═══════════════════════════════════════════════════════════════════
-        .route("/api/memory/entries", get(list_memory_entries))
-        .route("/api/memory/entries/{id}", get(get_memory_entry))
+        .route(
+            "/api/memory/entries",
+            get(super::memory::list_memory_entries),
+        )
+        .route(
+            "/api/memory/entries/{id}",
+            get(super::memory::get_memory_entry),
+        )
         .route(
             "/api/memory/entries/{id}/quarantine",
-            post(quarantine_memory_entry),
+            post(super::memory::quarantine_memory_entry),
         )
         .route(
             "/api/memory/entries/{id}/release",
-            post(release_memory_entry),
+            post(super::memory::release_memory_entry),
         )
         .route(
             "/api/memory/integrity/{session}",
-            get(verify_memory_integrity),
+            get(super::memory::verify_memory_integrity),
         )
-        .route("/api/memory/provenance/{id}", get(get_memory_provenance))
-        .route("/api/memory/namespaces", get(list_memory_namespaces))
-        .route("/api/memory/namespaces", post(create_memory_namespace))
+        .route(
+            "/api/memory/provenance/{id}",
+            get(super::memory::get_memory_provenance),
+        )
+        .route(
+            "/api/memory/namespaces",
+            get(super::memory::list_memory_namespaces),
+        )
+        .route(
+            "/api/memory/namespaces",
+            post(super::memory::create_memory_namespace),
+        )
         .route(
             "/api/memory/namespaces/{id}/share",
-            post(share_memory_namespace),
+            post(super::memory::share_memory_namespace),
         )
-        .route("/api/memory/stats", get(memory_security_stats))
+        .route(
+            "/api/memory/stats",
+            get(super::memory::memory_security_stats),
+        )
         // ═══════════════════════════════════════════════════════════════════
         // Phase 10: Non-Human Identity (NHI) Lifecycle
         // ═══════════════════════════════════════════════════════════════════
@@ -4042,322 +4060,6 @@ async fn remove_version_pin(
             Json(json!({"error": e.to_string()})),
         )),
     }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Phase 9: Memory Injection Defense (MINJA) Handlers
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Query parameters for listing memory entries.
-#[derive(Debug, Deserialize)]
-struct ListMemoryEntriesQuery {
-    session_id: Option<String>,
-    quarantined_only: Option<bool>,
-    limit: Option<usize>,
-    offset: Option<usize>,
-}
-
-/// List memory entries with optional filters.
-async fn list_memory_entries(
-    State(state): State<crate::AppState>,
-    Query(params): Query<ListMemoryEntriesQuery>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let Some(ref manager) = state.memory_security else {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security not enabled"})),
-        ));
-    };
-
-    let limit = params.limit.unwrap_or(100).min(1000);
-    let offset = params.offset.unwrap_or(0);
-    let quarantined_only = params.quarantined_only.unwrap_or(false);
-
-    let entries = manager
-        .list_entries(
-            params.session_id.as_deref(),
-            quarantined_only,
-            limit,
-            offset,
-        )
-        .await;
-
-    Ok(Json(json!({
-        "count": entries.len(),
-        "entries": entries,
-        "offset": offset,
-        "limit": limit,
-    })))
-}
-
-/// Get a specific memory entry by ID.
-async fn get_memory_entry(
-    State(state): State<crate::AppState>,
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let Some(ref manager) = state.memory_security else {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security not enabled"})),
-        ));
-    };
-
-    match manager.get_entry(&id).await {
-        Some(entry) => Ok(Json(json!({
-            "entry": entry,
-        }))),
-        None => Err((
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": format!("Entry '{}' not found", id)})),
-        )),
-    }
-}
-
-/// Request body for quarantine operation.
-#[derive(Debug, Deserialize)]
-struct QuarantineRequest {
-    /// Reason for quarantine (currently unused, reserved for audit logging).
-    #[allow(dead_code)]
-    reason: Option<String>,
-    triggered_by: Option<String>,
-}
-
-/// Quarantine a memory entry.
-async fn quarantine_memory_entry(
-    State(state): State<crate::AppState>,
-    Path(id): Path<String>,
-    Json(body): Json<QuarantineRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let Some(ref manager) = state.memory_security else {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security not enabled"})),
-        ));
-    };
-
-    use sentinel_types::QuarantineDetection;
-
-    let result = manager
-        .quarantine_entry(
-            &id,
-            QuarantineDetection::ManualQuarantine,
-            body.triggered_by.as_deref(),
-        )
-        .await;
-
-    match result {
-        Ok(()) => Ok(Json(json!({
-            "success": true,
-            "message": format!("Entry '{}' quarantined", id),
-        }))),
-        Err(sentinel_mcp::memory_security::MemorySecurityError::EntryNotFound(_)) => Err((
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": format!("Entry '{}' not found", id)})),
-        )),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e.to_string()})),
-        )),
-    }
-}
-
-/// Release an entry from quarantine.
-async fn release_memory_entry(
-    State(state): State<crate::AppState>,
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let Some(ref manager) = state.memory_security else {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security not enabled"})),
-        ));
-    };
-
-    match manager.release_entry(&id).await {
-        Ok(()) => Ok(Json(json!({
-            "success": true,
-            "message": format!("Entry '{}' released from quarantine", id),
-        }))),
-        Err(sentinel_mcp::memory_security::MemorySecurityError::EntryNotFound(_)) => Err((
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": format!("Entry '{}' not found", id)})),
-        )),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e.to_string()})),
-        )),
-    }
-}
-
-/// Verify integrity of a session's memory entries.
-async fn verify_memory_integrity(
-    State(state): State<crate::AppState>,
-    Path(session): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let Some(ref manager) = state.memory_security else {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security not enabled"})),
-        ));
-    };
-
-    let report = manager.verify_session_integrity(&session).await;
-
-    Ok(Json(json!({
-        "report": report,
-    })))
-}
-
-/// Get provenance chain for a memory entry.
-async fn get_memory_provenance(
-    State(state): State<crate::AppState>,
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let Some(ref manager) = state.memory_security else {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security not enabled"})),
-        ));
-    };
-
-    let chain = manager.get_provenance_chain(&id).await;
-
-    Ok(Json(json!({
-        "entry_id": id,
-        "chain_length": chain.len(),
-        "provenance": chain,
-    })))
-}
-
-/// List all namespaces.
-async fn list_memory_namespaces(
-    State(state): State<crate::AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let Some(ref manager) = state.memory_security else {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security not enabled"})),
-        ));
-    };
-
-    let namespaces = manager.list_namespaces().await;
-
-    Ok(Json(json!({
-        "count": namespaces.len(),
-        "namespaces": namespaces,
-    })))
-}
-
-/// Request body for creating a namespace.
-#[derive(Debug, Deserialize)]
-struct CreateNamespaceRequest {
-    id: String,
-    owner_agent: String,
-}
-
-/// Create a new namespace.
-async fn create_memory_namespace(
-    State(state): State<crate::AppState>,
-    Json(body): Json<CreateNamespaceRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let Some(ref manager) = state.memory_security else {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security not enabled"})),
-        ));
-    };
-
-    match manager.create_namespace(&body.id, &body.owner_agent).await {
-        Ok(ns) => Ok(Json(json!({
-            "success": true,
-            "namespace": ns,
-        }))),
-        Err(sentinel_mcp::memory_security::MemorySecurityError::AlreadyExists(id)) => Err((
-            StatusCode::CONFLICT,
-            Json(json!({"error": format!("Namespace '{}' already exists", id)})),
-        )),
-        Err(sentinel_mcp::memory_security::MemorySecurityError::CapacityExceeded(msg)) => {
-            Err((StatusCode::TOO_MANY_REQUESTS, Json(json!({"error": msg}))))
-        }
-        Err(sentinel_mcp::memory_security::MemorySecurityError::NamespacesDisabled) => Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Namespaces are disabled"})),
-        )),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e.to_string()})),
-        )),
-    }
-}
-
-/// Request body for sharing a namespace.
-#[derive(Debug, Deserialize)]
-struct ShareNamespaceRequest {
-    requester_agent: String,
-    access_type: String,
-}
-
-/// Request sharing access to a namespace.
-async fn share_memory_namespace(
-    State(state): State<crate::AppState>,
-    Path(id): Path<String>,
-    Json(body): Json<ShareNamespaceRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let Some(ref manager) = state.memory_security else {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security not enabled"})),
-        ));
-    };
-
-    use sentinel_types::NamespaceAccessType;
-    let access_type = match body.access_type.to_lowercase().as_str() {
-        "read" => NamespaceAccessType::Read,
-        "write" => NamespaceAccessType::Write,
-        "full" => NamespaceAccessType::Full,
-        _ => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Invalid access_type. Must be 'read', 'write', or 'full'"})),
-            ))
-        }
-    };
-
-    match manager
-        .request_share(&id, &body.requester_agent, access_type)
-        .await
-    {
-        Ok(request) => Ok(Json(json!({
-            "success": true,
-            "request": request,
-        }))),
-        Err(sentinel_mcp::memory_security::MemorySecurityError::NamespacesDisabled) => Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Namespaces are disabled"})),
-        )),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e.to_string()})),
-        )),
-    }
-}
-
-/// Get memory security statistics.
-async fn memory_security_stats(
-    State(state): State<crate::AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let Some(ref manager) = state.memory_security else {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Memory security not enabled"})),
-        ));
-    };
-
-    let stats = manager.get_stats().await;
-
-    Ok(Json(json!({
-        "stats": stats,
-    })))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
