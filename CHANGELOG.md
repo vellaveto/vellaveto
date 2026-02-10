@@ -18,6 +18,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added a post-quantum readiness section to `README.md` with standards status and migration milestones (2028/2031/2035 alignment).
   - Added Phase 16.7 post-quantum cryptography transition track to `ROADMAP.md` with TLS policy, observability, and rollout tasks.
 
+### Added
+
+- **Post-Quantum TLS KEX Policy (initial implementation)**:
+  - Added `tls.kex_policy` to `TlsConfig` with values:
+    - `classical_only`
+    - `hybrid_preferred`
+    - `hybrid_required_when_supported`
+  - Added config validation guardrails:
+    - Hybrid policies require `tls.mode` to be `tls` or `mtls`
+    - Hybrid policies require `tls.min_version = "1.3"`
+    - `tls.min_version` now validates accepted values (`"1.2"` or `"1.3"`)
+  - Added rustls provider KEX-group policy application in `sentinel-server` TLS setup with explicit downgrade warnings when hybrid is requested but unavailable.
+  - Added example config snippet documenting `tls.kex_policy` usage.
+
 ### Performance
 
 - **Runtime allocation tuning**:

@@ -3247,6 +3247,25 @@ impl PolicyConfig {
         if self.tls.mode == TlsMode::Mtls && self.tls.client_ca_path.is_none() {
             return Err("tls.client_ca_path is required when mTLS is enabled".to_string());
         }
+        if !matches!(self.tls.min_version.as_str(), "1.2" | "1.3") {
+            return Err(format!(
+                "tls.min_version must be \"1.2\" or \"1.3\", got {:?}",
+                self.tls.min_version
+            ));
+        }
+        if self.tls.kex_policy != TlsKexPolicy::ClassicalOnly {
+            if self.tls.mode == TlsMode::None {
+                return Err(
+                    "tls.kex_policy requires tls.mode to be \"tls\" or \"mtls\"".to_string()
+                );
+            }
+            if self.tls.min_version != "1.3" {
+                return Err(format!(
+                    "tls.kex_policy {:?} requires tls.min_version = \"1.3\"",
+                    self.tls.kex_policy
+                ));
+            }
+        }
 
         // SPIFFE validation
         if self.spiffe.enabled && self.spiffe.trust_domain.is_none() {
@@ -3383,6 +3402,25 @@ pub enum TlsMode {
     Mtls,
 }
 
+/// TLS key exchange policy for post-quantum migration posture.
+///
+/// Controls how aggressively Sentinel prefers or requires post-quantum/hybrid
+/// key exchange groups during TLS negotiation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TlsKexPolicy {
+    /// Classical-only key exchange groups. Disables hybrid/PQ groups.
+    #[default]
+    ClassicalOnly,
+    /// Prefer hybrid/PQ groups when supported by the TLS provider, but allow
+    /// classical fallback for compatibility.
+    HybridPreferred,
+    /// Require hybrid/PQ groups when the provider exposes them. If the current
+    /// provider has no hybrid/PQ support, Sentinel falls back to classical and
+    /// emits an explicit warning at runtime.
+    HybridRequiredWhenSupported,
+}
+
 /// TLS/mTLS configuration for secure transport.
 ///
 /// Enables server-side TLS or mutual TLS (mTLS) where clients must present
@@ -3398,8 +3436,10 @@ pub enum TlsMode {
 /// client_ca_path = "/etc/sentinel/client-ca.pem"
 /// require_client_cert = true
 /// verify_client_cert = true
+/// min_version = "1.3"
+/// kex_policy = "hybrid_preferred"
 /// ```
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TlsConfig {
     /// TLS mode: none, tls, or mtls. Default: none.
     #[serde(default)]
@@ -3429,6 +3469,11 @@ pub struct TlsConfig {
     #[serde(default = "default_min_tls_version")]
     pub min_version: String,
 
+    /// Key exchange policy for post-quantum migration.
+    /// Default: `classical_only`.
+    #[serde(default)]
+    pub kex_policy: TlsKexPolicy,
+
     /// Allowed cipher suites (empty = use defaults).
     #[serde(default)]
     pub cipher_suites: Vec<String>,
@@ -3444,6 +3489,24 @@ pub struct TlsConfig {
 
 fn default_min_tls_version() -> String {
     "1.2".to_string()
+}
+
+impl Default for TlsConfig {
+    fn default() -> Self {
+        Self {
+            mode: TlsMode::None,
+            cert_path: None,
+            key_path: None,
+            client_ca_path: None,
+            require_client_cert: false,
+            verify_client_cert: default_true(),
+            min_version: default_min_tls_version(),
+            kex_policy: TlsKexPolicy::ClassicalOnly,
+            cipher_suites: Vec::new(),
+            ocsp_stapling: false,
+            crl_path: None,
+        }
+    }
 }
 
 /// SPIFFE/SPIRE workload identity configuration.
@@ -6361,6 +6424,57 @@ policy_type = "Allow"
         let err = config.validate().unwrap_err();
         assert!(err.contains("policies"));
         assert!(err.contains(&MAX_POLICIES.to_string()));
+    }
+
+    #[test]
+    fn test_validate_rejects_hybrid_kex_policy_when_tls_disabled() {
+        let mut config = minimal_config();
+        config.tls.kex_policy = TlsKexPolicy::HybridPreferred;
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("tls.kex_policy requires tls.mode"),
+            "expected tls mode validation error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_hybrid_kex_policy_without_tls13() {
+        let mut config = minimal_config();
+        config.tls.mode = TlsMode::Tls;
+        config.tls.cert_path = Some("/tmp/server.crt".to_string());
+        config.tls.key_path = Some("/tmp/server.key".to_string());
+        config.tls.min_version = "1.2".to_string();
+        config.tls.kex_policy = TlsKexPolicy::HybridRequiredWhenSupported;
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("requires tls.min_version = \"1.3\""),
+            "expected tls13 requirement error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_accepts_hybrid_kex_policy_with_tls13() {
+        let mut config = minimal_config();
+        config.tls.mode = TlsMode::Tls;
+        config.tls.cert_path = Some("/tmp/server.crt".to_string());
+        config.tls.key_path = Some("/tmp/server.key".to_string());
+        config.tls.min_version = "1.3".to_string();
+        config.tls.kex_policy = TlsKexPolicy::HybridPreferred;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_invalid_min_tls_version() {
+        let mut config = minimal_config();
+        config.tls.min_version = "1.1".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("tls.min_version must be"),
+            "expected min tls version validation error, got: {}",
+            err
+        );
     }
 
     #[test]

@@ -126,3 +126,13 @@ parameter_constraints = [
   { param = "*", op = "domain_match", pattern = "*.ngrok.io", on_match = "deny", on_missing = "skip" },
   { param = "*", op = "domain_match", pattern = "*.requestbin.com", on_match = "deny", on_missing = "skip" },
 ]
+
+# --- TLS / Post-Quantum KEX Policy (optional) ---
+# Use this section when terminating TLS in Sentinel.
+#
+# [tls]
+# mode = "tls" # or "mtls"
+# cert_path = "/etc/sentinel/server.crt"
+# key_path = "/etc/sentinel/server.key"
+# min_version = "1.3"
+# kex_policy = "hybrid_preferred" # classical_only | hybrid_preferred | hybrid_required_when_supported

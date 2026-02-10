@@ -1584,11 +1584,12 @@ v2.2 Complete! Ready for v2.3 planning.
 | Define post-split contract checks for `sentinel-types` changes | P1 | 3 days | Planned |
 | Add module extraction playbook for contributors | P2 | 2 days | Planned |
 
-### 16.7 Post-Quantum Cryptography Transition (Planned)
+### 16.7 Post-Quantum Cryptography Transition (Active)
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
-| Add `tls.kex_policy` config surface (`classical_only`, `hybrid_preferred`, `hybrid_required_when_supported`) | P1 | 3 days | Planned |
+| Add `tls.kex_policy` config surface (`classical_only`, `hybrid_preferred`, `hybrid_required_when_supported`) | P1 | 3 days | ✅ Initial implementation |
+| Enforce KEX policy against rustls provider groups with downgrade warnings | P1 | 2 days | ✅ Initial implementation |
 | Emit negotiated TLS metadata (KEX group, protocol, cipher) in telemetry and audit | P1 | 3 days | Planned |
 | Standardize outbound TLS backend strategy for workspace `reqwest` clients | P1 | 2 days | Planned |
 | Add hybrid/classical negotiation integration tests and failure-mode checks | P2 | 4 days | Planned |

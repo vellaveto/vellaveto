@@ -55,8 +55,10 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 
 - Sentinel tracks NIST PQC standards: `FIPS 203 (ML-KEM)`, `FIPS 204 (ML-DSA)`, `FIPS 205 (SLH-DSA)`, plus migration guidance in `NIST SP 800-227` (finalized on 2025-08-13).
 - TLS post-quantum key exchange for TLS 1.3 is still draft-stage in IETF (hybrid and pure ML-KEM drafts), so Sentinel keeps a crypto-agile migration posture until RFCs and ecosystem support stabilize.
+- Implemented controls:
+  - Configurable `tls.kex_policy` (`classical_only`, `hybrid_preferred`, `hybrid_required_when_supported`) in `TlsConfig`
+  - Validation guardrails: hybrid policies require `tls.mode` enabled and `tls.min_version = "1.3"`
 - Planned migration work:
-  - Add configurable `tls.kex_policy` (`classical_only`, `hybrid_preferred`, `hybrid_required_when_supported`)
   - Expose negotiated TLS handshake metadata (KEX group, protocol, cipher) in telemetry and audit logs
   - Standardize outbound TLS backend policy for `reqwest` consumers
   - Add a phased migration runbook with rollout and rollback gates

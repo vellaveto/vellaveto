@@ -7,7 +7,7 @@ use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::WebPkiClientVerifier;
 use rustls::RootCertStore;
-use sentinel_config::{TlsConfig, TlsMode};
+use sentinel_config::{TlsConfig, TlsKexPolicy, TlsMode};
 use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
@@ -130,6 +130,72 @@ fn load_client_ca(path: &Path) -> Result<RootCertStore, TlsError> {
     Ok(roots)
 }
 
+fn is_pq_or_hybrid_named_group(group: rustls::NamedGroup) -> bool {
+    matches!(
+        group,
+        rustls::NamedGroup::MLKEM512
+            | rustls::NamedGroup::MLKEM768
+            | rustls::NamedGroup::MLKEM1024
+            | rustls::NamedGroup::X25519MLKEM768
+            | rustls::NamedGroup::secp256r1MLKEM768
+    )
+}
+
+fn count_pq_or_hybrid_groups(provider: &rustls::crypto::CryptoProvider) -> usize {
+    provider
+        .kx_groups
+        .iter()
+        .filter(|g| is_pq_or_hybrid_named_group(g.name()))
+        .count()
+}
+
+/// Apply TLS key exchange policy to a rustls crypto provider.
+///
+/// This adjusts `provider.kx_groups` in place to enforce the configured
+/// post-quantum migration posture.
+fn apply_kex_policy_to_provider(
+    provider: &mut rustls::crypto::CryptoProvider,
+    policy: TlsKexPolicy,
+) -> Result<(), TlsError> {
+    match policy {
+        TlsKexPolicy::ClassicalOnly => {
+            provider
+                .kx_groups
+                .retain(|g| !is_pq_or_hybrid_named_group(g.name()));
+        }
+        TlsKexPolicy::HybridPreferred => {
+            if count_pq_or_hybrid_groups(provider) > 0 {
+                let mut pq_or_hybrid = Vec::new();
+                let mut classical = Vec::new();
+                for group in provider.kx_groups.iter().copied() {
+                    if is_pq_or_hybrid_named_group(group.name()) {
+                        pq_or_hybrid.push(group);
+                    } else {
+                        classical.push(group);
+                    }
+                }
+                pq_or_hybrid.extend(classical);
+                provider.kx_groups = pq_or_hybrid;
+            }
+        }
+        TlsKexPolicy::HybridRequiredWhenSupported => {
+            if count_pq_or_hybrid_groups(provider) > 0 {
+                provider
+                    .kx_groups
+                    .retain(|g| is_pq_or_hybrid_named_group(g.name()));
+            }
+        }
+    }
+
+    if provider.kx_groups.is_empty() {
+        return Err(TlsError::Config(
+            "tls.kex_policy removed all supported key exchange groups".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 /// Build a TLS acceptor from configuration.
 pub fn build_tls_acceptor(config: &TlsConfig) -> Result<Option<TlsAcceptor>, TlsError> {
     match config.mode {
@@ -147,6 +213,57 @@ pub fn build_tls_acceptor(config: &TlsConfig) -> Result<Option<TlsAcceptor>, Tls
 
             let certs = load_certs(Path::new(cert_path))?;
             let key = load_private_key(Path::new(key_path))?;
+            let mut provider = rustls::ServerConfig::builder()
+                .crypto_provider()
+                .as_ref()
+                .clone();
+            let pq_groups_before = count_pq_or_hybrid_groups(&provider);
+            let total_groups_before = provider.kx_groups.len();
+            apply_kex_policy_to_provider(&mut provider, config.kex_policy)?;
+            let pq_groups_after = count_pq_or_hybrid_groups(&provider);
+            let total_groups_after = provider.kx_groups.len();
+
+            match config.kex_policy {
+                TlsKexPolicy::ClassicalOnly => {
+                    if pq_groups_before > 0 {
+                        tracing::info!(
+                            "TLS kex_policy=classical_only: removed {} PQ/hybrid groups ({} -> {} total groups)",
+                            pq_groups_before,
+                            total_groups_before,
+                            total_groups_after
+                        );
+                    }
+                }
+                TlsKexPolicy::HybridPreferred => {
+                    if pq_groups_after > 0 {
+                        tracing::info!(
+                            "TLS kex_policy=hybrid_preferred: {} PQ/hybrid groups available ({} total groups)",
+                            pq_groups_after,
+                            total_groups_after
+                        );
+                    } else {
+                        tracing::warn!(
+                            "TLS kex_policy=hybrid_preferred but no PQ/hybrid groups are available in current TLS provider; using classical groups"
+                        );
+                    }
+                }
+                TlsKexPolicy::HybridRequiredWhenSupported => {
+                    if pq_groups_before > 0 {
+                        tracing::info!(
+                            "TLS kex_policy=hybrid_required_when_supported: enforcing {} PQ/hybrid groups only",
+                            pq_groups_after
+                        );
+                    } else {
+                        tracing::warn!(
+                            "TLS kex_policy=hybrid_required_when_supported but provider exposes no PQ/hybrid groups; falling back to classical groups"
+                        );
+                    }
+                }
+            }
+
+            let builder = rustls::ServerConfig::builder_with_provider(Arc::new(provider))
+                .with_safe_default_protocol_versions()
+                .map_err(TlsError::Tls)?;
 
             let mut server_config = if config.mode == TlsMode::Mtls {
                 // mTLS: require and verify client certificates
@@ -171,13 +288,13 @@ pub fn build_tls_acceptor(config: &TlsConfig) -> Result<Option<TlsAcceptor>, Tls
                         })?
                 };
 
-                rustls::ServerConfig::builder()
+                builder
                     .with_client_cert_verifier(client_verifier)
                     .with_single_cert(certs, key)
                     .map_err(TlsError::Tls)?
             } else {
                 // TLS only: no client certificate verification
-                rustls::ServerConfig::builder()
+                builder
                     .with_no_client_auth()
                     .with_single_cert(certs, key)
                     .map_err(TlsError::Tls)?
@@ -311,5 +428,59 @@ mod tests {
         assert!(info.spiffe_ids.is_empty());
         assert!(info.common_name.is_none());
         assert!(!info.verified);
+    }
+
+    #[test]
+    fn test_classical_only_removes_pq_groups() {
+        let mut provider = rustls::ServerConfig::builder()
+            .crypto_provider()
+            .as_ref()
+            .clone();
+        assert!(apply_kex_policy_to_provider(&mut provider, TlsKexPolicy::ClassicalOnly).is_ok());
+        assert_eq!(count_pq_or_hybrid_groups(&provider), 0);
+        assert!(
+            !provider.kx_groups.is_empty(),
+            "provider must keep at least one classical group"
+        );
+    }
+
+    #[test]
+    fn test_hybrid_preferred_prioritizes_pq_when_available() {
+        let mut provider = rustls::ServerConfig::builder()
+            .crypto_provider()
+            .as_ref()
+            .clone();
+        let had_pq = count_pq_or_hybrid_groups(&provider) > 0;
+        assert!(apply_kex_policy_to_provider(&mut provider, TlsKexPolicy::HybridPreferred).is_ok());
+        if had_pq {
+            assert!(is_pq_or_hybrid_named_group(provider.kx_groups[0].name()));
+        }
+    }
+
+    #[test]
+    fn test_hybrid_required_when_supported_restricts_if_available() {
+        let mut provider = rustls::ServerConfig::builder()
+            .crypto_provider()
+            .as_ref()
+            .clone();
+        let initial_pq = count_pq_or_hybrid_groups(&provider);
+        let initial_total = provider.kx_groups.len();
+        assert!(apply_kex_policy_to_provider(
+            &mut provider,
+            TlsKexPolicy::HybridRequiredWhenSupported
+        )
+        .is_ok());
+        if initial_pq > 0 {
+            assert_eq!(provider.kx_groups.len(), initial_pq);
+            assert!(
+                provider
+                    .kx_groups
+                    .iter()
+                    .all(|g| is_pq_or_hybrid_named_group(g.name())),
+                "all configured groups must be PQ/hybrid when support exists"
+            );
+        } else {
+            assert_eq!(provider.kx_groups.len(), initial_total);
+        }
     }
 }
