@@ -901,6 +901,9 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
         if policy_config.manifest != default_cfg.manifest {
             changed_sections.push("manifest");
         }
+        if policy_config.opa != default_cfg.opa {
+            changed_sections.push("opa");
+        }
         if !changed_sections.is_empty() {
             tracing::warn!(
                 "Config reload only applies policies. The following sections \

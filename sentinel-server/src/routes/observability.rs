@@ -8,11 +8,7 @@
 //! - `GET /api/observability/stats` - Get observability statistics
 //! - `POST /api/observability/test` - Test observability exporter connectivity
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, Json};
 use serde::Serialize;
 use serde_json::json;
 

@@ -216,6 +216,16 @@ async fn cmd_serve(
 ) -> Result<()> {
     let policy_config = PolicyConfig::load_file(&config)
         .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
+    // SECURITY: Fail closed when OPA is configured but runtime wiring is absent.
+    // Silently ignoring `[opa].enabled = true` creates a dangerous false sense
+    // of policy enforcement.
+    if policy_config.opa.enabled {
+        anyhow::bail!(
+            "OPA integration is configured (`[opa].enabled = true`) but is not wired into \
+             sentinel-server request evaluation yet. Disable OPA in config or use a build/runtime \
+             that enforces OPA decisions."
+        );
+    }
     let mut policies = policy_config.to_policies();
     PolicyEngine::sort_policies(&mut policies);
 
@@ -1075,6 +1085,15 @@ async fn cmd_evaluate(
 
     let policy_config = PolicyConfig::load_file(&config)
         .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
+    // SECURITY: Keep CLI behavior aligned with server runtime fail-closed
+    // semantics for unsupported OPA integration.
+    if policy_config.opa.enabled {
+        anyhow::bail!(
+            "OPA integration is configured (`[opa].enabled = true`) but is not wired into \
+             sentinel-server request evaluation yet. Disable OPA in config or use a build/runtime \
+             that enforces OPA decisions."
+        );
+    }
     let mut policies = policy_config.to_policies();
     PolicyEngine::sort_policies(&mut policies);
 

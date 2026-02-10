@@ -602,6 +602,60 @@ pub async fn handle_mcp_post(
         None
     };
 
+    // OWASP ASI08: Reject malformed X-Upstream-Agents headers for all requests.
+    // Previously this validation only ran on a subset of message types
+    // (tools/call, resources/read, tasks/*), allowing malformed headers to pass
+    // through on other MCP methods.
+    if let Err(reason) = validate_call_chain_header(&headers, &state.limits) {
+        let method = msg
+            .get("method")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown");
+        let action = Action::new(
+            "sentinel",
+            "invalid_call_chain_header",
+            json!({
+                "method": method,
+                "reason": reason,
+            }),
+        );
+        let verdict = Verdict::Deny {
+            reason: format!("Invalid upstream call chain header: {}", reason),
+        };
+        if let Err(e) = state
+            .audit
+            .log_entry(
+                &action,
+                &verdict,
+                build_audit_context(
+                    &session_id,
+                    json!({
+                        "event": "invalid_call_chain_header",
+                        "method": method,
+                        "reason": reason,
+                    }),
+                    &oauth_claims,
+                ),
+            )
+            .await
+        {
+            tracing::warn!("Failed to audit invalid call-chain header: {}", e);
+        }
+
+        let error_response = json!({
+            "jsonrpc": "2.0",
+            "id": msg.get("id").cloned().unwrap_or(Value::Null),
+            "error": {
+                "code": -32600,
+                "message": format!("Invalid request: {}", reason)
+            }
+        });
+        return attach_session_header(
+            (StatusCode::OK, Json(error_response)).into_response(),
+            &session_id,
+        );
+    }
+
     // Classify the message using shared extractor
     match extractor::classify_message(&msg) {
         MessageType::ToolCall {

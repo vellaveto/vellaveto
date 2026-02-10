@@ -278,6 +278,46 @@ fn evaluate_with_invalid_json_params_fails() {
 }
 
 #[test]
+fn evaluate_with_opa_enabled_fails_closed() {
+    let tmp = TempDir::new().unwrap();
+    let config = r#"
+policies = []
+
+[opa]
+enabled = true
+endpoint = "http://localhost:8181"
+decision_path = "sentinel/allow"
+"#;
+    let config_path = write_toml_config(tmp.path(), config);
+
+    let output = sentinel_bin()
+        .args([
+            "evaluate",
+            "--tool",
+            "file",
+            "--function",
+            "read",
+            "--params",
+            "{}",
+            "--config",
+            config_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run sentinel evaluate");
+
+    assert!(
+        !output.status.success(),
+        "evaluate should fail closed when OPA is enabled but unsupported"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("OPA integration is configured"),
+        "Expected OPA fail-closed error. stderr: {}",
+        stderr
+    );
+}
+
+#[test]
 fn evaluate_output_is_valid_json() {
     let tmp = TempDir::new().unwrap();
     let config_path = write_toml_config(tmp.path(), minimal_toml_config());

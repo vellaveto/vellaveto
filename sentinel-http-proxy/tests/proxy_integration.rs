@@ -4960,6 +4960,90 @@ async fn resource_read_malformed_call_chain_header_rejected() {
     );
 }
 
+#[tokio::test]
+async fn passthrough_malformed_call_chain_header_rejected() {
+    let upstream_url = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_test_state(&upstream_url, &tmp);
+    let app = build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 15,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name": "test", "version": "1.0.0"}
+        }
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("x-upstream-agents", "not-json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json_resp = json_body(resp).await;
+    assert_eq!(json_resp["error"]["code"], -32600);
+    assert!(
+        json_resp["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Invalid request"),
+        "Malformed call-chain header should be rejected for pass-through methods: {}",
+        json_resp
+    );
+}
+
+#[tokio::test]
+async fn sampling_request_malformed_call_chain_header_rejected() {
+    let upstream_url = start_mock_upstream().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_test_state(&upstream_url, &tmp);
+    let app = build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 16,
+        "method": "sampling/createMessage",
+        "params": {
+            "messages": [{"role": "user", "content": {"type": "text", "text": "hello"}}]
+        }
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("x-upstream-agents", "not-json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json_resp = json_body(resp).await;
+    assert_eq!(json_resp["error"]["code"], -32600);
+    assert!(
+        json_resp["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Invalid request"),
+        "Malformed call-chain header should be rejected for sampling requests: {}",
+        json_resp
+    );
+}
+
 /// Build a ProxyState with agent-specific policies for privilege escalation testing.
 fn build_priv_escalation_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
     let policies = vec![
