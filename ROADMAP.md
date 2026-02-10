@@ -1519,6 +1519,56 @@ v2.2 Remaining: 2 weeks
 
 ---
 
+## Phase 16+ Future Roadmap
+
+*Items identified through adversarial analysis for future consideration*
+
+### 16.1 SDK & Framework Integration
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| LangChain/LangGraph SDK integration | P3 | 2 weeks | Research |
+| AutoGen framework adapter | P3 | 2 weeks | Research |
+| Semantic Kernel integration | P3 | 1 week | Research |
+| CrewAI integration | P3 | 1 week | Research |
+
+### 16.2 Deployment & Distribution
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| AWS Marketplace listing | P4 | 2 weeks | Pending |
+| GCP Marketplace listing | P4 | 2 weeks | Pending |
+| Azure Marketplace listing | P4 | 2 weeks | Pending |
+| Docker Hub official images | P3 | 3 days | Pending |
+
+### 16.3 Developer Experience
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Visual execution graph UI | P3 | 4 weeks | Research |
+| Browser extension for MCP debugging | P4 | 3 weeks | Research |
+| VS Code extension | P3 | 2 weeks | Pending |
+| CLI interactive mode enhancements | P3 | 1 week | Pending |
+
+### 16.4 Advanced Security Research
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Decision Dependency Graph analysis | P4 | Research | Research |
+| GPU-accelerated semantic guardrails | P4 | 4 weeks | Research |
+| Continuous autonomous red teaming | P4 | Research | Research |
+| ToolHijacker defense (tool source verification) | P3 | 3 weeks | Research |
+| Multimodal injection detection | P4 | 4 weeks | Research |
+
+### 16.5 Dependency Upgrades (Blocked)
+
+| Task | Blocker | Resolution |
+|------|---------|------------|
+| rand 0.8 → 0.9 | ed25519-dalek uses rand_core 0.6 | Wait for upstream update |
+| Consider ring → aws-lc-rs | Performance evaluation needed | Benchmark first |
+
+---
+
 ## Research Bibliography
 
 1. **ETDI: Enhanced Tool Definition Interface** — arxiv:2506.01333 (2025)

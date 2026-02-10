@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-02-10
+
+### Changed
+
+- **MCP Protocol Version**: Updated from `2025-06-18` to `2025-11-25` with backwards compatibility for `2025-06-18` and `2025-03-26`
+- **DELETE Session Termination**: Changed response from 200 OK to 204 No Content per MCP specification
+- **Memory Tracking Configuration**: `MAX_FINGERPRINTS` and `MIN_TRACKABLE_LENGTH` are now configurable via `MemorySecurityConfig.max_fingerprints` and `MemorySecurityConfig.min_trackable_length`
+- **Dependency Updates**:
+  - Upgraded `jsonwebtoken` from 9 to 10 with `rust_crypto` feature
+  - Upgraded `notify` from 7 to 8
+  - Note: `rand` 0.8 → 0.9 blocked by ed25519-dalek incompatibility (deferred)
+
+### Added
+
+#### Protocol Version Validation
+- Validate `MCP-Protocol-Version` header on incoming requests
+- Accept versions: `2025-11-25`, `2025-06-18`, `2025-03-26`
+- Return 400 Bad Request for unrecognized protocol versions
+
+#### RFC 9728 OAuth Protected Resource Metadata
+- Added `GET /.well-known/oauth-protected-resource` endpoint
+- Returns `resource`, `authorization_servers`, `scopes_supported` when OAuth configured
+- Returns 404 when OAuth not configured
+
+#### AI Service Credential DLP Patterns (OWASP ASI03)
+- `anthropic_api_key` — Anthropic API keys (`sk-ant-api...`)
+- `openai_api_key` — OpenAI API keys (`sk-`, `sk-proj-`)
+- `huggingface_token` — HuggingFace tokens (`hf_...`)
+- `cohere_api_key` — Cohere API keys
+- `replicate_token` — Replicate tokens (`r8_...`)
+- `together_api_key` — Together.ai API keys
+- `groq_api_key` — Groq API keys (`gsk_...`)
+
+#### MCPTox Directive Injection Detection
+- Added directive insertion patterns: `IMPORTANT:`, `NOTE:`, `REQUIRED:`, `CRITICAL:`, `WARNING:`, `ATTENTION:`, `MUST:`
+
+#### Phonetic/Emoji Encoding Detection
+- NATO phonetic alphabet decoding (`alpha bravo charlie` → `abc`)
+- Common emoji command decoding (`🐱📁` → `cat file`)
+- Integrated into injection detection pipeline
+
+#### Mixed-Script Spoofing Detection
+- New `SquattingKind::MixedScript` for detecting tool names with mixed Unicode scripts
+- Detects Latin + Cyrillic, Latin + Greek, Latin + Mathematical combinations
+- Higher priority detection than homoglyph normalization
+
+### Fixed
+
+- **Error Handling**: Added logging for previously silent error discards in:
+  - Config reload channel send failures
+  - Telemetry provider shutdown errors
+  - Added TODO documentation for deferred structured content validation
+
+---
+
+## [2.2.0] - 2026-02-09
+
 ### Changed
 
 - **Dependency cleanup**: Removed `rustls-pemfile` crate, now using `rustls::pki_types::pem::PemObject` trait for PEM parsing

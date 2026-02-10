@@ -1,8 +1,8 @@
 # Sentinel Improvement Plan
 
-> **Generated:** 2026-02-09
+> **Generated:** 2026-02-10
 > **Based on:** Multi-agent swarm analysis (security, coverage, quality, deps, architecture)
-> **Status:** Draft for review
+> **Status:** Phase 7 complete (adversarial findings implementation)
 
 ---
 
@@ -315,6 +315,181 @@ The most critical issue is **observability blindness**: DLP findings, behavioral
 
 ---
 
+---
+
+## Phase 7: Adversarial Findings (P0-P2) — 2026-02-10 ✅ COMPLETE
+
+A 7-agent adversarial swarm analysis identified 42 findings, of which 16 were actionable.
+This phase implements all actionable items from the analysis.
+
+### 7.1 Update MCP Protocol Version (P0) ✅
+
+**Problem:** Protocol version was outdated (2025-06-18 → 2025-11-25).
+
+**File:** `sentinel-http-proxy/src/proxy.rs`
+
+**Tasks:**
+```
+[x] Update MCP_PROTOCOL_VERSION constant to "2025-11-25"
+[x] Add SUPPORTED_PROTOCOL_VERSIONS list for backwards compatibility
+[x] Validate incoming MCP-Protocol-Version headers (400 for unsupported)
+[x] Update test assertions
+```
+
+**Completed:** 2026-02-10
+
+### 7.2 Add AI Service Credential DLP Patterns (P1) ✅
+
+**Problem:** DLP patterns didn't cover AI/ML service API keys (OWASP ASI03 primary threat).
+
+**File:** `sentinel-mcp/src/inspection/dlp.rs`
+
+**Tasks:**
+```
+[x] Add anthropic_api_key pattern (sk-ant-api...)
+[x] Add openai_api_key pattern (sk-, sk-proj-)
+[x] Add huggingface_token pattern (hf_...)
+[x] Add cohere_api_key pattern
+[x] Add replicate_token pattern (r8_...)
+[x] Add together_api_key pattern
+[x] Add groq_api_key pattern (gsk_...)
+[x] Add unit tests for all new patterns
+```
+
+**Completed:** 2026-02-10
+
+### 7.3 Make Memory Tracking Constants Configurable (P1) ✅
+
+**Problem:** MAX_FINGERPRINTS and MIN_TRACKABLE_LENGTH were hardcoded.
+
+**Files:**
+- `sentinel-config/src/lib.rs` - Add to MemorySecurityConfig
+- `sentinel-mcp/src/memory_tracking.rs` - Wire config values
+
+**Tasks:**
+```
+[x] Add max_fingerprints to MemorySecurityConfig (default: 2500)
+[x] Add min_trackable_length to MemorySecurityConfig (default: 20)
+[x] Update MemoryTracker to use configurable values
+[x] Add with_limits() constructor for custom configuration
+```
+
+**Completed:** 2026-02-10
+
+### 7.4 Session Termination Returns 204 (P1) ✅
+
+**Problem:** DELETE /mcp returned 200 OK instead of 204 No Content per MCP spec.
+
+**File:** `sentinel-http-proxy/src/proxy.rs`
+
+**Tasks:**
+```
+[x] Change successful DELETE response to 204 No Content
+[x] Update integration tests
+```
+
+**Completed:** 2026-02-10
+
+### 7.5 RFC 9728 Protected Resource Metadata (P1) ✅
+
+**Problem:** Missing OAuth protected resource discovery endpoint.
+
+**Files:**
+- `sentinel-http-proxy/src/proxy.rs` - Add endpoint handler
+- `sentinel-http-proxy/src/main.rs` - Add route
+
+**Tasks:**
+```
+[x] Add GET /.well-known/oauth-protected-resource endpoint
+[x] Return resource, authorization_servers, scopes_supported
+[x] Return 404 when OAuth not configured
+```
+
+**Completed:** 2026-02-10
+
+### 7.6 Update Dependencies (P2) ✅
+
+**Problem:** jsonwebtoken and notify were outdated.
+
+**Note:** rand 0.8 → 0.9 blocked by ed25519-dalek incompatibility.
+
+**Tasks:**
+```
+[x] Update jsonwebtoken 9 → 10 with rust_crypto feature
+[x] Update notify 7 → 8
+[ ] Update rand when ed25519-dalek supports rand_core 0.9
+```
+
+**Completed:** 2026-02-10 (partial - rand deferred)
+
+### 7.7 MCPTox Directive Injection Patterns (P2) ✅
+
+**Problem:** Missing detection for MCPTox-style directive insertion attacks.
+
+**File:** `sentinel-mcp/src/inspection/injection.rs`
+
+**Tasks:**
+```
+[x] Add "IMPORTANT:", "NOTE:", "REQUIRED:", "CRITICAL:" patterns
+[x] Add "WARNING:", "ATTENTION:", "MUST:" patterns
+```
+
+**Completed:** 2026-02-10
+
+### 7.8 Phonetic/Emoji Encoding Detection (P2) ✅
+
+**Problem:** Injection detection could be evaded via phonetic alphabet or emoji encoding.
+
+**File:** `sentinel-mcp/src/inspection/injection.rs`
+
+**Tasks:**
+```
+[x] Add decode_phonetic() for NATO phonetic alphabet
+[x] Add decode_emoji() for common command emojis
+[x] Integrate both into inspect_for_injection() pipeline
+```
+
+**Completed:** 2026-02-10
+
+### 7.9 Mixed-Script Detection (P2) ✅
+
+**Problem:** Homoglyph spoofing could mix scripts (Latin + Cyrillic) undetected.
+
+**File:** `sentinel-mcp/src/rug_pull.rs`
+
+**Tasks:**
+```
+[x] Add SquattingKind::MixedScript variant
+[x] Add is_mixed_script() detection function
+[x] Add get_script() helper for Unicode script classification
+[x] Integrate into detect_squatting() before homoglyph check
+[x] Update tests
+```
+
+**Completed:** 2026-02-10
+
+### 7.10 Fix Silent Error Discarding (P2) ✅
+
+**Problem:** Several locations discarded errors silently.
+
+**Files:**
+- `sentinel-mcp/src/proxy/bridge.rs:2128` - Add TODO comment
+- `sentinel-mcp/src/nhi.rs:380` - Add frequency check documentation
+- `sentinel-server/src/lib.rs:1011` - Log channel send failures
+- `sentinel-server/src/telemetry.rs:328` - Log shutdown failures
+
+**Tasks:**
+```
+[x] Add TODO for structured content validation
+[x] Document why frequency check is deferred
+[x] Log config reload channel failures
+[x] Log telemetry shutdown errors to stderr
+```
+
+**Completed:** 2026-02-10
+
+---
+
 ## Summary
 
 | Phase | Focus | Priority | Effort | Status |
@@ -325,6 +500,7 @@ The most critical issue is **observability blindness**: DLP findings, behavioral
 | 4 | Fuzz Targets | P2 | 2 days | ✅ Complete |
 | 5 | Code Quality (constants, TODOs, descriptions) | P3 | 2 days | ✅ Complete |
 | 6 | Dependency Cleanup | P3 | 1 day | ✅ Complete |
+| 7 | Adversarial Findings | P0-P2 | 1 day | ✅ Complete |
 
 **All phases complete!** Improvement Plan fully implemented.
 
@@ -341,3 +517,7 @@ After implementation:
 - [x] No duplicate major dependency versions ✅ (axum, hyper, http, tower unified)
 - [x] rustls-pemfile dependency removed ✅
 - [x] All crates have description metadata ✅
+- [x] MCP protocol version updated to 2025-11-25 ✅
+- [x] AI service credential patterns added to DLP ✅
+- [x] MCPTox directive and encoding detection added ✅
+- [x] Mixed-script spoofing detection added ✅
