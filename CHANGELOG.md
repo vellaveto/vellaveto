@@ -64,6 +64,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `sentinel serve`, `sentinel evaluate`, and `sentinel check` now reject configs with `[opa].enabled = true` until runtime request-path OPA decision enforcement is fully wired.
   - Added CLI integration regressions for OPA-enabled fail-closed behavior in `check` and `evaluate`.
 
+- **DLP pattern validation at startup (SEC-006)**:
+  - Both `sentinel-server` and `sentinel-http-proxy` now validate all DLP patterns compile successfully during startup
+  - If any pattern fails to compile, the application fails to start rather than silently skipping secret detection
+  - Prevents silent gaps in DLP coverage from malformed patterns
+
 ### Dependencies
 
 - **Minor/patch updates (IMP-006)**:

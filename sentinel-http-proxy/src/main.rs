@@ -130,6 +130,21 @@ async fn main() -> Result<()> {
     // Load and compile policies
     let policy_config = PolicyConfig::load_file(&args.config)
         .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
+
+    // SEC-006: Validate DLP patterns compile at startup (fail-closed).
+    // If any pattern is invalid, fail immediately rather than silently skipping
+    // secret detection for that pattern at runtime.
+    if let Err(failures) = sentinel_mcp::inspection::validate_dlp_patterns() {
+        for (name, error) in &failures {
+            tracing::error!("DLP pattern '{}' failed to compile: {}", name, error);
+        }
+        anyhow::bail!(
+            "DLP pattern validation failed: {} pattern(s) could not compile. \
+             Fix the patterns or disable DLP scanning.",
+            failures.len()
+        );
+    }
+
     let mut policies = policy_config.to_policies();
     PolicyEngine::sort_policies(&mut policies);
 
