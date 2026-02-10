@@ -678,7 +678,8 @@ async fn delete_mcp_terminates_session() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), StatusCode::OK);
+    // MCP spec: 204 No Content on successful session termination
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
     assert_eq!(sessions.len(), 0);
 }
 
@@ -3031,7 +3032,8 @@ async fn api_key_delete_with_valid_key_succeeds() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), StatusCode::OK);
+    // MCP spec: 204 No Content on successful session termination
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
     assert_eq!(sessions.len(), 0, "Session should be deleted");
 }
 
