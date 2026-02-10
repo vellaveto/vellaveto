@@ -246,24 +246,26 @@ The most critical issue is **observability blindness**: DLP findings, behavioral
 
 **Completed:** 2026-02-10
 
-### 5.3 Add Crate Descriptions
+### 5.3 Add Crate Descriptions ✅
 
-**Problem:** 9/12 crates missing description field in Cargo.toml.
+**Problem:** ~~9/12 crates missing description field in Cargo.toml.~~ **Fixed.**
+
+**Completed:** Commit `1339b11` added descriptions to all 9 crates.
 
 **Tasks:**
 ```
-[ ] sentinel-types: "Core type definitions for Sentinel policy engine"
-[ ] sentinel-engine: "Policy evaluation engine with glob, regex, and domain matching"
-[ ] sentinel-audit: "Tamper-evident audit logging with hash chains"
-[ ] sentinel-mcp: "MCP protocol security: DLP, injection detection, tool registry"
-[ ] sentinel-canonical: "Canonical security policy presets"
-[ ] sentinel-config: "Configuration parsing for Sentinel policies"
-[ ] sentinel-approval: "Human-in-the-loop approval workflow"
-[ ] sentinel-proxy: "MCP stdio proxy mode"
-[ ] sentinel-integration: "Integration test suite"
+[x] sentinel-types: "Core type definitions for Sentinel policy engine"
+[x] sentinel-engine: "Policy evaluation engine with glob, regex, and domain matching"
+[x] sentinel-audit: "Tamper-evident audit logging with hash chains and Ed25519 checkpoints"
+[x] sentinel-mcp: "MCP protocol security: DLP, injection detection, tool registry, and guardrails"
+[x] sentinel-canonical: "Canonical security policy presets for common scenarios"
+[x] sentinel-config: "Configuration parsing and validation for Sentinel policies"
+[x] sentinel-approval: "Human-in-the-loop approval workflow with deduplication"
+[x] sentinel-proxy: "MCP stdio proxy for command-line tool integration"
+[x] sentinel-integration: "Integration test suite for Sentinel components"
 ```
 
-**Effort:** 0.5 day
+**Completed:** 2026-02-10
 
 ---
 
@@ -307,10 +309,10 @@ The most critical issue is **observability blindness**: DLP findings, behavioral
 | 2 | Security (replay, DoS protection) | P1 | 1 day | ✅ Complete |
 | 3 | Test Coverage (ETDI, memory, DLP) | P1 | 4 days | ✅ Complete |
 | 4 | Fuzz Targets | P2 | 2 days | ✅ Complete |
-| 5 | Code Quality (constants, TODOs, descriptions) | P3 | 2 days | ✅ Partial (5.1, 5.2 done) |
+| 5 | Code Quality (constants, TODOs, descriptions) | P3 | 2 days | ✅ Complete |
 | 6 | Dependency Cleanup | P3 | 1 day | ✅ Partial (6.2 done) |
 
-**Remaining Effort:** ~1.5 days — P1 and P2 phases complete, P3 mostly complete (5.1, 5.2 done)
+**Remaining Effort:** ~1 day — All P1/P2/P3.5 phases complete, only 6.1 (dep unification) remains
 
 ---
 
@@ -324,4 +326,4 @@ After implementation:
 - [x] No P1 security gaps remain ✅ (Phase 2 complete)
 - [ ] No duplicate major dependency versions
 - [x] rustls-pemfile dependency removed ✅
-- [ ] All crates have description metadata
+- [x] All crates have description metadata ✅
