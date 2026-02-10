@@ -1430,6 +1430,112 @@ impl EvaluationContext {
     pub fn originating_agent(&self) -> Option<&str> {
         self.call_chain.first().map(|e| e.agent_id.as_str())
     }
+
+    /// Create a new builder for constructing an `EvaluationContext`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use sentinel_types::EvaluationContext;
+    ///
+    /// let ctx = EvaluationContext::builder()
+    ///     .agent_id("agent-123")
+    ///     .tenant_id("tenant-abc")
+    ///     .build();
+    /// ```
+    pub fn builder() -> EvaluationContextBuilder {
+        EvaluationContextBuilder::default()
+    }
+}
+
+/// Builder for constructing [`EvaluationContext`] instances.
+///
+/// Provides a fluent API for setting context fields, with sensible defaults
+/// for fields that aren't explicitly set.
+#[derive(Debug, Default)]
+pub struct EvaluationContextBuilder {
+    timestamp: Option<String>,
+    agent_id: Option<String>,
+    agent_identity: Option<AgentIdentity>,
+    call_counts: HashMap<String, u64>,
+    previous_actions: Vec<String>,
+    call_chain: Vec<CallChainEntry>,
+    tenant_id: Option<String>,
+}
+
+impl EvaluationContextBuilder {
+    /// Set the evaluation timestamp (ISO 8601 format).
+    pub fn timestamp(mut self, timestamp: impl Into<String>) -> Self {
+        self.timestamp = Some(timestamp.into());
+        self
+    }
+
+    /// Set the agent ID (legacy identity field).
+    pub fn agent_id(mut self, agent_id: impl Into<String>) -> Self {
+        self.agent_id = Some(agent_id.into());
+        self
+    }
+
+    /// Set the cryptographically attested agent identity.
+    pub fn agent_identity(mut self, identity: AgentIdentity) -> Self {
+        self.agent_identity = Some(identity);
+        self
+    }
+
+    /// Set the per-tool call counts for the session.
+    pub fn call_counts(mut self, counts: HashMap<String, u64>) -> Self {
+        self.call_counts = counts;
+        self
+    }
+
+    /// Add a single tool call count.
+    pub fn call_count(mut self, tool: impl Into<String>, count: u64) -> Self {
+        self.call_counts.insert(tool.into(), count);
+        self
+    }
+
+    /// Set the history of previous tool calls.
+    pub fn previous_actions(mut self, actions: Vec<String>) -> Self {
+        self.previous_actions = actions;
+        self
+    }
+
+    /// Add a single previous action to the history.
+    pub fn previous_action(mut self, action: impl Into<String>) -> Self {
+        self.previous_actions.push(action.into());
+        self
+    }
+
+    /// Set the call chain for multi-agent scenarios.
+    pub fn call_chain(mut self, chain: Vec<CallChainEntry>) -> Self {
+        self.call_chain = chain;
+        self
+    }
+
+    /// Add a single entry to the call chain.
+    pub fn call_chain_entry(mut self, entry: CallChainEntry) -> Self {
+        self.call_chain.push(entry);
+        self
+    }
+
+    /// Set the tenant ID for multi-tenancy.
+    pub fn tenant_id(mut self, tenant_id: impl Into<String>) -> Self {
+        self.tenant_id = Some(tenant_id.into());
+        self
+    }
+
+    /// Build the [`EvaluationContext`].
+    pub fn build(self) -> EvaluationContext {
+        EvaluationContext {
+            timestamp: self.timestamp,
+            agent_id: self.agent_id,
+            agent_identity: self.agent_identity,
+            call_counts: self.call_counts,
+            previous_actions: self.previous_actions,
+            call_chain: self.call_chain,
+            tenant_id: self.tenant_id,
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════
@@ -4063,5 +4169,59 @@ mod tests {
         let json_str = serde_json::to_string(&rotation).unwrap();
         let deserialized: NhiCredentialRotation = serde_json::from_str(&json_str).unwrap();
         assert_eq!(rotation, deserialized);
+    }
+
+    #[test]
+    fn test_evaluation_context_builder() {
+        // Test basic builder usage
+        let ctx = EvaluationContext::builder()
+            .agent_id("agent-123")
+            .tenant_id("tenant-abc")
+            .build();
+        assert_eq!(ctx.agent_id, Some("agent-123".to_string()));
+        assert_eq!(ctx.tenant_id, Some("tenant-abc".to_string()));
+        assert!(ctx.call_counts.is_empty());
+        assert!(ctx.previous_actions.is_empty());
+    }
+
+    #[test]
+    fn test_evaluation_context_builder_call_counts() {
+        let ctx = EvaluationContext::builder()
+            .call_count("read_file", 5)
+            .call_count("write_file", 3)
+            .build();
+        assert_eq!(ctx.call_counts.get("read_file"), Some(&5));
+        assert_eq!(ctx.call_counts.get("write_file"), Some(&3));
+    }
+
+    #[test]
+    fn test_evaluation_context_builder_previous_actions() {
+        let ctx = EvaluationContext::builder()
+            .previous_action("read_file")
+            .previous_action("process_data")
+            .previous_action("write_file")
+            .build();
+        assert_eq!(ctx.previous_actions.len(), 3);
+        assert_eq!(ctx.previous_actions[0], "read_file");
+        assert_eq!(ctx.previous_actions[2], "write_file");
+    }
+
+    #[test]
+    fn test_evaluation_context_builder_has_meaningful_fields() {
+        // Empty builder produces context with no meaningful fields
+        let empty_ctx = EvaluationContext::builder().build();
+        assert!(!empty_ctx.has_any_meaningful_fields());
+
+        // Context with agent_id has meaningful fields
+        let ctx_with_agent = EvaluationContext::builder()
+            .agent_id("agent-1")
+            .build();
+        assert!(ctx_with_agent.has_any_meaningful_fields());
+
+        // Context with timestamp has meaningful fields
+        let ctx_with_timestamp = EvaluationContext::builder()
+            .timestamp("2025-01-15T10:00:00Z")
+            .build();
+        assert!(ctx_with_timestamp.has_any_meaningful_fields());
     }
 }
