@@ -648,6 +648,206 @@ fn glob_matches(pattern: &str, path: &str) -> bool {
     pattern == path
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Configuration Value Validators (P1 item 2.3)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Error type for configuration validation failures.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConfigValueError {
+    /// Invalid hex encoding.
+    InvalidHex(String),
+    /// Invalid key length or format.
+    InvalidKey(String),
+    /// Invalid URL format or scheme.
+    InvalidUrl(String),
+    /// Invalid domain name format.
+    InvalidDomain(String),
+}
+
+impl std::fmt::Display for ConfigValueError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigValueError::InvalidHex(msg) => write!(f, "Invalid hex encoding: {}", msg),
+            ConfigValueError::InvalidKey(msg) => write!(f, "Invalid key: {}", msg),
+            ConfigValueError::InvalidUrl(msg) => write!(f, "Invalid URL: {}", msg),
+            ConfigValueError::InvalidDomain(msg) => write!(f, "Invalid domain: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for ConfigValueError {}
+
+/// Validate an Ed25519 public key (hex-encoded, 32 bytes).
+///
+/// Ed25519 public keys are 32 bytes (256 bits). When hex-encoded, they are
+/// 64 characters. This validator ensures the key is valid hex and the correct length.
+///
+/// # Example
+/// ```
+/// use sentinel_config::validation::validate_ed25519_pubkey;
+///
+/// // Valid 32-byte key (64 hex chars)
+/// let valid = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+/// assert!(validate_ed25519_pubkey(valid).is_ok());
+///
+/// // Invalid: too short
+/// assert!(validate_ed25519_pubkey("0123456789abcdef").is_err());
+///
+/// // Invalid: not hex
+/// assert!(validate_ed25519_pubkey("not-valid-hex-string").is_err());
+/// ```
+pub fn validate_ed25519_pubkey(key: &str) -> Result<(), ConfigValueError> {
+    let bytes = hex::decode(key).map_err(|e| ConfigValueError::InvalidHex(e.to_string()))?;
+
+    if bytes.len() != 32 {
+        return Err(ConfigValueError::InvalidKey(format!(
+            "Ed25519 public key must be 32 bytes (64 hex chars), got {} bytes",
+            bytes.len()
+        )));
+    }
+
+    // Check for all-zeros key which is cryptographically invalid
+    if bytes.iter().all(|&b| b == 0) {
+        return Err(ConfigValueError::InvalidKey(
+            "Ed25519 public key cannot be all zeros".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Validate a Redis URL format.
+///
+/// Validates that the URL:
+/// - Starts with `redis://` or `rediss://` (TLS)
+/// - Is parseable as a valid URL
+///
+/// # Example
+/// ```
+/// use sentinel_config::validation::validate_redis_url;
+///
+/// // Valid URLs
+/// assert!(validate_redis_url("redis://localhost:6379").is_ok());
+/// assert!(validate_redis_url("rediss://user:pass@redis.example.com:6380/0").is_ok());
+///
+/// // Invalid: wrong scheme
+/// assert!(validate_redis_url("http://localhost:6379").is_err());
+///
+/// // Invalid: malformed
+/// assert!(validate_redis_url("not a url").is_err());
+/// ```
+pub fn validate_redis_url(url_str: &str) -> Result<(), ConfigValueError> {
+    // Check scheme
+    if !url_str.starts_with("redis://") && !url_str.starts_with("rediss://") {
+        return Err(ConfigValueError::InvalidUrl(
+            "Redis URL must start with redis:// or rediss://".to_string(),
+        ));
+    }
+
+    // Parse URL
+    url::Url::parse(url_str).map_err(|e| ConfigValueError::InvalidUrl(e.to_string()))?;
+
+    Ok(())
+}
+
+/// Validate a domain name per RFC 1035.
+///
+/// Domain names must:
+/// - Be non-empty and at most 253 characters
+/// - Contain only alphanumeric characters, hyphens, and dots
+/// - Not start or end with a hyphen in any label
+/// - Have labels between 1 and 63 characters
+///
+/// # Example
+/// ```
+/// use sentinel_config::validation::validate_domain_name;
+///
+/// // Valid domains
+/// assert!(validate_domain_name("example.com").is_ok());
+/// assert!(validate_domain_name("sub.example.co.uk").is_ok());
+/// assert!(validate_domain_name("my-service.internal").is_ok());
+///
+/// // Invalid: starts with hyphen
+/// assert!(validate_domain_name("-invalid.com").is_err());
+///
+/// // Invalid: label too long (>63 chars)
+/// let long_label = "a".repeat(64);
+/// assert!(validate_domain_name(&format!("{}.com", long_label)).is_err());
+/// ```
+pub fn validate_domain_name(domain: &str) -> Result<(), ConfigValueError> {
+    // Check overall length
+    if domain.is_empty() {
+        return Err(ConfigValueError::InvalidDomain(
+            "Domain name cannot be empty".to_string(),
+        ));
+    }
+
+    if domain.len() > 253 {
+        return Err(ConfigValueError::InvalidDomain(format!(
+            "Domain name exceeds 253 characters: {} chars",
+            domain.len()
+        )));
+    }
+
+    // Validate each label
+    for label in domain.split('.') {
+        if label.is_empty() {
+            return Err(ConfigValueError::InvalidDomain(
+                "Domain contains empty label (consecutive dots)".to_string(),
+            ));
+        }
+
+        if label.len() > 63 {
+            return Err(ConfigValueError::InvalidDomain(format!(
+                "Domain label '{}' exceeds 63 characters",
+                label
+            )));
+        }
+
+        if label.starts_with('-') || label.ends_with('-') {
+            return Err(ConfigValueError::InvalidDomain(format!(
+                "Domain label '{}' cannot start or end with hyphen",
+                label
+            )));
+        }
+
+        if !label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+            return Err(ConfigValueError::InvalidDomain(format!(
+                "Domain label '{}' contains invalid characters (only alphanumeric and hyphen allowed)",
+                label
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate a webhook URL (HTTP/HTTPS).
+///
+/// # Example
+/// ```
+/// use sentinel_config::validation::validate_webhook_url;
+///
+/// // Valid
+/// assert!(validate_webhook_url("https://hooks.example.com/webhook").is_ok());
+///
+/// // Invalid scheme
+/// assert!(validate_webhook_url("ftp://example.com").is_err());
+/// ```
+pub fn validate_webhook_url(url_str: &str) -> Result<(), ConfigValueError> {
+    let parsed =
+        url::Url::parse(url_str).map_err(|e| ConfigValueError::InvalidUrl(e.to_string()))?;
+
+    match parsed.scheme() {
+        "http" | "https" => Ok(()),
+        scheme => Err(ConfigValueError::InvalidUrl(format!(
+            "Webhook URL must use http or https scheme, got '{}'",
+            scheme
+        ))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -761,5 +961,174 @@ policy_type = "Allow"
         assert!(text.contains("[ERROR]"));
         assert!(text.contains("[WARNING]"));
         assert!(text.contains("Suggestion: Fix it"));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Configuration Value Validator Tests
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_validate_ed25519_pubkey_valid() {
+        // Valid 32-byte key (64 hex chars)
+        let valid = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        assert!(validate_ed25519_pubkey(valid).is_ok());
+
+        // Another valid key with uppercase
+        let valid_upper = "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789";
+        assert!(validate_ed25519_pubkey(valid_upper).is_ok());
+    }
+
+    #[test]
+    fn test_validate_ed25519_pubkey_invalid_length() {
+        // Too short
+        let short = "0123456789abcdef";
+        let result = validate_ed25519_pubkey(short);
+        assert!(matches!(result, Err(ConfigValueError::InvalidKey(_))));
+
+        // Too long
+        let long = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef00";
+        let result = validate_ed25519_pubkey(long);
+        assert!(matches!(result, Err(ConfigValueError::InvalidKey(_))));
+    }
+
+    #[test]
+    fn test_validate_ed25519_pubkey_invalid_hex() {
+        // Contains non-hex characters
+        let invalid = "xyz3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let result = validate_ed25519_pubkey(invalid);
+        assert!(matches!(result, Err(ConfigValueError::InvalidHex(_))));
+    }
+
+    #[test]
+    fn test_validate_ed25519_pubkey_all_zeros_rejected() {
+        // All zeros is cryptographically invalid
+        let zeros = "0000000000000000000000000000000000000000000000000000000000000000";
+        let result = validate_ed25519_pubkey(zeros);
+        assert!(matches!(result, Err(ConfigValueError::InvalidKey(_))));
+    }
+
+    #[test]
+    fn test_validate_redis_url_valid() {
+        // Standard Redis URL
+        assert!(validate_redis_url("redis://localhost:6379").is_ok());
+
+        // With auth
+        assert!(validate_redis_url("redis://user:password@localhost:6379").is_ok());
+
+        // TLS Redis
+        assert!(validate_redis_url("rediss://redis.example.com:6380").is_ok());
+
+        // With database
+        assert!(validate_redis_url("redis://localhost:6379/0").is_ok());
+    }
+
+    #[test]
+    fn test_validate_redis_url_wrong_scheme() {
+        // HTTP is not valid for Redis
+        let result = validate_redis_url("http://localhost:6379");
+        assert!(matches!(result, Err(ConfigValueError::InvalidUrl(_))));
+
+        // HTTPS is not valid for Redis
+        let result = validate_redis_url("https://localhost:6379");
+        assert!(matches!(result, Err(ConfigValueError::InvalidUrl(_))));
+    }
+
+    #[test]
+    fn test_validate_redis_url_malformed() {
+        // Not a URL at all
+        let result = validate_redis_url("not a url");
+        assert!(matches!(result, Err(ConfigValueError::InvalidUrl(_))));
+    }
+
+    #[test]
+    fn test_validate_domain_name_valid() {
+        assert!(validate_domain_name("example.com").is_ok());
+        assert!(validate_domain_name("sub.example.com").is_ok());
+        assert!(validate_domain_name("my-service.internal").is_ok());
+        assert!(validate_domain_name("a.b.c.d.e.com").is_ok());
+        assert!(validate_domain_name("localhost").is_ok());
+    }
+
+    #[test]
+    fn test_validate_domain_name_empty() {
+        let result = validate_domain_name("");
+        assert!(matches!(result, Err(ConfigValueError::InvalidDomain(_))));
+    }
+
+    #[test]
+    fn test_validate_domain_name_too_long() {
+        // Total length > 253
+        let long_domain = format!("{}.com", "a".repeat(250));
+        let result = validate_domain_name(&long_domain);
+        assert!(matches!(result, Err(ConfigValueError::InvalidDomain(_))));
+    }
+
+    #[test]
+    fn test_validate_domain_name_label_too_long() {
+        // Label > 63 chars
+        let long_label = format!("{}.com", "a".repeat(64));
+        let result = validate_domain_name(&long_label);
+        assert!(matches!(result, Err(ConfigValueError::InvalidDomain(_))));
+    }
+
+    #[test]
+    fn test_validate_domain_name_hyphen_rules() {
+        // Starts with hyphen
+        let result = validate_domain_name("-invalid.com");
+        assert!(matches!(result, Err(ConfigValueError::InvalidDomain(_))));
+
+        // Ends with hyphen
+        let result = validate_domain_name("invalid-.com");
+        assert!(matches!(result, Err(ConfigValueError::InvalidDomain(_))));
+
+        // Hyphen in middle is OK
+        assert!(validate_domain_name("valid-name.com").is_ok());
+    }
+
+    #[test]
+    fn test_validate_domain_name_invalid_chars() {
+        // Underscore not allowed
+        let result = validate_domain_name("invalid_name.com");
+        assert!(matches!(result, Err(ConfigValueError::InvalidDomain(_))));
+
+        // Space not allowed
+        let result = validate_domain_name("invalid name.com");
+        assert!(matches!(result, Err(ConfigValueError::InvalidDomain(_))));
+    }
+
+    #[test]
+    fn test_validate_domain_name_consecutive_dots() {
+        let result = validate_domain_name("invalid..com");
+        assert!(matches!(result, Err(ConfigValueError::InvalidDomain(_))));
+    }
+
+    #[test]
+    fn test_validate_webhook_url_valid() {
+        assert!(validate_webhook_url("https://hooks.example.com/webhook").is_ok());
+        assert!(validate_webhook_url("http://localhost:8080/hook").is_ok());
+    }
+
+    #[test]
+    fn test_validate_webhook_url_invalid_scheme() {
+        let result = validate_webhook_url("ftp://example.com/file");
+        assert!(matches!(result, Err(ConfigValueError::InvalidUrl(_))));
+
+        let result = validate_webhook_url("redis://localhost:6379");
+        assert!(matches!(result, Err(ConfigValueError::InvalidUrl(_))));
+    }
+
+    #[test]
+    fn test_config_value_error_display() {
+        let err = ConfigValueError::InvalidKey("test".to_string());
+        assert!(err.to_string().contains("Invalid key"));
+
+        let err = ConfigValueError::InvalidUrl("test".to_string());
+        assert!(err.to_string().contains("Invalid URL"));
+
+        let err = ConfigValueError::InvalidDomain("test".to_string());
+        assert!(err.to_string().contains("Invalid domain"));
+
+        let err = ConfigValueError::InvalidHex("test".to_string());
+        assert!(err.to_string().contains("Invalid hex"));
     }
 }
