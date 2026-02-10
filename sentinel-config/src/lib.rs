@@ -3503,7 +3503,7 @@ fn default_svid_cache_ttl() -> u64 {
 /// timeout_ms = 100
 /// fail_open = false
 /// ```
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OpaConfig {
     /// Enable OPA integration. Default: false.
     #[serde(default)]
@@ -3531,6 +3531,16 @@ pub struct OpaConfig {
     #[serde(default)]
     pub fail_open: bool,
 
+    /// Maximum number of retry attempts for transient failures. Default: 3.
+    /// Set to 0 to disable retries.
+    #[serde(default = "default_opa_max_retries")]
+    pub max_retries: u32,
+
+    /// Initial backoff duration in milliseconds for retries. Default: 50.
+    /// Backoff doubles on each retry (exponential backoff).
+    #[serde(default = "default_opa_retry_backoff_ms")]
+    pub retry_backoff_ms: u64,
+
     /// Additional headers to send with OPA requests.
     #[serde(default)]
     pub headers: std::collections::HashMap<String, String>,
@@ -3544,6 +3554,24 @@ pub struct OpaConfig {
     pub audit_decisions: bool,
 }
 
+impl Default for OpaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: None,
+            decision_path: default_opa_decision_path(),
+            cache_ttl_secs: default_opa_cache_ttl(),
+            timeout_ms: default_opa_timeout(),
+            fail_open: false,
+            max_retries: default_opa_max_retries(),
+            retry_backoff_ms: default_opa_retry_backoff_ms(),
+            headers: std::collections::HashMap::new(),
+            bundle_path: None,
+            audit_decisions: false,
+        }
+    }
+}
+
 fn default_opa_decision_path() -> String {
     "result".to_string()
 }
@@ -3554,6 +3582,14 @@ fn default_opa_cache_ttl() -> u64 {
 
 fn default_opa_timeout() -> u64 {
     100
+}
+
+fn default_opa_max_retries() -> u32 {
+    3
+}
+
+fn default_opa_retry_backoff_ms() -> u64 {
+    50
 }
 
 /// Threat intelligence feed provider type.

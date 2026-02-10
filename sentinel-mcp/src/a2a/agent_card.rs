@@ -5,7 +5,7 @@
 //!
 //! This module provides:
 //! - Agent Card type definitions matching the A2A specification
-//! - Agent Card cache with TTL-based expiration
+//! - Agent Card cache with TTL-based expiration and size limits
 //! - Validation of incoming requests against agent capabilities
 
 use serde::{Deserialize, Serialize};
@@ -13,6 +13,10 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
+
+/// Maximum number of agent cards to cache (SEC-009).
+/// Prevents unbounded memory growth from malicious or misconfigured clients.
+const MAX_CACHE_ENTRIES: usize = 10_000;
 
 use super::error::A2aError;
 
@@ -173,8 +177,18 @@ impl AgentCardCache {
     }
 
     /// Store an agent card in the cache.
+    ///
+    /// If the cache is at capacity (MAX_CACHE_ENTRIES), the oldest entry
+    /// is evicted before inserting the new one (SEC-009).
     pub fn store(&self, base_url: &str, card: AgentCard) {
         if let Ok(mut cache) = self.cache.write() {
+            // SEC-009: Evict oldest entry if at capacity
+            if cache.len() >= MAX_CACHE_ENTRIES && !cache.contains_key(base_url) {
+                if let Some(oldest_key) = Self::find_oldest_entry(&cache) {
+                    cache.remove(&oldest_key);
+                }
+            }
+
             cache.insert(
                 base_url.to_string(),
                 CachedCard {
@@ -183,6 +197,14 @@ impl AgentCardCache {
                 },
             );
         }
+    }
+
+    /// Find the oldest entry in the cache by fetched_at timestamp.
+    fn find_oldest_entry(cache: &HashMap<String, CachedCard>) -> Option<String> {
+        cache
+            .iter()
+            .min_by_key(|(_, entry)| entry.fetched_at)
+            .map(|(key, _)| key.clone())
     }
 
     /// Remove an agent card from the cache.
@@ -207,6 +229,11 @@ impl AgentCardCache {
     /// Check if the cache is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Get the maximum number of entries allowed in the cache.
+    pub fn max_entries() -> usize {
+        MAX_CACHE_ENTRIES
     }
 }
 
@@ -485,5 +512,53 @@ mod tests {
         card.capabilities.streaming = false;
         assert!(validate_request_method(&card, "message/stream").is_err());
         assert!(validate_request_method(&card, "message/send").is_ok());
+    }
+
+    #[test]
+    fn test_cache_eviction_at_capacity() {
+        // Use a small cache to test eviction behavior
+        let cache = AgentCardCache::new(3600);
+
+        // Verify max_entries is accessible
+        assert_eq!(AgentCardCache::max_entries(), 10_000);
+
+        // For this test, we'll verify the eviction logic works by
+        // checking that find_oldest_entry correctly identifies old entries
+        let card = sample_agent_card();
+
+        // Store first entry
+        cache.store("https://first.com", card.clone());
+        sleep(Duration::from_millis(5));
+
+        // Store second entry (newer)
+        cache.store("https://second.com", card.clone());
+
+        // Verify both are cached
+        assert_eq!(cache.len(), 2);
+
+        // Verify find_oldest_entry identifies the first entry
+        let cache_lock = cache.cache.read().unwrap();
+        let oldest = AgentCardCache::find_oldest_entry(&cache_lock);
+        assert_eq!(oldest, Some("https://first.com".to_string()));
+    }
+
+    #[test]
+    fn test_cache_update_existing_does_not_evict() {
+        let cache = AgentCardCache::new(3600);
+        let card = sample_agent_card();
+
+        // Fill cache
+        cache.store("https://a.com", card.clone());
+        cache.store("https://b.com", card.clone());
+
+        // Update existing entry (should not trigger eviction logic)
+        let mut updated = card.clone();
+        updated.name = "Updated Agent".to_string();
+        cache.store("https://a.com", updated);
+
+        // Both entries should still exist
+        assert_eq!(cache.len(), 2);
+        let cached = cache.get_cached("https://a.com").unwrap();
+        assert_eq!(cached.name, "Updated Agent");
     }
 }

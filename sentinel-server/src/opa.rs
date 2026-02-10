@@ -180,7 +180,11 @@ impl OpaClient {
         Ok(decision)
     }
 
-    /// Query OPA endpoint directly.
+    /// Query OPA endpoint directly with retry logic (GAP-002).
+    ///
+    /// Implements exponential backoff for transient failures (connection errors,
+    /// timeouts, 5xx responses). Retries are configurable via `max_retries` and
+    /// `retry_backoff_ms` in OpaConfig.
     async fn query_opa(&self, input: &OpaInput) -> Result<OpaDecision, OpaError> {
         let endpoint = self
             .config
@@ -189,36 +193,74 @@ impl OpaClient {
             .ok_or(OpaError::NotConfigured)?;
 
         let url = self.build_query_url(endpoint);
-
         let body = serde_json::json!({ "input": input });
         let headers = self.build_request_headers();
 
-        let response = self
-            .client
-            .post(&url)
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_timeout() {
-                    OpaError::Timeout(self.config.timeout_ms)
-                } else {
-                    OpaError::Request(e)
-                }
-            })?;
+        let mut last_error: Option<OpaError> = None;
+        let mut backoff_ms = self.config.retry_backoff_ms;
 
-        if !response.status().is_success() {
-            return Err(OpaError::InvalidResponse(format!(
-                "OPA returned status {}",
-                response.status()
-            )));
+        for attempt in 0..=self.config.max_retries {
+            if attempt > 0 {
+                tracing::debug!(
+                    target: "sentinel::opa",
+                    attempt = attempt,
+                    backoff_ms = backoff_ms,
+                    "Retrying OPA request after backoff"
+                );
+                tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                backoff_ms = backoff_ms.saturating_mul(2); // Exponential backoff
+            }
+
+            let result = self
+                .client
+                .post(&url)
+                .headers(headers.clone())
+                .json(&body)
+                .send()
+                .await;
+
+            match result {
+                Ok(response) => {
+                    let status = response.status();
+
+                    // 5xx errors are retryable
+                    if status.is_server_error() {
+                        last_error = Some(OpaError::InvalidResponse(format!(
+                            "OPA returned status {}",
+                            status
+                        )));
+                        continue;
+                    }
+
+                    // 4xx errors are not retryable
+                    if !status.is_success() {
+                        return Err(OpaError::InvalidResponse(format!(
+                            "OPA returned status {}",
+                            status
+                        )));
+                    }
+
+                    // Success - parse response
+                    let opa_response: OpaResponse = response.json().await?;
+                    return self.parse_decision(opa_response.result);
+                }
+                Err(e) => {
+                    // Timeouts and connection errors are retryable
+                    let error = if e.is_timeout() {
+                        OpaError::Timeout(self.config.timeout_ms)
+                    } else if e.is_connect() {
+                        OpaError::Request(e)
+                    } else {
+                        // Other errors (e.g., invalid URL) are not retryable
+                        return Err(OpaError::Request(e));
+                    };
+                    last_error = Some(error);
+                }
+            }
         }
 
-        let opa_response: OpaResponse = response.json().await?;
-
-        // Parse the decision from the result
-        self.parse_decision(opa_response.result)
+        // All retries exhausted
+        Err(last_error.unwrap_or(OpaError::NotConfigured))
     }
 
     /// Build the OPA query URL from endpoint config.
@@ -492,5 +534,47 @@ mod tests {
             client.build_query_url("http://opa:8181/v1/data/sentinel/allow"),
             "http://opa:8181/v1/data/sentinel/allow"
         );
+    }
+
+    #[test]
+    fn test_retry_config_defaults() {
+        let config = OpaConfig {
+            enabled: true,
+            endpoint: Some("http://localhost:8181".to_string()),
+            decision_path: "sentinel/allow".to_string(),
+            ..Default::default()
+        };
+
+        // Verify default retry settings
+        assert_eq!(config.max_retries, 3);
+        assert_eq!(config.retry_backoff_ms, 50);
+    }
+
+    #[test]
+    fn test_retry_config_custom() {
+        let config = OpaConfig {
+            enabled: true,
+            endpoint: Some("http://localhost:8181".to_string()),
+            decision_path: "sentinel/allow".to_string(),
+            max_retries: 5,
+            retry_backoff_ms: 100,
+            ..Default::default()
+        };
+
+        assert_eq!(config.max_retries, 5);
+        assert_eq!(config.retry_backoff_ms, 100);
+    }
+
+    #[test]
+    fn test_retry_disabled() {
+        let config = OpaConfig {
+            enabled: true,
+            endpoint: Some("http://localhost:8181".to_string()),
+            decision_path: "sentinel/allow".to_string(),
+            max_retries: 0,
+            ..Default::default()
+        };
+
+        assert_eq!(config.max_retries, 0);
     }
 }

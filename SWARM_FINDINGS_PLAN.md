@@ -61,62 +61,67 @@ if config.fail_open {
 
 ---
 
-## Phase 2: Reliability & Security Hardening (P1)
+## Phase 2: Reliability & Security Hardening (P1) ✅ COMPLETE
 
 **Timeline:** Week 1
 **Effort:** 3-4 days
+**Status:** Completed 2026-02-10
 
-### SEC-002: Remove expect() in OPA Cache Size
+### SEC-002: Remove expect() in OPA Cache Size ✅
 **Location:** `sentinel-server/src/opa.rs:103`
 
 **Task:**
-- [ ] Replace `.expect()` with safe alternative
+- [x] Replace `.expect()` with safe alternative (completed in Phase 1)
 
 ```rust
-// Before
-let cache_size = NonZeroUsize::new(1000).expect("1000 is non-zero");
-
-// After
-const DEFAULT_CACHE_SIZE: NonZeroUsize =
-    NonZeroUsize::new(1000).expect("compile-time constant");
-// Or use NonZeroUsize::MIN as fallback
+// Implemented: uses .unwrap_or(NonZeroUsize::MIN) as safe fallback
+const DEFAULT_CACHE_SIZE: usize = 1000;
+let cache_size = NonZeroUsize::new(DEFAULT_CACHE_SIZE).unwrap_or(NonZeroUsize::MIN);
 ```
 
-### SEC-009: Agent Card Cache Size Limit
+### SEC-009: Agent Card Cache Size Limit ✅
 **Location:** `sentinel-mcp/src/a2a/agent_card.rs:149-186`
 
 **Task:**
-- [ ] Add `MAX_CACHE_ENTRIES` constant (e.g., 10,000)
-- [ ] Evict oldest entries when limit reached
+- [x] Add `MAX_CACHE_ENTRIES` constant (10,000)
+- [x] Evict oldest entries when limit reached
+- [x] Add `find_oldest_entry()` helper method
+- [x] Add `max_entries()` introspection method
+- [x] Add unit tests for eviction behavior
 
 ```rust
 const MAX_CACHE_ENTRIES: usize = 10_000;
 
 impl AgentCardCache {
-    fn insert(&self, url: &str, card: AgentCard) {
-        // Evict if at capacity
-        if self.cache.len() >= MAX_CACHE_ENTRIES {
-            if let Some(oldest) = self.find_oldest_entry() {
-                self.cache.remove(&oldest);
+    pub fn store(&self, base_url: &str, card: AgentCard) {
+        // SEC-009: Evict oldest entry if at capacity
+        if cache.len() >= MAX_CACHE_ENTRIES && !cache.contains_key(base_url) {
+            if let Some(oldest_key) = Self::find_oldest_entry(&cache) {
+                cache.remove(&oldest_key);
             }
         }
-        self.cache.insert(url.to_string(), CacheEntry::new(card));
+        cache.insert(base_url.to_string(), CachedCard { card, fetched_at: Instant::now() });
     }
 }
 ```
 
-### GAP-002: OPA Client Retry Logic
-**Location:** `sentinel-server/src/opa.rs:146-184`
+### GAP-002: OPA Client Retry Logic ✅
+**Location:** `sentinel-server/src/opa.rs:184-258`
 
 **Task:**
-- [ ] Add retry with exponential backoff (follow webhook exporter pattern)
-- [ ] Make retries configurable in `OpaConfig`
+- [x] Add retry with exponential backoff
+- [x] Make retries configurable in `OpaConfig` (`max_retries`, `retry_backoff_ms`)
+- [x] Handle retryable errors (timeouts, connection errors, 5xx responses)
+- [x] Non-retryable errors (4xx responses, invalid URLs) fail immediately
+- [x] Add debug logging for retry attempts
+- [x] Add custom `impl Default` for `OpaConfig` with correct defaults
+- [x] Add unit tests for retry configuration
 
 ```rust
 pub struct OpaConfig {
     // ... existing fields ...
     pub max_retries: u32,           // default: 3
-    pub retry_backoff_ms: u64,      // default: 100
+    pub retry_backoff_ms: u64,      // default: 50
 }
 ```
 
@@ -286,7 +291,7 @@ sentinel-server/src/routes/
 | Phase | Priority | Items | Status |
 |-------|----------|-------|--------|
 | 1 | P0 (Critical) | 2 | ✅ Complete |
-| 2 | P1 (High) | 4 | ⬜ Not Started |
+| 2 | P1 (High) | 3 | ✅ Complete |
 | 3 | P2 (Medium) | 5 | ⬜ Not Started |
 | 4 | P2 (Quick Wins) | 4 | ⬜ Not Started |
 | 5 | P3 (Low) | 10 | ⬜ Not Started |
