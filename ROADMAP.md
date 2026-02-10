@@ -2,7 +2,7 @@
 
 > **Version:** 2.2.1 (Released)
 > **Generated:** 2026-02-10
-> **Status:** v2.2.1 released; v2.2 Phases 12-15 complete; Phase 16+ planned; architecture split and post-quantum readiness tracks active
+> **Status:** v2.2.1 released; v2.2 Phases 12-15 complete; Phase 16+ planned; architecture split and post-quantum readiness tracks active; OPA runtime decision enforcement wiring remains pending (guarded fail-closed)
 > **Based on:** Multi-agent research (MCP spec 2025-11-25, OWASP ASI Top 10, enterprise patterns, competitor analysis)
 
 ---
@@ -14,7 +14,7 @@ Sentinel v2.2.1 is production-ready with 35 audit rounds and 3,700+ tests. This 
 1. **MCP 2025-11-25 Protocol Compliance** — Async Tasks, Resource Indicators, CIMD
 2. **Advanced Threat Detection** — Shadow agents, full schema poisoning, cascading failures
 3. **Standards Alignment** — MITRE ATLAS, OWASP ASI Top 10, NIST AI Profile
-4. **Enterprise Hardening** — mTLS/SPIFFE, OPA integration, threat intelligence
+4. **Enterprise Hardening** — mTLS/SPIFFE, OPA runtime wiring, threat intelligence
 5. **Architecture Split Readiness** — Module extraction guardrails, dependency boundaries, and regression gates
 6. **Post-Quantum Migration Readiness** — Crypto-agility planning for standards transition
 
@@ -24,6 +24,11 @@ Sentinel v2.2.1 is production-ready with 35 audit rounds and 3,700+ tests. This 
 - CoSAI MCP Security Whitepaper (12 threat categories, ~40 threats)
 - MITRE ATLAS agentic AI techniques (14 new entries)
 - Competitor analysis (Zenity, Lasso, Operant AI, NeMo Guardrails)
+
+### 2026-02-10 Hardening Delta
+
+- `X-Upstream-Agents` handling moved to strict fail-closed behavior for malformed/oversized and over-entry-limit chains (no truncation fallback).
+- OPA guardrails expanded: `sentinel serve`, `sentinel evaluate`, and `sentinel check` now reject `[opa].enabled = true` until request-path OPA enforcement wiring lands.
 
 ---
 
@@ -583,11 +588,11 @@ auto_revoke_on_alert = true
 
 ---
 
-## Phase 5.5: Enterprise Hardening - Runtime (Weeks 17-18) ✅ COMPLETE
+## Phase 5.5: Enterprise Hardening - Runtime (Weeks 17-18) 🟡 PARTIALLY COMPLETE
 
 *Focus: Runtime implementation of enterprise features*
 
-> **Status:** Implemented in commit `db7f99b`. All core deliverables complete.
+> **Status:** Core runtime components implemented in commit `db7f99b`; OPA request-path decision enforcement wiring remains pending and is currently guarded fail-closed.
 
 ### 5.5.1 TLS Runtime Implementation
 
@@ -606,6 +611,8 @@ auto_revoke_on_alert = true
 | Add decision caching with TTL | P2 | ✅ Complete |
 | Implement fail-open/fail-closed modes | P2 | ✅ Complete |
 | Add structured decision parsing | P2 | ✅ Complete |
+| Wire OPA decisions into server request path (`serve`) | P1 | 🚧 In Progress (guarded fail-closed) |
+| Wire OPA decisions into CLI policy path (`evaluate`) | P1 | 🚧 In Progress (guarded fail-closed) |
 
 ### 5.5.3 Threat Intelligence Runtime
 
@@ -638,11 +645,12 @@ auto_revoke_on_alert = true
 - [x] TLS termination with client cert extraction
 - [x] SPIFFE ID extraction from X.509 SAN URIs
 - [x] OPA client with LRU caching and fail modes
+- [ ] OPA request-path decision enforcement wiring (guarded fail-closed until complete)
 - [x] Threat intelligence clients (TAXII, MISP, Custom)
 - [x] JIT session management with approval workflow
 - [ ] FIPS 140-2 compliance mode (deferred to v2.1)
 
-**Completed:** 2026-02-08
+**Updated:** 2026-02-10
 
 ---
 

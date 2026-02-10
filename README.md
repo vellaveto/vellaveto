@@ -46,6 +46,8 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 
 - Updated MCP protocol support to `2025-11-25` with compatibility for `2025-06-18` and `2025-03-26`.
 - Strengthened Streamable HTTP parity: SSE responses now enforce structured output schema validation fail-closed.
+- Hardened `X-Upstream-Agents` handling: malformed/oversized headers and over-limit entry arrays are now rejected fail-closed across MCP method paths (no truncation fallback).
+- Added fail-closed OPA config guardrails: `sentinel serve`, `sentinel evaluate`, and `sentinel check` now reject `[opa].enabled = true` until runtime decision enforcement wiring is completed.
 - Expanded observability test coverage with async integration tests and property-based invariants.
 - Applied bounded runtime preallocation in `sentinel-mcp` session/state maps to reduce allocation churn on hot paths.
 - Added full workspace architecture and feature ownership maps for module-split navigation.
@@ -189,7 +191,7 @@ Sentinel enforces security policies on every tool call before it reaches the too
 
 ### 🏢 Enterprise Features
 - **mTLS / SPIFFE-SPIRE** — Mutual TLS with client certificate verification, SPIFFE identity extraction from X.509 SAN URIs, trust domains, workload identity, and ID-to-role mapping
-- **OPA Integration** — External policy evaluation via Open Policy Agent with async HTTP client, LRU decision caching (configurable TTL), fail-open/closed modes, and structured decision parsing
+- **OPA Integration (guarded)** — OPA client/config primitives are implemented; runtime request enforcement is currently fail-closed when `[opa].enabled = true` until end-to-end decision wiring is completed
 - **Threat Intelligence** — TAXII 2.1 (STIX), MISP, and custom REST threat feed integration with IOC matching, confidence filtering, and configurable actions (deny/alert/require_approval)
 - **Just-In-Time Access** — Session-based temporary elevated permissions with approval workflows, per-principal session limits, auto-revocation on security alerts, and permission/tool access checking
 
@@ -964,7 +966,7 @@ server     proxy     http-proxy   HTTP API, stdio proxy, HTTP reverse proxy
 | Semantic guardrails (LLM-based) | `sentinel-mcp` | semantic evaluation pipeline | `sentinel-mcp/src/semantic/`, integration coverage in `sentinel-integration/tests/` |
 | RAG poisoning defense | `sentinel-mcp` | grounding/retrieval defense path | `sentinel-mcp/src/rag_defense/` tests |
 | A2A protocol security | `sentinel-mcp` | A2A message classification and proxy service | `sentinel-mcp/src/a2a.rs` tests, `sentinel-integration/tests/owasp_mcp_top10.rs` |
-| Enterprise controls (mTLS/SPIFFE/OPA/JIT/Threat Intel) | `sentinel-server`, `sentinel-mcp`, `sentinel-cluster` | server runtime integrations and policy hooks | `sentinel-server/src/threat_intel.rs` tests, `sentinel-server/tests/` |
+| Enterprise controls (mTLS/SPIFFE/OPA/JIT/Threat Intel) | `sentinel-server`, `sentinel-mcp`, `sentinel-cluster` | server runtime integrations and policy hooks (OPA currently guarded fail-closed pending full runtime wiring) | `sentinel-server/src/threat_intel.rs` tests, `sentinel-server/tests/` |
 | Observability exporters and traces | `sentinel-audit`, `sentinel-integration` | exporter backends and trace propagation | `sentinel-integration/tests/observability_test.rs`, `sentinel-audit/tests/proptest_observability.rs` |
 | Python SDK integrations | `sdk/python` | SDK client APIs and middleware callbacks | `sdk/python` test suite |
 | Fuzzing and adversarial validation | `fuzz`, `security-testing`, `sentinel-integration` | fuzz targets + red-team scripts | `fuzz/*`, `sentinel-integration/tests/full_attack_battery.rs` |

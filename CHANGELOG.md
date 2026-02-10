@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated `ROADMAP.md` with an explicit Phase 16.6 architecture split/modularization track.
   - Added a post-quantum readiness section to `README.md` with standards status and migration milestones (2028/2031/2035 alignment).
   - Added Phase 16.7 post-quantum cryptography transition track to `ROADMAP.md` with TLS policy, observability, and rollout tasks.
+  - Clarified OPA runtime status in `README.md` and `ROADMAP.md`: OPA client/config primitives exist, while request-path enforcement is currently guarded fail-closed pending full runtime wiring.
 
 ### Added
 
@@ -42,6 +43,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `output_validation`
     - `workflow_tracker`
   - Updated `PolicyEngine` constructors to initialize `domain_norm_cache` using `MAX_DOMAIN_NORM_CACHE_ENTRIES`-bounded capacity.
+
+### Security
+
+- **Call-chain header hardening (`sentinel-http-proxy`)**:
+  - Enforced fail-closed `X-Upstream-Agents` validation across MCP method paths.
+  - Added explicit rejection for headers whose entry count exceeds `limits.max_call_chain_length` (instead of truncation).
+  - Added regression coverage for malformed and over-limit call-chain headers on tool-call, pass-through, sampling, resource, and task paths.
+
+- **OPA fail-closed guardrails (`sentinel-server`)**:
+  - `sentinel serve`, `sentinel evaluate`, and `sentinel check` now reject configs with `[opa].enabled = true` until runtime request-path OPA decision enforcement is fully wired.
+  - Added CLI integration regressions for OPA-enabled fail-closed behavior in `check` and `evaluate`.
 
 ## [2.2.1] - 2026-02-10
 
