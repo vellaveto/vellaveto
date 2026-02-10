@@ -287,6 +287,27 @@ pub struct RoleClaims {
     /// Roles claim (array form, some IdPs use this)
     #[serde(default)]
     pub roles: Option<Vec<String>>,
+
+    /// Audience claim supporting both string and string-array forms.
+    #[serde(default)]
+    pub aud: Option<AudienceClaim>,
+}
+
+/// JWT `aud` claim representation (string or array of strings).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AudienceClaim {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+impl AudienceClaim {
+    fn contains(&self, expected: &str) -> bool {
+        match self {
+            AudienceClaim::Single(value) => value == expected,
+            AudienceClaim::Multiple(values) => values.iter().any(|value| value == expected),
+        }
+    }
 }
 
 impl RoleClaims {
@@ -321,6 +342,12 @@ impl RoleClaims {
         }
 
         None
+    }
+
+    fn matches_audience(&self, expected: &str) -> bool {
+        self.aud
+            .as_ref()
+            .is_some_and(|aud_claim| aud_claim.contains(expected))
     }
 }
 
@@ -427,33 +454,6 @@ pub enum JwtError {
     UnsupportedAlgorithm(jsonwebtoken::Algorithm),
 }
 
-fn extract_unverified_aud_claim(token: &str) -> Result<Vec<String>, JwtError> {
-    let token_data =
-        jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(token).map_err(|e| {
-            JwtError::ValidationFailed(format!("failed to inspect token claims: {}", e))
-        })?;
-    match token_data.claims.get("aud") {
-        None | Some(serde_json::Value::Null) => Ok(Vec::new()),
-        Some(serde_json::Value::String(aud)) => Ok(vec![aud.clone()]),
-        Some(serde_json::Value::Array(values)) => {
-            let mut out = Vec::with_capacity(values.len());
-            for value in values {
-                if let Some(s) = value.as_str() {
-                    out.push(s.to_string());
-                } else {
-                    return Err(JwtError::ValidationFailed(
-                        "invalid 'aud' claim type".to_string(),
-                    ));
-                }
-            }
-            Ok(out)
-        }
-        _ => Err(JwtError::ValidationFailed(
-            "invalid 'aud' claim type".to_string(),
-        )),
-    }
-}
-
 /// Extract and validate a JWT token from the Authorization header.
 ///
 /// Returns the extracted claims on success.
@@ -512,10 +512,9 @@ pub fn extract_jwt_claims(auth_header: &str, config: &JwtConfig) -> Result<RoleC
     let claims = token_data.claims;
 
     // Defense in depth: independently inspect aud claim so audience
-    // enforcement remains strict even if library behavior changes.
+    // enforcement remains strict for both string and array forms.
     if let Some(ref aud) = config.audience {
-        let token_aud = extract_unverified_aud_claim(token)?;
-        if token_aud.is_empty() || !token_aud.iter().any(|v| v == aud) {
+        if !claims.matches_audience(aud) {
             return Err(JwtError::ValidationFailed(format!(
                 "token audience mismatch: expected '{}'",
                 aud
@@ -789,6 +788,7 @@ mod tests {
             role: Some("admin".into()),
             sentinel_role: None,
             roles: None,
+            aud: None,
         };
         assert_eq!(claims.effective_role(), Some(Role::Admin));
 
@@ -798,6 +798,7 @@ mod tests {
             role: None,
             sentinel_role: Some("operator".into()),
             roles: None,
+            aud: None,
         };
         assert_eq!(claims.effective_role(), Some(Role::Operator));
 
@@ -807,6 +808,7 @@ mod tests {
             role: None,
             sentinel_role: None,
             roles: Some(vec!["auditor".into()]),
+            aud: None,
         };
         assert_eq!(claims.effective_role(), Some(Role::Auditor));
 
@@ -816,6 +818,7 @@ mod tests {
             role: Some("admin".into()),
             sentinel_role: Some("viewer".into()),
             roles: None,
+            aud: None,
         };
         assert_eq!(claims.effective_role(), Some(Role::Admin));
 
@@ -825,6 +828,7 @@ mod tests {
             role: None,
             sentinel_role: None,
             roles: None,
+            aud: None,
         };
         assert_eq!(claims.effective_role(), None);
     }
@@ -1085,6 +1089,7 @@ mod tests {
             role: Some("admin".into()),
             sentinel_role: None,
             roles: None,
+            aud: None,
         };
 
         let token = encode(
