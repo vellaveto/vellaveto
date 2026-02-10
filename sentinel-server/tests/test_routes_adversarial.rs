@@ -73,6 +73,7 @@ fn make_state() -> (AppState, TempDir) {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -122,6 +123,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -555,6 +557,7 @@ priority = 1
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -671,6 +674,7 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -908,6 +912,7 @@ async fn test_find004_metrics_require_auth_true_blocks_unauthenticated() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // FIND-004: Require auth for metrics (default)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -968,6 +973,7 @@ async fn test_find004_metrics_require_auth_false_allows_unauthenticated() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // FIND-004: Allow unauthenticated metrics
         metrics_require_auth: false,
         audit_strict_mode: false,

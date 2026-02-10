@@ -75,6 +75,7 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -436,6 +437,7 @@ async fn regression_24_error_message_does_not_leak_architecture() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,

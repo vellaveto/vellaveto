@@ -818,6 +818,21 @@ async fn cmd_serve(
             None
         },
 
+        // Phase 15: AI Observability Platform Integration
+        #[cfg(feature = "observability-exporters")]
+        observability: match sentinel_server::observability::ObservabilityManager::new(
+            &policy_config.observability,
+        ) {
+            Ok(Some(mgr)) => Some(Arc::new(mgr)),
+            Ok(None) => None,
+            Err(e) => {
+                tracing::warn!("Failed to initialize observability: {}", e);
+                None
+            }
+        },
+        #[cfg(not(feature = "observability-exporters"))]
+        observability: None,
+
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: policy_config.metrics_require_auth,
         audit_strict_mode: policy_config.audit.strict_mode,

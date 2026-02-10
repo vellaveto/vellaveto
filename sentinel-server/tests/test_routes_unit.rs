@@ -129,6 +129,7 @@ fn test_state() -> (AppState, TempDir) {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -498,6 +499,7 @@ async fn health_not_rate_limited() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -568,6 +570,7 @@ async fn rate_limit_429_includes_retry_after() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -732,6 +735,7 @@ async fn per_ip_rate_limit_throttles_single_ip() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -844,6 +848,7 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -929,6 +934,7 @@ async fn per_ip_health_exempt_from_rate_limit() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -1006,6 +1012,7 @@ async fn per_ip_rate_limit_ipv6_addresses() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -1118,6 +1125,7 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -1214,6 +1222,7 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -1309,6 +1318,7 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -1402,6 +1412,7 @@ async fn per_ip_rate_limit_429_response_body_format() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -1507,6 +1518,7 @@ async fn health_returns_degraded_when_cluster_unhealthy() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };

@@ -657,6 +657,13 @@ pub struct AppState {
     pub nhi: Option<Arc<sentinel_mcp::nhi::NhiManager>>,
 
     // ═══════════════════════════════════════════════════════════════════
+    // Phase 15: AI Observability Platform Integration
+    // ═══════════════════════════════════════════════════════════════════
+    /// Observability manager for exporting security spans to AI observability
+    /// platforms (Langfuse, Arize, Helicone). None when observability is disabled.
+    pub observability: Option<Arc<observability::ObservabilityManager>>,
+
+    // ═══════════════════════════════════════════════════════════════════
     // Server Configuration (FIND-004, FIND-005)
     // ═══════════════════════════════════════════════════════════════════
     /// When true, `/metrics` and `/api/metrics` require authentication (FIND-004).

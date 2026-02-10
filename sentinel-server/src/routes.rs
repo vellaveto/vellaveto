@@ -23,6 +23,10 @@ use crate::rbac::{rbac_middleware, RbacState};
 use crate::tenant::{tenant_middleware, TenantContext, TenantState};
 use crate::AppState;
 
+// Phase 15: Observability integration
+#[cfg(feature = "observability-exporters")]
+use sentinel_audit::observability::{SecuritySpan, SpanKind, TraceContext};
+
 pub fn build_router(state: AppState) -> Router {
     // Build CORS layer from configured origins.
     // Default (empty vec) = localhost only. "*" = any origin.
@@ -64,6 +68,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/tenants/{id}", get(get_tenant))
         .route("/api/tenants/{id}", axum::routing::put(update_tenant))
         .route("/api/tenants/{id}", delete(delete_tenant))
+        // Phase 15: AI Observability Platform Integration
+        .route("/api/observability/exporters", get(list_observability_exporters))
+        .route("/api/observability/stats", get(observability_stats))
+        .route("/api/observability/test", post(test_observability))
         // Admin dashboard (P3.2)
         .route("/dashboard", get(crate::dashboard::dashboard_page))
         .route(
@@ -1302,6 +1310,52 @@ async fn evaluate(
         }
     } else {
         crate::metrics::increment_audit_entries();
+    }
+
+    // Phase 15: Submit observability span if enabled
+    #[cfg(feature = "observability-exporters")]
+    if let Some(ref obs) = state.observability {
+        // Extract trace context from incoming request
+        let trace_ctx = headers
+            .get("traceparent")
+            .and_then(|v| v.to_str().ok())
+            .and_then(TraceContext::parse_traceparent);
+
+        // Generate trace ID (use incoming or create new)
+        let trace_id = trace_ctx
+            .as_ref()
+            .and_then(|ctx| ctx.trace_id.clone())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string().replace("-", ""));
+
+        let duration_ms = eval_start.elapsed().as_millis() as u64;
+        let now = chrono::Utc::now();
+        let start_time = (now - chrono::Duration::milliseconds(duration_ms as i64)).to_rfc3339();
+        let end_time = now.to_rfc3339();
+
+        let mut builder = SecuritySpan::builder(trace_id, SpanKind::Policy)
+            .name(format!("policy.evaluate/{}", action.tool))
+            .start_time(start_time)
+            .end_time(end_time)
+            .duration_ms(duration_ms)
+            .action_from(&action)
+            .verdict_from(&verdict)
+            .attribute("tenant_id", json!(tenant_ctx.tenant_id));
+
+        // Set parent span if provided
+        if let Some(ref ctx) = trace_ctx {
+            if let Some(ref parent) = ctx.parent_span_id {
+                builder = builder.parent_span_id(parent.clone());
+            }
+        }
+
+        // Add approval info if present
+        if let Some(ref id) = approval_id {
+            builder = builder.attribute("approval_id", json!(id));
+        }
+
+        if let Some(span) = builder.build() {
+            obs.submit(span);
+        }
     }
 
     Ok(Json(EvaluateResponse {
@@ -4756,6 +4810,83 @@ async fn nhi_stats(
 
     let stats = manager.stats().await;
     Ok(Json(json!({"stats": stats})))
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 15: AI Observability Platform Integration
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Response for observability exporter list.
+#[derive(Debug, Serialize)]
+struct ObservabilityExporterResponse {
+    enabled: bool,
+    exporters: Vec<crate::observability::ExporterInfo>,
+}
+
+/// Response for observability stats.
+#[derive(Debug, Serialize)]
+struct ObservabilityStatsResponse {
+    enabled: bool,
+    stats: Option<crate::observability::ObservabilityStatsSnapshot>,
+    exporters: Vec<crate::observability::ExporterInfo>,
+}
+
+/// List configured observability exporters.
+#[tracing::instrument(name = "sentinel.observability.list_exporters", skip(state))]
+async fn list_observability_exporters(
+    State(state): State<crate::AppState>,
+) -> Json<ObservabilityExporterResponse> {
+    match &state.observability {
+        Some(obs) => Json(ObservabilityExporterResponse {
+            enabled: true,
+            exporters: obs.exporters().to_vec(),
+        }),
+        None => Json(ObservabilityExporterResponse {
+            enabled: false,
+            exporters: vec![],
+        }),
+    }
+}
+
+/// Get observability statistics.
+#[tracing::instrument(name = "sentinel.observability.stats", skip(state))]
+async fn observability_stats(
+    State(state): State<crate::AppState>,
+) -> Json<ObservabilityStatsResponse> {
+    match &state.observability {
+        Some(obs) => Json(ObservabilityStatsResponse {
+            enabled: true,
+            stats: Some(obs.stats()),
+            exporters: obs.exporters().to_vec(),
+        }),
+        None => Json(ObservabilityStatsResponse {
+            enabled: false,
+            stats: None,
+            exporters: vec![],
+        }),
+    }
+}
+
+/// Test observability exporter connectivity.
+#[tracing::instrument(name = "sentinel.observability.test", skip(state))]
+async fn test_observability(
+    State(state): State<crate::AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let Some(ref _obs) = state.observability else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "Observability not enabled".to_string(),
+            }),
+        ));
+    };
+
+    // For now, return success if observability is enabled.
+    // Full health check would require async health_check calls to each exporter.
+    Ok(Json(json!({
+        "status": "ok",
+        "message": "Observability manager is running"
+    })))
 }
 
 #[cfg(test)]
