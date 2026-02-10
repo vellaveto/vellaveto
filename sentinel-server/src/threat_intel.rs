@@ -265,7 +265,10 @@ impl ThreatIntelClient {
             .await?;
 
         if !response.status().is_success() {
-            return Ok(Vec::new());
+            return Err(ThreatIntelError::InvalidResponse(format!(
+                "TAXII provider returned HTTP {}",
+                response.status()
+            )));
         }
 
         let body: serde_json::Value = response.json().await?;
@@ -290,7 +293,10 @@ impl ThreatIntelClient {
         let response = self.client.post(&url).json(&body).send().await?;
 
         if !response.status().is_success() {
-            return Ok(Vec::new());
+            return Err(ThreatIntelError::InvalidResponse(format!(
+                "MISP provider returned HTTP {}",
+                response.status()
+            )));
         }
 
         let body: serde_json::Value = response.json().await?;
@@ -304,17 +310,15 @@ impl ThreatIntelClient {
         indicator_type: IndicatorType,
         value: &str,
     ) -> Result<Vec<ThreatIndicator>, ThreatIntelError> {
-        let url = format!(
-            "{}/indicators/{}/{}",
-            endpoint,
-            indicator_type_to_string(indicator_type),
-            value
-        );
+        let url = build_custom_indicator_url(endpoint, indicator_type, value)?;
 
-        let response = self.client.get(&url).send().await?;
+        let response = self.client.get(url).send().await?;
 
         if !response.status().is_success() {
-            return Ok(Vec::new());
+            return Err(ThreatIntelError::InvalidResponse(format!(
+                "custom provider returned HTTP {}",
+                response.status()
+            )));
         }
 
         let indicators: Vec<ThreatIndicator> = response.json().await.map_err(|e| {
@@ -502,6 +506,29 @@ fn indicator_type_to_string(t: IndicatorType) -> &'static str {
     }
 }
 
+fn build_custom_indicator_url(
+    endpoint: &str,
+    indicator_type: IndicatorType,
+    value: &str,
+) -> Result<reqwest::Url, ThreatIntelError> {
+    let mut url = reqwest::Url::parse(endpoint).map_err(|e| {
+        ThreatIntelError::InvalidResponse(format!("invalid custom provider endpoint: {}", e))
+    })?;
+
+    {
+        let mut segments = url.path_segments_mut().map_err(|_| {
+            ThreatIntelError::InvalidResponse(
+                "custom provider endpoint cannot be used as a base URL".to_string(),
+            )
+        })?;
+        segments.push("indicators");
+        segments.push(indicator_type_to_string(indicator_type));
+        segments.push(value);
+    }
+
+    Ok(url)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -638,5 +665,26 @@ mod tests {
             .parse_misp_response(json!({"response": {"Attribute": []}}))
             .expect("empty result should be valid");
         assert!(indicators.is_empty());
+    }
+
+    #[test]
+    fn test_build_custom_indicator_url_encodes_value_as_path_segment() {
+        let url = build_custom_indicator_url(
+            "https://intel.example.com/api",
+            IndicatorType::Domain,
+            "evil.test/a b",
+        )
+        .expect("valid endpoint should produce a URL");
+
+        assert_eq!(
+            url.as_str(),
+            "https://intel.example.com/api/indicators/domain/evil.test%2Fa%20b"
+        );
+    }
+
+    #[test]
+    fn test_build_custom_indicator_url_rejects_invalid_endpoint() {
+        let result = build_custom_indicator_url("not a url", IndicatorType::Ip, "1.2.3.4");
+        assert!(matches!(result, Err(ThreatIntelError::InvalidResponse(_))));
     }
 }

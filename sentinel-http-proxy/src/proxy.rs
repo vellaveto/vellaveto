@@ -2875,18 +2875,43 @@ fn extract_call_chain_from_headers(
     hmac_key: Option<&[u8; 32]>,
     limits: &sentinel_config::LimitsConfig,
 ) -> Vec<sentinel_types::CallChainEntry> {
+    if let Err(reason) = validate_call_chain_header(headers, limits) {
+        tracing::warn!(
+            reason = reason,
+            "Call chain header validation failed during extraction; dropping upstream chain"
+        );
+        return Vec::new();
+    }
+
     let max_age_secs = limits.call_chain_max_age_secs as i64;
 
-    let mut entries = headers
-        .get(X_UPSTREAM_AGENTS)
-        .and_then(|v| v.to_str().ok())
-        .filter(|s| s.len() <= limits.max_call_chain_header_bytes)
-        .and_then(|s| serde_json::from_str::<Vec<sentinel_types::CallChainEntry>>(s).ok())
-        .map(|mut v| {
-            v.truncate(limits.max_call_chain_length);
-            v
-        })
-        .unwrap_or_default();
+    let mut entries = match headers.get(X_UPSTREAM_AGENTS) {
+        Some(raw_header) => {
+            let raw_str = match raw_header.to_str() {
+                Ok(raw_str) => raw_str,
+                Err(_) => {
+                    tracing::warn!(
+                        "Call chain header became non UTF-8 after validation; dropping upstream chain"
+                    );
+                    return Vec::new();
+                }
+            };
+            match serde_json::from_str::<Vec<sentinel_types::CallChainEntry>>(raw_str) {
+                Ok(mut parsed) => {
+                    parsed.truncate(limits.max_call_chain_length);
+                    parsed
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        error = %error,
+                        "Call chain header became non-JSON after validation; dropping upstream chain"
+                    );
+                    return Vec::new();
+                }
+            }
+        }
+        None => Vec::new(),
+    };
 
     // FIND-015: Verify HMAC on each entry when a key is configured.
     // Also validate timestamp freshness to prevent replay attacks.
