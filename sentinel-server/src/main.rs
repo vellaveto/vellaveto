@@ -1238,6 +1238,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         a2a: Default::default(),
         observability: Default::default(),
         metrics_require_auth: true,
+        limits: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;
@@ -1393,17 +1394,32 @@ async fn cmd_verify(audit: String, trusted_key: Option<String>, list_rotated: bo
 /// Wait for SIGTERM or SIGINT (Ctrl+C) for graceful shutdown.
 async fn shutdown_signal() {
     let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => {}
+            Err(err) => {
+                tracing::error!(
+                    error = %err,
+                    "Failed to install Ctrl+C handler; SIGINT shutdown disabled"
+                );
+                std::future::pending::<()>().await;
+            }
+        }
     };
 
     #[cfg(unix)]
     let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install SIGTERM handler")
-            .recv()
-            .await;
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(err) => {
+                tracing::error!(
+                    error = %err,
+                    "Failed to install SIGTERM handler; SIGTERM shutdown disabled"
+                );
+                std::future::pending::<()>().await;
+            }
+        }
     };
 
     #[cfg(not(unix))]

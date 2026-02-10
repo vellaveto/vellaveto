@@ -883,6 +883,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             a2a: Default::default(),
             observability: Default::default(),
             metrics_require_auth: true,
+            limits: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

@@ -183,6 +183,7 @@ fn to_policies_produces_correct_policy_structs() {
         a2a: Default::default(),
         observability: Default::default(),
         metrics_require_auth: true,
+        limits: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(policies.len(), 1);
@@ -247,6 +248,7 @@ fn to_policies_uses_default_priority_when_none() {
         a2a: Default::default(),
         observability: Default::default(),
         metrics_require_auth: true,
+        limits: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(
@@ -417,6 +419,7 @@ fn policy_config_toml_roundtrip() {
         a2a: Default::default(),
         observability: Default::default(),
         metrics_require_auth: true,
+        limits: Default::default(),
     };
     let toml_str = toml::to_string(&original).unwrap();
     let parsed = PolicyConfig::from_toml(&toml_str).unwrap();

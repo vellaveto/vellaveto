@@ -1681,6 +1681,14 @@ pub struct PolicyConfig {
     /// endpoint is protected by network-level controls (e.g., internal VPC only).
     #[serde(default = "default_true")]
     pub metrics_require_auth: bool,
+
+    // ═══════════════════════════════════════════════════
+    // RUNTIME LIMITS CONFIGURATION
+    // ═══════════════════════════════════════════════════
+    /// Runtime limits for proxy and MCP processing.
+    /// Controls memory bounds, timeouts, and chain lengths.
+    #[serde(default)]
+    pub limits: LimitsConfig,
 }
 
 /// Tool registry with trust scoring configuration (P2.1).
@@ -5076,6 +5084,146 @@ impl Default for A2aConfig {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// LIMITS CONFIGURATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Runtime limits configuration for proxy and MCP processing.
+///
+/// Makes previously hardcoded constants configurable, allowing operators to
+/// tune memory bounds, timeouts, and chain lengths for their deployment.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [limits]
+/// max_response_body_bytes = 10485760  # 10 MB
+/// max_sse_event_bytes = 1048576       # 1 MB
+/// max_jsonrpc_line_bytes = 1048576    # 1 MB
+/// max_call_chain_length = 20
+/// call_chain_max_age_secs = 300       # 5 minutes
+/// request_timeout_secs = 30
+/// max_action_history = 100
+/// max_pending_tool_calls = 256
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LimitsConfig {
+    /// Maximum response body size in bytes. Default: 10 MB.
+    /// Responses exceeding this are rejected to prevent OOM.
+    #[serde(default = "default_max_response_body_bytes")]
+    pub max_response_body_bytes: usize,
+
+    /// Maximum size of a single SSE event's data payload. Default: 1 MB.
+    /// Events larger than this are flagged as suspicious (R18-SSE-OVERSIZE).
+    #[serde(default = "default_max_sse_event_bytes")]
+    pub max_sse_event_bytes: usize,
+
+    /// Maximum JSON-RPC line size in bytes for framing. Default: 1 MB.
+    /// Lines exceeding this are truncated with an error logged.
+    #[serde(default = "default_max_jsonrpc_line_bytes")]
+    pub max_jsonrpc_line_bytes: usize,
+
+    /// Maximum call chain length for FIND-015 protection. Default: 20.
+    /// Requests with longer chains are rejected as potential attack indicators.
+    #[serde(default = "default_max_call_chain_length")]
+    pub max_call_chain_length: usize,
+
+    /// Maximum age of call chain entries in seconds. Default: 300 (5 minutes).
+    /// Entries older than this are evicted to prevent stale chain accumulation.
+    #[serde(default = "default_call_chain_max_age_secs")]
+    pub call_chain_max_age_secs: u64,
+
+    /// Request timeout in seconds for upstream requests. Default: 30.
+    #[serde(default = "default_request_timeout_secs")]
+    pub request_timeout_secs: u64,
+
+    /// Maximum action history per session. Default: 100.
+    /// Older actions are evicted when the limit is reached.
+    #[serde(default = "default_max_action_history")]
+    pub max_action_history: usize,
+
+    /// Maximum pending tool call IDs tracked per session. Default: 256.
+    /// Prevents memory exhaustion from malicious tool call floods.
+    #[serde(default = "default_max_pending_tool_calls")]
+    pub max_pending_tool_calls: usize,
+
+    /// Maximum call chain header size in bytes. Default: 8192.
+    /// Headers exceeding this are rejected.
+    #[serde(default = "default_max_call_chain_header_bytes")]
+    pub max_call_chain_header_bytes: usize,
+
+    /// Maximum trace header size in bytes. Default: 4096.
+    #[serde(default = "default_max_trace_header_bytes")]
+    pub max_trace_header_bytes: usize,
+
+    /// Maximum JSON-RPC ID key length. Default: 256.
+    /// IDs longer than this are rejected.
+    #[serde(default = "default_max_jsonrpc_id_key_len")]
+    pub max_jsonrpc_id_key_len: usize,
+}
+
+fn default_max_response_body_bytes() -> usize {
+    10 * 1024 * 1024 // 10 MB
+}
+
+fn default_max_sse_event_bytes() -> usize {
+    1024 * 1024 // 1 MB
+}
+
+fn default_max_jsonrpc_line_bytes() -> usize {
+    1024 * 1024 // 1 MB
+}
+
+fn default_max_call_chain_length() -> usize {
+    20
+}
+
+fn default_call_chain_max_age_secs() -> u64 {
+    300 // 5 minutes
+}
+
+fn default_request_timeout_secs() -> u64 {
+    30
+}
+
+fn default_max_action_history() -> usize {
+    100
+}
+
+fn default_max_pending_tool_calls() -> usize {
+    256
+}
+
+fn default_max_call_chain_header_bytes() -> usize {
+    8192
+}
+
+fn default_max_trace_header_bytes() -> usize {
+    4096
+}
+
+fn default_max_jsonrpc_id_key_len() -> usize {
+    256
+}
+
+impl Default for LimitsConfig {
+    fn default() -> Self {
+        Self {
+            max_response_body_bytes: default_max_response_body_bytes(),
+            max_sse_event_bytes: default_max_sse_event_bytes(),
+            max_jsonrpc_line_bytes: default_max_jsonrpc_line_bytes(),
+            max_call_chain_length: default_max_call_chain_length(),
+            call_chain_max_age_secs: default_call_chain_max_age_secs(),
+            request_timeout_secs: default_request_timeout_secs(),
+            max_action_history: default_max_action_history(),
+            max_pending_tool_calls: default_max_pending_tool_calls(),
+            max_call_chain_header_bytes: default_max_call_chain_header_bytes(),
+            max_trace_header_bytes: default_max_trace_header_bytes(),
+            max_jsonrpc_id_key_len: default_max_jsonrpc_id_key_len(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6196,6 +6344,7 @@ policy_type = "Allow"
             a2a: A2aConfig::default(),
             observability: ObservabilityConfig::default(),
             metrics_require_auth: true,
+            limits: LimitsConfig::default(),
         };
         config.policies = (0..=MAX_POLICIES)
             .map(|i| PolicyRule {
@@ -7372,5 +7521,106 @@ auto_pin = true
             auto_pin: false,
         };
         assert!(block_caps.is_blocking());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // LIMITS CONFIG TESTS
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_limits_config_defaults() {
+        let config = LimitsConfig::default();
+        assert_eq!(config.max_response_body_bytes, 10 * 1024 * 1024);
+        assert_eq!(config.max_sse_event_bytes, 1024 * 1024);
+        assert_eq!(config.max_jsonrpc_line_bytes, 1024 * 1024);
+        assert_eq!(config.max_call_chain_length, 20);
+        assert_eq!(config.call_chain_max_age_secs, 300);
+        assert_eq!(config.request_timeout_secs, 30);
+        assert_eq!(config.max_action_history, 100);
+        assert_eq!(config.max_pending_tool_calls, 256);
+        assert_eq!(config.max_call_chain_header_bytes, 8192);
+        assert_eq!(config.max_trace_header_bytes, 4096);
+        assert_eq!(config.max_jsonrpc_id_key_len, 256);
+    }
+
+    #[test]
+    fn test_limits_config_from_toml() {
+        let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+
+[limits]
+max_response_body_bytes = 52428800
+max_sse_event_bytes = 2097152
+max_jsonrpc_line_bytes = 2097152
+max_call_chain_length = 50
+call_chain_max_age_secs = 600
+request_timeout_secs = 60
+max_action_history = 200
+max_pending_tool_calls = 512
+max_call_chain_header_bytes = 16384
+max_trace_header_bytes = 8192
+max_jsonrpc_id_key_len = 512
+"#;
+        let config = PolicyConfig::from_toml(toml).unwrap();
+        assert_eq!(config.limits.max_response_body_bytes, 50 * 1024 * 1024);
+        assert_eq!(config.limits.max_sse_event_bytes, 2 * 1024 * 1024);
+        assert_eq!(config.limits.max_jsonrpc_line_bytes, 2 * 1024 * 1024);
+        assert_eq!(config.limits.max_call_chain_length, 50);
+        assert_eq!(config.limits.call_chain_max_age_secs, 600);
+        assert_eq!(config.limits.request_timeout_secs, 60);
+        assert_eq!(config.limits.max_action_history, 200);
+        assert_eq!(config.limits.max_pending_tool_calls, 512);
+        assert_eq!(config.limits.max_call_chain_header_bytes, 16384);
+        assert_eq!(config.limits.max_trace_header_bytes, 8192);
+        assert_eq!(config.limits.max_jsonrpc_id_key_len, 512);
+    }
+
+    #[test]
+    fn test_limits_config_partial_override() {
+        let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+
+[limits]
+max_response_body_bytes = 5242880
+request_timeout_secs = 120
+"#;
+        let config = PolicyConfig::from_toml(toml).unwrap();
+        // Overridden values
+        assert_eq!(config.limits.max_response_body_bytes, 5 * 1024 * 1024);
+        assert_eq!(config.limits.request_timeout_secs, 120);
+        // Default values
+        assert_eq!(config.limits.max_sse_event_bytes, 1024 * 1024);
+        assert_eq!(config.limits.max_call_chain_length, 20);
+        assert_eq!(config.limits.call_chain_max_age_secs, 300);
+        assert_eq!(config.limits.max_action_history, 100);
+    }
+
+    #[test]
+    fn test_limits_config_json_roundtrip() {
+        let config = LimitsConfig {
+            max_response_body_bytes: 20 * 1024 * 1024,
+            max_sse_event_bytes: 2 * 1024 * 1024,
+            max_jsonrpc_line_bytes: 2 * 1024 * 1024,
+            max_call_chain_length: 40,
+            call_chain_max_age_secs: 600,
+            request_timeout_secs: 60,
+            max_action_history: 200,
+            max_pending_tool_calls: 512,
+            max_call_chain_header_bytes: 16384,
+            max_trace_header_bytes: 8192,
+            max_jsonrpc_id_key_len: 512,
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: LimitsConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(config, parsed);
     }
 }
