@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Dependency cleanup**: Removed `rustls-pemfile` crate, now using `rustls::pki_types::pem::PemObject` trait for PEM parsing
 - **JSON-RPC error code consolidation**: Moved hardcoded error codes into `sentinel-types/src/json_rpc.rs` module with named constants for all standard JSON-RPC 2.0 codes and Sentinel application-specific codes (-32001 to -32021)
+- **OpenTelemetry upgrade**: Upgraded from 0.22 to 0.30, eliminating major dependency duplicates (axum 0.6→0.8, hyper 0.14→1.x, http 0.2→1.x, h2 0.3→0.4, tower 0.4→0.5)
+- **Workspace dependency unification**: Unified reqwest to 0.13 as workspace dependency with "json" and "query" features
+- **Security manager initialization**: Phase 1-10 security managers (task_state, circuit_breaker, auth_level, deputy, shadow_agent, schema_lineage, sampling_detector, etdi, memory_security, nhi) now properly initialized from PolicyConfig instead of TODO placeholders
+- **Crate metadata**: Added description field to all 9 crates that were missing it (sentinel-types, sentinel-engine, sentinel-audit, sentinel-mcp, sentinel-canonical, sentinel-config, sentinel-approval, sentinel-proxy, sentinel-integration)
 
 ### Added
 
