@@ -63,11 +63,14 @@ pub fn build_router(state: AppState) -> Router {
             post(revoke_registry_tool),
         )
         // Tenant management endpoints (Phase 3)
-        .route("/api/tenants", get(list_tenants))
-        .route("/api/tenants", post(create_tenant))
-        .route("/api/tenants/{id}", get(get_tenant))
-        .route("/api/tenants/{id}", axum::routing::put(update_tenant))
-        .route("/api/tenants/{id}", delete(delete_tenant))
+        .route("/api/tenants", get(super::tenant::list_tenants))
+        .route("/api/tenants", post(super::tenant::create_tenant))
+        .route("/api/tenants/{id}", get(super::tenant::get_tenant))
+        .route(
+            "/api/tenants/{id}",
+            axum::routing::put(super::tenant::update_tenant),
+        )
+        .route("/api/tenants/{id}", delete(super::tenant::delete_tenant))
         // Phase 15: AI Observability Platform Integration
         .route(
             "/api/observability/exporters",
@@ -89,10 +92,22 @@ pub fn build_router(state: AppState) -> Router {
         // Phase 3.1: Security Manager Admin APIs
         // ═══════════════════════════════════════════════════════════════════
         // Circuit Breaker (OWASP ASI08)
-        .route("/api/circuit-breaker", get(super::circuit_breaker::list_circuit_breakers))
-        .route("/api/circuit-breaker/stats", get(super::circuit_breaker::circuit_breaker_stats))
-        .route("/api/circuit-breaker/{tool}", get(super::circuit_breaker::get_circuit_state))
-        .route("/api/circuit-breaker/{tool}/reset", post(super::circuit_breaker::reset_circuit))
+        .route(
+            "/api/circuit-breaker",
+            get(super::circuit_breaker::list_circuit_breakers),
+        )
+        .route(
+            "/api/circuit-breaker/stats",
+            get(super::circuit_breaker::circuit_breaker_stats),
+        )
+        .route(
+            "/api/circuit-breaker/{tool}",
+            get(super::circuit_breaker::get_circuit_state),
+        )
+        .route(
+            "/api/circuit-breaker/{tool}/reset",
+            post(super::circuit_breaker::reset_circuit),
+        )
         // Shadow Agent Detection
         .route("/api/shadow-agents", get(list_shadow_agents))
         .route("/api/shadow-agents", post(register_shadow_agent))
@@ -522,22 +537,53 @@ fn validate_origin(origin: &str, allowed_origins: &[String]) -> bool {
         return true;
     }
 
-    // Parse the origin to normalize it
-    let origin_lower = origin.to_lowercase();
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct ParsedOrigin {
+        scheme: String,
+        host: String,
+        port: u16,
+    }
 
-    // Check if it's localhost (always allowed for development)
-    // SECURITY: Localhost detection is not timing-sensitive as these
-    // prefixes are well-known and not secret.
-    let is_localhost = origin_lower.starts_with("http://localhost")
-        || origin_lower.starts_with("https://localhost")
-        || origin_lower.starts_with("http://127.0.0.1")
-        || origin_lower.starts_with("https://127.0.0.1")
-        || origin_lower.starts_with("http://[::1]")
-        || origin_lower.starts_with("https://[::1]");
+    fn parse_origin(input: &str) -> Option<ParsedOrigin> {
+        // `Origin` header values are typically scheme://host[:port] with no trailing slash.
+        // Accept both forms by retrying with a synthetic trailing slash when needed.
+        let url = url::Url::parse(input).ok().or_else(|| {
+            if input.ends_with('/') {
+                None
+            } else {
+                let with_slash = format!("{}/", input);
+                url::Url::parse(&with_slash).ok()
+            }
+        })?;
+        // SECURITY: Origin validation is only meaningful for HTTP(S).
+        let scheme = url.scheme().to_ascii_lowercase();
+        if scheme != "http" && scheme != "https" {
+            return None;
+        }
+        // SECURITY: Reject userinfo-bearing origins explicitly.
+        if !url.username().is_empty() || url.password().is_some() {
+            return None;
+        }
+        let host = url.host_str()?.to_ascii_lowercase();
+        let port = url.port_or_known_default()?;
+        Some(ParsedOrigin { scheme, host, port })
+    }
+
+    fn is_localhost(origin: &ParsedOrigin) -> bool {
+        matches!(
+            origin.host.as_str(),
+            "localhost" | "127.0.0.1" | "::1" | "[::1]" | "0:0:0:0:0:0:0:1"
+        )
+    }
+
+    let parsed_origin = match parse_origin(origin) {
+        Some(o) => o,
+        None => return false,
+    };
 
     // If no origins configured, only allow localhost (strict default)
     if allowed_origins.is_empty() {
-        return is_localhost;
+        return is_localhost(&parsed_origin);
     }
 
     // SECURITY (R33-001): Check all origins in constant time to prevent
@@ -545,23 +591,15 @@ fn validate_origin(origin: &str, allowed_origins: &[String]) -> bool {
     // We accumulate the result and avoid early returns.
     let mut matched = false;
     for allowed in allowed_origins {
-        let allowed_lower = allowed.to_lowercase();
-        // Exact match
-        if origin_lower == allowed_lower {
-            matched = true;
-            // Don't return early - continue checking to maintain constant time
-        }
-        // Prefix match when allowed has no port or just scheme:host
-        if (!allowed_lower.contains(':') || allowed_lower.matches(':').count() == 1)
-            && origin_lower.starts_with(&allowed_lower)
-        {
-            matched = true;
-            // Don't return early
+        if let Some(parsed_allowed) = parse_origin(allowed) {
+            if parsed_origin == parsed_allowed {
+                matched = true;
+            }
         }
     }
 
     // Return true if matched or if it's localhost (fallback)
-    matched || is_localhost
+    matched || is_localhost(&parsed_origin)
 }
 
 /// Middleware that requires API key authentication.
@@ -2500,222 +2538,6 @@ async fn revoke_registry_tool(
     Ok(Json(value))
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Tenant Management Endpoints (Phase 3)
-// ────────────────────────────────────────────────────────────────────────────
-
-/// Response type for tenant operations.
-#[derive(Serialize)]
-struct TenantResponse {
-    tenant: crate::tenant::Tenant,
-}
-
-/// Request type for creating/updating a tenant.
-#[derive(Deserialize)]
-struct TenantRequest {
-    id: String,
-    name: String,
-    #[serde(default = "default_true_for_tenant")]
-    enabled: bool,
-    #[serde(default)]
-    quotas: Option<crate::tenant::TenantQuotas>,
-    #[serde(default)]
-    metadata: std::collections::HashMap<String, String>,
-}
-
-fn default_true_for_tenant() -> bool {
-    true
-}
-
-/// List all tenants.
-///
-/// Returns an empty list if no tenant store is configured.
-async fn list_tenants(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<crate::tenant::Tenant>>, (StatusCode, Json<ErrorResponse>)> {
-    let tenants = match &state.tenant_store {
-        Some(store) => store.list_tenants(),
-        None => vec![],
-    };
-    Ok(Json(tenants))
-}
-
-/// Get a specific tenant by ID.
-async fn get_tenant(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let store = state.tenant_store.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_IMPLEMENTED,
-            Json(ErrorResponse {
-                error: "Tenant store not configured".to_string(),
-            }),
-        )
-    })?;
-
-    let tenant = store.get_tenant(&id).ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: format!("Tenant not found: {}", id),
-            }),
-        )
-    })?;
-
-    Ok(Json(TenantResponse { tenant }))
-}
-
-/// Create a new tenant.
-async fn create_tenant(
-    State(state): State<AppState>,
-    Json(req): Json<TenantRequest>,
-) -> Result<(StatusCode, Json<TenantResponse>), (StatusCode, Json<ErrorResponse>)> {
-    // Validate tenant ID
-    if let Err(e) = crate::tenant::validate_tenant_id(&req.id) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        ));
-    }
-
-    let store = state.tenant_store.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_IMPLEMENTED,
-            Json(ErrorResponse {
-                error: "Tenant store not configured".to_string(),
-            }),
-        )
-    })?;
-
-    let now = chrono::Utc::now().to_rfc3339();
-    let tenant = crate::tenant::Tenant {
-        id: req.id,
-        name: req.name,
-        enabled: req.enabled,
-        quotas: req.quotas.unwrap_or_default(),
-        metadata: req.metadata,
-        created_at: Some(now.clone()),
-        updated_at: Some(now),
-    };
-
-    store.create_tenant(tenant.clone()).map_err(|e| match e {
-        crate::tenant::TenantError::InvalidTenantId(msg) => {
-            (StatusCode::CONFLICT, Json(ErrorResponse { error: msg }))
-        }
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        ),
-    })?;
-
-    Ok((StatusCode::CREATED, Json(TenantResponse { tenant })))
-}
-
-/// Update an existing tenant.
-async fn update_tenant(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-    Json(req): Json<TenantRequest>,
-) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Validate that path ID matches body ID
-    if id != req.id {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Tenant ID in path must match ID in body".to_string(),
-            }),
-        ));
-    }
-
-    let store = state.tenant_store.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_IMPLEMENTED,
-            Json(ErrorResponse {
-                error: "Tenant store not configured".to_string(),
-            }),
-        )
-    })?;
-
-    // Get existing tenant to preserve created_at
-    let existing = store.get_tenant(&id).ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: format!("Tenant not found: {}", id),
-            }),
-        )
-    })?;
-
-    let now = chrono::Utc::now().to_rfc3339();
-    let tenant = crate::tenant::Tenant {
-        id: req.id,
-        name: req.name,
-        enabled: req.enabled,
-        quotas: req.quotas.unwrap_or_default(),
-        metadata: req.metadata,
-        created_at: existing.created_at,
-        updated_at: Some(now),
-    };
-
-    store.update_tenant(tenant.clone()).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        )
-    })?;
-
-    Ok(Json(TenantResponse { tenant }))
-}
-
-/// Delete a tenant.
-async fn delete_tenant(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    // Don't allow deleting the default tenant
-    if id == crate::tenant::DEFAULT_TENANT_ID {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Cannot delete the default tenant".to_string(),
-            }),
-        ));
-    }
-
-    let store = state.tenant_store.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_IMPLEMENTED,
-            Json(ErrorResponse {
-                error: "Tenant store not configured".to_string(),
-            }),
-        )
-    })?;
-
-    store.delete_tenant(&id).map_err(|e| match e {
-        crate::tenant::TenantError::TenantNotFound(_) => (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: format!("Tenant not found: {}", id),
-            }),
-        ),
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        ),
-    })?;
-
-    Ok(StatusCode::NO_CONTENT)
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // Phase 3.1: Security Manager Admin API Handlers
 // ═══════════════════════════════════════════════════════════════════════════
@@ -4407,6 +4229,25 @@ mod tests {
         assert!(!validate_origin("https://app.example.com:9000", &origins));
         // No port should not match origin with port
         assert!(!validate_origin("https://app.example.com", &origins));
+    }
+
+    #[test]
+    fn test_validate_origin_blocks_localhost_prefix_spoof() {
+        let origins: Vec<String> = vec![];
+        assert!(!validate_origin("https://localhost.evil.com", &origins));
+        assert!(!validate_origin("https://127.0.0.1.evil.com", &origins));
+        assert!(!validate_origin("https://[::1].evil.com", &origins));
+    }
+
+    #[test]
+    fn test_validate_origin_blocks_configured_prefix_spoof() {
+        let origins = vec!["https://app.example.com".to_string()];
+        assert!(!validate_origin(
+            "https://app.example.com.evil.com",
+            &origins
+        ));
+        assert!(!validate_origin("https://app.example.com:8443", &origins));
+        assert!(validate_origin("https://app.example.com", &origins));
     }
 
     // --- Per-Endpoint Rate Limiting Tests (Phase 5) ---

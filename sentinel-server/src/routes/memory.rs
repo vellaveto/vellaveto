@@ -92,7 +92,6 @@ pub async fn get_memory_entry(
 /// Request body for quarantine action.
 #[derive(Debug, Deserialize)]
 pub struct QuarantineRequest {
-    #[allow(dead_code)]
     pub reason: Option<String>,
     pub triggered_by: Option<String>,
 }
@@ -110,6 +109,10 @@ pub async fn quarantine_memory_entry(
         ));
     };
 
+    let reason = body
+        .reason
+        .unwrap_or_else(|| "Manual quarantine via API".to_string());
+
     let result = manager
         .quarantine_entry(
             &id,
@@ -122,6 +125,7 @@ pub async fn quarantine_memory_entry(
         Ok(()) => Ok(Json(json!({
             "success": true,
             "message": format!("Entry '{}' quarantined", id),
+            "reason": reason,
         }))),
         Err(sentinel_mcp::memory_security::MemorySecurityError::EntryNotFound(_)) => Err((
             StatusCode::NOT_FOUND,
@@ -219,8 +223,10 @@ pub async fn list_memory_namespaces(
 /// Request body for creating a namespace.
 #[derive(Debug, Deserialize)]
 pub struct CreateNamespaceRequest {
+    #[serde(alias = "id")]
     pub name: String,
     #[serde(default)]
+    #[serde(alias = "owner_agent")]
     pub owner: Option<String>,
     #[serde(default)]
     pub isolation_level: Option<String>,
@@ -267,28 +273,41 @@ pub async fn create_memory_namespace(
 /// Request body for sharing a namespace.
 #[derive(Debug, Deserialize)]
 pub struct ShareNamespaceRequest {
+    #[serde(alias = "requester_agent")]
     pub target_agent: String,
     #[serde(default)]
     pub permissions: Vec<String>,
+    #[serde(default)]
+    pub access_type: Option<String>,
 }
 
-fn permissions_to_access_type(permissions: &[String]) -> NamespaceAccessType {
+fn parse_access_type(value: &str) -> Option<NamespaceAccessType> {
+    match value.to_ascii_lowercase().as_str() {
+        "read" => Some(NamespaceAccessType::Read),
+        "write" => Some(NamespaceAccessType::Write),
+        "full" => Some(NamespaceAccessType::Full),
+        _ => None,
+    }
+}
+
+fn permissions_to_access_type(permissions: &[String]) -> Result<NamespaceAccessType, &'static str> {
     let mut has_write = false;
 
     for permission in permissions {
-        let p = permission.to_ascii_lowercase();
-        if p == "full" {
-            return NamespaceAccessType::Full;
-        }
-        if p == "write" {
-            has_write = true;
+        match permission.to_ascii_lowercase().as_str() {
+            "read" => {}
+            "write" => has_write = true,
+            "full" => return Ok(NamespaceAccessType::Full),
+            _ => {
+                return Err("Invalid permission. Allowed values: read, write, full");
+            }
         }
     }
 
     if has_write {
-        NamespaceAccessType::Write
+        Ok(NamespaceAccessType::Write)
     } else {
-        NamespaceAccessType::Read
+        Ok(NamespaceAccessType::Read)
     }
 }
 
@@ -305,7 +324,25 @@ pub async fn share_memory_namespace(
         ));
     };
 
-    let access_type = permissions_to_access_type(&body.permissions);
+    let access_type = if let Some(access_type_str) = body.access_type.as_deref() {
+        match parse_access_type(access_type_str) {
+            Some(v) => v,
+            None => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        json!({"error": "Invalid access_type. Must be 'read', 'write', or 'full'"}),
+                    ),
+                ))
+            }
+        }
+    } else {
+        match permissions_to_access_type(&body.permissions) {
+            Ok(v) => v,
+            Err(e) => return Err((StatusCode::BAD_REQUEST, Json(json!({"error": e})))),
+        }
+    };
+
     match manager
         .request_share(&id, &body.target_agent, access_type)
         .await
@@ -343,4 +380,62 @@ pub async fn memory_security_stats(
     Ok(Json(json!({
         "stats": stats,
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn create_namespace_request_accepts_legacy_shape() {
+        let req: CreateNamespaceRequest =
+            serde_json::from_value(json!({"id": "ns-legacy", "owner_agent": "agent-a"}))
+                .expect("legacy shape should deserialize");
+        assert_eq!(req.name, "ns-legacy");
+        assert_eq!(req.owner.as_deref(), Some("agent-a"));
+    }
+
+    #[test]
+    fn create_namespace_request_accepts_current_shape() {
+        let req: CreateNamespaceRequest =
+            serde_json::from_value(json!({"name": "ns-current", "owner": "agent-b"}))
+                .expect("current shape should deserialize");
+        assert_eq!(req.name, "ns-current");
+        assert_eq!(req.owner.as_deref(), Some("agent-b"));
+    }
+
+    #[test]
+    fn share_namespace_request_accepts_requester_agent_alias() {
+        let req: ShareNamespaceRequest = serde_json::from_value(json!({
+            "requester_agent": "agent-c",
+            "access_type": "write"
+        }))
+        .expect("requester_agent alias should deserialize");
+        assert_eq!(req.target_agent, "agent-c");
+        assert_eq!(req.access_type.as_deref(), Some("write"));
+    }
+
+    #[test]
+    fn permissions_to_access_type_rejects_unknown_values() {
+        let result = permissions_to_access_type(&["execute".to_string()]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_access_type_accepts_valid_values() {
+        assert!(matches!(
+            parse_access_type("read"),
+            Some(NamespaceAccessType::Read)
+        ));
+        assert!(matches!(
+            parse_access_type("WRITE"),
+            Some(NamespaceAccessType::Write)
+        ));
+        assert!(matches!(
+            parse_access_type("full"),
+            Some(NamespaceAccessType::Full)
+        ));
+        assert!(parse_access_type("invalid").is_none());
+    }
 }

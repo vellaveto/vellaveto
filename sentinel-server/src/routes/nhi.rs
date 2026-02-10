@@ -27,8 +27,8 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use serde_json::json;
 use sentinel_types::{NhiAttestationType, NhiIdentityStatus};
+use serde_json::json;
 use std::collections::HashMap;
 
 use crate::AppState;
@@ -154,10 +154,7 @@ pub async fn revoke_nhi_agent(
         ));
     };
 
-    match manager
-        .update_status(&id, NhiIdentityStatus::Revoked)
-        .await
-    {
+    match manager.update_status(&id, NhiIdentityStatus::Revoked).await {
         Ok(()) => Ok(Json(json!({"status": "revoked"}))),
         Err(e) => Err((
             StatusCode::BAD_REQUEST,
