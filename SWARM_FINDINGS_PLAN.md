@@ -249,7 +249,7 @@ pub struct OpaConfig {
 
 ### Remaining P3 Gaps
 - [x] GAP-004: Semantic guardrails backend mocked tests ✅ (14 new tests covering edge cases)
-- [ ] GAP-006: Multimodal scanner edge case tests
+- [x] GAP-006: Multimodal scanner edge case tests ✅ (17 new tests for edge cases)
 - [ ] GAP-008: Health check degraded state tests
 - [ ] GAP-009: Schema versioning concurrent tests
 - [ ] GAP-012: BehavioralTracker persistence integration test
@@ -307,7 +307,7 @@ sentinel-server/src/routes/
 | 2 | P1 (High) | 3 | ✅ Complete |
 | 3 | P2 (Medium) | 5 | 🔶 2/5 Complete |
 | 4 | P2 (Quick Wins) | 4 | 🔶 2/4 Complete |
-| 5 | P3 (Low) | 10 | 🔶 4/10 Complete |
+| 5 | P3 (Low) | 10 | 🔶 5/10 Complete |
 | 6 | P3 (Architecture) | 2 | ⬜ Not Started |
 
 ### By Category

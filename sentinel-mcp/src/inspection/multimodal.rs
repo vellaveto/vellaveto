@@ -539,4 +539,283 @@ mod tests {
             Err(MultimodalError::ContentTooLarge { .. })
         ));
     }
+
+    // ═══════════════════════════════════════════════════
+    // GAP-006: Additional edge case tests
+    // ═══════════════════════════════════════════════════
+
+    /// GAP-006: Test magic bytes detection with empty data
+    #[test]
+    fn test_content_type_from_magic_bytes_empty() {
+        assert_eq!(ContentType::from_magic_bytes(&[]), ContentType::Unknown);
+    }
+
+    /// GAP-006: Test magic bytes detection with very short data
+    #[test]
+    fn test_content_type_from_magic_bytes_short() {
+        assert_eq!(ContentType::from_magic_bytes(&[0x89]), ContentType::Unknown);
+        assert_eq!(
+            ContentType::from_magic_bytes(&[0x89, 0x50]),
+            ContentType::Unknown
+        );
+        assert_eq!(
+            ContentType::from_magic_bytes(&[0x89, 0x50, 0x4E]),
+            ContentType::Unknown
+        );
+    }
+
+    /// GAP-006: Test GIF magic bytes detection
+    #[test]
+    fn test_content_type_from_magic_bytes_gif() {
+        // GIF87a
+        assert_eq!(
+            ContentType::from_magic_bytes(b"GIF87a\x00\x00"),
+            ContentType::Image
+        );
+        // GIF89a
+        assert_eq!(
+            ContentType::from_magic_bytes(b"GIF89a\x00\x00"),
+            ContentType::Image
+        );
+        // Invalid GIF (wrong version)
+        assert_eq!(
+            ContentType::from_magic_bytes(b"GIF90a\x00\x00"),
+            ContentType::Unknown
+        );
+    }
+
+    /// GAP-006: Test WebP magic bytes detection
+    #[test]
+    fn test_content_type_from_magic_bytes_webp() {
+        // Valid WebP: RIFF....WEBP
+        let webp_data = b"RIFF\x00\x00\x00\x00WEBP";
+        assert_eq!(ContentType::from_magic_bytes(webp_data), ContentType::Image);
+
+        // Too short to be WebP
+        assert_eq!(
+            ContentType::from_magic_bytes(b"RIFF\x00\x00\x00\x00WEB"),
+            ContentType::Unknown
+        );
+    }
+
+    /// GAP-006: Test WAV magic bytes detection
+    #[test]
+    fn test_content_type_from_magic_bytes_wav() {
+        // Valid WAV: RIFF....WAVE
+        let wav_data = b"RIFF\x00\x00\x00\x00WAVE";
+        assert_eq!(ContentType::from_magic_bytes(wav_data), ContentType::Audio);
+    }
+
+    /// GAP-006: Test MP3 magic bytes detection
+    #[test]
+    fn test_content_type_from_magic_bytes_mp3() {
+        // MP3 with ID3 header
+        assert_eq!(
+            ContentType::from_magic_bytes(b"ID3\x04\x00\x00"),
+            ContentType::Audio
+        );
+
+        // MP3 sync word
+        assert_eq!(
+            ContentType::from_magic_bytes(&[0xFF, 0xFB, 0x90, 0x00]),
+            ContentType::Audio
+        );
+    }
+
+    /// GAP-006: Test MIME type case insensitivity
+    #[test]
+    fn test_content_type_from_mime_case_insensitive() {
+        assert_eq!(ContentType::from_mime("IMAGE/PNG"), ContentType::Image);
+        assert_eq!(ContentType::from_mime("Image/Jpeg"), ContentType::Image);
+        assert_eq!(ContentType::from_mime("AUDIO/WAV"), ContentType::Audio);
+        assert_eq!(ContentType::from_mime("APPLICATION/PDF"), ContentType::Pdf);
+        assert_eq!(ContentType::from_mime("VIDEO/MP4"), ContentType::Video);
+    }
+
+    /// GAP-006: Test scanning skipped for content type not in allowed list
+    #[test]
+    fn test_scan_skipped_for_unlisted_content_type() {
+        let config = MultimodalConfig {
+            enabled: true,
+            content_types: vec![ContentType::Image], // Only images
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+
+        // PDF data that's within size limits
+        let pdf_data = b"%PDF-1.4 small file";
+        let result = scanner
+            .scan_content(pdf_data, Some(ContentType::Pdf))
+            .unwrap();
+
+        // Should return immediately with no findings
+        assert_eq!(result.content_type, ContentType::Pdf);
+        assert!(result.extracted_text.is_none());
+        assert!(result.injection_findings.is_empty());
+    }
+
+    /// GAP-006: Test scan returns quickly when disabled
+    #[test]
+    fn test_scan_disabled_scanner() {
+        let config = MultimodalConfig {
+            enabled: false,
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+
+        assert!(!scanner.is_enabled());
+
+        // Scanning with disabled scanner doesn't error
+        let data = b"some data";
+        let result = scanner.scan_content(data, Some(ContentType::Unknown));
+        assert!(result.is_ok());
+    }
+
+    /// GAP-006: Test config default values
+    #[test]
+    fn test_config_default_values() {
+        let config = MultimodalConfig::default();
+
+        assert!(!config.enabled);
+        assert!(config.enable_ocr);
+        assert_eq!(config.max_image_size, 10 * 1024 * 1024); // 10MB
+        assert_eq!(config.ocr_timeout_ms, 5000);
+        assert!((config.min_ocr_confidence - 0.5).abs() < f32::EPSILON);
+        assert!(!config.enable_stego_detection);
+        assert_eq!(config.content_types, vec![ContentType::Image]);
+    }
+
+    /// GAP-006: Test scan_blob_for_injection with disabled scanner
+    #[test]
+    fn test_scan_blob_disabled_scanner() {
+        let config = MultimodalConfig {
+            enabled: false,
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+
+        let result = scan_blob_for_injection("SGVsbG8gV29ybGQ=", None, &scanner);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none()); // Returns None when disabled
+    }
+
+    /// GAP-006: Test scan_blob_for_injection with invalid base64
+    #[test]
+    fn test_scan_blob_invalid_base64() {
+        let config = MultimodalConfig {
+            enabled: true,
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+
+        let result = scan_blob_for_injection("not-valid-base64!!!", None, &scanner);
+        assert!(matches!(
+            result,
+            Err(MultimodalError::ImageDecodeError(_))
+        ));
+    }
+
+    /// GAP-006: Test scan_blob with MIME type hint
+    #[test]
+    fn test_scan_blob_with_mime_hint() {
+        let config = MultimodalConfig {
+            enabled: true,
+            content_types: vec![ContentType::Pdf],
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+
+        // base64 of "%PDF" (small PDF-like data)
+        let base64_data = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            b"%PDF-1.4 test",
+        );
+
+        let result =
+            scan_blob_for_injection(&base64_data, Some("application/pdf"), &scanner).unwrap();
+        assert!(result.is_some());
+        let scan_result = result.unwrap();
+        assert_eq!(scan_result.content_type, ContentType::Pdf);
+    }
+
+    /// GAP-006: Test content type auto-detection in scan_content
+    #[test]
+    fn test_scan_content_auto_detect_type() {
+        let config = MultimodalConfig {
+            enabled: true,
+            content_types: vec![ContentType::Image, ContentType::Pdf],
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+
+        // PNG magic bytes
+        let png_data = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        let result = scanner.scan_content(&png_data, None).unwrap();
+        assert_eq!(result.content_type, ContentType::Image);
+
+        // PDF magic bytes
+        let pdf_data = b"%PDF-1.4 test content";
+        let result = scanner.scan_content(pdf_data, None).unwrap();
+        assert_eq!(result.content_type, ContentType::Pdf);
+    }
+
+    /// GAP-006: Test error message contains size info
+    #[test]
+    fn test_content_too_large_error_message() {
+        let config = MultimodalConfig {
+            enabled: true,
+            max_image_size: 50,
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+
+        let large_data = vec![0u8; 100];
+        let result = scanner.scan_content(&large_data, Some(ContentType::Image));
+
+        match result {
+            Err(MultimodalError::ContentTooLarge { size, max }) => {
+                assert_eq!(size, 100);
+                assert_eq!(max, 50);
+                let msg = format!("{}", MultimodalError::ContentTooLarge { size, max });
+                assert!(msg.contains("100"));
+                assert!(msg.contains("50"));
+            }
+            _ => panic!("Expected ContentTooLarge error"),
+        }
+    }
+
+    /// GAP-006: Test MultimodalScanResult fields
+    #[test]
+    fn test_scan_result_has_duration() {
+        let config = MultimodalConfig {
+            enabled: true,
+            content_types: vec![ContentType::Unknown],
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+
+        let data = b"some random bytes";
+        let result = scanner.scan_content(data, Some(ContentType::Unknown)).unwrap();
+
+        // Duration should be very small but present
+        assert!(result.scan_duration_ms < 1000); // Less than 1 second
+        assert!(result.injection_findings.is_empty());
+        assert!(result.stego_indicators.is_empty());
+    }
+
+    /// GAP-006: Test with_injection_scanner constructor
+    #[test]
+    fn test_with_injection_scanner() {
+        let config = MultimodalConfig {
+            enabled: true,
+            ..Default::default()
+        };
+
+        // Create an InjectionScanner with some patterns
+        let patterns = ["ignore previous", "disregard instructions"];
+        if let Some(injection_scanner) = InjectionScanner::new(&patterns) {
+            let scanner = MultimodalScanner::with_injection_scanner(config, injection_scanner);
+            assert!(scanner.is_enabled());
+        }
+    }
 }
