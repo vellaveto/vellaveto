@@ -7,14 +7,14 @@
     🔍 Intercept &middot; ⚖️ Evaluate &middot; 🚫 Enforce &middot; 📋 Audit
   </p>
   <p align="center">
-    <a href="https://github.com/paolovella/sentinel/releases/tag/v2.0.0"><img src="https://img.shields.io/badge/version-2.0.0-blue.svg" alt="Version 2.0.0"></a>
+    <a href="https://github.com/paolovella/sentinel/releases"><img src="https://img.shields.io/badge/version-2.2.1-blue.svg" alt="Version 2.2.1"></a>
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-3%2C650%2B_passing-brightgreen.svg" alt="Tests: 3,650+ passing">
+    <img src="https://img.shields.io/badge/tests-3%2C700%2B_passing-brightgreen.svg" alt="Tests: 3,700+ passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <img src="https://img.shields.io/badge/security_audit-35_rounds%2C_390%2B_findings-informational.svg" alt="Security Audit: 35 rounds, 390+ findings">
-    <a href="https://modelcontextprotocol.io/specification/2025-06-18"><img src="https://img.shields.io/badge/MCP-2025--06--18-blueviolet.svg" alt="MCP 2025-06-18"></a>
+    <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
   </p>
   <p align="center">
@@ -33,14 +33,22 @@
 Sentinel is a lightweight, high-performance firewall that sits between AI agents and their tools. It intercepts [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) and function-calling requests, enforces security policies on paths, domains, and actions, and maintains a tamper-evident audit trail with cryptographic guarantees.
 
 <table>
-<tr><td>🏷️ <strong>Version</strong></td><td>2.0.0</td></tr>
+<tr><td>🏷️ <strong>Version</strong></td><td>2.2.1</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>3,650+ tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>3,700+ tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
-<tr><td>🔌 <strong>MCP version</strong></td><td>2025-06-18 (Streamable HTTP)</td></tr>
+<tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
 <tr><td>📄 <strong>License</strong></td><td>Apache 2.0</td></tr>
 </table>
+
+## Recent Updates (2026-02-10)
+
+- Updated MCP protocol support to `2025-11-25` with compatibility for `2025-06-18` and `2025-03-26`.
+- Strengthened Streamable HTTP parity: SSE responses now enforce structured output schema validation fail-closed.
+- Expanded observability test coverage with async integration tests and property-based invariants.
+- Applied bounded runtime preallocation in `sentinel-mcp` session/state maps to reduce allocation churn on hot paths.
+- See `CHANGELOG.md` for full release and patch details.
 
 ## ❓ Why Sentinel?
 
@@ -77,7 +85,7 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Memory poisoning defense** (ASI06) — Cross-request data flow tracking detects when tool response data is replayed verbatim in subsequent tool call parameters
 - **Memory injection defense** (ASI06) — Taint propagation with provenance graphs, exponential trust decay, quarantine management, and agent namespace isolation
 - **DLP response scanning** — Detects secrets (AWS keys, GitHub tokens, JWTs, private keys, Slack tokens) in tool responses through 5 decode layers
-- **Elicitation interception** (MCP 2025-06-18) — Validates `elicitation/create` requests, blocks sensitive field types, enforces per-session rate limits
+- **Elicitation interception** (MCP 2025-11-25) — Validates `elicitation/create` requests, blocks sensitive field types, enforces per-session rate limits
 - **Sampling policy enforcement** — Configurable policies for `sampling/createMessage` with content inspection and model filtering
 - **Sampling attack detection** — Rate limiting, prompt length validation, and sensitive content detection for sampling requests
 - **Cross-agent security** — Agent trust graph with privilege levels, Ed25519 signed inter-agent messages, and second-order prompt injection detection for multi-agent systems
@@ -107,7 +115,7 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Domain normalization** with trailing dot, case folding, scheme/port stripping, and RFC 1035 validation
 - **DNS rebinding protection** with IP-level access control (block private IPs, CIDR allow/blocklists)
 - **Supply chain verification** with SHA-256 hash checking of MCP server binaries
-- **MCP 2025-06-18 compliance** with protocol version header, RFC 8707 resource indicators, and `_meta` preservation
+- **MCP 2025-11-25 compliance** with protocol version header, RFC 8707 resource indicators, and `_meta` preservation (with backwards compatibility for 2025-06-18 and 2025-03-26)
 
 ### 🔐 ETDI: Cryptographic Tool Security
 - **Tool signature verification** — Ed25519/ECDSA P-256 cryptographic signing of tool definitions with trusted signer allowlists (fingerprints + SPIFFE IDs)
@@ -182,12 +190,12 @@ Sentinel enforces security policies on every tool call before it reaches the too
 
 ```bash
 # Pull the latest release
-docker pull ghcr.io/paolovella/sentinel:2.0.0
+docker pull ghcr.io/paolovella/sentinel:2.2.1
 
 # Run with a policy config
 docker run -p 3000:3000 \
   -v /path/to/config.toml:/etc/sentinel/config.toml:ro \
-  ghcr.io/paolovella/sentinel:2.0.0
+  ghcr.io/paolovella/sentinel:2.2.1
 ```
 
 ### Kubernetes (Helm)
@@ -550,7 +558,7 @@ SENTINEL_API_KEY=your-secret sentinel-http-proxy \
 ```
 
 Features:
-- MCP Streamable HTTP transport (2025-06-18) with protocol version negotiation
+- MCP Streamable HTTP transport (2025-11-25) with protocol version negotiation and backwards compatibility
 - Session management with inactivity timeout and absolute session lifetime
 - CSRF protection via Origin header validation
 - SSE streaming passthrough for long-running operations
@@ -1043,11 +1051,12 @@ Comprehensive documentation is available in the `docs/` directory:
 | [Operations Runbook](docs/OPERATIONS.md) | Monitoring, troubleshooting, and maintenance procedures |
 | [Security Hardening](docs/SECURITY.md) | Security configuration best practices |
 | [API Reference](docs/API.md) | Complete HTTP API documentation |
+| [Roadmap](ROADMAP.md) | Current release status and upcoming phases |
 | [Changelog](CHANGELOG.md) | Version history and release notes |
 
 ## 📚 References
 
-- [MCP Specification 2025-06-18](https://modelcontextprotocol.io/specification/2025-06-18)
+- [MCP Specification 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25)
 - [MCP Security Best Practices](https://modelcontextprotocol.io/specification/draft/basic/security_best_practices)
 - [OWASP Top 10 for Agentic Applications 2026](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)
 - [OWASP Guide for Securely Using Third-Party MCP Servers](https://genai.owasp.org/resource/cheatsheet-a-practical-guide-for-securely-using-third-party-mcp-servers-1-0/)

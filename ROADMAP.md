@@ -1,15 +1,15 @@
-# Sentinel Roadmap v2.1
+# Sentinel Roadmap v2.2
 
-> **Version:** 2.2.0 (In Progress)
-> **Generated:** 2026-02-09
-> **Status:** v2.0.0 released, v2.1 Phases 8-11 complete, v2.2 Phases 12-14 complete
+> **Version:** 2.2.1 (Released)
+> **Generated:** 2026-02-10
+> **Status:** v2.2.1 released; v2.2 Phases 12-15 complete; Phase 16+ planned
 > **Based on:** Multi-agent research (MCP spec 2025-11-25, OWASP ASI Top 10, enterprise patterns, competitor analysis)
 
 ---
 
 ## Executive Summary
 
-Sentinel v1.0.0 is production-ready with 33 audit rounds and 3,167 tests. This roadmap defines v2.0 priorities based on:
+Sentinel v2.2.1 is production-ready with 35 audit rounds and 3,700+ tests. This roadmap captures completed v2.0-v2.2 work and upcoming priorities based on:
 
 1. **MCP 2025-11-25 Protocol Compliance** — Async Tasks, Resource Indicators, CIMD
 2. **Advanced Threat Detection** — Shadow agents, full schema poisoning, cascading failures
@@ -1435,9 +1435,11 @@ Sentinel secures A2A traffic using the same patterns established for MCP:
 
 ---
 
-## Phase 15: Observability Platform Integration (v2.2)
+## Phase 15: Observability Platform Integration (v2.2) ✅ COMPLETE
 
 *Focus: Deep integration with AI observability platforms*
+
+> **Status:** Implemented in v2.2.1. Core integrations and hardening complete.
 
 ### Background
 
@@ -1451,27 +1453,30 @@ AI observability platforms (Arize, Langfuse, Helicone) provide:
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
-| Add Arize export integration | P3 | 2 days | Pending |
-| Add Langfuse export integration | P3 | 2 days | Pending |
-| Add Helicone export integration | P3 | 2 days | Pending |
-| Create custom webhook export | P3 | 1 day | Pending |
+| Add Arize export integration | P3 | 2 days | ✅ Complete |
+| Add Langfuse export integration | P3 | 2 days | ✅ Complete |
+| Add Helicone export integration | P3 | 2 days | ✅ Complete |
+| Create custom webhook export | P3 | 1 day | ✅ Complete |
 
 ### 15.2 Enhanced Tracing
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
-| Add full request/response capture | P3 | 2 days | Pending |
-| Implement trace sampling | P3 | 1 day | Pending |
-| Add trace filtering by policy outcome | P3 | 1 day | Pending |
-| Create trace correlation with external spans | P3 | 2 days | Pending |
+| Add full request/response capture | P3 | 2 days | ✅ Complete |
+| Implement trace sampling | P3 | 1 day | ✅ Complete |
+| Add trace filtering by policy outcome | P3 | 1 day | ✅ Complete |
+| Create trace correlation with external spans | P3 | 2 days | ✅ Complete |
 
 ### Phase 15 Deliverables
-- [ ] Arize, Langfuse, Helicone integrations
-- [ ] Full request/response capture
-- [ ] Trace sampling and filtering
-- [ ] External span correlation
+- [x] Arize, Langfuse, Helicone integrations
+- [x] Full request/response capture
+- [x] Trace sampling and filtering
+- [x] External span correlation
+- [x] Fail-closed SSE output schema validation parity in HTTP proxy streaming path
+- [x] Observability regression hardening with async integration coverage and property tests
 
-**Estimated Duration:** 2 weeks
+**Actual Duration:** 2 weeks
+**Completed:** 2026-02-10
 
 ---
 
@@ -1492,16 +1497,16 @@ v2.1 Complete! Ready for release.
 Phase 12: Semantic Guardrails                    (4 weeks)  ✅ COMPLETE
 Phase 13: RAG Poisoning Defense                  (3 weeks)  ✅ COMPLETE
 Phase 14: A2A Protocol Security                  (2 weeks)  ✅ COMPLETE
-Phase 15: Observability Platform Integration     (2 weeks)  ← P3
+Phase 15: Observability Platform Integration     (2 weeks)  ✅ COMPLETE
 ───────────────────────────────────────────────────────────
-v2.2 Remaining: 2 weeks
+v2.2 Complete! Ready for v2.3 planning.
 ```
 
 ---
 
 ## Competitor Feature Comparison (Updated)
 
-| Feature | Sentinel v2.2 | NeMo Guardrails | Guardrails AI | Zenity | Prisma AIRS |
+| Feature | Sentinel v2.2.1 | NeMo Guardrails | Guardrails AI | Zenity | Prisma AIRS |
 |---------|---------------|-----------------|---------------|--------|-------------|
 | Policy Engine | ✅ Strong | ✅ Strong | ✅ Strong | ✅ Strong | ✅ Strong |
 | Injection Detection | ✅ Multi-layer | ✅ LLM-based | ✅ LLM-based | ⚠️ Basic | ✅ Strong |

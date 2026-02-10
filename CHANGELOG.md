@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Documentation Sync**:
+  - Updated `README.md` to reflect v2.2.1 metadata, MCP `2025-11-25` support (with compatibility notes), current container tags, and roadmap link.
+  - Updated `ROADMAP.md` to mark Phase 15 complete and v2.2 timeline complete.
+
+### Performance
+
+- **Runtime allocation tuning**:
+  - Added bounded `HashMap::with_capacity` hints in `sentinel-mcp` runtime/session managers:
+    - `token_security`
+    - `task_state`
+    - `auth_level`
+    - `output_validation`
+    - `workflow_tracker`
+  - Updated `PolicyEngine` constructors to initialize `domain_norm_cache` using `MAX_DOMAIN_NORM_CACHE_ENTRIES`-bounded capacity.
+
 ## [2.2.1] - 2026-02-10
 
 ### Changed
