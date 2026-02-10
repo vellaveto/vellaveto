@@ -561,4 +561,95 @@ mod tests {
         let cached = cache.get_cached("https://a.com").unwrap();
         assert_eq!(cached.name, "Updated Agent");
     }
+
+    /// GAP-013: Comprehensive TTL expiration test - verifies entries expire after TTL
+    #[test]
+    fn test_cache_ttl_selective_expiration() {
+        // Use 1 second TTL to make test deterministic
+        let cache = AgentCardCache::new(1);
+        let card = sample_agent_card();
+
+        // Store entries
+        cache.store("https://old.com", card.clone());
+        assert!(
+            cache.get_cached("https://old.com").is_some(),
+            "Entry should exist immediately after store"
+        );
+
+        // Wait for TTL to expire (1 second + buffer)
+        sleep(Duration::from_millis(1100));
+
+        // Old entry should be expired now
+        assert!(
+            cache.get_cached("https://old.com").is_none(),
+            "Entry should be expired after TTL"
+        );
+
+        // Store a new entry - should still be retrievable
+        cache.store("https://new.com", card.clone());
+        assert!(
+            cache.get_cached("https://new.com").is_some(),
+            "Newly stored entry should be immediately retrievable"
+        );
+
+        // Wait for the new entry to expire
+        sleep(Duration::from_millis(1100));
+        assert!(
+            cache.get_cached("https://new.com").is_none(),
+            "New entry should also expire after TTL"
+        );
+    }
+
+    /// GAP-013: Test TTL boundary with longer duration
+    #[test]
+    fn test_cache_ttl_respects_configured_duration() {
+        // Use 1 second TTL
+        let cache = AgentCardCache::new(1);
+        let card = sample_agent_card();
+
+        cache.store("https://example.com", card);
+
+        // Should be available immediately
+        assert!(cache.get_cached("https://example.com").is_some());
+
+        // Should still be available after 500ms (within TTL)
+        sleep(Duration::from_millis(500));
+        assert!(
+            cache.get_cached("https://example.com").is_some(),
+            "Entry should still be valid within TTL"
+        );
+
+        // Should be expired after 1.1 seconds total
+        sleep(Duration::from_millis(600));
+        assert!(
+            cache.get_cached("https://example.com").is_none(),
+            "Entry should be expired after TTL passes"
+        );
+    }
+
+    /// GAP-013: Test that cache stores entries and they are retrievable
+    /// until expiration regardless of other expired entries
+    #[test]
+    fn test_cache_stores_new_after_expiration() {
+        let cache = AgentCardCache::new(1);
+        let card = sample_agent_card();
+
+        // Store first entry
+        cache.store("https://a.com", card.clone());
+        assert!(cache.get_cached("https://a.com").is_some());
+
+        // Wait for expiration
+        sleep(Duration::from_millis(1100));
+        assert!(
+            cache.get_cached("https://a.com").is_none(),
+            "First entry should be expired"
+        );
+
+        // Store new entry - should be retrievable even though old one expired
+        cache.store("https://b.com", card.clone());
+        assert!(
+            cache.get_cached("https://b.com").is_some(),
+            "New entry should be retrievable"
+        );
+    }
 }
