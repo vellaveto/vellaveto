@@ -909,6 +909,7 @@ mod owasp_mcp07_auth {
             etdi_version_pins: None,
             memory_security: None,
             nhi: None,
+            observability: None,
             // Server Configuration (FIND-004, FIND-005)
             metrics_require_auth: true,
             audit_strict_mode: false,
@@ -1324,6 +1325,7 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
             etdi_version_pins: None,
             memory_security: None,
             nhi: None,
+            observability: None,
             // Server Configuration (FIND-004, FIND-005)
             metrics_require_auth: true,
             audit_strict_mode: false,
@@ -1590,6 +1592,7 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -1692,6 +1695,7 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,

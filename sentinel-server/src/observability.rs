@@ -138,8 +138,9 @@ mod enabled {
             // Langfuse
             if config.langfuse.enabled {
                 let langfuse_config = Self::build_langfuse_config(&config.langfuse)?;
-                let exporter =
-                    sentinel_audit::observability::langfuse::LangfuseExporter::new(langfuse_config)?;
+                let exporter = sentinel_audit::observability::langfuse::LangfuseExporter::new(
+                    langfuse_config,
+                )?;
                 exporter_info.push(ExporterInfo {
                     name: "langfuse".to_string(),
                     enabled: true,
@@ -170,8 +171,9 @@ mod enabled {
             // Helicone
             if config.helicone.enabled {
                 let helicone_config = Self::build_helicone_config(&config.helicone)?;
-                let exporter =
-                    sentinel_audit::observability::helicone::HeliconeExporter::new(helicone_config)?;
+                let exporter = sentinel_audit::observability::helicone::HeliconeExporter::new(
+                    helicone_config,
+                )?;
                 exporter_info.push(ExporterInfo {
                     name: "helicone".to_string(),
                     enabled: true,
@@ -384,7 +386,9 @@ mod enabled {
                             count = span_count,
                             "Exported spans successfully"
                         );
-                        stats.spans_exported.fetch_add(span_count, Ordering::Relaxed);
+                        stats
+                            .spans_exported
+                            .fetch_add(span_count, Ordering::Relaxed);
                     }
                     Err(e) => {
                         error!(
@@ -404,13 +408,16 @@ mod enabled {
         // Config builders
         fn build_langfuse_config(
             config: &sentinel_config::observability::LangfuseConfig,
-        ) -> Result<sentinel_audit::observability::langfuse::LangfuseExporterConfig, ObservabilityError>
-        {
-            let mut exporter_config = sentinel_audit::observability::langfuse::LangfuseExporterConfig::from_env(
-                &config.endpoint,
-                &config.public_key_env,
-                &config.secret_key_env,
-            )?;
+        ) -> Result<
+            sentinel_audit::observability::langfuse::LangfuseExporterConfig,
+            ObservabilityError,
+        > {
+            let mut exporter_config =
+                sentinel_audit::observability::langfuse::LangfuseExporterConfig::from_env(
+                    &config.endpoint,
+                    &config.public_key_env,
+                    &config.secret_key_env,
+                )?;
 
             if let Some(release) = &config.release {
                 exporter_config = exporter_config.with_release(release);
@@ -430,12 +437,14 @@ mod enabled {
 
         fn build_arize_config(
             config: &sentinel_config::observability::ArizeConfig,
-        ) -> Result<sentinel_audit::observability::arize::ArizeExporterConfig, ObservabilityError> {
-            let mut exporter_config = sentinel_audit::observability::arize::ArizeExporterConfig::from_env(
-                &config.endpoint,
-                &config.space_key_env,
-                &config.api_key_env,
-            )?;
+        ) -> Result<sentinel_audit::observability::arize::ArizeExporterConfig, ObservabilityError>
+        {
+            let mut exporter_config =
+                sentinel_audit::observability::arize::ArizeExporterConfig::from_env(
+                    &config.endpoint,
+                    &config.space_key_env,
+                    &config.api_key_env,
+                )?;
 
             exporter_config = exporter_config.with_model_id(&config.model_id);
 
@@ -453,12 +462,15 @@ mod enabled {
 
         fn build_helicone_config(
             config: &sentinel_config::observability::HeliconeConfig,
-        ) -> Result<sentinel_audit::observability::helicone::HeliconeExporterConfig, ObservabilityError>
-        {
-            let mut exporter_config = sentinel_audit::observability::helicone::HeliconeExporterConfig::from_env(
-                &config.endpoint,
-                &config.api_key_env,
-            )?;
+        ) -> Result<
+            sentinel_audit::observability::helicone::HeliconeExporterConfig,
+            ObservabilityError,
+        > {
+            let mut exporter_config =
+                sentinel_audit::observability::helicone::HeliconeExporterConfig::from_env(
+                    &config.endpoint,
+                    &config.api_key_env,
+                )?;
 
             for (key, value) in &config.custom_properties {
                 exporter_config = exporter_config.with_property(key, value);
@@ -476,7 +488,10 @@ mod enabled {
             config: &sentinel_config::observability::WebhookExporterConfig,
         ) -> Result<sentinel_audit::observability::webhook::WebhookExporterConfig, ObservabilityError>
         {
-            let mut exporter_config = sentinel_audit::observability::webhook::WebhookExporterConfig::new(&config.endpoint);
+            let mut exporter_config =
+                sentinel_audit::observability::webhook::WebhookExporterConfig::new(
+                    &config.endpoint,
+                );
 
             if let Some(auth_env) = &config.auth_header_env {
                 if let Ok(auth_value) = std::env::var(auth_env) {

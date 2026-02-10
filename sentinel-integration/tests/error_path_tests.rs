@@ -76,6 +76,7 @@ fn make_test_state(tmp: &TempDir) -> AppState {
         etdi_version_pins: None,
         memory_security: None,
         nhi: None,
+        observability: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,

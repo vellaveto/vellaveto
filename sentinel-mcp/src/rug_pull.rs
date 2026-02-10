@@ -156,11 +156,7 @@ impl RugPullResult {
                     .iter()
                     .map(|a| a.suspicious_tool.as_str()),
             )
-            .chain(
-                self.injection_findings
-                    .iter()
-                    .map(|f| f.tool_name.as_str()),
-            )
+            .chain(self.injection_findings.iter().map(|f| f.tool_name.as_str()))
             .collect()
     }
 

@@ -133,8 +133,9 @@ impl ThreatIntelClient {
 
         let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
 
-        let cache_size = NonZeroUsize::new(100).expect("100 is non-zero");
-        let details_size = NonZeroUsize::new(10000).expect("10000 is non-zero");
+        // Constants are guaranteed non-zero; keep this panic-free for strict runtimes.
+        let cache_size = NonZeroUsize::new(100).unwrap_or(NonZeroUsize::MIN);
+        let details_size = NonZeroUsize::new(10_000).unwrap_or(NonZeroUsize::MIN);
 
         Ok(Some(ThreatIntelClient {
             config: config.clone(),

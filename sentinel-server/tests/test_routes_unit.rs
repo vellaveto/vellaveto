@@ -28,31 +28,49 @@ impl ClusterBackend for UnhealthyClusterBackend {
         _reason: String,
         _requested_by: Option<String>,
     ) -> Result<String, ClusterError> {
-        Err(ClusterError::Connection("mock backend unavailable".to_string()))
+        Err(ClusterError::Connection(
+            "mock backend unavailable".to_string(),
+        ))
     }
 
     async fn approval_get(&self, _id: &str) -> Result<PendingApproval, ClusterError> {
-        Err(ClusterError::Connection("mock backend unavailable".to_string()))
+        Err(ClusterError::Connection(
+            "mock backend unavailable".to_string(),
+        ))
     }
 
-    async fn approval_approve(&self, _id: &str, _by: &str) -> Result<PendingApproval, ClusterError> {
-        Err(ClusterError::Connection("mock backend unavailable".to_string()))
+    async fn approval_approve(
+        &self,
+        _id: &str,
+        _by: &str,
+    ) -> Result<PendingApproval, ClusterError> {
+        Err(ClusterError::Connection(
+            "mock backend unavailable".to_string(),
+        ))
     }
 
     async fn approval_deny(&self, _id: &str, _by: &str) -> Result<PendingApproval, ClusterError> {
-        Err(ClusterError::Connection("mock backend unavailable".to_string()))
+        Err(ClusterError::Connection(
+            "mock backend unavailable".to_string(),
+        ))
     }
 
     async fn approval_list_pending(&self) -> Result<Vec<PendingApproval>, ClusterError> {
-        Err(ClusterError::Connection("mock backend unavailable".to_string()))
+        Err(ClusterError::Connection(
+            "mock backend unavailable".to_string(),
+        ))
     }
 
     async fn approval_pending_count(&self) -> Result<usize, ClusterError> {
-        Err(ClusterError::Connection("mock backend unavailable".to_string()))
+        Err(ClusterError::Connection(
+            "mock backend unavailable".to_string(),
+        ))
     }
 
     async fn approval_expire_stale(&self) -> Result<usize, ClusterError> {
-        Err(ClusterError::Connection("mock backend unavailable".to_string()))
+        Err(ClusterError::Connection(
+            "mock backend unavailable".to_string(),
+        ))
     }
 
     async fn rate_limit_check(
@@ -62,11 +80,15 @@ impl ClusterBackend for UnhealthyClusterBackend {
         _rps: u32,
         _burst: u32,
     ) -> Result<bool, ClusterError> {
-        Err(ClusterError::Connection("mock backend unavailable".to_string()))
+        Err(ClusterError::Connection(
+            "mock backend unavailable".to_string(),
+        ))
     }
 
     async fn health_check(&self) -> Result<(), ClusterError> {
-        Err(ClusterError::Connection("Redis connection refused".to_string()))
+        Err(ClusterError::Connection(
+            "Redis connection refused".to_string(),
+        ))
     }
 }
 

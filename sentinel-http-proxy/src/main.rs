@@ -439,14 +439,17 @@ async fn main() -> Result<()> {
     }
 
     // Build rate limiter (global, token-bucket)
-    let global_rate_limiter = if args.rate_limit > 0 {
-        let quota = Quota::per_second(std::num::NonZeroU32::new(args.rate_limit).unwrap());
-        let limiter = Arc::new(RateLimiter::direct(quota));
-        tracing::info!(rps = args.rate_limit, "Global rate limiting enabled");
-        Some(limiter)
-    } else {
-        tracing::info!("Rate limiting disabled");
-        None
+    let global_rate_limiter = match std::num::NonZeroU32::new(args.rate_limit) {
+        Some(rate_limit) => {
+            let quota = Quota::per_second(rate_limit);
+            let limiter = Arc::new(RateLimiter::direct(quota));
+            tracing::info!(rps = args.rate_limit, "Global rate limiting enabled");
+            Some(limiter)
+        }
+        None => {
+            tracing::info!("Rate limiting disabled");
+            None
+        }
     };
 
     // Build router
@@ -619,17 +622,32 @@ async fn health() -> &'static str {
 
 async fn shutdown_signal() {
     let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => {}
+            Err(err) => {
+                tracing::error!(
+                    error = %err,
+                    "Failed to install Ctrl+C handler; SIGINT shutdown disabled"
+                );
+                std::future::pending::<()>().await;
+            }
+        }
     };
 
     #[cfg(unix)]
     let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install SIGTERM handler")
-            .recv()
-            .await;
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(err) => {
+                tracing::error!(
+                    error = %err,
+                    "Failed to install SIGTERM handler; SIGTERM shutdown disabled"
+                );
+                std::future::pending::<()>().await;
+            }
+        }
     };
 
     #[cfg(not(unix))]

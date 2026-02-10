@@ -1306,7 +1306,10 @@ mod tests {
 
         // Verify snapshot size is reasonable
         let json = serde_json::to_string(&snapshot).expect("serialize");
-        assert!(json.len() > 1000, "Snapshot should contain substantial data");
+        assert!(
+            json.len() > 1000,
+            "Snapshot should contain substantial data"
+        );
         assert!(
             json.len() < 1_000_000,
             "Snapshot should be reasonably sized"

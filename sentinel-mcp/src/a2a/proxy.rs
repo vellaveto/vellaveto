@@ -874,7 +874,8 @@ mod tests {
 
         let service = A2aProxyService::new(config, engine, policies, cache);
         assert_eq!(
-            service.config().request_timeout_ms, 15000,
+            service.config().request_timeout_ms,
+            15000,
             "service should preserve custom timeout"
         );
     }
@@ -882,7 +883,10 @@ mod tests {
     #[test]
     fn test_config_all_security_features_enabled_by_default() {
         let config = A2aProxyConfig::default();
-        assert!(config.enable_dlp_scanning, "DLP should be enabled by default");
+        assert!(
+            config.enable_dlp_scanning,
+            "DLP should be enabled by default"
+        );
         assert!(
             config.enable_injection_detection,
             "injection detection should be enabled by default"

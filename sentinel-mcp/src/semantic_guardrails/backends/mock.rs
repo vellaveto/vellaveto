@@ -689,7 +689,8 @@ mod tests {
             LlmEvaluation::deny("specific rule: fs:read denied")
         })
         .await;
-        mock.add_rule_async("fs:*", |_| LlmEvaluation::allow()).await;
+        mock.add_rule_async("fs:*", |_| LlmEvaluation::allow())
+            .await;
 
         // fs:read should match specific rule first
         let input = LlmEvalInput::new("fs", "read");

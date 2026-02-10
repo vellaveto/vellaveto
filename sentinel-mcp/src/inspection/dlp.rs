@@ -1833,10 +1833,7 @@ mod tests {
         );
 
         let count = result.unwrap();
-        assert!(
-            count > 0,
-            "Should have at least one compiled DLP pattern"
-        );
+        assert!(count > 0, "Should have at least one compiled DLP pattern");
         assert_eq!(
             count,
             DLP_PATTERNS.len(),

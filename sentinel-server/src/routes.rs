@@ -69,7 +69,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/tenants/{id}", axum::routing::put(update_tenant))
         .route("/api/tenants/{id}", delete(delete_tenant))
         // Phase 15: AI Observability Platform Integration
-        .route("/api/observability/exporters", get(list_observability_exporters))
+        .route(
+            "/api/observability/exporters",
+            get(list_observability_exporters),
+        )
         .route("/api/observability/stats", get(observability_stats))
         .route("/api/observability/test", post(test_observability))
         // Admin dashboard (P3.2)

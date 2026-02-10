@@ -138,8 +138,7 @@ impl CircuitBreakerManager {
                 "CRITICAL: Circuit breaker RwLock poisoned — failing closed for tool '{}'",
                 tool
             );
-            let reason =
-                format!(
+            let reason = format!(
                 "Circuit breaker unavailable for tool '{}' (internal error — failing closed)",
                 tool
             );

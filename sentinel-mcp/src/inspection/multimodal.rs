@@ -709,10 +709,7 @@ mod tests {
         let scanner = MultimodalScanner::new(config);
 
         let result = scan_blob_for_injection("not-valid-base64!!!", None, &scanner);
-        assert!(matches!(
-            result,
-            Err(MultimodalError::ImageDecodeError(_))
-        ));
+        assert!(matches!(result, Err(MultimodalError::ImageDecodeError(_))));
     }
 
     /// GAP-006: Test scan_blob with MIME type hint
@@ -726,10 +723,8 @@ mod tests {
         let scanner = MultimodalScanner::new(config);
 
         // base64 of "%PDF" (small PDF-like data)
-        let base64_data = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            b"%PDF-1.4 test",
-        );
+        let base64_data =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b"%PDF-1.4 test");
 
         let result =
             scan_blob_for_injection(&base64_data, Some("application/pdf"), &scanner).unwrap();
@@ -795,7 +790,9 @@ mod tests {
         let scanner = MultimodalScanner::new(config);
 
         let data = b"some random bytes";
-        let result = scanner.scan_content(data, Some(ContentType::Unknown)).unwrap();
+        let result = scanner
+            .scan_content(data, Some(ContentType::Unknown))
+            .unwrap();
 
         // Duration should be very small but present
         assert!(result.scan_duration_ms < 1000); // Less than 1 second

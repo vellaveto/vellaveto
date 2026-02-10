@@ -313,7 +313,9 @@ struct WebhookMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::observability::{ActionSummary, DetectionType, SecurityDetection, SpanKind, VerdictSummary};
+    use crate::observability::{
+        ActionSummary, DetectionType, SecurityDetection, SpanKind, VerdictSummary,
+    };
 
     fn test_config() -> WebhookExporterConfig {
         WebhookExporterConfig::new("https://example.com/webhook")
@@ -417,11 +419,14 @@ mod tests {
         let mut attributes = HashMap::new();
         attributes.insert("user_id".to_string(), serde_json::json!("user-123"));
         attributes.insert("action_count".to_string(), serde_json::json!(42));
-        attributes.insert("nested".to_string(), serde_json::json!({
-            "deep": {
-                "value": "test data with unicode: 日本語 emoji: 🔐"
-            }
-        }));
+        attributes.insert(
+            "nested".to_string(),
+            serde_json::json!({
+                "deep": {
+                    "value": "test data with unicode: 日本語 emoji: 🔐"
+                }
+            }),
+        );
 
         let span = SecuritySpan {
             span_id: "span-roundtrip".to_string(),
@@ -438,15 +443,13 @@ mod tests {
                 reason: Some("Policy violation detected".to_string()),
             },
             matched_policy: Some("critical-policy-001".to_string()),
-            detections: vec![
-                SecurityDetection {
-                    detection_type: DetectionType::Dlp,
-                    severity: 8,
-                    description: "Credit card pattern detected".to_string(),
-                    pattern: Some("credit_card".to_string()),
-                    metadata: HashMap::new(),
-                },
-            ],
+            detections: vec![SecurityDetection {
+                detection_type: DetectionType::Dlp,
+                severity: 8,
+                description: "Credit card pattern detected".to_string(),
+                pattern: Some("credit_card".to_string()),
+                metadata: HashMap::new(),
+            }],
             request_body: Some(serde_json::json!({
                 "payment_info": "4111-1111-1111-1111"
             })),
@@ -490,7 +493,10 @@ mod tests {
         assert_eq!(parsed.spans[0].verdict.outcome, "deny");
         assert_eq!(parsed.spans[0].detections.len(), 1);
         assert_eq!(parsed.spans[0].detections[0].severity, 8);
-        assert_eq!(parsed.spans[0].detections[0].detection_type, DetectionType::Dlp);
+        assert_eq!(
+            parsed.spans[0].detections[0].detection_type,
+            DetectionType::Dlp
+        );
         assert_eq!(parsed.metadata.version, "2.0.0");
     }
 
@@ -551,10 +557,7 @@ mod tests {
                 start_time: "2024-01-01T00:00:00Z".to_string(),
                 end_time: "2024-01-01T00:00:01Z".to_string(),
                 duration_ms: 100 + i as u64,
-                action: ActionSummary::new(
-                    &format!("tool_{}", i % 10),
-                    &format!("func_{}", i % 5),
-                ),
+                action: ActionSummary::new(format!("tool_{}", i % 10), format!("func_{}", i % 5)),
                 verdict: VerdictSummary {
                     outcome: if i % 3 == 0 { "deny" } else { "allow" }.to_string(),
                     reason: if i % 3 == 0 {
