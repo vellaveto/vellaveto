@@ -110,6 +110,30 @@ pub const DLP_PATTERNS: &[(&str, &str)] = &[
         "database_uri",
         r"(?:mongodb|postgres|mysql|redis)://[^\s]{10,512}",
     ),
+    // --- AI/ML Service Credentials (OWASP ASI03 - primary threat model) ---
+    // Anthropic API key (sk-ant-api + 2 digits + hyphen + 90-100 chars)
+    (
+        "anthropic_api_key",
+        r"sk-ant-api[0-9]{2}-[A-Za-z0-9_-]{90,100}",
+    ),
+    // OpenAI API key (sk- optionally followed by proj- prefix, then 40-60 alphanumeric)
+    ("openai_api_key", r"sk-(?:proj-)?[A-Za-z0-9]{40,60}"),
+    // HuggingFace token (hf_ prefix + 34-40 alphanumeric)
+    ("huggingface_token", r"hf_[A-Za-z0-9]{34,40}"),
+    // Cohere API key (key-value format, case insensitive)
+    (
+        "cohere_api_key",
+        r"(?i)cohere[_-]?(?:api)?[_-]?key[=:\s]+[A-Za-z0-9]{35,45}",
+    ),
+    // Replicate API token (r8_ prefix + 37-42 alphanumeric)
+    ("replicate_token", r"r8_[A-Za-z0-9]{37,42}"),
+    // Together.ai API key (key-value format, case insensitive)
+    (
+        "together_api_key",
+        r"(?i)together[_-]?(?:api)?[_-]?key[=:\s]+[A-Za-z0-9]{50,70}",
+    ),
+    // Groq API key (gsk_ prefix + 50-60 alphanumeric)
+    ("groq_api_key", r"gsk_[A-Za-z0-9]{50,60}"),
 ];
 
 /// A finding from DLP scanning of tool call parameters.
@@ -1626,5 +1650,111 @@ mod tests {
                 name
             );
         }
+    }
+
+    // --- AI/ML Service Credential Detection Tests ---
+
+    #[test]
+    fn test_dlp_detects_anthropic_api_key() {
+        // Real format: sk-ant-api03-<90-100 chars>
+        let key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz12";
+        let params = serde_json::json!({ "api_key": key });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "anthropic_api_key"),
+            "Should detect Anthropic API key, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_detects_openai_api_key() {
+        // Standard format: sk-<48 chars>
+        let key = "sk-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKL123456";
+        let params = serde_json::json!({ "api_key": key });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "openai_api_key"),
+            "Should detect OpenAI API key, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_detects_openai_project_api_key() {
+        // Project format: sk-proj-<48 chars>
+        let key = "sk-proj-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKL1234";
+        let params = serde_json::json!({ "api_key": key });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "openai_api_key"),
+            "Should detect OpenAI project API key, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_detects_huggingface_token() {
+        // Format: hf_<34-40 chars>
+        let token = "hf_abcdefghijklmnopqrstuvwxyzABCDEFGH";
+        let params = serde_json::json!({ "token": token });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "huggingface_token"),
+            "Should detect HuggingFace token, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_detects_replicate_token() {
+        // Format: r8_<37-42 chars>
+        let token = "r8_abcdefghijklmnopqrstuvwxyzABCDEFGH12345";
+        let params = serde_json::json!({ "token": token });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "replicate_token"),
+            "Should detect Replicate token, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_detects_groq_api_key() {
+        // Format: gsk_<50-60 chars>
+        let key = "gsk_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQR123456";
+        let params = serde_json::json!({ "api_key": key });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "groq_api_key"),
+            "Should detect Groq API key, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_detects_cohere_api_key() {
+        // Format: cohere_api_key=<35-45 chars>
+        let text = "cohere_api_key=abcdefghijklmnopqrstuvwxyzABC123456";
+        let params = serde_json::json!({ "config": text });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "cohere_api_key"),
+            "Should detect Cohere API key, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_detects_together_api_key() {
+        // Format: together_api_key=<50-70 chars>
+        let text = "together_api_key=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        let params = serde_json::json!({ "config": text });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "together_api_key"),
+            "Should detect Together.ai API key, got: {:?}",
+            findings
+        );
     }
 }
