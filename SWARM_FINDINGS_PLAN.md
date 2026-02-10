@@ -175,40 +175,45 @@ pub struct OpaConfig {
 
 ---
 
-## Phase 4: Quick Win Improvements (P2)
+## Phase 4: Quick Win Improvements (P2) ✅ PARTIALLY COMPLETE
 
 **Timeline:** Week 2 (parallel with Phase 3)
 **Effort:** 2-3 days
+**Status:** 2 of 4 items complete
 
 ### IMP-002: HashMap/Vec Capacity Hints [ROI: 3.0]
 **Location:** Multiple files (30+ occurrences)
 
 **Tasks:**
-- [ ] Add capacity hints in hot paths:
+- [ ] Add capacity hints in hot paths (deferred - requires profiling to identify actual hot paths)
   - `sentinel-server/src/routes.rs`
   - `sentinel-audit/src/exec_graph.rs`
   - `sentinel-types/src/lib.rs`
 
-### IMP-003: Deduplicate try_base64_decode [ROI: 2.0]
+### IMP-003: Deduplicate try_base64_decode [ROI: 2.0] ✅
 **Location:** `sentinel-mcp/src/inspection/dlp.rs`, `injection.rs`
 
 **Tasks:**
-- [ ] Create `sentinel-mcp/src/inspection/util.rs`
-- [ ] Move `try_base64_decode` to shared module
-- [ ] Update imports in dlp.rs and injection.rs
+- [x] Create `sentinel-mcp/src/inspection/util.rs`
+- [x] Move `try_base64_decode` to shared module with comprehensive documentation
+- [x] Update imports in dlp.rs and injection.rs to use `pub(crate) use super::util::try_base64_decode`
+- [x] Add unit tests for the shared function
 
-### IMP-008: OPA Cache Size Configurable [ROI: 2.0]
-**Location:** `sentinel-server/src/opa.rs`
+### IMP-008: OPA Cache Size Configurable [ROI: 2.0] ✅
+**Location:** `sentinel-server/src/opa.rs`, `sentinel-config/src/lib.rs`
 
 **Tasks:**
-- [ ] Add `cache_size` to `OpaConfig`
-- [ ] Use config value instead of hardcoded 1000
+- [x] Add `cache_size` to `OpaConfig` (default: 1000)
+- [x] Add `default_opa_cache_size()` function
+- [x] Update `impl Default for OpaConfig`
+- [x] Use config value in OpaClient::new with fallback to 1000 if set to 0
+- [x] Add unit tests for cache_size configuration
 
 ### IMP-009: EvaluationContext Builder [ROI: 3.0]
 **Location:** `sentinel-types/src/lib.rs` or `sentinel-engine/src/lib.rs`
 
 **Tasks:**
-- [ ] Add `EvaluationContext::builder()` method
+- [ ] Add `EvaluationContext::builder()` method (deferred - evaluate need after more usage patterns emerge)
 - [ ] Implement builder pattern with sensible defaults
 
 ---
@@ -293,7 +298,7 @@ sentinel-server/src/routes/
 | 1 | P0 (Critical) | 2 | ✅ Complete |
 | 2 | P1 (High) | 3 | ✅ Complete |
 | 3 | P2 (Medium) | 5 | ⬜ Not Started |
-| 4 | P2 (Quick Wins) | 4 | ⬜ Not Started |
+| 4 | P2 (Quick Wins) | 4 | 🔶 2/4 Complete |
 | 5 | P3 (Low) | 10 | ⬜ Not Started |
 | 6 | P3 (Architecture) | 2 | ⬜ Not Started |
 
