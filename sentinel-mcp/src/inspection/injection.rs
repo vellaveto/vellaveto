@@ -66,6 +66,20 @@ pub const DEFAULT_INJECTION_PATTERNS: &[&str] = &[
     "warning:",
     "attention:",
     "must:",
+    // LLM prompt delimiters — Gemma format (Google)
+    "<start_of_turn>",
+    "<end_of_turn>",
+    // LLM prompt delimiters — Phi format (Microsoft)
+    "<|endoftext|>",
+    // LLM prompt delimiters — DeepSeek format
+    "<|begin▁of▁sentence|>",
+    "<|end▁of▁sentence|>",
+    // LLM prompt delimiters — Mistral format
+    "[inst]",
+    // LLM prompt delimiters — Command R format (Cohere)
+    "<|start_header_id|>",
+    "<|end_header_id|>",
+    "<|eot_id|>",
 ];
 
 /// Sentinel string returned when the injection detection automaton is unavailable.

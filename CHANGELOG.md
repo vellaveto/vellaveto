@@ -95,6 +95,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Validates trusted_keys are exactly 64 hex characters (32 bytes)
 - Returns descriptive error messages for invalid key formats
 
+#### Additional DLP Patterns (Phase 3)
+- `supabase_api_key` — Supabase API keys (`sbp_...`)
+- `vercel_token` — Vercel tokens (`vercel_`, `vc_...`)
+- `databricks_token` — Databricks tokens (`dapi...`)
+- `linear_api_key` — Linear API keys (`lin_api_...`)
+- `planetscale_token` — Planetscale tokens (`pscale_...`)
+- `neon_token` — Neon database tokens
+
+#### Additional Injection Detection Patterns (Phase 3)
+- Gemma format: `<start_of_turn>`, `<end_of_turn>`
+- Phi format: `<|endoftext|>`
+- DeepSeek format: `<|begin▁of▁sentence|>`, `<|end▁of▁sentence|>`
+- Command R format: `<|start_header_id|>`, `<|end_header_id|>`, `<|eot_id|>`
+
 ### Fixed
 
 - **Error Handling**: Added logging for previously silent error discards in:

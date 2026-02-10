@@ -134,6 +134,19 @@ pub const DLP_PATTERNS: &[(&str, &str)] = &[
     ),
     // Groq API key (gsk_ prefix + 50-60 alphanumeric)
     ("groq_api_key", r"gsk_[A-Za-z0-9]{50,60}"),
+    // --- Additional Modern Service Credentials (FIND-008) ---
+    // Supabase API key (sbp_ prefix + alphanumeric)
+    ("supabase_api_key", r"sbp_[A-Za-z0-9]{40,60}"),
+    // Vercel token (vercel_ prefix or vc_ prefix)
+    ("vercel_token", r"(?:vercel_|vc_)[A-Za-z0-9]{24,40}"),
+    // Databricks token (dapi prefix + alphanumeric)
+    ("databricks_token", r"dapi[a-f0-9]{32,40}"),
+    // Linear API key (lin_api_ prefix + alphanumeric)
+    ("linear_api_key", r"lin_api_[A-Za-z0-9]{40,50}"),
+    // Planetscale token (pscale_ prefix)
+    ("planetscale_token", r"pscale_[A-Za-z0-9_]{40,60}"),
+    // Neon database token
+    ("neon_token", r"neon_[A-Za-z0-9_]{30,50}"),
 ];
 
 /// A finding from DLP scanning of tool call parameters.
