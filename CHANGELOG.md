@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Server Route Modularization (IMP-001)**:
+  - Extracted 17 route handler modules from `routes/main.rs` (~800 lines removed)
+  - Created dedicated modules: approval, audit, auth_level, circuit_breaker, deputy, etdi, exec_graph, memory, nhi, observability, policy, registry, sampling, schema_lineage, shadow_agent, task_state, tenant
+  - Improved code organization and maintainability
+
 - **Documentation Sync**:
   - Updated `README.md` to reflect v2.2.1 metadata, MCP `2025-11-25` support (with compatibility notes), current container tags, and roadmap link.
   - Updated `ROADMAP.md` to mark Phase 15 complete and v2.2 timeline complete.
@@ -35,6 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- **Pre-compiled regex optimization (IMP-007)**:
+  - Moved base64 detection regex in `output_security.rs` to static `OnceLock`
+  - Eliminates per-call regex compilation in steganography detection
+
 - **Runtime allocation tuning**:
   - Added bounded `HashMap::with_capacity` hints in `sentinel-mcp` runtime/session managers:
     - `token_security`
@@ -54,6 +63,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **OPA fail-closed guardrails (`sentinel-server`)**:
   - `sentinel serve`, `sentinel evaluate`, and `sentinel check` now reject configs with `[opa].enabled = true` until runtime request-path OPA decision enforcement is fully wired.
   - Added CLI integration regressions for OPA-enabled fail-closed behavior in `check` and `evaluate`.
+
+### Dependencies
+
+- **Minor/patch updates (IMP-006)**:
+  - `proptest` 1.9.0 → 1.10.0
+  - `regex` 1.12.2 → 1.12.3
+  - `tempfile` 3.24.0 → 3.25.0
+  - `clap` 4.5.56 → 4.5.57
+  - `criterion` 0.8.1 → 0.8.2
 
 ## [2.2.1] - 2026-02-10
 

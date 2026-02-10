@@ -10,7 +10,18 @@
 //! - Microsoft "Runtime Risk to Real-Time Defense" (2026)
 
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::{OnceLock, RwLock};
+
+/// Pre-compiled base64 detection regex.
+/// Performance (IMP-007): Compiled once at first use rather than per-call.
+static BASE64_PATTERN: OnceLock<regex::Regex> = OnceLock::new();
+
+fn get_base64_pattern() -> &'static regex::Regex {
+    BASE64_PATTERN.get_or_init(|| {
+        regex::Regex::new(r"[A-Za-z0-9+/]{32,}={0,2}")
+            .expect("base64 pattern is valid regex")
+    })
+}
 
 /// Alert types for output security violations.
 #[derive(Debug, Clone, PartialEq)]
@@ -369,7 +380,8 @@ impl OutputSecurityAnalyzer {
     /// Detect encoded blocks in unexpected locations.
     fn detect_encoded_blocks(&self, output: &str) -> Option<SteganographyAlert> {
         // Look for base64-like patterns of significant length
-        let base64_pattern = regex::Regex::new(r"[A-Za-z0-9+/]{32,}={0,2}").ok()?;
+        // IMP-007: Use pre-compiled static pattern for performance
+        let base64_pattern = get_base64_pattern();
 
         if let Some(mat) = base64_pattern.find(output) {
             // Check if it's in a context that suggests encoding

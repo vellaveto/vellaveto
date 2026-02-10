@@ -1586,11 +1586,14 @@ v2.2 Complete! Ready for v2.3 planning.
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
+| Extract route handlers to dedicated modules (`sentinel-server`) | P2 | 3 days | ✅ Complete |
 | Maintain crate-boundary architecture map (owners, interfaces, tests) | P2 | 2 days | Active |
 | Enforce split safety gates (`check`, `clippy`, workspace tests) per extraction step | P1 | Ongoing | Active |
 | Track formatting drift and non-functional deltas during split windows | P2 | Ongoing | Active |
 | Define post-split contract checks for `sentinel-types` changes | P1 | 3 days | Planned |
 | Add module extraction playbook for contributors | P2 | 2 days | Planned |
+
+**2026-02-11 Update:** Server route modularization complete. Created 17 dedicated route modules (approval, audit, auth_level, circuit_breaker, deputy, etdi, exec_graph, memory, nhi, observability, policy, registry, sampling, schema_lineage, shadow_agent, task_state, tenant). Reduced `routes/main.rs` from ~3300 to ~2500 lines.
 
 ### 16.7 Post-Quantum Cryptography Transition (Active)
 
