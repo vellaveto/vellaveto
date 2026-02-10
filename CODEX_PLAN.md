@@ -11,11 +11,17 @@
 
 | Agent | Tasks | Status |
 |-------|-------|--------|
-| **Claude (Main)** | Tasks 2, 3, 4, 5 (P1 low-effort tests) | IN PROGRESS |
+| **Claude (Main)** | Tasks 2-5 DONE, now Tasks 9-13 (P2 tests) | IN PROGRESS |
 | **Codex** | Task 1, Tasks 6-8 (P1 medium-effort) | ASSIGNED |
 
-**Claude working on:** Redaction boundary tests, TraceContext W3C tests, SpanSampler determinism, Rate limit edge cases
-**Codex should work on:** Async integration tests for exporters, then Phase 15.6 security hardening
+**Completed by Claude (commit 1a7ed86):**
+- [x] Task 2: Redaction boundary tests (depth 50/51, large arrays, mixed nesting)
+- [x] Task 3: TraceContext W3C tests (uppercase, mixed, all-zeros, leading zeros)
+- [x] Task 4: SpanSampler determinism (same ID, distribution, rate 0/1, edge IDs)
+- [x] Task 5: Rate limit header edge cases (invalid, negative, overflow)
+
+**Claude now working on:** Phase 16 - ArizeExporter, LangfuseExporter, Private IP, Builder tests
+**Codex should work on:** Task 1 (async integration tests), then Tasks 6-8 (logging, error handling, config)
 
 ---
 
