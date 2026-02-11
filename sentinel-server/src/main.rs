@@ -303,7 +303,7 @@ async fn cmd_serve(
             "Custom PII patterns loaded: {} patterns",
             pii_patterns.len()
         );
-        audit_logger = audit_logger.with_custom_pii_patterns(pii_patterns);
+        audit_logger = audit_logger.with_custom_pii_patterns(&pii_patterns);
     }
 
     // Apply audit redaction level from config

@@ -46,6 +46,14 @@ impl From<OAuthDpopModeArg> for DpopMode {
     }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+enum OAuthSecurityProfileArg {
+    /// Backwards-compatible behavior with minimal startup constraints.
+    Standard,
+    /// Enforce sender-constrained token posture at startup.
+    Hardened,
+}
+
 #[derive(Parser)]
 #[command(
     name = "sentinel-http-proxy",
@@ -100,6 +108,11 @@ struct Args {
     #[arg(long)]
     oauth_pass_through: bool,
 
+    /// Explicitly acknowledge and allow forwarding bearer tokens upstream.
+    /// Use only when the upstream server must validate tokens directly.
+    #[arg(long, default_value_t = false)]
+    unsafe_oauth_pass_through: bool,
+
     /// Expected RFC 8707 resource indicator for OAuth token validation.
     /// When set, JWT tokens must contain a matching `resource` claim.
     #[arg(long)]
@@ -108,6 +121,11 @@ struct Args {
     /// DPoP proof mode for OAuth requests (`off`, `optional`, `required`).
     #[arg(long, value_enum, default_value_t = OAuthDpopModeArg::Off)]
     oauth_dpop_mode: OAuthDpopModeArg,
+
+    /// OAuth hardening profile.
+    /// `hardened` enforces RFC 8707 expected resource and sender-constrained DPoP.
+    #[arg(long, value_enum, default_value_t = OAuthSecurityProfileArg::Standard)]
+    oauth_security_profile: OAuthSecurityProfileArg,
 
     /// Maximum allowed clock skew for DPoP proof iat validation (seconds).
     #[arg(long, default_value_t = 300)]
@@ -137,6 +155,61 @@ struct Args {
     /// Maximum requests per second (global rate limit). 0 = no limit.
     #[arg(long, default_value_t = 200)]
     rate_limit: u32,
+}
+
+fn resolve_oauth_security(args: &Args) -> Result<DpopMode> {
+    let mut dpop_mode: DpopMode = args.oauth_dpop_mode.into();
+
+    if args.oauth_issuer.is_none() {
+        return Ok(dpop_mode);
+    }
+
+    if args.oauth_security_profile == OAuthSecurityProfileArg::Hardened {
+        if args.oauth_expected_resource.is_none() {
+            anyhow::bail!("Hardened OAuth profile requires --oauth-expected-resource (RFC 8707).");
+        }
+
+        if dpop_mode != DpopMode::Required {
+            tracing::warn!(
+                "Hardened OAuth profile overrides DPoP mode to required (sender-constrained tokens)"
+            );
+            dpop_mode = DpopMode::Required;
+        }
+    }
+
+    if args.oauth_pass_through {
+        if !args.unsafe_oauth_pass_through {
+            anyhow::bail!(
+                "--oauth-pass-through is blocked by default. Re-run with \
+                 --unsafe-oauth-pass-through only if this deployment requires it."
+            );
+        }
+
+        if args.oauth_expected_resource.is_none() {
+            anyhow::bail!(
+                "--oauth-pass-through requires --oauth-expected-resource \
+                 to prevent cross-resource token replay."
+            );
+        }
+
+        if dpop_mode != DpopMode::Required {
+            anyhow::bail!(
+                "--oauth-pass-through requires --oauth-dpop-mode required \
+                 (sender-constrained proof)."
+            );
+        }
+
+        tracing::warn!(
+            "UNSAFE MODE: OAuth bearer token pass-through enabled; \
+             upstream token handling is now part of the trust boundary."
+        );
+    } else if args.unsafe_oauth_pass_through {
+        tracing::warn!(
+            "--unsafe-oauth-pass-through was set but --oauth-pass-through is disabled; ignoring."
+        );
+    }
+
+    Ok(dpop_mode)
 }
 
 #[tokio::main]
@@ -291,7 +364,7 @@ async fn main() -> Result<()> {
             "Custom PII patterns loaded: {} patterns",
             pii_patterns.len()
         );
-        audit_logger = audit_logger.with_custom_pii_patterns(pii_patterns);
+        audit_logger = audit_logger.with_custom_pii_patterns(&pii_patterns);
     }
 
     let audit = Arc::new(audit_logger);
@@ -336,6 +409,8 @@ async fn main() -> Result<()> {
 
     // OAuth 2.1 validator (optional)
     let oauth = if let Some(ref issuer) = args.oauth_issuer {
+        let dpop_mode = resolve_oauth_security(&args)?;
+
         let config = OAuthConfig {
             issuer: issuer.clone(),
             audience: args.oauth_audience.clone(),
@@ -346,18 +421,19 @@ async fn main() -> Result<()> {
             expected_resource: args.oauth_expected_resource.clone(),
             clock_skew_leeway: Duration::from_secs(30),
             require_audience: true,
-            dpop_mode: args.oauth_dpop_mode.into(),
+            dpop_mode,
             dpop_allowed_algorithms: default_dpop_allowed_algorithms(),
             dpop_require_ath: args.oauth_dpop_require_ath,
             dpop_max_clock_skew: Duration::from_secs(args.oauth_dpop_max_clock_skew_secs),
         };
         tracing::info!(
-            "OAuth 2.1 enabled: issuer={}, audience={}, scopes={:?}, pass_through={}, dpop_mode={:?}",
+            "OAuth 2.1 enabled: issuer={}, audience={}, scopes={:?}, pass_through={}, dpop_mode={:?}, profile={:?}",
             config.issuer,
             config.audience,
             config.required_scopes,
             config.pass_through,
             config.dpop_mode,
+            args.oauth_security_profile,
         );
         Some(Arc::new(OAuthValidator::new(config, http_client.clone())))
     } else {
@@ -622,6 +698,106 @@ async fn main() -> Result<()> {
 
     tracing::info!("Proxy shut down gracefully");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base_args() -> Args {
+        Args {
+            upstream: "http://127.0.0.1:8000/mcp".to_string(),
+            listen: "127.0.0.1:3001".to_string(),
+            config: "policy.toml".to_string(),
+            audit_log: "audit.log".to_string(),
+            session_timeout: 1800,
+            max_sessions: 1000,
+            strict: false,
+            oauth_issuer: Some("https://issuer.example".to_string()),
+            oauth_audience: "mcp-server".to_string(),
+            oauth_jwks_uri: None,
+            oauth_scopes: vec![],
+            oauth_pass_through: false,
+            unsafe_oauth_pass_through: false,
+            oauth_expected_resource: None,
+            oauth_dpop_mode: OAuthDpopModeArg::Off,
+            oauth_security_profile: OAuthSecurityProfileArg::Standard,
+            oauth_dpop_max_clock_skew_secs: 300,
+            oauth_dpop_require_ath: true,
+            allow_anonymous: false,
+            session_max_lifetime: 86400,
+            no_canonicalize: false,
+            rate_limit: 200,
+        }
+    }
+
+    #[test]
+    fn hardened_profile_requires_expected_resource() {
+        let mut args = base_args();
+        args.oauth_security_profile = OAuthSecurityProfileArg::Hardened;
+
+        let err = resolve_oauth_security(&args).expect_err("expected hardened validation error");
+        assert!(err
+            .to_string()
+            .contains("requires --oauth-expected-resource"));
+    }
+
+    #[test]
+    fn hardened_profile_enforces_required_dpop() {
+        let mut args = base_args();
+        args.oauth_security_profile = OAuthSecurityProfileArg::Hardened;
+        args.oauth_expected_resource = Some("https://mcp.example".to_string());
+        args.oauth_dpop_mode = OAuthDpopModeArg::Optional;
+
+        let mode = resolve_oauth_security(&args).expect("hardened profile should resolve");
+        assert_eq!(mode, DpopMode::Required);
+    }
+
+    #[test]
+    fn pass_through_requires_explicit_unsafe_flag() {
+        let mut args = base_args();
+        args.oauth_pass_through = true;
+        args.oauth_expected_resource = Some("https://mcp.example".to_string());
+        args.oauth_dpop_mode = OAuthDpopModeArg::Required;
+
+        let err = resolve_oauth_security(&args).expect_err("expected unsafe-gate validation");
+        assert!(err.to_string().contains("--unsafe-oauth-pass-through"));
+    }
+
+    #[test]
+    fn pass_through_requires_expected_resource() {
+        let mut args = base_args();
+        args.oauth_pass_through = true;
+        args.unsafe_oauth_pass_through = true;
+        args.oauth_dpop_mode = OAuthDpopModeArg::Required;
+
+        let err = resolve_oauth_security(&args).expect_err("expected resource requirement");
+        assert!(err.to_string().contains("--oauth-expected-resource"));
+    }
+
+    #[test]
+    fn pass_through_requires_required_dpop() {
+        let mut args = base_args();
+        args.oauth_pass_through = true;
+        args.unsafe_oauth_pass_through = true;
+        args.oauth_expected_resource = Some("https://mcp.example".to_string());
+        args.oauth_dpop_mode = OAuthDpopModeArg::Optional;
+
+        let err = resolve_oauth_security(&args).expect_err("expected dpop requirement");
+        assert!(err.to_string().contains("--oauth-dpop-mode required"));
+    }
+
+    #[test]
+    fn pass_through_allowed_with_strict_inputs() {
+        let mut args = base_args();
+        args.oauth_pass_through = true;
+        args.unsafe_oauth_pass_through = true;
+        args.oauth_expected_resource = Some("https://mcp.example".to_string());
+        args.oauth_dpop_mode = OAuthDpopModeArg::Required;
+
+        let mode = resolve_oauth_security(&args).expect("strict pass-through settings should pass");
+        assert_eq!(mode, DpopMode::Required);
+    }
 }
 
 /// Middleware that adds standard security headers to all proxy responses.

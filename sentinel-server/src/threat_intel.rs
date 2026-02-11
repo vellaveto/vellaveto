@@ -272,7 +272,7 @@ impl ThreatIntelClient {
         }
 
         let body: serde_json::Value = response.json().await?;
-        self.parse_stix_objects(body)
+        self.parse_stix_objects(&body)
     }
 
     /// Query MISP instance.
@@ -300,7 +300,7 @@ impl ThreatIntelClient {
         }
 
         let body: serde_json::Value = response.json().await?;
-        self.parse_misp_response(body)
+        self.parse_misp_response(&body)
     }
 
     /// Query custom REST endpoint.
@@ -330,7 +330,7 @@ impl ThreatIntelClient {
     /// Parse STIX objects into ThreatIndicators.
     fn parse_stix_objects(
         &self,
-        body: serde_json::Value,
+        body: &serde_json::Value,
     ) -> Result<Vec<ThreatIndicator>, ThreatIntelError> {
         let objects = body
             .get("objects")
@@ -397,7 +397,7 @@ impl ThreatIntelClient {
     /// Parse MISP response into ThreatIndicators.
     fn parse_misp_response(
         &self,
-        body: serde_json::Value,
+        body: &serde_json::Value,
     ) -> Result<Vec<ThreatIndicator>, ThreatIntelError> {
         let attributes = body
             .get("response")
@@ -608,14 +608,14 @@ mod tests {
     #[test]
     fn test_parse_stix_objects_missing_objects_array_errors() {
         let client = test_client();
-        let result = client.parse_stix_objects(json!({"foo": "bar"}));
+        let result = client.parse_stix_objects(&json!({"foo": "bar"}));
         assert!(matches!(result, Err(ThreatIntelError::InvalidResponse(_))));
     }
 
     #[test]
     fn test_parse_stix_objects_invalid_indicator_pattern_errors() {
         let client = test_client();
-        let result = client.parse_stix_objects(json!({
+        let result = client.parse_stix_objects(&json!({
             "objects": [
                 {"type": "indicator", "pattern": ""}
             ]
@@ -627,7 +627,7 @@ mod tests {
     fn test_parse_stix_objects_confidence_is_clamped() {
         let client = test_client();
         let indicators = client
-            .parse_stix_objects(json!({
+            .parse_stix_objects(&json!({
                 "objects": [
                     {"type": "indicator", "pattern": "[domain-name:value = 'evil.test']", "confidence": 255}
                 ]
@@ -640,14 +640,14 @@ mod tests {
     #[test]
     fn test_parse_misp_response_missing_attribute_array_errors() {
         let client = test_client();
-        let result = client.parse_misp_response(json!({"response": {}}));
+        let result = client.parse_misp_response(&json!({"response": {}}));
         assert!(matches!(result, Err(ThreatIntelError::InvalidResponse(_))));
     }
 
     #[test]
     fn test_parse_misp_response_invalid_attributes_error_when_non_empty() {
         let client = test_client();
-        let result = client.parse_misp_response(json!({
+        let result = client.parse_misp_response(&json!({
             "response": {
                 "Attribute": [
                     {"value": ""},
@@ -662,7 +662,7 @@ mod tests {
     fn test_parse_misp_response_empty_attribute_array_is_ok() {
         let client = test_client();
         let indicators = client
-            .parse_misp_response(json!({"response": {"Attribute": []}}))
+            .parse_misp_response(&json!({"response": {"Attribute": []}}))
             .expect("empty result should be valid");
         assert!(indicators.is_empty());
     }

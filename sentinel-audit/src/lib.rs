@@ -480,8 +480,8 @@ impl AuditLogger {
     /// When called, a `PiiScanner` is built with both default and custom patterns.
     /// The scanner uses **substring** replacement (e.g., `"Call 555-123-4567"` →
     /// `"Call [REDACTED]"`) instead of the legacy whole-value replacement.
-    pub fn with_custom_pii_patterns(mut self, patterns: Vec<CustomPiiPattern>) -> Self {
-        self.pii_scanner = Some(PiiScanner::new(&patterns));
+    pub fn with_custom_pii_patterns(mut self, patterns: &[CustomPiiPattern]) -> Self {
+        self.pii_scanner = Some(PiiScanner::new(patterns));
         self
     }
 
