@@ -7,7 +7,7 @@
 
 use anyhow::{Context, Result};
 use axum::{
-    extract::Request,
+    extract::{Request, State},
     http::{header, HeaderValue, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
@@ -223,6 +223,33 @@ fn resolve_oauth_security(args: &Args) -> Result<DpopMode> {
     }
 
     Ok(dpop_mode)
+}
+
+fn parse_trusted_proxies_env() -> Vec<std::net::IpAddr> {
+    std::env::var("SENTINEL_TRUSTED_PROXIES")
+        .ok()
+        .map(|value| {
+            value
+                .split(',')
+                .filter_map(|raw| {
+                    let trimmed = raw.trim();
+                    if trimmed.is_empty() {
+                        return None;
+                    }
+                    match trimmed.parse::<std::net::IpAddr>() {
+                        Ok(ip) => Some(ip),
+                        Err(_) => {
+                            tracing::warn!(
+                                proxy_ip = %trimmed,
+                                "Invalid trusted proxy IP in SENTINEL_TRUSTED_PROXIES"
+                            );
+                            None
+                        }
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[tokio::main]
@@ -510,6 +537,13 @@ async fn main() -> Result<()> {
         .listen
         .parse()
         .context(format!("Invalid listen address: {}", args.listen))?;
+    let trusted_proxies = Arc::new(parse_trusted_proxies_env());
+    if !trusted_proxies.is_empty() {
+        tracing::info!(
+            trusted_proxies = ?trusted_proxies,
+            "Trusted proxy header processing enabled"
+        );
+    }
 
     // Build shared state
     let state = ProxyState {
@@ -623,6 +657,10 @@ async fn main() -> Result<()> {
         .layer(axum::extract::DefaultBodyLimit::max(1_048_576))
         .layer(axum::middleware::from_fn(security_headers))
         .layer(axum::middleware::from_fn(request_id))
+        .layer(axum::middleware::from_fn_with_state(
+            trusted_proxies.clone(),
+            trusted_proxy_context,
+        ))
         .with_state(state);
 
     if let Some(limiter) = global_rate_limiter {
@@ -688,10 +726,13 @@ async fn main() -> Result<()> {
         args.upstream
     );
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .context("Server error")?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .context("Server error")?;
 
     // Challenge 15 fix: Flush audit log before exit.
     // Matches the pattern from sentinel-server/src/main.rs.
@@ -713,9 +754,48 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+fn connection_ip_from_request(request: &Request) -> std::net::IpAddr {
+    request
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|ci| ci.0.ip())
+        .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST))
+}
+
+fn is_connection_from_trusted_proxy(
+    request: &Request,
+    trusted_proxies: &[std::net::IpAddr],
+) -> bool {
+    if trusted_proxies.is_empty() {
+        return false;
+    }
+    trusted_proxies.contains(&connection_ip_from_request(request))
+}
+
+async fn trusted_proxy_context(
+    State(trusted_proxies): State<Arc<Vec<std::net::IpAddr>>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let from_trusted_proxy = is_connection_from_trusted_proxy(&request, &trusted_proxies);
+    request
+        .extensions_mut()
+        .insert(proxy::TrustedProxyContext { from_trusted_proxy });
+    next.run(request).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::Request as HttpRequest;
+
+    fn build_request(headers: &[(&str, &str)]) -> Request {
+        let mut builder = HttpRequest::builder().uri("/mcp").method("POST");
+        for (k, v) in headers {
+            builder = builder.header(*k, *v);
+        }
+        builder.body(axum::body::Body::empty()).unwrap()
+    }
 
     fn base_args() -> Args {
         Args {
@@ -834,17 +914,54 @@ mod tests {
             resolve_oauth_security(&args).expect("oauth-disabled run should skip oauth validation");
         assert_eq!(mode, DpopMode::Off);
     }
+
+    #[test]
+    fn test_is_connection_from_trusted_proxy_requires_config() {
+        let request = build_request(&[]);
+        assert!(
+            !is_connection_from_trusted_proxy(&request, &[]),
+            "empty trusted_proxies must not trust forwarded headers"
+        );
+    }
+
+    #[test]
+    fn test_is_connection_from_trusted_proxy_matches_direct_peer() {
+        let request = build_request(&[]);
+        let trusted = vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)];
+        assert!(is_connection_from_trusted_proxy(&request, &trusted));
+    }
+
+    #[test]
+    fn test_is_connection_from_trusted_proxy_rejects_untrusted_peer() {
+        let request = build_request(&[]);
+        let trusted = vec!["10.0.0.1".parse().unwrap()];
+        assert!(!is_connection_from_trusted_proxy(&request, &trusted));
+    }
 }
 
 /// Middleware that adds standard security headers to all proxy responses.
 async fn security_headers(request: Request, next: Next) -> Response {
+    let from_trusted_proxy = request
+        .extensions()
+        .get::<proxy::TrustedProxyContext>()
+        .map(|ctx| ctx.from_trusted_proxy)
+        .unwrap_or(false);
+    let has_forwarded_proto = request.headers().contains_key("x-forwarded-proto");
+    let forwarded_proto_https = request
+        .headers()
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(str::trim)
+        .map(|s| s.eq_ignore_ascii_case("https"))
+        .unwrap_or(false);
+
     let is_https = request.uri().scheme_str() == Some("https")
-        || request
-            .headers()
-            .get("x-forwarded-proto")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.eq_ignore_ascii_case("https"))
-            .unwrap_or(false);
+        || (from_trusted_proxy && forwarded_proto_https);
+
+    if has_forwarded_proto && !from_trusted_proxy {
+        tracing::warn!("Ignoring x-forwarded-proto from untrusted peer");
+    }
 
     let mut response = next.run(request).await;
     let headers = response.headers_mut();

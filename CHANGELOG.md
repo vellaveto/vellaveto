@@ -175,6 +175,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **HTTP proxy request-id hardening (`sentinel-http-proxy`)**:
   - Rejected control characters in client-supplied `X-Request-Id` values before echoing to response headers.
+
+- **HTTP proxy forwarded-header trust hardening (`sentinel-http-proxy`)**:
+  - Added trusted-proxy context propagation based on direct peer IP (`ConnectInfo`) and `SENTINEL_TRUSTED_PROXIES`.
+  - Trusted `X-Forwarded-Proto` for HSTS decisions only when the direct connection peer is a configured trusted proxy.
+  - Trusted `X-Forwarded-Proto` / `X-Forwarded-Host` for OAuth effective request URI construction only when the direct connection peer is a configured trusted proxy.
+  - Added regression coverage for trusted vs untrusted forwarded-header URI reconstruction and trusted-proxy peer detection helpers.
   - Added the same TLS attributes to observability spans when exporters are enabled.
   - Added unit/integration coverage for TLS metadata extraction and audit emission.
   - Hardened extraction to reject ambiguous duplicate/alias values for each TLS metadata field (fail-closed on conflicts).

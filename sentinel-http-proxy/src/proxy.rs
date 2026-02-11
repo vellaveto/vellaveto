@@ -9,7 +9,7 @@ use axum::{
     extract::{OriginalUri, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    Json,
+    Extension, Json,
 };
 use bytes::Bytes;
 use chrono::Utc;
@@ -161,6 +161,12 @@ pub struct ProxyState {
     /// Configurable runtime limits for memory bounds, timeouts, and chain lengths.
     /// Provides operator control over previously hardcoded security constants.
     pub limits: sentinel_config::LimitsConfig,
+}
+
+/// Per-request trust signal for forwarded-header handling.
+#[derive(Clone, Copy, Debug)]
+pub struct TrustedProxyContext {
+    pub from_trusted_proxy: bool,
 }
 
 /// MCP Session ID header name.
@@ -388,6 +394,7 @@ pub async fn handle_mcp_post(
     State(state): State<ProxyState>,
     OriginalUri(original_uri): OriginalUri,
     Query(params): Query<McpQueryParams>,
+    proxy_ctx: Option<Extension<TrustedProxyContext>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -479,7 +486,11 @@ pub async fn handle_mcp_post(
     let client_session_id = headers.get(MCP_SESSION_ID).and_then(|v| v.to_str().ok());
 
     // OAuth 2.1 token validation (if configured)
-    let effective_uri = build_effective_request_uri(&headers, state.bind_addr, &original_uri);
+    let from_trusted_proxy = proxy_ctx
+        .map(|Extension(ctx)| ctx.from_trusted_proxy)
+        .unwrap_or(false);
+    let effective_uri =
+        build_effective_request_uri(&headers, state.bind_addr, &original_uri, from_trusted_proxy);
     let oauth_claims =
         match validate_oauth(&state, &headers, "POST", &effective_uri, client_session_id).await {
             Ok(claims) => claims,
@@ -2305,6 +2316,7 @@ pub async fn handle_mcp_post(
 pub async fn handle_mcp_delete(
     State(state): State<ProxyState>,
     OriginalUri(original_uri): OriginalUri,
+    proxy_ctx: Option<Extension<TrustedProxyContext>>,
     headers: HeaderMap,
 ) -> Response {
     // CSRF / DNS rebinding origin validation (TASK-015)
@@ -2320,7 +2332,11 @@ pub async fn handle_mcp_delete(
     let session_id = headers.get(MCP_SESSION_ID).and_then(|v| v.to_str().ok());
 
     // OAuth 2.1 token validation (if configured)
-    let effective_uri = build_effective_request_uri(&headers, state.bind_addr, &original_uri);
+    let from_trusted_proxy = proxy_ctx
+        .map(|Extension(ctx)| ctx.from_trusted_proxy)
+        .unwrap_or(false);
+    let effective_uri =
+        build_effective_request_uri(&headers, state.bind_addr, &original_uri, from_trusted_proxy);
     let oauth_claims =
         match validate_oauth(&state, &headers, "DELETE", &effective_uri, session_id).await {
             Ok(claims) => claims,
@@ -2413,34 +2429,47 @@ fn build_effective_request_uri(
     headers: &HeaderMap,
     bind_addr: SocketAddr,
     original_uri: &axum::http::Uri,
+    from_trusted_proxy: bool,
 ) -> String {
-    let proto = headers
+    let forwarded_proto = headers
         .get("x-forwarded-proto")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.split(',').next())
         .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .unwrap_or(if bind_addr.port() == 443 {
-            "https"
-        } else {
-            "http"
-        });
+        .filter(|v| !v.is_empty());
 
-    let authority = headers
+    let forwarded_host = headers
         .get("x-forwarded-host")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.split(',').next())
         .map(str::trim)
-        .filter(|v| !v.is_empty() && !v.contains('/'))
-        .or_else(|| {
-            headers
-                .get(axum::http::header::HOST)
-                .and_then(|v| v.to_str().ok())
-                .map(str::trim)
-                .filter(|v| !v.is_empty() && !v.contains('/'))
-        })
-        .map(ToString::to_string)
-        .unwrap_or_else(|| bind_addr.to_string());
+        .filter(|v| !v.is_empty() && !v.contains('/'));
+
+    let host_header = headers
+        .get(axum::http::header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty() && !v.contains('/'));
+
+    let default_proto = if bind_addr.port() == 443 {
+        "https"
+    } else {
+        "http"
+    };
+
+    let proto = if from_trusted_proxy {
+        forwarded_proto.unwrap_or(default_proto)
+    } else {
+        default_proto
+    };
+
+    let authority = if from_trusted_proxy {
+        forwarded_host.or(host_header)
+    } else {
+        host_header
+    }
+    .map(ToString::to_string)
+    .unwrap_or_else(|| bind_addr.to_string());
 
     let path_and_query = original_uri
         .path_and_query()
@@ -5025,6 +5054,34 @@ mod tests {
         let action = extractor::extract_action("file:read", &json!({"path": "/tmp/test"}));
         assert_eq!(action.tool, "file:read");
         assert_eq!(action.function, "*");
+    }
+
+    #[test]
+    fn test_build_effective_request_uri_ignores_forwarded_headers_when_untrusted() {
+        let mut headers = HeaderMap::new();
+        headers.insert(axum::http::header::HOST, "internal.local".parse().unwrap());
+        headers.insert("x-forwarded-proto", "https".parse().unwrap());
+        headers.insert("x-forwarded-host", "public.example".parse().unwrap());
+
+        let bind_addr: SocketAddr = "127.0.0.1:3001".parse().unwrap();
+        let uri: axum::http::Uri = "/mcp?trace=true".parse().unwrap();
+        let effective = build_effective_request_uri(&headers, bind_addr, &uri, false);
+
+        assert_eq!(effective, "http://internal.local/mcp?trace=true");
+    }
+
+    #[test]
+    fn test_build_effective_request_uri_trusts_forwarded_headers_when_trusted() {
+        let mut headers = HeaderMap::new();
+        headers.insert(axum::http::header::HOST, "internal.local".parse().unwrap());
+        headers.insert("x-forwarded-proto", "https".parse().unwrap());
+        headers.insert("x-forwarded-host", "public.example".parse().unwrap());
+
+        let bind_addr: SocketAddr = "127.0.0.1:3001".parse().unwrap();
+        let uri: axum::http::Uri = "/mcp?trace=true".parse().unwrap();
+        let effective = build_effective_request_uri(&headers, bind_addr, &uri, true);
+
+        assert_eq!(effective, "https://public.example/mcp?trace=true");
     }
 
     #[test]
