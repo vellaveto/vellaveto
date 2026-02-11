@@ -29,8 +29,9 @@ pub use dlp::{
     validate_dlp_patterns, DlpFinding, DLP_PATTERNS,
 };
 pub use injection::{
-    inspect_for_injection, sanitize_for_injection_scan, scan_notification_for_injection,
-    scan_response_for_injection, InjectionScanner, DEFAULT_INJECTION_PATTERNS,
+    injection_pattern_count, inspect_for_injection, is_injection_available,
+    sanitize_for_injection_scan, scan_notification_for_injection, scan_response_for_injection,
+    validate_injection_patterns, InjectionScanner, DEFAULT_INJECTION_PATTERNS,
     INJECTION_DETECTION_UNAVAILABLE,
 };
 pub use tool_description::{

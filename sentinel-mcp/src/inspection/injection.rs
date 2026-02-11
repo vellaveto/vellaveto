@@ -117,6 +117,51 @@ fn get_default_automaton() -> Option<&'static AhoCorasick> {
         .as_ref()
 }
 
+/// Validate that injection patterns compile successfully.
+///
+/// This function verifies that the default injection patterns can be compiled
+/// into an Aho-Corasick automaton. While Aho-Corasick compilation is unlikely
+/// to fail (unlike regex), this provides consistency with DLP validation and
+/// a health check for the injection detection subsystem.
+///
+/// # Returns
+///
+/// - `Ok(count)` - Number of patterns in the default set
+/// - `Err(error)` - Error message if automaton compilation fails
+///
+/// # Example
+///
+/// ```ignore
+/// match validate_injection_patterns() {
+///     Ok(count) => info!("Injection: {} patterns compiled", count),
+///     Err(error) => {
+///         error!("Injection pattern compilation failed: {}", error);
+///         panic!("Injection detection unavailable");
+///     }
+/// }
+/// ```
+pub fn validate_injection_patterns() -> Result<usize, String> {
+    match AhoCorasick::new(DEFAULT_INJECTION_PATTERNS) {
+        Ok(_) => Ok(DEFAULT_INJECTION_PATTERNS.len()),
+        Err(e) => Err(format!("Failed to compile injection patterns: {}", e)),
+    }
+}
+
+/// Check if injection detection is available.
+///
+/// Returns `true` if the default injection automaton compiled successfully.
+/// This can be used for health checks.
+pub fn is_injection_available() -> bool {
+    get_default_automaton().is_some()
+}
+
+/// Get the count of active injection patterns.
+///
+/// Returns the number of patterns in the default injection pattern set.
+pub fn injection_pattern_count() -> usize {
+    DEFAULT_INJECTION_PATTERNS.len()
+}
+
 /// Configurable injection pattern scanner.
 ///
 /// Holds a compiled Aho-Corasick automaton for a custom set of injection
@@ -1668,6 +1713,38 @@ mod tests {
         assert!(
             !matches.is_empty(),
             "Malicious response must still be detected when automaton is available"
+        );
+    }
+
+    #[test]
+    fn test_validate_injection_patterns_all_compile() {
+        // All default patterns should compile successfully
+        let result = validate_injection_patterns();
+        assert!(result.is_ok(), "Injection patterns should compile: {:?}", result);
+        let count = result.unwrap();
+        assert!(
+            count >= 24,
+            "Expected at least 24 injection patterns, got {}",
+            count
+        );
+    }
+
+    #[test]
+    fn test_is_injection_available() {
+        // Default automaton should be available
+        assert!(
+            is_injection_available(),
+            "Injection detection should be available"
+        );
+    }
+
+    #[test]
+    fn test_injection_pattern_count() {
+        let count = injection_pattern_count();
+        assert!(
+            count >= 24,
+            "Expected at least 24 injection patterns, got {}",
+            count
         );
     }
 }

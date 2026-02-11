@@ -69,6 +69,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - If any pattern fails to compile, the application fails to start rather than silently skipping secret detection
   - Prevents silent gaps in DLP coverage from malformed patterns
 
+- **Injection pattern validation at startup**:
+  - Added `validate_injection_patterns()`, `is_injection_available()`, and `injection_pattern_count()` functions
+  - Both server and proxy now validate injection patterns compile at startup
+  - Consistent with DLP validation for defense-in-depth
+
 ### Dependencies
 
 - **Minor/patch updates (IMP-006)**:

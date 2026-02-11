@@ -145,6 +145,15 @@ async fn main() -> Result<()> {
         );
     }
 
+    // Validate injection patterns compile at startup (fail-closed).
+    if let Err(error) = sentinel_mcp::inspection::validate_injection_patterns() {
+        tracing::error!("Injection pattern compilation failed: {}", error);
+        anyhow::bail!(
+            "Injection pattern validation failed: {}. Injection detection unavailable.",
+            error
+        );
+    }
+
     let mut policies = policy_config.to_policies();
     PolicyEngine::sort_policies(&mut policies);
 
