@@ -15,6 +15,7 @@
 //! - `sentinel_rug_pull_detections_total` (counter)
 //! - `sentinel_squatting_detections_total` (counter)
 //! - `sentinel_anomaly_detections_total` (counter)
+//! - `sentinel_forwarded_header_rejections_total` (counter, labels: header)
 //!
 //! ## Session & Auth Metrics
 //! - `sentinel_active_sessions` (gauge)
@@ -58,7 +59,7 @@ pub fn init_prometheus() -> Option<PrometheusHandle> {
     match builder.install_recorder() {
         Ok(handle) => {
             register_metric_descriptions();
-            tracing::info!("Prometheus metrics recorder installed with 24 metrics");
+            tracing::info!("Prometheus metrics recorder installed with 25 metrics");
             Some(handle)
         }
         Err(e) => {
@@ -106,6 +107,10 @@ fn register_metric_descriptions() {
     metrics::describe_counter!(
         "sentinel_anomaly_detections_total",
         "Total number of behavioral anomalies detected"
+    );
+    metrics::describe_counter!(
+        "sentinel_forwarded_header_rejections_total",
+        "Total number of untrusted forwarded headers ignored by security checks"
     );
 
     // Session & auth metrics
@@ -256,6 +261,15 @@ pub fn record_injection_detection(injection_type: &str) {
     metrics::counter!(
         "sentinel_injection_detections_total",
         "injection_type" => injection_type.to_string()
+    )
+    .increment(1);
+}
+
+/// Record an untrusted forwarded header rejection.
+pub fn increment_forwarded_header_rejections(header: &str) {
+    metrics::counter!(
+        "sentinel_forwarded_header_rejections_total",
+        "header" => header.to_string()
     )
     .increment(1);
 }

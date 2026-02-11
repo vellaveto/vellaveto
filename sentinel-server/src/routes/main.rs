@@ -449,14 +449,20 @@ async fn security_headers(State(state): State<AppState>, request: Request, next:
     // Check the URI scheme or trusted-proxy X-Forwarded-Proto header.
     // Untrusted clients must not be able to force HTTPS semantics via headers.
     let from_trusted_proxy = is_connection_from_trusted_proxy(&request, &state.trusted_proxies);
+    let has_forwarded_proto = request.headers().contains_key("x-forwarded-proto");
+    let forwarded_proto_https = request
+        .headers()
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.eq_ignore_ascii_case("https"))
+        .unwrap_or(false);
     let is_https = request.uri().scheme_str() == Some("https")
-        || (from_trusted_proxy
-            && request
-                .headers()
-                .get("x-forwarded-proto")
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.eq_ignore_ascii_case("https"))
-                .unwrap_or(false));
+        || (from_trusted_proxy && forwarded_proto_https);
+
+    if has_forwarded_proto && !from_trusted_proxy {
+        tracing::warn!("Ignoring X-Forwarded-Proto from non-trusted connection");
+        crate::metrics::increment_forwarded_header_rejections("x_forwarded_proto");
+    }
     let is_dashboard = request.uri().path().starts_with("/dashboard");
 
     let mut response = next.run(request).await;
@@ -1464,6 +1470,7 @@ async fn evaluate(
     } else {
         if has_forwarded_tls_metadata_headers(&headers) {
             tracing::warn!("Ignoring forwarded TLS metadata headers from non-trusted connection");
+            crate::metrics::increment_forwarded_header_rejections("tls_metadata");
         }
         None
     };

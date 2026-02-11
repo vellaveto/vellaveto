@@ -170,6 +170,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added per-principal rate-limit integration coverage for trusted proxy + `X-Forwarded-For` chains with stable `X-Principal` identity.
   - Rejected control characters in trusted `X-Principal` header values before principal-key derivation.
   - Treated missing trusted-proxy request context as untrusted when evaluating forwarded TLS metadata (fail-safe default).
+  - Added `sentinel_forwarded_header_rejections_total{header=...}` metric and incremented it when untrusted `X-Forwarded-Proto` or forwarded TLS metadata headers are ignored.
   - Included TLS metadata in audit entry metadata for `/api/evaluate` decisions.
   - Added the same TLS attributes to observability spans when exporters are enabled.
   - Added unit/integration coverage for TLS metadata extraction and audit emission.
