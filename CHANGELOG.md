@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Expanded `README.md` with a full workspace module architecture map and feature ownership matrix (owners, entrypoints, and primary tests).
   - Expanded `README.md` project structure coverage to include SDK, Helm, docs, policies, security testing, and local collaboration surfaces.
   - Updated `ROADMAP.md` with an explicit Phase 16.6 architecture split/modularization track.
+  - Added `MODULE_EXTRACTION_PLAYBOOK.md` and linked it from `README.md`; marked Phase 16.6 playbook/contract-check tasks complete in `ROADMAP.md`.
   - Added a post-quantum readiness section to `README.md` with standards status and migration milestones (2028/2031/2035 alignment).
   - Added Phase 16.7 post-quantum cryptography transition track to `ROADMAP.md` with TLS policy, observability, and rollout tasks.
   - Clarified OPA runtime status in `README.md` and `ROADMAP.md`: request-path enforcement is active with fail-open/fail-closed controls and runtime observability.
@@ -135,6 +136,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added config validation for OPA endpoint URL shape (scheme, host, and userinfo rejection) and startup/runtime rejection when `require_https=true` is paired with plaintext OPA endpoints.
   - Added startup security warnings for plaintext OPA control-plane traffic and remote OPA endpoints configured without auth headers.
 
+- **OPA fail-closed defaults hardening (R43-OPA-1)**:
+  - Changed `opa.require_https` default from `false` to `true` (encrypt policy decisions in transit)
+  - Added `opa.fail_open_acknowledged` field requiring explicit acknowledgment to enable `fail_open=true`
+  - Validation now rejects `fail_open=true` without `fail_open_acknowledged=true`
+  - Changed `injection.block_on_injection` default from `false` to `true` (fail-closed behavior)
+  - Prevents accidental misconfiguration that could allow bypass during OPA unavailability
+
 - **Provenance verification hardening (CI)**:
   - Strengthened `gh attestation verify` checks to require the expected signer workflow path and exact source ref (`GITHUB_REF`), and deny attestations generated on self-hosted runners.
 
@@ -182,6 +190,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `tempfile` 3.24.0 → 3.25.0
   - `clap` 4.5.56 → 4.5.57
   - `criterion` 0.8.1 → 0.8.2
+  - `x509-parser` 0.17 → 0.18 (ASN.1 parsing improvements)
+  - `metrics-exporter-prometheus` 0.16 → 0.18 (metrics 0.24 ecosystem)
+  - `serde_json_canonicalizer` 0.3.1 → 0.3.2
 
 ## [2.2.1] - 2026-02-10
 
