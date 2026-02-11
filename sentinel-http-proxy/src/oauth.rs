@@ -29,21 +29,16 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use sha2::{Digest, Sha256};
 
 /// DPoP enforcement mode for OAuth requests.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DpopMode {
     /// Ignore DPoP proofs entirely.
+    #[default]
     Off,
     /// Validate DPoP proofs when present, but allow bearer-only requests.
     Optional,
     /// Require a valid DPoP proof on every OAuth-authenticated request.
     Required,
-}
-
-impl Default for DpopMode {
-    fn default() -> Self {
-        Self::Off
-    }
 }
 
 /// OAuth 2.1 configuration for the HTTP proxy.
