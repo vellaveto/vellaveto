@@ -125,13 +125,13 @@ impl Default for NamespaceRegistryConfig {
 
 /// Entry in the namespace registry.
 #[derive(Debug)]
-#[allow(dead_code)]
 struct NamespaceEntry {
     /// Primary source for this tool.
     primary_source: ToolSource,
     /// Alternative sources (if multi-source allowed).
     alternative_sources: Vec<ToolSource>,
-    /// When this entry was created.
+    /// When this entry was created (for audit/debugging purposes).
+    #[allow(dead_code)]
     created_at: Instant,
     /// Last access time.
     last_accessed: Instant,

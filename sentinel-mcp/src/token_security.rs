@@ -109,7 +109,6 @@ impl Default for TokenSecurityConfig {
 
 /// Session context tracking.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 struct SessionContext {
     /// Total tokens used in session.
     total_tokens: usize,

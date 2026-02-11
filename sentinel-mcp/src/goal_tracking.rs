@@ -86,6 +86,7 @@ struct SessionGoalState {
 }
 
 /// Summary of an action for history tracking.
+/// Fields stored for potential future use in goal-drift analysis.
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 struct ActionSummary {
