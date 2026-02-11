@@ -1,8 +1,8 @@
 # Sentinel Roadmap v2.2
 
 > **Version:** 2.2.1 (Released)
-> **Generated:** 2026-02-10
-> **Status:** v2.2.1 released; v2.2 Phases 12-15 complete; Phase 16+ planned; architecture split and post-quantum readiness tracks active; OPA runtime decision enforcement wiring remains pending (guarded fail-closed)
+> **Generated:** 2026-02-11
+> **Status:** v2.2.1 released; v2.2 Phases 12-15 complete; Phase 16+ planned; architecture split and post-quantum readiness tracks active; OPA runtime decision enforcement wiring remains pending (guarded fail-closed); web-validated supply-chain and sender-constrained auth hardening tracks added
 > **Based on:** Multi-agent research (MCP spec 2025-11-25, OWASP ASI Top 10, enterprise patterns, competitor analysis)
 
 ---
@@ -30,14 +30,22 @@ Sentinel v2.2.1 is production-ready with 35 audit rounds and 3,700+ tests. This 
 - `X-Upstream-Agents` handling moved to strict fail-closed behavior for malformed/oversized and over-entry-limit chains (no truncation fallback).
 - OPA guardrails expanded: `sentinel serve`, `sentinel evaluate`, and `sentinel check` now reject `[opa].enabled = true` until request-path OPA enforcement wiring lands.
 
+### 2026-02-11 Research Delta
+
+- Added P0 hardening track for CI supply chain:
+  dependency review on pull requests, Dependabot automation, action SHA pinning, build provenance attestations, and SBOM publishing.
+- Added P0 hardening track for sender-constrained OAuth in HTTP proxy request authorization path:
+  integrate DPoP proof verification/binding in `sentinel-http-proxy` (RFC 9449 alignment).
+- Added P1 hardening track for dependency policy enforcement (`cargo-deny`) and completion of OPA runtime decision-path wiring.
+
 ---
 
 ## Priority Matrix
 
 | Priority | Theme | Business Value |
 |----------|-------|----------------|
-| **P0** | MCP 2025-11-25 Compliance | Protocol compatibility |
-| **P1** | Advanced Threat Detection | Close security gaps |
+| **P0** | Protocol + Supply-Chain + Replay Defense | Protocol compatibility and highest-risk control closure |
+| **P1** | Advanced Threat Detection + Runtime Policy Completion | Close security gaps and finish guarded enterprise paths |
 | **P2** | Standards & Compliance | Enterprise adoption |
 | **P3** | Enterprise Features | Feature parity |
 | **P4** | Observability & Tooling | Operational excellence |
@@ -1611,6 +1619,26 @@ v2.2 Complete! Ready for v2.3 planning.
 - Define migration goals and inventory by **2028**
 - Complete highest-priority migration activities by **2031**
 - Complete full migration by **2035**
+
+### 16.8 CI Supply-Chain Hardening Pack (Planned)
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Add pull-request dependency review gate (`dependency-review-action`) | P0 | 1 day | Planned |
+| Add `.github/dependabot.yml` for Cargo and GitHub Actions | P0 | 1 day | Planned |
+| Pin third-party GitHub Actions to immutable commit SHAs | P0 | 2 days | Planned |
+| Add build provenance attestation in release workflow | P0 | 2 days | Planned |
+| Generate and publish SBOM (CycloneDX/SPDX) with releases | P0 | 2 days | Planned |
+
+### 16.9 Sender-Constrained OAuth for HTTP Proxy (Planned)
+
+| Task | Priority | Effort | Status |
+|------|----------|--------|--------|
+| Add DPoP enforcement mode to `sentinel-http-proxy` OAuth config | P0 | 2 days | Planned |
+| Validate DPoP proof claims (`htu`, `htm`, `jti`, nonce, `ath`) per RFC 9449 | P0 | 3 days | Planned |
+| Bind proof validation to access token and request path/method checks | P0 | 2 days | Planned |
+| Add proxy integration tests for replay and mismatch cases | P1 | 2 days | Planned |
+| Add audit events and Prometheus metrics for DPoP failures/replay | P1 | 2 days | Planned |
 
 ---
 

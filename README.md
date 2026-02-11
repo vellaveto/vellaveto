@@ -42,7 +42,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 <tr><td>📄 <strong>License</strong></td><td>Apache 2.0</td></tr>
 </table>
 
-## Recent Updates (2026-02-10)
+## Recent Updates (2026-02-11)
 
 - Updated MCP protocol support to `2025-11-25` with compatibility for `2025-06-18` and `2025-03-26`.
 - Strengthened Streamable HTTP parity: SSE responses now enforce structured output schema validation fail-closed.
@@ -51,6 +51,11 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 - Expanded observability test coverage with async integration tests and property-based invariants.
 - Applied bounded runtime preallocation in `sentinel-mcp` session/state maps to reduce allocation churn on hot paths.
 - Added full workspace architecture and feature ownership maps for module-split navigation.
+- Added a research-validated hardening backlog to docs:
+  - P0: CI supply-chain hardening pack (dependency review, Dependabot, action SHA pinning, provenance attestations, SBOM publishing)
+  - P0: Sender-constrained OAuth enforcement in HTTP proxy request path (DPoP integration)
+  - P1: `cargo-deny` dependency policy gate and completion of OPA runtime decision wiring
+- See `docs/SECURITY.md` (Verified Hardening Backlog) and `ROADMAP.md` for current prioritization.
 - See `CHANGELOG.md` for full release and patch details.
 
 ## 🧪 Post-Quantum Readiness (Research Track)

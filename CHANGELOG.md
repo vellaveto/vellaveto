@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added a post-quantum readiness section to `README.md` with standards status and migration milestones (2028/2031/2035 alignment).
   - Added Phase 16.7 post-quantum cryptography transition track to `ROADMAP.md` with TLS policy, observability, and rollout tasks.
   - Clarified OPA runtime status in `README.md` and `ROADMAP.md`: OPA client/config primitives exist, while request-path enforcement is currently guarded fail-closed pending full runtime wiring.
+  - Added 2026-02-11 research-backed hardening backlog updates across `README.md`, `ROADMAP.md`, and `docs/SECURITY.md`:
+    - P0 CI supply-chain hardening pack
+    - P0 sender-constrained OAuth (DPoP) enforcement path in `sentinel-http-proxy`
+    - P1 `cargo-deny` policy gate and OPA runtime decision-path completion
 
 ### Added
 
