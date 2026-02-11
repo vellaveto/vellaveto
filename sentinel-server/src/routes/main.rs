@@ -1427,7 +1427,7 @@ async fn apply_opa_runtime_verdict(
 
 #[tracing::instrument(
     name = "sentinel.policy_evaluation",
-    skip(state, headers, req),
+    skip(state, headers, req, proxy_ctx),
     fields(
         tool = %req.action.tool,
         function = %req.action.function,
@@ -1437,13 +1437,24 @@ async fn apply_opa_runtime_verdict(
 async fn evaluate(
     State(state): State<AppState>,
     Extension(tenant_ctx): Extension<TenantContext>,
+    Extension(proxy_ctx): Extension<TrustedProxyContext>,
     Query(query): Query<EvaluateQuery>,
     headers: HeaderMap,
     Json(req): Json<EvaluateRequest>,
 ) -> Result<Json<EvaluateResponse>, (StatusCode, Json<ErrorResponse>)> {
     let eval_start = std::time::Instant::now();
     let mut action = req.action;
-    let tls_metadata = extract_negotiated_tls_metadata(&headers);
+    // SECURITY: Forwarded TLS metadata headers are only trusted when the direct
+    // connection comes from a configured trusted proxy. Otherwise clients could
+    // spoof handshake details (protocol/cipher/KEX) via plain headers.
+    let tls_metadata = if proxy_ctx.from_trusted_proxy {
+        extract_negotiated_tls_metadata(&headers)
+    } else {
+        if has_forwarded_tls_metadata_headers(&headers) {
+            tracing::warn!("Ignoring forwarded TLS metadata headers from non-trusted connection");
+        }
+        None
+    };
 
     // SECURITY (R10-1): Validate the deserialized action to catch null bytes,
     // oversized fields, and other malformed input before processing.
@@ -1931,10 +1942,19 @@ async fn metrics_json(State(state): State<AppState>) -> Json<serde_json::Value> 
 ///
 /// Returns 429 Too Many Requests with a `Retry-After` header when exceeded.
 async fn rate_limit(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    let mut request = request;
+
     // Health endpoint is exempt — load balancer probes must never be throttled
     if request.uri().path() == "/health" {
         return next.run(request).await;
     }
+
+    // SECURITY: Mark whether this request came from a trusted proxy before any
+    // handlers inspect forwarded headers.
+    let from_trusted_proxy = is_connection_from_trusted_proxy(&request, &state.trusted_proxies);
+    request
+        .extensions_mut()
+        .insert(TrustedProxyContext { from_trusted_proxy });
 
     // Per-IP rate limiting (checked before global to catch single-IP floods)
     if let Some(ref per_ip) = state.rate_limits.per_ip {
@@ -1984,6 +2004,44 @@ async fn rate_limit(State(state): State<AppState>, request: Request, next: Next)
     next.run(request).await
 }
 
+#[derive(Debug, Clone, Copy)]
+struct TrustedProxyContext {
+    from_trusted_proxy: bool,
+}
+
+fn has_forwarded_tls_metadata_headers(headers: &HeaderMap) -> bool {
+    [
+        "x-forwarded-tls-protocol",
+        "x-forwarded-tls-version",
+        "x-tls-protocol",
+        "x-tls-version",
+        "x-forwarded-tls-cipher",
+        "x-tls-cipher",
+        "x-forwarded-tls-kex-group",
+        "x-tls-kex-group",
+    ]
+    .iter()
+    .any(|name| headers.contains_key(*name))
+}
+
+fn connection_ip_from_request(request: &Request) -> std::net::IpAddr {
+    request
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|ci| ci.0.ip())
+        .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST))
+}
+
+fn is_connection_from_trusted_proxy(
+    request: &Request,
+    trusted_proxies: &[std::net::IpAddr],
+) -> bool {
+    if trusted_proxies.is_empty() {
+        return false;
+    }
+    trusted_proxies.contains(&connection_ip_from_request(request))
+}
+
 /// Extract the client IP from the request using a secure trust model.
 ///
 /// **When `trusted_proxies` is empty (default):** Proxy headers (`X-Forwarded-For`,
@@ -1998,11 +2056,7 @@ async fn rate_limit(State(state): State<AppState>, request: Request, next: Next)
 fn extract_client_ip(request: &Request, trusted_proxies: &[std::net::IpAddr]) -> std::net::IpAddr {
     // Get the real TCP connection IP from ConnectInfo (set by axum when using
     // into_make_service_with_connect_info). Falls back to localhost in tests.
-    let connection_ip = request
-        .extensions()
-        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-        .map(|ci| ci.0.ip())
-        .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
+    let connection_ip = connection_ip_from_request(request);
 
     // If no trusted proxies configured, never trust proxy headers.
     // This is the safe default that prevents XFF spoofing.
@@ -2241,6 +2295,29 @@ mod tests {
         let metadata = extract_negotiated_tls_metadata(request.headers())
             .expect("valid fallback alias should provide protocol metadata");
         assert_eq!(metadata.protocol.as_deref(), Some("TLSv1.2"));
+    }
+
+    #[test]
+    fn test_is_connection_from_trusted_proxy_requires_config() {
+        let request = build_request(&[]);
+        assert!(
+            !is_connection_from_trusted_proxy(&request, &[]),
+            "empty trusted_proxies must not trust forwarded headers"
+        );
+    }
+
+    #[test]
+    fn test_is_connection_from_trusted_proxy_matches_direct_peer() {
+        let request = build_request(&[]);
+        let trusted = vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)];
+        assert!(is_connection_from_trusted_proxy(&request, &trusted));
+    }
+
+    #[test]
+    fn test_is_connection_from_trusted_proxy_rejects_untrusted_peer() {
+        let request = build_request(&[]);
+        let trusted = vec!["10.0.0.1".parse().unwrap()];
+        assert!(!is_connection_from_trusted_proxy(&request, &trusted));
     }
 
     // --- KL1: X-Principal only trusted from trusted proxies ---

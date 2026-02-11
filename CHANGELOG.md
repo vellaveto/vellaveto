@@ -164,6 +164,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **TLS metadata observability (`sentinel-server`)**:
   - Added evaluate-path extraction of sanitized forwarded TLS handshake metadata (`protocol`, `cipher`, `kex_group`).
+  - Trusted forwarded TLS metadata headers only when the direct connection peer is a configured trusted proxy.
   - Included TLS metadata in audit entry metadata for `/api/evaluate` decisions.
   - Added the same TLS attributes to observability spans when exporters are enabled.
   - Added unit/integration coverage for TLS metadata extraction and audit emission.

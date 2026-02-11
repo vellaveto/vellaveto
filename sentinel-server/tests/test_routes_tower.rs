@@ -374,7 +374,8 @@ async fn evaluate_logs_to_audit() {
 
 #[tokio::test]
 async fn evaluate_audit_includes_forwarded_tls_metadata() {
-    let (state, tmp) = make_state();
+    let (mut state, tmp) = make_state();
+    state.trusted_proxies = Arc::new(vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)]);
     let audit_path = tmp.path().join("audit.log");
     let app = routes::build_router(state);
 
@@ -418,7 +419,8 @@ async fn evaluate_audit_includes_forwarded_tls_metadata() {
 
 #[tokio::test]
 async fn evaluate_audit_drops_conflicting_tls_protocol_aliases() {
-    let (state, tmp) = make_state();
+    let (mut state, tmp) = make_state();
+    state.trusted_proxies = Arc::new(vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)]);
     let audit_path = tmp.path().join("audit.log");
     let app = routes::build_router(state);
 
@@ -464,7 +466,8 @@ async fn evaluate_audit_drops_conflicting_tls_protocol_aliases() {
 
 #[tokio::test]
 async fn evaluate_audit_drops_conflicting_duplicate_tls_protocol_values() {
-    let (state, tmp) = make_state();
+    let (mut state, tmp) = make_state();
+    state.trusted_proxies = Arc::new(vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)]);
     let audit_path = tmp.path().join("audit.log");
     let app = routes::build_router(state);
 
@@ -510,7 +513,8 @@ async fn evaluate_audit_drops_conflicting_duplicate_tls_protocol_values() {
 
 #[tokio::test]
 async fn evaluate_audit_tls_protocol_falls_back_to_valid_alias() {
-    let (state, tmp) = make_state();
+    let (mut state, tmp) = make_state();
+    state.trusted_proxies = Arc::new(vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)]);
     let audit_path = tmp.path().join("audit.log");
     let app = routes::build_router(state);
 
@@ -547,6 +551,52 @@ async fn evaluate_audit_tls_protocol_falls_back_to_valid_alias() {
         .expect("expected at least one audit entry");
 
     assert_eq!(entry["metadata"]["tls"]["protocol"], "TLSv1.2");
+}
+
+#[tokio::test]
+async fn evaluate_audit_ignores_forwarded_tls_metadata_from_untrusted_connection() {
+    let (mut state, tmp) = make_state();
+    state.trusted_proxies = Arc::new(vec!["10.0.0.1".parse().unwrap()]);
+    let audit_path = tmp.path().join("audit.log");
+    let app = routes::build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "tool": "file",
+        "function": "read",
+        "parameters": {}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-tls-version", "TLSv1.3")
+                .header("x-forwarded-tls-cipher", "TLS_AES_256_GCM_SHA384")
+                .header("x-forwarded-tls-kex-group", "X25519MLKEM768")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let content = tokio::fs::read_to_string(&audit_path)
+        .await
+        .expect("audit log should exist after evaluate");
+    let entry = content
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("valid audit json"))
+        .expect("expected at least one audit entry");
+
+    assert!(
+        entry["metadata"].get("tls").is_none(),
+        "forwarded TLS metadata must be ignored when connection is not from a trusted proxy"
+    );
 }
 
 // ════════════════════════════════
