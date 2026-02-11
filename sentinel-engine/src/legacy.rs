@@ -447,7 +447,7 @@ impl PolicyEngine {
         let on_no_match_continue = conditions
             .get("on_no_match")
             .and_then(|v| v.as_str())
-            .map_or(false, |s| s == "continue");
+            == Some("continue");
 
         // Evaluate parameter constraints
         if let Some(constraints) = conditions.get("parameter_constraints") {
