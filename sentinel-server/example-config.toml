@@ -136,3 +136,13 @@ parameter_constraints = [
 # key_path = "/etc/sentinel/server.key"
 # min_version = "1.3"
 # kex_policy = "hybrid_preferred" # classical_only | hybrid_preferred | hybrid_required_when_supported
+
+# --- OPA Runtime Decision Engine (optional) ---
+# [opa]
+# enabled = true
+# endpoint = "https://opa.internal/v1/data/sentinel/allow"
+# decision_path = "result"
+# timeout_ms = 100
+# fail_open = false
+# require_https = true
+# headers = { "Authorization" = "Bearer ${OPA_TOKEN}" }

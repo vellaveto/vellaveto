@@ -3279,6 +3279,32 @@ impl PolicyConfig {
                     "opa.endpoint or opa.bundle_path is required when OPA is enabled".to_string(),
                 );
             }
+            if let Some(ref endpoint) = self.opa.endpoint {
+                let endpoint = endpoint.trim();
+                if endpoint.is_empty() {
+                    return Err("opa.endpoint must not be empty when provided".to_string());
+                }
+                let parsed = url::Url::parse(endpoint)
+                    .map_err(|e| format!("opa.endpoint must be a valid URL: {e}"))?;
+                let is_http = parsed.scheme() == "http";
+                let is_https = parsed.scheme() == "https";
+                if !is_http && !is_https {
+                    return Err("opa.endpoint must start with http:// or https://".to_string());
+                }
+                if parsed.host_str().map(str::is_empty).unwrap_or(true) {
+                    return Err("opa.endpoint must include a host".to_string());
+                }
+                if !parsed.username().is_empty() || parsed.password().is_some() {
+                    return Err(
+                        "opa.endpoint must not include URL userinfo credentials".to_string()
+                    );
+                }
+                if self.opa.require_https && !is_https {
+                    return Err(
+                        "opa.require_https=true requires opa.endpoint to use https://".to_string(),
+                    );
+                }
+            }
             if self.opa.timeout_ms == 0 {
                 return Err("opa.timeout_ms must be > 0".to_string());
             }
@@ -3573,6 +3599,7 @@ fn default_svid_cache_ttl() -> u64 {
 /// cache_ttl_secs = 60
 /// timeout_ms = 100
 /// fail_open = false
+/// require_https = true
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OpaConfig {
@@ -3583,6 +3610,11 @@ pub struct OpaConfig {
     /// OPA server endpoint URL (e.g., "http://opa:8181/v1/data/sentinel/allow").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub endpoint: Option<String>,
+
+    /// Require HTTPS for remote OPA endpoint connections.
+    /// When true, `opa.endpoint` must use `https://`.
+    #[serde(default)]
+    pub require_https: bool,
 
     /// JSON path to extract the decision from OPA response. Default: "result".
     #[serde(default = "default_opa_decision_path")]
@@ -3639,6 +3671,7 @@ impl Default for OpaConfig {
         Self {
             enabled: false,
             endpoint: None,
+            require_https: false,
             decision_path: default_opa_decision_path(),
             cache_ttl_secs: default_opa_cache_ttl(),
             timeout_ms: default_opa_timeout(),
@@ -6614,6 +6647,86 @@ policy_type = "Allow"
         let mut config = minimal_config();
         config.audit_export.webhook_url = Some("https://siem.example.com/ingest".to_string());
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_opa_endpoint_without_http_scheme() {
+        let mut config = minimal_config();
+        config.opa.enabled = true;
+        config.opa.endpoint = Some("opa:8181".to_string());
+        config.opa.bundle_path = None;
+
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("opa.endpoint must start with http:// or https://"),
+            "got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_opa_http_endpoint_when_require_https() {
+        let mut config = minimal_config();
+        config.opa.enabled = true;
+        config.opa.endpoint = Some("http://opa.internal:8181/v1/data/sentinel/allow".to_string());
+        config.opa.require_https = true;
+        config.opa.bundle_path = None;
+
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("opa.require_https=true requires opa.endpoint to use https://"),
+            "got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_accepts_opa_https_endpoint_when_require_https() {
+        let mut config = minimal_config();
+        config.opa.enabled = true;
+        config.opa.endpoint = Some("https://opa.internal/v1/data/sentinel/allow".to_string());
+        config.opa.require_https = true;
+        config.opa.bundle_path = None;
+
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_accepts_opa_http_endpoint_when_require_https_disabled() {
+        let mut config = minimal_config();
+        config.opa.enabled = true;
+        config.opa.endpoint = Some("http://127.0.0.1:8181/v1/data/sentinel/allow".to_string());
+        config.opa.require_https = false;
+        config.opa.bundle_path = None;
+
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_opa_endpoint_with_userinfo() {
+        let mut config = minimal_config();
+        config.opa.enabled = true;
+        config.opa.endpoint =
+            Some("https://user:pass@opa.internal/v1/data/sentinel/allow".to_string());
+        config.opa.bundle_path = None;
+
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("must not include URL userinfo credentials"),
+            "got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_opa_endpoint_without_host() {
+        let mut config = minimal_config();
+        config.opa.enabled = true;
+        config.opa.endpoint = Some("https://:443/v1/data/sentinel/allow".to_string());
+        config.opa.bundle_path = None;
+
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("must be a valid URL"), "got: {}", err);
     }
 
     #[test]

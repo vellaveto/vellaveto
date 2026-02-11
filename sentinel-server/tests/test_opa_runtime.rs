@@ -134,6 +134,7 @@ async fn evaluate_opa_fail_closed_denies_on_unreachable_server() {
     let cfg = OpaConfig {
         enabled: true,
         endpoint: Some("http://127.0.0.1:9".to_string()),
+        require_https: false,
         decision_path: "sentinel/allow".to_string(),
         cache_ttl_secs: 0,
         timeout_ms: 50,
@@ -167,6 +168,7 @@ async fn evaluate_opa_fail_open_allows_on_unreachable_server() {
     let cfg = OpaConfig {
         enabled: true,
         endpoint: Some("http://127.0.0.1:9".to_string()),
+        require_https: false,
         decision_path: "sentinel/allow".to_string(),
         cache_ttl_secs: 0,
         timeout_ms: 50,

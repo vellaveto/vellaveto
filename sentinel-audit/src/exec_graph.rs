@@ -313,10 +313,11 @@ impl ExecutionGraph {
                 NodeVerdict::Pending => "yellow",
                 NodeVerdict::RequireApproval => "orange",
             };
-            let label = format!("{}\\n{}", node.tool, node.function);
+            let tool = &node.tool;
+            let function = &node.function;
+            let label = format!("{tool}\\n{function}");
             dot.push_str(&format!(
-                "  \"{}\" [label=\"{}\", color={}, penwidth=2];\n",
-                id, label, color
+                "  \"{id}\" [label=\"{label}\", color={color}, penwidth=2];\n"
             ));
         }
 

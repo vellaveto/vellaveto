@@ -60,6 +60,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
   - Added Dependabot automation for Cargo and GitHub Actions (`.github/dependabot.yml`)
   - Added `cargo-deny` policy workflow and baseline config (`.github/workflows/cargo-deny.yml`, `deny.toml`)
 - Added release provenance + SBOM workflow (`.github/workflows/provenance-sbom.yml`) with SHA-pinned actions, lockfile immutability checks, build attestations, and CycloneDX artifact publishing.
+- Added attestation verification in CI (`gh attestation verify`) so release provenance is validated, not only emitted.
 - Added explicit DPoP failure observability in `sentinel-http-proxy`: dedicated counters (`sentinel_oauth_dpop_failures_total`, `sentinel_oauth_dpop_replay_total`) and structured audit events for missing/invalid/replayed proofs.
 - See `docs/SECURITY.md` (Verified Hardening Backlog) and `ROADMAP.md` for current prioritization.
 - See `CHANGELOG.md` for full release and patch details.
@@ -202,7 +203,7 @@ Sentinel enforces security policies on every tool call before it reaches the too
 
 ### 🏢 Enterprise Features
 - **mTLS / SPIFFE-SPIRE** — Mutual TLS with client certificate verification, SPIFFE identity extraction from X.509 SAN URIs, trust domains, workload identity, and ID-to-role mapping
-- **OPA Integration** — Runtime decision enforcement is active in server evaluation paths with merge semantics (OPA deny overrides allow), fail-open/fail-closed controls, and query/error latency metrics
+- **OPA Integration** — Runtime decision enforcement is active in server evaluation paths with merge semantics (OPA deny overrides allow), fail-open/fail-closed controls, query/error latency metrics, and optional `opa.require_https` enforcement for OPA control-plane transport
 - **Threat Intelligence** — TAXII 2.1 (STIX), MISP, and custom REST threat feed integration with IOC matching, confidence filtering, and configurable actions (deny/alert/require_approval)
 - **Just-In-Time Access** — Session-based temporary elevated permissions with approval workflows, per-principal session limits, auto-revocation on security alerts, and permission/tool access checking
 

@@ -42,7 +42,7 @@ pub struct RmfCategoryId(pub String);
 
 impl RmfCategoryId {
     pub fn new(function: RmfFunction, number: u8) -> Self {
-        Self(format!("{} {}", function, number))
+        Self(format!("{function} {number}"))
     }
 
     pub fn function(&self) -> Option<RmfFunction> {
@@ -59,7 +59,8 @@ impl RmfCategoryId {
 
 impl std::fmt::Display for RmfCategoryId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        let inner = &self.0;
+        write!(f, "{inner}")
     }
 }
 
@@ -69,7 +70,7 @@ pub struct RmfSubcategoryId(pub String);
 
 impl RmfSubcategoryId {
     pub fn new(function: RmfFunction, category: u8, subcategory: u8) -> Self {
-        Self(format!("{} {}.{}", function, category, subcategory))
+        Self(format!("{function} {category}.{subcategory}"))
     }
 
     pub fn category_id(&self) -> Option<RmfCategoryId> {
@@ -158,7 +159,7 @@ pub enum SentinelCapability {
 
 impl std::fmt::Display for SentinelCapability {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -969,8 +970,8 @@ impl RmfComplianceReport {
             .filter(|f| f.status == ImplementationStatus::Partial)
             .count();
 
-        output.push_str(&format!("  Implemented: {}\n", implemented));
-        output.push_str(&format!("  Partial: {}\n", partial));
+        output.push_str(&format!("  Implemented: {implemented}\n"));
+        output.push_str(&format!("  Partial: {partial}\n"));
 
         output
     }

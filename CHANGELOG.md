@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added PR dependency review workflow (`.github/workflows/dependency-review.yml`)
   - Added `cargo-deny` policy workflow (`.github/workflows/cargo-deny.yml`) with baseline config in `deny.toml`
   - Added provenance + SBOM workflow (`.github/workflows/provenance-sbom.yml`) with immutable action pins, lockfile immutability checks, release attestations, and CycloneDX artifact publishing
+  - Added attestation verification gate in provenance workflow using `gh attestation verify` for release binaries
   - Added OpenSSF Scorecard workflow (`.github/workflows/scorecard.yml`) with SARIF upload for continuous repository hardening visibility
   - Added CODEOWNERS policy (`.github/CODEOWNERS`) for workflow and security-sensitive paths
 
@@ -119,6 +120,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **OPA runtime decision enforcement (`sentinel-server`)**:
   - Runtime OPA verdict wiring is active in evaluation request paths with fail-open/fail-closed controls and runtime query/error metrics.
   - Added route-level regression coverage for fail-open and fail-closed behavior when OPA is unreachable.
+  - Added `opa.require_https` hardening control to require `https://` OPA endpoints.
+  - Added config validation for OPA endpoint URL shape (scheme, host, and userinfo rejection) and startup/runtime rejection when `require_https=true` is paired with plaintext OPA endpoints.
+  - Added startup security warnings for plaintext OPA control-plane traffic and remote OPA endpoints configured without auth headers.
 
 - **DPoP failure observability (`sentinel-http-proxy`)**:
   - Added dedicated DPoP counters: `sentinel_oauth_dpop_failures_total` (reason-labeled) and `sentinel_oauth_dpop_replay_total`.

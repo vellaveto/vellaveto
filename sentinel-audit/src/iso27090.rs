@@ -59,9 +59,9 @@ impl ControlId {
         };
 
         if let Some(c) = control {
-            Self(format!("{}.{}.{}", prefix, category, c))
+            Self(format!("{prefix}.{category}.{c}"))
         } else {
-            Self(format!("{}.{}", prefix, category))
+            Self(format!("{prefix}.{category}"))
         }
     }
 
@@ -137,7 +137,7 @@ pub enum SecurityCapability {
 
 impl std::fmt::Display for SecurityCapability {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -878,11 +878,12 @@ impl ReadinessAssessment {
             }
         }
 
-        output.push_str(&format!("\nTotal Gaps: {}\n", self.total_gaps));
+        let total_gaps = self.total_gaps;
+        output.push_str(&format!("\nTotal Gaps: {total_gaps}\n"));
         if !self.critical_gaps.is_empty() {
             output.push_str("Critical Gaps:\n");
             for gap in &self.critical_gaps {
-                output.push_str(&format!("  - {}\n", gap));
+                output.push_str(&format!("  - {gap}\n"));
             }
         }
 
@@ -935,7 +936,7 @@ impl ReadinessAssessment {
             recommendations.push(Recommendation {
                 priority: Priority::Critical,
                 domain,
-                description: format!("Address critical gap: {}", gap),
+                description: format!("Address critical gap: {gap}"),
                 suggested_actions: vec![gap.clone()],
             });
         }

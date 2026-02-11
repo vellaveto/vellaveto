@@ -87,12 +87,12 @@ pub fn to_cef(entry: &AuditEntry) -> String {
         Verdict::Deny { reason } => {
             let escaped = cef_escape_ext(reason);
             let truncated = truncate_bytes(&escaped, CEF_EXT_MAX_BYTES);
-            format!(" cs2={} cs2Label=denyReason", truncated)
+            format!(" cs2={truncated} cs2Label=denyReason")
         }
         Verdict::RequireApproval { reason, .. } => {
             let escaped = cef_escape_ext(reason);
             let truncated = truncate_bytes(&escaped, CEF_EXT_MAX_BYTES);
-            format!(" cs2={} cs2Label=approvalReason", truncated)
+            format!(" cs2={truncated} cs2Label=approvalReason")
         }
         Verdict::Allow => String::new(),
         // Handle future variants - no reason available
@@ -182,7 +182,7 @@ fn cef_escape_ext(s: &str) -> String {
 /// returns an empty string rather than panicking.
 pub fn to_json_lines(entry: &AuditEntry) -> String {
     match serde_json::to_string(entry) {
-        Ok(json) => format!("{}\n", json),
+        Ok(json) => format!("{json}\n"),
         Err(_) => String::new(),
     }
 }

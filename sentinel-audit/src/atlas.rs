@@ -229,7 +229,7 @@ impl std::fmt::Display for SentinelDetection {
             Self::DnsRebinding => "DNS Rebinding",
             Self::RateLimitExceeded => "Rate Limit Exceeded",
         };
-        write!(f, "{}", name)
+        write!(f, "{name}")
     }
 }
 
@@ -740,20 +740,20 @@ impl AtlasCoverageReport {
 
         report.push_str("Covered Techniques:\n");
         for id in &self.covered_techniques {
-            report.push_str(&format!("  ✓ {}\n", id));
+            report.push_str(&format!("  ✓ {id}\n"));
         }
 
         if !self.uncovered_techniques.is_empty() {
             report.push_str("\nUncovered Techniques:\n");
             for id in &self.uncovered_techniques {
-                report.push_str(&format!("  ✗ {}\n", id));
+                report.push_str(&format!("  ✗ {id}\n"));
             }
         }
 
         if !self.unmapped_detections.is_empty() {
             report.push_str("\nDetections without ATLAS Mapping:\n");
             for detection in &self.unmapped_detections {
-                report.push_str(&format!("  ? {}\n", detection));
+                report.push_str(&format!("  ? {detection}\n"));
             }
         }
 

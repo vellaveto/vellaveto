@@ -64,3 +64,19 @@ jobs:
             target/release/sentinel
             target/release/sentinel-proxy
             target/release/sentinel-http-proxy
+
+      - name: Verify provenance attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for artifact in \
+            target/release/sentinel \
+            target/release/sentinel-proxy \
+            target/release/sentinel-http-proxy; do
+            if [ ! -f "$artifact" ]; then
+              echo "::error::Expected build artifact missing: $artifact"
+              exit 1
+            fi
+            gh attestation verify "$artifact" --repo "${GITHUB_REPOSITORY}" >/dev/null
+          done

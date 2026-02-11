@@ -521,7 +521,7 @@ impl AuditLogger {
             .unwrap_or_default()
             .to_string_lossy();
         let parent = self.log_path.parent().unwrap_or(Path::new("."));
-        parent.join(format!("{}.checkpoints.jsonl", stem))
+        parent.join(format!("{stem}.checkpoints.jsonl"))
     }
 
     /// Create a signed checkpoint of the current audit chain state.
@@ -695,8 +695,7 @@ impl AuditLogger {
                             checkpoints_checked: 0,
                             first_invalid_at: Some(0),
                             failure_reason: Some(format!(
-                                "Hash chain broken: entry {} missing hash after hashed entries",
-                                i
+                                "Hash chain broken: entry {i} missing hash after hashed entries"
                             )),
                         });
                     }

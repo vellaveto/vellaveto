@@ -41,6 +41,9 @@ pub enum OpaError {
 
     #[error("OPA decision path not found: {0}")]
     DecisionNotFound(String),
+
+    #[error("OPA endpoint must use https:// when require_https=true: {0}")]
+    InsecureEndpoint(String),
 }
 
 /// Cached OPA decision with TTL.
@@ -129,6 +132,12 @@ impl OpaClient {
         if config.endpoint.is_none() {
             return Err(OpaError::NotConfigured);
         }
+        if config.require_https {
+            let endpoint = config.endpoint.as_deref().unwrap_or_default().trim();
+            if !endpoint.starts_with("https://") {
+                return Err(OpaError::InsecureEndpoint(endpoint.to_string()));
+            }
+        }
 
         let client = Client::builder()
             .timeout(Duration::from_millis(config.timeout_ms))
@@ -174,6 +183,36 @@ impl OpaClient {
                  unauthorized actions during OPA outages. Consider using \
                  fail_open=false (the default) for production environments."
             );
+        }
+
+        if let Some(endpoint) = self.config.endpoint.as_deref() {
+            let endpoint = endpoint.trim();
+            if endpoint.starts_with("http://") && !self.config.require_https {
+                tracing::warn!(
+                    target: "sentinel::security",
+                    "SECURITY WARNING: OPA endpoint uses plaintext HTTP ({}). \
+                     Policy input and decision traffic are unencrypted. \
+                     Prefer https:// and set opa.require_https=true in production.",
+                    endpoint
+                );
+            }
+
+            if let Ok(parsed) = reqwest::Url::parse(endpoint) {
+                let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
+                let is_loopback_host = host == "localhost"
+                    || host == "127.0.0.1"
+                    || host == "::1"
+                    || host == "0.0.0.0";
+                if !is_loopback_host && self.config.headers.is_empty() {
+                    tracing::warn!(
+                        target: "sentinel::security",
+                        "SECURITY WARNING: OPA endpoint '{}' has no configured auth headers. \
+                         Ensure OPA API authentication/authorization is enforced to prevent \
+                         unauthorized policy decision requests.",
+                        endpoint
+                    );
+                }
+            }
         }
     }
 
@@ -426,6 +465,31 @@ mod tests {
         };
         let result = OpaClient::new(&config);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_opa_client_require_https_rejects_http_endpoint() {
+        let config = OpaConfig {
+            enabled: true,
+            endpoint: Some("http://localhost:8181".to_string()),
+            require_https: true,
+            ..Default::default()
+        };
+        let result = OpaClient::new(&config);
+        assert!(matches!(result, Err(OpaError::InsecureEndpoint(_))));
+    }
+
+    #[test]
+    fn test_opa_client_require_https_accepts_https_endpoint() {
+        let config = OpaConfig {
+            enabled: true,
+            endpoint: Some("https://opa.example.com/v1/data/sentinel/allow".to_string()),
+            require_https: true,
+            ..Default::default()
+        };
+        let result = OpaClient::new(&config);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_some());
     }
 
     #[test]
