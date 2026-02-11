@@ -122,9 +122,7 @@ pub async fn cancel_task(
         .map_err(|e| {
             (
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: e.clone(),
-                }),
+                Json(ErrorResponse { error: e.clone() }),
             )
         })?;
 

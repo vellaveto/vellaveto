@@ -337,7 +337,10 @@ decision_path = "sentinel/allow"
         .output()
         .expect("failed to run sentinel evaluate");
 
-    assert!(output.status.success(), "evaluate should return JSON output");
+    assert!(
+        output.status.success(),
+        "evaluate should return JSON output"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("valid evaluate JSON");
     assert!(
