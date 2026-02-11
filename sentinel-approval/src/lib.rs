@@ -121,7 +121,7 @@ fn compute_dedup_key(
         requested_by.unwrap_or(""),
     );
     let hash = Sha256::digest(input.as_bytes());
-    Ok(format!("{:x}", hash))
+    Ok(format!("{hash:x}"))
 }
 
 /// In-memory approval store with file-based persistence.
@@ -269,8 +269,7 @@ impl ApprovalStore {
         if let Some(ref rb) = requested_by {
             if rb.len() > MAX_IDENTITY_LEN {
                 return Err(ApprovalError::Validation(format!(
-                    "requested_by exceeds maximum length of {} bytes",
-                    MAX_IDENTITY_LEN
+                    "requested_by exceeds maximum length of {MAX_IDENTITY_LEN} bytes"
                 )));
             }
         }
@@ -360,8 +359,7 @@ impl ApprovalStore {
         // be protected from arbitrarily long identity strings.
         if by.len() > MAX_IDENTITY_LEN {
             return Err(ApprovalError::Validation(format!(
-                "resolved_by exceeds maximum length of {} bytes",
-                MAX_IDENTITY_LEN
+                "resolved_by exceeds maximum length of {MAX_IDENTITY_LEN} bytes"
             )));
         }
 
@@ -415,8 +413,7 @@ impl ApprovalStore {
                 .collect();
             if !req_lower.is_empty() && req_lower != "anonymous" && req_lower == app_lower {
                 return Err(ApprovalError::Validation(format!(
-                    "Self-approval denied: requester '{}' cannot approve their own request",
-                    requester_base
+                    "Self-approval denied: requester '{requester_base}' cannot approve their own request"
                 )));
             }
         }
@@ -462,8 +459,7 @@ impl ApprovalStore {
         // SECURITY (R39-SUP-6): Validate identity length at the store level.
         if by.len() > MAX_IDENTITY_LEN {
             return Err(ApprovalError::Validation(format!(
-                "resolved_by exceeds maximum length of {} bytes",
-                MAX_IDENTITY_LEN
+                "resolved_by exceeds maximum length of {MAX_IDENTITY_LEN} bytes"
             )));
         }
 
@@ -517,8 +513,7 @@ impl ApprovalStore {
                 .collect();
             if !req_lower.is_empty() && req_lower != "anonymous" && req_lower == den_lower {
                 return Err(ApprovalError::Validation(format!(
-                    "Self-denial denied: requester '{}' cannot deny their own request",
-                    requester_base
+                    "Self-denial denied: requester '{requester_base}' cannot deny their own request"
                 )));
             }
         }
@@ -1114,7 +1109,7 @@ mod tests {
         // Create a line with emoji (4 bytes each) that exceeds 200 bytes
         // 60 emoji = 240 bytes, so byte 200 falls inside an emoji
         let emoji_line = "\u{1F600}".repeat(60); // 240 bytes, not valid JSON
-        tokio::fs::write(&log_path, format!("{}\n", emoji_line))
+        tokio::fs::write(&log_path, format!("{emoji_line}\n"))
             .await
             .unwrap();
 
@@ -1133,7 +1128,7 @@ mod tests {
         let log_path = dir.path().join("approvals.jsonl");
 
         let long_ascii = "x".repeat(300); // 300 bytes, not valid JSON
-        tokio::fs::write(&log_path, format!("{}\n", long_ascii))
+        tokio::fs::write(&log_path, format!("{long_ascii}\n"))
             .await
             .unwrap();
 
