@@ -80,6 +80,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Health status reports "degraded" if either DLP or injection detection is unavailable
   - Provides visibility into security posture for monitoring and alerting
 
+- **Metrics endpoint scanning pattern counts**:
+  - Extended `/api/metrics` JSON response to include scanning subsystem details
+  - New fields: `scanning.dlp.available`, `scanning.dlp.pattern_count`, `scanning.injection.available`, `scanning.injection.pattern_count`
+  - Provides operational visibility into active pattern counts for monitoring
+
 ### Dependencies
 
 - **Minor/patch updates (IMP-006)**:

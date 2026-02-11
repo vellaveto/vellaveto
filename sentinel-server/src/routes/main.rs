@@ -1597,6 +1597,16 @@ async fn metrics_json(State(state): State<AppState>) -> Json<serde_json::Value> 
             "deny": m.evaluations_deny.load(Ordering::Relaxed),
             "require_approval": m.evaluations_require_approval.load(Ordering::Relaxed),
             "error": m.evaluations_error.load(Ordering::Relaxed),
+        },
+        "scanning": {
+            "dlp": {
+                "available": sentinel_mcp::inspection::is_dlp_available(),
+                "pattern_count": sentinel_mcp::inspection::active_pattern_count(),
+            },
+            "injection": {
+                "available": sentinel_mcp::inspection::is_injection_available(),
+                "pattern_count": sentinel_mcp::inspection::injection_pattern_count(),
+            },
         }
     }))
 }
