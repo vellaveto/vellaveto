@@ -226,6 +226,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `x509-parser` 0.17 → 0.18 (ASN.1 parsing improvements)
   - `metrics-exporter-prometheus` 0.16 → 0.18 (metrics 0.24 ecosystem)
   - `serde_json_canonicalizer` 0.3.1 → 0.3.2
+  - `toml` 0.9 → 1.0 (first stable release)
+
+- **GitHub Actions updates**:
+  - `actions/checkout` 4.3.1 → 6.0.2
+  - `actions/cache` 4.3.0 → 5.0.3
+  - `actions/upload-artifact` 4.6.2 → 6.0.0
+  - `Swatinem/rust-cache`, `actions/dependency-review-action`, `actions/attest-build-provenance`, `ossf/scorecard-action`, `github/codeql-action` — commit hash updates
+  - All actions pinned to specific commit SHAs for supply chain security
 
 ## [2.2.1] - 2026-02-10
 
