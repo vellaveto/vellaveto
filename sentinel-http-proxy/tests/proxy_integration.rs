@@ -7,7 +7,10 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use sentinel_audit::AuditLogger;
 use sentinel_engine::PolicyEngine;
-use sentinel_http_proxy::oauth::{default_allowed_algorithms, OAuthConfig, OAuthValidator};
+use sentinel_http_proxy::oauth::{
+    default_allowed_algorithms, default_dpop_allowed_algorithms, DpopMode, OAuthConfig,
+    OAuthValidator,
+};
 use sentinel_http_proxy::proxy::ProxyState;
 use sentinel_http_proxy::session::SessionStore;
 use sentinel_types::{NetworkRules, Policy, PolicyType};
@@ -2541,6 +2544,43 @@ fn sign_test_jwt_with_claims(
     encode(&header, &claims, &key).expect("JWT encoding should succeed")
 }
 
+fn sign_test_dpop_proof(
+    method: &str,
+    htu: &str,
+    access_token: &str,
+    iat_offset_secs: i64,
+    jti: &str,
+) -> String {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    use sha2::{Digest, Sha256};
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let iat = (now + iat_offset_secs).max(0) as u64;
+    let ath = URL_SAFE_NO_PAD.encode(Sha256::digest(access_token.as_bytes()));
+
+    let claims = json!({
+        "htm": method,
+        "htu": htu,
+        "iat": iat,
+        "jti": jti,
+        "ath": ath,
+    });
+
+    let mut header = Header::new(Algorithm::RS256);
+    header.typ = Some("dpop+jwt".to_string());
+    let jwks: Value = serde_json::from_str(TEST_JWKS_JSON).expect("valid JWKS JSON");
+    header.jwk =
+        Some(serde_json::from_value(jwks["keys"][0].clone()).expect("valid JWK for DPoP header"));
+    header.kid = None;
+
+    let key = EncodingKey::from_rsa_pem(TEST_RSA_PRIVATE_KEY).expect("valid test RSA key");
+    encode(&header, &claims, &key).expect("DPoP JWT encoding should succeed")
+}
+
 /// Build a ProxyState with OAuth 2.1 enabled.
 fn build_oauth_test_state(
     upstream_url: &str,
@@ -2567,6 +2607,45 @@ fn build_oauth_test_state_with_resource(
     required_scopes: Vec<String>,
     pass_through: bool,
     expected_resource: Option<&str>,
+) -> ProxyState {
+    build_oauth_test_state_full(
+        upstream_url,
+        jwks_url,
+        tmp,
+        required_scopes,
+        pass_through,
+        expected_resource,
+        DpopMode::Off,
+        default_dpop_allowed_algorithms(),
+    )
+}
+
+fn build_oauth_test_state_with_required_dpop(
+    upstream_url: &str,
+    jwks_url: &str,
+    tmp: &TempDir,
+) -> ProxyState {
+    build_oauth_test_state_full(
+        upstream_url,
+        jwks_url,
+        tmp,
+        vec![],
+        false,
+        None,
+        DpopMode::Required,
+        vec![jsonwebtoken::Algorithm::RS256],
+    )
+}
+
+fn build_oauth_test_state_full(
+    upstream_url: &str,
+    jwks_url: &str,
+    tmp: &TempDir,
+    required_scopes: Vec<String>,
+    pass_through: bool,
+    expected_resource: Option<&str>,
+    dpop_mode: DpopMode,
+    dpop_allowed_algorithms: Vec<jsonwebtoken::Algorithm>,
 ) -> ProxyState {
     let policies = vec![
         Policy {
@@ -2600,6 +2679,10 @@ fn build_oauth_test_state_with_resource(
         expected_resource: expected_resource.map(|v| v.to_string()),
         clock_skew_leeway: std::time::Duration::from_secs(30),
         require_audience: true,
+        dpop_mode,
+        dpop_allowed_algorithms,
+        dpop_require_ath: true,
+        dpop_max_clock_skew: std::time::Duration::from_secs(300),
     };
 
     ProxyState {
@@ -2638,6 +2721,116 @@ fn build_oauth_test_state_with_resource(
         sampling_detector: None,
         limits: sentinel_config::LimitsConfig::default(),
     }
+}
+
+#[tokio::test]
+async fn oauth_dpop_required_missing_proof_returns_401() {
+    let jwks_url = start_mock_jwks_server().await;
+    let tmp = TempDir::new().unwrap();
+    let state =
+        build_oauth_test_state_with_required_dpop("http://localhost:9999/mcp", &jwks_url, &tmp);
+    let app = build_router(state);
+
+    let access_token = sign_test_jwt("user-123", "tools.call", 300);
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "read_file", "arguments": {"path": "/tmp/test"}}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("host", "127.0.0.1:3001")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", access_token))
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let json = json_body(resp).await;
+    assert_eq!(json["error"], "Missing DPoP proof");
+}
+
+#[tokio::test]
+async fn oauth_dpop_required_valid_proof_allows_request() {
+    let upstream_url = start_mock_upstream().await;
+    let jwks_url = start_mock_jwks_server().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_oauth_test_state_with_required_dpop(&upstream_url, &jwks_url, &tmp);
+    let app = build_router(state);
+
+    let access_token = sign_test_jwt("user-123", "tools.call", 300);
+    let htu = "http://127.0.0.1:3001/mcp";
+    let dpop = sign_test_dpop_proof("POST", htu, &access_token, 0, "jti-dpop-ok");
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "tools/call",
+        "params": {"name": "read_file", "arguments": {"path": "/tmp/test"}}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("host", "127.0.0.1:3001")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", access_token))
+                .header("dpop", dpop)
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = json_body(resp).await;
+    assert!(json["result"].is_object());
+}
+
+#[tokio::test]
+async fn oauth_dpop_required_ath_mismatch_returns_401() {
+    let jwks_url = start_mock_jwks_server().await;
+    let tmp = TempDir::new().unwrap();
+    let state =
+        build_oauth_test_state_with_required_dpop("http://localhost:9999/mcp", &jwks_url, &tmp);
+    let app = build_router(state);
+
+    let access_token = sign_test_jwt("user-123", "tools.call", 300);
+    let htu = "http://127.0.0.1:3001/mcp";
+    let dpop = sign_test_dpop_proof("POST", htu, "some-other-token", 0, "jti-dpop-ath-mismatch");
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "read_file", "arguments": {"path": "/tmp/test"}}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("host", "127.0.0.1:3001")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", access_token))
+                .header("dpop", dpop)
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let json = json_body(resp).await;
+    assert_eq!(json["error"], "Invalid or expired token");
 }
 
 #[tokio::test]

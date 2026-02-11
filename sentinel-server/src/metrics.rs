@@ -42,6 +42,9 @@
 //!
 //! ## Cluster Metrics
 //! - `sentinel_cluster_backend_latency_seconds` (histogram, labels: operation)
+//! - `sentinel_opa_queries_total` (counter, labels: result)
+//! - `sentinel_opa_query_duration_seconds` (histogram)
+//! - `sentinel_opa_fail_closed_denials_total` (counter)
 
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 
@@ -175,6 +178,20 @@ fn register_metric_descriptions() {
     metrics::describe_histogram!(
         "sentinel_cluster_backend_latency_seconds",
         "Cluster backend operation latency in seconds"
+    );
+
+    // OPA runtime metrics
+    metrics::describe_counter!(
+        "sentinel_opa_queries_total",
+        "Total number of OPA runtime queries"
+    );
+    metrics::describe_histogram!(
+        "sentinel_opa_query_duration_seconds",
+        "OPA query latency in seconds"
+    );
+    metrics::describe_counter!(
+        "sentinel_opa_fail_closed_denials_total",
+        "Total number of requests denied due to OPA fail-closed behavior"
     );
 }
 
@@ -344,6 +361,17 @@ pub fn record_cluster_backend_latency(operation: &str, duration_secs: f64) {
     .record(duration_secs);
 }
 
+/// Record an OPA query result and latency.
+pub fn record_opa_query(result: &str, duration_secs: f64) {
+    metrics::counter!("sentinel_opa_queries_total", "result" => result.to_string()).increment(1);
+    metrics::histogram!("sentinel_opa_query_duration_seconds").record(duration_secs);
+}
+
+/// Record a fail-closed denial due to OPA unavailability/error.
+pub fn increment_opa_fail_closed_denial() {
+    metrics::counter!("sentinel_opa_fail_closed_denials_total").increment(1);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -493,5 +521,18 @@ mod tests {
         record_cluster_backend_latency("get_approval", 0.01);
         record_cluster_backend_latency("set_approval", 0.02);
         record_cluster_backend_latency("sync", 0.5);
+    }
+
+    #[test]
+    fn test_record_opa_query_does_not_panic() {
+        record_opa_query("allow", 0.01);
+        record_opa_query("deny", 0.02);
+        record_opa_query("error", 0.5);
+        record_opa_query("timeout", 1.0);
+    }
+
+    #[test]
+    fn test_increment_opa_fail_closed_denial_does_not_panic() {
+        increment_opa_fail_closed_denial();
     }
 }

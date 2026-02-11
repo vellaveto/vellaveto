@@ -128,7 +128,7 @@ fn check_invalid_toml_fails() {
 }
 
 #[test]
-fn check_with_opa_enabled_fails_closed() {
+fn check_with_opa_enabled_succeeds_when_config_is_valid() {
     let tmp = TempDir::new().unwrap();
     let config_path = write_toml_config(
         tmp.path(),
@@ -148,14 +148,9 @@ decision_path = "sentinel/allow"
         .expect("failed to run sentinel check");
 
     assert!(
-        !output.status.success(),
-        "check should fail closed when OPA is enabled but unsupported"
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("OPA integration is configured"),
-        "Expected OPA fail-closed error. stderr: {}",
-        stderr
+        output.status.success(),
+        "check should succeed for valid OPA configuration. stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 
@@ -310,10 +305,15 @@ fn evaluate_with_invalid_json_params_fails() {
 }
 
 #[test]
-fn evaluate_with_opa_enabled_fails_closed() {
+fn evaluate_with_opa_enabled_denies_fail_closed_on_opa_error() {
     let tmp = TempDir::new().unwrap();
     let config = r#"
-policies = []
+[[policies]]
+name = "Allow file reads"
+tool_pattern = "file"
+function_pattern = "read"
+policy_type = "Allow"
+priority = 10
 
 [opa]
 enabled = true
@@ -337,15 +337,16 @@ decision_path = "sentinel/allow"
         .output()
         .expect("failed to run sentinel evaluate");
 
+    assert!(output.status.success(), "evaluate should return JSON output");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("valid evaluate JSON");
     assert!(
-        !output.status.success(),
-        "evaluate should fail closed when OPA is enabled but unsupported"
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("OPA integration is configured"),
-        "Expected OPA fail-closed error. stderr: {}",
-        stderr
+        parsed["verdict"]["Deny"]["reason"]
+            .as_str()
+            .map(|r| r.contains("fail-closed"))
+            .unwrap_or(false),
+        "Expected fail-closed OPA denial. output: {}",
+        stdout
     );
 }
 

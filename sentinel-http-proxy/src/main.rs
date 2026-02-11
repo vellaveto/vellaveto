@@ -13,19 +13,38 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use serde::Serialize;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use governor::{Quota, RateLimiter};
 use sentinel_audit::AuditLogger;
 use sentinel_config::PolicyConfig;
 use sentinel_engine::PolicyEngine;
-use sentinel_http_proxy::oauth::{OAuthConfig, OAuthValidator};
+use sentinel_http_proxy::oauth::{
+    default_dpop_allowed_algorithms, DpopMode, OAuthConfig, OAuthValidator,
+};
 use sentinel_http_proxy::proxy::{self, ProxyState};
 use sentinel_http_proxy::session::SessionStore;
 use sentinel_mcp::output_validation::OutputSchemaRegistry;
+use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+enum OAuthDpopModeArg {
+    Off,
+    Optional,
+    Required,
+}
+
+impl From<OAuthDpopModeArg> for DpopMode {
+    fn from(value: OAuthDpopModeArg) -> Self {
+        match value {
+            OAuthDpopModeArg::Off => DpopMode::Off,
+            OAuthDpopModeArg::Optional => DpopMode::Optional,
+            OAuthDpopModeArg::Required => DpopMode::Required,
+        }
+    }
+}
 
 #[derive(Parser)]
 #[command(
@@ -85,6 +104,18 @@ struct Args {
     /// When set, JWT tokens must contain a matching `resource` claim.
     #[arg(long)]
     oauth_expected_resource: Option<String>,
+
+    /// DPoP proof mode for OAuth requests (`off`, `optional`, `required`).
+    #[arg(long, value_enum, default_value_t = OAuthDpopModeArg::Off)]
+    oauth_dpop_mode: OAuthDpopModeArg,
+
+    /// Maximum allowed clock skew for DPoP proof iat validation (seconds).
+    #[arg(long, default_value_t = 300)]
+    oauth_dpop_max_clock_skew_secs: u64,
+
+    /// Require access-token binding via DPoP `ath` claim.
+    #[arg(long, default_value_t = true)]
+    oauth_dpop_require_ath: bool,
 
     /// Allow starting without SENTINEL_API_KEY (unauthenticated mode).
     /// WARNING: All MCP endpoints will have no access control beyond OAuth (if configured).
@@ -315,13 +346,18 @@ async fn main() -> Result<()> {
             expected_resource: args.oauth_expected_resource.clone(),
             clock_skew_leeway: Duration::from_secs(30),
             require_audience: true,
+            dpop_mode: args.oauth_dpop_mode.into(),
+            dpop_allowed_algorithms: default_dpop_allowed_algorithms(),
+            dpop_require_ath: args.oauth_dpop_require_ath,
+            dpop_max_clock_skew: Duration::from_secs(args.oauth_dpop_max_clock_skew_secs),
         };
         tracing::info!(
-            "OAuth 2.1 enabled: issuer={}, audience={}, scopes={:?}, pass_through={}",
+            "OAuth 2.1 enabled: issuer={}, audience={}, scopes={:?}, pass_through={}, dpop_mode={:?}",
             config.issuer,
             config.audience,
             config.required_scopes,
             config.pass_through,
+            config.dpop_mode,
         );
         Some(Arc::new(OAuthValidator::new(config, http_client.clone())))
     } else {

@@ -6,7 +6,7 @@
 
 use axum::{
     body::Body,
-    extract::{Query, State},
+    extract::{OriginalUri, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
@@ -386,6 +386,7 @@ async fn verify_manifest_from_response(
 /// 5. Forward allowed requests to upstream, return denials directly
 pub async fn handle_mcp_post(
     State(state): State<ProxyState>,
+    OriginalUri(original_uri): OriginalUri,
     Query(params): Query<McpQueryParams>,
     headers: HeaderMap,
     body: Bytes,
@@ -476,7 +477,8 @@ pub async fn handle_mcp_post(
     }
 
     // OAuth 2.1 token validation (if configured)
-    let oauth_claims = match validate_oauth(&state, &headers).await {
+    let effective_uri = build_effective_request_uri(&headers, state.bind_addr, &original_uri);
+    let oauth_claims = match validate_oauth(&state, &headers, "POST", &effective_uri).await {
         Ok(claims) => claims,
         Err(response) => return response,
     };
@@ -2301,7 +2303,11 @@ pub async fn handle_mcp_post(
 ///
 /// When OAuth is configured, verifies that the authenticated user owns the
 /// session before allowing deletion. Prevents cross-user session termination.
-pub async fn handle_mcp_delete(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+pub async fn handle_mcp_delete(
+    State(state): State<ProxyState>,
+    OriginalUri(original_uri): OriginalUri,
+    headers: HeaderMap,
+) -> Response {
     // CSRF / DNS rebinding origin validation (TASK-015)
     if let Err(response) = validate_origin(&headers, &state.bind_addr, &state.allowed_origins) {
         return response;
@@ -2313,7 +2319,8 @@ pub async fn handle_mcp_delete(State(state): State<ProxyState>, headers: HeaderM
     }
 
     // OAuth 2.1 token validation (if configured)
-    let oauth_claims = match validate_oauth(&state, &headers).await {
+    let effective_uri = build_effective_request_uri(&headers, state.bind_addr, &original_uri);
+    let oauth_claims = match validate_oauth(&state, &headers, "DELETE", &effective_uri).await {
         Ok(claims) => claims,
         Err(response) => return response,
     };
@@ -2372,13 +2379,17 @@ pub async fn handle_protected_resource_metadata(State(state): State<ProxyState>)
     match &state.oauth {
         Some(validator) => {
             let config = validator.config();
-            let metadata = serde_json::json!({
+            let mut metadata = serde_json::json!({
                 "resource": config.expected_resource.as_deref().unwrap_or(&config.audience),
                 "authorization_servers": [config.issuer],
                 "scopes_supported": config.required_scopes,
                 "bearer_methods_supported": ["header"],
                 "resource_documentation": "https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization"
             });
+            if config.dpop_mode != crate::oauth::DpopMode::Off {
+                metadata["dpop_signing_alg_values_supported"] =
+                    serde_json::json!(config.dpop_allowed_algorithms);
+            }
             (
                 StatusCode::OK,
                 [(axum::http::header::CONTENT_TYPE, "application/json")],
@@ -2398,9 +2409,52 @@ pub async fn handle_protected_resource_metadata(State(state): State<ProxyState>)
 /// Returns `Ok(Some(claims))` if OAuth is configured and the token is valid.
 /// Returns `Ok(None)` if OAuth is not configured (backward compatible).
 /// Returns `Err(response)` if OAuth is configured but the token is invalid.
+fn build_effective_request_uri(
+    headers: &HeaderMap,
+    bind_addr: SocketAddr,
+    original_uri: &axum::http::Uri,
+) -> String {
+    let proto = headers
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or(if bind_addr.port() == 443 {
+            "https"
+        } else {
+            "http"
+        });
+
+    let authority = headers
+        .get("x-forwarded-host")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(str::trim)
+        .filter(|v| !v.is_empty() && !v.contains('/'))
+        .or_else(|| {
+            headers
+                .get(axum::http::header::HOST)
+                .and_then(|v| v.to_str().ok())
+                .map(str::trim)
+                .filter(|v| !v.is_empty() && !v.contains('/'))
+        })
+        .map(ToString::to_string)
+        .unwrap_or_else(|| bind_addr.to_string());
+
+    let path_and_query = original_uri
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/");
+
+    format!("{}://{}{}", proto, authority, path_and_query)
+}
+
 async fn validate_oauth(
     state: &ProxyState,
     headers: &HeaderMap,
+    method: &str,
+    effective_uri: &str,
 ) -> Result<Option<OAuthClaims>, Response> {
     let validator = match &state.oauth {
         Some(v) => v,
@@ -2422,8 +2476,33 @@ async fn validate_oauth(
         }
     };
 
+    let bearer_token = match crate::oauth::extract_bearer_token(auth_value) {
+        Ok(token) => token,
+        Err(_) => {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "Invalid or expired token"})),
+            )
+                .into_response());
+        }
+    };
+
     match validator.validate_token(auth_value).await {
         Ok(claims) => {
+            let dpop_header = headers.get("dpop").and_then(|v| v.to_str().ok());
+            if let Err(e) = validator
+                .validate_dpop_proof(dpop_header, bearer_token, method, effective_uri)
+                .await
+            {
+                tracing::warn!("OAuth DPoP validation failed: {}", e);
+                let message = match e {
+                    OAuthError::MissingDpopProof => "Missing DPoP proof",
+                    _ => "Invalid or expired token",
+                };
+                return Err(
+                    (StatusCode::UNAUTHORIZED, Json(json!({ "error": message }))).into_response(),
+                );
+            }
             tracing::debug!("OAuth token validated for subject: {}", claims.sub);
             Ok(Some(claims))
         }

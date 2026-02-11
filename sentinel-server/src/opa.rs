@@ -16,7 +16,7 @@ use sentinel_config::OpaConfig;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::num::NonZeroUsize;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, RwLock as StdRwLock};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::RwLock;
@@ -92,6 +92,31 @@ pub struct OpaClient {
     config: OpaConfig,
     client: Client,
     cache: Arc<RwLock<LruCache<String, CachedDecision>>>,
+}
+
+fn runtime_client_slot() -> &'static StdRwLock<Option<Arc<OpaClient>>> {
+    static SLOT: OnceLock<StdRwLock<Option<Arc<OpaClient>>>> = OnceLock::new();
+    SLOT.get_or_init(|| StdRwLock::new(None))
+}
+
+/// Configure the process-wide runtime OPA client from policy config.
+///
+/// When OPA is disabled, this clears any previously configured runtime client.
+pub fn configure_runtime_client(config: &OpaConfig) -> Result<(), OpaError> {
+    let client = OpaClient::new(config)?.map(Arc::new);
+    let slot = runtime_client_slot();
+    let mut guard = slot
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *guard = client;
+    Ok(())
+}
+
+/// Get the current process-wide runtime OPA client, if configured.
+pub fn runtime_client() -> Option<Arc<OpaClient>> {
+    let slot = runtime_client_slot();
+    let guard = slot.read().unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.clone()
 }
 
 impl OpaClient {

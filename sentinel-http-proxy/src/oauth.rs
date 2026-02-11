@@ -19,8 +19,32 @@ use jsonwebtoken::{
     Algorithm, DecodingKey, TokenData, Validation,
 };
 use serde::{Deserialize, Serialize};
-use std::time::{Duration, Instant};
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 use tokio::sync::RwLock;
+
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use sha2::{Digest, Sha256};
+
+/// DPoP enforcement mode for OAuth requests.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DpopMode {
+    /// Ignore DPoP proofs entirely.
+    Off,
+    /// Validate DPoP proofs when present, but allow bearer-only requests.
+    Optional,
+    /// Require a valid DPoP proof on every OAuth-authenticated request.
+    Required,
+}
+
+impl Default for DpopMode {
+    fn default() -> Self {
+        Self::Off
+    }
+}
 
 /// OAuth 2.1 configuration for the HTTP proxy.
 #[derive(Debug, Clone)]
@@ -66,6 +90,18 @@ pub struct OAuthConfig {
     /// When true, tokens without an `aud` claim are rejected even if the
     /// `jsonwebtoken` library would otherwise accept them.
     pub require_audience: bool,
+
+    /// DPoP enforcement mode (`off`, `optional`, `required`).
+    pub dpop_mode: DpopMode,
+
+    /// Allowed algorithms for DPoP proof JWTs.
+    pub dpop_allowed_algorithms: Vec<Algorithm>,
+
+    /// When true, require `ath` (access token hash) claim in DPoP proofs.
+    pub dpop_require_ath: bool,
+
+    /// Maximum absolute clock skew for DPoP `iat` validation.
+    pub dpop_max_clock_skew: Duration,
 }
 
 /// Default allowed algorithms for OAuth 2.1 — asymmetric only.
@@ -87,6 +123,13 @@ pub fn default_allowed_algorithms() -> Vec<Algorithm> {
     ]
 }
 
+/// Default allowed algorithms for DPoP proofs.
+///
+/// We default to modern asymmetric signature algorithms.
+pub fn default_dpop_allowed_algorithms() -> Vec<Algorithm> {
+    vec![Algorithm::ES256, Algorithm::EdDSA]
+}
+
 impl OAuthConfig {
     /// Resolve the JWKS URI, falling back to well-known discovery.
     pub fn effective_jwks_uri(&self) -> String {
@@ -95,6 +138,23 @@ impl OAuthConfig {
             format!("{}/.well-known/jwks.json", base)
         })
     }
+}
+
+/// Extract a bearer token from an Authorization header value.
+pub fn extract_bearer_token(auth_header: &str) -> Result<&str, OAuthError> {
+    // SECURITY (R28-PROXY-1): Per RFC 7235 §2.1, the authentication scheme
+    // is case-insensitive. Accept "bearer", "Bearer", "BEARER", etc.
+    let token = if auth_header.len() > 7 && auth_header[..7].eq_ignore_ascii_case("bearer ") {
+        &auth_header[7..]
+    } else {
+        return Err(OAuthError::InvalidFormat);
+    };
+
+    if token.is_empty() {
+        return Err(OAuthError::InvalidFormat);
+    }
+
+    Ok(token)
 }
 
 /// Extracted and validated claims from a JWT token.
@@ -128,6 +188,21 @@ pub struct OAuthClaims {
     /// token is scoped to. May be a single string or absent.
     #[serde(default)]
     pub resource: Option<String>,
+}
+
+/// Claims expected in a DPoP proof JWT (RFC 9449).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DpopClaims {
+    #[serde(default)]
+    htm: String,
+    #[serde(default)]
+    htu: String,
+    #[serde(default)]
+    iat: u64,
+    #[serde(default)]
+    jti: String,
+    #[serde(default)]
+    ath: Option<String>,
 }
 
 impl OAuthClaims {
@@ -219,6 +294,15 @@ pub enum OAuthError {
 
     #[error("authorization server does not support PKCE (S256)")]
     PkceNotSupported,
+
+    #[error("missing DPoP proof header")]
+    MissingDpopProof,
+
+    #[error("invalid DPoP proof: {0}")]
+    InvalidDpopProof(String),
+
+    #[error("DPoP replay detected")]
+    DpopReplayDetected,
 }
 
 /// Cached JWKS key set with TTL-based refresh.
@@ -236,6 +320,8 @@ pub struct OAuthValidator {
     jwks_cache: RwLock<Option<CachedJwks>>,
     /// How long to cache JWKS keys before re-fetching.
     cache_ttl: Duration,
+    /// Recently seen DPoP JTIs for replay detection.
+    dpop_jti_cache: RwLock<VecDeque<(String, u64)>>,
 }
 
 impl OAuthValidator {
@@ -248,6 +334,7 @@ impl OAuthValidator {
             http_client,
             jwks_cache: RwLock::new(None),
             cache_ttl: Duration::from_secs(300), // 5 minute JWKS cache TTL
+            dpop_jti_cache: RwLock::new(VecDeque::new()),
         }
     }
 
@@ -255,17 +342,7 @@ impl OAuthValidator {
     ///
     /// Returns the validated claims on success.
     pub async fn validate_token(&self, auth_header: &str) -> Result<OAuthClaims, OAuthError> {
-        // SECURITY (R28-PROXY-1): Per RFC 7235 §2.1, the authentication scheme
-        // is case-insensitive. Accept "bearer", "Bearer", "BEARER", etc.
-        let token = if auth_header.len() > 7 && auth_header[..7].eq_ignore_ascii_case("bearer ") {
-            &auth_header[7..]
-        } else {
-            return Err(OAuthError::InvalidFormat);
-        };
-
-        if token.is_empty() {
-            return Err(OAuthError::InvalidFormat);
-        }
+        let token = extract_bearer_token(auth_header)?;
 
         // Decode header to find the key ID (kid)
         let header = decode_header(token)?;
@@ -341,6 +418,124 @@ impl OAuthValidator {
         }
 
         Ok(claims)
+    }
+
+    /// Validate a DPoP proof for an already-authenticated access token.
+    pub async fn validate_dpop_proof(
+        &self,
+        dpop_header: Option<&str>,
+        access_token: &str,
+        expected_method: &str,
+        expected_uri: &str,
+    ) -> Result<(), OAuthError> {
+        match self.config.dpop_mode {
+            DpopMode::Off => return Ok(()),
+            DpopMode::Optional if dpop_header.is_none() => return Ok(()),
+            DpopMode::Required if dpop_header.is_none() => {
+                return Err(OAuthError::MissingDpopProof)
+            }
+            _ => {}
+        }
+
+        let proof_jwt = dpop_header
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .ok_or(OAuthError::MissingDpopProof)?;
+
+        let header = decode_header(proof_jwt)?;
+
+        if !self.config.dpop_allowed_algorithms.contains(&header.alg) {
+            return Err(OAuthError::DisallowedAlgorithm(header.alg));
+        }
+
+        let has_dpop_typ = header
+            .typ
+            .as_deref()
+            .map(|typ| typ.eq_ignore_ascii_case("dpop+jwt"))
+            .unwrap_or(false);
+        if !has_dpop_typ {
+            return Err(OAuthError::InvalidDpopProof(
+                "missing typ=dpop+jwt header".to_string(),
+            ));
+        }
+
+        let jwk = header.jwk.ok_or_else(|| {
+            OAuthError::InvalidDpopProof("missing embedded JWK in DPoP header".to_string())
+        })?;
+        let decoding_key = DecodingKey::from_jwk(&jwk)
+            .map_err(|e| OAuthError::InvalidDpopProof(format!("invalid DPoP JWK: {}", e)))?;
+
+        let mut validation = Validation::new(header.alg);
+        validation.validate_exp = false;
+        validation.validate_nbf = false;
+        validation.required_spec_claims.clear();
+        let token_data: TokenData<DpopClaims> = decode(proof_jwt, &decoding_key, &validation)?;
+        let claims = token_data.claims;
+
+        if claims.htm.is_empty() || !claims.htm.eq_ignore_ascii_case(expected_method) {
+            return Err(OAuthError::InvalidDpopProof(format!(
+                "htm mismatch: expected '{}', got '{}'",
+                expected_method, claims.htm
+            )));
+        }
+
+        if claims.htu.trim_end_matches('/') != expected_uri.trim_end_matches('/') {
+            return Err(OAuthError::InvalidDpopProof(format!(
+                "htu mismatch: expected '{}', got '{}'",
+                expected_uri, claims.htu
+            )));
+        }
+
+        if claims.jti.trim().is_empty() {
+            return Err(OAuthError::InvalidDpopProof("missing jti".to_string()));
+        }
+
+        let now = chrono::Utc::now().timestamp();
+        let iat = claims.iat as i64;
+        let skew = self.config.dpop_max_clock_skew.as_secs() as i64;
+        if (now - iat).abs() > skew {
+            return Err(OAuthError::InvalidDpopProof(format!(
+                "iat outside allowed skew window (iat={}, now={})",
+                claims.iat, now
+            )));
+        }
+
+        if self.config.dpop_require_ath {
+            let expected_ath = URL_SAFE_NO_PAD.encode(Sha256::digest(access_token.as_bytes()));
+            match claims.ath.as_deref() {
+                Some(ath) if ath == expected_ath => {}
+                _ => {
+                    return Err(OAuthError::InvalidDpopProof(
+                        "ath mismatch for access token binding".to_string(),
+                    ));
+                }
+            }
+        }
+
+        // Replay protection: reject reused JTIs within the replay window.
+        let now_u64 = now.max(0) as u64;
+        let replay_window = std::cmp::max((skew.max(0) as u64) * 2, 600);
+        let oldest_allowed = now_u64.saturating_sub(replay_window);
+
+        let mut cache = self.dpop_jti_cache.write().await;
+        while let Some((_, ts)) = cache.front() {
+            if *ts < oldest_allowed {
+                cache.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        if cache.iter().any(|(jti, _)| jti == &claims.jti) {
+            return Err(OAuthError::DpopReplayDetected);
+        }
+
+        cache.push_back((claims.jti, now_u64));
+        if cache.len() > 8192 {
+            cache.pop_front();
+        }
+
+        Ok(())
     }
 
     /// Get a decoding key from the cached JWKS, refreshing if stale.
@@ -568,6 +763,10 @@ mod tests {
             expected_resource: None,
             clock_skew_leeway: Duration::from_secs(30),
             require_audience: true,
+            dpop_mode: DpopMode::Off,
+            dpop_allowed_algorithms: default_dpop_allowed_algorithms(),
+            dpop_require_ath: true,
+            dpop_max_clock_skew: Duration::from_secs(300),
         };
         assert_eq!(config.effective_jwks_uri(), "https://auth.example.com/keys");
     }
@@ -584,6 +783,10 @@ mod tests {
             expected_resource: None,
             clock_skew_leeway: Duration::from_secs(30),
             require_audience: true,
+            dpop_mode: DpopMode::Off,
+            dpop_allowed_algorithms: default_dpop_allowed_algorithms(),
+            dpop_require_ath: true,
+            dpop_max_clock_skew: Duration::from_secs(300),
         };
         assert_eq!(
             config.effective_jwks_uri(),
@@ -603,6 +806,10 @@ mod tests {
             expected_resource: None,
             clock_skew_leeway: Duration::from_secs(30),
             require_audience: true,
+            dpop_mode: DpopMode::Off,
+            dpop_allowed_algorithms: default_dpop_allowed_algorithms(),
+            dpop_require_ath: true,
+            dpop_max_clock_skew: Duration::from_secs(300),
         };
         assert_eq!(
             config.effective_jwks_uri(),
@@ -785,6 +992,10 @@ mod tests {
             expected_resource: None,
             clock_skew_leeway: Duration::from_secs(60),
             require_audience: true,
+            dpop_mode: DpopMode::Off,
+            dpop_allowed_algorithms: default_dpop_allowed_algorithms(),
+            dpop_require_ath: true,
+            dpop_max_clock_skew: Duration::from_secs(300),
         };
         assert_eq!(config.clock_skew_leeway, Duration::from_secs(60));
     }

@@ -1159,6 +1159,94 @@ fn sanitize_context(
     })
 }
 
+async fn apply_opa_runtime_verdict(
+    action: &Action,
+    context: Option<&EvaluationContext>,
+    sentinel_verdict: Verdict,
+) -> (Verdict, Option<serde_json::Value>) {
+    if !matches!(sentinel_verdict, Verdict::Allow) {
+        return (sentinel_verdict, None);
+    }
+
+    let Some(opa_client) = crate::opa::runtime_client() else {
+        return (sentinel_verdict, None);
+    };
+
+    let opa_input = crate::opa::OpaInput {
+        tool: action.tool.clone(),
+        function: action.function.clone(),
+        parameters: action.parameters.clone(),
+        principal: context.and_then(|ctx| ctx.agent_id.clone()),
+        session_id: None,
+        context: json!({
+            "tenant_id": context.and_then(|ctx| ctx.tenant_id.clone()),
+            "target_paths": action.target_paths.clone(),
+            "target_domains": action.target_domains.clone(),
+            "resolved_ips": action.resolved_ips.clone(),
+            "sentinel_verdict": sentinel_verdict.clone(),
+        }),
+    };
+
+    let start = std::time::Instant::now();
+    match opa_client.evaluate(&opa_input).await {
+        Ok(decision) => {
+            crate::metrics::record_opa_query(
+                if decision.allow { "allow" } else { "deny" },
+                start.elapsed().as_secs_f64(),
+            );
+            let metadata = json!({
+                "result": if decision.allow { "allow" } else { "deny" },
+                "reason": decision.reason,
+                "metadata": decision.metadata,
+            });
+
+            if decision.allow {
+                (sentinel_verdict, Some(metadata))
+            } else {
+                (
+                    Verdict::Deny {
+                        reason: "Denied by OPA policy".to_string(),
+                    },
+                    Some(metadata),
+                )
+            }
+        }
+        Err(e) => {
+            let err_msg = e.to_string();
+            let result_label = if err_msg.contains("timed out") {
+                "timeout"
+            } else {
+                "error"
+            };
+            crate::metrics::record_opa_query(result_label, start.elapsed().as_secs_f64());
+
+            if opa_client.fail_open() {
+                tracing::warn!("OPA evaluation failed in fail-open mode: {}", err_msg);
+                (
+                    sentinel_verdict,
+                    Some(json!({
+                        "result": "error",
+                        "fail_open": true,
+                        "error": err_msg,
+                    })),
+                )
+            } else {
+                crate::metrics::increment_opa_fail_closed_denial();
+                (
+                    Verdict::Deny {
+                        reason: "OPA evaluation failed (fail-closed)".to_string(),
+                    },
+                    Some(json!({
+                        "result": "error",
+                        "fail_open": false,
+                        "error": err_msg,
+                    })),
+                )
+            }
+        }
+    }
+}
+
 #[tracing::instrument(
     name = "sentinel.policy_evaluation",
     skip(state, headers, req),
@@ -1422,6 +1510,9 @@ async fn evaluate(
         (v, None)
     };
 
+    let (verdict, opa_metadata) =
+        apply_opa_runtime_verdict(&action, context.as_ref(), verdict).await;
+
     // If RequireApproval, create a pending approval.
     // Fail-closed: if approval creation fails, convert to Deny so the caller
     // can't proceed without a resolvable approval_id.
@@ -1478,13 +1569,20 @@ async fn evaluate(
     // SECURITY (R16-AUDIT-3): Log at error level (not warn) because a silent
     // audit failure means security decisions proceed without an audit trail.
     // SECURITY (FIND-005): In strict audit mode, audit failures block the request.
+    let mut audit_metadata = json!({
+        "source": "http",
+        "approval_id": approval_id,
+        "tenant_id": &tenant_ctx.tenant_id
+    });
+    if let Some(opa) = opa_metadata {
+        if let Some(obj) = audit_metadata.as_object_mut() {
+            obj.insert("opa".to_string(), opa);
+        }
+    }
+
     if let Err(e) = state
         .audit
-        .log_entry(
-            &action,
-            &verdict,
-            json!({"source": "http", "approval_id": approval_id, "tenant_id": &tenant_ctx.tenant_id}),
-        )
+        .log_entry(&action, &verdict, audit_metadata)
         .await
     {
         tracing::error!("AUDIT FAILURE: security decision not recorded: {}", e);

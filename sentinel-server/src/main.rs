@@ -7,7 +7,7 @@ use sentinel_canonical::CanonicalPolicies;
 use sentinel_config::PolicyConfig;
 use sentinel_engine::PolicyEngine;
 use sentinel_server::{routes, AppState, RateLimits};
-use sentinel_types::{Action, Policy};
+use sentinel_types::{Action, Policy, Verdict};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -216,16 +216,8 @@ async fn cmd_serve(
 ) -> Result<()> {
     let policy_config = PolicyConfig::load_file(&config)
         .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
-    // SECURITY: Fail closed when OPA is configured but runtime wiring is absent.
-    // Silently ignoring `[opa].enabled = true` creates a dangerous false sense
-    // of policy enforcement.
-    if policy_config.opa.enabled {
-        anyhow::bail!(
-            "OPA integration is configured (`[opa].enabled = true`) but is not wired into \
-             sentinel-server request evaluation yet. Disable OPA in config or use a build/runtime \
-             that enforces OPA decisions."
-        );
-    }
+    sentinel_server::opa::configure_runtime_client(&policy_config.opa)
+        .map_err(|e| anyhow::anyhow!("Failed to initialize OPA runtime: {}", e))?;
 
     // SEC-006: Validate DLP patterns compile at startup (fail-closed).
     // If any pattern is invalid, fail immediately rather than silently skipping
@@ -1109,15 +1101,7 @@ async fn cmd_evaluate(
 
     let policy_config = PolicyConfig::load_file(&config)
         .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
-    // SECURITY: Keep CLI behavior aligned with server runtime fail-closed
-    // semantics for unsupported OPA integration.
-    if policy_config.opa.enabled {
-        anyhow::bail!(
-            "OPA integration is configured (`[opa].enabled = true`) but is not wired into \
-             sentinel-server request evaluation yet. Disable OPA in config or use a build/runtime \
-             that enforces OPA decisions."
-        );
-    }
+
     let mut policies = policy_config.to_policies();
     PolicyEngine::sort_policies(&mut policies);
 
@@ -1132,9 +1116,56 @@ async fn cmd_evaluate(
         .evaluate_action(&action, &policies)
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
+    let (final_verdict, opa_decision) = if matches!(verdict, Verdict::Allow) {
+        match sentinel_server::opa::OpaClient::new(&policy_config.opa)
+            .map_err(|e| anyhow::anyhow!("Failed to initialize OPA client: {}", e))?
+        {
+            Some(opa_client) => {
+                let input = sentinel_server::opa::OpaInput {
+                    tool: action.tool.clone(),
+                    function: action.function.clone(),
+                    parameters: action.parameters.clone(),
+                    principal: None,
+                    session_id: None,
+                    context: json!({
+                        "source": "cli",
+                        "sentinel_verdict": verdict.clone(),
+                    }),
+                };
+
+                match opa_client.evaluate(&input).await {
+                    Ok(decision) if decision.allow => (verdict, Some(decision)),
+                    Ok(decision) => (
+                        Verdict::Deny {
+                            reason: decision
+                                .reason
+                                .clone()
+                                .unwrap_or_else(|| "Denied by OPA policy".to_string()),
+                        },
+                        Some(decision),
+                    ),
+                    Err(e) if opa_client.fail_open() => {
+                        tracing::warn!("OPA evaluation failed in fail-open mode: {}", e);
+                        (verdict, None)
+                    }
+                    Err(e) => (
+                        Verdict::Deny {
+                            reason: format!("OPA evaluation failed (fail-closed): {}", e),
+                        },
+                        None,
+                    ),
+                }
+            }
+            None => (verdict, None),
+        }
+    } else {
+        (verdict, None)
+    };
+
     let output = serde_json::to_string_pretty(&json!({
         "action": action,
-        "verdict": verdict,
+        "verdict": final_verdict,
+        "opa_decision": opa_decision,
         "policies_loaded": policies.len(),
     }))?;
 
@@ -1154,16 +1185,6 @@ async fn cmd_check(
     // Load the configuration
     let policy_config = PolicyConfig::load_file(&config)
         .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
-    // SECURITY: Fail closed during config validation when unsupported OPA
-    // runtime wiring is requested. This prevents "check passes, serve fails"
-    // drift and avoids false assurance.
-    if policy_config.opa.enabled {
-        anyhow::bail!(
-            "OPA integration is configured (`[opa].enabled = true`) but is not wired into \
-             sentinel-server request evaluation yet. Disable OPA in config or use a build/runtime \
-             that enforces OPA decisions."
-        );
-    }
 
     // Build the validator with options
     let mut validator = PolicyValidator::new();

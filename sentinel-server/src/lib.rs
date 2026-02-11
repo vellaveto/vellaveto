@@ -836,9 +836,9 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
         .map_err(|e| format!("Failed to load config: {}", e))?;
 
     // SECURITY (R12-RELOAD-1): Warn if non-policy config sections have
-    // non-default values, since only policies are hot-reloaded. Operators
-    // must restart the server to apply changes to rate_limit, injection,
-    // audit, supply_chain, or manifest configuration.
+    // non-default values, since only policy + OPA runtime settings are
+    // hot-reloaded. Operators must restart the server to apply changes to
+    // rate_limit, injection, audit, supply_chain, or manifest configuration.
     {
         let default_cfg = sentinel_config::PolicyConfig {
             policies: vec![],
@@ -901,12 +901,9 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
         if policy_config.manifest != default_cfg.manifest {
             changed_sections.push("manifest");
         }
-        if policy_config.opa != default_cfg.opa {
-            changed_sections.push("opa");
-        }
         if !changed_sections.is_empty() {
             tracing::warn!(
-                "Config reload only applies policies. The following sections \
+                "Config reload only applies policies and OPA runtime settings. The following sections \
                  have non-default values but require a server restart to take \
                  effect: [{}]",
                 changed_sections.join(", ")
@@ -937,6 +934,9 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
     if let Some(max_iter) = policy_config.max_path_decode_iterations {
         new_engine.set_max_path_decode_iterations(max_iter);
     }
+
+    crate::opa::configure_runtime_client(&policy_config.opa)
+        .map_err(|e| format!("Reload rejected: failed to reconfigure OPA runtime: {}", e))?;
 
     // SECURITY (R15-CFG-2): Single atomic swap of engine + policies.
     // Previously two separate ArcSwap stores had a microsecond-wide race
