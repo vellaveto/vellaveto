@@ -83,6 +83,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Style
 
+- **Format string interpolation**:
+  - Replaced `format!("{}", var)` with `format!("{var}")` across core crates
+  - Applied to sentinel-types, sentinel-engine, sentinel-audit, sentinel-approval, sentinel-mcp
+  - Cleaner, more readable format strings
+  - Fixes `clippy::uninlined_format_args` pedantic warnings
+
+- **Option chain simplification**:
+  - Replaced `map().unwrap_or()` with `map_or()` for cleaner Option handling
+  - Applied to sentinel-types, sentinel-engine (deputy, legacy, lib)
+  - Fixes `clippy::map_unwrap_or` pedantic warnings
+
 - **Numeric literal formatting**:
   - Added digit separators to large numeric literals for improved readability
   - Timestamps: `1704067200` → `1_704_067_200`
