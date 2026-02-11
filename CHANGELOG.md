@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **CI Supply-Chain Baseline Hardening**:
+  - Added Dependabot config for Cargo and GitHub Actions (`.github/dependabot.yml`)
+  - Added PR dependency review workflow (`.github/workflows/dependency-review.yml`)
+  - Added `cargo-deny` policy workflow (`.github/workflows/cargo-deny.yml`) with baseline config in `deny.toml`
+
 - **Post-Quantum TLS KEX Policy (initial implementation)**:
   - Added `tls.kex_policy` to `TlsConfig` with values:
     - `classical_only`
@@ -41,6 +46,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `tls.min_version` now validates accepted values (`"1.2"` or `"1.3"`)
   - Added rustls provider KEX-group policy application in `sentinel-server` TLS setup with explicit downgrade warnings when hybrid is requested but unavailable.
   - Added example config snippet documenting `tls.kex_policy` usage.
+
+### Refactor
+
+- **Scanner infrastructure consolidation (IMP-002)**:
+  - Added `scanner_base.rs` module with shared types for DLP and injection scanning
+  - New unified `ScanFinding` type for consistent finding representation across scanners
+  - New `ScannerType` enum for categorizing findings by scanner
+  - Shared `MAX_SCAN_DEPTH` constant (32) replaces per-module depth limits
+  - Common utilities: `normalize_text`, `traverse_json_strings`, `extract_response_text`, `extract_notification_text`
+  - Added `to_scan_finding()` conversion methods to `DlpFinding` and `ToolDescriptionFinding`
+  - Reduces code duplication and enables consistent finding handling
 
 ### Performance
 

@@ -220,6 +220,22 @@ pub struct DlpFinding {
     pub location: String,
 }
 
+impl DlpFinding {
+    /// Convert to the unified ScanFinding type (IMP-002).
+    ///
+    /// Enables consistent handling of findings across scanner types while
+    /// maintaining backwards compatibility with code using DlpFinding.
+    pub fn to_scan_finding(&self) -> super::scanner_base::ScanFinding {
+        super::scanner_base::ScanFinding::dlp(&self.pattern_name, &self.location)
+    }
+}
+
+impl From<DlpFinding> for super::scanner_base::ScanFinding {
+    fn from(finding: DlpFinding) -> Self {
+        finding.to_scan_finding()
+    }
+}
+
 /// Scan tool call parameters for potential secret exfiltration.
 ///
 /// Recursively inspects all string values in the parameters JSON for DLP patterns.
@@ -244,10 +260,8 @@ pub fn scan_parameters_for_secrets(parameters: &serde_json::Value) -> Vec<DlpFin
     findings
 }
 
-/// Maximum recursion depth for DLP parameter scanning to prevent stack overflow.
-/// SECURITY (R33-004): Increased from 10 to 32 to detect secrets hidden in
-/// deeply nested JSON structures. Stack usage is O(depth) but 32 levels is safe.
-const DLP_MAX_DEPTH: usize = 32;
+// IMP-002: Use shared max scan depth from scanner_base module.
+use super::scanner_base::MAX_SCAN_DEPTH;
 
 fn scan_value_for_secrets(
     value: &serde_json::Value,
@@ -256,7 +270,7 @@ fn scan_value_for_secrets(
     findings: &mut Vec<DlpFinding>,
     depth: usize,
 ) {
-    if depth > DLP_MAX_DEPTH {
+    if depth > MAX_SCAN_DEPTH {
         return;
     }
 

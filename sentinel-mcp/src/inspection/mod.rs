@@ -11,6 +11,7 @@
 //!
 //! # Modules
 //!
+//! - [`scanner_base`] - Common scanner infrastructure (IMP-002)
 //! - [`injection`] - Prompt injection pattern detection
 //! - [`dlp`] - Data Loss Prevention / secret scanning
 //! - [`tool_description`] - Tool description injection scanning
@@ -19,6 +20,7 @@
 pub mod dlp;
 pub mod injection;
 pub mod multimodal;
+pub mod scanner_base;
 pub mod tool_description;
 pub mod util;
 
@@ -27,6 +29,10 @@ pub use dlp::{
     active_pattern_count, is_dlp_available, scan_notification_for_secrets,
     scan_parameters_for_secrets, scan_response_for_secrets, scan_text_for_secrets,
     validate_dlp_patterns, DlpFinding, DLP_PATTERNS,
+};
+pub use scanner_base::{
+    extract_notification_text, extract_response_text, normalize_text, traverse_json_strings,
+    ScanFinding, ScannerType, MAX_SCAN_DEPTH,
 };
 pub use injection::{
     injection_pattern_count, inspect_for_injection, is_injection_available,

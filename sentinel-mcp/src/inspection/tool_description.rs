@@ -16,6 +16,24 @@ pub struct ToolDescriptionFinding {
     pub matched_patterns: Vec<String>,
 }
 
+impl ToolDescriptionFinding {
+    /// Convert to the unified ScanFinding type (IMP-002).
+    ///
+    /// Creates a ScanFinding for each matched pattern, with the tool name
+    /// as the location.
+    pub fn to_scan_findings(&self) -> Vec<super::scanner_base::ScanFinding> {
+        self.matched_patterns
+            .iter()
+            .map(|pattern| {
+                super::scanner_base::ScanFinding::tool_description(
+                    pattern,
+                    format!("tool:{}", self.tool_name),
+                )
+            })
+            .collect()
+    }
+}
+
 /// Scan tool descriptions in a `tools/list` JSON-RPC response for injection patterns.
 ///
 /// Tool descriptions are consumed by the LLM agent and represent a prime vector

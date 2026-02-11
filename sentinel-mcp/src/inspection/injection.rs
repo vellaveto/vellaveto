@@ -9,6 +9,9 @@ use std::sync::OnceLock;
 use aho_corasick::AhoCorasick;
 use unicode_normalization::UnicodeNormalization;
 
+// IMP-002: Use shared max scan depth from scanner_base module.
+use super::scanner_base::MAX_SCAN_DEPTH;
+
 /// Default prompt injection patterns for response inspection (OWASP MCP06).
 ///
 /// These patterns are case-insensitively matched against tool response text
@@ -357,10 +360,8 @@ impl InjectionScanner {
         matches: &mut Vec<&'a str>,
         depth: usize,
     ) {
-        // SECURITY (R33-004): Increased from 10 to 32 to detect payloads hidden in
-        // deeply nested JSON structures. Stack usage is O(depth) but 32 levels is safe.
-        const MAX_DEPTH: usize = 32;
-        if depth > MAX_DEPTH {
+        // IMP-002: Use shared MAX_SCAN_DEPTH from scanner_base module.
+        if depth > MAX_SCAN_DEPTH {
             return;
         }
         match value {
@@ -782,10 +783,8 @@ fn scan_json_value_for_injection(
     matches: &mut Vec<&'static str>,
     depth: usize,
 ) {
-    // SECURITY (R33-004): Increased from 10 to 32 to detect payloads hidden in
-    // deeply nested JSON structures. Stack usage is O(depth) but 32 levels is safe.
-    const MAX_DEPTH: usize = 32;
-    if depth > MAX_DEPTH {
+    // IMP-002: Use shared MAX_SCAN_DEPTH from scanner_base module.
+    if depth > MAX_SCAN_DEPTH {
         return;
     }
     match value {
