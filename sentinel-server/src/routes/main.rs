@@ -2134,7 +2134,10 @@ fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]
             .get("x-principal")
             .and_then(|v| v.to_str().ok())
         {
-            if !principal.is_empty() && principal.len() <= MAX_PRINCIPAL_LEN {
+            if !principal.is_empty()
+                && principal.len() <= MAX_PRINCIPAL_LEN
+                && !principal.chars().any(|c| c.is_control())
+            {
                 return format!("principal:{}", principal);
             }
         }
@@ -2610,6 +2613,17 @@ mod tests {
         let request = build_request(&[("x-principal", &max_principal)]);
         let key = extract_principal_key(&request, &trusted);
         assert_eq!(key, format!("principal:{}", max_principal));
+    }
+
+    #[test]
+    fn test_principal_key_rejects_control_chars_in_x_principal() {
+        let trusted = vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)];
+        let request = build_request(&[("x-principal", "alice\tadmin")]);
+        let key = extract_principal_key(&request, &trusted);
+        assert!(
+            !key.starts_with("principal:"),
+            "X-Principal containing control characters should be ignored"
+        );
     }
 
     // --- R11-PATH-3: Relative path detection ---
