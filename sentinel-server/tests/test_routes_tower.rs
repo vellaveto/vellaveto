@@ -406,8 +406,8 @@ async fn evaluate_audit_includes_forwarded_tls_metadata() {
         .expect("audit log should exist after evaluate");
     let entry = content
         .lines()
-        .filter(|line| !line.trim().is_empty())
-        .last()
+        .rev()
+        .find(|line| !line.trim().is_empty())
         .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("valid audit json"))
         .expect("expected at least one audit entry");
 
