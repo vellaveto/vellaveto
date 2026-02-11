@@ -18,8 +18,7 @@ static BASE64_PATTERN: OnceLock<regex::Regex> = OnceLock::new();
 
 fn get_base64_pattern() -> &'static regex::Regex {
     BASE64_PATTERN.get_or_init(|| {
-        regex::Regex::new(r"[A-Za-z0-9+/]{32,}={0,2}")
-            .expect("base64 pattern is valid regex")
+        regex::Regex::new(r"[A-Za-z0-9+/]{32,}={0,2}").expect("base64 pattern is valid regex")
     })
 }
 
