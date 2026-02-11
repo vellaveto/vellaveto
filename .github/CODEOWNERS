@@ -1,0 +1,13 @@
+# Default owner for the repository.
+* @paolovella
+
+# Supply-chain and release pipelines.
+/.github/workflows/* @paolovella
+/deny.toml @paolovella
+/Cargo.lock @paolovella
+
+# Security-critical auth / policy enforcement paths.
+/sentinel-http-proxy/src/oauth.rs @paolovella
+/sentinel-http-proxy/src/proxy.rs @paolovella
+/sentinel-server/src/opa.rs @paolovella
+/sentinel-server/src/rbac.rs @paolovella

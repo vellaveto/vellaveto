@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added PR dependency review workflow (`.github/workflows/dependency-review.yml`)
   - Added `cargo-deny` policy workflow (`.github/workflows/cargo-deny.yml`) with baseline config in `deny.toml`
   - Added provenance + SBOM workflow (`.github/workflows/provenance-sbom.yml`) with immutable action pins, lockfile immutability checks, release attestations, and CycloneDX artifact publishing
+  - Added OpenSSF Scorecard workflow (`.github/workflows/scorecard.yml`) with SARIF upload for continuous repository hardening visibility
+  - Added CODEOWNERS policy (`.github/CODEOWNERS`) for workflow and security-sensitive paths
 
 - **Post-Quantum TLS KEX Policy (initial implementation)**:
   - Added `tls.kex_policy` to `TlsConfig` with values:
@@ -122,6 +124,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added dedicated DPoP counters: `sentinel_oauth_dpop_failures_total` (reason-labeled) and `sentinel_oauth_dpop_replay_total`.
   - Added explicit audit events for DPoP validation failures with `dpop_reason`, `dpop_mode`, `oauth_subject`, and header/session context.
   - Added integration coverage for missing-proof and replay-detected audit paths.
+
+- **OAuth/DPoP startup and replay hardening (`sentinel-http-proxy`)**:
+  - Added startup guardrails for pass-through mode: `--oauth-pass-through` now requires explicit `--unsafe-oauth-pass-through`, RFC 8707 expected resource binding, and DPoP `required` mode.
+  - Added hardened OAuth profile support (`--oauth-security-profile hardened`) to enforce sender-constrained posture at startup.
+  - Added startup warnings when OAuth is enabled with weak defaults (`dpop_mode=off` or missing expected resource) in standard profile.
+  - Enforced sender-constrained token binding in DPoP `required` mode: access tokens must contain `cnf.jkt`, and runtime now verifies `cnf.jkt` against the presented DPoP proof key thumbprint (RFC 7638).
+  - Hardened DPoP replay cache input handling by bounding untrusted `jti`/replay-key size and keying replays by `jti:ath` when token binding is available.
 
 - **DLP pattern validation at startup (SEC-006)**:
   - Both `sentinel-server` and `sentinel-http-proxy` now validate all DLP patterns compile successfully during startup

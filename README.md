@@ -616,10 +616,16 @@ sentinel-http-proxy \
   --oauth-issuer https://auth.example.com \
   --oauth-audience mcp-server \
   --oauth-scopes mcp:read,mcp:write \
+  --oauth-security-profile hardened \
   --oauth-expected-resource https://mcp.example.com
 ```
 
 Supports RS256, ES256, and EdDSA algorithms. Algorithm confusion attacks are prevented by restricting to asymmetric algorithms only. The `--oauth-expected-resource` flag enables RFC 8707 resource indicator validation, preventing token replay attacks.
+
+Security defaults and guardrails:
+- `--oauth-security-profile hardened` enforces sender-constrained posture by requiring RFC 8707 resource binding and DPoP (`required` mode).
+- `--oauth-pass-through` is guarded; enabling it requires explicit `--unsafe-oauth-pass-through` plus `--oauth-expected-resource` and `--oauth-dpop-mode required`.
+- In DPoP `required` mode, access tokens must include `cnf.jkt`, and it must match the presented DPoP proof key thumbprint.
 
 ## 📡 HTTP API Reference
 

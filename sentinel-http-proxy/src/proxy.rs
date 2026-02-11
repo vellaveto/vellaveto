@@ -1057,10 +1057,7 @@ pub async fn handle_mcp_post(
 
                 // Atomically update session while still holding the shard lock
                 if let Ok((Verdict::Allow, _)) = &result {
-                    *session
-                        .call_counts
-                        .entry(tool_name.clone())
-                        .or_insert(0) += 1;
+                    *session.call_counts.entry(tool_name.clone()).or_insert(0) += 1;
                     if session.action_history.len() >= MAX_ACTION_HISTORY {
                         session.action_history.remove(0);
                     }
@@ -2565,7 +2562,13 @@ async fn validate_oauth(
         Ok(claims) => {
             let dpop_header = headers.get("dpop").and_then(|v| v.to_str().ok());
             if let Err(e) = validator
-                .validate_dpop_proof(dpop_header, bearer_token, method, effective_uri)
+                .validate_dpop_proof(
+                    dpop_header,
+                    bearer_token,
+                    method,
+                    effective_uri,
+                    Some(&claims),
+                )
                 .await
             {
                 let dpop_reason = dpop_failure_label(&e);

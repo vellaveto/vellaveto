@@ -183,6 +183,19 @@ pub struct OAuthClaims {
     /// token is scoped to. May be a single string or absent.
     #[serde(default)]
     pub resource: Option<String>,
+
+    /// Token confirmation claim (RFC 7800 / RFC 9449).
+    /// When present with `cnf.jkt`, binds the access token to a DPoP key.
+    #[serde(default)]
+    pub cnf: Option<OAuthConfirmationClaim>,
+}
+
+/// OAuth token confirmation (`cnf`) claim.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuthConfirmationClaim {
+    /// JWK thumbprint (RFC 7638) for sender-constrained token binding.
+    #[serde(default)]
+    pub jkt: Option<String>,
 }
 
 /// Claims expected in a DPoP proof JWT (RFC 9449).
@@ -249,6 +262,91 @@ where
     }
 
     deserializer.deserialize_any(AudVisitor)
+}
+
+fn jwk_required_str_field<'a>(
+    obj: &'a serde_json::Map<String, serde_json::Value>,
+    field: &str,
+) -> Result<&'a str, OAuthError> {
+    obj.get(field)
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| OAuthError::InvalidDpopProof(format!("DPoP JWK missing '{field}' field")))
+}
+
+/// Compute RFC 7638 SHA-256 thumbprint for the DPoP header JWK.
+///
+/// We avoid `Jwk::thumbprint()` because that implementation may panic on
+/// malformed/inconsistent key material; this helper must remain fully fallible.
+fn dpop_jwk_thumbprint_sha256(jwk: &jsonwebtoken::jwk::Jwk) -> Result<String, OAuthError> {
+    let value = serde_json::to_value(jwk)
+        .map_err(|e| OAuthError::InvalidDpopProof(format!("invalid DPoP JWK: {e}")))?;
+    let obj = value
+        .as_object()
+        .ok_or_else(|| OAuthError::InvalidDpopProof("invalid DPoP JWK object".to_string()))?;
+
+    let kty = jwk_required_str_field(obj, "kty")?;
+
+    let canonical = match kty {
+        "EC" => {
+            let crv = jwk_required_str_field(obj, "crv")?;
+            let x = jwk_required_str_field(obj, "x")?;
+            let y = jwk_required_str_field(obj, "y")?;
+            format!(
+                r#"{{"crv":{},"kty":{},"x":{},"y":{}}}"#,
+                serde_json::to_string(crv).map_err(|e| {
+                    OAuthError::InvalidDpopProof(format!("failed to encode JWK curve: {e}"))
+                })?,
+                serde_json::to_string(kty).map_err(|e| {
+                    OAuthError::InvalidDpopProof(format!("failed to encode JWK type: {e}"))
+                })?,
+                serde_json::to_string(x).map_err(|e| {
+                    OAuthError::InvalidDpopProof(format!("failed to encode JWK x: {e}"))
+                })?,
+                serde_json::to_string(y).map_err(|e| {
+                    OAuthError::InvalidDpopProof(format!("failed to encode JWK y: {e}"))
+                })?
+            )
+        }
+        "OKP" => {
+            let crv = jwk_required_str_field(obj, "crv")?;
+            let x = jwk_required_str_field(obj, "x")?;
+            format!(
+                r#"{{"crv":{},"kty":{},"x":{}}}"#,
+                serde_json::to_string(crv).map_err(|e| {
+                    OAuthError::InvalidDpopProof(format!("failed to encode JWK curve: {e}"))
+                })?,
+                serde_json::to_string(kty).map_err(|e| {
+                    OAuthError::InvalidDpopProof(format!("failed to encode JWK type: {e}"))
+                })?,
+                serde_json::to_string(x).map_err(|e| {
+                    OAuthError::InvalidDpopProof(format!("failed to encode JWK x: {e}"))
+                })?
+            )
+        }
+        "RSA" => {
+            let e = jwk_required_str_field(obj, "e")?;
+            let n = jwk_required_str_field(obj, "n")?;
+            format!(
+                r#"{{"e":{},"kty":{},"n":{}}}"#,
+                serde_json::to_string(e).map_err(|err| {
+                    OAuthError::InvalidDpopProof(format!("failed to encode JWK e: {err}"))
+                })?,
+                serde_json::to_string(kty).map_err(|err| {
+                    OAuthError::InvalidDpopProof(format!("failed to encode JWK type: {err}"))
+                })?,
+                serde_json::to_string(n).map_err(|err| {
+                    OAuthError::InvalidDpopProof(format!("failed to encode JWK n: {err}"))
+                })?
+            )
+        }
+        _ => {
+            return Err(OAuthError::InvalidDpopProof(format!(
+                "unsupported DPoP JWK key type '{kty}'"
+            )));
+        }
+    };
+
+    Ok(URL_SAFE_NO_PAD.encode(Sha256::digest(canonical.as_bytes())))
 }
 
 /// OAuth validation errors.
@@ -412,6 +510,21 @@ impl OAuthValidator {
             }
         }
 
+        if self.config.dpop_mode == DpopMode::Required {
+            let token_jkt = claims
+                .cnf
+                .as_ref()
+                .and_then(|cnf| cnf.jkt.as_deref())
+                .map(str::trim)
+                .filter(|jkt| !jkt.is_empty());
+
+            if token_jkt.is_none() {
+                return Err(OAuthError::InvalidDpopProof(
+                    "missing cnf.jkt in access token for required DPoP mode".to_string(),
+                ));
+            }
+        }
+
         Ok(claims)
     }
 
@@ -422,6 +535,7 @@ impl OAuthValidator {
         access_token: &str,
         expected_method: &str,
         expected_uri: &str,
+        token_claims: Option<&OAuthClaims>,
     ) -> Result<(), OAuthError> {
         match self.config.dpop_mode {
             DpopMode::Off => return Ok(()),
@@ -510,6 +624,20 @@ impl OAuthValidator {
                         "ath mismatch for access token binding".to_string(),
                     ));
                 }
+            }
+        }
+
+        if let Some(token_jkt) = token_claims
+            .and_then(|c| c.cnf.as_ref())
+            .and_then(|cnf| cnf.jkt.as_deref())
+            .map(str::trim)
+            .filter(|jkt| !jkt.is_empty())
+        {
+            let proof_jkt = dpop_jwk_thumbprint_sha256(&jwk)?;
+            if proof_jkt != token_jkt {
+                return Err(OAuthError::InvalidDpopProof(
+                    "cnf.jkt does not match DPoP proof key thumbprint".to_string(),
+                ));
             }
         }
 
@@ -840,6 +968,7 @@ mod tests {
             iat: 0,
             scope: "tools.call resources.read admin".to_string(),
             resource: None,
+            cnf: None,
         };
         let scopes = claims.scopes();
         assert_eq!(scopes, vec!["tools.call", "resources.read", "admin"]);
@@ -855,6 +984,7 @@ mod tests {
             iat: 0,
             scope: String::new(),
             resource: None,
+            cnf: None,
         };
         let scopes = claims.scopes();
         assert!(scopes.is_empty());
@@ -991,6 +1121,41 @@ mod tests {
         let json = r#"{"sub":"user","aud":"mcp-server","scope":""}"#;
         let claims: OAuthClaims = serde_json::from_str(json).unwrap();
         assert_eq!(claims.resource, None);
+    }
+
+    #[test]
+    fn test_deserialize_claims_with_cnf_jkt() {
+        let json = r#"{"sub":"user","aud":"mcp-server","scope":"","cnf":{"jkt":"thumbprint-123"}}"#;
+        let claims: OAuthClaims = serde_json::from_str(json).unwrap();
+        let jkt = claims
+            .cnf
+            .as_ref()
+            .and_then(|cnf| cnf.jkt.as_deref())
+            .expect("cnf.jkt must deserialize");
+        assert_eq!(jkt, "thumbprint-123");
+    }
+
+    #[test]
+    fn test_dpop_jwk_thumbprint_sha256_rsa() {
+        let jwk: jsonwebtoken::jwk::Jwk = serde_json::from_value(serde_json::json!({
+            "kty": "RSA",
+            "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+            "e": "AQAB"
+        }))
+        .expect("valid RSA JWK");
+
+        let thumbprint = dpop_jwk_thumbprint_sha256(&jwk).expect("thumbprint should compute");
+        assert_eq!(thumbprint, "NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs");
+    }
+
+    #[test]
+    fn test_dpop_jwk_thumbprint_rejects_unsupported_key_type() {
+        let jwk: jsonwebtoken::jwk::Jwk =
+            serde_json::from_value(serde_json::json!({"kty": "oct", "k": "AQAB"}))
+                .expect("valid octet JWK");
+
+        let err = dpop_jwk_thumbprint_sha256(&jwk).expect_err("octet keys are not valid for DPoP");
+        assert!(err.to_string().contains("unsupported DPoP JWK key type"));
     }
 
     #[test]

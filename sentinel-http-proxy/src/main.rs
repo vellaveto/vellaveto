@@ -175,6 +175,19 @@ fn resolve_oauth_security(args: &Args) -> Result<DpopMode> {
             );
             dpop_mode = DpopMode::Required;
         }
+    } else {
+        if dpop_mode == DpopMode::Off {
+            tracing::warn!(
+                "OAuth is enabled with DPoP mode off. \
+                 Consider --oauth-security-profile hardened for sender-constrained tokens."
+            );
+        }
+        if args.oauth_expected_resource.is_none() {
+            tracing::warn!(
+                "OAuth is enabled without --oauth-expected-resource. \
+                 Configure RFC 8707 resource binding to reduce token replay risk across resource servers."
+            );
+        }
     }
 
     if args.oauth_pass_through {
@@ -797,6 +810,29 @@ mod tests {
 
         let mode = resolve_oauth_security(&args).expect("strict pass-through settings should pass");
         assert_eq!(mode, DpopMode::Required);
+    }
+
+    #[test]
+    fn standard_profile_preserves_configured_dpop_mode() {
+        let mut args = base_args();
+        args.oauth_dpop_mode = OAuthDpopModeArg::Optional;
+        args.oauth_expected_resource = None;
+
+        let mode = resolve_oauth_security(&args)
+            .expect("standard profile should preserve configured mode");
+        assert_eq!(mode, DpopMode::Optional);
+    }
+
+    #[test]
+    fn oauth_not_configured_returns_requested_mode_without_validation() {
+        let mut args = base_args();
+        args.oauth_issuer = None;
+        args.oauth_security_profile = OAuthSecurityProfileArg::Hardened;
+        args.oauth_dpop_mode = OAuthDpopModeArg::Off;
+
+        let mode =
+            resolve_oauth_security(&args).expect("oauth-disabled run should skip oauth validation");
+        assert_eq!(mode, DpopMode::Off);
     }
 }
 
