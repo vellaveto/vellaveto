@@ -203,8 +203,7 @@ impl DeputyValidator {
         // Get current context if exists
         let current_depth = contexts
             .get(session_id)
-            .map(|ctx| ctx.delegation_depth)
-            .unwrap_or(0);
+            .map_or(0, |ctx| ctx.delegation_depth);
 
         // Check depth limit
         let new_depth = current_depth + 1;

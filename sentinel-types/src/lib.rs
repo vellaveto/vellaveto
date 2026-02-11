@@ -188,7 +188,7 @@ impl SecureTask {
 
     /// Get the current sequence number.
     pub fn current_sequence(&self) -> u64 {
-        self.state_chain.last().map(|t| t.sequence).unwrap_or(0)
+        self.state_chain.last().map_or(0, |t| t.sequence)
     }
 }
 

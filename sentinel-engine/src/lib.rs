@@ -357,7 +357,7 @@ impl PolicyEngine {
         // If index was built, use it for O(matching) instead of O(all)
         if !self.tool_index.is_empty() || !self.always_check.is_empty() {
             let tool_specific = self.tool_index.get(&action.tool);
-            let tool_slice = tool_specific.map(|v| v.as_slice()).unwrap_or(&[]);
+            let tool_slice = tool_specific.map_or(&[][..], |v| v.as_slice());
             let always_slice = &self.always_check;
 
             // Merge two sorted index slices, iterating in priority order.
@@ -425,7 +425,7 @@ impl PolicyEngine {
     ) -> Result<Verdict, EngineError> {
         if !self.tool_index.is_empty() || !self.always_check.is_empty() {
             let tool_specific = self.tool_index.get(&action.tool);
-            let tool_slice = tool_specific.map(|v| v.as_slice()).unwrap_or(&[]);
+            let tool_slice = tool_specific.map_or(&[][..], |v| v.as_slice());
             let always_slice = &self.always_check;
 
             // SECURITY (R26-ENG-1): Deduplicate merge — see evaluate_compiled().
