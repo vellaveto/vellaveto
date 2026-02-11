@@ -123,7 +123,7 @@ pub async fn cancel_task(
             (
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
-                    error: e.to_string(),
+                    error: e.clone(),
                 }),
             )
         })?;

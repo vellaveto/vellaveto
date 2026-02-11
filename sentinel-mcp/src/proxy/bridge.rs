@@ -1512,15 +1512,15 @@ impl ProxyBridge {
                                             // SECURITY (R38-MCP-2): Update call_counts and
                                             // action_history for TaskRequest so that
                                             // MaxCalls/MaxCallsInWindow constraints apply.
-                                            *call_counts.entry(task_method.to_string()).or_insert(0) += 1;
+                                            *call_counts.entry(task_method.clone()).or_insert(0) += 1;
                                             if action_history.len() >= MAX_ACTION_HISTORY {
                                                 action_history.remove(0);
                                             }
-                                            action_history.push(task_method.to_string());
+                                            action_history.push(task_method.clone());
                                             if !id.is_null() {
                                                 let id_key = id.to_string();
                                                 if pending_requests.len() < MAX_PENDING_REQUESTS {
-                                                    pending_requests.insert(id_key, (Instant::now(), task_method.to_string()));
+                                                    pending_requests.insert(id_key, (Instant::now(), task_method.clone()));
                                                 } else {
                                                     tracing::warn!("Pending request limit reached ({}), not tracking request", MAX_PENDING_REQUESTS);
                                                 }

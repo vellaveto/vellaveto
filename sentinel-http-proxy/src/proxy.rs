@@ -1059,12 +1059,12 @@ pub async fn handle_mcp_post(
                 if let Ok((Verdict::Allow, _)) = &result {
                     *session
                         .call_counts
-                        .entry(tool_name.to_string())
+                        .entry(tool_name.clone())
                         .or_insert(0) += 1;
                     if session.action_history.len() >= MAX_ACTION_HISTORY {
                         session.action_history.remove(0);
                     }
-                    session.action_history.push(tool_name.to_string());
+                    session.action_history.push(tool_name.clone());
                 }
 
                 result
