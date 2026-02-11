@@ -395,7 +395,10 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .merge(authenticated)
         .layer(middleware::from_fn(request_id))
-        .layer(middleware::from_fn(security_headers))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            security_headers,
+        ))
         // SECURITY: CSRF defense-in-depth via Origin/Referer validation
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -439,17 +442,21 @@ fn build_cors_layer(origins: &[String]) -> CorsLayer {
 /// - `Content-Security-Policy: default-src 'none'` — blocks all content loading (API-only server)
 /// - `Cache-Control: no-store` — prevents caching of sensitive API responses
 /// - `X-Permitted-Cross-Domain-Policies: none` — blocks cross-domain policy files
-/// - `Strict-Transport-Security` — HSTS header, only when serving over HTTPS
-async fn security_headers(request: Request, next: Next) -> Response {
+/// - `Strict-Transport-Security` — HSTS header, only for HTTPS requests or
+///   trusted-proxy `X-Forwarded-Proto: https`
+async fn security_headers(State(state): State<AppState>, request: Request, next: Next) -> Response {
     // Detect HTTPS before consuming the request:
-    // Check the URI scheme or the X-Forwarded-Proto header (set by reverse proxies).
+    // Check the URI scheme or trusted-proxy X-Forwarded-Proto header.
+    // Untrusted clients must not be able to force HTTPS semantics via headers.
+    let from_trusted_proxy = is_connection_from_trusted_proxy(&request, &state.trusted_proxies);
     let is_https = request.uri().scheme_str() == Some("https")
-        || request
-            .headers()
-            .get("x-forwarded-proto")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.eq_ignore_ascii_case("https"))
-            .unwrap_or(false);
+        || (from_trusted_proxy
+            && request
+                .headers()
+                .get("x-forwarded-proto")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.eq_ignore_ascii_case("https"))
+                .unwrap_or(false));
     let is_dashboard = request.uri().path().starts_with("/dashboard");
 
     let mut response = next.run(request).await;

@@ -2887,7 +2887,8 @@ async fn test_security_header_xpcdp_always_present() {
 
 #[tokio::test]
 async fn test_security_header_hsts_on_https() {
-    let (state, _tmp) = make_state();
+    let (mut state, _tmp) = make_state();
+    state.trusted_proxies = Arc::new(vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)]);
     let app = routes::build_router(state);
 
     // Simulate HTTPS via X-Forwarded-Proto header (as set by reverse proxies)
@@ -2911,6 +2912,31 @@ async fn test_security_header_hsts_on_https() {
         hsts.unwrap().as_bytes(),
         b"max-age=31536000; includeSubDomains",
         "HSTS header should have correct value"
+    );
+}
+
+#[tokio::test]
+async fn test_security_header_no_hsts_for_untrusted_forwarded_proto() {
+    let (mut state, _tmp) = make_state();
+    state.trusted_proxies = Arc::new(vec!["10.0.0.1".parse().unwrap()]);
+    let app = routes::build_router(state);
+
+    // X-Forwarded-Proto should be ignored from untrusted direct peers.
+    let resp = app
+        .oneshot(
+            Request::get("/health")
+                .header("x-forwarded-proto", "https")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let hsts = resp.headers().get("strict-transport-security");
+    assert!(
+        hsts.is_none(),
+        "Strict-Transport-Security header should NOT be present when forwarded proto is untrusted"
     );
 }
 
