@@ -56,7 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Shared `MAX_SCAN_DEPTH` constant (32) replaces per-module depth limits
   - Common utilities: `normalize_text`, `traverse_json_strings`, `extract_response_text`, `extract_notification_text`
   - Added `to_scan_finding()` conversion methods to `DlpFinding` and `ToolDescriptionFinding`
-  - Reduces code duplication and enables consistent finding handling
+  - Refactored `scan_response_for_injection()` to use shared `extract_response_text()` utility
+  - Added `traverse_json_strings_with_keys()` for security scanning that includes object keys (R42-MCP-1)
+  - Refactored `scan_notification_for_injection()` to use shared key-scanning utility
+  - Reduces code duplication while maintaining security properties across scanners
 
 ### Performance
 
