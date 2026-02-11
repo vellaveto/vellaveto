@@ -2128,17 +2128,14 @@ fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]
     /// Maximum X-Principal header length to prevent memory abuse in rate-limit maps.
     const MAX_PRINCIPAL_LEN: usize = 256;
     // 1. X-Principal header — only trust from known proxies (KL1)
-    if !trusted_proxies.is_empty() {
-        let client_ip = extract_client_ip(request, trusted_proxies);
-        if trusted_proxies.contains(&client_ip) {
-            if let Some(principal) = request
-                .headers()
-                .get("x-principal")
-                .and_then(|v| v.to_str().ok())
-            {
-                if !principal.is_empty() && principal.len() <= MAX_PRINCIPAL_LEN {
-                    return format!("principal:{}", principal);
-                }
+    if is_connection_from_trusted_proxy(request, trusted_proxies) {
+        if let Some(principal) = request
+            .headers()
+            .get("x-principal")
+            .and_then(|v| v.to_str().ok())
+        {
+            if !principal.is_empty() && principal.len() <= MAX_PRINCIPAL_LEN {
+                return format!("principal:{}", principal);
             }
         }
     }
@@ -2344,6 +2341,19 @@ mod tests {
         let trusted = vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)];
         let request = build_request(&[("x-principal", "alice")]);
         // In test environment, connection IP defaults to 127.0.0.1 (LOCALHOST)
+        let key = extract_principal_key(&request, &trusted);
+        assert_eq!(key, "principal:alice");
+    }
+
+    #[test]
+    fn test_principal_key_x_principal_trusted_with_xff_chain() {
+        // Even when XFF resolves to a non-proxy client IP, trust decision for
+        // X-Principal must be based on direct peer proxy trust.
+        let trusted = vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)];
+        let request = build_request(&[
+            ("x-principal", "alice"),
+            ("x-forwarded-for", "203.0.113.10, 127.0.0.1"),
+        ]);
         let key = extract_principal_key(&request, &trusted);
         assert_eq!(key, "principal:alice");
     }
