@@ -5,7 +5,7 @@
 //! adversary tactics and techniques based on real-world attack observations.
 //!
 //! References:
-//! - MITRE ATLAS: https://atlas.mitre.org/
+//! - MITRE ATLAS: <https://atlas.mitre.org/>
 //! - ATLAS Techniques for Agentic AI (2025-2026 additions)
 //!
 //! # Usage

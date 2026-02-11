@@ -558,8 +558,8 @@ impl SiemExporter for WebhookExporter {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatadogConfig {
     /// Datadog logs intake endpoint.
-    /// US: "https://http-intake.logs.datadoghq.com/api/v2/logs"
-    /// EU: "https://http-intake.logs.datadoghq.eu/api/v2/logs"
+    /// US: `https://http-intake.logs.datadoghq.com/api/v2/logs`
+    /// EU: `https://http-intake.logs.datadoghq.eu/api/v2/logs`
     #[serde(default = "default_datadog_endpoint")]
     pub endpoint: String,
 
