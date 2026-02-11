@@ -1157,6 +1157,7 @@ Comprehensive documentation is available in the `docs/` directory:
 | [Security Hardening](docs/SECURITY.md) | Security configuration best practices |
 | [API Reference](docs/API.md) | Complete HTTP API documentation |
 | [Roadmap](ROADMAP.md) | Current release status and upcoming phases |
+| [Module Extraction Playbook](MODULE_EXTRACTION_PLAYBOOK.md) | Contributor workflow for safe module splits |
 | [Changelog](CHANGELOG.md) | Version history and release notes |
 
 ## 📚 References
