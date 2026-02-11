@@ -57,7 +57,7 @@ fn bench_parse_and_hash(c: &mut Criterion) {
                     "type": "object",
                     "properties": {
                         "follow_symlinks": {"type": "boolean", "default": true},
-                        "max_size": {"type": "integer", "minimum": 0, "maximum": 1048576}
+                        "max_size": {"type": "integer", "minimum": 0, "maximum": 1_048_576}
                     }
                 }
             },

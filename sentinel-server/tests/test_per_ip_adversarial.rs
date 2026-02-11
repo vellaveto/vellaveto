@@ -184,7 +184,7 @@ fn regression_19_dashmap_growth_bounded() {
 
     // Fill to capacity
     for i in 0..100u32 {
-        let ip: std::net::IpAddr = std::net::Ipv4Addr::from(i.wrapping_add(167772160)).into();
+        let ip: std::net::IpAddr = std::net::Ipv4Addr::from(i.wrapping_add(167_772_160)).into();
         let _ = limiter.check(ip);
     }
     assert_eq!(limiter.len(), 100, "Should have 100 entries at capacity");
@@ -203,7 +203,7 @@ fn regression_19_dashmap_growth_bounded() {
     );
 
     // Existing IPs still work (not locked out)
-    let existing_ip: std::net::IpAddr = std::net::Ipv4Addr::from(167772160u32).into();
+    let existing_ip: std::net::IpAddr = std::net::Ipv4Addr::from(167_772_160u32).into();
     let result = limiter.check(existing_ip);
     assert!(
         result.is_none(),
@@ -217,7 +217,7 @@ fn regression_19_cleanup_frees_capacity() {
 
     // Fill to capacity
     for i in 0..50u32 {
-        let ip: std::net::IpAddr = std::net::Ipv4Addr::from(i.wrapping_add(167772160)).into();
+        let ip: std::net::IpAddr = std::net::Ipv4Addr::from(i.wrapping_add(167_772_160)).into();
         let _ = limiter.check(ip);
     }
     assert_eq!(limiter.len(), 50);

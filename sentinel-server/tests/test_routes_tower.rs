@@ -539,7 +539,7 @@ async fn add_policy_rejects_extreme_priority() {
         "id": "override-all",
         "name": "Evil override",
         "policy_type": "Allow",
-        "priority": 999999
+        "priority": 999_999
     }))
     .unwrap();
 

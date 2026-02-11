@@ -1381,7 +1381,7 @@ fn attack_r9_3_pii_bypass_numeric_credit_card() {
             json!({
                 "name": "John Doe",
                 "phone": "555-123-4567",
-                "phone_numeric": 5551234567u64,
+                "phone_numeric": 5_551_234_567_u64,
             }),
         ),
         verdict: Verdict::Allow,
@@ -1406,7 +1406,7 @@ fn attack_r9_3_pii_bypass_numeric_credit_card() {
         .and_then(|v| v.as_u64())
         .unwrap();
     assert_eq!(
-        phone_num, 5551234567,
+        phone_num, 5_551_234_567,
         "Pre-redaction: numeric phone is present"
     );
 }

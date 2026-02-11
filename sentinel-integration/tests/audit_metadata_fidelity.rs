@@ -56,7 +56,7 @@ fn nested_metadata_preserved_exactly() {
                 "ip": "192.168.1.1",
                 "tags": ["internal", "elevated"]
             },
-            "timestamp_ms": 1700000000000_i64,
+            "timestamp_ms": 1_700_000_000_000_i64,
             "flags": [true, false, null]
         });
 
@@ -75,7 +75,7 @@ fn nested_metadata_preserved_exactly() {
                 "ip": "[REDACTED]",
                 "tags": ["internal", "elevated"]
             },
-            "timestamp_ms": 1700000000000_i64,
+            "timestamp_ms": 1_700_000_000_000_i64,
             "flags": [true, false, null]
         });
         assert_eq!(entries[0].metadata, expected);
