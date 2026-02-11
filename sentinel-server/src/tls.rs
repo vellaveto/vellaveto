@@ -149,6 +149,15 @@ fn count_pq_or_hybrid_groups(provider: &rustls::crypto::CryptoProvider) -> usize
         .count()
 }
 
+/// Select the TLS crypto provider explicitly.
+///
+/// Rustls panics when both `ring` and `aws-lc-rs` features are enabled and no
+/// process-level default provider is installed. We choose `aws-lc-rs`
+/// explicitly to keep behavior deterministic across mixed dependency graphs.
+fn default_crypto_provider() -> rustls::crypto::CryptoProvider {
+    rustls::crypto::aws_lc_rs::default_provider()
+}
+
 /// Apply TLS key exchange policy to a rustls crypto provider.
 ///
 /// This adjusts `provider.kx_groups` in place to enforce the configured
@@ -196,6 +205,18 @@ fn apply_kex_policy_to_provider(
     Ok(())
 }
 
+/// Compute the effective key-exchange groups for a given KEX policy.
+///
+/// This allows integration tests and diagnostics to validate policy behavior
+/// without requiring a live socket handshake.
+pub fn effective_kex_groups_for_policy(
+    policy: TlsKexPolicy,
+) -> Result<Vec<rustls::NamedGroup>, TlsError> {
+    let mut provider = default_crypto_provider();
+    apply_kex_policy_to_provider(&mut provider, policy)?;
+    Ok(provider.kx_groups.iter().map(|g| g.name()).collect())
+}
+
 /// Build a TLS acceptor from configuration.
 pub fn build_tls_acceptor(config: &TlsConfig) -> Result<Option<TlsAcceptor>, TlsError> {
     match config.mode {
@@ -213,10 +234,7 @@ pub fn build_tls_acceptor(config: &TlsConfig) -> Result<Option<TlsAcceptor>, Tls
 
             let certs = load_certs(Path::new(cert_path))?;
             let key = load_private_key(Path::new(key_path))?;
-            let mut provider = rustls::ServerConfig::builder()
-                .crypto_provider()
-                .as_ref()
-                .clone();
+            let mut provider = default_crypto_provider();
             let pq_groups_before = count_pq_or_hybrid_groups(&provider);
             let total_groups_before = provider.kx_groups.len();
             apply_kex_policy_to_provider(&mut provider, config.kex_policy)?;
@@ -432,10 +450,7 @@ mod tests {
 
     #[test]
     fn test_classical_only_removes_pq_groups() {
-        let mut provider = rustls::ServerConfig::builder()
-            .crypto_provider()
-            .as_ref()
-            .clone();
+        let mut provider = default_crypto_provider();
         assert!(apply_kex_policy_to_provider(&mut provider, TlsKexPolicy::ClassicalOnly).is_ok());
         assert_eq!(count_pq_or_hybrid_groups(&provider), 0);
         assert!(
@@ -446,10 +461,7 @@ mod tests {
 
     #[test]
     fn test_hybrid_preferred_prioritizes_pq_when_available() {
-        let mut provider = rustls::ServerConfig::builder()
-            .crypto_provider()
-            .as_ref()
-            .clone();
+        let mut provider = default_crypto_provider();
         let had_pq = count_pq_or_hybrid_groups(&provider) > 0;
         assert!(apply_kex_policy_to_provider(&mut provider, TlsKexPolicy::HybridPreferred).is_ok());
         if had_pq {
@@ -459,10 +471,7 @@ mod tests {
 
     #[test]
     fn test_hybrid_required_when_supported_restricts_if_available() {
-        let mut provider = rustls::ServerConfig::builder()
-            .crypto_provider()
-            .as_ref()
-            .clone();
+        let mut provider = default_crypto_provider();
         let initial_pq = count_pq_or_hybrid_groups(&provider);
         let initial_total = provider.kx_groups.len();
         assert!(apply_kex_policy_to_provider(

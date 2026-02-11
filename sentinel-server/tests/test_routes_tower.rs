@@ -372,6 +372,50 @@ async fn evaluate_logs_to_audit() {
     }
 }
 
+#[tokio::test]
+async fn evaluate_audit_includes_forwarded_tls_metadata() {
+    let (state, tmp) = make_state();
+    let audit_path = tmp.path().join("audit.log");
+    let app = routes::build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "tool": "file",
+        "function": "read",
+        "parameters": {}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-tls-version", "TLSv1.3")
+                .header("x-forwarded-tls-cipher", "TLS_AES_256_GCM_SHA384")
+                .header("x-forwarded-tls-kex-group", "X25519MLKEM768")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let content = tokio::fs::read_to_string(&audit_path)
+        .await
+        .expect("audit log should exist after evaluate");
+    let entry = content
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .last()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("valid audit json"))
+        .expect("expected at least one audit entry");
+
+    assert_eq!(entry["metadata"]["tls"]["protocol"], "TLSv1.3");
+    assert_eq!(entry["metadata"]["tls"]["cipher"], "TLS_AES_256_GCM_SHA384");
+    assert_eq!(entry["metadata"]["tls"]["kex_group"], "X25519MLKEM768");
+}
+
 // ════════════════════════════════
 // POLICIES CRUD ENDPOINTS
 // ════════════════════════════════

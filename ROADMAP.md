@@ -1610,11 +1610,15 @@ v2.2 Complete! Ready for v2.3 planning.
 |------|----------|--------|--------|
 | Add `tls.kex_policy` config surface (`classical_only`, `hybrid_preferred`, `hybrid_required_when_supported`) | P1 | 3 days | ✅ Initial implementation |
 | Enforce KEX policy against rustls provider groups with downgrade warnings | P1 | 2 days | ✅ Initial implementation |
-| Emit negotiated TLS metadata (KEX group, protocol, cipher) in telemetry and audit | P1 | 3 days | Planned |
-| Standardize outbound TLS backend strategy for workspace `reqwest` clients | P1 | 2 days | Planned |
-| Add hybrid/classical negotiation integration tests and failure-mode checks | P2 | 4 days | Planned |
+| Emit negotiated TLS metadata (KEX group, protocol, cipher) in telemetry and audit | P1 | 3 days | ✅ Initial implementation |
+| Standardize outbound TLS backend strategy for workspace `reqwest` clients | P1 | 2 days | ✅ Initial implementation |
+| Add hybrid/classical negotiation integration tests and failure-mode checks | P2 | 4 days | ✅ Initial implementation |
 | Publish `docs/quantum-migration.md` rollout + rollback runbook | P2 | 2 days | Planned |
 | Track IETF TLS PQ drafts to RFC and tighten defaults when ecosystem support stabilizes | P1 | Ongoing | Active Research |
+
+**2026-02-11 Update:** `sentinel-server` now emits negotiated TLS metadata (`protocol`, `cipher`, `kex_group`) from sanitized forwarded TLS headers into evaluate-path audit metadata and observability span attributes.
+**2026-02-11 Update:** Added `sentinel-server` TLS KEX integration tests covering classical-only, hybrid-preferred fallback, and hybrid-required failure-mode enforcement against classical-only clients.
+**2026-02-11 Update:** Standardized workspace outbound `reqwest` TLS backend to rustls (`default-features = false`, `features = ["json", "rustls-tls"]`) and validated compile paths for `sentinel-server`, `sentinel-http-proxy`, `sentinel-audit` observability exporters, and `sentinel-mcp` `llm-cloud`.
 
 **External milestones we align to (planning targets):**
 - Define migration goals and inventory by **2028**

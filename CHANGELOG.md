@@ -161,6 +161,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enforced sender-constrained token binding in DPoP `required` mode: access tokens must contain `cnf.jkt`, and runtime now verifies `cnf.jkt` against the presented DPoP proof key thumbprint (RFC 7638).
   - Hardened DPoP replay cache input handling by bounding untrusted `jti`/replay-key size and keying replays by `jti:ath` when token binding is available.
 
+- **TLS metadata observability (`sentinel-server`)**:
+  - Added evaluate-path extraction of sanitized forwarded TLS handshake metadata (`protocol`, `cipher`, `kex_group`).
+  - Included TLS metadata in audit entry metadata for `/api/evaluate` decisions.
+  - Added the same TLS attributes to observability spans when exporters are enabled.
+  - Added unit/integration coverage for TLS metadata extraction and audit emission.
+  - Added TLS KEX negotiation integration tests for `classical_only`, `hybrid_preferred`, and `hybrid_required_when_supported` including classical-only client failure-mode coverage when PQ/hybrid groups are available.
+
+- **Workspace outbound TLS backend standardization**:
+  - Standardized workspace `reqwest` backend to rustls by setting `default-features = false` and enabling `rustls-tls` at the workspace dependency root.
+  - Keeps outbound HTTP client behavior consistent across `sentinel-server`, `sentinel-http-proxy`, `sentinel-audit` exporters, and `sentinel-mcp` cloud backends.
+  - Updated `sentinel-server` TLS provider selection to explicitly use rustls `aws-lc-rs` provider, avoiding runtime panics when multiple rustls providers are enabled in the dependency graph.
+  - Verified compile coverage for key reqwest consumers, including `sentinel-audit --features observability-exporters` and `sentinel-mcp --features llm-cloud`.
+
 - **DLP pattern validation at startup (SEC-006)**:
   - Both `sentinel-server` and `sentinel-http-proxy` now validate all DLP patterns compile successfully during startup
   - If any pattern fails to compile, the application fails to start rather than silently skipping secret detection

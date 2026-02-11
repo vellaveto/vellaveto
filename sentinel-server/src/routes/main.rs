@@ -1076,6 +1076,126 @@ fn derive_resolver_identity(headers: &HeaderMap, client_value: &str) -> String {
     client_value.to_string()
 }
 
+/// Negotiated TLS metadata carried from an upstream TLS terminator/reverse proxy.
+///
+/// Sentinel currently receives plain HTTP at this hop in many deployments.
+/// When a trusted edge proxy injects TLS details, we preserve them in audit and
+/// observability metadata for forensic visibility.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct NegotiatedTlsMetadata {
+    protocol: Option<String>,
+    cipher: Option<String>,
+    kex_group: Option<String>,
+}
+
+impl NegotiatedTlsMetadata {
+    fn is_empty(&self) -> bool {
+        self.protocol.is_none() && self.cipher.is_none() && self.kex_group.is_none()
+    }
+
+    fn as_json(&self) -> serde_json::Value {
+        let mut obj = serde_json::Map::new();
+        if let Some(ref protocol) = self.protocol {
+            obj.insert("protocol".to_string(), json!(protocol));
+        }
+        if let Some(ref cipher) = self.cipher {
+            obj.insert("cipher".to_string(), json!(cipher));
+        }
+        if let Some(ref kex_group) = self.kex_group {
+            obj.insert("kex_group".to_string(), json!(kex_group));
+        }
+        serde_json::Value::Object(obj)
+    }
+}
+
+/// Build evaluate-route audit metadata, including optional TLS handshake details.
+fn build_evaluate_audit_metadata(
+    tenant_id: &str,
+    tls_metadata: Option<&NegotiatedTlsMetadata>,
+    extra: serde_json::Value,
+) -> serde_json::Value {
+    let mut metadata = json!({
+        "source": "http",
+        "tenant_id": tenant_id
+    });
+
+    if let Some(meta_obj) = metadata.as_object_mut() {
+        if let Some(tls) = tls_metadata {
+            meta_obj.insert("tls".to_string(), tls.as_json());
+        }
+        if let Some(extra_obj) = extra.as_object() {
+            for (k, v) in extra_obj {
+                meta_obj.insert(k.clone(), v.clone());
+            }
+        }
+    }
+
+    metadata
+}
+
+fn is_valid_tls_metadata_token(value: &str) -> bool {
+    value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':' | '/'))
+}
+
+fn extract_sanitized_header_token(
+    headers: &HeaderMap,
+    names: &[&str],
+    max_len: usize,
+) -> Option<String> {
+    for name in names {
+        if let Some(value) = headers.get(*name).and_then(|v| v.to_str().ok()) {
+            let trimmed = value.trim();
+            if trimmed.is_empty()
+                || trimmed.len() > max_len
+                || trimmed.chars().any(|c| c.is_control())
+                || !is_valid_tls_metadata_token(trimmed)
+            {
+                continue;
+            }
+            return Some(trimmed.to_string());
+        }
+    }
+    None
+}
+
+/// Extract negotiated TLS metadata forwarded by reverse proxies.
+///
+/// Accepted header aliases (first valid value wins):
+/// - protocol: `x-forwarded-tls-protocol`, `x-forwarded-tls-version`, `x-tls-protocol`, `x-tls-version`
+/// - cipher: `x-forwarded-tls-cipher`, `x-tls-cipher`
+/// - kex group: `x-forwarded-tls-kex-group`, `x-tls-kex-group`
+fn extract_negotiated_tls_metadata(headers: &HeaderMap) -> Option<NegotiatedTlsMetadata> {
+    let metadata = NegotiatedTlsMetadata {
+        protocol: extract_sanitized_header_token(
+            headers,
+            &[
+                "x-forwarded-tls-protocol",
+                "x-forwarded-tls-version",
+                "x-tls-protocol",
+                "x-tls-version",
+            ],
+            32,
+        ),
+        cipher: extract_sanitized_header_token(
+            headers,
+            &["x-forwarded-tls-cipher", "x-tls-cipher"],
+            96,
+        ),
+        kex_group: extract_sanitized_header_token(
+            headers,
+            &["x-forwarded-tls-kex-group", "x-tls-kex-group"],
+            64,
+        ),
+    };
+    if metadata.is_empty() {
+        None
+    } else {
+        Some(metadata)
+    }
+}
+
 /// Sanitize client-supplied evaluation context.
 ///
 /// The server evaluate endpoint is a stateless API — it has no session tracking.
@@ -1265,6 +1385,7 @@ async fn evaluate(
 ) -> Result<Json<EvaluateResponse>, (StatusCode, Json<ErrorResponse>)> {
     let eval_start = std::time::Instant::now();
     let mut action = req.action;
+    let tls_metadata = extract_negotiated_tls_metadata(&headers);
 
     // SECURITY (R10-1): Validate the deserialized action to catch null bytes,
     // oversized fields, and other malformed input before processing.
@@ -1346,7 +1467,11 @@ async fn evaluate(
                             .log_entry(
                                 &action,
                                 &deny,
-                                json!({"source": "http", "registry": "unknown_tool", "tenant_id": &tenant_ctx.tenant_id}),
+                                build_evaluate_audit_metadata(
+                                    &tenant_ctx.tenant_id,
+                                    tls_metadata.as_ref(),
+                                    json!({"registry": "unknown_tool"}),
+                                ),
                             )
                             .await
                         {
@@ -1373,7 +1498,11 @@ async fn evaluate(
                     .log_entry(
                         &action,
                         &verdict,
-                        json!({"source": "http", "registry": "unknown_tool", "approval_id": approval_id, "tenant_id": &tenant_ctx.tenant_id}),
+                        build_evaluate_audit_metadata(
+                            &tenant_ctx.tenant_id,
+                            tls_metadata.as_ref(),
+                            json!({"registry": "unknown_tool", "approval_id": approval_id}),
+                        ),
                     )
                     .await
                 {
@@ -1424,7 +1553,11 @@ async fn evaluate(
                             .log_entry(
                                 &action,
                                 &deny,
-                                json!({"source": "http", "registry": "untrusted_tool", "tenant_id": &tenant_ctx.tenant_id}),
+                                build_evaluate_audit_metadata(
+                                    &tenant_ctx.tenant_id,
+                                    tls_metadata.as_ref(),
+                                    json!({"registry": "untrusted_tool"}),
+                                ),
                             )
                             .await
                         {
@@ -1451,7 +1584,11 @@ async fn evaluate(
                     .log_entry(
                         &action,
                         &verdict,
-                        json!({"source": "http", "registry": "untrusted_tool", "approval_id": approval_id, "tenant_id": &tenant_ctx.tenant_id}),
+                        build_evaluate_audit_metadata(
+                            &tenant_ctx.tenant_id,
+                            tls_metadata.as_ref(),
+                            json!({"registry": "untrusted_tool", "approval_id": approval_id}),
+                        ),
                     )
                     .await
                 {
@@ -1569,11 +1706,11 @@ async fn evaluate(
     // SECURITY (R16-AUDIT-3): Log at error level (not warn) because a silent
     // audit failure means security decisions proceed without an audit trail.
     // SECURITY (FIND-005): In strict audit mode, audit failures block the request.
-    let mut audit_metadata = json!({
-        "source": "http",
-        "approval_id": approval_id,
-        "tenant_id": &tenant_ctx.tenant_id
-    });
+    let mut audit_metadata = build_evaluate_audit_metadata(
+        &tenant_ctx.tenant_id,
+        tls_metadata.as_ref(),
+        json!({ "approval_id": approval_id }),
+    );
     if let Some(opa) = opa_metadata {
         if let Some(obj) = audit_metadata.as_object_mut() {
             obj.insert("opa".to_string(), opa);
@@ -1641,6 +1778,17 @@ async fn evaluate(
         // Add approval info if present
         if let Some(ref id) = approval_id {
             builder = builder.attribute("approval_id", json!(id));
+        }
+        if let Some(ref tls) = tls_metadata {
+            if let Some(ref protocol) = tls.protocol {
+                builder = builder.attribute("tls.protocol", json!(protocol));
+            }
+            if let Some(ref cipher) = tls.cipher {
+                builder = builder.attribute("tls.cipher", json!(cipher));
+            }
+            if let Some(ref kex_group) = tls.kex_group {
+                builder = builder.attribute("tls.kex_group", json!(kex_group));
+            }
         }
 
         if let Some(span) = builder.build() {
@@ -1935,6 +2083,53 @@ mod tests {
             builder = builder.header(*k, *v);
         }
         builder.body(axum::body::Body::empty()).unwrap()
+    }
+
+    #[test]
+    fn test_extract_negotiated_tls_metadata_from_forwarded_headers() {
+        let request = build_request(&[
+            ("x-forwarded-tls-version", "TLSv1.3"),
+            ("x-forwarded-tls-cipher", "TLS_AES_256_GCM_SHA384"),
+            ("x-forwarded-tls-kex-group", "X25519MLKEM768"),
+        ]);
+        let metadata = extract_negotiated_tls_metadata(request.headers())
+            .expect("expected tls metadata from forwarded headers");
+        assert_eq!(metadata.protocol.as_deref(), Some("TLSv1.3"));
+        assert_eq!(metadata.cipher.as_deref(), Some("TLS_AES_256_GCM_SHA384"));
+        assert_eq!(metadata.kex_group.as_deref(), Some("X25519MLKEM768"));
+    }
+
+    #[test]
+    fn test_extract_negotiated_tls_metadata_accepts_alias_headers() {
+        let request = build_request(&[
+            ("x-tls-protocol", "TLSv1.2"),
+            ("x-tls-cipher", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"),
+            ("x-tls-kex-group", "secp256r1"),
+        ]);
+        let metadata = extract_negotiated_tls_metadata(request.headers())
+            .expect("expected tls metadata from alias headers");
+        assert_eq!(metadata.protocol.as_deref(), Some("TLSv1.2"));
+        assert_eq!(
+            metadata.cipher.as_deref(),
+            Some("TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384")
+        );
+        assert_eq!(metadata.kex_group.as_deref(), Some("secp256r1"));
+    }
+
+    #[test]
+    fn test_extract_negotiated_tls_metadata_rejects_invalid_tokens() {
+        let request = build_request(&[
+            ("x-forwarded-tls-version", "TLSv1.3"),
+            ("x-forwarded-tls-cipher", "TLS_AES_256_GCM_SHA384;DROP"),
+        ]);
+        let metadata = extract_negotiated_tls_metadata(request.headers())
+            .expect("valid protocol should still produce metadata");
+        assert_eq!(metadata.protocol.as_deref(), Some("TLSv1.3"));
+        assert!(
+            metadata.cipher.is_none(),
+            "cipher with invalid token characters must be ignored"
+        );
+        assert!(metadata.kex_group.is_none());
     }
 
     // --- KL1: X-Principal only trusted from trusted proxies ---
