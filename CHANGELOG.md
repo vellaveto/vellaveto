@@ -169,6 +169,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed `X-Principal` trust check to use direct trusted-proxy peer identity (not derived client IP), preserving per-principal rate-limit attribution behind trusted proxy chains.
   - Added per-principal rate-limit integration coverage for trusted proxy + `X-Forwarded-For` chains with stable `X-Principal` identity.
   - Rejected control characters in trusted `X-Principal` header values before principal-key derivation.
+  - Treated missing trusted-proxy request context as untrusted when evaluating forwarded TLS metadata (fail-safe default).
   - Included TLS metadata in audit entry metadata for `/api/evaluate` decisions.
   - Added the same TLS attributes to observability spans when exporters are enabled.
   - Added unit/integration coverage for TLS metadata extraction and audit emission.

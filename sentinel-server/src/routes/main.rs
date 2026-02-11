@@ -1444,17 +1444,22 @@ async fn apply_opa_runtime_verdict(
 async fn evaluate(
     State(state): State<AppState>,
     Extension(tenant_ctx): Extension<TenantContext>,
-    Extension(proxy_ctx): Extension<TrustedProxyContext>,
+    proxy_ctx: Option<Extension<TrustedProxyContext>>,
     Query(query): Query<EvaluateQuery>,
     headers: HeaderMap,
     Json(req): Json<EvaluateRequest>,
 ) -> Result<Json<EvaluateResponse>, (StatusCode, Json<ErrorResponse>)> {
     let eval_start = std::time::Instant::now();
     let mut action = req.action;
+    let from_trusted_proxy = proxy_ctx
+        .as_ref()
+        .map(|Extension(ctx)| ctx.from_trusted_proxy)
+        .unwrap_or(false);
     // SECURITY: Forwarded TLS metadata headers are only trusted when the direct
     // connection comes from a configured trusted proxy. Otherwise clients could
     // spoof handshake details (protocol/cipher/KEX) via plain headers.
-    let tls_metadata = if proxy_ctx.from_trusted_proxy {
+    // Fail-safe behavior: missing proxy context is treated as untrusted.
+    let tls_metadata = if from_trusted_proxy {
         extract_negotiated_tls_metadata(&headers)
     } else {
         if has_forwarded_tls_metadata_headers(&headers) {
