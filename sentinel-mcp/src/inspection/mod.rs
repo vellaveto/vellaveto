@@ -30,15 +30,15 @@ pub use dlp::{
     scan_parameters_for_secrets, scan_response_for_secrets, scan_text_for_secrets,
     validate_dlp_patterns, DlpFinding, DLP_PATTERNS,
 };
-pub use scanner_base::{
-    extract_notification_text, extract_response_text, normalize_text, traverse_json_strings,
-    ScanFinding, ScannerType, MAX_SCAN_DEPTH,
-};
 pub use injection::{
     injection_pattern_count, inspect_for_injection, is_injection_available,
     sanitize_for_injection_scan, scan_notification_for_injection, scan_response_for_injection,
     validate_injection_patterns, InjectionScanner, DEFAULT_INJECTION_PATTERNS,
     INJECTION_DETECTION_UNAVAILABLE,
+};
+pub use scanner_base::{
+    extract_notification_text, extract_response_text, normalize_text, traverse_json_strings,
+    traverse_json_strings_with_keys, ScanFinding, ScannerType, MAX_SCAN_DEPTH,
 };
 pub use tool_description::{
     collect_schema_descriptions, scan_tool_descriptions, scan_tool_descriptions_with_scanner,
