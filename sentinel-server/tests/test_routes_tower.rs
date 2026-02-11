@@ -416,6 +416,139 @@ async fn evaluate_audit_includes_forwarded_tls_metadata() {
     assert_eq!(entry["metadata"]["tls"]["kex_group"], "X25519MLKEM768");
 }
 
+#[tokio::test]
+async fn evaluate_audit_drops_conflicting_tls_protocol_aliases() {
+    let (state, tmp) = make_state();
+    let audit_path = tmp.path().join("audit.log");
+    let app = routes::build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "tool": "file",
+        "function": "read",
+        "parameters": {}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-tls-version", "TLSv1.3")
+                .header("x-tls-protocol", "TLSv1.2")
+                .header("x-forwarded-tls-cipher", "TLS_AES_256_GCM_SHA384")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let content = tokio::fs::read_to_string(&audit_path)
+        .await
+        .expect("audit log should exist after evaluate");
+    let entry = content
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("valid audit json"))
+        .expect("expected at least one audit entry");
+
+    assert!(
+        entry["metadata"]["tls"].get("protocol").is_none(),
+        "conflicting protocol aliases must remove protocol metadata"
+    );
+    assert_eq!(entry["metadata"]["tls"]["cipher"], "TLS_AES_256_GCM_SHA384");
+}
+
+#[tokio::test]
+async fn evaluate_audit_drops_conflicting_duplicate_tls_protocol_values() {
+    let (state, tmp) = make_state();
+    let audit_path = tmp.path().join("audit.log");
+    let app = routes::build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "tool": "file",
+        "function": "read",
+        "parameters": {}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-tls-version", "TLSv1.3")
+                .header("x-forwarded-tls-version", "TLSv1.2")
+                .header("x-forwarded-tls-cipher", "TLS_AES_256_GCM_SHA384")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let content = tokio::fs::read_to_string(&audit_path)
+        .await
+        .expect("audit log should exist after evaluate");
+    let entry = content
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("valid audit json"))
+        .expect("expected at least one audit entry");
+
+    assert!(
+        entry["metadata"]["tls"].get("protocol").is_none(),
+        "conflicting duplicate protocol header values must remove protocol metadata"
+    );
+    assert_eq!(entry["metadata"]["tls"]["cipher"], "TLS_AES_256_GCM_SHA384");
+}
+
+#[tokio::test]
+async fn evaluate_audit_tls_protocol_falls_back_to_valid_alias() {
+    let (state, tmp) = make_state();
+    let audit_path = tmp.path().join("audit.log");
+    let app = routes::build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "tool": "file",
+        "function": "read",
+        "parameters": {}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-forwarded-tls-version", "TLSv1.3;BAD")
+                .header("x-tls-protocol", "TLSv1.2")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let content = tokio::fs::read_to_string(&audit_path)
+        .await
+        .expect("audit log should exist after evaluate");
+    let entry = content
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("valid audit json"))
+        .expect("expected at least one audit entry");
+
+    assert_eq!(entry["metadata"]["tls"]["protocol"], "TLSv1.2");
+}
+
 // ════════════════════════════════
 // POLICIES CRUD ENDPOINTS
 // ════════════════════════════════
