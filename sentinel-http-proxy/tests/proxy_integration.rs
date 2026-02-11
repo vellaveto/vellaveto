@@ -2599,6 +2599,54 @@ fn build_oauth_test_state(
     )
 }
 
+/// Parameters for OAuth test state construction.
+struct OAuthTestParams<'a> {
+    upstream_url: &'a str,
+    jwks_url: &'a str,
+    tmp: &'a TempDir,
+    required_scopes: Vec<String>,
+    pass_through: bool,
+    expected_resource: Option<&'a str>,
+    dpop_mode: DpopMode,
+    dpop_allowed_algorithms: Vec<jsonwebtoken::Algorithm>,
+}
+
+impl<'a> OAuthTestParams<'a> {
+    fn new(upstream_url: &'a str, jwks_url: &'a str, tmp: &'a TempDir) -> Self {
+        Self {
+            upstream_url,
+            jwks_url,
+            tmp,
+            required_scopes: vec![],
+            pass_through: false,
+            expected_resource: None,
+            dpop_mode: DpopMode::Off,
+            dpop_allowed_algorithms: default_dpop_allowed_algorithms(),
+        }
+    }
+
+    fn with_scopes(mut self, scopes: Vec<String>) -> Self {
+        self.required_scopes = scopes;
+        self
+    }
+
+    fn with_pass_through(mut self, pass_through: bool) -> Self {
+        self.pass_through = pass_through;
+        self
+    }
+
+    fn with_expected_resource(mut self, resource: Option<&'a str>) -> Self {
+        self.expected_resource = resource;
+        self
+    }
+
+    fn with_dpop(mut self, mode: DpopMode, algorithms: Vec<jsonwebtoken::Algorithm>) -> Self {
+        self.dpop_mode = mode;
+        self.dpop_allowed_algorithms = algorithms;
+        self
+    }
+}
+
 /// Build a ProxyState with OAuth 2.1 enabled and optional expected resource indicator.
 fn build_oauth_test_state_with_resource(
     upstream_url: &str,
@@ -2609,14 +2657,10 @@ fn build_oauth_test_state_with_resource(
     expected_resource: Option<&str>,
 ) -> ProxyState {
     build_oauth_test_state_full(
-        upstream_url,
-        jwks_url,
-        tmp,
-        required_scopes,
-        pass_through,
-        expected_resource,
-        DpopMode::Off,
-        default_dpop_allowed_algorithms(),
+        OAuthTestParams::new(upstream_url, jwks_url, tmp)
+            .with_scopes(required_scopes)
+            .with_pass_through(pass_through)
+            .with_expected_resource(expected_resource),
     )
 }
 
@@ -2626,27 +2670,12 @@ fn build_oauth_test_state_with_required_dpop(
     tmp: &TempDir,
 ) -> ProxyState {
     build_oauth_test_state_full(
-        upstream_url,
-        jwks_url,
-        tmp,
-        vec![],
-        false,
-        None,
-        DpopMode::Required,
-        vec![jsonwebtoken::Algorithm::RS256],
+        OAuthTestParams::new(upstream_url, jwks_url, tmp)
+            .with_dpop(DpopMode::Required, vec![jsonwebtoken::Algorithm::RS256]),
     )
 }
 
-fn build_oauth_test_state_full(
-    upstream_url: &str,
-    jwks_url: &str,
-    tmp: &TempDir,
-    required_scopes: Vec<String>,
-    pass_through: bool,
-    expected_resource: Option<&str>,
-    dpop_mode: DpopMode,
-    dpop_allowed_algorithms: Vec<jsonwebtoken::Algorithm>,
-) -> ProxyState {
+fn build_oauth_test_state_full(params: OAuthTestParams<'_>) -> ProxyState {
     let policies = vec![
         Policy {
             id: "read_file:*".to_string(),
@@ -2672,15 +2701,15 @@ fn build_oauth_test_state_full(
     let oauth_config = OAuthConfig {
         issuer: TEST_ISSUER.to_string(),
         audience: TEST_AUDIENCE.to_string(),
-        jwks_uri: Some(format!("{}/.well-known/jwks.json", jwks_url)),
-        required_scopes,
-        pass_through,
+        jwks_uri: Some(format!("{}/.well-known/jwks.json", params.jwks_url)),
+        required_scopes: params.required_scopes,
+        pass_through: params.pass_through,
         allowed_algorithms: default_allowed_algorithms(),
-        expected_resource: expected_resource.map(|v| v.to_string()),
+        expected_resource: params.expected_resource.map(|v| v.to_string()),
         clock_skew_leeway: std::time::Duration::from_secs(30),
         require_audience: true,
-        dpop_mode,
-        dpop_allowed_algorithms,
+        dpop_mode: params.dpop_mode,
+        dpop_allowed_algorithms: params.dpop_allowed_algorithms,
         dpop_require_ath: true,
         dpop_max_clock_skew: std::time::Duration::from_secs(300),
     };
@@ -2688,9 +2717,9 @@ fn build_oauth_test_state_full(
     ProxyState {
         engine: Arc::new(engine),
         policies: Arc::new(policies),
-        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        audit: Arc::new(AuditLogger::new(params.tmp.path().join("audit.log"))),
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
-        upstream_url: upstream_url.to_string(),
+        upstream_url: params.upstream_url.to_string(),
         http_client: http_client.clone(),
         oauth: Some(Arc::new(OAuthValidator::new(oauth_config, http_client))),
         injection_scanner: None,
