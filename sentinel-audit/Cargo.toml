@@ -18,7 +18,7 @@ sha2 = "0.10"
 hex = "0.4"
 tracing = { workspace = true }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
-rand = "0.8"
+rand = "0.9"
 serde_json_canonicalizer = "0.3"
 regex = "1"
 # Streaming SIEM exporters (Phase 4)
