@@ -14,12 +14,14 @@ use std::sync::{OnceLock, RwLock};
 
 /// Pre-compiled base64 detection regex.
 /// Performance (IMP-007): Compiled once at first use rather than per-call.
-static BASE64_PATTERN: OnceLock<regex::Regex> = OnceLock::new();
-
-fn get_base64_pattern() -> &'static regex::Regex {
-    BASE64_PATTERN.get_or_init(|| {
-        regex::Regex::new(r"[A-Za-z0-9+/]{32,}={0,2}").expect("base64 pattern is valid regex")
-    })
+fn get_base64_pattern() -> Option<&'static regex::Regex> {
+    static BASE64_PATTERN: OnceLock<Option<regex::Regex>> = OnceLock::new();
+    BASE64_PATTERN
+        .get_or_init(|| {
+            // This pattern is a constant literal that will always compile successfully.
+            regex::Regex::new(r"[A-Za-z0-9+/]{32,}={0,2}").ok()
+        })
+        .as_ref()
 }
 
 /// Alert types for output security violations.
@@ -380,7 +382,7 @@ impl OutputSecurityAnalyzer {
     fn detect_encoded_blocks(&self, output: &str) -> Option<SteganographyAlert> {
         // Look for base64-like patterns of significant length
         // IMP-007: Use pre-compiled static pattern for performance
-        let base64_pattern = get_base64_pattern();
+        let base64_pattern = get_base64_pattern()?;
 
         if let Some(mat) = base64_pattern.find(output) {
             // Check if it's in a context that suggests encoding
