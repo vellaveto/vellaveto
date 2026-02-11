@@ -2470,36 +2470,44 @@ fn dpop_failure_label(error: &OAuthError) -> &'static str {
     }
 }
 
-async fn audit_dpop_validation_failure(
-    state: &ProxyState,
-    session_hint: Option<&str>,
-    method: &str,
-    effective_uri: &str,
-    oauth_subject: &str,
+/// Parameters for DPoP validation failure auditing.
+struct DpopAuditParams<'a> {
+    session_hint: Option<&'a str>,
+    method: &'a str,
+    effective_uri: &'a str,
+    oauth_subject: &'a str,
     has_dpop_header: bool,
     dpop_mode: crate::oauth::DpopMode,
-    dpop_reason: &str,
+    dpop_reason: &'a str,
+}
+
+async fn audit_dpop_validation_failure(
+    state: &ProxyState,
+    params: DpopAuditParams<'_>,
 ) -> Result<(), sentinel_audit::AuditError> {
     let action = Action::new(
         "oauth",
         "dpop_validate",
         json!({
-            "method": method,
-            "uri": effective_uri,
-            "dpop_mode": dpop_mode_label(dpop_mode),
+            "method": params.method,
+            "uri": params.effective_uri,
+            "dpop_mode": dpop_mode_label(params.dpop_mode),
         }),
     );
 
     let mut metadata = serde_json::Map::new();
     metadata.insert("source".to_string(), json!("http_proxy"));
     metadata.insert("auth_type".to_string(), json!("oauth_dpop"));
-    metadata.insert("http_method".to_string(), json!(method));
-    metadata.insert("effective_uri".to_string(), json!(effective_uri));
-    metadata.insert("oauth_subject".to_string(), json!(oauth_subject));
-    metadata.insert("dpop_mode".to_string(), json!(dpop_mode_label(dpop_mode)));
-    metadata.insert("dpop_reason".to_string(), json!(dpop_reason));
-    metadata.insert("has_dpop_header".to_string(), json!(has_dpop_header));
-    if let Some(session_id) = session_hint {
+    metadata.insert("http_method".to_string(), json!(params.method));
+    metadata.insert("effective_uri".to_string(), json!(params.effective_uri));
+    metadata.insert("oauth_subject".to_string(), json!(params.oauth_subject));
+    metadata.insert(
+        "dpop_mode".to_string(),
+        json!(dpop_mode_label(params.dpop_mode)),
+    );
+    metadata.insert("dpop_reason".to_string(), json!(params.dpop_reason));
+    metadata.insert("has_dpop_header".to_string(), json!(params.has_dpop_header));
+    if let Some(session_id) = params.session_hint {
         metadata.insert("session".to_string(), json!(session_id));
     }
 
@@ -2508,7 +2516,7 @@ async fn audit_dpop_validation_failure(
         .log_entry(
             &action,
             &Verdict::Deny {
-                reason: format!("OAuth DPoP validation failed: {}", dpop_reason),
+                reason: format!("OAuth DPoP validation failed: {}", params.dpop_reason),
             },
             Value::Object(metadata),
         )
@@ -2567,13 +2575,15 @@ async fn validate_oauth(
                 }
                 if let Err(audit_err) = audit_dpop_validation_failure(
                     state,
-                    session_hint,
-                    method,
-                    effective_uri,
-                    &claims.sub,
-                    dpop_header.is_some(),
-                    validator.config().dpop_mode,
-                    dpop_reason,
+                    DpopAuditParams {
+                        session_hint,
+                        method,
+                        effective_uri,
+                        oauth_subject: &claims.sub,
+                        has_dpop_header: dpop_header.is_some(),
+                        dpop_mode: validator.config().dpop_mode,
+                        dpop_reason,
+                    },
                 )
                 .await
                 {
