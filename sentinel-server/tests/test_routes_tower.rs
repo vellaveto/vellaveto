@@ -3217,6 +3217,54 @@ async fn per_principal_x_principal_takes_precedence_over_bearer() {
     );
 }
 
+#[tokio::test]
+async fn per_principal_x_principal_with_xff_chain_uses_principal_identity() {
+    // X-Principal trust is anchored to trusted direct proxy peer, not derived
+    // client IP from X-Forwarded-For chain.
+    let (mut state, _tmp) = make_per_principal_state(1);
+    state.trusted_proxies = Arc::new(vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)]);
+
+    let body = serde_json::to_string(&json!({
+        "tool": "file", "function": "read", "parameters": {}
+    }))
+    .unwrap();
+
+    // First request from one forwarded client IP.
+    let app = routes::build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-principal", "agent-shared")
+                .header("x-forwarded-for", "198.51.100.10, 127.0.0.1")
+                .body(Body::from(body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Second request with same principal but different forwarded client IP.
+    // Must still be rate-limited under principal identity.
+    let app = routes::build_router(state);
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-principal", "agent-shared")
+                .header("x-forwarded-for", "203.0.113.5, 127.0.0.1")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "same principal should rate-limit even when forwarded client IP changes"
+    );
+}
+
 // ═══════════════════════════════════════════════════
 // COMPILE-FIRST-THEN-STORE (R12-RELOAD-3 / R12-INT-1)
 // ═══════════════════════════════════════════════════
