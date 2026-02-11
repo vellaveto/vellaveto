@@ -1215,10 +1215,15 @@ fn extract_sanitized_header_token(
 
 /// Extract negotiated TLS metadata forwarded by reverse proxies.
 ///
-/// Accepted header aliases (first valid value wins):
+/// Accepted header aliases (higher-priority names are preferred):
 /// - protocol: `x-forwarded-tls-protocol`, `x-forwarded-tls-version`, `x-tls-protocol`, `x-tls-version`
 /// - cipher: `x-forwarded-tls-cipher`, `x-tls-cipher`
 /// - kex group: `x-forwarded-tls-kex-group`, `x-tls-kex-group`
+///
+/// For each field, duplicate header entries must agree. Conflicting duplicate
+/// values or conflicting alias values are treated as ambiguous and the field is
+/// dropped. Invalid higher-priority aliases do not block fallback to valid
+/// lower-priority aliases.
 fn extract_negotiated_tls_metadata(headers: &HeaderMap) -> Option<NegotiatedTlsMetadata> {
     let metadata = NegotiatedTlsMetadata {
         protocol: extract_sanitized_header_token(
