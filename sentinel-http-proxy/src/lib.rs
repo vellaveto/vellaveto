@@ -23,4 +23,18 @@ pub mod proxy_metrics {
     pub fn record_dlp_scan_latency(seconds: f64) {
         metrics::histogram!("sentinel_dlp_scan_duration_seconds").record(seconds);
     }
+
+    /// Record a DPoP validation failure with a stable reason code.
+    pub fn record_dpop_failure(reason: &str) {
+        metrics::counter!(
+            "sentinel_oauth_dpop_failures_total",
+            "reason" => reason.to_string()
+        )
+        .increment(1);
+    }
+
+    /// Record that a DPoP replay (`jti` reuse) was detected.
+    pub fn record_dpop_replay_detected() {
+        metrics::counter!("sentinel_oauth_dpop_replay_total").increment(1);
+    }
 }

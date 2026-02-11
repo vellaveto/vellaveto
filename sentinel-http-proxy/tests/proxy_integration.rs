@@ -2729,6 +2729,7 @@ async fn oauth_dpop_required_missing_proof_returns_401() {
     let tmp = TempDir::new().unwrap();
     let state =
         build_oauth_test_state_with_required_dpop("http://localhost:9999/mcp", &jwks_url, &tmp);
+    let audit = state.audit.clone();
     let app = build_router(state);
 
     let access_token = sign_test_jwt("user-123", "tools.call", 300);
@@ -2755,6 +2756,40 @@ async fn oauth_dpop_required_missing_proof_returns_401() {
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     let json = json_body(resp).await;
     assert_eq!(json["error"], "Missing DPoP proof");
+
+    let entries = audit.load_entries().await.unwrap();
+    let dpop_entry = entries
+        .iter()
+        .find(|entry| entry.action.tool == "oauth" && entry.action.function == "dpop_validate")
+        .expect("expected DPoP validation audit entry");
+    assert_eq!(
+        dpop_entry
+            .metadata
+            .get("dpop_reason")
+            .and_then(|v| v.as_str()),
+        Some("missing_proof")
+    );
+    assert_eq!(
+        dpop_entry
+            .metadata
+            .get("dpop_mode")
+            .and_then(|v| v.as_str()),
+        Some("required")
+    );
+    assert_eq!(
+        dpop_entry
+            .metadata
+            .get("oauth_subject")
+            .and_then(|v| v.as_str()),
+        Some("user-123")
+    );
+    assert_eq!(
+        dpop_entry
+            .metadata
+            .get("has_dpop_header")
+            .and_then(|v| v.as_bool()),
+        Some(false)
+    );
 }
 
 #[tokio::test]
@@ -2831,6 +2866,84 @@ async fn oauth_dpop_required_ath_mismatch_returns_401() {
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     let json = json_body(resp).await;
     assert_eq!(json["error"], "Invalid or expired token");
+}
+
+#[tokio::test]
+async fn oauth_dpop_replay_detected_is_audited() {
+    let upstream_url = start_mock_upstream().await;
+    let jwks_url = start_mock_jwks_server().await;
+    let tmp = TempDir::new().unwrap();
+    let state = build_oauth_test_state_with_required_dpop(&upstream_url, &jwks_url, &tmp);
+    let audit = state.audit.clone();
+    let app = build_router(state);
+
+    let access_token = sign_test_jwt("user-123", "tools.call", 300);
+    let htu = "http://127.0.0.1:3001/mcp";
+    let replayed_proof = sign_test_dpop_proof("POST", htu, &access_token, 0, "jti-dpop-replay");
+
+    let body = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "tools/call",
+        "params": {"name": "read_file", "arguments": {"path": "/tmp/test"}}
+    }))
+    .unwrap();
+
+    let first_resp = app
+        .clone()
+        .oneshot(
+            Request::post("/mcp")
+                .header("host", "127.0.0.1:3001")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", access_token))
+                .header("dpop", replayed_proof.clone())
+                .body(Body::from(body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first_resp.status(), StatusCode::OK);
+
+    let second_resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("host", "127.0.0.1:3001")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", access_token))
+                .header("dpop", replayed_proof)
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second_resp.status(), StatusCode::UNAUTHORIZED);
+    let json = json_body(second_resp).await;
+    assert_eq!(json["error"], "Invalid or expired token");
+
+    let entries = audit.load_entries().await.unwrap();
+    let replay_entry = entries
+        .iter()
+        .find(|entry| {
+            entry.action.tool == "oauth"
+                && entry.action.function == "dpop_validate"
+                && entry.metadata.get("dpop_reason").and_then(|v| v.as_str())
+                    == Some("replay_detected")
+        })
+        .expect("expected replay_detected DPoP audit entry");
+    assert_eq!(
+        replay_entry
+            .metadata
+            .get("oauth_subject")
+            .and_then(|v| v.as_str()),
+        Some("user-123")
+    );
+    assert_eq!(
+        replay_entry
+            .metadata
+            .get("has_dpop_header")
+            .and_then(|v| v.as_bool()),
+        Some(true)
+    );
 }
 
 #[tokio::test]
