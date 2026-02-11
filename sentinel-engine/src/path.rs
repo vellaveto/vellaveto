@@ -11,7 +11,7 @@ use crate::error::EngineError;
 use std::borrow::Cow;
 use std::path::{Component, PathBuf};
 
-/// Default maximum percent-decoding iterations in [`normalize_path`].
+/// Default maximum percent-decoding iterations for path normalization.
 /// Paths requiring more iterations fail-closed with an error.
 pub const DEFAULT_MAX_PATH_DECODE_ITERATIONS: u32 = 20;
 

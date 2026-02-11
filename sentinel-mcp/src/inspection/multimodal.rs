@@ -141,7 +141,7 @@ pub struct MultimodalConfig {
     #[serde(default)]
     pub enable_stego_detection: bool,
 
-    /// Content types to scan. Default: [Image].
+    /// Content types to scan. Default: `[Image]`.
     #[serde(default = "default_content_types")]
     pub content_types: Vec<ContentType>,
 }

@@ -144,7 +144,7 @@ pub struct CompiledIpRules {
 /// A pre-compiled context condition for session-level policy evaluation.
 ///
 /// Context conditions are checked after tool match and path/network rules,
-/// but before policy type dispatch. They require an [`EvaluationContext`]
+/// but before policy type dispatch. They require an [`sentinel_types::EvaluationContext`]
 /// to evaluate — when no context is provided, all context conditions are skipped.
 #[derive(Debug, Clone)]
 pub enum CompiledContextCondition {
@@ -365,8 +365,8 @@ pub(crate) struct CompiledConditions {
 
 /// A policy with all patterns pre-compiled for zero-lock evaluation.
 ///
-/// Created by [`PolicyEngine::compile_policies`] or [`PolicyEngine::with_policies`].
-/// Stores the original [`Policy`] alongside pre-compiled matchers so that
+/// Created by [`crate::PolicyEngine::compile_policies`] or [`crate::PolicyEngine::with_policies`].
+/// Stores the original [`Policy`](sentinel_types::Policy) alongside pre-compiled matchers so that
 /// `evaluate_action` requires zero Mutex acquisitions.
 #[derive(Debug, Clone)]
 pub struct CompiledPolicy {

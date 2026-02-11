@@ -1,13 +1,14 @@
 //! MCP stdio proxy bridge module.
 //!
-//! Provides the core `ProxyBridge` that sits between an agent (stdin/stdout) and
+//! Provides the core [`ProxyBridge`] that sits between an agent (stdin/stdout) and
 //! a child MCP server (spawned subprocess). Intercepts tool calls, evaluates them
 //! against policies, and either forwards allowed calls or returns denial responses.
 //!
-//! # Modules
+//! # Main Types
 //!
-//! - [`bridge`] - Core ProxyBridge implementation
-//! - [`types`] - ProxyDecision, ProxyError, and related types
+//! - [`ProxyBridge`] - Core proxy implementation
+//! - [`ProxyDecision`] - Allow/deny decision with optional response
+//! - [`ProxyError`] - Error types for proxy operations
 
 mod bridge;
 mod types;

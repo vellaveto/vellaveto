@@ -132,7 +132,7 @@ impl PolicyEngine {
     /// - Wildcard `*.` prefix is allowed (only at the beginning)
     /// - Empty string is rejected
     ///
-    /// See [`domain::validate_domain_pattern`] for details.
+    /// See the internal `domain::validate_domain_pattern` function for details.
     pub fn validate_domain_pattern(pattern: &str) -> Result<(), String> {
         domain::validate_domain_pattern(pattern)
     }
@@ -547,28 +547,29 @@ impl PolicyEngine {
     }
     /// Normalize a file path: resolve `..`, `.`, reject null bytes, ensure deterministic form.
     ///
-    /// See [`path::normalize_path`] for details.
+    /// Handles percent-encoding, null bytes, and path traversal attempts.
     pub fn normalize_path(raw: &str) -> Result<String, EngineError> {
         path::normalize_path(raw)
     }
 
     /// Normalize a file path with a configurable percent-decoding iteration limit.
     ///
-    /// See [`path::normalize_path_bounded`] for details.
+    /// Use this variant when you need to control the maximum decode iterations
+    /// to prevent DoS from deeply nested percent-encoding.
     pub fn normalize_path_bounded(raw: &str, max_iterations: u32) -> Result<String, EngineError> {
         path::normalize_path_bounded(raw, max_iterations)
     }
 
     /// Extract the domain from a URL string.
     ///
-    /// See [`domain::extract_domain`] for details.
+    /// Returns the host portion of the URL, or the original string if parsing fails.
     pub fn extract_domain(url: &str) -> String {
         domain::extract_domain(url)
     }
 
     /// Match a domain against a pattern like `*.example.com` or `example.com`.
     ///
-    /// See [`domain::match_domain_pattern`] for details.
+    /// Supports wildcard patterns with `*.` prefix for subdomain matching.
     pub fn match_domain_pattern(domain_str: &str, pattern: &str) -> bool {
         domain::match_domain_pattern(domain_str, pattern)
     }

@@ -1,6 +1,6 @@
 //! Langfuse AI observability platform exporter.
 //!
-//! Langfuse (https://langfuse.com) provides tracing, evaluation, and
+//! Langfuse (<https://langfuse.com>) provides tracing, evaluation, and
 //! observability for LLM applications.
 //!
 //! ## API Integration

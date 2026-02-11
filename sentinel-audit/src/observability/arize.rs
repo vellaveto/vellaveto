@@ -1,6 +1,6 @@
 //! Arize AI observability platform exporter.
 //!
-//! Arize (https://arize.com) provides ML observability with a focus on
+//! Arize (<https://arize.com>) provides ML observability with a focus on
 //! embeddings, model performance, and drift detection.
 //!
 //! ## API Integration

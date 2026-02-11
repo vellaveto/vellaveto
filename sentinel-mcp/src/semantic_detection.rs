@@ -471,7 +471,7 @@ impl SemanticScanner {
     /// Score a text for semantic similarity to injection templates.
     ///
     /// Returns `(max_score, matched_template_if_any)` tuple for convenience.
-    /// For full details use [`score_detailed`].
+    /// For full details use [`Self::score_detailed`].
     pub fn score_text(&self, text: &str) -> (f64, Option<String>) {
         let result = self.score_detailed(text);
         (result.score, result.matched_template)

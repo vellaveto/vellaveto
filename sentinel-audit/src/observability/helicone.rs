@@ -1,6 +1,6 @@
 //! Helicone AI observability platform exporter.
 //!
-//! Helicone (https://helicone.ai) provides LLM observability through
+//! Helicone (<https://helicone.ai>) provides LLM observability through
 //! a simple logging API. This exporter sends security spans as log entries.
 //!
 //! ## Feature Gate
