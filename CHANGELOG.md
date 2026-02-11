@@ -169,6 +169,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added unit/integration coverage for TLS metadata extraction and audit emission.
   - Hardened extraction to reject ambiguous duplicate/alias values for each TLS metadata field (fail-closed on conflicts).
   - Preserved fallback to lower-priority alias headers when a higher-priority alias is malformed.
+  - Added route-level audit integration coverage for conflicting alias/duplicate TLS protocol headers and safe fallback behavior.
   - Added TLS KEX negotiation integration tests for `classical_only`, `hybrid_preferred`, and `hybrid_required_when_supported` including classical-only client failure-mode coverage when PQ/hybrid groups are available.
 
 - **Workspace outbound TLS backend standardization**:
