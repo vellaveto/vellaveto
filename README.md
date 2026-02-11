@@ -72,10 +72,11 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 - Implemented controls:
   - Configurable `tls.kex_policy` (`classical_only`, `hybrid_preferred`, `hybrid_required_when_supported`) in `TlsConfig`
   - Validation guardrails: hybrid policies require `tls.mode` enabled and `tls.min_version = "1.3"`
-- Planned migration work:
-  - Expose negotiated TLS handshake metadata (KEX group, protocol, cipher) in telemetry and audit logs
-  - Standardize outbound TLS backend policy for `reqwest` consumers
-  - Add a phased migration runbook with rollout and rollback gates
+  - Negotiate and emit TLS metadata (`protocol`, `cipher`, `kex_group`) to audit and observability contexts
+  - Standardize workspace outbound `reqwest` TLS backend to rustls
+  - Fail-closed handling for ambiguous forwarded TLS metadata aliases/duplicates
+- Migration runbook:
+  - `docs/quantum-migration.md` includes phased rollout, canary gates, and rollback procedure
 - Sentinel roadmap now tracks external migration milestones (goals by 2028, high-priority migration by 2031, full migration by 2035). See `ROADMAP.md`.
 
 ## ❓ Why Sentinel?
@@ -1155,6 +1156,7 @@ Comprehensive documentation is available in the `docs/` directory:
 | [Deployment Guide](docs/DEPLOYMENT.md) | Docker, Kubernetes (Helm), and bare metal installation |
 | [Operations Runbook](docs/OPERATIONS.md) | Monitoring, troubleshooting, and maintenance procedures |
 | [Security Hardening](docs/SECURITY.md) | Security configuration best practices |
+| [Quantum Migration Runbook](docs/quantum-migration.md) | Phased TLS PQ rollout and rollback gates |
 | [API Reference](docs/API.md) | Complete HTTP API documentation |
 | [Roadmap](ROADMAP.md) | Current release status and upcoming phases |
 | [Module Extraction Playbook](MODULE_EXTRACTION_PLAYBOOK.md) | Contributor workflow for safe module splits |

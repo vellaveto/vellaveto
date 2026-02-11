@@ -552,6 +552,8 @@ exit 0
 
 Sentinel itself serves plain HTTP. For TLS termination, use a reverse proxy:
 
+For staged post-quantum TLS policy rollout when Sentinel terminates TLS directly, see `./quantum-migration.md`.
+
 ### With Nginx
 
 ```nginx

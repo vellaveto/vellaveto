@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `MODULE_EXTRACTION_PLAYBOOK.md` and linked it from `README.md`; marked Phase 16.6 playbook/contract-check tasks complete in `ROADMAP.md`.
   - Added a post-quantum readiness section to `README.md` with standards status and migration milestones (2028/2031/2035 alignment).
   - Added Phase 16.7 post-quantum cryptography transition track to `ROADMAP.md` with TLS policy, observability, and rollout tasks.
+  - Published `docs/quantum-migration.md` runbook with staged `tls.kex_policy` rollout/rollback guidance and canary verification steps.
   - Clarified OPA runtime status in `README.md` and `ROADMAP.md`: request-path enforcement is active with fail-open/fail-closed controls and runtime observability.
   - Added 2026-02-11 research-backed hardening backlog updates across `README.md`, `ROADMAP.md`, and `docs/SECURITY.md`:
     - P0 CI supply-chain hardening pack

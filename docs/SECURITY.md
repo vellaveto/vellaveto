@@ -148,6 +148,24 @@ mapping = { "sentinel-evaluator" = "evaluator", "sentinel-operator" = "operator"
 
 Always terminate TLS in front of Sentinel. Use a reverse proxy with strong TLS settings.
 
+#### Sentinel TLS policy controls
+
+When Sentinel terminates TLS directly, configure TLS 1.3 and an explicit key exchange policy:
+
+```toml
+[tls]
+mode = "tls"
+min_version = "1.3"
+kex_policy = "hybrid_preferred"
+```
+
+`kex_policy` values:
+- `classical_only`
+- `hybrid_preferred`
+- `hybrid_required_when_supported`
+
+For staged rollout and rollback guidance, see `./quantum-migration.md`.
+
 #### Nginx Configuration
 
 ```nginx
