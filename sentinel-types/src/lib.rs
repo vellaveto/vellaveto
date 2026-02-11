@@ -37,7 +37,7 @@ impl fmt::Display for TaskStatus {
             TaskStatus::Pending => write!(f, "pending"),
             TaskStatus::Running => write!(f, "running"),
             TaskStatus::Completed => write!(f, "completed"),
-            TaskStatus::Failed { reason } => write!(f, "failed: {}", reason),
+            TaskStatus::Failed { reason } => write!(f, "failed: {reason}"),
             TaskStatus::Cancelled => write!(f, "cancelled"),
             TaskStatus::Expired => write!(f, "expired"),
         }
@@ -739,19 +739,19 @@ impl fmt::Display for ValidationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ValidationError::EmptyField { field } => {
-                write!(f, "Action {} must not be empty", field)
+                write!(f, "Action {field} must not be empty")
             }
             ValidationError::NullByte { field } => {
-                write!(f, "Action {} contains null byte", field)
+                write!(f, "Action {field} contains null byte")
             }
             ValidationError::ControlCharacter { field } => {
-                write!(f, "Action {} contains control character", field)
+                write!(f, "Action {field} contains control character")
             }
             ValidationError::TooLong { field, len, max } => {
-                write!(f, "Action {} too long: {} bytes (max {})", field, len, max)
+                write!(f, "Action {field} too long: {len} bytes (max {max})")
             }
             ValidationError::TooManyTargets { count, max } => {
-                write!(f, "Too many targets: {} (max {})", count, max)
+                write!(f, "Too many targets: {count} (max {max})")
             }
             ValidationError::TargetTooLong {
                 field,
@@ -759,14 +759,10 @@ impl fmt::Display for ValidationError {
                 len,
                 max,
             } => {
-                write!(
-                    f,
-                    "Target {}[{}] too long: {} bytes (max {})",
-                    field, index, len, max
-                )
+                write!(f, "Target {field}[{index}] too long: {len} bytes (max {max})")
             }
             ValidationError::TargetNullByte { field, index } => {
-                write!(f, "Target {}[{}] contains null byte", field, index)
+                write!(f, "Target {field}[{index}] contains null byte")
             }
         }
     }
@@ -2020,9 +2016,9 @@ impl fmt::Display for MemoryAccessDecision {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             MemoryAccessDecision::Allow => write!(f, "allow"),
-            MemoryAccessDecision::Deny { reason } => write!(f, "deny: {}", reason),
+            MemoryAccessDecision::Deny { reason } => write!(f, "deny: {reason}"),
             MemoryAccessDecision::RequireApproval { reason } => {
-                write!(f, "require_approval: {}", reason)
+                write!(f, "require_approval: {reason}")
             }
         }
     }

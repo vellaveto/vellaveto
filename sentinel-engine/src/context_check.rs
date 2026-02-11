@@ -87,8 +87,7 @@ impl PolicyEngine {
                     if context.call_counts.is_empty() {
                         return Some(Verdict::Deny {
                             reason: format!(
-                                "{} (no session call counts available — fail-closed)",
-                                deny_reason
+                                "{deny_reason} (no session call counts available — fail-closed)"
                             ),
                         });
                     }
@@ -194,8 +193,7 @@ impl PolicyEngine {
                     if context.previous_actions.is_empty() {
                         return Some(Verdict::Deny {
                             reason: format!(
-                                "{} (no session history available — fail-closed)",
-                                deny_reason
+                                "{deny_reason} (no session history available — fail-closed)"
                             ),
                         });
                     }
@@ -248,10 +246,7 @@ impl PolicyEngine {
                             if let Some(ref iss) = identity.issuer {
                                 if blocked_issuers.contains(&iss.to_lowercase()) {
                                     return Some(Verdict::Deny {
-                                        reason: format!(
-                                            "{} (blocked issuer: {})",
-                                            deny_reason, iss
-                                        ),
+                                        reason: format!("{deny_reason} (blocked issuer: {iss})"),
                                     });
                                 }
                             }
@@ -260,10 +255,7 @@ impl PolicyEngine {
                             if let Some(ref sub) = identity.subject {
                                 if blocked_subjects.contains(&sub.to_lowercase()) {
                                     return Some(Verdict::Deny {
-                                        reason: format!(
-                                            "{} (blocked subject: {})",
-                                            deny_reason, sub
-                                        ),
+                                        reason: format!("{deny_reason} (blocked subject: {sub})"),
                                     });
                                 }
                             }
@@ -361,8 +353,7 @@ impl PolicyEngine {
                             {
                                 return Some(Verdict::Deny {
                                     reason: format!(
-                                        "{} (identity restrictions configured but no agent identity header provided)",
-                                        deny_reason
+                                        "{deny_reason} (identity restrictions configured but no agent identity header provided)"
                                     ),
                                 });
                             }

@@ -149,17 +149,14 @@ impl PolicyEngine {
                     constraint_type: "all_skipped_fail_closed".to_string(),
                     param: "".to_string(),
                     expected: "at least one constraint evaluated".to_string(),
-                    actual: format!(
-                        "all {} constraints skipped (missing params)",
-                        total_constraints
-                    ),
+                    actual: format!("all {total_constraints} constraints skipped (missing params)"),
                     passed: false,
                 });
             }
+            let policy_name = &cp.policy.name;
             return Ok(Some(Verdict::Deny {
                 reason: format!(
-                    "All {} constraints skipped (parameters missing) in policy '{}' — fail-closed",
-                    total_constraints, cp.policy.name
+                    "All {total_constraints} constraints skipped (parameters missing) in policy '{policy_name}' — fail-closed"
                 ),
             }));
         }
@@ -257,8 +254,7 @@ impl PolicyEngine {
                             return Err(EngineError::InvalidCondition {
                                 policy_id: policy.id.clone(),
                                 reason: format!(
-                                    "Parameter '{}' is not a string for glob operator",
-                                    param_name
+                                    "Parameter '{param_name}' is not a string for glob operator"
                                 ),
                             });
                         }
@@ -276,7 +272,7 @@ impl PolicyEngine {
                         Ok(n) => n,
                         Err(e) => {
                             return Ok(Some(Verdict::Deny {
-                                reason: format!("Path normalization failed: {}", e),
+                                reason: format!("Path normalization failed: {e}"),
                             }))
                         }
                     };
@@ -319,7 +315,7 @@ impl PolicyEngine {
                         Ok(n) => n,
                         Err(e) => {
                             return Ok(Some(Verdict::Deny {
-                                reason: format!("Path normalization failed: {}", e),
+                                reason: format!("Path normalization failed: {e}"),
                             }))
                         }
                     };

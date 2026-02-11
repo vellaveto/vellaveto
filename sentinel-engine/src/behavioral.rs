@@ -102,14 +102,14 @@ impl std::fmt::Display for BehavioralError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BehavioralError::InvalidAlpha(a) => {
-                write!(f, "alpha must be in (0.0, 1.0], got {}", a)
+                write!(f, "alpha must be in (0.0, 1.0], got {a}")
             }
             BehavioralError::InvalidThreshold(t) => {
-                write!(f, "threshold must be positive and finite, got {}", t)
+                write!(f, "threshold must be positive and finite, got {t}")
             }
             BehavioralError::InvalidMaxTools => write!(f, "max_tools_per_agent must be > 0"),
             BehavioralError::InvalidMaxAgents => write!(f, "max_agents must be > 0"),
-            BehavioralError::InvalidSnapshot(msg) => write!(f, "invalid snapshot: {}", msg),
+            BehavioralError::InvalidSnapshot(msg) => write!(f, "invalid snapshot: {msg}"),
         }
     }
 }

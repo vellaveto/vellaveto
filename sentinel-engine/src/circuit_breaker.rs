@@ -105,14 +105,14 @@ impl CircuitBreakerManager {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
-            .map_err(|e| format!("System time error (fail-closed): {}", e))
+            .map_err(|e| format!("System time error (fail-closed): {e}"))
     }
 
     /// Fallback timestamp for non-critical paths where we can't propagate errors.
     /// Uses 0 as a safe default that keeps circuits in their current state.
     fn now_or_zero() -> u64 {
         Self::now().unwrap_or_else(|e| {
-            tracing::error!("CRITICAL: {}", e);
+            tracing::error!("CRITICAL: {e}");
             0
         })
     }
@@ -135,12 +135,10 @@ impl CircuitBreakerManager {
         // SECURITY: Fail-closed on RwLock poisoning instead of recovering stale state.
         let circuits = self.circuits.read().map_err(|_| {
             tracing::error!(
-                "CRITICAL: Circuit breaker RwLock poisoned — failing closed for tool '{}'",
-                tool
+                "CRITICAL: Circuit breaker RwLock poisoned — failing closed for tool '{tool}'"
             );
             let reason = format!(
-                "Circuit breaker unavailable for tool '{}' (internal error — failing closed)",
-                tool
+                "Circuit breaker unavailable for tool '{tool}' (internal error — failing closed)"
             );
             // GAP-011: Record rejection metric
             metrics::counter!(
@@ -172,11 +170,10 @@ impl CircuitBreakerManager {
                     // Would transition to half-open, allow one request
                     Ok(())
                 } else {
+                    let opens_in = (stats.last_state_change + self.open_duration_secs).saturating_sub(now);
+                    let failure_count = stats.failure_count;
                     let reason = format!(
-                        "Circuit breaker open for tool '{}' (failures: {}, opens in {}s)",
-                        tool,
-                        stats.failure_count,
-                        (stats.last_state_change + self.open_duration_secs).saturating_sub(now)
+                        "Circuit breaker open for tool '{tool}' (failures: {failure_count}, opens in {opens_in}s)"
                     );
                     // GAP-011: Record rejection metric
                     metrics::counter!(
@@ -194,8 +191,7 @@ impl CircuitBreakerManager {
                     Ok(())
                 } else {
                     let reason = format!(
-                        "Circuit breaker half-open for tool '{}' (testing recovery)",
-                        tool
+                        "Circuit breaker half-open for tool '{tool}' (testing recovery)"
                     );
                     // GAP-011: Record rejection metric
                     metrics::counter!(
