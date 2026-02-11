@@ -170,7 +170,8 @@ impl CircuitBreakerManager {
                     // Would transition to half-open, allow one request
                     Ok(())
                 } else {
-                    let opens_in = (stats.last_state_change + self.open_duration_secs).saturating_sub(now);
+                    let opens_in =
+                        (stats.last_state_change + self.open_duration_secs).saturating_sub(now);
                     let failure_count = stats.failure_count;
                     let reason = format!(
                         "Circuit breaker open for tool '{tool}' (failures: {failure_count}, opens in {opens_in}s)"
@@ -190,9 +191,8 @@ impl CircuitBreakerManager {
                 if stats.success_count < self.half_open_max_requests {
                     Ok(())
                 } else {
-                    let reason = format!(
-                        "Circuit breaker half-open for tool '{tool}' (testing recovery)"
-                    );
+                    let reason =
+                        format!("Circuit breaker half-open for tool '{tool}' (testing recovery)");
                     // GAP-011: Record rejection metric
                     metrics::counter!(
                         "sentinel_circuit_breaker_rejections_total",

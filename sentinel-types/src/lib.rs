@@ -759,7 +759,10 @@ impl fmt::Display for ValidationError {
                 len,
                 max,
             } => {
-                write!(f, "Target {field}[{index}] too long: {len} bytes (max {max})")
+                write!(
+                    f,
+                    "Target {field}[{index}] too long: {len} bytes (max {max})"
+                )
             }
             ValidationError::TargetNullByte { field, index } => {
                 write!(f, "Target {field}[{index}] contains null byte")
