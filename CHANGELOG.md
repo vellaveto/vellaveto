@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated `ROADMAP.md` with an explicit Phase 16.6 architecture split/modularization track.
   - Added a post-quantum readiness section to `README.md` with standards status and migration milestones (2028/2031/2035 alignment).
   - Added Phase 16.7 post-quantum cryptography transition track to `ROADMAP.md` with TLS policy, observability, and rollout tasks.
-  - Clarified OPA runtime status in `README.md` and `ROADMAP.md`: OPA client/config primitives exist, while request-path enforcement is currently guarded fail-closed pending full runtime wiring.
+  - Clarified OPA runtime status in `README.md` and `ROADMAP.md`: request-path enforcement is active with fail-open/fail-closed controls and runtime observability.
   - Added 2026-02-11 research-backed hardening backlog updates across `README.md`, `ROADMAP.md`, and `docs/SECURITY.md`:
     - P0 CI supply-chain hardening pack
     - P0 sender-constrained OAuth (DPoP) enforcement path in `sentinel-http-proxy`
@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added Dependabot config for Cargo and GitHub Actions (`.github/dependabot.yml`)
   - Added PR dependency review workflow (`.github/workflows/dependency-review.yml`)
   - Added `cargo-deny` policy workflow (`.github/workflows/cargo-deny.yml`) with baseline config in `deny.toml`
+  - Added provenance + SBOM workflow (`.github/workflows/provenance-sbom.yml`) with immutable action pins, lockfile immutability checks, release attestations, and CycloneDX artifact publishing
 
 - **Post-Quantum TLS KEX Policy (initial implementation)**:
   - Added `tls.kex_policy` to `TlsConfig` with values:
@@ -83,9 +84,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added explicit rejection for headers whose entry count exceeds `limits.max_call_chain_length` (instead of truncation).
   - Added regression coverage for malformed and over-limit call-chain headers on tool-call, pass-through, sampling, resource, and task paths.
 
-- **OPA fail-closed guardrails (`sentinel-server`)**:
-  - `sentinel serve`, `sentinel evaluate`, and `sentinel check` now reject configs with `[opa].enabled = true` until runtime request-path OPA decision enforcement is fully wired.
-  - Added CLI integration regressions for OPA-enabled fail-closed behavior in `check` and `evaluate`.
+- **OPA runtime decision enforcement (`sentinel-server`)**:
+  - Runtime OPA verdict wiring is active in evaluation request paths with fail-open/fail-closed controls and runtime query/error metrics.
+  - Added route-level regression coverage for fail-open and fail-closed behavior when OPA is unreachable.
+
+- **DPoP failure observability (`sentinel-http-proxy`)**:
+  - Added dedicated DPoP counters: `sentinel_oauth_dpop_failures_total` (reason-labeled) and `sentinel_oauth_dpop_replay_total`.
+  - Added explicit audit events for DPoP validation failures with `dpop_reason`, `dpop_mode`, `oauth_subject`, and header/session context.
+  - Added integration coverage for missing-proof and replay-detected audit paths.
 
 - **DLP pattern validation at startup (SEC-006)**:
   - Both `sentinel-server` and `sentinel-http-proxy` now validate all DLP patterns compile successfully during startup

@@ -27,6 +27,9 @@ policies/
 .failures/
 .session-state.md
 .backups.log
+CODEX_PLAN.md
+IMPROVEMENT_PLAN.md
+SWARM_FINDINGS_PLAN.md
 TASKS.md
 CLAUDE.md
 .claude/

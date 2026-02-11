@@ -2,7 +2,7 @@
 
 > **Version:** 2.2.1 (Released)
 > **Generated:** 2026-02-11
-> **Status:** v2.2.1 released; v2.2 Phases 12-15 complete; Phase 16+ planned; architecture split and post-quantum readiness tracks active; OPA runtime decision enforcement wiring remains pending (guarded fail-closed); web-validated supply-chain and sender-constrained auth hardening tracks added
+> **Status:** v2.2.1 released; v2.2 Phases 12-15 complete; Phase 16+ planned; architecture split and post-quantum readiness tracks active; OPA runtime decision enforcement is active (fail-open/fail-closed configurable); web-validated supply-chain and sender-constrained auth hardening tracks delivered
 > **Based on:** Multi-agent research (MCP spec 2025-11-25, OWASP ASI Top 10, enterprise patterns, competitor analysis)
 
 ---
@@ -28,7 +28,7 @@ Sentinel v2.2.1 is production-ready with 35 audit rounds and 3,700+ tests. This 
 ### 2026-02-10 Hardening Delta
 
 - `X-Upstream-Agents` handling moved to strict fail-closed behavior for malformed/oversized and over-entry-limit chains (no truncation fallback).
-- OPA guardrails expanded: `sentinel serve`, `sentinel evaluate`, and `sentinel check` now reject `[opa].enabled = true` until request-path OPA enforcement wiring lands.
+- OPA runtime decision enforcement is active in evaluation request paths with fail-open/fail-closed controls and operational metrics.
 
 ### 2026-02-11 Research Delta
 
@@ -600,7 +600,7 @@ auto_revoke_on_alert = true
 
 *Focus: Runtime implementation of enterprise features*
 
-> **Status:** Core runtime components implemented in commit `db7f99b`; OPA request-path decision enforcement wiring remains pending and is currently guarded fail-closed.
+> **Status:** Core runtime components implemented in commit `db7f99b`; OPA request-path decision enforcement is active with runtime metrics and fail-open/fail-closed behavior.
 
 ### 5.5.1 TLS Runtime Implementation
 
@@ -619,8 +619,8 @@ auto_revoke_on_alert = true
 | Add decision caching with TTL | P2 | ✅ Complete |
 | Implement fail-open/fail-closed modes | P2 | ✅ Complete |
 | Add structured decision parsing | P2 | ✅ Complete |
-| Wire OPA decisions into server request path (`serve`) | P1 | 🚧 In Progress (guarded fail-closed) |
-| Wire OPA decisions into CLI policy path (`evaluate`) | P1 | 🚧 In Progress (guarded fail-closed) |
+| Wire OPA decisions into server request path (`serve`) | P1 | ✅ Complete |
+| Wire OPA decisions into CLI policy path (`evaluate`) | P1 | ✅ Complete |
 
 ### 5.5.3 Threat Intelligence Runtime
 
@@ -653,7 +653,7 @@ auto_revoke_on_alert = true
 - [x] TLS termination with client cert extraction
 - [x] SPIFFE ID extraction from X.509 SAN URIs
 - [x] OPA client with LRU caching and fail modes
-- [ ] OPA request-path decision enforcement wiring (guarded fail-closed until complete)
+- [x] OPA request-path decision enforcement wiring
 - [x] Threat intelligence clients (TAXII, MISP, Custom)
 - [x] JIT session management with approval workflow
 - [ ] FIPS 140-2 compliance mode (deferred to v2.1)
@@ -1620,26 +1620,26 @@ v2.2 Complete! Ready for v2.3 planning.
 - Complete highest-priority migration activities by **2031**
 - Complete full migration by **2035**
 
-### 16.8 CI Supply-Chain Hardening Pack (Planned)
+### 16.8 CI Supply-Chain Hardening Pack (Delivered)
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
 | Add pull-request dependency review gate (`dependency-review-action`) | P0 | 1 day | ✅ Complete |
 | Add `.github/dependabot.yml` for Cargo and GitHub Actions | P0 | 1 day | ✅ Complete |
 | Add `cargo-deny` policy workflow + baseline config (`deny.toml`) | P1 | 1 day | ✅ Complete (initial baseline) |
-| Pin third-party GitHub Actions to immutable commit SHAs | P0 | 2 days | Planned |
-| Add build provenance attestation in release workflow | P0 | 2 days | Planned |
-| Generate and publish SBOM (CycloneDX/SPDX) with releases | P0 | 2 days | Planned |
+| Pin third-party GitHub Actions to immutable commit SHAs | P0 | 2 days | ✅ Complete |
+| Add build provenance attestation in release workflow | P0 | 2 days | ✅ Complete |
+| Generate and publish SBOM (CycloneDX/SPDX) with releases | P0 | 2 days | ✅ Complete |
 
-### 16.9 Sender-Constrained OAuth for HTTP Proxy (Planned)
+### 16.9 Sender-Constrained OAuth for HTTP Proxy (Delivered)
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
-| Add DPoP enforcement mode to `sentinel-http-proxy` OAuth config | P0 | 2 days | Planned |
-| Validate DPoP proof claims (`htu`, `htm`, `jti`, nonce, `ath`) per RFC 9449 | P0 | 3 days | Planned |
-| Bind proof validation to access token and request path/method checks | P0 | 2 days | Planned |
-| Add proxy integration tests for replay and mismatch cases | P1 | 2 days | Planned |
-| Add audit events and Prometheus metrics for DPoP failures/replay | P1 | 2 days | Planned |
+| Add DPoP enforcement mode to `sentinel-http-proxy` OAuth config | P0 | 2 days | ✅ Complete |
+| Validate DPoP proof claims (`htu`, `htm`, `jti`, nonce, `ath`) per RFC 9449 | P0 | 3 days | ✅ Complete |
+| Bind proof validation to access token and request path/method checks | P0 | 2 days | ✅ Complete |
+| Add proxy integration tests for replay and mismatch cases | P1 | 2 days | ✅ Complete |
+| Add audit events and Prometheus metrics for DPoP failures/replay | P1 | 2 days | ✅ Complete |
 
 ---
 

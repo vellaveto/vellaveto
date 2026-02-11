@@ -867,17 +867,20 @@ This section captures externally researched controls and current implementation 
 
 ### P0
 - CI supply-chain hardening pack:
-  dependency review on PRs and Dependabot for Cargo/Actions are implemented.
-  Remaining: action SHA pinning, build provenance attestations, and SBOM publishing.
+  dependency review on PRs, Dependabot for Cargo/Actions, action SHA pinning,
+  build provenance attestations, and SBOM publishing are implemented.
 - OAuth sender-constrained token enforcement in HTTP proxy:
-  integrate DPoP proof validation into request authorization path (not only NHI subsystem).
+  DPoP proof validation is integrated into request authorization path (not only NHI subsystem),
+  with explicit failure/replay audit events and dedicated proxy counters.
 
 ### P1
 - `cargo-deny` dependency policy checks (advisories/bans/sources/licenses) are now wired in CI with a baseline `deny.toml`.
-- Complete OPA runtime decision enforcement wiring (current behavior is guarded fail-closed when OPA is enabled).
+- OPA runtime decision enforcement wiring is active with fail-open/fail-closed controls and runtime metrics.
+  Remaining: expand complex-policy integration matrix coverage as architecture split stabilizes.
 
-Detailed local research notes and source links are tracked in:
-- `.collab/research/2026-02-11-web-gap-scan.md`
+Status details and rollout progress are tracked in:
+- `ROADMAP.md` (active/planned tracks)
+- `CHANGELOG.md` (shipped controls)
 
 ---
 
