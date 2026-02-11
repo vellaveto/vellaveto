@@ -1139,25 +1139,78 @@ fn is_valid_tls_metadata_token(value: &str) -> bool {
         .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':' | '/'))
 }
 
+fn sanitize_tls_metadata_token(value: &str, max_len: usize) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || trimmed.len() > max_len
+        || trimmed.chars().any(|c| c.is_control())
+        || !is_valid_tls_metadata_token(trimmed)
+    {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+/// Extract a single header token and require consistency across duplicate header entries.
+///
+/// Returns:
+/// - `Ok(None)`: header absent
+/// - `Ok(Some(token))`: header present with one consistent, valid token value
+/// - `Err(())`: header present but invalid or conflicting values were supplied
+fn extract_consistent_header_token(
+    headers: &HeaderMap,
+    name: &str,
+    max_len: usize,
+) -> Result<Option<String>, ()> {
+    let mut saw_any = false;
+    let mut selected: Option<String> = None;
+    for raw in headers.get_all(name) {
+        saw_any = true;
+        let raw = raw.to_str().map_err(|_| ())?;
+        let token = sanitize_tls_metadata_token(raw, max_len).ok_or(())?;
+        if let Some(ref existing) = selected {
+            if existing != &token {
+                return Err(());
+            }
+        } else {
+            selected = Some(token);
+        }
+    }
+
+    if !saw_any {
+        Ok(None)
+    } else {
+        Ok(selected)
+    }
+}
+
 fn extract_sanitized_header_token(
     headers: &HeaderMap,
     names: &[&str],
     max_len: usize,
 ) -> Option<String> {
+    let mut selected: Option<String> = None;
+
     for name in names {
-        if let Some(value) = headers.get(*name).and_then(|v| v.to_str().ok()) {
-            let trimmed = value.trim();
-            if trimmed.is_empty()
-                || trimmed.len() > max_len
-                || trimmed.chars().any(|c| c.is_control())
-                || !is_valid_tls_metadata_token(trimmed)
-            {
-                continue;
+        match extract_consistent_header_token(headers, name, max_len) {
+            Ok(None) => continue,
+            // Invalid/ambiguous values for a lower-priority alias should not
+            // clobber a valid higher-priority alias.
+            Err(()) => continue,
+            Ok(Some(token)) => {
+                if let Some(ref existing) = selected {
+                    // Conflicting aliases are ambiguous; drop the field.
+                    if existing != &token {
+                        return None;
+                    }
+                } else {
+                    selected = Some(token);
+                }
             }
-            return Some(trimmed.to_string());
         }
     }
-    None
+
+    selected
 }
 
 /// Extract negotiated TLS metadata forwarded by reverse proxies.
@@ -2130,6 +2183,59 @@ mod tests {
             "cipher with invalid token characters must be ignored"
         );
         assert!(metadata.kex_group.is_none());
+    }
+
+    #[test]
+    fn test_extract_negotiated_tls_metadata_accepts_identical_duplicate_values() {
+        let request = build_request(&[
+            ("x-forwarded-tls-version", "TLSv1.3"),
+            ("x-forwarded-tls-version", "TLSv1.3"),
+            ("x-forwarded-tls-cipher", "TLS_AES_256_GCM_SHA384"),
+            ("x-forwarded-tls-cipher", "TLS_AES_256_GCM_SHA384"),
+        ]);
+        let metadata = extract_negotiated_tls_metadata(request.headers())
+            .expect("expected tls metadata from identical duplicate headers");
+        assert_eq!(metadata.protocol.as_deref(), Some("TLSv1.3"));
+        assert_eq!(metadata.cipher.as_deref(), Some("TLS_AES_256_GCM_SHA384"));
+    }
+
+    #[test]
+    fn test_extract_negotiated_tls_metadata_rejects_conflicting_duplicate_values() {
+        let request = build_request(&[
+            ("x-forwarded-tls-version", "TLSv1.3"),
+            ("x-forwarded-tls-version", "TLSv1.2"),
+        ]);
+        assert!(
+            extract_negotiated_tls_metadata(request.headers()).is_none(),
+            "conflicting duplicate protocol headers must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_extract_negotiated_tls_metadata_rejects_conflicting_alias_values() {
+        let request = build_request(&[
+            ("x-forwarded-tls-version", "TLSv1.3"),
+            ("x-tls-protocol", "TLSv1.2"),
+            ("x-forwarded-tls-cipher", "TLS_AES_256_GCM_SHA384"),
+        ]);
+        let metadata = extract_negotiated_tls_metadata(request.headers())
+            .expect("cipher should preserve non-empty metadata object");
+        assert!(
+            metadata.protocol.is_none(),
+            "conflicting protocol aliases must clear protocol field"
+        );
+        assert_eq!(metadata.cipher.as_deref(), Some("TLS_AES_256_GCM_SHA384"));
+    }
+
+    #[test]
+    fn test_extract_negotiated_tls_metadata_invalid_primary_alias_falls_back() {
+        let request = build_request(&[
+            ("x-forwarded-tls-version", "TLSv1.3;BAD"),
+            ("x-tls-protocol", "TLSv1.2"),
+        ]);
+        let metadata = extract_negotiated_tls_metadata(request.headers())
+            .expect("valid fallback alias should provide protocol metadata");
+        assert_eq!(metadata.protocol.as_deref(), Some("TLSv1.2"));
     }
 
     // --- KL1: X-Principal only trusted from trusted proxies ---
