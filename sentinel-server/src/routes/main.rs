@@ -749,6 +749,17 @@ struct HealthResponse {
     status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     cluster: Option<String>,
+    /// Security scanning subsystem status (SEC-006).
+    scanning: ScanningStatus,
+}
+
+/// Status of security scanning subsystems.
+#[derive(Serialize)]
+struct ScanningStatus {
+    /// Whether DLP (Data Loss Prevention) scanning is available.
+    dlp_available: bool,
+    /// Whether injection detection is available.
+    injection_available: bool,
 }
 
 async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
@@ -761,7 +772,16 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
         }
     };
 
-    let status = if cluster_status.is_some() {
+    // Check security scanning subsystem availability (SEC-006).
+    let dlp_available = sentinel_mcp::inspection::is_dlp_available();
+    let injection_available = sentinel_mcp::inspection::is_injection_available();
+    let scanning = ScanningStatus {
+        dlp_available,
+        injection_available,
+    };
+
+    // Degraded if cluster is unhealthy or any security scanning is unavailable
+    let status = if cluster_status.is_some() || !dlp_available || !injection_available {
         "degraded".to_string()
     } else {
         "ok".to_string()
@@ -770,6 +790,7 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status,
         cluster: cluster_status,
+        scanning,
     })
 }
 
@@ -2488,5 +2509,53 @@ mod tests {
             l1.unwrap() as *const _,
             l2.unwrap() as *const _
         ));
+    }
+
+    // --- SEC-006: Health endpoint reports scanning subsystem status ---
+
+    #[test]
+    fn test_scanning_status_serializes_correctly() {
+        let status = ScanningStatus {
+            dlp_available: true,
+            injection_available: true,
+        };
+        let json = serde_json::to_value(&status).expect("serialize");
+        assert_eq!(json["dlp_available"], true);
+        assert_eq!(json["injection_available"], true);
+    }
+
+    #[test]
+    fn test_health_response_includes_scanning() {
+        let response = HealthResponse {
+            status: "ok".to_string(),
+            cluster: None,
+            scanning: ScanningStatus {
+                dlp_available: true,
+                injection_available: true,
+            },
+        };
+        let json = serde_json::to_value(&response).expect("serialize");
+        assert_eq!(json["status"], "ok");
+        assert!(json["scanning"].is_object());
+        assert_eq!(json["scanning"]["dlp_available"], true);
+        assert_eq!(json["scanning"]["injection_available"], true);
+        // cluster should be omitted when None
+        assert!(json.get("cluster").is_none());
+    }
+
+    #[test]
+    fn test_health_response_degraded_when_scanning_unavailable() {
+        // This tests the response structure, not the actual subsystem state
+        let response = HealthResponse {
+            status: "degraded".to_string(),
+            cluster: None,
+            scanning: ScanningStatus {
+                dlp_available: false,
+                injection_available: true,
+            },
+        };
+        let json = serde_json::to_value(&response).expect("serialize");
+        assert_eq!(json["status"], "degraded");
+        assert_eq!(json["scanning"]["dlp_available"], false);
     }
 }

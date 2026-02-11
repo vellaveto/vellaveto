@@ -11,7 +11,9 @@ use axum::{
     http::{header, HeaderValue, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
+    Json,
 };
+use serde::Serialize;
 use clap::Parser;
 use governor::{Quota, RateLimiter};
 use sentinel_audit::AuditLogger;
@@ -643,8 +645,37 @@ async fn request_id(request: Request, next: Next) -> Response {
     response
 }
 
-async fn health() -> &'static str {
-    "ok"
+/// Health check response with security scanning subsystem status (SEC-006).
+#[derive(Serialize)]
+struct HealthResponse {
+    status: String,
+    scanning: ScanningStatus,
+}
+
+/// Status of security scanning subsystems.
+#[derive(Serialize)]
+struct ScanningStatus {
+    dlp_available: bool,
+    injection_available: bool,
+}
+
+async fn health() -> Json<HealthResponse> {
+    let dlp_available = sentinel_mcp::inspection::is_dlp_available();
+    let injection_available = sentinel_mcp::inspection::is_injection_available();
+
+    let status = if dlp_available && injection_available {
+        "ok".to_string()
+    } else {
+        "degraded".to_string()
+    };
+
+    Json(HealthResponse {
+        status,
+        scanning: ScanningStatus {
+            dlp_available,
+            injection_available,
+        },
+    })
 }
 
 async fn shutdown_signal() {

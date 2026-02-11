@@ -74,6 +74,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Both server and proxy now validate injection patterns compile at startup
   - Consistent with DLP validation for defense-in-depth
 
+- **Health endpoint security scanning status (SEC-006)**:
+  - Enhanced `/health` endpoint in both `sentinel-server` and `sentinel-http-proxy` to report scanning subsystem availability
+  - New response fields: `scanning.dlp_available` and `scanning.injection_available`
+  - Health status reports "degraded" if either DLP or injection detection is unavailable
+  - Provides visibility into security posture for monitoring and alerting
+
 ### Dependencies
 
 - **Minor/patch updates (IMP-006)**:
