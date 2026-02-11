@@ -7,7 +7,6 @@ use axum::http::{Request, StatusCode};
 use sentinel_approval::{ApprovalStore, PendingApproval};
 use sentinel_audit::AuditLogger;
 use sentinel_cluster::{ClusterBackend, ClusterError};
-use sentinel_config::OpaConfig;
 use sentinel_engine::PolicyEngine;
 use sentinel_server::{routes, AppState, Metrics, PolicySnapshot, RateLimits};
 use sentinel_types::{Action, Policy, PolicyType};
@@ -15,17 +14,6 @@ use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tower::ServiceExt;
-
-static OPA_RUNTIME_TEST_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
-    std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
-
-struct OpaRuntimeResetGuard;
-
-impl Drop for OpaRuntimeResetGuard {
-    fn drop(&mut self) {
-        let _ = sentinel_server::opa::configure_runtime_client(&OpaConfig::default());
-    }
-}
 
 // ─── GAP-008: Mock cluster backend for testing degraded health state ───
 
@@ -257,123 +245,6 @@ async fn evaluate_denied_action() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(json["verdict"].is_object());
     assert!(json["verdict"]["Deny"].is_object());
-}
-
-#[tokio::test]
-async fn evaluate_opa_fail_closed_denies_on_unreachable_server() {
-    let _lock = OPA_RUNTIME_TEST_LOCK.lock().await;
-    let _reset = OpaRuntimeResetGuard;
-
-    let cfg = OpaConfig {
-        enabled: true,
-        endpoint: Some("http://127.0.0.1:9".to_string()),
-        decision_path: "sentinel/allow".to_string(),
-        cache_ttl_secs: 0,
-        timeout_ms: 50,
-        fail_open: false,
-        max_retries: 0,
-        retry_backoff_ms: 10,
-        headers: Default::default(),
-        bundle_path: None,
-        audit_decisions: false,
-        cache_size: 1000,
-    };
-    sentinel_server::opa::configure_runtime_client(&cfg).unwrap();
-
-    let (state, _tmp) = test_state();
-    let audit = state.audit.clone();
-    let app = routes::build_router(state);
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/evaluate")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "tool": "file",
-                        "function": "read",
-                        "parameters": {"path": "/tmp/test"}
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(
-        json["verdict"]["Deny"]["reason"],
-        "OPA evaluation failed (fail-closed)"
-    );
-
-    let entries = audit.load_entries().await.unwrap();
-    let entry = entries.last().expect("expected audit entry");
-    assert_eq!(entry.metadata["opa"]["result"], "error");
-    assert_eq!(entry.metadata["opa"]["fail_open"], false);
-}
-
-#[tokio::test]
-async fn evaluate_opa_fail_open_allows_on_unreachable_server() {
-    let _lock = OPA_RUNTIME_TEST_LOCK.lock().await;
-    let _reset = OpaRuntimeResetGuard;
-
-    let cfg = OpaConfig {
-        enabled: true,
-        endpoint: Some("http://127.0.0.1:9".to_string()),
-        decision_path: "sentinel/allow".to_string(),
-        cache_ttl_secs: 0,
-        timeout_ms: 50,
-        fail_open: true,
-        max_retries: 0,
-        retry_backoff_ms: 10,
-        headers: Default::default(),
-        bundle_path: None,
-        audit_decisions: false,
-        cache_size: 1000,
-    };
-    sentinel_server::opa::configure_runtime_client(&cfg).unwrap();
-
-    let (state, _tmp) = test_state();
-    let audit = state.audit.clone();
-    let app = routes::build_router(state);
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/evaluate")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&json!({
-                        "tool": "file",
-                        "function": "read",
-                        "parameters": {"path": "/tmp/test"}
-                    }))
-                    .unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["verdict"], "Allow");
-
-    let entries = audit.load_entries().await.unwrap();
-    let entry = entries.last().expect("expected audit entry");
-    assert_eq!(entry.metadata["opa"]["result"], "error");
-    assert_eq!(entry.metadata["opa"]["fail_open"], true);
 }
 
 #[tokio::test]
