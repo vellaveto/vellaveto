@@ -226,9 +226,15 @@ mod tests {
     #[test]
     fn test_fullwidth_latin() {
         // Fullwidth "ADMIN" -> "admin"
-        assert_eq!(normalize_homoglyphs("\u{FF21}\u{FF24}\u{FF2D}\u{FF29}\u{FF2E}"), "admin");
+        assert_eq!(
+            normalize_homoglyphs("\u{FF21}\u{FF24}\u{FF2D}\u{FF29}\u{FF2E}"),
+            "admin"
+        );
         // Fullwidth lowercase "bash"
-        assert_eq!(normalize_homoglyphs("\u{FF42}\u{FF41}\u{FF53}\u{FF48}"), "bash");
+        assert_eq!(
+            normalize_homoglyphs("\u{FF42}\u{FF41}\u{FF53}\u{FF48}"),
+            "bash"
+        );
         // Fullwidth digits
         assert_eq!(normalize_homoglyphs("\u{FF10}\u{FF11}\u{FF12}"), "012");
     }

@@ -194,9 +194,7 @@ pub fn find_duplicate_json_key(raw: &str) -> Option<String> {
                 // SECURITY (R10-FRAME-8): Limit nesting depth to prevent
                 // excessive HashSet allocations from deeply nested input.
                 if stack.len() >= MAX_DUPLICATE_KEY_DEPTH {
-                    return Some(format!(
-                        "<nesting depth exceeds {MAX_DUPLICATE_KEY_DEPTH}>"
-                    ));
+                    return Some(format!("<nesting depth exceeds {MAX_DUPLICATE_KEY_DEPTH}>"));
                 }
                 stack.push(Some(HashSet::new()));
                 next_string_is_key = true;
@@ -204,9 +202,7 @@ pub fn find_duplicate_json_key(raw: &str) -> Option<String> {
             }
             b'[' => {
                 if stack.len() >= MAX_DUPLICATE_KEY_DEPTH {
-                    return Some(format!(
-                        "<nesting depth exceeds {MAX_DUPLICATE_KEY_DEPTH}>"
-                    ));
+                    return Some(format!("<nesting depth exceeds {MAX_DUPLICATE_KEY_DEPTH}>"));
                 }
                 stack.push(None);
                 next_string_is_key = false;

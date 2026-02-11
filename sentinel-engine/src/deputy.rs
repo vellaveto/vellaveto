@@ -72,7 +72,10 @@ impl std::fmt::Display for DeputyError {
                 write!(f, "Delegation has expired")
             }
             DeputyError::PrincipalMismatch { expected, actual } => {
-                write!(f, "Principal mismatch: expected '{expected}', got '{actual}'")
+                write!(
+                    f,
+                    "Principal mismatch: expected '{expected}', got '{actual}'"
+                )
             }
             DeputyError::SessionNotFound { session_id } => {
                 write!(f, "Session '{session_id}' not found")
