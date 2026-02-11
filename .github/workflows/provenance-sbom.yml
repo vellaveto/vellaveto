@@ -1,0 +1,66 @@
+name: Provenance and SBOM
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  attestations: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  provenance-and-sbom:
+    name: Build Provenance and SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561 # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@ad397744b0d591a723ab90405b7247fac0e6b8db # v2
+        with:
+          cache-on-failure: true
+
+      - name: Verify lockfile immutability
+        run: |
+          cargo metadata --locked --format-version=1 > /dev/null
+          git diff --exit-code -- Cargo.lock
+
+      - name: Build release artifacts
+        run: cargo build --release --workspace --locked
+
+      - name: Generate SBOM (CycloneDX JSON)
+        uses: anchore/sbom-action@28d71544de8eaf1b958d335707167c5f783590ad # v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sentinel-sbom
+          path: sbom.cdx.json
+          if-no-files-found: error
+
+      - name: Attest release binaries provenance
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: |
+            target/release/sentinel
+            target/release/sentinel-proxy
+            target/release/sentinel-http-proxy
