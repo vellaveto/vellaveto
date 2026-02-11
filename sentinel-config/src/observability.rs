@@ -140,7 +140,7 @@ impl Default for ObservabilityConfig {
 
 /// Langfuse AI observability platform configuration.
 ///
-/// Langfuse (https://langfuse.com) provides tracing, evaluation, and
+/// Langfuse (<https://langfuse.com>) provides tracing, evaluation, and
 /// observability for LLM applications.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LangfuseConfig {
@@ -148,7 +148,7 @@ pub struct LangfuseConfig {
     #[serde(default)]
     pub enabled: bool,
 
-    /// Langfuse API endpoint. Default: "https://cloud.langfuse.com".
+    /// Langfuse API endpoint. Default: `https://cloud.langfuse.com`.
     #[serde(default = "default_langfuse_endpoint")]
     pub endpoint: String,
 
@@ -232,7 +232,7 @@ impl Default for LangfuseConfig {
 
 /// Arize AI observability platform configuration.
 ///
-/// Arize (https://arize.com) provides ML observability with a focus on
+/// Arize (<https://arize.com>) provides ML observability with a focus on
 /// embeddings, model performance, and drift detection.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ArizeConfig {
@@ -240,7 +240,7 @@ pub struct ArizeConfig {
     #[serde(default)]
     pub enabled: bool,
 
-    /// Arize OTLP endpoint. Default: "https://otlp.arize.com/v1".
+    /// Arize OTLP endpoint. Default: `https://otlp.arize.com/v1`.
     #[serde(default = "default_arize_endpoint")]
     pub endpoint: String,
 
@@ -312,7 +312,7 @@ impl Default for ArizeConfig {
 
 /// Helicone AI observability platform configuration.
 ///
-/// Helicone (https://helicone.ai) provides LLM observability through
+/// Helicone (<https://helicone.ai>) provides LLM observability through
 /// header-based integration with LLM API providers.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HeliconeConfig {
@@ -324,7 +324,7 @@ pub struct HeliconeConfig {
     #[serde(default = "default_helicone_api_key_env")]
     pub api_key_env: String,
 
-    /// Helicone log endpoint. Default: "https://api.helicone.ai/v1/log".
+    /// Helicone log endpoint. Default: `https://api.helicone.ai/v1/log`.
     #[serde(default = "default_helicone_endpoint")]
     pub endpoint: String,
 

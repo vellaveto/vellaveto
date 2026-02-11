@@ -1381,7 +1381,7 @@ pub struct AttestationConfig {
     pub transparency_log: bool,
 
     /// URL of the Rekor transparency log server.
-    /// Example: "https://rekor.sigstore.dev"
+    /// Example: `https://rekor.sigstore.dev`
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rekor_url: Option<String>,
 }
