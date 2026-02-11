@@ -112,14 +112,14 @@ pub struct TaskStateTransition {
     /// Agent ID that triggered this transition.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub triggered_by: Option<String>,
-    /// SHA-256 hash of this transition (computed from prev_hash + new_status + timestamp).
+    /// `SHA-256` hash of this transition (computed from `prev_hash` + `new_status` + timestamp).
     pub hash: String,
 }
 
 /// A secure task with encryption and integrity protection.
 ///
-/// Extends TrackedTask with:
-/// - Encrypted state data (ChaCha20-Poly1305)
+/// Extends `TrackedTask` with:
+/// - Encrypted state data (`ChaCha20-Poly1305`)
 /// - Hash chain for tamper detection
 /// - Resume token for authenticated task resumption
 /// - Replay protection via nonces
@@ -299,7 +299,7 @@ pub enum AuthLevel {
     OAuth = 2,
     /// OAuth with MFA (multi-factor authentication).
     OAuthMfa = 3,
-    /// Hardware key authentication (WebAuthn, FIDO2).
+    /// Hardware key authentication (`WebAuthn`, `FIDO2`).
     HardwareKey = 4,
 }
 
@@ -316,7 +316,7 @@ impl fmt::Display for AuthLevel {
 }
 
 impl AuthLevel {
-    /// Convert from u8 to AuthLevel, defaulting to None for unknown values.
+    /// Convert from `u8` to `AuthLevel`, defaulting to `None` for unknown values.
     pub fn from_u8(value: u8) -> Self {
         match value {
             0 => AuthLevel::None,
@@ -704,7 +704,7 @@ const MAX_NAME_LEN: usize = 256;
 /// Maximum length for individual path or domain strings (bytes).
 const MAX_TARGET_LEN: usize = 4096;
 
-/// Maximum number of combined target_paths + target_domains entries.
+/// Maximum number of combined `target_paths` + `target_domains` entries.
 const MAX_TARGETS: usize = 256;
 
 /// Validation errors for Action fields.
@@ -722,7 +722,7 @@ pub enum ValidationError {
         len: usize,
         max: usize,
     },
-    /// Too many target_paths + target_domains entries.
+    /// Too many `target_paths` + `target_domains` entries.
     TooManyTargets { count: usize, max: usize },
     /// A target path or domain string is too long.
     TargetTooLong {
@@ -785,8 +785,8 @@ pub struct Action {
     /// Domains targeted by this action (e.g. from `https://` URIs).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub target_domains: Vec<String>,
-    /// IP addresses resolved from target_domains (populated by proxy layer).
-    /// Used by the engine for DNS rebinding protection when `IpRules` are configured.
+    /// IP addresses resolved from `target_domains` (populated by proxy layer).
+    /// Used by the engine for DNS rebinding protection when [`IpRules`] are configured.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resolved_ips: Vec<String>,
 }
@@ -866,7 +866,7 @@ impl Action {
 
     /// Validate an existing Action's fields.
     ///
-    /// Checks tool/function names, and target_paths/target_domains for
+    /// Checks tool/function names, and `target_paths`/`target_domains` for
     /// null bytes, excessive length, and total count.
     pub fn validate(&self) -> Result<(), ValidationError> {
         validate_name(&self.tool, "tool")?;
