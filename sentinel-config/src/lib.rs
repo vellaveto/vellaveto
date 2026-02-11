@@ -59,7 +59,10 @@ impl Default for InjectionConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            block_on_injection: false,
+            // SECURITY: Default to blocking for fail-closed behavior.
+            // Previously defaulted to false (log-only), which could allow
+            // prompt injection attacks to pass unblocked.
+            block_on_injection: true,
             extra_patterns: Vec::new(),
             disabled_patterns: Vec::new(),
         }
@@ -3347,6 +3350,21 @@ impl PolicyConfig {
         // ═══════════════════════════════════════════════════
         self.observability.validate()?;
 
+        // ═══════════════════════════════════════════════════
+        // OPA FAIL-OPEN SAFETY VALIDATION
+        // ═══════════════════════════════════════════════════
+        // SECURITY (R43-OPA-1): fail_open=true violates fail-closed principle.
+        // Require explicit acknowledgment to prevent accidental misconfiguration.
+        if self.opa.fail_open && !self.opa.fail_open_acknowledged {
+            return Err(
+                "opa.fail_open=true requires opa.fail_open_acknowledged=true. \
+                 This ensures operators consciously accept that OPA unavailability \
+                 will allow ALL requests to pass. Set fail_open_acknowledged=true \
+                 only if you understand and accept this security risk."
+                    .to_string(),
+            );
+        }
+
         Ok(())
     }
 
@@ -3613,7 +3631,8 @@ pub struct OpaConfig {
 
     /// Require HTTPS for remote OPA endpoint connections.
     /// When true, `opa.endpoint` must use `https://`.
-    #[serde(default)]
+    /// Default: true for security. Set to false only for localhost testing.
+    #[serde(default = "default_true")]
     pub require_https: bool,
 
     /// JSON path to extract the decision from OPA response. Default: "result".
@@ -3631,8 +3650,16 @@ pub struct OpaConfig {
 
     /// Fail-open if OPA is unreachable. Default: false (fail-closed).
     /// WARNING: Setting to true may allow requests when OPA is down.
+    /// SECURITY: Requires `fail_open_acknowledged = true` to take effect.
     #[serde(default)]
     pub fail_open: bool,
+
+    /// Explicit acknowledgment required to enable fail_open.
+    /// This forces operators to consciously accept the security risk.
+    /// Set to true only if you understand that OPA unavailability will
+    /// allow ALL requests when fail_open is also true.
+    #[serde(default)]
+    pub fail_open_acknowledged: bool,
 
     /// Maximum number of retry attempts for transient failures. Default: 3.
     /// Set to 0 to disable retries.
@@ -3671,11 +3698,14 @@ impl Default for OpaConfig {
         Self {
             enabled: false,
             endpoint: None,
-            require_https: false,
+            // SECURITY: Default to true for production safety.
+            // Policy decisions should be encrypted in transit.
+            require_https: true,
             decision_path: default_opa_decision_path(),
             cache_ttl_secs: default_opa_cache_ttl(),
             timeout_ms: default_opa_timeout(),
             fail_open: false,
+            fail_open_acknowledged: false,
             max_retries: default_opa_max_retries(),
             retry_backoff_ms: default_opa_retry_backoff_ms(),
             headers: std::collections::HashMap::new(),
@@ -5428,7 +5458,8 @@ policy_type = "Allow"
 "#;
         let config = PolicyConfig::from_toml(toml).unwrap();
         assert!(config.injection.enabled);
-        assert!(!config.injection.block_on_injection);
+        // SECURITY: Default changed to true for fail-closed behavior
+        assert!(config.injection.block_on_injection);
         assert!(config.injection.extra_patterns.is_empty());
         assert!(config.injection.disabled_patterns.is_empty());
     }
@@ -6727,6 +6758,54 @@ policy_type = "Allow"
 
         let err = config.validate().unwrap_err();
         assert!(err.contains("must be a valid URL"), "got: {}", err);
+    }
+
+    // SECURITY (R43-OPA-1): fail_open requires explicit acknowledgment
+    #[test]
+    fn test_validate_rejects_opa_fail_open_without_acknowledgment() {
+        let mut config = minimal_config();
+        config.opa.enabled = true;
+        config.opa.endpoint = Some("http://localhost:8181".to_string());
+        config.opa.require_https = false;
+        config.opa.fail_open = true;
+        config.opa.fail_open_acknowledged = false;
+
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("fail_open_acknowledged"),
+            "fail_open=true without acknowledgment should be rejected, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_accepts_opa_fail_open_with_acknowledgment() {
+        let mut config = minimal_config();
+        config.opa.enabled = true;
+        config.opa.endpoint = Some("http://localhost:8181".to_string());
+        config.opa.require_https = false;
+        config.opa.fail_open = true;
+        config.opa.fail_open_acknowledged = true;
+
+        assert!(
+            config.validate().is_ok(),
+            "fail_open=true with acknowledgment should be accepted"
+        );
+    }
+
+    #[test]
+    fn test_validate_accepts_opa_fail_closed_without_acknowledgment() {
+        let mut config = minimal_config();
+        config.opa.enabled = true;
+        config.opa.endpoint = Some("http://localhost:8181".to_string());
+        config.opa.require_https = false;
+        config.opa.fail_open = false;
+        config.opa.fail_open_acknowledged = false;
+
+        assert!(
+            config.validate().is_ok(),
+            "fail_open=false should not require acknowledgment"
+        );
     }
 
     #[test]

@@ -139,6 +139,7 @@ async fn evaluate_opa_fail_closed_denies_on_unreachable_server() {
         cache_ttl_secs: 0,
         timeout_ms: 50,
         fail_open: false,
+        fail_open_acknowledged: false,
         max_retries: 0,
         retry_backoff_ms: 10,
         headers: Default::default(),
@@ -173,6 +174,7 @@ async fn evaluate_opa_fail_open_allows_on_unreachable_server() {
         cache_ttl_secs: 0,
         timeout_ms: 50,
         fail_open: true,
+        fail_open_acknowledged: true, // Required for fail_open=true
         max_retries: 0,
         retry_backoff_ms: 10,
         headers: Default::default(),

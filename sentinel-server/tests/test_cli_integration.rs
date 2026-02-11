@@ -137,7 +137,7 @@ policies = []
 
 [opa]
 enabled = true
-endpoint = "http://localhost:8181"
+endpoint = "https://localhost:8181"
 decision_path = "sentinel/allow"
 "#,
     );
@@ -317,7 +317,7 @@ priority = 10
 
 [opa]
 enabled = true
-endpoint = "http://localhost:8181"
+endpoint = "https://localhost:8181"
 decision_path = "sentinel/allow"
 "#;
     let config_path = write_toml_config(tmp.path(), config);

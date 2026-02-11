@@ -498,6 +498,7 @@ mod tests {
             enabled: true,
             endpoint: Some("http://localhost:8181".to_string()),
             decision_path: "sentinel/allow".to_string(),
+            require_https: false, // Allow HTTP for localhost testing
             ..Default::default()
         };
         let client = OpaClient::new(&config).unwrap().unwrap();
@@ -515,6 +516,7 @@ mod tests {
             enabled: true,
             endpoint: Some("http://localhost:8181".to_string()),
             decision_path: "sentinel/allow".to_string(),
+            require_https: false, // Allow HTTP for localhost testing
             ..Default::default()
         };
         let client = OpaClient::new(&config).unwrap().unwrap();
@@ -534,6 +536,7 @@ mod tests {
             enabled: true,
             endpoint: Some("http://localhost:8181".to_string()),
             decision_path: "sentinel/allow".to_string(),
+            require_https: false, // Allow HTTP for localhost testing
             ..Default::default()
         };
         let client = OpaClient::new(&config).unwrap().unwrap();
@@ -548,6 +551,7 @@ mod tests {
             enabled: true,
             endpoint: Some("http://localhost:8181".to_string()),
             decision_path: "sentinel/allow".to_string(),
+            require_https: false, // Allow HTTP for localhost testing
             ..Default::default()
         };
         let client = OpaClient::new(&config).unwrap().unwrap();
@@ -583,6 +587,7 @@ mod tests {
             enabled: true,
             endpoint: Some("http://localhost:8181".to_string()),
             decision_path: "sentinel/allow".to_string(),
+            require_https: false, // Allow HTTP for localhost testing
             headers,
             ..Default::default()
         };
@@ -605,6 +610,7 @@ mod tests {
             enabled: true,
             endpoint: Some("http://localhost:8181".to_string()),
             decision_path: "sentinel/allow".to_string(),
+            require_https: false, // Allow HTTP for localhost testing
             ..Default::default()
         };
         let client = OpaClient::new(&config).unwrap().unwrap();
@@ -620,6 +626,7 @@ mod tests {
             enabled: true,
             endpoint: Some("http://opa:8181/v1/data/sentinel/allow".to_string()),
             decision_path: "result.allow".to_string(),
+            require_https: false, // Allow HTTP for localhost/internal testing
             ..Default::default()
         };
         let client = OpaClient::new(&config).unwrap().unwrap();
