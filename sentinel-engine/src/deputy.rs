@@ -60,36 +60,28 @@ impl std::fmt::Display for DeputyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DeputyError::UnauthorizedDelegation { from, to } => {
-                write!(
-                    f,
-                    "Delegation from '{}' to '{}' is not authorized",
-                    from, to
-                )
+                write!(f, "Delegation from '{from}' to '{to}' is not authorized")
             }
             DeputyError::DelegationDepthExceeded { depth, max } => {
-                write!(f, "Delegation depth {} exceeds maximum {}", depth, max)
+                write!(f, "Delegation depth {depth} exceeds maximum {max}")
             }
             DeputyError::ToolNotInDelegation { tool } => {
-                write!(f, "Tool '{}' is not in the delegation's allowed set", tool)
+                write!(f, "Tool '{tool}' is not in the delegation's allowed set")
             }
             DeputyError::DelegationExpired => {
                 write!(f, "Delegation has expired")
             }
             DeputyError::PrincipalMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "Principal mismatch: expected '{}', got '{}'",
-                    expected, actual
-                )
+                write!(f, "Principal mismatch: expected '{expected}', got '{actual}'")
             }
             DeputyError::SessionNotFound { session_id } => {
-                write!(f, "Session '{}' not found", session_id)
+                write!(f, "Session '{session_id}' not found")
             }
             DeputyError::NoPrincipal => {
                 write!(f, "No principal identified")
             }
             DeputyError::InternalError { reason } => {
-                write!(f, "Internal error (fail-closed): {}", reason)
+                write!(f, "Internal error (fail-closed): {reason}")
             }
         }
     }

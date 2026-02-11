@@ -29,8 +29,7 @@ pub fn validate_domain_pattern(pattern: &str) -> Result<(), String> {
         rest
     } else if pattern.contains('*') {
         return Err(format!(
-            "Wildcard '*' is only allowed as a prefix '*.domain', found in '{}'",
-            pattern
+            "Wildcard '*' is only allowed as a prefix '*.domain', found in '{pattern}'"
         ));
     } else {
         pattern

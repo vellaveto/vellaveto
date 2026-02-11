@@ -108,7 +108,7 @@ pub fn inspect_elicitation(
         for blocked_type in &config.blocked_field_types {
             if schema_contains_field_type(schema, blocked_type) {
                 return ElicitationVerdict::Deny {
-                    reason: format!("elicitation requests blocked field type: {}", blocked_type),
+                    reason: format!("elicitation requests blocked field type: {blocked_type}"),
                 };
             }
         }
@@ -327,7 +327,7 @@ pub fn inspect_sampling(
             Some(model) => {
                 if !config.allowed_models.iter().any(|a| a == &model) {
                     return SamplingVerdict::Deny {
-                        reason: format!("model '{}' not in allowed list", model),
+                        reason: format!("model '{model}' not in allowed list"),
                     };
                 }
             }

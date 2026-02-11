@@ -90,7 +90,7 @@ fn parse_single_capability(s: &str) -> Result<McpCapability, String> {
     let (name_version, subs) = if let Some(paren_start) = s.find('(') {
         let paren_end = s
             .find(')')
-            .ok_or_else(|| format!("Unclosed parenthesis in capability: {}", s))?;
+            .ok_or_else(|| format!("Unclosed parenthesis in capability: {s}"))?;
 
         let name_version = &s[..paren_start];
         let subs_str = &s[paren_start + 1..paren_end];
@@ -125,7 +125,7 @@ fn parse_single_capability(s: &str) -> Result<McpCapability, String> {
         .chars()
         .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
     {
-        return Err(format!("Invalid capability name: {}", name));
+        return Err(format!("Invalid capability name: {name}"));
     }
 
     Ok(McpCapability {
