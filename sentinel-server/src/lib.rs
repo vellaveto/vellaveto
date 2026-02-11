@@ -1223,7 +1223,7 @@ mod tests {
 
         // Fill to capacity
         for i in 0..50u32 {
-            let ip: std::net::IpAddr = std::net::Ipv4Addr::from(i.wrapping_add(167772160)).into(); // 10.0.0.x
+            let ip: std::net::IpAddr = std::net::Ipv4Addr::from(i.wrapping_add(167_772_160)).into(); // 10.0.0.x
             let result = limiter.check(ip);
             assert!(result.is_none(), "IP {} should be allowed", ip);
         }

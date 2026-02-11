@@ -435,7 +435,7 @@ mod tests {
             principal: "user1".to_string(),
             permissions: HashSet::new(),
             tools: HashSet::new(),
-            ttl_secs: 100000, // Exceeds max
+            ttl_secs: 100_000, // Exceeds max
             reason: "test".to_string(),
         };
 

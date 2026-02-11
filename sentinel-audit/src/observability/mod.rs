@@ -1528,8 +1528,8 @@ mod tests {
         }
 
         // Very large but valid u64
-        assert_eq!(parse_retry_after("86400"), 86400); // 1 day
-        assert_eq!(parse_retry_after("604800"), 604800); // 1 week
+        assert_eq!(parse_retry_after("86400"), 86_400); // 1 day
+        assert_eq!(parse_retry_after("604800"), 604_800); // 1 week
 
         // Overflow defaults to 60
         assert_eq!(parse_retry_after("99999999999999999999999999"), 60);

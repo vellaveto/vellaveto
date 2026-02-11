@@ -3424,8 +3424,8 @@ mod tests {
             state: CircuitState::Open,
             failure_count: 5,
             success_count: 0,
-            last_failure: Some(1704067200),
-            last_state_change: 1704067200,
+            last_failure: Some(1_704_067_200),
+            last_state_change: 1_704_067_200,
         };
         let json_str = serde_json::to_string(&stats).unwrap();
         let deserialized: CircuitStats = serde_json::from_str(&json_str).unwrap();
@@ -3510,11 +3510,11 @@ mod tests {
 
     #[test]
     fn test_schema_record_new() {
-        let record = SchemaRecord::new("my_tool", "abc123", 1704067200);
+        let record = SchemaRecord::new("my_tool", "abc123", 1_704_067_200);
         assert_eq!(record.tool_name, "my_tool");
         assert_eq!(record.schema_hash, "abc123");
-        assert_eq!(record.first_seen, 1704067200);
-        assert_eq!(record.last_seen, 1704067200);
+        assert_eq!(record.first_seen, 1_704_067_200);
+        assert_eq!(record.last_seen, 1_704_067_200);
         assert!(record.version_history.is_empty());
         assert_eq!(record.trust_score, 0.0);
     }
@@ -3632,7 +3632,7 @@ mod tests {
             delegated_to: Some("agent".to_string()),
             delegation_depth: 2,
             allowed_tools: vec!["tool1".to_string(), "tool2".to_string()],
-            delegation_expires: Some(1704067200),
+            delegation_expires: Some(1_704_067_200),
         };
         let json_str = serde_json::to_string(&ctx).unwrap();
         let deserialized: PrincipalContext = serde_json::from_str(&json_str).unwrap();
