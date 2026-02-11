@@ -484,6 +484,12 @@ impl OAuthValidator {
         if claims.jti.trim().is_empty() {
             return Err(OAuthError::InvalidDpopProof("missing jti".to_string()));
         }
+        // Bound untrusted claim size to avoid cache key memory abuse.
+        if claims.jti.len() > 256 {
+            return Err(OAuthError::InvalidDpopProof(
+                "jti exceeds maximum length".to_string(),
+            ));
+        }
 
         let now = chrono::Utc::now().timestamp();
         let iat = claims.iat as i64;
@@ -521,11 +527,23 @@ impl OAuthValidator {
             }
         }
 
-        if cache.iter().any(|(jti, _)| jti == &claims.jti) {
+        // Replay key is token-bound when `ath` is present to avoid false
+        // positives across distinct tokens that reuse the same JTI value.
+        let replay_key = match claims.ath.as_deref() {
+            Some(ath) if !ath.is_empty() => format!("{}:{}", claims.jti, ath),
+            _ => claims.jti.clone(),
+        };
+        if replay_key.len() > 512 {
+            return Err(OAuthError::InvalidDpopProof(
+                "DPoP replay key exceeds maximum length".to_string(),
+            ));
+        }
+
+        if cache.iter().any(|(cached, _)| cached == &replay_key) {
             return Err(OAuthError::DpopReplayDetected);
         }
 
-        cache.push_back((claims.jti, now_u64));
+        cache.push_back((replay_key, now_u64));
         if cache.len() > 8192 {
             cache.pop_front();
         }
