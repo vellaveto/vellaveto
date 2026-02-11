@@ -318,7 +318,7 @@ fn extract_targets_from_params_inner(
                 // or starting with ~/ that bypass the absolute-path check.
                 let clean = strip_query_and_fragment(s);
                 if !clean.is_empty() {
-                    paths.push(format!("/{}", clean));
+                    paths.push(format!("/{clean}"));
                 }
             }
         }

@@ -195,8 +195,7 @@ pub fn find_duplicate_json_key(raw: &str) -> Option<String> {
                 // excessive HashSet allocations from deeply nested input.
                 if stack.len() >= MAX_DUPLICATE_KEY_DEPTH {
                     return Some(format!(
-                        "<nesting depth exceeds {}>",
-                        MAX_DUPLICATE_KEY_DEPTH
+                        "<nesting depth exceeds {MAX_DUPLICATE_KEY_DEPTH}>"
                     ));
                 }
                 stack.push(Some(HashSet::new()));
@@ -206,8 +205,7 @@ pub fn find_duplicate_json_key(raw: &str) -> Option<String> {
             b'[' => {
                 if stack.len() >= MAX_DUPLICATE_KEY_DEPTH {
                     return Some(format!(
-                        "<nesting depth exceeds {}>",
-                        MAX_DUPLICATE_KEY_DEPTH
+                        "<nesting depth exceeds {MAX_DUPLICATE_KEY_DEPTH}>"
                     ));
                 }
                 stack.push(None);
@@ -269,11 +267,11 @@ pub fn find_duplicate_json_key(raw: &str) -> Option<String> {
                                 // Unparseable key — return it as a "duplicate" to
                                 // trigger rejection. This is fail-closed: if we
                                 // can't understand a key, we reject the message.
-                                return Some(format!("<malformed key at byte {}>", start));
+                                return Some(format!("<malformed key at byte {start}>"));
                             }
                         }
                     } else {
-                        return Some(format!("<invalid UTF-8 key at byte {}>", start));
+                        return Some(format!("<invalid UTF-8 key at byte {start}>"));
                     }
                     next_string_is_key = false;
                 }
