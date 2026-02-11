@@ -50,6 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Refactor
 
+- **DPoP audit function parameter consolidation**:
+  - Introduced `DpopAuditParams` struct to group OAuth DPoP audit parameters
+  - Reduces `audit_dpop_validation_failure()` function arguments from 8 to 2
+  - Fixes `clippy::too_many_arguments` warning
+
 - **Scanner infrastructure consolidation (IMP-002)**:
   - Added `scanner_base.rs` module with shared types for DLP and injection scanning
   - New unified `ScanFinding` type for consistent finding representation across scanners
