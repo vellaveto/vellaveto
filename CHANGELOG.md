@@ -78,6 +78,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **MCP code hygiene cleanup**:
   - Removed unnecessary `#[allow(dead_code)]` annotations where no longer needed.
 
+### Style
+
+- **Numeric literal formatting**:
+  - Added digit separators to large numeric literals for improved readability
+  - Timestamps: `1704067200` → `1_704_067_200`
+  - Time durations: `604800` → `604_800`
+  - IP addresses: `167772160` → `167_772_160`
+  - File sizes: `1048576` → `1_048_576`
+  - Fixes `clippy::unreadable_literal` pedantic warnings
+
+- **Documentation formatting**:
+  - Added backticks around code items in doc comments (types, fields, algorithms)
+  - Improves rustdoc rendering and consistency
+
 ### Performance
 
 - **Pre-compiled regex optimization (IMP-007)**:
