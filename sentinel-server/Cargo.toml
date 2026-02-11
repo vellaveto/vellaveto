@@ -52,7 +52,7 @@ dashmap = "6"
 percent-encoding = "2.3"
 url = "2"
 metrics = "0.24"
-metrics-exporter-prometheus = "0.16"
+metrics-exporter-prometheus = "0.18"
 # OpenTelemetry (Phase 4)
 opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
