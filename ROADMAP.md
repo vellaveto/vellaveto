@@ -1617,6 +1617,7 @@ v2.2 Complete! Ready for v2.3 planning.
 | Track IETF TLS PQ drafts to RFC and tighten defaults when ecosystem support stabilizes | P1 | Ongoing | Active Research |
 
 **2026-02-11 Update:** `sentinel-server` now emits negotiated TLS metadata (`protocol`, `cipher`, `kex_group`) from sanitized forwarded TLS headers into evaluate-path audit metadata and observability span attributes.
+**2026-02-11 Update:** Hardened forwarded TLS metadata extraction to fail closed on ambiguous/conflicting duplicate or alias header values while preserving safe fallback to valid lower-priority aliases.
 **2026-02-11 Update:** Added `sentinel-server` TLS KEX integration tests covering classical-only, hybrid-preferred fallback, and hybrid-required failure-mode enforcement against classical-only clients.
 **2026-02-11 Update:** Standardized workspace outbound `reqwest` TLS backend to rustls (`default-features = false`, `features = ["json", "rustls-tls"]`) and validated compile paths for `sentinel-server`, `sentinel-http-proxy`, `sentinel-audit` observability exporters, and `sentinel-mcp` `llm-cloud`.
 
