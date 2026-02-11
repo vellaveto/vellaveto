@@ -1624,8 +1624,9 @@ v2.2 Complete! Ready for v2.3 planning.
 
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
-| Add pull-request dependency review gate (`dependency-review-action`) | P0 | 1 day | Planned |
-| Add `.github/dependabot.yml` for Cargo and GitHub Actions | P0 | 1 day | Planned |
+| Add pull-request dependency review gate (`dependency-review-action`) | P0 | 1 day | ✅ Complete |
+| Add `.github/dependabot.yml` for Cargo and GitHub Actions | P0 | 1 day | ✅ Complete |
+| Add `cargo-deny` policy workflow + baseline config (`deny.toml`) | P1 | 1 day | ✅ Complete (initial baseline) |
 | Pin third-party GitHub Actions to immutable commit SHAs | P0 | 2 days | Planned |
 | Add build provenance attestation in release workflow | P0 | 2 days | Planned |
 | Generate and publish SBOM (CycloneDX/SPDX) with releases | P0 | 2 days | Planned |

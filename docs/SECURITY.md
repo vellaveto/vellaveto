@@ -863,16 +863,17 @@ sha256sum /usr/local/bin/mcp-*
 
 ## Verified Hardening Backlog (2026-02-11)
 
-This section captures externally researched controls that are not yet fully implemented.
+This section captures externally researched controls and current implementation status.
 
 ### P0
 - CI supply-chain hardening pack:
-  dependency review on PRs, Dependabot for Cargo/Actions, action SHA pinning, build provenance attestations, and SBOM publishing.
+  dependency review on PRs and Dependabot for Cargo/Actions are implemented.
+  Remaining: action SHA pinning, build provenance attestations, and SBOM publishing.
 - OAuth sender-constrained token enforcement in HTTP proxy:
   integrate DPoP proof validation into request authorization path (not only NHI subsystem).
 
 ### P1
-- Add `cargo-deny` dependency policy checks (advisories/bans/sources/licenses) in CI.
+- `cargo-deny` dependency policy checks (advisories/bans/sources/licenses) are now wired in CI with a baseline `deny.toml`.
 - Complete OPA runtime decision enforcement wiring (current behavior is guarded fail-closed when OPA is enabled).
 
 Detailed local research notes and source links are tracked in:

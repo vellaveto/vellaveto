@@ -55,6 +55,10 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
   - P0: CI supply-chain hardening pack (dependency review, Dependabot, action SHA pinning, provenance attestations, SBOM publishing)
   - P0: Sender-constrained OAuth enforcement in HTTP proxy request path (DPoP integration)
   - P1: `cargo-deny` dependency policy gate and completion of OPA runtime decision wiring
+- Implemented CI supply-chain baseline controls:
+  - Added PR dependency review workflow (`.github/workflows/dependency-review.yml`)
+  - Added Dependabot automation for Cargo and GitHub Actions (`.github/dependabot.yml`)
+  - Added `cargo-deny` policy workflow and baseline config (`.github/workflows/cargo-deny.yml`, `deny.toml`)
 - See `docs/SECURITY.md` (Verified Hardening Backlog) and `ROADMAP.md` for current prioritization.
 - See `CHANGELOG.md` for full release and patch details.
 
