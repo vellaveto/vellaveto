@@ -280,13 +280,13 @@ fn scan_value_for_secrets(
         }
         serde_json::Value::Object(map) => {
             for (key, val) in map {
-                let child_path = format!("{}.{}", path, key);
+                let child_path = format!("{path}.{key}");
                 scan_value_for_secrets(val, &child_path, regexes, findings, depth + 1);
             }
         }
         serde_json::Value::Array(arr) => {
             for (i, val) in arr.iter().enumerate() {
-                let child_path = format!("{}[{}]", path, i);
+                let child_path = format!("{path}[{i}]");
                 scan_value_for_secrets(val, &child_path, regexes, findings, depth + 1);
             }
         }
@@ -354,7 +354,7 @@ fn scan_decoded_layer<'a>(
             matched_patterns.insert(*name);
             findings.push(DlpFinding {
                 pattern_name: name.to_string(),
-                location: format!("{}{}", path, layer_suffix),
+                location: format!("{path}{layer_suffix}"),
             });
         }
     }
@@ -554,7 +554,7 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
             if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
                 scan_string_for_secrets(
                     text,
-                    &format!("result.content[{}].text", i),
+                    &format!("result.content[{i}].text"),
                     regexes,
                     &mut findings,
                 );
@@ -566,7 +566,7 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
                 if let Some(text) = resource.get("text").and_then(|t| t.as_str()) {
                     scan_string_for_secrets(
                         text,
-                        &format!("result.content[{}].resource.text", i),
+                        &format!("result.content[{i}].resource.text"),
                         regexes,
                         &mut findings,
                     );
@@ -578,7 +578,7 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
                     if let Some(decoded) = try_base64_decode(blob) {
                         scan_string_for_secrets(
                             &decoded,
-                            &format!("result.content[{}].resource.blob(decoded)", i),
+                            &format!("result.content[{i}].resource.blob(decoded)"),
                             regexes,
                             &mut findings,
                         );
@@ -586,7 +586,7 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
                     // Also scan the raw blob — secrets may be in unencoded form
                     scan_string_for_secrets(
                         blob,
-                        &format!("result.content[{}].resource.blob", i),
+                        &format!("result.content[{i}].resource.blob"),
                         regexes,
                         &mut findings,
                     );
@@ -599,7 +599,7 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
             if let Some(annotations) = item.get("annotations") {
                 scan_value_for_secrets(
                     annotations,
-                    &format!("result.content[{}].annotations", i),
+                    &format!("result.content[{i}].annotations"),
                     regexes,
                     &mut findings,
                     0,
