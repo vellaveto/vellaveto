@@ -48,6 +48,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added rustls provider KEX-group policy application in `sentinel-server` TLS setup with explicit downgrade warnings when hybrid is requested but unavailable.
   - Added example config snippet documenting `tls.kex_policy` usage.
 
+- **Source distribution packaging**:
+  - Added repository source ZIP artifact under `dist/` generated from tracked files at `HEAD` (`git archive`).
+  - Added README guidance for generating and checksumming source distribution ZIPs locally.
+
 ### Refactor
 
 - **DPoP audit function parameter consolidation**:
@@ -66,6 +70,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `traverse_json_strings_with_keys()` for security scanning that includes object keys (R42-MCP-1)
   - Refactored `scan_notification_for_injection()` to use shared key-scanning utility
   - Reduces code duplication while maintaining security properties across scanners
+
+- **HTTP proxy test helper simplification**:
+  - Reduced `build_oauth_test_state_full` argument count in `sentinel-http-proxy` integration tests.
+  - Improves maintainability and readability of OAuth test setup paths.
+
+- **MCP code hygiene cleanup**:
+  - Removed unnecessary `#[allow(dead_code)]` annotations where no longer needed.
 
 ### Performance
 

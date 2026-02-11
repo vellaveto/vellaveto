@@ -249,6 +249,18 @@ cargo build --release
 ls target/release/sentinel target/release/sentinel-http-proxy
 ```
 
+### Source Distribution (ZIP)
+
+```bash
+mkdir -p dist
+git archive --format=zip --prefix=sentinel/ -o dist/sentinel-main-$(date +%Y%m%d-%H%M%S).zip HEAD
+sha256sum dist/sentinel-main-*.zip
+```
+
+- Uses `git archive`, so only tracked files are included.
+- Local-only files ignored by Git (for example `.collab/`) are excluded automatically.
+- Keep generated ZIPs under `dist/` for release handling.
+
 ## 🚀 Quick Start
 
 ```bash
@@ -1119,6 +1131,7 @@ CI runs 6 parallel jobs on every push and pull request:
 | `helm/` | Kubernetes chart packaging |
 | `scripts/` | Project automation scripts |
 | `docs/` | Operations/API/security documentation |
+| `dist/` | Source distribution artifacts (zip) |
 
 ### Repository Hygiene
 
