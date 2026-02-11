@@ -172,6 +172,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Treated missing trusted-proxy request context as untrusted when evaluating forwarded TLS metadata (fail-safe default).
   - Added `sentinel_forwarded_header_rejections_total{header=...}` metric and incremented it when untrusted `X-Forwarded-Proto` or forwarded TLS metadata headers are ignored.
   - Included TLS metadata in audit entry metadata for `/api/evaluate` decisions.
+
+- **HTTP proxy request-id hardening (`sentinel-http-proxy`)**:
+  - Rejected control characters in client-supplied `X-Request-Id` values before echoing to response headers.
   - Added the same TLS attributes to observability spans when exporters are enabled.
   - Added unit/integration coverage for TLS metadata extraction and audit emission.
   - Hardened extraction to reject ambiguous duplicate/alias values for each TLS metadata field (fail-closed on conflicts).

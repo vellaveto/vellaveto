@@ -880,7 +880,9 @@ async fn request_id(request: Request, next: Next) -> Response {
         .headers()
         .get("x-request-id")
         .and_then(|v| v.to_str().ok())
-        .filter(|s| s.len() <= 128)
+        // Reject control chars (including TAB) to prevent log/header injection
+        // via client-supplied request identifiers.
+        .filter(|s| s.len() <= 128 && !s.chars().any(|c| c.is_control()))
         .map(|s| s.to_string());
 
     let mut response = next.run(request).await;
