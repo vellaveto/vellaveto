@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 pub mod json_rpc;
+pub mod unicode;
 pub use json_rpc::*;
 
 // ═══════════════════════════════════════════════════

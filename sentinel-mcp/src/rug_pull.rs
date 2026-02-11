@@ -12,6 +12,7 @@
 
 use crate::inspection::{scan_tool_descriptions, ToolDescriptionFinding};
 use sentinel_audit::AuditLogger;
+use sentinel_types::unicode::normalize_homoglyphs;
 use sentinel_types::{Action, Verdict};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -491,90 +492,6 @@ fn levenshtein(a: &str, b: &str) -> usize {
         std::mem::swap(&mut prev, &mut curr);
     }
     prev[b_len]
-}
-
-/// Map common Unicode confusables to their ASCII equivalents.
-/// Covers Cyrillic (lowercase + uppercase), Greek, fullwidth Latin,
-/// and other common homoglyphs used in tool squatting attacks.
-fn normalize_homoglyphs(s: &str) -> String {
-    s.chars()
-        .map(|c| match c {
-            // Cyrillic lowercase confusables
-            '\u{0430}' => 'a', // Cyrillic a -> a
-            '\u{0432}' => 'b', // Cyrillic ve -> b (visually similar to 'b' in some fonts)
-            '\u{0435}' => 'e', // Cyrillic ie -> e
-            '\u{043A}' => 'k', // Cyrillic ka -> k
-            '\u{043C}' => 'm', // Cyrillic em -> m
-            '\u{043D}' => 'h', // Cyrillic en -> h
-            '\u{043E}' => 'o', // Cyrillic o -> o
-            '\u{0440}' => 'p', // Cyrillic er -> p
-            '\u{0441}' => 'c', // Cyrillic es -> c
-            '\u{0442}' => 't', // Cyrillic te -> t (in upright fonts)
-            '\u{0443}' => 'y', // Cyrillic u -> y
-            '\u{0445}' => 'x', // Cyrillic ha -> x
-            '\u{0456}' => 'i', // Cyrillic i -> i
-            '\u{0458}' => 'j', // Cyrillic je -> j
-            '\u{04BB}' => 'h', // Cyrillic shha -> h
-            '\u{0455}' => 's', // Cyrillic dze -> s
-            '\u{0454}' => 'e', // Cyrillic ukrainian ie -> e
-            '\u{044A}' => 'b', // Cyrillic hard sign -> b (visual)
-            // Cyrillic uppercase confusables
-            '\u{0410}' => 'a', // Cyrillic A -> a
-            '\u{0412}' => 'b', // Cyrillic Ve -> b
-            '\u{0415}' => 'e', // Cyrillic Ie -> e
-            '\u{041A}' => 'k', // Cyrillic Ka -> k
-            '\u{041C}' => 'm', // Cyrillic Em -> m
-            '\u{041D}' => 'h', // Cyrillic En -> h
-            '\u{041E}' => 'o', // Cyrillic O -> o
-            '\u{0420}' => 'p', // Cyrillic Er -> p
-            '\u{0421}' => 'c', // Cyrillic Es -> c
-            '\u{0422}' => 't', // Cyrillic Te -> t
-            '\u{0423}' => 'y', // Cyrillic U -> y
-            '\u{0425}' => 'x', // Cyrillic Ha -> x
-            '\u{0405}' => 's', // Cyrillic Dze -> s
-            '\u{0406}' => 'i', // Cyrillic I -> i
-            '\u{0408}' => 'j', // Cyrillic Je -> j
-            // Greek lowercase confusables
-            '\u{03B1}' => 'a', // alpha -> a
-            '\u{03B5}' => 'e', // epsilon -> e
-            '\u{03B9}' => 'i', // iota -> i
-            '\u{03BA}' => 'k', // kappa -> k
-            '\u{03BD}' => 'v', // nu -> v (visually similar)
-            '\u{03BF}' => 'o', // omicron -> o
-            '\u{03C1}' => 'p', // rho -> p
-            '\u{03C4}' => 't', // tau -> t
-            '\u{03C5}' => 'u', // upsilon -> u
-            '\u{03C7}' => 'x', // chi -> x
-            // Greek uppercase confusables
-            '\u{0391}' => 'a', // Alpha -> a
-            '\u{0392}' => 'b', // Beta -> b
-            '\u{0395}' => 'e', // Epsilon -> e
-            '\u{0397}' => 'h', // Eta -> h
-            '\u{0399}' => 'i', // Iota -> i
-            '\u{039A}' => 'k', // Kappa -> k
-            '\u{039C}' => 'm', // Mu -> m
-            '\u{039D}' => 'n', // Nu -> n
-            '\u{039F}' => 'o', // Omicron -> o
-            '\u{03A1}' => 'p', // Rho -> p
-            '\u{03A4}' => 't', // Tau -> t
-            '\u{03A7}' => 'x', // Chi -> x
-            '\u{03A5}' => 'y', // Upsilon -> y
-            '\u{0396}' => 'z', // Zeta -> z
-            // Fullwidth Latin (U+FF01..U+FF5E map to U+0021..U+007E)
-            c @ '\u{FF21}'..='\u{FF3A}' => (c as u32 - 0xFF21 + b'a' as u32) as u8 as char,
-            c @ '\u{FF41}'..='\u{FF5A}' => (c as u32 - 0xFF41 + b'a' as u32) as u8 as char,
-            c @ '\u{FF10}'..='\u{FF19}' => (c as u32 - 0xFF10 + b'0' as u32) as u8 as char,
-            '\u{FF3F}' => '_', // Fullwidth underscore -> _
-            // Other common confusables
-            '\u{0131}' => 'i', // dotless i -> i
-            '\u{1D00}' => 'a', // small capital A -> a
-            '\u{0261}' => 'g', // latin small letter script g -> g
-            '\u{01C0}' => 'l', // latin letter dental click -> l
-            '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}' => '-', // various dashes -> hyphen
-            '\u{2018}' | '\u{2019}' | '\u{02BC}' => '\'', // curly quotes -> apostrophe
-            other => other,
-        })
-        .collect()
 }
 
 /// Detect if a string contains characters from multiple Unicode scripts.
@@ -1317,10 +1234,10 @@ mod tests {
     #[test]
     fn test_homoglyph_normalization() {
         // Cyrillic confusables
-        assert_eq!(super::normalize_homoglyphs("b\u{0430}sh"), "bash");
-        assert_eq!(super::normalize_homoglyphs("\u{0435}xec"), "exec");
+        assert_eq!(normalize_homoglyphs("b\u{0430}sh"), "bash");
+        assert_eq!(normalize_homoglyphs("\u{0435}xec"), "exec");
         // Already ASCII stays the same
-        assert_eq!(super::normalize_homoglyphs("bash"), "bash");
+        assert_eq!(normalize_homoglyphs("bash"), "bash");
     }
 
     // ── Adversarial Tests: Squatting Detection Fixes ──
@@ -1358,36 +1275,36 @@ mod tests {
     #[test]
     fn test_homoglyph_cyrillic_lowercase_ve() {
         // Cyrillic lowercase ve (U+0432) should map to 'b'
-        assert_eq!(super::normalize_homoglyphs("\u{0432}ash"), "bash");
+        assert_eq!(normalize_homoglyphs("\u{0432}ash"), "bash");
     }
 
     #[test]
     fn test_homoglyph_cyrillic_ka_em_en_te() {
-        assert_eq!(super::normalize_homoglyphs("\u{043A}"), "k"); // ka -> k
-        assert_eq!(super::normalize_homoglyphs("\u{043C}"), "m"); // em -> m
-        assert_eq!(super::normalize_homoglyphs("\u{043D}"), "h"); // en -> h
-        assert_eq!(super::normalize_homoglyphs("\u{0442}"), "t"); // te -> t
+        assert_eq!(normalize_homoglyphs("\u{043A}"), "k"); // ka -> k
+        assert_eq!(normalize_homoglyphs("\u{043C}"), "m"); // em -> m
+        assert_eq!(normalize_homoglyphs("\u{043D}"), "h"); // en -> h
+        assert_eq!(normalize_homoglyphs("\u{0442}"), "t"); // te -> t
     }
 
     #[test]
     fn test_homoglyph_greek_iota_kappa_nu() {
-        assert_eq!(super::normalize_homoglyphs("\u{03B9}"), "i"); // iota -> i
-        assert_eq!(super::normalize_homoglyphs("\u{03BA}"), "k"); // kappa -> k
-        assert_eq!(super::normalize_homoglyphs("\u{03BD}"), "v"); // nu -> v
+        assert_eq!(normalize_homoglyphs("\u{03B9}"), "i"); // iota -> i
+        assert_eq!(normalize_homoglyphs("\u{03BA}"), "k"); // kappa -> k
+        assert_eq!(normalize_homoglyphs("\u{03BD}"), "v"); // nu -> v
     }
 
     #[test]
     fn test_homoglyph_fullwidth_latin() {
         // Fullwidth 'A' (U+FF21) -> 'a'
-        assert_eq!(super::normalize_homoglyphs("\u{FF21}"), "a");
+        assert_eq!(normalize_homoglyphs("\u{FF21}"), "a");
         // Fullwidth 'Z' (U+FF3A) -> 'z'
-        assert_eq!(super::normalize_homoglyphs("\u{FF3A}"), "z");
+        assert_eq!(normalize_homoglyphs("\u{FF3A}"), "z");
         // Fullwidth 'a' (U+FF41) -> 'a'
-        assert_eq!(super::normalize_homoglyphs("\u{FF41}"), "a");
+        assert_eq!(normalize_homoglyphs("\u{FF41}"), "a");
         // Fullwidth '0' (U+FF10) -> '0'
-        assert_eq!(super::normalize_homoglyphs("\u{FF10}"), "0");
+        assert_eq!(normalize_homoglyphs("\u{FF10}"), "0");
         // Fullwidth '_' (U+FF3F) -> '_'
-        assert_eq!(super::normalize_homoglyphs("\u{FF3F}"), "_");
+        assert_eq!(normalize_homoglyphs("\u{FF3F}"), "_");
     }
 
     #[test]

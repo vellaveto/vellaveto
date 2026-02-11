@@ -135,6 +135,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added config validation for OPA endpoint URL shape (scheme, host, and userinfo rejection) and startup/runtime rejection when `require_https=true` is paired with plaintext OPA endpoints.
   - Added startup security warnings for plaintext OPA control-plane traffic and remote OPA endpoints configured without auth headers.
 
+- **Provenance verification hardening (CI)**:
+  - Strengthened `gh attestation verify` checks to require the expected signer workflow path and exact source ref (`GITHUB_REF`), and deny attestations generated on self-hosted runners.
+
+- **Dependency audit policy hygiene**:
+  - Removed stale `RUSTSEC-2024-0384` ignore from `.cargo/audit.toml`; lockfile no longer includes the affected transitive crate.
+
 - **DPoP failure observability (`sentinel-http-proxy`)**:
   - Added dedicated DPoP counters: `sentinel_oauth_dpop_failures_total` (reason-labeled) and `sentinel_oauth_dpop_replay_total`.
   - Added explicit audit events for DPoP validation failures with `dpop_reason`, `dpop_mode`, `oauth_subject`, and header/session context.

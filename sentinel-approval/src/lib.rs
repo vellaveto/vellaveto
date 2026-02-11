@@ -1,4 +1,5 @@
 use chrono::{DateTime, Duration, Utc};
+use sentinel_types::unicode::normalize_homoglyphs;
 use sentinel_types::Action;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -396,11 +397,16 @@ impl ApprovalStore {
             // vs "admin@corp.com").
             // SECURITY (R36-SUP-4): Apply Unicode NFKC normalization before
             // comparison to prevent bypass via confusable characters (e.g.,
-            // Cyrillic 'a' U+0430 vs Latin 'a' U+0061). NFKC maps compatibility
-            // equivalents to their canonical forms.
+            // fullwidth Latin vs ASCII). NFKC maps compatibility equivalents
+            // to their canonical forms.
             // SECURITY (R38-SUP-3): Use full Unicode case folding instead of
             // ASCII-only `eq_ignore_ascii_case`. Non-ASCII letters like Turkish
             // İ (U+0130) must case-fold correctly to detect self-approval.
+            // SECURITY (R42-SUP-1): Apply homoglyph normalization AFTER NFKC
+            // and case folding. NFKC does NOT convert cross-script confusables
+            // like Cyrillic 'а' (U+0430) to Latin 'a' (U+0061). This explicit
+            // mapping prevents self-approval bypass via visually identical but
+            // technically different Unicode characters (P0 fix).
             let requester_normalized: String = requester_base.nfkc().collect();
             let approver_normalized: String = approver_base.nfkc().collect();
             let req_lower: String = requester_normalized
@@ -411,7 +417,10 @@ impl ApprovalStore {
                 .chars()
                 .flat_map(char::to_lowercase)
                 .collect();
-            if !req_lower.is_empty() && req_lower != "anonymous" && req_lower == app_lower {
+            // Apply homoglyph normalization to catch Cyrillic/Greek/etc spoofing
+            let req_final = normalize_homoglyphs(&req_lower);
+            let app_final = normalize_homoglyphs(&app_lower);
+            if !req_final.is_empty() && req_final != "anonymous" && req_final == app_final {
                 return Err(ApprovalError::Validation(format!(
                     "Self-approval denied: requester '{requester_base}' cannot approve their own request"
                 )));
@@ -1226,6 +1235,94 @@ mod tests {
             result.is_ok(),
             "Different users should be able to approve: {:?}",
             result.err()
+        );
+    }
+
+    // SECURITY (R42-SUP-1): P0 FIX — Cyrillic homoglyph self-approval bypass prevention.
+    // NFKC normalization does NOT convert Cyrillic confusables to Latin equivalents.
+    // An attacker using "аdmin" (Cyrillic U+0430) vs "admin" (Latin) could bypass
+    // self-approval checks without explicit homoglyph normalization.
+    #[tokio::test]
+    async fn test_r42_sup_1_cyrillic_homoglyph_self_approval_blocked() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        // Requester uses Latin "admin"
+        let requester = "admin@corp.com".to_string();
+        let id = store
+            .create(test_action(), "needs review".to_string(), Some(requester))
+            .await
+            .unwrap();
+
+        // Attacker tries to self-approve using Cyrillic 'а' (U+0430) instead of Latin 'a'
+        let cyrillic_a = '\u{0430}'; // Cyrillic lowercase а
+        let spoofed_approver = format!("{cyrillic_a}dmin@corp.com");
+        let result = store.approve(&id, &spoofed_approver).await;
+        assert!(
+            result.is_err(),
+            "P0 FIX: Cyrillic homoglyph 'а' (U+0430) vs Latin 'a' must be caught as \
+             self-approval. Without homoglyph normalization, NFKC would NOT catch this."
+        );
+        match result.unwrap_err() {
+            ApprovalError::Validation(msg) => {
+                assert!(
+                    msg.contains("Self-approval denied"),
+                    "Error should indicate self-approval denial: {msg}"
+                );
+            }
+            other => panic!("Expected Validation error, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_r42_sup_1_cyrillic_mixed_homoglyphs_self_approval_blocked() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        // Requester uses Latin "password"
+        let requester = "password@corp.com".to_string();
+        let id = store
+            .create(test_action(), "needs review".to_string(), Some(requester))
+            .await
+            .unwrap();
+
+        // Attacker uses multiple Cyrillic confusables: р(U+0440), а(U+0430), о(U+043E)
+        // "раssword" with Cyrillic р and а
+        let spoofed = "р\u{0430}ssword@corp.com"; // Cyrillic р + Cyrillic а + Latin ssword
+        let result = store.approve(&id, spoofed).await;
+        assert!(
+            result.is_err(),
+            "P0 FIX: Multiple Cyrillic homoglyphs in 'password' must be caught"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_r42_sup_1_greek_homoglyph_self_approval_blocked() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        // Requester uses Latin "alpha"
+        let requester = "alpha@corp.com".to_string();
+        let id = store
+            .create(test_action(), "needs review".to_string(), Some(requester))
+            .await
+            .unwrap();
+
+        // Attacker uses Greek alpha (U+03B1) which NFKC does NOT normalize to Latin 'a'
+        let spoofed = "\u{03B1}lpha@corp.com"; // Greek α + Latin lpha
+        let result = store.approve(&id, spoofed).await;
+        assert!(
+            result.is_err(),
+            "P0 FIX: Greek alpha (U+03B1) homoglyph must be caught as self-approval"
         );
     }
 
