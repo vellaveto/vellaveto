@@ -1,0 +1,304 @@
+//! Core policy types — Action, Verdict, PolicyType, PathRules, NetworkRules,
+//! IpRules, Policy, evaluation trace types, and validation.
+
+use crate::threat::ValidationError;
+use serde::{Deserialize, Serialize};
+
+/// Maximum length for tool and function names (bytes).
+const MAX_NAME_LEN: usize = 256;
+
+/// Maximum length for individual path or domain strings (bytes).
+const MAX_TARGET_LEN: usize = 4096;
+
+/// Maximum number of combined `target_paths` + `target_domains` entries.
+const MAX_TARGETS: usize = 256;
+
+/// Validate a single name field (tool or function).
+pub(crate) fn validate_name(value: &str, field: &'static str) -> Result<(), ValidationError> {
+    if value.is_empty() {
+        return Err(ValidationError::EmptyField { field });
+    }
+    if value.contains('\0') {
+        return Err(ValidationError::NullByte { field });
+    }
+    if value.len() > MAX_NAME_LEN {
+        return Err(ValidationError::TooLong {
+            field,
+            len: value.len(),
+            max: MAX_NAME_LEN,
+        });
+    }
+    // SECURITY (R12-TYPES-1): Reject names with control characters or
+    // that are whitespace-only. Prevents homoglyph/invisible-char bypass
+    // and log confusion.
+    if value.trim().is_empty() {
+        return Err(ValidationError::EmptyField { field });
+    }
+    // SECURITY (R16-TYPES-1): Use distinct variant for control characters
+    // so error messages accurately describe the issue.
+    if value.chars().any(|c| c.is_control() && c != '\0') {
+        return Err(ValidationError::ControlCharacter { field });
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Action {
+    pub tool: String,
+    pub function: String,
+    pub parameters: serde_json::Value,
+    /// File paths targeted by this action (e.g. from `file://` URIs).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub target_paths: Vec<String>,
+    /// Domains targeted by this action (e.g. from `https://` URIs).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub target_domains: Vec<String>,
+    /// IP addresses resolved from `target_domains` (populated by proxy layer).
+    /// Used by the engine for DNS rebinding protection when [`IpRules`] are configured.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resolved_ips: Vec<String>,
+}
+
+impl Action {
+    /// Create an Action with only tool, function, and parameters.
+    /// `target_paths` and `target_domains` default to empty.
+    ///
+    /// Does NOT validate inputs — use [`Action::validated`] or [`Action::validate`]
+    /// at trust boundaries (MCP extractor, HTTP proxy).
+    pub fn new(
+        tool: impl Into<String>,
+        function: impl Into<String>,
+        parameters: serde_json::Value,
+    ) -> Self {
+        Self {
+            tool: tool.into(),
+            function: function.into(),
+            parameters,
+            target_paths: Vec::new(),
+            target_domains: Vec::new(),
+            resolved_ips: Vec::new(),
+        }
+    }
+
+    /// Create an Action with validation on tool and function names.
+    ///
+    /// Rejects empty names, null bytes, and names exceeding 256 bytes.
+    /// Use this at trust boundaries where inputs come from external sources.
+    pub fn validated(
+        tool: impl Into<String>,
+        function: impl Into<String>,
+        parameters: serde_json::Value,
+    ) -> Result<Self, ValidationError> {
+        let tool = tool.into();
+        let function = function.into();
+        validate_name(&tool, "tool")?;
+        validate_name(&function, "function")?;
+        Ok(Self {
+            tool,
+            function,
+            parameters,
+            target_paths: Vec::new(),
+            target_domains: Vec::new(),
+            resolved_ips: Vec::new(),
+        })
+    }
+
+    /// Validate an existing Action's fields.
+    ///
+    /// Checks tool/function names, and `target_paths`/`target_domains` for
+    /// null bytes, excessive length, and total count.
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        validate_name(&self.tool, "tool")?;
+        validate_name(&self.function, "function")?;
+
+        // Check combined target count (R39-ENG-4: include resolved_ips)
+        let total_targets =
+            self.target_paths.len() + self.target_domains.len() + self.resolved_ips.len();
+        if total_targets > MAX_TARGETS {
+            return Err(ValidationError::TooManyTargets {
+                count: total_targets,
+                max: MAX_TARGETS,
+            });
+        }
+
+        // Validate individual target_paths
+        for (i, path) in self.target_paths.iter().enumerate() {
+            if path.contains('\0') {
+                return Err(ValidationError::TargetNullByte {
+                    field: "target_paths",
+                    index: i,
+                });
+            }
+            if path.len() > MAX_TARGET_LEN {
+                return Err(ValidationError::TargetTooLong {
+                    field: "target_paths",
+                    index: i,
+                    len: path.len(),
+                    max: MAX_TARGET_LEN,
+                });
+            }
+        }
+
+        // Validate individual target_domains
+        for (i, domain) in self.target_domains.iter().enumerate() {
+            if domain.contains('\0') {
+                return Err(ValidationError::TargetNullByte {
+                    field: "target_domains",
+                    index: i,
+                });
+            }
+            if domain.len() > MAX_TARGET_LEN {
+                return Err(ValidationError::TargetTooLong {
+                    field: "target_domains",
+                    index: i,
+                    len: domain.len(),
+                    max: MAX_TARGET_LEN,
+                });
+            }
+        }
+
+        // SECURITY (R42-TYPES-1): Validate resolved_ips contents (null bytes, length).
+        // Previously only counted toward MAX_TARGETS but contents were not checked,
+        // unlike target_paths and target_domains which validate null bytes and length.
+        for (i, ip) in self.resolved_ips.iter().enumerate() {
+            if ip.contains('\0') {
+                return Err(ValidationError::TargetNullByte {
+                    field: "resolved_ips",
+                    index: i,
+                });
+            }
+            if ip.len() > MAX_TARGET_LEN {
+                return Err(ValidationError::TargetTooLong {
+                    field: "resolved_ips",
+                    index: i,
+                    len: ip.len(),
+                    max: MAX_TARGET_LEN,
+                });
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
+pub enum Verdict {
+    Allow,
+    Deny { reason: String },
+    RequireApproval { reason: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
+pub enum PolicyType {
+    Allow,
+    Deny,
+    Conditional { conditions: serde_json::Value },
+}
+
+/// Path-based access control rules for file system operations.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct PathRules {
+    /// Glob patterns for allowed paths. If non-empty, only matching paths are allowed.
+    #[serde(default)]
+    pub allowed: Vec<String>,
+    /// Glob patterns for blocked paths. Any match results in denial.
+    #[serde(default)]
+    pub blocked: Vec<String>,
+}
+
+/// Network-based access control rules for outbound connections.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct NetworkRules {
+    /// Domain patterns for allowed destinations. If non-empty, only matching domains are allowed.
+    #[serde(default)]
+    pub allowed_domains: Vec<String>,
+    /// Domain patterns for blocked destinations. Any match results in denial.
+    #[serde(default)]
+    pub blocked_domains: Vec<String>,
+    /// IP-level access control for DNS rebinding protection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ip_rules: Option<IpRules>,
+}
+
+/// IP-level access control rules (DNS rebinding protection).
+///
+/// When configured, the proxy layer resolves target domains to IP addresses
+/// and the engine checks them against these rules. This prevents attacks
+/// where an allowed domain's DNS record changes to point at a private IP.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct IpRules {
+    /// Block connections to private/reserved IPs (RFC 1918, loopback, link-local).
+    #[serde(default)]
+    pub block_private: bool,
+    /// CIDR ranges to block (e.g. "10.0.0.0/8").
+    #[serde(default)]
+    pub blocked_cidrs: Vec<String>,
+    /// CIDR ranges to allow. If non-empty, only matching IPs are allowed.
+    #[serde(default)]
+    pub allowed_cidrs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Policy {
+    pub id: String,
+    pub name: String,
+    pub policy_type: PolicyType,
+    pub priority: i32,
+    /// Optional path-based access control rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path_rules: Option<PathRules>,
+    /// Optional network-based access control rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_rules: Option<NetworkRules>,
+}
+
+// ═══════════════════════════════════════════════════
+// EVALUATION TRACE TYPES (Phase 10.4)
+// ═══════════════════════════════════════════════════
+
+/// Full evaluation trace for a single action evaluation.
+///
+/// Returned by `PolicyEngine::evaluate_action_traced()` when callers need
+/// OPA-style decision explanations (e.g. `?trace=true` on the HTTP proxy).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvaluationTrace {
+    pub action_summary: ActionSummary,
+    pub policies_checked: usize,
+    pub policies_matched: usize,
+    pub matches: Vec<PolicyMatch>,
+    pub verdict: Verdict,
+    pub duration_us: u64,
+}
+
+/// Summary of the action being evaluated (no raw parameter values for security).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActionSummary {
+    pub tool: String,
+    pub function: String,
+    pub param_count: usize,
+    pub param_keys: Vec<String>,
+}
+
+/// Per-policy evaluation result within a trace.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyMatch {
+    pub policy_id: String,
+    pub policy_name: String,
+    pub policy_type: String,
+    pub priority: i32,
+    pub tool_matched: bool,
+    pub constraint_results: Vec<ConstraintResult>,
+    pub verdict_contribution: Option<Verdict>,
+}
+
+/// Individual constraint evaluation result within a policy match.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConstraintResult {
+    pub constraint_type: String,
+    pub param: String,
+    pub expected: String,
+    pub actual: String,
+    pub passed: bool,
+}
