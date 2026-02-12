@@ -178,14 +178,23 @@ impl AgentCardCache {
 
     /// Store an agent card in the cache.
     ///
-    /// If the cache is at capacity (MAX_CACHE_ENTRIES), the oldest entry
-    /// is evicted before inserting the new one (SEC-009).
+    /// If the cache is at capacity (MAX_CACHE_ENTRIES), the oldest entries
+    /// are evicted until there is room for the new one (SEC-009).
+    ///
+    /// SECURITY (FIND-031): Uses a `while` loop instead of a single `if`
+    /// to ensure capacity is maintained even under concurrent stores.
+    /// Previously, concurrent threads could each pass the capacity check
+    /// and insert without evicting, causing unbounded growth.
     pub fn store(&self, base_url: &str, card: AgentCard) {
         if let Ok(mut cache) = self.cache.write() {
-            // SEC-009: Evict oldest entry if at capacity
-            if cache.len() >= MAX_CACHE_ENTRIES && !cache.contains_key(base_url) {
-                if let Some(oldest_key) = Self::find_oldest_entry(&cache) {
-                    cache.remove(&oldest_key);
+            // SEC-009 / FIND-031: Evict oldest entries until under capacity
+            if !cache.contains_key(base_url) {
+                while cache.len() >= MAX_CACHE_ENTRIES {
+                    if let Some(oldest_key) = Self::find_oldest_entry(&cache) {
+                        cache.remove(&oldest_key);
+                    } else {
+                        break; // No entries to evict (shouldn't happen)
+                    }
                 }
             }
 

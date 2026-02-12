@@ -442,6 +442,10 @@ impl OAuthValidator {
 
         // Challenge 11 fix: Reject algorithms not in the allowed list.
         // Prevents algorithm confusion attacks (e.g., HS256 with RSA public key).
+        // NOTE (FIND-039 false positive): jsonwebtoken v10 does not have an
+        // Algorithm::None variant — the "none" algorithm cannot be represented
+        // in this library's type system. A token with alg="none" will fail at
+        // decode_header() above since it cannot be deserialized into Algorithm.
         if !self.config.allowed_algorithms.contains(&header.alg) {
             return Err(OAuthError::DisallowedAlgorithm(header.alg));
         }

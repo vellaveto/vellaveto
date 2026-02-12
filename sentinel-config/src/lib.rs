@@ -3346,6 +3346,13 @@ impl PolicyConfig {
         }
 
         // ═══════════════════════════════════════════════════
+        // LIMITS VALIDATION (FIND-032 / FIND-036)
+        // ═══════════════════════════════════════════════════
+        // SECURITY (FIND-032): Reject zero values that would disable safety constraints.
+        // SECURITY (FIND-036): Reject excessively large values that could cause OOM.
+        self.limits.validate()?;
+
+        // ═══════════════════════════════════════════════════
         // PHASE 15: OBSERVABILITY VALIDATION
         // ═══════════════════════════════════════════════════
         self.observability.validate()?;
@@ -5330,6 +5337,95 @@ fn default_max_trace_header_bytes() -> usize {
 
 fn default_max_jsonrpc_id_key_len() -> usize {
     256
+}
+
+impl LimitsConfig {
+    /// Validate that limits are within safe bounds.
+    ///
+    /// SECURITY (FIND-032): Zero values could disable safety constraints (e.g.,
+    /// `max_response_body_bytes = 0` rejects all responses, `request_timeout_secs = 0`
+    /// could break timeout logic).
+    ///
+    /// SECURITY (FIND-036): Excessively large values could cause OOM via
+    /// `Vec::with_capacity()` or disable rate protections.
+    pub fn validate(&self) -> Result<(), String> {
+        /// 1 GB — generous upper bound for any byte-size limit.
+        const MAX_BYTES_LIMIT: usize = 1024 * 1024 * 1024;
+        /// 1 hour — generous upper bound for timeout/age fields.
+        const MAX_TIMEOUT_SECS: u64 = 3600;
+        /// 1 million — generous upper bound for count limits.
+        const MAX_COUNT_LIMIT: usize = 1_000_000;
+
+        if self.max_response_body_bytes == 0 || self.max_response_body_bytes > MAX_BYTES_LIMIT {
+            return Err(format!(
+                "limits.max_response_body_bytes must be between 1 and {} (1 GB)",
+                MAX_BYTES_LIMIT
+            ));
+        }
+        if self.max_sse_event_bytes == 0 || self.max_sse_event_bytes > MAX_BYTES_LIMIT {
+            return Err(format!(
+                "limits.max_sse_event_bytes must be between 1 and {} (1 GB)",
+                MAX_BYTES_LIMIT
+            ));
+        }
+        if self.max_jsonrpc_line_bytes == 0 || self.max_jsonrpc_line_bytes > MAX_BYTES_LIMIT {
+            return Err(format!(
+                "limits.max_jsonrpc_line_bytes must be between 1 and {} (1 GB)",
+                MAX_BYTES_LIMIT
+            ));
+        }
+        if self.max_call_chain_length == 0 || self.max_call_chain_length > MAX_COUNT_LIMIT {
+            return Err(format!(
+                "limits.max_call_chain_length must be between 1 and {}",
+                MAX_COUNT_LIMIT
+            ));
+        }
+        if self.call_chain_max_age_secs == 0 || self.call_chain_max_age_secs > MAX_TIMEOUT_SECS {
+            return Err(format!(
+                "limits.call_chain_max_age_secs must be between 1 and {} (1 hour)",
+                MAX_TIMEOUT_SECS
+            ));
+        }
+        if self.request_timeout_secs == 0 || self.request_timeout_secs > MAX_TIMEOUT_SECS {
+            return Err(format!(
+                "limits.request_timeout_secs must be between 1 and {} (1 hour)",
+                MAX_TIMEOUT_SECS
+            ));
+        }
+        if self.max_action_history == 0 || self.max_action_history > MAX_COUNT_LIMIT {
+            return Err(format!(
+                "limits.max_action_history must be between 1 and {}",
+                MAX_COUNT_LIMIT
+            ));
+        }
+        if self.max_pending_tool_calls == 0 || self.max_pending_tool_calls > MAX_COUNT_LIMIT {
+            return Err(format!(
+                "limits.max_pending_tool_calls must be between 1 and {}",
+                MAX_COUNT_LIMIT
+            ));
+        }
+        if self.max_call_chain_header_bytes == 0
+            || self.max_call_chain_header_bytes > MAX_BYTES_LIMIT
+        {
+            return Err(format!(
+                "limits.max_call_chain_header_bytes must be between 1 and {} (1 GB)",
+                MAX_BYTES_LIMIT
+            ));
+        }
+        if self.max_trace_header_bytes == 0 || self.max_trace_header_bytes > MAX_BYTES_LIMIT {
+            return Err(format!(
+                "limits.max_trace_header_bytes must be between 1 and {} (1 GB)",
+                MAX_BYTES_LIMIT
+            ));
+        }
+        if self.max_jsonrpc_id_key_len == 0 || self.max_jsonrpc_id_key_len > MAX_COUNT_LIMIT {
+            return Err(format!(
+                "limits.max_jsonrpc_id_key_len must be between 1 and {}",
+                MAX_COUNT_LIMIT
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Default for LimitsConfig {
