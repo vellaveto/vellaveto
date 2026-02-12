@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-Sentinel v2.2.1 is production-ready with 35 audit rounds and 4,100+ tests. This roadmap captures completed v2.0-v2.2 work and upcoming priorities based on:
+Sentinel v2.2.1 is production-ready with 35 audit rounds and 4,200+ tests. This roadmap captures completed v2.0-v2.2 work and upcoming priorities based on:
 
 1. **MCP 2025-11-25 Protocol Compliance** — Async Tasks, Resource Indicators, CIMD
 2. **Advanced Threat Detection** — Shadow agents, full schema poisoning, cascading failures
