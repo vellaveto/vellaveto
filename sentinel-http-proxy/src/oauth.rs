@@ -1265,4 +1265,539 @@ mod tests {
         assert!(err.to_string().contains("PKCE"));
         assert!(err.to_string().contains("S256"));
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // FIND-045: End-to-End JWT Validation Tests
+    //
+    // These tests exercise the full validate_token() flow:
+    //   sign JWT → start mock JWKS server → create OAuthValidator → validate
+    //
+    // This catches integration bugs that unit tests miss:
+    //   - JWKS fetch + key matching + signature verification
+    //   - Algorithm allowlist enforcement on real tokens
+    //   - Claim validation (exp, iss, aud, scope, resource) on real tokens
+    //   - kid matching with multi-key JWKS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // Hardcoded RSA 2048-bit test key pair (generated offline, not a real secret).
+    const TEST_RSA_PRIVATE_PEM: &str = r#"-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDXsFTcrmrrw3RK
+Ll2pK5mhqySdvuoQY/U1CwFXmu1S2BAEnh+/Yzsilc/LWJjBmcDdmY88NC+F8PhO
+q6+hQjWZR08QewinBg69w2+TRqr4x09XXZm/w3Y+jOlspHR85PISy8sqkHzGk3o4
+cLNCxDkw2mwQaVDQQz1YJ0x22+IoOZniRTntUK1yAyI0jqhpZJjn9dY+CbDt/H8B
+nGollAlhKQFizDAIMYOL/duJLJv1jtgv5hwvH94tSYgLGzJcufmxvioBBD4ZcxDq
+Lk2vNdC5ETVkS9GeyYfuQbHW55lYSACe2NfYwgwYc3PO6X6PlJxuksL7JfR6kivU
+WkYHOTVLAgMBAAECggEATuXElRkEKYvMrRn6ztgREa9N7JoaerZlyupkqkwUxfod
+GeNRj6vXxNXyNdsJvb/laeozF/2q6J715aktzJowiwonpMqsppQzrjygQspV3jzi
+C/5EMH5qcYUQGdqqdck1t6Rug/poeicWTTEEkca/eNxdLT+o/RWrieSONuhF+Ro0
+7S60Dc4tFRA6XBDayikUzuFd2XoroRfoukC+HcC7mHMQdPHNt7QjORJNitdjwP+P
+BcwNm61043sz9VSdW9FMtrdpg+pndbzRiYwYCDRt7r0hhUSZ4cojY6Tyoqexa5BD
+7W5jDTmySO5/Jzl3QGvtevyKVx3x6DQE9858W8kucQKBgQDynqb19kVK6IFPccFX
+01D9qVg0vZ1WoAR30s79DkoKA/NyM3sjP431p38Kkj1QomERBSCb0O1OOfsfjAEO
+2SoEqTSa+2cgDYikQ16IEqKfbucilDNMTsYQz9Jwx16BEJRGoz+lbt52exhZN+nf
+qfVtuwIvlb46bksxh5pXJ9L7wwKBgQDjlXatVjiZgigpGwmj4/Uj9tI0c+AmtooX
+zA/2B3GJdXbRVtMvFsQB73/d7U2lCwUHJmG56FYS1Dg8C88Xn7nE6kBSYoeguxCA
+bLPBbCGtPD/VeGP2ymxLxsULLiiRx4S+6K7hUulCkg9m3CWkc3m5AH5lrHVEXgi1
+YadcFKMv2QKBgAuaJqXQdxPT9osUB4jppA/dT0iGYMXJtSz9ucREMKo18ihd6d+P
+pHxA3ERnJeN7QGUN97c70H1TLH0fttU88VNzu/5FU3Mm8ofYaObc7UXuicMPjzxw
+7+vR5GBcSFqnrk+Kcvq4SI8l584sbFSzzfbHYJ1h7czhhVsC/xB36RD9AoGBANQ8
+JXGer6fQrp0u3r2dL5Y7bmqGCWpw3rU0k0nwRRxYk9bDbqxCQcZAUHFpBPi+HxE8
+5PQXTHXAvTSaGqXASeDuR8/MnQjyioAJX1Uo/vrr7eeonyieO4IrOsSjZigU9aGH
+otb0mB2B0qUs9lm3arNxV25/9tgsDVkBWa7QfCJ5AoGBAJF/XTU+YnGjQYGgxvfg
+Ma5j2E3NRga/10ncKjDKbRNzLXk887xp4kl68vDTayAKGLu+ndYQ9dMpHCUTPky5
+2KGQijoG2H/1Ri4JE8dGa+RbjG3gMIRIdbYApn/Q4nrAadrWrDLaTpbnAhhL95FJ
+TfzccotDw2uXy3Xbwy/kdpfK
+-----END PRIVATE KEY-----"#;
+
+    // n and e in base64url for the JWKS JSON (matches the private key above).
+    const TEST_RSA_N: &str = "17BU3K5q68N0Si5dqSuZoasknb7qEGP1NQsBV5rtUtgQBJ4fv2M7IpXPy1iYwZnA3ZmPPDQvhfD4TquvoUI1mUdPEHsIpwYOvcNvk0aq-MdPV12Zv8N2PozpbKR0fOTyEsvLKpB8xpN6OHCzQsQ5MNpsEGlQ0EM9WCdMdtviKDmZ4kU57VCtcgMiNI6oaWSY5_XWPgmw7fx_AZxqJZQJYSkBYswwCDGDi_3biSyb9Y7YL-YcLx_eLUmICxsyXLn5sb4qAQQ-GXMQ6i5NrzXQuRE1ZEvRnsmH7kGx1ueZWEgAntjX2MIMGHNzzul-j5ScbpLC-yX0epIr1FpGBzk1Sw";
+    const TEST_RSA_E: &str = "AQAB";
+
+    /// Build a JWKS JSON string with a single RSA key.
+    fn test_jwks_json(kid: &str) -> String {
+        serde_json::json!({
+            "keys": [{
+                "kty": "RSA",
+                "use": "sig",
+                "alg": "RS256",
+                "kid": kid,
+                "n": TEST_RSA_N,
+                "e": TEST_RSA_E
+            }]
+        })
+        .to_string()
+    }
+
+    /// Start a mock JWKS server and return (base_url, join_handle).
+    async fn start_mock_jwks_server(jwks_json: String) -> (String, tokio::task::JoinHandle<()>) {
+        use axum::{routing::get, Router};
+        use std::net::SocketAddr;
+
+        let app = Router::new().route(
+            "/.well-known/jwks.json",
+            get(move || {
+                let json = jwks_json.clone();
+                async move {
+                    (
+                        [(
+                            http::header::CONTENT_TYPE,
+                            http::HeaderValue::from_static("application/json"),
+                        )],
+                        json,
+                    )
+                }
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind to random port");
+        let addr: SocketAddr = listener.local_addr().expect("local addr");
+        let base_url = format!("http://127.0.0.1:{}", addr.port());
+
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("mock JWKS server failed");
+        });
+
+        // Give the server a moment to bind.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        (base_url, handle)
+    }
+
+    /// Build an OAuthConfig pointing at the mock JWKS server.
+    fn test_oauth_config(jwks_url: String) -> OAuthConfig {
+        OAuthConfig {
+            issuer: "https://auth.example.com".to_string(),
+            audience: "mcp-server".to_string(),
+            jwks_uri: Some(jwks_url),
+            required_scopes: vec!["tools.call".to_string()],
+            pass_through: false,
+            allowed_algorithms: default_allowed_algorithms(),
+            expected_resource: None,
+            clock_skew_leeway: Duration::from_secs(30),
+            require_audience: true,
+            dpop_mode: DpopMode::Off,
+            dpop_allowed_algorithms: default_dpop_allowed_algorithms(),
+            dpop_require_ath: true,
+            dpop_max_clock_skew: Duration::from_secs(300),
+        }
+    }
+
+    /// Sign a JWT with the test RSA key.
+    fn sign_test_jwt(claims: &serde_json::Value, kid: &str) -> String {
+        use jsonwebtoken::{encode, EncodingKey, Header};
+
+        let key = EncodingKey::from_rsa_pem(TEST_RSA_PRIVATE_PEM.as_bytes())
+            .expect("valid RSA PEM");
+        let mut header = Header::new(Algorithm::RS256);
+        header.kid = Some(kid.to_string());
+
+        encode(&header, claims, &key).expect("JWT signing must succeed")
+    }
+
+    /// Return valid JWT claims with sensible defaults.
+    fn valid_claims() -> serde_json::Value {
+        let now = chrono::Utc::now().timestamp() as u64;
+        serde_json::json!({
+            "sub": "user-123",
+            "iss": "https://auth.example.com",
+            "aud": "mcp-server",
+            "exp": now + 3600,
+            "iat": now,
+            "nbf": now - 10,
+            "scope": "tools.call resources.read"
+        })
+    }
+
+    #[tokio::test]
+    async fn test_e2e_valid_jwt_accepted() {
+        let kid = "test-key-1";
+        let jwks = test_jwks_json(kid);
+        let (base_url, _handle) = start_mock_jwks_server(jwks).await;
+
+        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let validator = OAuthValidator::new(config, reqwest::Client::new());
+
+        let token = sign_test_jwt(&valid_claims(), kid);
+        let auth_header = format!("Bearer {}", token);
+
+        let claims = validator.validate_token(&auth_header).await
+            .expect("valid JWT must be accepted");
+        assert_eq!(claims.sub, "user-123");
+        assert_eq!(claims.iss, "https://auth.example.com");
+        assert!(claims.scopes().contains(&"tools.call"));
+    }
+
+    #[tokio::test]
+    async fn test_e2e_expired_jwt_rejected() {
+        let kid = "test-key-1";
+        let jwks = test_jwks_json(kid);
+        let (base_url, _handle) = start_mock_jwks_server(jwks).await;
+
+        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let validator = OAuthValidator::new(config, reqwest::Client::new());
+
+        let now = chrono::Utc::now().timestamp() as u64;
+        let mut claims = valid_claims();
+        claims["exp"] = serde_json::json!(now - 600); // 10 minutes ago
+
+        let token = sign_test_jwt(&claims, kid);
+        let auth_header = format!("Bearer {}", token);
+
+        let err = validator.validate_token(&auth_header).await
+            .expect_err("expired JWT must be rejected");
+        assert!(
+            matches!(err, OAuthError::JwtError(_)),
+            "expected JwtError for expired token, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_e2e_wrong_algorithm_rejected() {
+        let kid = "test-key-1";
+        let jwks = test_jwks_json(kid);
+        let (base_url, _handle) = start_mock_jwks_server(jwks).await;
+
+        // Only allow ES256 — not RS256
+        let mut config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        config.allowed_algorithms = vec![Algorithm::ES256];
+
+        let validator = OAuthValidator::new(config, reqwest::Client::new());
+
+        // Token is signed with RS256, but we only allow ES256
+        let token = sign_test_jwt(&valid_claims(), kid);
+        let auth_header = format!("Bearer {}", token);
+
+        let err = validator.validate_token(&auth_header).await
+            .expect_err("RS256 JWT must be rejected when only ES256 is allowed");
+        assert!(
+            matches!(err, OAuthError::DisallowedAlgorithm(Algorithm::RS256)),
+            "expected DisallowedAlgorithm(RS256), got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_e2e_wrong_issuer_rejected() {
+        let kid = "test-key-1";
+        let jwks = test_jwks_json(kid);
+        let (base_url, _handle) = start_mock_jwks_server(jwks).await;
+
+        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let validator = OAuthValidator::new(config, reqwest::Client::new());
+
+        let mut claims = valid_claims();
+        claims["iss"] = serde_json::json!("https://evil.example.com");
+
+        let token = sign_test_jwt(&claims, kid);
+        let auth_header = format!("Bearer {}", token);
+
+        let err = validator.validate_token(&auth_header).await
+            .expect_err("wrong issuer must be rejected");
+        assert!(
+            matches!(err, OAuthError::JwtError(_)),
+            "expected JwtError for issuer mismatch, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_e2e_wrong_audience_rejected() {
+        let kid = "test-key-1";
+        let jwks = test_jwks_json(kid);
+        let (base_url, _handle) = start_mock_jwks_server(jwks).await;
+
+        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let validator = OAuthValidator::new(config, reqwest::Client::new());
+
+        let mut claims = valid_claims();
+        claims["aud"] = serde_json::json!("wrong-audience");
+
+        let token = sign_test_jwt(&claims, kid);
+        let auth_header = format!("Bearer {}", token);
+
+        let err = validator.validate_token(&auth_header).await
+            .expect_err("wrong audience must be rejected");
+        // jsonwebtoken rejects audience mismatch before our custom check
+        assert!(
+            matches!(err, OAuthError::JwtError(_) | OAuthError::AudienceMismatch { .. }),
+            "expected audience rejection, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_e2e_missing_required_scope_rejected() {
+        let kid = "test-key-1";
+        let jwks = test_jwks_json(kid);
+        let (base_url, _handle) = start_mock_jwks_server(jwks).await;
+
+        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let validator = OAuthValidator::new(config, reqwest::Client::new());
+
+        let mut claims = valid_claims();
+        claims["scope"] = serde_json::json!("resources.read"); // missing tools.call
+
+        let token = sign_test_jwt(&claims, kid);
+        let auth_header = format!("Bearer {}", token);
+
+        let err = validator.validate_token(&auth_header).await
+            .expect_err("missing required scope must be rejected");
+        assert!(
+            matches!(err, OAuthError::InsufficientScope { .. }),
+            "expected InsufficientScope, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_e2e_resource_mismatch_rejected() {
+        let kid = "test-key-1";
+        let jwks = test_jwks_json(kid);
+        let (base_url, _handle) = start_mock_jwks_server(jwks).await;
+
+        let mut config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        config.expected_resource = Some("https://mcp.example.com".to_string());
+
+        let validator = OAuthValidator::new(config, reqwest::Client::new());
+
+        // Token has wrong resource
+        let mut claims = valid_claims();
+        claims["resource"] = serde_json::json!("https://evil.example.com");
+
+        let token = sign_test_jwt(&claims, kid);
+        let auth_header = format!("Bearer {}", token);
+
+        let err = validator.validate_token(&auth_header).await
+            .expect_err("resource mismatch must be rejected");
+        assert!(
+            matches!(err, OAuthError::ResourceMismatch { .. }),
+            "expected ResourceMismatch, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_e2e_resource_missing_when_required_rejected() {
+        let kid = "test-key-1";
+        let jwks = test_jwks_json(kid);
+        let (base_url, _handle) = start_mock_jwks_server(jwks).await;
+
+        let mut config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        config.expected_resource = Some("https://mcp.example.com".to_string());
+
+        let validator = OAuthValidator::new(config, reqwest::Client::new());
+
+        // Token has no resource claim
+        let token = sign_test_jwt(&valid_claims(), kid);
+        let auth_header = format!("Bearer {}", token);
+
+        let err = validator.validate_token(&auth_header).await
+            .expect_err("missing resource when required must be rejected");
+        assert!(
+            matches!(err, OAuthError::ResourceMismatch { .. }),
+            "expected ResourceMismatch, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_e2e_resource_match_accepted() {
+        let kid = "test-key-1";
+        let jwks = test_jwks_json(kid);
+        let (base_url, _handle) = start_mock_jwks_server(jwks).await;
+
+        let mut config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        config.expected_resource = Some("https://mcp.example.com".to_string());
+
+        let validator = OAuthValidator::new(config, reqwest::Client::new());
+
+        let mut claims = valid_claims();
+        claims["resource"] = serde_json::json!("https://mcp.example.com");
+
+        let token = sign_test_jwt(&claims, kid);
+        let auth_header = format!("Bearer {}", token);
+
+        let result = validator.validate_token(&auth_header).await;
+        assert!(result.is_ok(), "matching resource must be accepted: {result:?}");
+    }
+
+    #[tokio::test]
+    async fn test_e2e_kid_mismatch_rejected() {
+        let jwks = test_jwks_json("server-key-1");
+        let (base_url, _handle) = start_mock_jwks_server(jwks).await;
+
+        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let validator = OAuthValidator::new(config, reqwest::Client::new());
+
+        // Sign with kid "wrong-key" but JWKS only has "server-key-1"
+        let token = sign_test_jwt(&valid_claims(), "wrong-key");
+        let auth_header = format!("Bearer {}", token);
+
+        let err = validator.validate_token(&auth_header).await
+            .expect_err("kid mismatch must be rejected");
+        assert!(
+            matches!(err, OAuthError::NoMatchingKey(_)),
+            "expected NoMatchingKey, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_e2e_multi_key_jwks_no_kid_rejected() {
+        // JWKS with two keys
+        let jwks = serde_json::json!({
+            "keys": [
+                {
+                    "kty": "RSA", "use": "sig", "alg": "RS256",
+                    "kid": "key-1",
+                    "n": TEST_RSA_N, "e": TEST_RSA_E
+                },
+                {
+                    "kty": "RSA", "use": "sig", "alg": "RS256",
+                    "kid": "key-2",
+                    "n": TEST_RSA_N, "e": TEST_RSA_E
+                }
+            ]
+        })
+        .to_string();
+        let (base_url, _handle) = start_mock_jwks_server(jwks).await;
+
+        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let validator = OAuthValidator::new(config, reqwest::Client::new());
+
+        // Sign a token with no kid header
+        let key = jsonwebtoken::EncodingKey::from_rsa_pem(TEST_RSA_PRIVATE_PEM.as_bytes())
+            .expect("valid RSA PEM");
+        let mut header = jsonwebtoken::Header::new(Algorithm::RS256);
+        header.kid = None; // No kid
+        let token = jsonwebtoken::encode(&header, &valid_claims(), &key)
+            .expect("JWT signing");
+        let auth_header = format!("Bearer {}", token);
+
+        let err = validator.validate_token(&auth_header).await
+            .expect_err("missing kid with multi-key JWKS must be rejected");
+        assert!(
+            matches!(err, OAuthError::MissingKid(2)),
+            "expected MissingKid(2), got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_e2e_tampered_signature_rejected() {
+        let kid = "test-key-1";
+        let jwks = test_jwks_json(kid);
+        let (base_url, _handle) = start_mock_jwks_server(jwks).await;
+
+        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let validator = OAuthValidator::new(config, reqwest::Client::new());
+
+        let token = sign_test_jwt(&valid_claims(), kid);
+        // Tamper with the signature: flip the last character
+        let mut tampered = token.clone();
+        let last_char = tampered.pop().unwrap_or('A');
+        tampered.push(if last_char == 'A' { 'B' } else { 'A' });
+
+        let auth_header = format!("Bearer {}", tampered);
+
+        let err = validator.validate_token(&auth_header).await
+            .expect_err("tampered signature must be rejected");
+        assert!(
+            matches!(err, OAuthError::JwtError(_)),
+            "expected JwtError for signature tampering, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_e2e_missing_audience_with_require_audience_rejected() {
+        let kid = "test-key-1";
+        let jwks = test_jwks_json(kid);
+        let (base_url, _handle) = start_mock_jwks_server(jwks).await;
+
+        let mut config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        config.require_audience = true;
+
+        let validator = OAuthValidator::new(config, reqwest::Client::new());
+
+        // Claims with no aud — jsonwebtoken will reject before our check
+        let now = chrono::Utc::now().timestamp() as u64;
+        let claims = serde_json::json!({
+            "sub": "user-123",
+            "iss": "https://auth.example.com",
+            "exp": now + 3600,
+            "iat": now,
+            "nbf": now - 10,
+            "scope": "tools.call"
+        });
+
+        let token = sign_test_jwt(&claims, kid);
+        let auth_header = format!("Bearer {}", token);
+
+        let err = validator.validate_token(&auth_header).await
+            .expect_err("missing aud with require_audience must be rejected");
+        assert!(
+            matches!(err, OAuthError::JwtError(_) | OAuthError::MissingAudience),
+            "expected audience rejection, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_e2e_bearer_case_insensitive() {
+        let kid = "test-key-1";
+        let jwks = test_jwks_json(kid);
+        let (base_url, _handle) = start_mock_jwks_server(jwks).await;
+
+        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let validator = OAuthValidator::new(config, reqwest::Client::new());
+
+        let token = sign_test_jwt(&valid_claims(), kid);
+
+        // Test case-insensitive "bearer" prefix (RFC 7235 §2.1)
+        let auth_header = format!("BEARER {}", token);
+        let result = validator.validate_token(&auth_header).await;
+        assert!(result.is_ok(), "BEARER (uppercase) must be accepted: {result:?}");
+    }
+
+    #[tokio::test]
+    async fn test_e2e_not_before_future_rejected() {
+        let kid = "test-key-1";
+        let jwks = test_jwks_json(kid);
+        let (base_url, _handle) = start_mock_jwks_server(jwks).await;
+
+        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let validator = OAuthValidator::new(config, reqwest::Client::new());
+
+        let now = chrono::Utc::now().timestamp() as u64;
+        let mut claims = valid_claims();
+        claims["nbf"] = serde_json::json!(now + 600); // 10 minutes in the future
+
+        let token = sign_test_jwt(&claims, kid);
+        let auth_header = format!("Bearer {}", token);
+
+        let err = validator.validate_token(&auth_header).await
+            .expect_err("token with future nbf must be rejected");
+        assert!(
+            matches!(err, OAuthError::JwtError(_)),
+            "expected JwtError for nbf in the future, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_e2e_dpop_required_but_no_cnf_jkt_rejected() {
+        let kid = "test-key-1";
+        let jwks = test_jwks_json(kid);
+        let (base_url, _handle) = start_mock_jwks_server(jwks).await;
+
+        let mut config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        config.dpop_mode = DpopMode::Required;
+
+        let validator = OAuthValidator::new(config, reqwest::Client::new());
+
+        // Token without cnf.jkt claim
+        let token = sign_test_jwt(&valid_claims(), kid);
+        let auth_header = format!("Bearer {}", token);
+
+        let err = validator.validate_token(&auth_header).await
+            .expect_err("DPoP required but no cnf.jkt must be rejected");
+        assert!(
+            matches!(err, OAuthError::InvalidDpopProof(_)),
+            "expected InvalidDpopProof, got: {err}"
+        );
+    }
 }
