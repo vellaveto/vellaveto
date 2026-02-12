@@ -964,10 +964,8 @@ pub async fn handle_mcp_post(
                 match trust {
                     sentinel_mcp::tool_registry::TrustLevel::Unknown => {
                         registry.register_unknown(&tool_name).await;
-                        let reason = format!(
-                            "Tool '{}' is not in the registry — requires approval before use",
-                            tool_name
-                        );
+                        // SECURITY (FIND-045): Generic message to client; detailed reason in audit log only.
+                        let reason = "Approval required".to_string();
                         let verdict = Verdict::RequireApproval {
                             reason: reason.clone(),
                         };
@@ -995,10 +993,10 @@ pub async fn handle_mcp_post(
                         );
                     }
                     sentinel_mcp::tool_registry::TrustLevel::Untrusted { score } => {
-                        let reason = format!(
-                            "Tool '{}' trust score ({:.2}) is below threshold — requires approval",
-                            tool_name, score
-                        );
+                        // SECURITY (FIND-045): Don't leak trust scores to clients.
+                        // Detailed reason (including score) goes to audit log only.
+                        tracing::info!(tool = %tool_name, score = score, "Tool trust score below threshold");
+                        let reason = "Approval required".to_string();
                         let verdict = Verdict::RequireApproval {
                             reason: reason.clone(),
                         };

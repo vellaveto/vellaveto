@@ -17,11 +17,17 @@ use unicode_normalization::UnicodeNormalization;
 ///
 /// This single shared static eliminates all three issues.
 static DLP_REGEXES: OnceLock<Vec<(&'static str, regex::Regex)>> = OnceLock::new();
+/// Count of DLP patterns that failed to compile (FIND-047: detect silent degradation).
+static DLP_FAILED_COUNT: OnceLock<usize> = OnceLock::new();
 
 /// Get or initialize the shared DLP regex patterns.
+///
+/// SECURITY (FIND-047): Tracks failed pattern count so callers can detect
+/// silent degradation. Use `dlp_pattern_health()` to check.
 fn get_dlp_regexes() -> &'static [(&'static str, regex::Regex)] {
-    DLP_REGEXES.get_or_init(|| {
-        DLP_PATTERNS
+    let mut failed = 0usize;
+    let result = DLP_REGEXES.get_or_init(|| {
+        let compiled: Vec<_> = DLP_PATTERNS
             .iter()
             .filter_map(|(name, pat)| match regex::Regex::new(pat) {
                 Ok(re) => Some((*name, re)),
@@ -29,15 +35,31 @@ fn get_dlp_regexes() -> &'static [(&'static str, regex::Regex)] {
                     // SECURITY (R35-MCP-2): Log error if DLP pattern fails to compile.
                     tracing::error!(
                         "CRITICAL: Failed to compile DLP pattern '{}': {}. \
-                         This pattern will be SKIPPED.",
+                         This pattern will be SKIPPED — DLP coverage degraded.",
                         name,
                         e
                     );
+                    failed += 1;
                     None
                 }
             })
-            .collect()
-    })
+            .collect();
+        let _ = DLP_FAILED_COUNT.set(failed);
+        compiled
+    });
+    // Log on every call if patterns are missing (once per process via OnceLock).
+    let _ = DLP_FAILED_COUNT.get_or_init(|| 0);
+    result
+}
+
+/// Returns `(active_patterns, total_patterns)`.
+///
+/// If `active < total`, DLP is silently degraded — some secret types
+/// will not be detected. Callers should treat this as a fail-closed
+/// condition or at minimum emit a prominent warning.
+pub fn dlp_pattern_health() -> (usize, usize) {
+    let regexes = get_dlp_regexes();
+    (regexes.len(), DLP_PATTERNS.len())
 }
 
 /// Validate all DLP patterns compile successfully at startup.

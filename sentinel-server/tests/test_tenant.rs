@@ -179,7 +179,7 @@ async fn tenant_required_but_missing_returns_400() {
 }
 
 #[tokio::test]
-async fn tenant_not_found_returns_404() {
+async fn tenant_not_found_returns_403_opaque() {
     let store = Arc::new(InMemoryTenantStore::with_default_tenant());
     let config = TenantConfig {
         enabled: true,
@@ -198,7 +198,8 @@ async fn tenant_not_found_returns_404() {
         .unwrap();
 
     let response = app.oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    // SECURITY (FIND-047): Returns 403 (not 404) to prevent tenant enumeration.
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]

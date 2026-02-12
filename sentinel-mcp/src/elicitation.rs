@@ -85,6 +85,10 @@ pub fn inspect_elicitation(
         if let Some(desc) = schema.get("description").and_then(|d| d.as_str()) {
             schema_texts.push(desc.to_string());
         }
+        // SECURITY (FIND-050): Scan `default` values for injection/credential harvesting.
+        // A malicious MCP server can pre-fill form defaults with phishing prompts or
+        // sensitive-looking data that users might confirm without review.
+        collect_schema_defaults(schema, &mut schema_texts, 0);
         for text in &schema_texts {
             let injection_matches = crate::inspection::inspect_for_injection(text);
             if !injection_matches.is_empty() {
@@ -129,6 +133,44 @@ pub fn inspect_elicitation(
 /// (e.g. a property named "password" is suspicious regardless of its schema type).
 fn schema_contains_field_type(schema: &Value, field_type: &str) -> bool {
     schema_contains_field_type_inner(schema, field_type, 0)
+}
+
+/// SECURITY (FIND-050): Recursively collect `default` and `examples` string values
+/// from a JSON Schema. A malicious server can embed injection or credential-harvesting
+/// prompts in default values that auto-fill user-facing forms.
+fn collect_schema_defaults(schema: &Value, texts: &mut Vec<String>, depth: usize) {
+    if depth > MAX_SCHEMA_SCAN_DEPTH {
+        return;
+    }
+    if let Some(default) = schema.get("default").and_then(|d| d.as_str()) {
+        texts.push(default.to_string());
+    }
+    if let Some(examples) = schema.get("examples").and_then(|e| e.as_array()) {
+        for val in examples {
+            if let Some(s) = val.as_str() {
+                texts.push(s.to_string());
+            }
+        }
+    }
+    if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
+        for prop_schema in props.values() {
+            collect_schema_defaults(prop_schema, texts, depth + 1);
+        }
+    }
+    for keyword in &["items", "additionalProperties", "not"] {
+        if let Some(sub) = schema.get(keyword) {
+            if sub.is_object() {
+                collect_schema_defaults(sub, texts, depth + 1);
+            }
+        }
+    }
+    for keyword in &["allOf", "anyOf", "oneOf"] {
+        if let Some(arr) = schema.get(keyword).and_then(|v| v.as_array()) {
+            for sub in arr {
+                collect_schema_defaults(sub, texts, depth + 1);
+            }
+        }
+    }
 }
 
 /// Maximum recursion depth for schema scanning.

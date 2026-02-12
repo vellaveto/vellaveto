@@ -639,14 +639,22 @@ pub async fn tenant_middleware(
             next.run(request).await
         }
         Err(e) => {
-            let status = match &e {
-                TenantError::TenantRequired => StatusCode::BAD_REQUEST,
-                TenantError::TenantNotFound(_) => StatusCode::NOT_FOUND,
-                TenantError::TenantDisabled(_) => StatusCode::FORBIDDEN,
-                TenantError::InvalidTenantId(_) => StatusCode::BAD_REQUEST,
-                TenantError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            // SECURITY (FIND-047): Generic messages to prevent tenant enumeration.
+            // Log the full error server-side; return opaque message to client.
+            tracing::warn!("Tenant error: {}", e);
+            let (status, msg) = match &e {
+                TenantError::TenantRequired => (StatusCode::BAD_REQUEST, "Tenant header required"),
+                TenantError::TenantNotFound(_) | TenantError::TenantDisabled(_) => {
+                    (StatusCode::FORBIDDEN, "Access denied")
+                }
+                TenantError::InvalidTenantId(_) => {
+                    (StatusCode::BAD_REQUEST, "Invalid tenant identifier")
+                }
+                TenantError::Internal(_) => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
+                }
             };
-            (status, Json(json!({ "error": e.to_string() }))).into_response()
+            (status, Json(json!({ "error": msg }))).into_response()
         }
     }
 }

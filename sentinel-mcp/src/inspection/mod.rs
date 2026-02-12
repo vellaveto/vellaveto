@@ -26,7 +26,7 @@ pub mod util;
 
 // Re-export all public items from submodules for backwards compatibility
 pub use dlp::{
-    active_pattern_count, is_dlp_available, scan_notification_for_secrets,
+    active_pattern_count, dlp_pattern_health, is_dlp_available, scan_notification_for_secrets,
     scan_parameters_for_secrets, scan_response_for_secrets, scan_text_for_secrets,
     validate_dlp_patterns, DlpFinding, DLP_PATTERNS,
 };

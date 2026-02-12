@@ -457,23 +457,42 @@ fn collect_part_text_content(part: &Value, texts: &mut Vec<String>) {
         {
             texts.push(mime_type.to_string());
         }
+        // SECURITY (FIND-044): Scan base64-encoded file.bytes content for DLP/injection,
+        // matching MCP's resource.blob handling in dlp.rs and injection.rs.
+        if let Some(bytes_str) = file.get("bytes").and_then(|b| b.as_str()) {
+            if let Some(decoded) = crate::inspection::util::try_base64_decode(bytes_str) {
+                texts.push(decoded);
+            }
+        }
     }
 }
 
 /// Collect all string leaves from JSON value.
+///
+/// SECURITY (FIND-043): Bounded by MAX_STRING_LEAVES to prevent OOM from
+/// deeply nested or very wide JSON structures sent by malicious A2A upstreams.
 fn collect_string_leaves(value: &Value, texts: &mut Vec<String>) {
-    let mut stack = vec![value];
-    while let Some(current) = stack.pop() {
+    const MAX_STRING_LEAVES: usize = 1024;
+    const MAX_TRAVERSAL_DEPTH: usize = 32;
+
+    let mut stack: Vec<(&Value, usize)> = vec![(value, 0)];
+    while let Some((current, depth)) = stack.pop() {
+        if texts.len() >= MAX_STRING_LEAVES {
+            break;
+        }
+        if depth > MAX_TRAVERSAL_DEPTH {
+            continue;
+        }
         match current {
             Value::String(s) => texts.push(s.clone()),
             Value::Array(items) => {
                 for item in items {
-                    stack.push(item);
+                    stack.push((item, depth + 1));
                 }
             }
             Value::Object(map) => {
                 for nested in map.values() {
-                    stack.push(nested);
+                    stack.push((nested, depth + 1));
                 }
             }
             _ => {}
