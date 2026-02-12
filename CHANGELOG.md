@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Testing
+
+- **Adversarial Audit Test Coverage (FIND-043–054)**:
+  - 4,300+ tests total (up from 4,200+), 18 audit rounds (up from 17)
+  - FIND-043 (P1): 25 context condition tests covering all 10 condition types (MaxChainDepth, AgentIdentityMatch, AsyncTaskPolicy, ResourceIndicator, CapabilityRequired, StepUpAuth, CircuitBreaker, DeputyValidation, SchemaPoisoningCheck, ShadowAgentCheck)
+  - FIND-044 (P1): Circuit breaker HalfOpen→Closed recovery and Open→HalfOpen auto-transition tests
+  - FIND-045 (P1): 16 end-to-end OAuth JWT validation tests with mock JWKS server (sign → fetch → verify flow covering expiry, algorithm confusion, issuer/audience/scope/resource enforcement, kid matching, signature tampering, DPoP mode, RFC 7235 case-insensitivity)
+  - FIND-046 (P2): Domain homoglyph tests (Cyrillic, zero-width, fullwidth, mixed-script, combining diacritics)
+  - FIND-047 (P2): Windows path normalization tests (UNC paths, drive letters, mixed separators)
+  - FIND-048 (P2): Audit rotation manifest tamper detection tests (entry deletion, reordering)
+  - FIND-049 (P2): Memory tracker fingerprint evasion tests (case sensitivity, percent-encoding, query param reordering)
+  - FIND-050 (P2): 13 semantic scanner Unicode evasion tests documenting known gaps (fullwidth Latin, Cyrillic homoglyphs, zero-width insertion, combining diacritics, RTL override, mixed-script, superscript digits, chaos inputs)
+  - FIND-051 (P2): Agent card URL edge case tests (file:// scheme, internal IPs, path traversal, trailing slashes, case-sensitive cache keys, XSS in name)
+  - FIND-052 (P3): Behavioral EMA edge case tests (epsilon guard, u64::MAX, overflow, saturation)
+  - FIND-053 (P3): Output validation depth bomb tests (nested schemas at and beyond MAX_VALIDATION_DEPTH=32)
+  - FIND-054 (P3): Elicitation rate limit boundary tests (u32::MAX, exact boundary, boundary minus one)
+
 ### Changed
 
 - **Server Route Modularization (IMP-001)**:
