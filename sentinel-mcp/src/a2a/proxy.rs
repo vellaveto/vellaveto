@@ -223,7 +223,8 @@ impl A2aProxyService {
                     use sentinel_types::json_rpc;
                     // Fail closed: engine errors result in denial
                     let id = get_request_id(&msg_type);
-                    let reason = format!("Policy evaluation error: {}", e);
+                    tracing::error!(error = %e, "A2A policy evaluation engine error");
+                    let reason = "Internal policy evaluation error".to_string();
                     return Ok(A2aProxyDecision::Block {
                         response: make_a2a_error_response(
                             &id,

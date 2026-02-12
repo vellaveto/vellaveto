@@ -311,9 +311,12 @@ impl PolicyEngine {
                             }
 
                             // Check required custom claims
+                            // SECURITY (FIND-044): Case-insensitive comparison,
+                            // matching issuer/subject/audience behavior.
                             for (claim_key, expected_value) in required_claims {
                                 match identity.claim_str(claim_key) {
-                                    Some(actual) if actual == expected_value => {}
+                                    Some(actual)
+                                        if actual.to_ascii_lowercase() == *expected_value => {}
                                     actual => {
                                         return Some(Verdict::Deny {
                                             reason: format!(
@@ -418,7 +421,12 @@ impl PolicyEngine {
                             }
                         }
                         None => {
-                            if *require_resource {
+                            // SECURITY (FIND-048): Fail-closed when allowed_resources
+                            // is configured but no resource indicator is present.
+                            // The presence of allowed_resources implies the admin
+                            // intends to restrict by resource. Without this guard,
+                            // omitting identity bypasses the allowlist.
+                            if *require_resource || !allowed_resources.is_empty() {
                                 return Some(Verdict::Deny {
                                     reason: format!(
                                         "{} (resource indicator required but not present)",
@@ -435,26 +443,44 @@ impl PolicyEngine {
                     blocked_capabilities,
                     deny_reason,
                 } => {
+                    // SECURITY (FIND-045): Fail-closed when identity is missing but
+                    // capabilities are configured. Matches the guard in AgentId and
+                    // AgentIdentityMatch. Without this, omitting the identity header
+                    // bypasses blocked_capabilities checks entirely.
+                    if context.agent_identity.is_none()
+                        && (!required_capabilities.is_empty()
+                            || !blocked_capabilities.is_empty())
+                    {
+                        return Some(Verdict::Deny {
+                            reason: format!(
+                                "{} (no agent identity for capability check)",
+                                deny_reason
+                            ),
+                        });
+                    }
+
                     // CIMD: Capability-Indexed Message Dispatch
                     // Capabilities are stored in agent_identity claims as a comma-separated
                     // string or as a JSON array under the "capabilities" claim.
-                    let declared_caps: Vec<&str> = context
+                    // SECURITY (FIND-043): Lowercase declared caps to match the
+                    // compile-time normalization of required/blocked lists.
+                    let declared_caps: Vec<String> = context
                         .agent_identity
                         .as_ref()
                         .and_then(|id| {
                             // Try array first, then comma-separated string
                             id.claim_str_array("capabilities")
-                                .map(|arr| arr.into_iter().collect())
+                                .map(|arr| arr.into_iter().map(|s| s.to_ascii_lowercase()).collect())
                                 .or_else(|| {
                                     id.claim_str("capabilities")
-                                        .map(|s| s.split(',').map(str::trim).collect())
+                                        .map(|s| s.split(',').map(|p| p.trim().to_ascii_lowercase()).collect())
                                 })
                         })
                         .unwrap_or_default();
 
                     // Check blocked capabilities first
                     for blocked in blocked_capabilities {
-                        if declared_caps.iter().any(|&c| c == blocked) {
+                        if declared_caps.iter().any(|c| c == blocked) {
                             return Some(Verdict::Deny {
                                 reason: format!(
                                     "{} (blocked capability '{}' is declared)",
@@ -466,7 +492,7 @@ impl PolicyEngine {
 
                     // Check required capabilities
                     for required in required_capabilities {
-                        if !declared_caps.iter().any(|&c| c == required) {
+                        if !declared_caps.iter().any(|c| c == required) {
                             return Some(Verdict::Deny {
                                 reason: format!(
                                     "{} (required capability '{}' not declared)",

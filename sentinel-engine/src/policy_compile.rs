@@ -906,12 +906,17 @@ impl PolicyEngine {
                     .map(|s| s.to_lowercase());
 
                 // Parse required_claims as a map of string -> string
+                // SECURITY (FIND-044): Lowercase claim values at compile time for
+                // case-insensitive comparison, matching issuer/subject/audience.
                 let required_claims = obj
                     .get("claims")
                     .and_then(|v| v.as_object())
                     .map(|m| {
                         m.iter()
-                            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                            .filter_map(|(k, v)| {
+                                v.as_str()
+                                    .map(|s| (k.clone(), s.to_ascii_lowercase()))
+                            })
                             .collect::<std::collections::HashMap<String, String>>()
                     })
                     .unwrap_or_default();
@@ -1024,12 +1029,14 @@ impl PolicyEngine {
 
             "capability_required" => {
                 // CIMD: Capability-Indexed Message Dispatch
+                // SECURITY (FIND-043): Normalize to lowercase at compile time,
+                // matching the pattern used by AgentId and MaxCalls.
                 let required_capabilities: Vec<String> = obj
                     .get("required_capabilities")
                     .and_then(|v| v.as_array())
                     .map(|arr| {
                         arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .filter_map(|v| v.as_str().map(|s| s.to_ascii_lowercase()))
                             .collect()
                     })
                     .unwrap_or_default();
@@ -1039,7 +1046,7 @@ impl PolicyEngine {
                     .and_then(|v| v.as_array())
                     .map(|arr| {
                         arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .filter_map(|v| v.as_str().map(|s| s.to_ascii_lowercase()))
                             .collect()
                     })
                     .unwrap_or_default();
