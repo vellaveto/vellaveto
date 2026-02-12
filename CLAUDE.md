@@ -75,7 +75,16 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 |------|-------|
 | Core types | `sentinel-types/src/lib.rs` |
 | Policy evaluation | `sentinel-engine/src/lib.rs` |
-| Audit logging | `sentinel-audit/src/lib.rs` |
+| Audit: module root + re-exports | `sentinel-audit/src/lib.rs` |
+| Audit: types (AuditEntry, AuditError, etc.) | `sentinel-audit/src/types.rs` |
+| Audit: sensitive key/PII redaction | `sentinel-audit/src/redaction.rs` |
+| Audit: AuditLogger struct + log_entry | `sentinel-audit/src/logger.rs` |
+| Audit: log rotation + manifest | `sentinel-audit/src/rotation.rs` |
+| Audit: hash chain verification | `sentinel-audit/src/verification.rs` |
+| Audit: Ed25519 signed checkpoints | `sentinel-audit/src/checkpoints.rs` |
+| Audit: security event logging helpers | `sentinel-audit/src/events.rs` |
+| Audit: ETDI tool security logging | `sentinel-audit/src/etdi_audit.rs` |
+| Audit: tests (~130 unit tests) | `sentinel-audit/src/tests.rs` |
 | Config root + PolicyConfig | `sentinel-config/src/lib.rs` |
 | Config: injection/DLP/rate-limit/audit | `sentinel-config/src/detection.rs` |
 | Config: supply chain verification | `sentinel-config/src/supply_chain.rs` |
