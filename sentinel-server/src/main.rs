@@ -1040,6 +1040,17 @@ async fn cmd_serve(
         });
     }
 
+    // SECURITY (FIND-033): Warn loudly when RBAC is disabled.
+    // In the default config, all requests receive the Admin role, which grants
+    // unrestricted access to all endpoints. This is intentional for development
+    // but dangerous in production.
+    if !state.rbac_config.enabled {
+        tracing::warn!(
+            "RBAC is DISABLED — all requests receive Admin privileges. \
+             Set rbac.enabled=true in production to enforce access control."
+        );
+    }
+
     // Keep a reference to audit for shutdown flush
     let shutdown_audit = state.audit.clone();
 

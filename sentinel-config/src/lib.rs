@@ -3311,6 +3311,13 @@ impl PolicyConfig {
             if self.opa.timeout_ms == 0 {
                 return Err("opa.timeout_ms must be > 0".to_string());
             }
+            // SECURITY (FIND-041): Cap OPA timeout to prevent misconfiguration
+            // where an enormous value effectively disables timeout protection.
+            if self.opa.timeout_ms > 300_000 {
+                return Err(
+                    "opa.timeout_ms must be <= 300000 (5 minutes)".to_string(),
+                );
+            }
         }
 
         // Threat intel validation
