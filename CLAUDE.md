@@ -90,6 +90,12 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Config: observability | `sentinel-config/src/observability.rs` |
 | Config: validation helpers | `sentinel-config/src/validation.rs` |
 | MCP handling | `sentinel-mcp/src/lib.rs` |
+| Proxy bridge: struct + constructor | `sentinel-mcp/src/proxy/bridge/mod.rs` |
+| Proxy bridge: builder methods | `sentinel-mcp/src/proxy/bridge/builder.rs` |
+| Proxy bridge: policy evaluation | `sentinel-mcp/src/proxy/bridge/evaluation.rs` |
+| Proxy bridge: identity + flagged tools | `sentinel-mcp/src/proxy/bridge/helpers.rs` |
+| Proxy bridge: run() relay loop | `sentinel-mcp/src/proxy/bridge/relay.rs` |
+| Proxy bridge: tests | `sentinel-mcp/src/proxy/bridge/tests.rs` |
 | DLP / inspection | `sentinel-mcp/src/inspection.rs` |
 | Output validation | `sentinel-mcp/src/output_validation.rs` |
 | Semantic guardrails | `sentinel-mcp/src/semantic_guardrails/` |
