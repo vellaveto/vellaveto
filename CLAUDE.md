@@ -73,7 +73,15 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 | What | Where |
 |------|-------|
-| Core types | `sentinel-types/src/lib.rs` |
+| Types: module root + re-exports | `sentinel-types/src/lib.rs` |
+| Types: MCP task types + secure task primitives | `sentinel-types/src/task.rs` |
+| Types: auth levels, circuit breakers, fingerprints, trust, validation | `sentinel-types/src/threat.rs` |
+| Types: Action, Verdict, Policy, PathRules, NetworkRules, trace | `sentinel-types/src/core.rs` |
+| Types: ETDI signatures, attestation, version pinning | `sentinel-types/src/etdi.rs` |
+| Types: AgentIdentity, CallChainEntry, EvaluationContext | `sentinel-types/src/identity.rs` |
+| Types: MINJA taint tracking, provenance, quarantine, namespaces | `sentinel-types/src/minja.rs` |
+| Types: NHI lifecycle, behavioral baselines, delegation, DPoP | `sentinel-types/src/nhi.rs` |
+| Types: tests (~115 unit tests) | `sentinel-types/src/tests.rs` |
 | Policy evaluation | `sentinel-engine/src/lib.rs` |
 | Audit: module root + re-exports | `sentinel-audit/src/lib.rs` |
 | Audit: types (AuditEntry, AuditError, etc.) | `sentinel-audit/src/types.rs` |
