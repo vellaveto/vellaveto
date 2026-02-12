@@ -18,17 +18,16 @@ use super::auth::{
 };
 use super::call_chain::{
     build_audit_context, build_audit_context_with_chain, build_current_agent_entry,
-    build_evaluation_context, check_privilege_escalation,
-    sync_session_call_chain_from_headers, track_pending_tool_call,
-    validate_call_chain_header, MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
+    build_evaluation_context, check_privilege_escalation, sync_session_call_chain_from_headers,
+    track_pending_tool_call, validate_call_chain_header, MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
 };
 use super::helpers::resolve_domains;
 use super::inspection::{attach_session_header, attach_trace_header};
 use super::origin::validate_origin;
 use super::upstream::{canonicalize_body, forward_to_upstream, make_jsonrpc_error};
 use super::{
-    McpQueryParams, ProxyState, TrustedProxyContext,
-    MCP_PROTOCOL_VERSION_HEADER, MCP_SESSION_ID, SUPPORTED_PROTOCOL_VERSIONS,
+    McpQueryParams, ProxyState, TrustedProxyContext, MCP_PROTOCOL_VERSION_HEADER, MCP_SESSION_ID,
+    SUPPORTED_PROTOCOL_VERSIONS,
 };
 use crate::proxy_metrics::record_dlp_finding;
 
@@ -2078,5 +2077,3 @@ pub async fn handle_protected_resource_metadata(State(state): State<ProxyState>)
         }
     }
 }
-
-

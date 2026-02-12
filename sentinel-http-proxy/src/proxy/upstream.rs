@@ -20,9 +20,8 @@ use super::helpers::{
     extract_annotations_from_response, read_bounded_response, verify_manifest_from_response,
 };
 use super::inspection::{
-    check_sse_for_rug_pull_and_manifest, extract_text_from_result,
-    register_schemas_from_sse, scan_sse_events_for_dlp, scan_sse_events_for_injection,
-    scan_sse_events_for_output_schema,
+    check_sse_for_rug_pull_and_manifest, extract_text_from_result, register_schemas_from_sse,
+    scan_sse_events_for_dlp, scan_sse_events_for_injection, scan_sse_events_for_output_schema,
 };
 use sentinel_mcp::output_validation::ValidationResult;
 
@@ -37,7 +36,11 @@ use crate::proxy_metrics::record_dlp_finding;
 /// re-serialization fails, instead of falling back to original bytes.
 /// Forwarding un-canonicalized bytes would reopen the TOCTOU gap that
 /// canonicalization is designed to close.
-pub(super) fn canonicalize_body(state: &ProxyState, parsed: &Value, original: Bytes) -> Option<Bytes> {
+pub(super) fn canonicalize_body(
+    state: &ProxyState,
+    parsed: &Value,
+    original: Bytes,
+) -> Option<Bytes> {
     if state.canonicalize {
         match serde_json::to_vec(parsed) {
             Ok(canonical) => Some(Bytes::from(canonical)),
@@ -802,4 +805,3 @@ pub(super) async fn forward_to_upstream(
         }
     }
 }
-

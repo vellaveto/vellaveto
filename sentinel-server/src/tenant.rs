@@ -650,9 +650,7 @@ pub async fn tenant_middleware(
                 TenantError::InvalidTenantId(_) => {
                     (StatusCode::BAD_REQUEST, "Invalid tenant identifier")
                 }
-                TenantError::Internal(_) => {
-                    (StatusCode::INTERNAL_SERVER_ERROR, "Internal error")
-                }
+                TenantError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Internal error"),
             };
             (status, Json(json!({ "error": msg }))).into_response()
         }

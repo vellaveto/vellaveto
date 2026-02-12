@@ -12,9 +12,7 @@ use serde_json::{json, Value};
 
 use super::call_chain::take_tracked_tool_call;
 use super::helpers::{extract_annotations_from_response, verify_manifest_from_response};
-use super::{
-    ProxyState, MCP_PROTOCOL_VERSION, MCP_PROTOCOL_VERSION_HEADER, MCP_SESSION_ID,
-};
+use super::{ProxyState, MCP_PROTOCOL_VERSION, MCP_PROTOCOL_VERSION_HEADER, MCP_SESSION_ID};
 use crate::proxy_metrics::record_dlp_finding;
 
 /// Extract text content from an MCP result for injection inspection.
@@ -360,7 +358,11 @@ pub(super) async fn scan_sse_events_for_injection(
 /// Parses SSE events, extracts JSON-RPC result payloads, and scans
 /// them for secrets (AWS keys, GitHub tokens, etc). Findings are logged
 /// as audit entries. Returns `true` if any secrets were detected.
-pub(super) async fn scan_sse_events_for_dlp(sse_bytes: &[u8], session_id: &str, state: &ProxyState) -> bool {
+pub(super) async fn scan_sse_events_for_dlp(
+    sse_bytes: &[u8],
+    session_id: &str,
+    state: &ProxyState,
+) -> bool {
     let mut secrets_found = false;
     // SECURITY (R11-RESP-5): Use lossy UTF-8 conversion instead of skipping.
     let sse_text = String::from_utf8_lossy(sse_bytes);
@@ -797,7 +799,10 @@ pub(super) fn attach_session_header(mut response: Response, session_id: &str) ->
 ///
 /// Header value is capped at 4KB to prevent oversized HTTP responses from
 /// deeply nested traces.
-pub(super) fn attach_trace_header(mut response: Response, trace: Option<EvaluationTrace>) -> Response {
+pub(super) fn attach_trace_header(
+    mut response: Response,
+    trace: Option<EvaluationTrace>,
+) -> Response {
     const MAX_TRACE_HEADER_BYTES: usize = 4096;
     if let Some(t) = trace {
         if let Ok(json_str) = serde_json::to_string(&t) {

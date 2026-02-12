@@ -45,11 +45,11 @@ pub use etdi::{AllowedSignersConfig, AttestationConfig, EtdiConfig, VersionPinni
 pub use threat_detection::{
     AdvancedThreatConfig, BehavioralDetectionConfig, CircuitBreakerConfig, CrossAgentConfig,
     DataFlowTrackingConfig, DeputyConfig, SamplingDetectionConfig, SchemaPoisoningConfig,
-    SemanticDetectionConfig, ShadowAgentConfig, MAX_ALLOWED_SAMPLING_MODELS,
-    MAX_BEHAVIORAL_AGENTS, MAX_BEHAVIORAL_TOOLS_PER_AGENT, MAX_CLUSTER_KEY_PREFIX_LEN,
-    MAX_CLUSTER_REDIS_POOL_SIZE, MAX_CROSS_AGENT_TRUSTED_AGENTS, MAX_DATA_FLOW_FINDINGS,
-    MAX_DATA_FLOW_FINGERPRINTS, MAX_KNOWN_AGENTS, MAX_NON_DELEGATABLE_TOOLS,
-    MAX_PROTECTED_TOOL_PATTERNS, MAX_SEMANTIC_EXTRA_TEMPLATES, MAX_TRACKED_SCHEMAS,
+    SemanticDetectionConfig, ShadowAgentConfig, MAX_ALLOWED_SAMPLING_MODELS, MAX_BEHAVIORAL_AGENTS,
+    MAX_BEHAVIORAL_TOOLS_PER_AGENT, MAX_CLUSTER_KEY_PREFIX_LEN, MAX_CLUSTER_REDIS_POOL_SIZE,
+    MAX_CROSS_AGENT_TRUSTED_AGENTS, MAX_DATA_FLOW_FINDINGS, MAX_DATA_FLOW_FINGERPRINTS,
+    MAX_KNOWN_AGENTS, MAX_NON_DELEGATABLE_TOOLS, MAX_PROTECTED_TOOL_PATTERNS,
+    MAX_SEMANTIC_EXTRA_TEMPLATES, MAX_TRACKED_SCHEMAS,
 };
 
 pub use enterprise::{
@@ -490,7 +490,6 @@ impl Default for ClusterConfig {
         }
     }
 }
-
 
 /// Maximum number of custom PII patterns allowed in config.
 /// Prevents memory exhaustion from excessively large pattern arrays.
@@ -1195,9 +1194,7 @@ impl PolicyConfig {
             // SECURITY (FIND-041): Cap OPA timeout to prevent misconfiguration
             // where an enormous value effectively disables timeout protection.
             if self.opa.timeout_ms > 300_000 {
-                return Err(
-                    "opa.timeout_ms must be <= 300000 (5 minutes)".to_string(),
-                );
+                return Err("opa.timeout_ms must be <= 300000 (5 minutes)".to_string());
             }
         }
 

@@ -373,20 +373,22 @@ impl PolicyEngine {
             // masks configuration errors.
             if !ip_rules.allowed_cidrs.is_empty() {
                 let mut found_invalid = false;
-                let allowed = ip_rules.allowed_cidrs.iter().any(|cidr_str| {
-                    match cidr_str.parse::<IpNet>() {
-                        Ok(cidr) => cidr.contains(&ip),
-                        Err(_) => {
-                            tracing::error!(
-                                cidr = %cidr_str,
-                                policy = %policy.name,
-                                "Invalid allowed CIDR in policy (fail-closed)"
-                            );
-                            found_invalid = true;
-                            false
-                        }
-                    }
-                });
+                let allowed =
+                    ip_rules
+                        .allowed_cidrs
+                        .iter()
+                        .any(|cidr_str| match cidr_str.parse::<IpNet>() {
+                            Ok(cidr) => cidr.contains(&ip),
+                            Err(_) => {
+                                tracing::error!(
+                                    cidr = %cidr_str,
+                                    policy = %policy.name,
+                                    "Invalid allowed CIDR in policy (fail-closed)"
+                                );
+                                found_invalid = true;
+                                false
+                            }
+                        });
                 if found_invalid && !allowed {
                     return Some(Verdict::Deny {
                         reason: format!(

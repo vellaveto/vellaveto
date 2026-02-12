@@ -720,8 +720,7 @@ async fn test_redaction_hash_chain_still_valid() {
 async fn test_keys_only_preserves_value_prefixes() {
     let dir = TempDir::new().unwrap();
     let log_path = dir.path().join("audit.jsonl");
-    let logger =
-        AuditLogger::new(log_path.clone()).with_redaction_level(RedactionLevel::KeysOnly);
+    let logger = AuditLogger::new(log_path.clone()).with_redaction_level(RedactionLevel::KeysOnly);
 
     let action = Action::new(
         "tool".to_string(),
@@ -753,8 +752,7 @@ async fn test_keys_only_preserves_value_prefixes() {
 async fn test_keys_only_preserves_emails() {
     let dir = TempDir::new().unwrap();
     let log_path = dir.path().join("audit.jsonl");
-    let logger =
-        AuditLogger::new(log_path.clone()).with_redaction_level(RedactionLevel::KeysOnly);
+    let logger = AuditLogger::new(log_path.clone()).with_redaction_level(RedactionLevel::KeysOnly);
 
     let action = Action::new(
         "tool".to_string(),
@@ -781,8 +779,8 @@ async fn test_keys_only_preserves_emails() {
 async fn test_keys_and_patterns_redacts_value_prefixes() {
     let dir = TempDir::new().unwrap();
     let log_path = dir.path().join("audit.jsonl");
-    let logger = AuditLogger::new(log_path.clone())
-        .with_redaction_level(RedactionLevel::KeysAndPatterns);
+    let logger =
+        AuditLogger::new(log_path.clone()).with_redaction_level(RedactionLevel::KeysAndPatterns);
 
     let action = Action::new(
         "tool".to_string(),
@@ -811,8 +809,8 @@ async fn test_keys_and_patterns_redacts_value_prefixes() {
 async fn test_keys_and_patterns_redacts_pii() {
     let dir = TempDir::new().unwrap();
     let log_path = dir.path().join("audit.jsonl");
-    let logger = AuditLogger::new(log_path.clone())
-        .with_redaction_level(RedactionLevel::KeysAndPatterns);
+    let logger =
+        AuditLogger::new(log_path.clone()).with_redaction_level(RedactionLevel::KeysAndPatterns);
 
     let action = Action::new(
         "tool".to_string(),
@@ -843,8 +841,8 @@ async fn test_keys_and_patterns_redacts_pii() {
 async fn test_keys_and_patterns_redacts_metadata_pii() {
     let dir = TempDir::new().unwrap();
     let log_path = dir.path().join("audit.jsonl");
-    let logger = AuditLogger::new(log_path.clone())
-        .with_redaction_level(RedactionLevel::KeysAndPatterns);
+    let logger =
+        AuditLogger::new(log_path.clone()).with_redaction_level(RedactionLevel::KeysAndPatterns);
 
     let action = test_action();
     let metadata = json!({
@@ -872,8 +870,8 @@ async fn test_r36_sup_1_target_paths_use_pii_scanner() {
     let dir = TempDir::new().unwrap();
     let log_path = dir.path().join("audit.jsonl");
     // Default AuditLogger has PiiScanner that detects IPv4, JWT, AWS keys, etc.
-    let logger = AuditLogger::new(log_path.clone())
-        .with_redaction_level(RedactionLevel::KeysAndPatterns);
+    let logger =
+        AuditLogger::new(log_path.clone()).with_redaction_level(RedactionLevel::KeysAndPatterns);
 
     let mut action = Action::new("tool".to_string(), "func".to_string(), json!({}));
     // IPv4 in target_paths — detected by PiiScanner but NOT by legacy PII_REGEXES
@@ -903,8 +901,8 @@ async fn test_r36_sup_1_target_paths_use_pii_scanner() {
 async fn test_r36_sup_3_resolved_ips_redacted() {
     let dir = TempDir::new().unwrap();
     let log_path = dir.path().join("audit.jsonl");
-    let logger = AuditLogger::new(log_path.clone())
-        .with_redaction_level(RedactionLevel::KeysAndPatterns);
+    let logger =
+        AuditLogger::new(log_path.clone()).with_redaction_level(RedactionLevel::KeysAndPatterns);
 
     let mut action = Action::new("tool".to_string(), "func".to_string(), json!({}));
     action.resolved_ips = vec!["10.0.0.1".to_string(), "safe-value".to_string()];
@@ -1354,8 +1352,7 @@ async fn test_checkpoint_tampered_audit_log_detected() {
     // Tamper with the audit log (change the last entry's hash)
     let content = tokio::fs::read_to_string(&log_path).await.unwrap();
     let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
-    let mut last_entry: serde_json::Value =
-        serde_json::from_str(lines.last().unwrap()).unwrap();
+    let mut last_entry: serde_json::Value = serde_json::from_str(lines.last().unwrap()).unwrap();
     last_entry["entry_hash"] = serde_json::Value::String("0".repeat(64));
     *lines.last_mut().unwrap() = serde_json::to_string(&last_entry).unwrap();
     let tampered = lines.join("\n") + "\n";
@@ -2095,8 +2092,7 @@ async fn test_rotation_writes_manifest() {
     let content = tokio::fs::read_to_string(&manifest_path).await.unwrap();
     assert!(!content.is_empty(), "Manifest should have content");
 
-    let entry: serde_json::Value =
-        serde_json::from_str(content.lines().next().unwrap()).unwrap();
+    let entry: serde_json::Value = serde_json::from_str(content.lines().next().unwrap()).unwrap();
     assert!(entry.get("tail_hash").is_some());
     assert!(entry.get("entry_count").is_some());
     assert!(entry.get("rotated_file").is_some());

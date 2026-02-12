@@ -1554,10 +1554,7 @@ mod tests {
         let extreme = counts(&[("tool", u64::MAX)]);
         let alerts = tracker.check_session("agent-1", &extreme);
         // Should definitely detect anomaly
-        assert!(
-            !alerts.is_empty(),
-            "u64::MAX count should trigger anomaly"
-        );
+        assert!(!alerts.is_empty(), "u64::MAX count should trigger anomaly");
 
         // Recording u64::MAX should also not panic
         tracker.record_session("agent-1", &extreme);
@@ -1599,10 +1596,7 @@ mod tests {
         let larger = counts(&[("tool", u64::MAX)]);
         let alerts = tracker.check_session("agent-1", &larger);
         // With EMA ~ u64::MAX/2 and count ~ u64::MAX, ratio ~ 2.0 >= threshold(2.0)
-        assert!(
-            !alerts.is_empty(),
-            "u64::MAX vs large EMA should trigger"
-        );
+        assert!(!alerts.is_empty(), "u64::MAX vs large EMA should trigger");
         // Verify ratio is finite
         assert!(
             alerts[0].deviation_ratio.is_finite(),
@@ -1621,10 +1615,7 @@ mod tests {
 
         // Record many sessions — update_counter uses saturating_add
         for i in 0..100 {
-            tracker.record_session(
-                &format!("agent-{}", i % 5),
-                &counts(&[("tool", 1)]),
-            );
+            tracker.record_session(&format!("agent-{}", i % 5), &counts(&[("tool", 1)]));
         }
 
         let snapshot = tracker.snapshot();

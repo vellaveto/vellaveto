@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::extractor::classify_message;
-use crate::inspection::{scan_response_for_injection, scan_parameters_for_secrets};
+use crate::inspection::{scan_parameters_for_secrets, scan_response_for_injection};
 use crate::proxy::types::ProxyDecision;
 use sentinel_types::{EvaluationContext, PolicyType, Verdict};
 use serde_json::json;
@@ -257,8 +257,7 @@ fn test_resource_read_http_domain_blocked() {
     }];
     let bridge = test_bridge(policies);
 
-    let decision =
-        bridge.evaluate_resource_read(&json!(14), "https://data.evil.com/exfil", None);
+    let decision = bridge.evaluate_resource_read(&json!(14), "https://data.evil.com/exfil", None);
     assert!(matches!(decision, ProxyDecision::Block(_, _)));
 }
 
@@ -1220,9 +1219,8 @@ async fn test_flagged_tools_blocked_after_reload() {
         .persist_flagged_tool("suspicious_tool", "annotation_change")
         .await;
 
-    let bridge2 =
-        ProxyBridge::new(sentinel_engine::PolicyEngine::new(false), vec![], audit)
-            .with_flagged_tools_path(flagged_path);
+    let bridge2 = ProxyBridge::new(sentinel_engine::PolicyEngine::new(false), vec![], audit)
+        .with_flagged_tools_path(flagged_path);
     let loaded = bridge2.load_flagged_tools().await;
 
     assert!(
@@ -1374,9 +1372,6 @@ fn test_task_request_dlp_clean_params_no_findings() {
     assert!(
         findings.is_empty(),
         "Clean task ID should not trigger DLP, found: {:?}",
-        findings
-            .iter()
-            .map(|f| &f.pattern_name)
-            .collect::<Vec<_>>()
+        findings.iter().map(|f| &f.pattern_name).collect::<Vec<_>>()
     );
 }

@@ -914,8 +914,7 @@ impl PolicyEngine {
                     .map(|m| {
                         m.iter()
                             .filter_map(|(k, v)| {
-                                v.as_str()
-                                    .map(|s| (k.clone(), s.to_ascii_lowercase()))
+                                v.as_str().map(|s| (k.clone(), s.to_ascii_lowercase()))
                             })
                             .collect::<std::collections::HashMap<String, String>>()
                     })

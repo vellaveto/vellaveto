@@ -1390,8 +1390,8 @@ TfzccotDw2uXy3Xbwy/kdpfK
     fn sign_test_jwt(claims: &serde_json::Value, kid: &str) -> String {
         use jsonwebtoken::{encode, EncodingKey, Header};
 
-        let key = EncodingKey::from_rsa_pem(TEST_RSA_PRIVATE_PEM.as_bytes())
-            .expect("valid RSA PEM");
+        let key =
+            EncodingKey::from_rsa_pem(TEST_RSA_PRIVATE_PEM.as_bytes()).expect("valid RSA PEM");
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some(kid.to_string());
 
@@ -1424,7 +1424,9 @@ TfzccotDw2uXy3Xbwy/kdpfK
         let token = sign_test_jwt(&valid_claims(), kid);
         let auth_header = format!("Bearer {}", token);
 
-        let claims = validator.validate_token(&auth_header).await
+        let claims = validator
+            .validate_token(&auth_header)
+            .await
             .expect("valid JWT must be accepted");
         assert_eq!(claims.sub, "user-123");
         assert_eq!(claims.iss, "https://auth.example.com");
@@ -1447,7 +1449,9 @@ TfzccotDw2uXy3Xbwy/kdpfK
         let token = sign_test_jwt(&claims, kid);
         let auth_header = format!("Bearer {}", token);
 
-        let err = validator.validate_token(&auth_header).await
+        let err = validator
+            .validate_token(&auth_header)
+            .await
             .expect_err("expired JWT must be rejected");
         assert!(
             matches!(err, OAuthError::JwtError(_)),
@@ -1471,7 +1475,9 @@ TfzccotDw2uXy3Xbwy/kdpfK
         let token = sign_test_jwt(&valid_claims(), kid);
         let auth_header = format!("Bearer {}", token);
 
-        let err = validator.validate_token(&auth_header).await
+        let err = validator
+            .validate_token(&auth_header)
+            .await
             .expect_err("RS256 JWT must be rejected when only ES256 is allowed");
         assert!(
             matches!(err, OAuthError::DisallowedAlgorithm(Algorithm::RS256)),
@@ -1494,7 +1500,9 @@ TfzccotDw2uXy3Xbwy/kdpfK
         let token = sign_test_jwt(&claims, kid);
         let auth_header = format!("Bearer {}", token);
 
-        let err = validator.validate_token(&auth_header).await
+        let err = validator
+            .validate_token(&auth_header)
+            .await
             .expect_err("wrong issuer must be rejected");
         assert!(
             matches!(err, OAuthError::JwtError(_)),
@@ -1517,11 +1525,16 @@ TfzccotDw2uXy3Xbwy/kdpfK
         let token = sign_test_jwt(&claims, kid);
         let auth_header = format!("Bearer {}", token);
 
-        let err = validator.validate_token(&auth_header).await
+        let err = validator
+            .validate_token(&auth_header)
+            .await
             .expect_err("wrong audience must be rejected");
         // jsonwebtoken rejects audience mismatch before our custom check
         assert!(
-            matches!(err, OAuthError::JwtError(_) | OAuthError::AudienceMismatch { .. }),
+            matches!(
+                err,
+                OAuthError::JwtError(_) | OAuthError::AudienceMismatch { .. }
+            ),
             "expected audience rejection, got: {err}"
         );
     }
@@ -1541,7 +1554,9 @@ TfzccotDw2uXy3Xbwy/kdpfK
         let token = sign_test_jwt(&claims, kid);
         let auth_header = format!("Bearer {}", token);
 
-        let err = validator.validate_token(&auth_header).await
+        let err = validator
+            .validate_token(&auth_header)
+            .await
             .expect_err("missing required scope must be rejected");
         assert!(
             matches!(err, OAuthError::InsufficientScope { .. }),
@@ -1567,7 +1582,9 @@ TfzccotDw2uXy3Xbwy/kdpfK
         let token = sign_test_jwt(&claims, kid);
         let auth_header = format!("Bearer {}", token);
 
-        let err = validator.validate_token(&auth_header).await
+        let err = validator
+            .validate_token(&auth_header)
+            .await
             .expect_err("resource mismatch must be rejected");
         assert!(
             matches!(err, OAuthError::ResourceMismatch { .. }),
@@ -1590,7 +1607,9 @@ TfzccotDw2uXy3Xbwy/kdpfK
         let token = sign_test_jwt(&valid_claims(), kid);
         let auth_header = format!("Bearer {}", token);
 
-        let err = validator.validate_token(&auth_header).await
+        let err = validator
+            .validate_token(&auth_header)
+            .await
             .expect_err("missing resource when required must be rejected");
         assert!(
             matches!(err, OAuthError::ResourceMismatch { .. }),
@@ -1616,7 +1635,10 @@ TfzccotDw2uXy3Xbwy/kdpfK
         let auth_header = format!("Bearer {}", token);
 
         let result = validator.validate_token(&auth_header).await;
-        assert!(result.is_ok(), "matching resource must be accepted: {result:?}");
+        assert!(
+            result.is_ok(),
+            "matching resource must be accepted: {result:?}"
+        );
     }
 
     #[tokio::test]
@@ -1631,7 +1653,9 @@ TfzccotDw2uXy3Xbwy/kdpfK
         let token = sign_test_jwt(&valid_claims(), "wrong-key");
         let auth_header = format!("Bearer {}", token);
 
-        let err = validator.validate_token(&auth_header).await
+        let err = validator
+            .validate_token(&auth_header)
+            .await
             .expect_err("kid mismatch must be rejected");
         assert!(
             matches!(err, OAuthError::NoMatchingKey(_)),
@@ -1667,11 +1691,12 @@ TfzccotDw2uXy3Xbwy/kdpfK
             .expect("valid RSA PEM");
         let mut header = jsonwebtoken::Header::new(Algorithm::RS256);
         header.kid = None; // No kid
-        let token = jsonwebtoken::encode(&header, &valid_claims(), &key)
-            .expect("JWT signing");
+        let token = jsonwebtoken::encode(&header, &valid_claims(), &key).expect("JWT signing");
         let auth_header = format!("Bearer {}", token);
 
-        let err = validator.validate_token(&auth_header).await
+        let err = validator
+            .validate_token(&auth_header)
+            .await
             .expect_err("missing kid with multi-key JWKS must be rejected");
         assert!(
             matches!(err, OAuthError::MissingKid(2)),
@@ -1696,7 +1721,9 @@ TfzccotDw2uXy3Xbwy/kdpfK
 
         let auth_header = format!("Bearer {}", tampered);
 
-        let err = validator.validate_token(&auth_header).await
+        let err = validator
+            .validate_token(&auth_header)
+            .await
             .expect_err("tampered signature must be rejected");
         assert!(
             matches!(err, OAuthError::JwtError(_)),
@@ -1729,7 +1756,9 @@ TfzccotDw2uXy3Xbwy/kdpfK
         let token = sign_test_jwt(&claims, kid);
         let auth_header = format!("Bearer {}", token);
 
-        let err = validator.validate_token(&auth_header).await
+        let err = validator
+            .validate_token(&auth_header)
+            .await
             .expect_err("missing aud with require_audience must be rejected");
         assert!(
             matches!(err, OAuthError::JwtError(_) | OAuthError::MissingAudience),
@@ -1751,7 +1780,10 @@ TfzccotDw2uXy3Xbwy/kdpfK
         // Test case-insensitive "bearer" prefix (RFC 7235 §2.1)
         let auth_header = format!("BEARER {}", token);
         let result = validator.validate_token(&auth_header).await;
-        assert!(result.is_ok(), "BEARER (uppercase) must be accepted: {result:?}");
+        assert!(
+            result.is_ok(),
+            "BEARER (uppercase) must be accepted: {result:?}"
+        );
     }
 
     #[tokio::test]
@@ -1770,7 +1802,9 @@ TfzccotDw2uXy3Xbwy/kdpfK
         let token = sign_test_jwt(&claims, kid);
         let auth_header = format!("Bearer {}", token);
 
-        let err = validator.validate_token(&auth_header).await
+        let err = validator
+            .validate_token(&auth_header)
+            .await
             .expect_err("token with future nbf must be rejected");
         assert!(
             matches!(err, OAuthError::JwtError(_)),
@@ -1793,7 +1827,9 @@ TfzccotDw2uXy3Xbwy/kdpfK
         let token = sign_test_jwt(&valid_claims(), kid);
         let auth_header = format!("Bearer {}", token);
 
-        let err = validator.validate_token(&auth_header).await
+        let err = validator
+            .validate_token(&auth_header)
+            .await
             .expect_err("DPoP required but no cnf.jkt must be rejected");
         assert!(
             matches!(err, OAuthError::InvalidDpopProof(_)),

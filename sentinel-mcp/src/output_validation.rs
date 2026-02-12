@@ -956,10 +956,7 @@ mod tests {
                 // Also acceptable if the validator just stops recursing and
                 // doesn't add violations (since leaf types match)
             }
-            other => panic!(
-                "Expected Invalid or Valid (depth-limited), got {:?}",
-                other
-            ),
+            other => panic!("Expected Invalid or Valid (depth-limited), got {:?}", other),
         }
     }
 
@@ -991,7 +988,10 @@ mod tests {
         // Just verify it doesn't panic — the exact result depends on
         // whether depth check is >= or > MAX_VALIDATION_DEPTH
         assert!(
-            matches!(result, ValidationResult::Valid | ValidationResult::Invalid { .. }),
+            matches!(
+                result,
+                ValidationResult::Valid | ValidationResult::Invalid { .. }
+            ),
             "Validation at exact depth limit should not panic"
         );
     }

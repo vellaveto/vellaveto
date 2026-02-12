@@ -350,7 +350,12 @@ pub(super) fn call_chain_entry_signing_content(entry: &sentinel_types::CallChain
 
     // Length-prefix each field (u64 LE + bytes) to prevent boundary confusion.
     let mut content = Vec::new();
-    for field in &[agent_id, entry.tool.as_str(), entry.function.as_str(), entry.timestamp.as_str()] {
+    for field in &[
+        agent_id,
+        entry.tool.as_str(),
+        entry.function.as_str(),
+        entry.timestamp.as_str(),
+    ] {
         content.extend_from_slice(&(field.len() as u64).to_le_bytes());
         content.extend_from_slice(field.as_bytes());
     }
@@ -368,7 +373,11 @@ pub(super) fn compute_call_chain_hmac(key: &[u8; 32], data: &[u8]) -> Result<Str
 
 /// FIND-015: Verify HMAC-SHA256 of data against expected hex string.
 /// Returns `Ok(true)` if valid, `Ok(false)` if invalid, `Err` on initialization failure.
-pub(super) fn verify_call_chain_hmac(key: &[u8; 32], data: &[u8], expected_hex: &str) -> Result<bool, ()> {
+pub(super) fn verify_call_chain_hmac(
+    key: &[u8; 32],
+    data: &[u8],
+    expected_hex: &str,
+) -> Result<bool, ()> {
     let expected_bytes = match hex::decode(expected_hex) {
         Ok(b) => b,
         Err(_) => return Ok(false),

@@ -956,10 +956,7 @@ mod tests {
         // Same exact case DOES match
         let params_exact = json!({"url": "https://Evil.COM/exfil/data"});
         let matches = tracker.check_parameters(&params_exact);
-        assert!(
-            !matches.is_empty(),
-            "Exact case match should be detected"
-        );
+        assert!(!matches.is_empty(), "Exact case match should be detected");
     }
 
     #[test]
@@ -1025,9 +1022,6 @@ mod tests {
 
         let params = json!({"url": url});
         let matches = tracker.check_parameters(&params);
-        assert!(
-            !matches.is_empty(),
-            "Exact match should be detected"
-        );
+        assert!(!matches.is_empty(), "Exact match should be detected");
     }
 }

@@ -124,7 +124,8 @@ impl RelayState {
         if !id.is_null() {
             let id_key = id.to_string();
             if self.pending_requests.len() < MAX_PENDING_REQUESTS {
-                self.pending_requests.insert(id_key, (Instant::now(), tool_name));
+                self.pending_requests
+                    .insert(id_key, (Instant::now(), tool_name));
             } else {
                 tracing::warn!(
                     "Pending request limit reached ({}), not tracking request",
@@ -282,9 +283,7 @@ impl ProxyBridge {
                     .await
                     .map_err(ProxyError::Framing)
             }
-            MessageType::PassThrough => {
-                self.handle_passthrough(&msg, state, io).await
-            }
+            MessageType::PassThrough => self.handle_passthrough(&msg, state, io).await,
         }
     }
 
@@ -298,7 +297,10 @@ impl ProxyBridge {
         state: &mut RelayState,
         io: &mut IoWriters<'_>,
     ) -> Result<(), ProxyError> {
-        let IoWriters { agent: agent_writer, child: child_stdin } = io;
+        let IoWriters {
+            agent: agent_writer,
+            child: child_stdin,
+        } = io;
         // C-15 Exploit #9: Block calls to rug-pulled tools
         if state.flagged_tools.contains(&tool_name) {
             let action = extract_action(&tool_name, &arguments);
@@ -336,7 +338,8 @@ impl ProxyBridge {
             if let Err(reason) = cb.can_proceed(&tool_name) {
                 tracing::warn!(
                     "SECURITY: Circuit breaker blocking tool '{}': {}",
-                    tool_name, reason
+                    tool_name,
+                    reason
                 );
                 let action = extract_action(&tool_name, &arguments);
                 let verdict = Verdict::Deny {
@@ -420,7 +423,9 @@ impl ProxyBridge {
                     let reason = err.to_string();
                     tracing::warn!(
                         "SECURITY: Deputy validation failed for '{}' -> '{}': {}",
-                        claimed_id, tool_name, reason
+                        claimed_id,
+                        tool_name,
+                        reason
                     );
                     let action = extract_action(&tool_name, &arguments);
                     let verdict = Verdict::Deny {
@@ -510,7 +515,9 @@ impl ProxyBridge {
                 tracing::warn!(
                     "SECURITY: Memory poisoning detected in tool call '{}': \
                      param '{}' contains replayed data (fingerprint: {})",
-                    tool_name, m.param_location, m.fingerprint
+                    tool_name,
+                    m.param_location,
+                    m.fingerprint
                 );
             }
             let action = extract_action(&tool_name, &arguments);
@@ -660,14 +667,12 @@ impl ProxyBridge {
                                 }
                                 tracing::info!(
                                     "Created pending approval {} for tool '{}'",
-                                    approval_id, tool_name
+                                    approval_id,
+                                    tool_name
                                 );
                             }
                             Err(e) => {
-                                tracing::error!(
-                                    "Failed to create approval (fail-closed): {}",
-                                    e
-                                );
+                                tracing::error!("Failed to create approval (fail-closed): {}", e);
                             }
                         }
                     }
@@ -693,7 +698,10 @@ impl ProxyBridge {
         state: &mut RelayState,
         io: &mut IoWriters<'_>,
     ) -> Result<(), ProxyError> {
-        let IoWriters { agent: agent_writer, child: child_stdin } = io;
+        let IoWriters {
+            agent: agent_writer,
+            child: child_stdin,
+        } = io;
         // SECURITY: DLP scan the resource URI for embedded secrets.
         let uri_as_json = json!({"uri": uri});
         let dlp_findings = scan_parameters_for_secrets(&uri_as_json);
@@ -753,7 +761,9 @@ impl ProxyBridge {
                 tracing::warn!(
                     "SECURITY: Memory poisoning detected in resource read '{}': \
                      param '{}' contains replayed data (fingerprint: {})",
-                    uri, m.param_location, m.fingerprint
+                    uri,
+                    m.param_location,
+                    m.fingerprint
                 );
             }
             let action = extract_resource_action(&uri);
@@ -821,14 +831,12 @@ impl ProxyBridge {
                                 }
                                 tracing::info!(
                                     "Created pending approval {} for resource '{}'",
-                                    approval_id, uri
+                                    approval_id,
+                                    uri
                                 );
                             }
                             Err(e) => {
-                                tracing::error!(
-                                    "Failed to create approval for resource: {}",
-                                    e
-                                );
+                                tracing::error!("Failed to create approval for resource: {}", e);
                             }
                         }
                     }
@@ -958,12 +966,11 @@ impl ProxyBridge {
         state: &mut RelayState,
         io: &mut IoWriters<'_>,
     ) -> Result<(), ProxyError> {
-        let IoWriters { agent: agent_writer, child: child_stdin } = io;
-        tracing::debug!(
-            "Task request: {} (task_id: {:?})",
-            task_method,
-            task_id
-        );
+        let IoWriters {
+            agent: agent_writer,
+            child: child_stdin,
+        } = io;
+        tracing::debug!("Task request: {} (task_id: {:?})", task_method, task_id);
 
         // R4-1: DLP scan task request parameters for secret exfiltration.
         let task_params = msg.get("params").cloned().unwrap_or(json!({}));
@@ -1022,7 +1029,9 @@ impl ProxyBridge {
                 tracing::warn!(
                     "SECURITY: Memory poisoning detected in task request '{}': \
                      param '{}' contains replayed data (fingerprint: {})",
-                    task_method, m.param_location, m.fingerprint
+                    task_method,
+                    m.param_location,
+                    m.fingerprint
                 );
             }
             let action = extract_task_action(&task_method, task_id.as_deref());
@@ -1149,10 +1158,7 @@ impl ProxyBridge {
                     .map_err(ProxyError::Framing)?;
             }
             Err(e) => {
-                tracing::error!(
-                    "Policy evaluation error for task '{}': {}",
-                    task_method, e
-                );
+                tracing::error!("Policy evaluation error for task '{}': {}", task_method, e);
                 let reason = "Policy evaluation failed".to_string();
                 let verdict = Verdict::Deny {
                     reason: reason.clone(),
@@ -1188,16 +1194,17 @@ impl ProxyBridge {
         state: &mut RelayState,
         io: &mut IoWriters<'_>,
     ) -> Result<(), ProxyError> {
-        let IoWriters { agent: agent_writer, child: child_stdin } = io;
+        let IoWriters {
+            agent: agent_writer,
+            child: child_stdin,
+        } = io;
         // Track passthrough requests that have an id
         if let Some(id) = msg.get("id") {
             if !id.is_null() {
                 // SECURITY (R33-MCP-1): Enforce MAX_PENDING_REQUESTS on PassThrough.
                 if state.pending_requests.len() >= MAX_PENDING_REQUESTS {
                     let response = make_invalid_response(id, "Too many pending requests");
-                    tracing::warn!(
-                        "PassThrough request rejected: pending request limit reached"
-                    );
+                    tracing::warn!("PassThrough request rejected: pending request limit reached");
                     write_message(agent_writer, &response)
                         .await
                         .map_err(ProxyError::Framing)?;
@@ -1225,10 +1232,7 @@ impl ProxyBridge {
                         .and_then(|p| p.get("protocolVersion"))
                         .and_then(|v| v.as_str())
                     {
-                        tracing::info!(
-                            "MCP initialize: client requested protocol version {}",
-                            ver
-                        );
+                        tracing::info!("MCP initialize: client requested protocol version {}", ver);
                     }
                 }
             }
@@ -1246,7 +1250,10 @@ impl ProxyBridge {
         state: &mut RelayState,
         io: &mut IoWriters<'_>,
     ) -> Result<(), ProxyError> {
-        let IoWriters { agent: agent_writer, child: child_stdin } = io;
+        let IoWriters {
+            agent: agent_writer,
+            child: child_stdin,
+        } = io;
         // C-8.5 / R8-MCP-1: Block ALL server-initiated requests.
         if let Some(method) = msg.get("method").and_then(|m| m.as_str()) {
             // SECURITY (R23-MCP-3): Treat `"id": null` as a notification.
@@ -1265,10 +1272,7 @@ impl ProxyBridge {
                     }),
                 );
                 let verdict = Verdict::Deny {
-                    reason: format!(
-                        "Server-initiated request '{}' blocked by Sentinel",
-                        method
-                    ),
+                    reason: format!("Server-initiated request '{}' blocked by Sentinel", method),
                 };
                 if let Err(e) = self
                     .audit
@@ -1306,10 +1310,7 @@ impl ProxyBridge {
                         .iter()
                         .map(|f| format!("{} at {}", f.pattern_name, f.location))
                         .collect();
-                    tracing::warn!(
-                        "SECURITY: DLP alert in server notification: {:?}",
-                        patterns
-                    );
+                    tracing::warn!("SECURITY: DLP alert in server notification: {:?}", patterns);
                     let action = sentinel_types::Action::new(
                         "sentinel",
                         "notification_dlp_secret_detected",
@@ -1568,15 +1569,9 @@ impl ProxyBridge {
         if let Some(result) = msg.get("result") {
             if let Some(structured) = result.get("structuredContent") {
                 if let Some(tool_name) = response_tool_name.as_deref() {
-                    match self
-                        .output_schema_registry
-                        .validate(tool_name, structured)
-                    {
+                    match self.output_schema_registry.validate(tool_name, structured) {
                         ValidationResult::Valid => {
-                            tracing::debug!(
-                                "structuredContent validated for tool '{}'",
-                                tool_name
-                            );
+                            tracing::debug!("structuredContent validated for tool '{}'", tool_name);
                         }
                         ValidationResult::NoSchema => {
                             if self.output_schema_blocking {
@@ -1662,10 +1657,7 @@ impl ProxyBridge {
                                 )
                                 .await
                             {
-                                tracing::warn!(
-                                    "Failed to audit output schema violation: {}",
-                                    e
-                                );
+                                tracing::warn!("Failed to audit output schema violation: {}", e);
                             }
 
                             if self.output_schema_blocking {
@@ -1979,7 +1971,8 @@ impl ProxyBridge {
                             } => {
                                 tracing::debug!(
                                     "Schema minor change for tool '{}': similarity={:.2}",
-                                    name, similarity
+                                    name,
+                                    similarity
                                 );
                             }
                             _ => {}
@@ -2044,11 +2037,7 @@ impl ProxyBridge {
     }
 
     /// Sweep timed-out pending requests and send error responses.
-    async fn sweep_timeouts(
-        &self,
-        state: &mut RelayState,
-        agent_writer: &mut tokio::io::Stdout,
-    ) {
+    async fn sweep_timeouts(&self, state: &mut RelayState, agent_writer: &mut tokio::io::Stdout) {
         let now = Instant::now();
         let timed_out: Vec<String> = state
             .pending_requests

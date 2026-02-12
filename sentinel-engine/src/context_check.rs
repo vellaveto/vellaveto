@@ -448,8 +448,7 @@ impl PolicyEngine {
                     // AgentIdentityMatch. Without this, omitting the identity header
                     // bypasses blocked_capabilities checks entirely.
                     if context.agent_identity.is_none()
-                        && (!required_capabilities.is_empty()
-                            || !blocked_capabilities.is_empty())
+                        && (!required_capabilities.is_empty() || !blocked_capabilities.is_empty())
                     {
                         return Some(Verdict::Deny {
                             reason: format!(
@@ -470,10 +469,15 @@ impl PolicyEngine {
                         .and_then(|id| {
                             // Try array first, then comma-separated string
                             id.claim_str_array("capabilities")
-                                .map(|arr| arr.into_iter().map(|s| s.to_ascii_lowercase()).collect())
+                                .map(|arr| {
+                                    arr.into_iter().map(|s| s.to_ascii_lowercase()).collect()
+                                })
                                 .or_else(|| {
-                                    id.claim_str("capabilities")
-                                        .map(|s| s.split(',').map(|p| p.trim().to_ascii_lowercase()).collect())
+                                    id.claim_str("capabilities").map(|s| {
+                                        s.split(',')
+                                            .map(|p| p.trim().to_ascii_lowercase())
+                                            .collect()
+                                    })
                                 })
                         })
                         .unwrap_or_default();

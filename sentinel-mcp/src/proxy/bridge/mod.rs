@@ -22,11 +22,11 @@ use sentinel_types::Policy;
 use crate::auth_level::AuthLevelTracker;
 use crate::inspection::InjectionScanner;
 use crate::output_validation::OutputSchemaRegistry;
+pub use crate::rug_pull::ToolAnnotations;
 use crate::sampling_detector::SamplingDetector;
 use crate::schema_poisoning::SchemaLineageTracker;
 use crate::shadow_agent::ShadowAgentDetector;
 use crate::task_state::TaskStateManager;
-pub use crate::rug_pull::ToolAnnotations;
 
 use std::collections::HashSet;
 use std::path::PathBuf;

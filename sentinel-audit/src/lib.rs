@@ -11,14 +11,14 @@
 //   etdi_audit  — ETDI cryptographic tool security audit helpers
 
 // ── New submodules (split from the former monolithic lib.rs) ──────────────────
-mod types;
-mod redaction;
-pub mod logger;
-mod rotation;
-mod verification;
 mod checkpoints;
-mod events;
 mod etdi_audit;
+mod events;
+pub mod logger;
+mod redaction;
+mod rotation;
+mod types;
+mod verification;
 
 // ── Pre-existing submodules ──────────────────────────────────────────────────
 pub mod aivss;

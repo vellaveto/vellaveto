@@ -806,7 +806,10 @@ mod tests {
     fn test_is_recovering_reflects_half_open_state() {
         let manager = CircuitBreakerManager::with_config(2, 2, 0, 2);
 
-        assert!(!manager.is_recovering("tool"), "No circuit = not recovering");
+        assert!(
+            !manager.is_recovering("tool"),
+            "No circuit = not recovering"
+        );
 
         // Trip
         manager.record_failure("tool");
