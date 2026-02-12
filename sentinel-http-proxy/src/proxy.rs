@@ -657,12 +657,14 @@ pub async fn handle_mcp_post(
             tracing::warn!("Failed to audit invalid call-chain header: {}", e);
         }
 
+        // SECURITY (FIND-046): Generic message to client; detailed reason in server log.
+        tracing::warn!(reason = %reason, "Call chain validation failed");
         let error_response = json!({
             "jsonrpc": "2.0",
             "id": msg.get("id").cloned().unwrap_or(Value::Null),
             "error": {
                 "code": -32600,
-                "message": format!("Invalid request: {}", reason)
+                "message": "Invalid request"
             }
         });
         return attach_session_header(
@@ -1047,7 +1049,7 @@ pub async fn handle_mcp_post(
                     agent_id: session.oauth_subject.clone(),
                     agent_identity: session.agent_identity.clone(),
                     call_counts: session.call_counts.clone(),
-                    previous_actions: session.action_history.clone(),
+                    previous_actions: session.action_history.iter().cloned().collect(),
                     call_chain: session.current_call_chain.clone(),
                     tenant_id: None,
                 };
@@ -1066,11 +1068,16 @@ pub async fn handle_mcp_post(
 
                 // Atomically update session while still holding the shard lock
                 if let Ok((Verdict::Allow, _)) = &result {
-                    *session.call_counts.entry(tool_name.clone()).or_insert(0) += 1;
-                    if session.action_history.len() >= MAX_ACTION_HISTORY {
-                        session.action_history.remove(0);
+                    // SECURITY (FIND-045): Cap call_counts to prevent unbounded HashMap growth.
+                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                        || session.call_counts.contains_key(&tool_name)
+                    {
+                        *session.call_counts.entry(tool_name.clone()).or_insert(0) += 1;
                     }
-                    session.action_history.push(tool_name.clone());
+                    if session.action_history.len() >= MAX_ACTION_HISTORY {
+                        session.action_history.pop_front();
+                    }
+                    session.action_history.push_back(tool_name.clone());
                 }
 
                 result
@@ -2972,6 +2979,10 @@ fn extract_authority_from_origin(origin: &str) -> Option<String> {
 /// Maximum entries in action_history per session (memory bound).
 const MAX_ACTION_HISTORY: usize = 100;
 
+/// Maximum distinct tool names tracked in call_counts per session (FIND-045).
+/// Prevents unbounded HashMap growth from attacker-controlled tool names.
+const MAX_CALL_COUNT_TOOLS: usize = 1024;
+
 /// Maximum number of pending JSON-RPC tool call correlations per session.
 /// Bounds memory if responses are malformed or never returned.
 const MAX_PENDING_TOOL_CALLS: usize = 256;
@@ -3043,7 +3054,7 @@ fn build_evaluation_context(
             agent_id: session.oauth_subject.clone(),
             agent_identity: session.agent_identity.clone(),
             call_counts: session.call_counts.clone(),
-            previous_actions: session.action_history.clone(),
+            previous_actions: session.action_history.iter().cloned().collect(),
             call_chain: session.current_call_chain.clone(),
             tenant_id: None,
         })

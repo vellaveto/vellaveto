@@ -746,7 +746,8 @@ impl ProxyBridge {
         let mut call_counts: HashMap<String, u64> =
             HashMap::with_capacity(INITIAL_CALL_COUNTS_CAPACITY);
         const MAX_ACTION_HISTORY: usize = 100;
-        let mut action_history: Vec<String> = Vec::with_capacity(MAX_ACTION_HISTORY);
+        let mut action_history: std::collections::VecDeque<String> =
+            std::collections::VecDeque::with_capacity(MAX_ACTION_HISTORY);
 
         // Elicitation rate limiting counter (per session/proxy lifetime).
         let mut elicitation_count: u32 = 0;
@@ -1079,7 +1080,7 @@ impl ProxyBridge {
                                         agent_id: None,
                                         agent_identity: None,
                                         call_counts: call_counts.clone(),
-                                        previous_actions: action_history.clone(),
+                                        previous_actions: action_history.iter().cloned().collect(),
                                         call_chain: Vec::new(),
                                         tenant_id: None,
                                     };
@@ -1092,9 +1093,9 @@ impl ProxyBridge {
                                             // Update session tracking after allowed tool call
                                             *call_counts.entry(tool_name.clone()).or_insert(0) += 1;
                                             if action_history.len() >= MAX_ACTION_HISTORY {
-                                                action_history.remove(0);
+                                                action_history.pop_front();
                                             }
-                                            action_history.push(tool_name.clone());
+                                            action_history.push_back(tool_name.clone());
                                             // Track this request for timeout and circuit breaker
                                             if !id.is_null() {
                                                 let id_key = id.to_string();
@@ -1251,7 +1252,7 @@ impl ProxyBridge {
                                         agent_id: None,
                                         agent_identity: None,
                                         call_counts: call_counts.clone(),
-                                        previous_actions: action_history.clone(),
+                                        previous_actions: action_history.iter().cloned().collect(),
                                         call_chain: Vec::new(),
                                         tenant_id: None,
                                     };
@@ -1262,9 +1263,9 @@ impl ProxyBridge {
                                             // MaxCalls/MaxCallsInWindow constraints apply.
                                             *call_counts.entry("resources/read".to_string()).or_insert(0) += 1;
                                             if action_history.len() >= MAX_ACTION_HISTORY {
-                                                action_history.remove(0);
+                                                action_history.pop_front();
                                             }
-                                            action_history.push("resources/read".to_string());
+                                            action_history.push_back("resources/read".to_string());
                                             if !id.is_null() {
                                                 let id_key = id.to_string();
                                                 if pending_requests.len() < MAX_PENDING_REQUESTS {
@@ -1490,7 +1491,7 @@ impl ProxyBridge {
                                         agent_id: None,
                                         agent_identity: None,
                                         call_counts: call_counts.clone(),
-                                        previous_actions: action_history.clone(),
+                                        previous_actions: action_history.iter().cloned().collect(),
                                         call_chain: Vec::new(),
                                         tenant_id: None,
                                     };
@@ -1514,9 +1515,9 @@ impl ProxyBridge {
                                             // MaxCalls/MaxCallsInWindow constraints apply.
                                             *call_counts.entry(task_method.clone()).or_insert(0) += 1;
                                             if action_history.len() >= MAX_ACTION_HISTORY {
-                                                action_history.remove(0);
+                                                action_history.pop_front();
                                             }
-                                            action_history.push(task_method.clone());
+                                            action_history.push_back(task_method.clone());
                                             if !id.is_null() {
                                                 let id_key = id.to_string();
                                                 if pending_requests.len() < MAX_PENDING_REQUESTS {
@@ -1848,6 +1849,12 @@ impl ProxyBridge {
                                 // carry data in `params` (not `result`), so
                                 // `record_response()` never sees it. Without this,
                                 // replayed notification data bypasses poisoning checks.
+                                // SECURITY (FIND-052): Also fingerprint the method string,
+                                // not just params, so data planted in notification method
+                                // names is tracked for cross-request replay detection.
+                                if let Some(method) = msg.get("method") {
+                                    memory_tracker.extract_from_value(method);
+                                }
                                 if let Some(params) = msg.get("params") {
                                     memory_tracker.extract_from_value(params);
                                 }

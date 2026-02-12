@@ -509,12 +509,25 @@ impl PolicyEngine {
                 } => {
                     // Step-up authentication check
                     // The current auth level is stored in agent_identity claims as "auth_level"
-                    let current_level: u8 = context
+                    let raw_level = context
                         .agent_identity
                         .as_ref()
-                        .and_then(|id| id.claim_str("auth_level"))
-                        .and_then(|s| s.parse().ok())
-                        .unwrap_or(0); // Default to None (0)
+                        .and_then(|id| id.claim_str("auth_level"));
+                    let current_level: u8 = match raw_level {
+                        Some(s) => match s.parse() {
+                            Ok(v) => v,
+                            Err(_) => {
+                                // SECURITY (FIND-046): Log unparseable auth_level rather than
+                                // silently defaulting to 0. Still fail-closed (level 0).
+                                tracing::warn!(
+                                    auth_level = %s,
+                                    "auth_level claim is not a valid u8, defaulting to 0"
+                                );
+                                0
+                            }
+                        },
+                        None => 0,
+                    };
 
                     if current_level < *required_level {
                         // Return a special verdict that signals step-up is needed

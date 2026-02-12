@@ -251,13 +251,17 @@ impl Principal {
         if self.has_permission(permission) {
             Ok(())
         } else {
+            // SECURITY (FIND-048): Don't leak permission names or caller role.
+            tracing::warn!(
+                role = %self.role,
+                permission = ?permission,
+                "RBAC permission denied"
+            );
             Err(Box::new(
                 (
                     StatusCode::FORBIDDEN,
                     Json(json!({
                         "error": "Permission denied",
-                        "required_permission": format!("{:?}", permission),
-                        "your_role": self.role.to_string(),
                     })),
                 )
                     .into_response(),

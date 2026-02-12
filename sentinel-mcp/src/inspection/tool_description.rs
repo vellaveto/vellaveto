@@ -88,6 +88,20 @@ pub fn collect_schema_descriptions(
             }
         }
     }
+    // SECURITY (FIND-049): Collect "default" string values — these are shown to
+    // LLMs as example usage and can carry injection payloads.
+    if let Some(default) = schema.get("default").and_then(|d| d.as_str()) {
+        texts.push(default.to_string());
+    }
+    // SECURITY (FIND-049): Collect "examples" string values — arrays of example
+    // values that are included in LLM context and can embed injection.
+    if let Some(examples) = schema.get("examples").and_then(|e| e.as_array()) {
+        for val in examples {
+            if let Some(s) = val.as_str() {
+                texts.push(s.to_string());
+            }
+        }
+    }
     // Recurse into properties
     if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
         for (prop_name, prop_schema) in props {

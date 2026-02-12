@@ -1478,10 +1478,12 @@ async fn evaluate(
     // SECURITY (R10-1): Validate the deserialized action to catch null bytes,
     // oversized fields, and other malformed input before processing.
     if let Err(e) = action.validate() {
+        // SECURITY (FIND-051): Don't leak validation details to clients.
+        tracing::warn!("Action validation failed: {}", e);
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("Invalid action: {}", e),
+                error: "Invalid action".to_string(),
             }),
         ));
     }

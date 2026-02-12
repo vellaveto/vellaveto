@@ -11,7 +11,7 @@ use sentinel_config::ToolManifest;
 use sentinel_mcp::memory_tracking::MemoryTracker;
 use sentinel_mcp::rug_pull::ToolAnnotations;
 use sentinel_types::AgentIdentity;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -43,8 +43,9 @@ pub struct SessionState {
     /// Maps tool name → number of times called in this session.
     pub call_counts: HashMap<String, u64>,
     /// History of tool names called in this session (most recent last).
-    /// Capped at 100 entries to bound memory usage.
-    pub action_history: Vec<String>,
+    /// Capped at 100 entries to bound memory usage. Uses VecDeque for O(1)
+    /// pop_front instead of O(n) Vec::remove(0) (FIND-046).
+    pub action_history: VecDeque<String>,
     /// OWASP ASI06: Per-session memory poisoning tracker.
     /// Records fingerprints of notable strings from tool responses and flags
     /// when those strings appear verbatim in subsequent tool call parameters.
@@ -84,7 +85,7 @@ impl SessionState {
             flagged_tools: HashSet::new(),
             pinned_manifest: None,
             call_counts: HashMap::new(),
-            action_history: Vec::new(),
+            action_history: VecDeque::new(),
             memory_tracker: MemoryTracker::new(),
             elicitation_count: 0,
             pending_tool_calls: HashMap::new(),

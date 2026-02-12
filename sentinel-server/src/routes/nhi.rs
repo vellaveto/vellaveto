@@ -114,10 +114,13 @@ pub async fn register_nhi_agent(
         .await
     {
         Ok(id) => Ok(Json(json!({"id": id, "status": "registered"}))),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": e.to_string()})),
-        )),
+        Err(e) => {
+            tracing::warn!("NHI operation failed: {}", e);
+            Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid request"})),
+            ))
+        }
     }
 }
 
@@ -156,10 +159,13 @@ pub async fn revoke_nhi_agent(
 
     match manager.update_status(&id, NhiIdentityStatus::Revoked).await {
         Ok(()) => Ok(Json(json!({"status": "revoked"}))),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": e.to_string()})),
-        )),
+        Err(e) => {
+            tracing::warn!("NHI operation failed: {}", e);
+            Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid request"})),
+            ))
+        }
     }
 }
 
@@ -177,10 +183,13 @@ pub async fn activate_nhi_agent(
 
     match manager.activate_identity(&id).await {
         Ok(()) => Ok(Json(json!({"status": "active"}))),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": e.to_string()})),
-        )),
+        Err(e) => {
+            tracing::warn!("NHI operation failed: {}", e);
+            Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid request"})),
+            ))
+        }
     }
 }
 
@@ -201,10 +210,13 @@ pub async fn suspend_nhi_agent(
         .await
     {
         Ok(()) => Ok(Json(json!({"status": "suspended"}))),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": e.to_string()})),
-        )),
+        Err(e) => {
+            tracing::warn!("NHI operation failed: {}", e);
+            Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid request"})),
+            ))
+        }
     }
 }
 
@@ -330,10 +342,13 @@ pub async fn create_nhi_delegation(
         .await
     {
         Ok(delegation) => Ok(Json(json!({"delegation": delegation}))),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": e.to_string()})),
-        )),
+        Err(e) => {
+            tracing::warn!("NHI operation failed: {}", e);
+            Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid request"})),
+            ))
+        }
     }
 }
 
@@ -372,10 +387,13 @@ pub async fn revoke_nhi_delegation(
 
     match manager.revoke_delegation(&from, &to).await {
         Ok(()) => Ok(Json(json!({"status": "revoked"}))),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": e.to_string()})),
-        )),
+        Err(e) => {
+            tracing::warn!("NHI operation failed: {}", e);
+            Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid request"})),
+            ))
+        }
     }
 }
 
@@ -429,10 +447,13 @@ pub async fn rotate_nhi_credentials(
         .await
     {
         Ok(rotation) => Ok(Json(json!({"rotation": rotation}))),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": e.to_string()})),
-        )),
+        Err(e) => {
+            tracing::warn!("NHI operation failed: {}", e);
+            Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Invalid request"})),
+            ))
+        }
     }
 }
 
