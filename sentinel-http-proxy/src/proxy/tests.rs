@@ -1,10 +1,9 @@
 use super::auth::build_effective_request_uri;
 use super::call_chain::{
-    build_audit_context, build_current_agent_entry, call_chain_entry_signing_content,
-    compute_call_chain_hmac, extract_call_chain_from_headers, jsonrpc_id_key,
-    sync_session_call_chain_from_headers, take_tracked_tool_call, track_pending_tool_call,
-    validate_call_chain_header, verify_call_chain_hmac, MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
-    MAX_PENDING_TOOL_CALLS,
+    build_current_agent_entry, call_chain_entry_signing_content, compute_call_chain_hmac,
+    extract_call_chain_from_headers, jsonrpc_id_key, sync_session_call_chain_from_headers,
+    take_tracked_tool_call, track_pending_tool_call, validate_call_chain_header,
+    verify_call_chain_hmac, MAX_PENDING_TOOL_CALLS,
 };
 use super::inspection::{attach_session_header, extract_text_from_result};
 use super::origin::{extract_authority_from_origin, validate_origin};
