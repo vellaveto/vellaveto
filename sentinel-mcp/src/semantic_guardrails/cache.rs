@@ -239,51 +239,76 @@ impl EvaluationCache {
     /// - Caching is disabled
     /// - Key not found
     /// - Entry has expired
+    ///
+    /// SECURITY (FIND-028): Uses a write lock to atomically remove expired
+    /// entries on access. Previously used a read lock which left expired
+    /// entries lingering in the cache until periodic eviction, creating a
+    /// window where stale verdicts could theoretically be observed under
+    /// concurrent access patterns.
     pub fn get(&self, key: &str) -> Option<LlmEvaluation> {
         if !self.config.enabled {
             self.misses.fetch_add(1, Ordering::Relaxed);
             return None;
         }
 
-        // Use blocking read for sync compatibility
-        let cache = self.cache.blocking_read();
-        if let Some(entry) = cache.peek(key) {
-            if entry.is_expired() {
+        let mut cache = self.cache.blocking_write();
+        // Check expiry first (peek does not update LRU order)
+        let expired = cache.peek(key).map(|e| e.is_expired());
+        match expired {
+            Some(true) => {
+                // Atomically remove the expired entry while holding the write lock
+                cache.pop(key);
                 self.expirations.fetch_add(1, Ordering::Relaxed);
                 self.misses.fetch_add(1, Ordering::Relaxed);
-                return None;
+                None
             }
-            self.hits.fetch_add(1, Ordering::Relaxed);
-            let mut eval = entry.evaluation.clone();
-            eval.from_cache = true;
-            Some(eval)
-        } else {
-            self.misses.fetch_add(1, Ordering::Relaxed);
-            None
+            Some(false) => {
+                self.hits.fetch_add(1, Ordering::Relaxed);
+                // Entry is known to exist and not expired; peek again to clone
+                cache.peek(key).map(|e| {
+                    let mut eval = e.evaluation.clone();
+                    eval.from_cache = true;
+                    eval
+                })
+            }
+            None => {
+                self.misses.fetch_add(1, Ordering::Relaxed);
+                None
+            }
         }
     }
 
     /// Retrieves a cached evaluation asynchronously.
+    ///
+    /// SECURITY (FIND-028): Uses a write lock to atomically remove expired
+    /// entries on access, matching the sync `get()` behavior.
     pub async fn get_async(&self, key: &str) -> Option<LlmEvaluation> {
         if !self.config.enabled {
             self.misses.fetch_add(1, Ordering::Relaxed);
             return None;
         }
 
-        let cache = self.cache.read().await;
-        if let Some(entry) = cache.peek(key) {
-            if entry.is_expired() {
+        let mut cache = self.cache.write().await;
+        let expired = cache.peek(key).map(|e| e.is_expired());
+        match expired {
+            Some(true) => {
+                cache.pop(key);
                 self.expirations.fetch_add(1, Ordering::Relaxed);
                 self.misses.fetch_add(1, Ordering::Relaxed);
-                return None;
+                None
             }
-            self.hits.fetch_add(1, Ordering::Relaxed);
-            let mut eval = entry.evaluation.clone();
-            eval.from_cache = true;
-            Some(eval)
-        } else {
-            self.misses.fetch_add(1, Ordering::Relaxed);
-            None
+            Some(false) => {
+                self.hits.fetch_add(1, Ordering::Relaxed);
+                cache.peek(key).map(|e| {
+                    let mut eval = e.evaluation.clone();
+                    eval.from_cache = true;
+                    eval
+                })
+            }
+            None => {
+                self.misses.fetch_add(1, Ordering::Relaxed);
+                None
+            }
         }
     }
 
@@ -660,6 +685,33 @@ mod tests {
 
         cache.remove_async(key).await;
         assert!(cache.get_async(key).await.is_none());
+    }
+
+    // SECURITY (FIND-028): Verify that get() atomically removes expired entries
+    // from the cache, rather than just returning None and leaving them lingering.
+    #[tokio::test]
+    async fn test_find_028_get_removes_expired_entry() {
+        use std::time::Duration;
+
+        let cache = EvaluationCache::new(CacheConfig {
+            max_size: 100,
+            ttl_secs: 1,
+            enabled: true,
+        });
+
+        cache.put_async("key", LlmEvaluation::allow()).await;
+        assert_eq!(cache.len_async().await, 1);
+
+        // Wait for expiration
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        // get_async should return None AND remove the entry from the cache
+        assert!(cache.get_async("key").await.is_none());
+        assert_eq!(
+            cache.len_async().await,
+            0,
+            "FIND-028: expired entry must be removed from cache on access"
+        );
     }
 
     #[tokio::test]

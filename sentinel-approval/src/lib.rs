@@ -308,17 +308,20 @@ impl ApprovalStore {
             requested_by,
         };
 
-        // Acquire lock FIRST, then persist (Finding #27: prevents visibility gap)
+        // SECURITY (FIND-029/FIND-030): Acquire both locks in consistent order
+        // (pending -> dedup_index) and hold them through the double-check, capacity
+        // check, and insert. Previously, the double-check used a READ lock on
+        // dedup_index, creating a theoretical window where expire_stale() could
+        // desynchronize the dedup index between the check and the insert.
+        // This now matches the lock order used by expire_stale().
         let mut pending = self.pending.write().await;
+        let mut dedup = self.dedup_index.write().await;
 
-        // Double-check dedup under write lock to handle races
-        {
-            let dedup = self.dedup_index.read().await;
-            if let Some(existing_id) = dedup.get(&dedup_key) {
-                if let Some(existing) = pending.get(existing_id) {
-                    if existing.status == ApprovalStatus::Pending {
-                        return Ok(existing_id.clone());
-                    }
+        // Double-check dedup under both write locks to handle races
+        if let Some(existing_id) = dedup.get(&dedup_key) {
+            if let Some(existing) = pending.get(existing_id) {
+                if existing.status == ApprovalStatus::Pending {
+                    return Ok(existing_id.clone());
                 }
             }
         }
@@ -328,17 +331,17 @@ impl ApprovalStore {
             return Err(ApprovalError::CapacityExceeded(self.max_pending));
         }
 
-        // Insert into memory first so concurrent readers see it immediately
+        // Insert into both maps atomically while holding both write locks
         pending.insert(id.clone(), approval.clone());
+        dedup.insert(dedup_key.clone(), id.clone());
 
-        // Update dedup index
-        {
-            let mut dedup = self.dedup_index.write().await;
-            dedup.insert(dedup_key.clone(), id.clone());
-        }
+        // Release locks before I/O
+        drop(dedup);
+        drop(pending);
 
         // Persist to disk; rollback on failure
         if let Err(e) = self.persist_approval(&approval).await {
+            let mut pending = self.pending.write().await;
             pending.remove(&id);
             let mut dedup = self.dedup_index.write().await;
             dedup.remove(&dedup_key);
