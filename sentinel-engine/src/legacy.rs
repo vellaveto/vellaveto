@@ -335,9 +335,13 @@ impl PolicyEngine {
             }
 
             // Check blocked_cidrs
+            // SECURITY (FIND-050): Fail-closed on CIDR parse errors. The compiled
+            // path rejects invalid CIDRs at compile time, but the legacy path
+            // parses at evaluation time. A typo like "10.0.0.0/33" must deny
+            // rather than silently skip, otherwise the blocklist has a hole.
             for cidr_str in &ip_rules.blocked_cidrs {
-                if let Ok(cidr) = cidr_str.parse::<IpNet>() {
-                    if cidr.contains(&ip) {
+                match cidr_str.parse::<IpNet>() {
+                    Ok(cidr) if cidr.contains(&ip) => {
                         return Some(Verdict::Deny {
                             reason: format!(
                                 "Resolved IP '{}' in blocked CIDR '{}' in policy '{}'",
@@ -345,17 +349,52 @@ impl PolicyEngine {
                             ),
                         });
                     }
+                    Err(_) => {
+                        tracing::error!(
+                            cidr = %cidr_str,
+                            policy = %policy.name,
+                            "Invalid blocked CIDR in policy (fail-closed)"
+                        );
+                        return Some(Verdict::Deny {
+                            reason: format!(
+                                "Invalid blocked CIDR '{}' in policy '{}' (fail-closed)",
+                                cidr_str, policy.name
+                            ),
+                        });
+                    }
+                    _ => {}
                 }
             }
 
             // Check allowed_cidrs (if non-empty, must match at least one)
+            // SECURITY (FIND-050): Fail-closed on CIDR parse errors in allowlist too.
+            // An invalid allowed CIDR should deny (cannot confirm IP is allowed)
+            // rather than silently return false which happens to be correct but
+            // masks configuration errors.
             if !ip_rules.allowed_cidrs.is_empty() {
+                let mut found_invalid = false;
                 let allowed = ip_rules.allowed_cidrs.iter().any(|cidr_str| {
-                    cidr_str
-                        .parse::<IpNet>()
-                        .map(|cidr| cidr.contains(&ip))
-                        .unwrap_or(false)
+                    match cidr_str.parse::<IpNet>() {
+                        Ok(cidr) => cidr.contains(&ip),
+                        Err(_) => {
+                            tracing::error!(
+                                cidr = %cidr_str,
+                                policy = %policy.name,
+                                "Invalid allowed CIDR in policy (fail-closed)"
+                            );
+                            found_invalid = true;
+                            false
+                        }
+                    }
                 });
+                if found_invalid && !allowed {
+                    return Some(Verdict::Deny {
+                        reason: format!(
+                            "Invalid allowed CIDR in policy '{}' (fail-closed)",
+                            policy.name
+                        ),
+                    });
+                }
                 if !allowed {
                     return Some(Verdict::Deny {
                         reason: format!(

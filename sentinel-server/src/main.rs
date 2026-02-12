@@ -648,9 +648,23 @@ async fn cmd_serve(
                 .map_err(|e| {
                     anyhow::anyhow!("Failed to initialize Redis cluster backend: {}", e)
                 })?;
+                // SECURITY (FIND-044): Redact credentials from Redis URL before logging.
+                // Redis URLs commonly embed passwords (redis://:pass@host:6379).
+                let redacted_url = {
+                    let raw = &policy_config.cluster.redis_url;
+                    match url::Url::parse(raw) {
+                        Ok(mut parsed) => {
+                            if parsed.password().is_some() {
+                                let _ = parsed.set_password(Some("***"));
+                            }
+                            parsed.to_string()
+                        }
+                        Err(_) => "***invalid-url***".to_string(),
+                    }
+                };
                 tracing::info!(
                     "Cluster backend: Redis (url={}, pool_size={}, prefix={})",
-                    policy_config.cluster.redis_url,
+                    redacted_url,
                     policy_config.cluster.redis_pool_size,
                     policy_config.cluster.key_prefix,
                 );
