@@ -7826,3 +7826,414 @@ fn test_agent_identity_required_issuer_mismatch_still_denies_r40_eng_2() {
         v
     );
 }
+
+// ════════════════════════════════════════════════════════════════
+// FIND-043: Context condition coverage — MaxChainDepth
+// ════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_context_max_chain_depth_under_limit_allows() {
+    let policy = make_context_policy(json!([
+        {"type": "max_chain_depth", "max_depth": 3}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext {
+        call_chain: vec![
+            sentinel_types::CallChainEntry {
+                agent_id: "a".into(),
+                tool: "t".into(),
+                function: "f".into(),
+                timestamp: "2026-01-01T00:00:00Z".into(),
+                hmac: None,
+                verified: None,
+            },
+        ],
+        ..Default::default()
+    };
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Allow), "Chain depth 1 <= 3 should allow, got: {:?}", v);
+}
+
+#[test]
+fn test_context_max_chain_depth_over_limit_denies() {
+    let policy = make_context_policy(json!([
+        {"type": "max_chain_depth", "max_depth": 2}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let entry = sentinel_types::CallChainEntry {
+        agent_id: "a".into(),
+        tool: "t".into(),
+        function: "f".into(),
+        timestamp: "2026-01-01T00:00:00Z".into(),
+        hmac: None,
+        verified: None,
+    };
+    let ctx = EvaluationContext {
+        call_chain: vec![entry.clone(), entry.clone(), entry],
+        ..Default::default()
+    };
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Chain depth 3 > 2 should deny, got: {:?}", v);
+}
+
+#[test]
+fn test_context_max_chain_depth_exact_limit_allows() {
+    let policy = make_context_policy(json!([
+        {"type": "max_chain_depth", "max_depth": 2}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let entry = sentinel_types::CallChainEntry {
+        agent_id: "a".into(),
+        tool: "t".into(),
+        function: "f".into(),
+        timestamp: "2026-01-01T00:00:00Z".into(),
+        hmac: None,
+        verified: None,
+    };
+    let ctx = EvaluationContext {
+        call_chain: vec![entry.clone(), entry],
+        ..Default::default()
+    };
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Allow), "Chain depth 2 == max 2 should allow, got: {:?}", v);
+}
+
+// ════════════════════════════════════════════════════════════════
+// FIND-043: Context condition coverage — ResourceIndicator
+// ════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_context_resource_indicator_matching_allows() {
+    let policy = make_context_policy(json!([
+        {"type": "resource_indicator", "allowed_resources": ["https://api.example.com/*"], "require_resource": true}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext {
+        agent_identity: Some(AgentIdentity {
+            issuer: None,
+            subject: None,
+            audience: vec![],
+            claims: serde_json::from_value(json!({"resource": "https://api.example.com/data"})).unwrap(),
+        }),
+        ..Default::default()
+    };
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Allow), "Matching resource should allow, got: {:?}", v);
+}
+
+#[test]
+fn test_context_resource_indicator_missing_when_required_denies() {
+    let policy = make_context_policy(json!([
+        {"type": "resource_indicator", "allowed_resources": ["https://api.example.com/*"], "require_resource": true}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext {
+        agent_identity: Some(AgentIdentity {
+            issuer: None,
+            subject: None,
+            audience: vec![],
+            claims: Default::default(),
+        }),
+        ..Default::default()
+    };
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Missing resource when required should deny, got: {:?}", v);
+}
+
+#[test]
+fn test_context_resource_indicator_not_in_allowed_denies() {
+    let policy = make_context_policy(json!([
+        {"type": "resource_indicator", "allowed_resources": ["https://api.example.com/*"]}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext {
+        agent_identity: Some(AgentIdentity {
+            issuer: None,
+            subject: None,
+            audience: vec![],
+            claims: serde_json::from_value(json!({"resource": "https://evil.com/data"})).unwrap(),
+        }),
+        ..Default::default()
+    };
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Non-matching resource should deny, got: {:?}", v);
+}
+
+#[test]
+fn test_context_resource_indicator_no_identity_denies() {
+    let policy = make_context_policy(json!([
+        {"type": "resource_indicator", "allowed_resources": ["https://api.example.com/*"]}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext::default();
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "No identity with allowed_resources should deny, got: {:?}", v);
+}
+
+// ════════════════════════════════════════════════════════════════
+// FIND-043: Context condition coverage — CapabilityRequired
+// ════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_context_capability_required_present_allows() {
+    let policy = make_context_policy(json!([
+        {"type": "capability_required", "required_capabilities": ["read"]}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext {
+        agent_identity: Some(AgentIdentity {
+            issuer: None,
+            subject: None,
+            audience: vec![],
+            claims: serde_json::from_value(json!({"capabilities": "read,write"})).unwrap(),
+        }),
+        ..Default::default()
+    };
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Allow), "Agent with required capability should allow, got: {:?}", v);
+}
+
+#[test]
+fn test_context_capability_required_missing_denies() {
+    let policy = make_context_policy(json!([
+        {"type": "capability_required", "required_capabilities": ["admin"]}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext {
+        agent_identity: Some(AgentIdentity {
+            issuer: None,
+            subject: None,
+            audience: vec![],
+            claims: serde_json::from_value(json!({"capabilities": "read,write"})).unwrap(),
+        }),
+        ..Default::default()
+    };
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Missing required capability should deny, got: {:?}", v);
+}
+
+#[test]
+fn test_context_capability_blocked_present_denies() {
+    let policy = make_context_policy(json!([
+        {"type": "capability_required", "blocked_capabilities": ["destructive"]}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext {
+        agent_identity: Some(AgentIdentity {
+            issuer: None,
+            subject: None,
+            audience: vec![],
+            claims: serde_json::from_value(json!({"capabilities": "read,destructive"})).unwrap(),
+        }),
+        ..Default::default()
+    };
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Blocked capability present should deny, got: {:?}", v);
+}
+
+#[test]
+fn test_context_capability_no_identity_denies() {
+    let policy = make_context_policy(json!([
+        {"type": "capability_required", "required_capabilities": ["read"]}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext::default();
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "No identity with required capabilities should deny, got: {:?}", v);
+}
+
+#[test]
+fn test_context_capability_case_insensitive() {
+    let policy = make_context_policy(json!([
+        {"type": "capability_required", "required_capabilities": ["Admin"]}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext {
+        agent_identity: Some(AgentIdentity {
+            issuer: None,
+            subject: None,
+            audience: vec![],
+            claims: serde_json::from_value(json!({"capabilities": "admin,read"})).unwrap(),
+        }),
+        ..Default::default()
+    };
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Allow), "Case-insensitive capability match should allow, got: {:?}", v);
+}
+
+// ════════════════════════════════════════════════════════════════
+// FIND-043: Context condition coverage — StepUpAuth
+// ════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_context_step_up_auth_sufficient_level_allows() {
+    let policy = make_context_policy(json!([
+        {"type": "step_up_auth", "required_level": 2}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext {
+        agent_identity: Some(AgentIdentity {
+            issuer: None,
+            subject: None,
+            audience: vec![],
+            claims: serde_json::from_value(json!({"auth_level": "3"})).unwrap(),
+        }),
+        ..Default::default()
+    };
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Allow), "Auth level 3 >= 2 should allow, got: {:?}", v);
+}
+
+#[test]
+fn test_context_step_up_auth_insufficient_level_returns_require_approval() {
+    let policy = make_context_policy(json!([
+        {"type": "step_up_auth", "required_level": 4}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext {
+        agent_identity: Some(AgentIdentity {
+            issuer: None,
+            subject: None,
+            audience: vec![],
+            claims: serde_json::from_value(json!({"auth_level": "2"})).unwrap(),
+        }),
+        ..Default::default()
+    };
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::RequireApproval { .. }), "Auth level 2 < 4 should require approval, got: {:?}", v);
+}
+
+#[test]
+fn test_context_step_up_auth_no_identity_returns_require_approval() {
+    let policy = make_context_policy(json!([
+        {"type": "step_up_auth", "required_level": 1}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext::default();
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::RequireApproval { .. }), "No identity defaults to level 0 < 1, should require approval, got: {:?}", v);
+}
+
+// ════════════════════════════════════════════════════════════════
+// FIND-043: Context condition coverage — DeputyValidation
+// ════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_context_deputy_validation_no_principal_denies() {
+    let policy = make_context_policy(json!([
+        {"type": "deputy_validation", "require_principal": true, "max_delegation_depth": 5}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext::default();
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "No principal when required should deny, got: {:?}", v);
+}
+
+#[test]
+fn test_context_deputy_validation_with_principal_allows() {
+    let policy = make_context_policy(json!([
+        {"type": "deputy_validation", "require_principal": true, "max_delegation_depth": 5}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext {
+        agent_id: Some("agent-1".into()),
+        ..Default::default()
+    };
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Allow), "With agent_id as principal should allow, got: {:?}", v);
+}
+
+#[test]
+fn test_context_deputy_validation_depth_exceeded_denies() {
+    let policy = make_context_policy(json!([
+        {"type": "deputy_validation", "require_principal": false, "max_delegation_depth": 2}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let entry = sentinel_types::CallChainEntry {
+        agent_id: "a".into(),
+        tool: "t".into(),
+        function: "f".into(),
+        timestamp: "2026-01-01T00:00:00Z".into(),
+        hmac: None,
+        verified: None,
+    };
+    let ctx = EvaluationContext {
+        call_chain: vec![entry.clone(), entry.clone(), entry],
+        ..Default::default()
+    };
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Delegation depth 3 > 2 should deny, got: {:?}", v);
+}
+
+// ════════════════════════════════════════════════════════════════
+// FIND-043: Marker conditions (CircuitBreaker, ShadowAgent, SchemaPoisoning)
+// These conditions are evaluated as pass-through markers in the engine;
+// actual enforcement is in integration layers. Test that they compile and
+// don't block evaluation.
+// ════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_context_circuit_breaker_marker_passes_through() {
+    let policy = make_context_policy(json!([
+        {"type": "circuit_breaker", "tool_pattern": "read_file"}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext::default();
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Allow), "Circuit breaker marker should pass through, got: {:?}", v);
+}
+
+#[test]
+fn test_context_shadow_agent_marker_passes_through() {
+    let policy = make_context_policy(json!([
+        {"type": "shadow_agent_check", "require_known_fingerprint": true, "min_trust_level": 0.5}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext::default();
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Allow), "Shadow agent marker should pass through, got: {:?}", v);
+}
+
+#[test]
+fn test_context_schema_poisoning_marker_passes_through() {
+    let policy = make_context_policy(json!([
+        {"type": "schema_poisoning_check", "mutation_threshold": 0.5}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext::default();
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Allow), "Schema poisoning marker should pass through, got: {:?}", v);
+}
+
+#[test]
+fn test_context_async_task_policy_marker_passes_through() {
+    let policy = make_context_policy(json!([
+        {"type": "async_task_policy", "max_concurrent": 10, "max_duration_secs": 300, "require_self_cancel": true}
+    ]));
+    let engine = make_context_engine(policy);
+    let action = Action::new("read_file", "execute", json!({}));
+    let ctx = EvaluationContext::default();
+    let v = engine.evaluate_action_with_context(&action, &[], Some(&ctx)).unwrap();
+    assert!(matches!(v, Verdict::Allow), "Async task policy marker should pass through, got: {:?}", v);
+}

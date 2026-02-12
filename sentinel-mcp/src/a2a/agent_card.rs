@@ -661,4 +661,72 @@ mod tests {
             "New entry should be retrievable"
         );
     }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-051: Agent card URL construction edge cases
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_build_agent_card_url_file_scheme() {
+        // Document that file:// scheme URLs pass through unvalidated
+        // (the function is pure URL construction, not validation)
+        let url = build_agent_card_url("file:///etc/passwd");
+        assert_eq!(url, "file:///etc/passwd/.well-known/agent.json");
+        // Callers must validate the scheme before fetching
+    }
+
+    #[test]
+    fn test_build_agent_card_url_internal_ip() {
+        let url = build_agent_card_url("http://127.0.0.1");
+        assert_eq!(url, "http://127.0.0.1/.well-known/agent.json");
+        // Document: URL construction doesn't block SSRF — callers must
+    }
+
+    #[test]
+    fn test_build_agent_card_url_empty() {
+        let url = build_agent_card_url("");
+        assert_eq!(url, "/.well-known/agent.json");
+    }
+
+    #[test]
+    fn test_build_agent_card_url_with_path_traversal() {
+        // Path traversal in base URL
+        let url = build_agent_card_url("https://example.com/../../..");
+        // Should preserve the traversal (callers must validate)
+        assert!(url.contains("/.well-known/agent.json"));
+    }
+
+    #[test]
+    fn test_build_agent_card_url_trailing_slashes_normalized() {
+        // trim_end_matches strips ALL trailing slashes
+        assert_eq!(
+            build_agent_card_url("https://example.com///"),
+            "https://example.com/.well-known/agent.json"
+        );
+    }
+
+    #[test]
+    fn test_cache_different_keys_for_case_variants() {
+        let cache = AgentCardCache::new(60);
+        let card = sample_agent_card();
+
+        cache.store("https://Example.COM", card.clone());
+        // Cache uses exact string keys — case matters
+        assert!(cache.get_cached("https://Example.COM").is_some());
+        assert!(
+            cache.get_cached("https://example.com").is_none(),
+            "Cache should be case-sensitive for URL keys"
+        );
+    }
+
+    #[test]
+    fn test_validate_agent_card_with_special_characters() {
+        let mut card = sample_agent_card();
+        card.name = "Test <script>alert(1)</script>".to_string();
+        // validate_agent_card only checks for emptiness, not content
+        assert!(
+            validate_agent_card(&card).is_ok(),
+            "validate_agent_card checks required fields, not content"
+        );
+    }
 }

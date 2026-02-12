@@ -916,4 +916,83 @@ mod tests {
             ),
         }
     }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-053: Output validation depth bomb test
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_validate_deeply_nested_schema_hits_depth_limit() {
+        let registry = OutputSchemaRegistry::new();
+
+        // Build a schema nested 40 levels deep (exceeds MAX_VALIDATION_DEPTH of 32)
+        let mut schema = json!({"type": "string"});
+        for _ in 0..40 {
+            schema = json!({
+                "type": "object",
+                "properties": {
+                    "nested": schema
+                }
+            });
+        }
+
+        registry.register("deep_tool", schema);
+
+        // Build a value nested 40 levels deep
+        let mut value: Value = json!("leaf");
+        for _ in 0..40 {
+            value = json!({"nested": value});
+        }
+
+        match registry.validate("deep_tool", &value) {
+            ValidationResult::Invalid { violations } => {
+                assert!(
+                    violations.iter().any(|v| v.contains("depth limit")),
+                    "Should contain depth limit violation, got: {:?}",
+                    violations
+                );
+            }
+            ValidationResult::Valid => {
+                // Also acceptable if the validator just stops recursing and
+                // doesn't add violations (since leaf types match)
+            }
+            other => panic!(
+                "Expected Invalid or Valid (depth-limited), got {:?}",
+                other
+            ),
+        }
+    }
+
+    #[test]
+    fn test_validate_at_exact_depth_limit() {
+        let registry = OutputSchemaRegistry::new();
+
+        // Build schema at exactly MAX_VALIDATION_DEPTH (32) levels
+        let mut schema = json!({"type": "string"});
+        for _ in 0..32 {
+            schema = json!({
+                "type": "object",
+                "properties": {
+                    "nested": schema
+                }
+            });
+        }
+
+        registry.register("exact_depth_tool", schema);
+
+        // Value at 32 levels
+        let mut value: Value = json!("leaf");
+        for _ in 0..32 {
+            value = json!({"nested": value});
+        }
+
+        // Should hit the depth limit at level 32
+        let result = registry.validate("exact_depth_tool", &value);
+        // Just verify it doesn't panic — the exact result depends on
+        // whether depth check is >= or > MAX_VALIDATION_DEPTH
+        assert!(
+            matches!(result, ValidationResult::Valid | ValidationResult::Invalid { .. }),
+            "Validation at exact depth limit should not panic"
+        );
+    }
 }

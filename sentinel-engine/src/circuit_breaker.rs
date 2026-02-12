@@ -694,4 +694,156 @@ mod tests {
             assert!(manager.can_proceed("healthy_tool").is_ok());
         }
     }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-044: HalfOpen-to-Closed recovery path
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_half_open_success_threshold_closes_circuit() {
+        // success_threshold = 2, open_duration = 0 (immediate transition)
+        let manager = CircuitBreakerManager::with_config(2, 2, 0, 2);
+
+        // Trip the circuit
+        manager.record_failure("my_tool");
+        manager.record_failure("my_tool");
+        assert_eq!(manager.get_state("my_tool"), CircuitState::HalfOpen); // 0-sec open → HalfOpen
+
+        // First success in half-open transitions internal state to HalfOpen
+        manager.record_success("my_tool");
+
+        // Second success reaches success_threshold (2) → should close
+        manager.record_success("my_tool");
+        assert_eq!(
+            manager.get_state("my_tool"),
+            CircuitState::Closed,
+            "Circuit should close after reaching success_threshold in HalfOpen"
+        );
+
+        // Verify it's fully operational again
+        assert!(manager.can_proceed("my_tool").is_ok());
+    }
+
+    #[test]
+    fn test_can_proceed_allows_after_open_duration_expires() {
+        // open_duration = 0 → circuit immediately allows probing
+        let manager = CircuitBreakerManager::new(2, 2, 0);
+
+        // Trip the circuit
+        manager.record_failure("my_tool");
+        manager.record_failure("my_tool");
+
+        // Even though circuit is "Open", 0-second duration means it should allow
+        assert!(
+            manager.can_proceed("my_tool").is_ok(),
+            "can_proceed should allow after open_duration expires"
+        );
+    }
+
+    #[test]
+    fn test_half_open_full_lifecycle() {
+        // Test the complete lifecycle: Closed → Open → HalfOpen → Closed
+        let manager = CircuitBreakerManager::with_config(3, 2, 0, 2);
+
+        // Phase 1: Closed
+        assert_eq!(manager.get_state("tool"), CircuitState::Closed);
+        assert!(manager.can_proceed("tool").is_ok());
+
+        // Phase 2: Trip to Open
+        manager.record_failure("tool");
+        manager.record_failure("tool");
+        manager.record_failure("tool");
+        // get_state with 0-sec open returns HalfOpen immediately
+        assert_eq!(manager.get_state("tool"), CircuitState::HalfOpen);
+
+        // Phase 3: Enter HalfOpen via record_success (internal state update)
+        manager.record_success("tool");
+        // Not yet at success_threshold (2)
+
+        // Phase 4: Second success closes the circuit
+        manager.record_success("tool");
+        assert_eq!(manager.get_state("tool"), CircuitState::Closed);
+
+        // Phase 5: Verify clean state — failure counts should be reset
+        manager.record_failure("tool");
+        manager.record_failure("tool");
+        assert_eq!(
+            manager.get_state("tool"),
+            CircuitState::Closed,
+            "After recovery, failure_count should be 0 so 2 failures < threshold(3)"
+        );
+    }
+
+    #[test]
+    fn test_half_open_single_failure_reopens_and_requires_full_recovery() {
+        let manager = CircuitBreakerManager::with_config(2, 3, 0, 3);
+
+        // Trip circuit
+        manager.record_failure("tool");
+        manager.record_failure("tool");
+
+        // Enter half-open
+        manager.record_success("tool");
+        // 1 success, need 3
+
+        // Failure in half-open → back to open
+        let state = manager.record_failure("tool");
+        assert_eq!(state, CircuitState::Open);
+
+        // Re-enter half-open
+        manager.record_success("tool");
+        // Now need full 3 successes again
+        manager.record_success("tool");
+        manager.record_success("tool");
+        assert_eq!(
+            manager.get_state("tool"),
+            CircuitState::Closed,
+            "Should close after full success_threshold from scratch"
+        );
+    }
+
+    #[test]
+    fn test_is_recovering_reflects_half_open_state() {
+        let manager = CircuitBreakerManager::with_config(2, 2, 0, 2);
+
+        assert!(!manager.is_recovering("tool"), "No circuit = not recovering");
+
+        // Trip
+        manager.record_failure("tool");
+        manager.record_failure("tool");
+
+        // With 0-sec open duration, get_state returns HalfOpen
+        assert!(
+            manager.is_recovering("tool"),
+            "Should be recovering after open_duration expires"
+        );
+
+        // Complete recovery
+        manager.record_success("tool");
+        manager.record_success("tool");
+        assert!(
+            !manager.is_recovering("tool"),
+            "Should not be recovering after circuit closes"
+        );
+    }
+
+    #[test]
+    fn test_summary_shows_half_open_with_expired_duration() {
+        let manager = CircuitBreakerManager::with_config(2, 2, 0, 2);
+
+        manager.record_success("closed_tool");
+
+        // Trip a circuit with 0-sec duration → appears as half_open in summary
+        manager.record_failure("recovering_tool");
+        manager.record_failure("recovering_tool");
+
+        let summary = manager.summary();
+        assert_eq!(summary.total, 2);
+        assert_eq!(summary.closed, 1);
+        assert_eq!(
+            summary.half_open, 1,
+            "Open circuit with expired duration should show as half_open"
+        );
+        assert_eq!(summary.open, 0);
+    }
 }

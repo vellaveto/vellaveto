@@ -429,4 +429,112 @@ mod tests {
             "evil.com"
         );
     }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-046: Domain homoglyph / confusable tests
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_match_domain_cyrillic_homoglyph_does_not_match_latin() {
+        // Cyrillic "о" (U+043E) looks like Latin "o" but is different
+        // "gооgle.com" with Cyrillic "о" should NOT match "google.com"
+        let cyrillic_o = "g\u{043E}\u{043E}gle.com";
+        assert!(
+            !match_domain_pattern(cyrillic_o, "google.com"),
+            "Cyrillic homoglyph domain should not match Latin domain (normalized to different punycode)"
+        );
+    }
+
+    #[test]
+    fn test_match_domain_cyrillic_homoglyph_normalizes_consistently() {
+        // Both sides with Cyrillic should match each other
+        let cyrillic_o = "g\u{043E}\u{043E}gle.com";
+        assert!(
+            match_domain_pattern(cyrillic_o, cyrillic_o),
+            "Identical Cyrillic domains should match"
+        );
+    }
+
+    #[test]
+    fn test_match_domain_zero_width_characters_in_domain() {
+        // Zero-width space (U+200B) in a domain should be handled by IDNA
+        // IDNA should either strip it or reject it (fail-closed)
+        let zwsp = "evil\u{200B}.com";
+        let result = normalize_domain_for_match(zwsp);
+        // Acceptable: either normalizes to "evil.com" or fails (None)
+        // What's NOT acceptable: it normalizes to something that bypasses blocklists
+        if let Some(normalized) = &result {
+            // If it normalizes, it should match evil.com
+            assert!(
+                match_domain_pattern(zwsp, "evil.com") || normalized.contains("xn--"),
+                "Zero-width domain should either match evil.com or become punycode, got: {}",
+                normalized
+            );
+        }
+        // If result is None, that's also fine (fail-closed)
+    }
+
+    #[test]
+    fn test_match_domain_fullwidth_latin_characters() {
+        // Fullwidth Latin 'e' (U+FF45) should be handled by IDNA normalization
+        let fullwidth_e = "\u{FF45}xample.com";
+        let result = normalize_domain_for_match(fullwidth_e);
+        // IDNA may normalize to "example.com" or reject it
+        if let Some(normalized) = &result {
+            // If normalized, verify it maps to punycode or the ASCII equivalent
+            assert!(
+                normalized.as_ref() == "example.com" || normalized.contains("xn--"),
+                "Fullwidth should normalize to example.com or punycode, got: {}",
+                normalized
+            );
+        }
+        // None is also acceptable (fail-closed)
+    }
+
+    #[test]
+    fn test_match_domain_mixed_script_fails_closed() {
+        // Mixed Latin + Cyrillic in same label — IDNA should reject or normalize to punycode
+        let mixed = "g\u{043E}ogle.com"; // Cyrillic "о" + Latin "o"
+        let result = normalize_domain_for_match(mixed);
+        // Must NOT match "google.com" — that would be a security bypass
+        assert!(
+            !match_domain_pattern(mixed, "google.com"),
+            "Mixed-script domain must not match pure ASCII equivalent"
+        );
+        // Either normalize to punycode (different from google.com) or reject
+        if let Some(normalized) = &result {
+            assert_ne!(
+                normalized.as_ref(),
+                "google.com",
+                "Mixed-script must not silently normalize to ASCII lookalike"
+            );
+        }
+    }
+
+    #[test]
+    fn test_match_domain_combining_character_diacritics() {
+        // "a" + combining acute accent (U+0301) = "á"
+        let combining = "ex\u{0301}mple.com";
+        let result = normalize_domain_for_match(combining);
+        // Should NOT match "example.com" — the diacritic changes the domain
+        assert!(
+            !match_domain_pattern(combining, "example.com"),
+            "Domain with combining diacritics should not match plain ASCII"
+        );
+        // If normalized, should be punycode
+        if let Some(normalized) = &result {
+            assert!(
+                normalized.contains("xn--") || normalized.as_ref() != "example.com",
+                "Combining diacritics should produce different normalized form"
+            );
+        }
+    }
+
+    #[test]
+    fn test_normalize_domain_for_match_rejects_invalid_ascii() {
+        // Domains with spaces, colons, etc. should be rejected
+        assert!(normalize_domain_for_match("evil .com").is_none());
+        assert!(normalize_domain_for_match("evil:com").is_none());
+        assert!(normalize_domain_for_match("evil\ncom").is_none());
+    }
 }

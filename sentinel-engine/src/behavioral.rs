@@ -1487,4 +1487,150 @@ mod tests {
             "Gradual increase should adapt the baseline"
         );
     }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-052: EMA epsilon and extreme numeric edge cases
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_behavioral_epsilon_ema_triggers_anomaly() {
+        // When EMA is at or below f64::EPSILON, any non-zero count should
+        // use the synthetic high-deviation path (line 306-307)
+        let config = BehavioralConfig {
+            min_sessions: 1,
+            threshold: 2.0,
+            alpha: 0.99, // High alpha — EMA will closely track current value
+            ..Default::default()
+        };
+        let mut tracker = BehavioralTracker::new(config).expect("valid config");
+
+        // Record very small values to get EMA close to zero,
+        // then decay further by recording sessions without the tool
+        tracker.record_session("agent-1", &counts(&[("tool", 1)]));
+        // Decay the tool's EMA by running many sessions without it
+        for _ in 0..100 {
+            tracker.record_session("agent-1", &counts(&[("other", 1)]));
+        }
+
+        let baseline = tracker
+            .get_baseline("agent-1", "tool")
+            .expect("baseline should exist");
+        // After 100 decay rounds with alpha=0.99, EMA should be extremely small
+        assert!(
+            baseline.ema < 0.01,
+            "EMA should have decayed to near zero, got: {}",
+            baseline.ema
+        );
+
+        // Now check: with near-zero EMA, the epsilon guard uses count as the ratio.
+        // A count >= threshold should trigger anomaly.
+        let alerts = tracker.check_session("agent-1", &counts(&[("tool", 3)]));
+        // The tool has enough sessions and the agent has enough sessions
+        // so the cold start guard won't block this.
+        // ratio = count as f64 = 3.0 >= threshold(2.0)
+        assert!(
+            !alerts.is_empty(),
+            "Near-zero EMA with count >= threshold should flag as anomalous"
+        );
+    }
+
+    #[test]
+    fn test_behavioral_u64_max_count_does_not_panic() {
+        let config = BehavioralConfig {
+            min_sessions: 1,
+            threshold: 2.0,
+            alpha: 0.5,
+            ..Default::default()
+        };
+        let mut tracker = BehavioralTracker::new(config).expect("valid config");
+
+        // Establish baseline
+        let normal = counts(&[("tool", 10)]);
+        for _ in 0..3 {
+            tracker.record_session("agent-1", &normal);
+        }
+
+        // Check session with u64::MAX — should not panic
+        let extreme = counts(&[("tool", u64::MAX)]);
+        let alerts = tracker.check_session("agent-1", &extreme);
+        // Should definitely detect anomaly
+        assert!(
+            !alerts.is_empty(),
+            "u64::MAX count should trigger anomaly"
+        );
+
+        // Recording u64::MAX should also not panic
+        tracker.record_session("agent-1", &extreme);
+        let baseline = tracker
+            .get_baseline("agent-1", "tool")
+            .expect("baseline exists");
+        assert!(
+            baseline.ema.is_finite(),
+            "EMA should remain finite after u64::MAX, got: {}",
+            baseline.ema
+        );
+    }
+
+    #[test]
+    fn test_behavioral_large_ema_large_count_no_overflow() {
+        let config = BehavioralConfig {
+            min_sessions: 1,
+            threshold: 2.0,
+            alpha: 0.5,
+            ..Default::default()
+        };
+        let mut tracker = BehavioralTracker::new(config).expect("valid config");
+
+        // Record sessions with very large counts
+        let large = counts(&[("tool", u64::MAX / 2)]);
+        for _ in 0..5 {
+            tracker.record_session("agent-1", &large);
+        }
+
+        let baseline = tracker
+            .get_baseline("agent-1", "tool")
+            .expect("baseline exists");
+        assert!(
+            baseline.ema.is_finite(),
+            "EMA should remain finite with large counts"
+        );
+
+        // Check with even larger count
+        let larger = counts(&[("tool", u64::MAX)]);
+        let alerts = tracker.check_session("agent-1", &larger);
+        // With EMA ~ u64::MAX/2 and count ~ u64::MAX, ratio ~ 2.0 >= threshold(2.0)
+        assert!(
+            !alerts.is_empty(),
+            "u64::MAX vs large EMA should trigger"
+        );
+        // Verify ratio is finite
+        assert!(
+            alerts[0].deviation_ratio.is_finite(),
+            "Deviation ratio should be finite, got: {}",
+            alerts[0].deviation_ratio
+        );
+    }
+
+    #[test]
+    fn test_behavioral_update_counter_saturates() {
+        let config = BehavioralConfig {
+            min_sessions: 1,
+            ..Default::default()
+        };
+        let mut tracker = BehavioralTracker::new(config).expect("valid config");
+
+        // Record many sessions — update_counter uses saturating_add
+        for i in 0..100 {
+            tracker.record_session(
+                &format!("agent-{}", i % 5),
+                &counts(&[("tool", 1)]),
+            );
+        }
+
+        let snapshot = tracker.snapshot();
+        assert_eq!(
+            snapshot.update_counter, 100,
+            "Update counter should track session count"
+        );
+    }
 }

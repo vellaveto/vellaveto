@@ -1535,4 +1535,104 @@ mod tests {
             verdict
         );
     }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-054: Elicitation rate limit boundary tests
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_elicitation_rate_limit_at_u32_max() {
+        let config = ElicitationConfig {
+            enabled: true,
+            blocked_field_types: Vec::new(),
+            max_per_session: 10,
+        };
+
+        let params = json!({
+            "message": "Pick a number",
+            "requestedSchema": {"type": "object"}
+        });
+
+        // u32::MAX should definitely be over any reasonable limit
+        let verdict = inspect_elicitation(&params, &config, u32::MAX);
+        assert!(
+            matches!(verdict, ElicitationVerdict::Deny { .. }),
+            "u32::MAX count should be denied, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_elicitation_rate_limit_boundary_minus_one() {
+        let config = ElicitationConfig {
+            enabled: true,
+            blocked_field_types: Vec::new(),
+            max_per_session: 5,
+        };
+
+        let params = json!({
+            "message": "Pick a number",
+            "requestedSchema": {"type": "object"}
+        });
+
+        // At max_per_session - 1: should be allowed (one more request ok)
+        let verdict = inspect_elicitation(&params, &config, 4);
+        assert!(
+            matches!(verdict, ElicitationVerdict::Allow),
+            "count == max_per_session - 1 should allow, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_elicitation_rate_limit_exact_boundary() {
+        let config = ElicitationConfig {
+            enabled: true,
+            blocked_field_types: Vec::new(),
+            max_per_session: 5,
+        };
+
+        let params = json!({
+            "message": "Pick a number",
+            "requestedSchema": {"type": "object"}
+        });
+
+        // At exactly max_per_session: should be denied (>= comparison)
+        let verdict = inspect_elicitation(&params, &config, 5);
+        assert!(
+            matches!(verdict, ElicitationVerdict::Deny { .. }),
+            "count == max_per_session should deny, got: {:?}",
+            verdict
+        );
+    }
+
+    #[test]
+    fn test_elicitation_rate_limit_max_per_session_u32_max() {
+        let config = ElicitationConfig {
+            enabled: true,
+            blocked_field_types: Vec::new(),
+            max_per_session: u32::MAX,
+        };
+
+        let params = json!({
+            "message": "Pick a number",
+            "requestedSchema": {"type": "object"}
+        });
+
+        // Even with u32::MAX limit, u32::MAX count should deny
+        let verdict = inspect_elicitation(&params, &config, u32::MAX);
+        assert!(
+            matches!(verdict, ElicitationVerdict::Deny { .. }),
+            "count == max_per_session (both u32::MAX) should deny, got: {:?}",
+            verdict
+        );
+
+        // u32::MAX - 1 should be allowed with u32::MAX limit
+        let verdict = inspect_elicitation(&params, &config, u32::MAX - 1);
+        assert!(
+            matches!(verdict, ElicitationVerdict::Allow),
+            "count < max_per_session should allow, got: {:?}",
+            verdict
+        );
+    }
 }

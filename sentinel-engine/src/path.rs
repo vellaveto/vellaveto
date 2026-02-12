@@ -230,4 +230,75 @@ mod tests {
         // Path that resolves to empty should error
         assert!(normalize_path("..").is_err());
     }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-047: Windows UNC path and drive letter tests
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_normalize_path_windows_unc_path() {
+        // UNC path \\server\share\file.txt — backslashes become forward slashes
+        let result = normalize_path("\\\\server\\share\\file.txt");
+        assert!(result.is_ok(), "UNC path should normalize without error");
+        let normalized = result.unwrap();
+        assert!(
+            normalized.starts_with('/'),
+            "Normalized UNC path should be absolute"
+        );
+        assert!(
+            normalized.contains("server"),
+            "Server name should be preserved"
+        );
+    }
+
+    #[test]
+    fn test_normalize_path_windows_drive_letter() {
+        let result = normalize_path("C:\\Users\\file.txt");
+        assert!(
+            result.is_ok(),
+            "Windows drive path should normalize without error"
+        );
+        let normalized = result.unwrap();
+        assert!(
+            normalized.starts_with('/'),
+            "Normalized path should be absolute"
+        );
+    }
+
+    #[test]
+    fn test_normalize_path_unc_with_traversal() {
+        // UNC path with traversal attempt should resolve .. safely
+        let result = normalize_path("\\\\server\\..\\..\\..\\etc\\passwd");
+        assert!(result.is_ok());
+        let normalized = result.unwrap();
+        // Traversal above root should be absorbed
+        assert!(
+            !normalized.contains(".."),
+            "Traversal components should be resolved"
+        );
+    }
+
+    #[test]
+    fn test_normalize_path_percent_encoded_drive_letter() {
+        // %43 = 'C', %3A = ':', %5C = '\'
+        let result = normalize_path("%43%3A%5CUsers%5Cfile.txt");
+        assert!(result.is_ok());
+        let normalized = result.unwrap();
+        assert!(
+            normalized.starts_with('/'),
+            "Encoded drive letter path should become absolute"
+        );
+    }
+
+    #[test]
+    fn test_normalize_path_mixed_separators() {
+        // Mixed forward and backward slashes
+        let result = normalize_path("/home\\user/docs\\file.txt");
+        assert!(result.is_ok());
+        let normalized = result.unwrap();
+        assert_eq!(
+            normalized, "/home/user/docs/file.txt",
+            "Mixed separators should normalize to forward slashes"
+        );
+    }
 }
