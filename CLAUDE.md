@@ -76,7 +76,19 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Core types | `sentinel-types/src/lib.rs` |
 | Policy evaluation | `sentinel-engine/src/lib.rs` |
 | Audit logging | `sentinel-audit/src/lib.rs` |
-| Config parsing | `sentinel-config/src/lib.rs` |
+| Config root + PolicyConfig | `sentinel-config/src/lib.rs` |
+| Config: injection/DLP/rate-limit/audit | `sentinel-config/src/detection.rs` |
+| Config: supply chain verification | `sentinel-config/src/supply_chain.rs` |
+| Config: tool manifest signing | `sentinel-config/src/manifest.rs` |
+| Config: ETDI / version pinning | `sentinel-config/src/etdi.rs` |
+| Config: MCP protocol (elicitation, sampling) | `sentinel-config/src/mcp_protocol.rs` |
+| Config: threat detection (10 detectors) | `sentinel-config/src/threat_detection.rs` |
+| Config: TLS/OPA/SPIFFE/JIT/threat-intel | `sentinel-config/src/enterprise.rs` |
+| Config: memory security / NHI / DPoP | `sentinel-config/src/memory_nhi.rs` |
+| Config: semantic guardrails backends | `sentinel-config/src/semantic_guardrails_config.rs` |
+| Config: RAG defense / grounding | `sentinel-config/src/rag_defense_config.rs` |
+| Config: observability | `sentinel-config/src/observability.rs` |
+| Config: validation helpers | `sentinel-config/src/validation.rs` |
 | MCP handling | `sentinel-mcp/src/lib.rs` |
 | DLP / inspection | `sentinel-mcp/src/inspection.rs` |
 | Output validation | `sentinel-mcp/src/output_validation.rs` |
