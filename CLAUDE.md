@@ -100,7 +100,15 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Output validation | `sentinel-mcp/src/output_validation.rs` |
 | Semantic guardrails | `sentinel-mcp/src/semantic_guardrails/` |
 | A2A protocol security | `sentinel-mcp/src/a2a/` |
-| HTTP proxy | `sentinel-http-proxy/src/proxy.rs` |
+| HTTP proxy: structs + constants | `sentinel-http-proxy/src/proxy/mod.rs` |
+| HTTP proxy: handler functions | `sentinel-http-proxy/src/proxy/handlers.rs` |
+| HTTP proxy: OAuth/API key/agent auth | `sentinel-http-proxy/src/proxy/auth.rs` |
+| HTTP proxy: origin/CSRF validation | `sentinel-http-proxy/src/proxy/origin.rs` |
+| HTTP proxy: call chain/escalation | `sentinel-http-proxy/src/proxy/call_chain.rs` |
+| HTTP proxy: upstream forwarding | `sentinel-http-proxy/src/proxy/upstream.rs` |
+| HTTP proxy: response inspection | `sentinel-http-proxy/src/proxy/inspection.rs` |
+| HTTP proxy: utility helpers | `sentinel-http-proxy/src/proxy/helpers.rs` |
+| HTTP proxy: tests | `sentinel-http-proxy/src/proxy/tests.rs` |
 | Stdio proxy | `sentinel-proxy/src/main.rs` |
 | HTTP API server | `sentinel-server/src/main.rs` |
 | Server routes | `sentinel-server/src/routes.rs` |
