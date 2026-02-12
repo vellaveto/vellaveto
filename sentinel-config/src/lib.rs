@@ -70,7 +70,9 @@ pub use enterprise::{
     TlsKexPolicy, TlsMode,
 };
 
-pub use memory_nhi::{DpopConfig, MemorySecurityConfig, NamespaceConfig, NhiConfig};
+pub use memory_nhi::{
+    DpopConfig, MemorySecurityConfig, NamespaceConfig, NhiConfig, VerificationConfig,
+};
 
 pub use semantic_guardrails_config::{
     AnthropicBackendConfig, IntentClassificationConfig, JailbreakDetectionConfig, NlPolicyConfig,

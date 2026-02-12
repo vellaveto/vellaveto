@@ -1329,6 +1329,7 @@ fn test_task_request_with_context() {
         previous_actions: vec!["read_file".to_string()],
         call_chain: Vec::new(),
         tenant_id: None,
+        verification_tier: None,
     };
     let result = bridge.evaluate_action_inner(&action, Some(&ctx));
     assert!(

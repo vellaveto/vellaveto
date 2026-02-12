@@ -637,6 +637,40 @@ impl PolicyEngine {
                     );
                     // Continue to next condition - enforcement is in the tracker
                 }
+
+                CompiledContextCondition::MinVerificationTier {
+                    required_tier,
+                    deny_reason,
+                } => {
+                    // Identity verification tier enforcement.
+                    // SECURITY: Fail-closed when verification_tier is None — if the
+                    // proxy/caller did not populate the tier, we cannot verify it,
+                    // so we must deny rather than silently allowing.
+                    match &context.verification_tier {
+                        Some(tier) => {
+                            if tier.level() < *required_tier {
+                                return Some(Verdict::Deny {
+                                    reason: format!(
+                                        "{} (current tier '{}' level {}, required level {})",
+                                        deny_reason,
+                                        tier,
+                                        tier.level(),
+                                        required_tier
+                                    ),
+                                });
+                            }
+                        }
+                        None => {
+                            // Fail-closed: no verification tier in context
+                            return Some(Verdict::Deny {
+                                reason: format!(
+                                    "{} (no verification tier in context — fail-closed)",
+                                    deny_reason
+                                ),
+                            });
+                        }
+                    }
+                }
             }
         }
         None

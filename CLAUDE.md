@@ -81,6 +81,8 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Types: AgentIdentity, CallChainEntry, EvaluationContext | `sentinel-types/src/identity.rs` |
 | Types: MINJA taint tracking, provenance, quarantine, namespaces | `sentinel-types/src/minja.rs` |
 | Types: NHI lifecycle, behavioral baselines, delegation, DPoP | `sentinel-types/src/nhi.rs` |
+| Types: DID:PLC identifiers, genesis operations, validation | `sentinel-types/src/did_plc.rs` |
+| Types: VerificationTier, AccountabilityAttestation | `sentinel-types/src/verification.rs` |
 | Types: tests (~115 unit tests) | `sentinel-types/src/tests.rs` |
 | Policy evaluation | `sentinel-engine/src/lib.rs` |
 | Audit: module root + re-exports | `sentinel-audit/src/lib.rs` |
@@ -120,6 +122,8 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Proxy bridge: identity + flagged tools | `sentinel-mcp/src/proxy/bridge/helpers.rs` |
 | Proxy bridge: run() relay loop | `sentinel-mcp/src/proxy/bridge/relay.rs` |
 | Proxy bridge: tests | `sentinel-mcp/src/proxy/bridge/tests.rs` |
+| DID:PLC generation + Base32 encoding | `sentinel-mcp/src/did_plc.rs` |
+| Accountability attestation sign/verify | `sentinel-mcp/src/accountability.rs` |
 | DLP / inspection | `sentinel-mcp/src/inspection.rs` |
 | Output validation | `sentinel-mcp/src/output_validation.rs` |
 | Semantic guardrails | `sentinel-mcp/src/semantic_guardrails/` |
@@ -208,6 +212,14 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - Batch rejection — JSON-RPC batch requests rejected for TOCTOU attack prevention
 - Security integration — DLP scanning, injection detection, circuit breaker support
 - Feature flag: `a2a`
+
+**Identity Verification Primitives:**
+- DID:PLC generation — SHA-256 + Base32 from canonicalized genesis operations (`sentinel-mcp/src/did_plc.rs`)
+- Verification tiers — ordered enum (Unverified→FullyVerified) with fail-closed policy enforcement (`sentinel-types/src/verification.rs`)
+- Accountability attestation — Ed25519 signed, length-prefixed content (`sentinel-mcp/src/accountability.rs`)
+- Policy condition: `min_verification_tier` — fail-closed when tier missing (`sentinel-engine/src/context_check.rs`)
+- NHI integration — DID generation, tier management, attestation lifecycle (`sentinel-mcp/src/nhi.rs`)
+- Zero new dependencies — reuses sha2, ed25519-dalek, hex, serde_json_canonicalizer
 
 **Testing & Quality:**
 - Criterion benchmarks for policy evaluation, path normalization, domain matching, DLP scanning (`sentinel-engine/benches/`, `sentinel-mcp/benches/`)

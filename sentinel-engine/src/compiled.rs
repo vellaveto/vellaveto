@@ -348,6 +348,17 @@ pub enum CompiledContextCondition {
         mutation_threshold: f32,
         deny_reason: String,
     },
+
+    /// Minimum verification tier enforcement.
+    ///
+    /// Requires the agent's verification tier to meet or exceed a minimum level.
+    /// Fail-closed: if no verification tier is present in the context, denies.
+    MinVerificationTier {
+        /// Required tier level (0-4).
+        /// 0=Unverified, 1=EmailVerified, 2=PhoneVerified, 3=DidVerified, 4=FullyVerified
+        required_tier: u8,
+        deny_reason: String,
+    },
 }
 
 /// Pre-parsed fields extracted from a policy's `conditions` JSON.

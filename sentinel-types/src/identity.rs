@@ -1,6 +1,7 @@
 //! Agent identity types — attested identity, call chain entries,
 //! evaluation context, and context builder.
 
+use crate::verification::VerificationTier;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -127,6 +128,11 @@ pub struct EvaluationContext {
     /// 3. Subdomain (`{tenant}.sentinel.example.com`)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tenant_id: Option<String>,
+    /// Verification tier of the agent making the request.
+    /// Used by `min_verification_tier` context condition.
+    /// When `None`, policies requiring a minimum tier will deny (fail-closed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_tier: Option<VerificationTier>,
 }
 
 impl EvaluationContext {
@@ -147,6 +153,7 @@ impl EvaluationContext {
             || !self.previous_actions.is_empty()
             || !self.call_chain.is_empty()
             || self.tenant_id.is_some()
+            || self.verification_tier.is_some()
     }
 
     /// Returns the depth of the current call chain (number of agents in the chain).
@@ -192,6 +199,7 @@ pub struct EvaluationContextBuilder {
     previous_actions: Vec<String>,
     call_chain: Vec<CallChainEntry>,
     tenant_id: Option<String>,
+    verification_tier: Option<VerificationTier>,
 }
 
 impl EvaluationContextBuilder {
@@ -255,6 +263,12 @@ impl EvaluationContextBuilder {
         self
     }
 
+    /// Set the verification tier for identity verification policies.
+    pub fn verification_tier(mut self, tier: VerificationTier) -> Self {
+        self.verification_tier = Some(tier);
+        self
+    }
+
     /// Build the [`EvaluationContext`].
     pub fn build(self) -> EvaluationContext {
         EvaluationContext {
@@ -265,6 +279,7 @@ impl EvaluationContextBuilder {
             previous_actions: self.previous_actions,
             call_chain: self.call_chain,
             tenant_id: self.tenant_id,
+            verification_tier: self.verification_tier,
         }
     }
 }

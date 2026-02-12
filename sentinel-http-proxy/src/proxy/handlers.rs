@@ -705,6 +705,7 @@ pub async fn handle_mcp_post(
                     previous_actions: session.action_history.iter().cloned().collect(),
                     call_chain: session.current_call_chain.clone(),
                     tenant_id: None,
+                    verification_tier: None,
                 };
 
                 let result = if params.trace && state.trace_enabled {

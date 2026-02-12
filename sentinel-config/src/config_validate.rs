@@ -732,6 +732,39 @@ impl PolicyConfig {
         }
 
         // ═══════════════════════════════════════════════════
+        // NHI VERIFICATION CONFIG VALIDATION
+        // ═══════════════════════════════════════════════════
+        if self.nhi.verification.enabled {
+            let valid_tiers = [
+                "unverified",
+                "email_verified",
+                "phone_verified",
+                "did_verified",
+                "fully_verified",
+            ];
+            if !valid_tiers.contains(&self.nhi.verification.default_tier.as_str()) {
+                return Err(format!(
+                    "nhi.verification.default_tier must be one of {:?}, got '{}'",
+                    valid_tiers, self.nhi.verification.default_tier
+                ));
+            }
+            if !valid_tiers.contains(&self.nhi.verification.global_minimum_tier.as_str()) {
+                return Err(format!(
+                    "nhi.verification.global_minimum_tier must be one of {:?}, got '{}'",
+                    valid_tiers, self.nhi.verification.global_minimum_tier
+                ));
+            }
+            if self.nhi.verification.max_attestations_per_identity == 0 {
+                return Err(
+                    "nhi.verification.max_attestations_per_identity must be > 0".to_string()
+                );
+            }
+            if self.nhi.verification.attestation_ttl_secs == 0 {
+                return Err("nhi.verification.attestation_ttl_secs must be > 0".to_string());
+            }
+        }
+
+        // ═══════════════════════════════════════════════════
         // LIMITS VALIDATION (FIND-032 / FIND-036)
         // ═══════════════════════════════════════════════════
         // SECURITY (FIND-032): Reject zero values that would disable safety constraints.

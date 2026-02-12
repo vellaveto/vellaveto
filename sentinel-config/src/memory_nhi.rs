@@ -293,6 +293,10 @@ pub struct NhiConfig {
     #[serde(default = "default_nhi_rotation_warning")]
     pub rotation_warning_hours: u64,
 
+    /// Identity verification configuration.
+    #[serde(default)]
+    pub verification: VerificationConfig,
+
     /// DPoP (Demonstration of Proof-of-Possession) configuration.
     #[serde(default)]
     pub dpop: DpopConfig,
@@ -381,11 +385,91 @@ impl Default for NhiConfig {
             max_delegation_chain_depth: default_nhi_max_chain_depth(),
             require_delegation_approval: true,
             rotation_warning_hours: default_nhi_rotation_warning(),
+            verification: VerificationConfig::default(),
             dpop: DpopConfig::default(),
             additional_trust_domains: Vec::new(),
             privileged_tags: Vec::new(),
             continuous_auth: true,
             session_timeout_secs: default_nhi_session_timeout(),
+        }
+    }
+}
+
+/// Identity verification configuration.
+///
+/// Controls verification tier enforcement, DID:PLC generation, and
+/// accountability attestation settings.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [nhi.verification]
+/// enabled = true
+/// default_tier = "unverified"
+/// global_minimum_tier = "unverified"
+/// did_plc_enabled = true
+/// plc_directory_url = "https://plc.directory"
+/// max_attestations_per_identity = 100
+/// attestation_ttl_secs = 86400
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VerificationConfig {
+    /// Enable identity verification features. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Default verification tier for new identities. Default: "unverified".
+    #[serde(default = "default_verification_tier")]
+    pub default_tier: String,
+
+    /// Global minimum verification tier required. Default: "unverified".
+    /// Policies can override this with `min_verification_tier` condition.
+    #[serde(default = "default_verification_tier")]
+    pub global_minimum_tier: String,
+
+    /// Enable DID:PLC generation for agent identities. Default: false.
+    #[serde(default)]
+    pub did_plc_enabled: bool,
+
+    /// PLC directory URL for DID resolution. Default: "https://plc.directory".
+    #[serde(default = "default_plc_directory_url")]
+    pub plc_directory_url: String,
+
+    /// Maximum attestations stored per identity. Default: 100.
+    #[serde(default = "default_max_attestations")]
+    pub max_attestations_per_identity: usize,
+
+    /// Attestation TTL in seconds. Default: 86400 (24 hours).
+    #[serde(default = "default_attestation_ttl")]
+    pub attestation_ttl_secs: u64,
+}
+
+fn default_verification_tier() -> String {
+    "unverified".to_string()
+}
+
+fn default_plc_directory_url() -> String {
+    "https://plc.directory".to_string()
+}
+
+fn default_max_attestations() -> usize {
+    100
+}
+
+fn default_attestation_ttl() -> u64 {
+    86400 // 24 hours
+}
+
+impl Default for VerificationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            default_tier: default_verification_tier(),
+            global_minimum_tier: default_verification_tier(),
+            did_plc_enabled: false,
+            plc_directory_url: default_plc_directory_url(),
+            max_attestations_per_identity: default_max_attestations(),
+            attestation_ttl_secs: default_attestation_ttl(),
         }
     }
 }

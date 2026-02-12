@@ -1218,6 +1218,58 @@ impl PolicyEngine {
                 })
             }
 
+            "min_verification_tier" => {
+                // Parse required_tier as integer or string name
+                let required_tier = if let Some(level_val) = obj.get("required_tier") {
+                    if let Some(level_u64) = level_val.as_u64() {
+                        if level_u64 > 4 {
+                            return Err(PolicyValidationError {
+                                policy_id: policy.id.clone(),
+                                policy_name: policy.name.clone(),
+                                reason: format!(
+                                    "min_verification_tier required_tier must be 0-4, got {}",
+                                    level_u64
+                                ),
+                            });
+                        }
+                        level_u64 as u8
+                    } else if let Some(name) = level_val.as_str() {
+                        sentinel_types::VerificationTier::from_name(name)
+                            .map(|t| t.level())
+                            .ok_or_else(|| PolicyValidationError {
+                                policy_id: policy.id.clone(),
+                                policy_name: policy.name.clone(),
+                                reason: format!(
+                                    "min_verification_tier unknown tier name '{}'",
+                                    name
+                                ),
+                            })?
+                    } else {
+                        return Err(PolicyValidationError {
+                            policy_id: policy.id.clone(),
+                            policy_name: policy.name.clone(),
+                            reason: "min_verification_tier required_tier must be an integer (0-4) or tier name string".to_string(),
+                        });
+                    }
+                } else {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "min_verification_tier missing 'required_tier' field".to_string(),
+                    });
+                };
+
+                let deny_reason = format!(
+                    "Verification tier below minimum (required level {}) for policy '{}'",
+                    required_tier, policy.name
+                );
+
+                Ok(CompiledContextCondition::MinVerificationTier {
+                    required_tier,
+                    deny_reason,
+                })
+            }
+
             _ => Err(PolicyValidationError {
                 policy_id: policy.id.clone(),
                 policy_name: policy.name.clone(),

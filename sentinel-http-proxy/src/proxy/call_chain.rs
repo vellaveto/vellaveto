@@ -93,6 +93,7 @@ pub(super) fn build_evaluation_context(
             previous_actions: session.action_history.iter().cloned().collect(),
             call_chain: session.current_call_chain.clone(),
             tenant_id: None,
+            verification_tier: None,
         })
 }
 
@@ -441,6 +442,7 @@ pub(super) fn check_privilege_escalation(
             previous_actions: Vec::new(),
             call_chain: Vec::new(), // Don't recurse into chain for upstream check
             tenant_id: None,
+            verification_tier: None,
         };
 
         // Evaluate the action with the upstream agent's identity

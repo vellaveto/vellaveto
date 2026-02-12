@@ -1576,6 +1576,9 @@ fn test_nhi_agent_identity_serialization() {
             m.insert("team".to_string(), "platform".to_string());
             m
         },
+        verification_tier: VerificationTier::DidVerified,
+        did_plc: Some("did:plc:ewvi7nxsareczkwkx5pz6q6e".to_string()),
+        attestations: vec![],
     };
     let json_str = serde_json::to_string(&identity).unwrap();
     let deserialized: NhiAgentIdentity = serde_json::from_str(&json_str).unwrap();

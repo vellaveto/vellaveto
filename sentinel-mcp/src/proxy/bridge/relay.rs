@@ -107,6 +107,7 @@ impl RelayState {
             previous_actions: self.action_history.iter().cloned().collect(),
             call_chain: Vec::new(),
             tenant_id: None,
+            verification_tier: None,
         }
     }
 

@@ -1346,6 +1346,7 @@ fn sanitize_context(
             call_chain: Vec::new(),
             // Tenant ID is set by the tenant middleware, not client-controlled
             tenant_id,
+            verification_tier: None,
         }
     })
 }
@@ -2463,6 +2464,7 @@ mod tests {
             previous_actions: vec!["login".to_string(), "auth".to_string()],
             call_chain: Vec::new(),
             tenant_id: None,
+            verification_tier: None,
         };
         let sanitized = sanitize_context(Some(spoofed), &headers, None).unwrap();
         // agent_id preserved (no auth header)
@@ -2485,6 +2487,7 @@ mod tests {
             previous_actions: Vec::new(),
             call_chain: Vec::new(),
             tenant_id: None,
+            verification_tier: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         assert_eq!(sanitized.agent_id, Some("my-agent".to_string()));
@@ -2507,6 +2510,7 @@ mod tests {
             previous_actions: Vec::new(),
             call_chain: Vec::new(),
             tenant_id: None,
+            verification_tier: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         let agent_id = sanitized.agent_id.unwrap();
@@ -2538,6 +2542,7 @@ mod tests {
             previous_actions: Vec::new(),
             call_chain: Vec::new(),
             tenant_id: None,
+            verification_tier: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         let agent_id = sanitized.agent_id.unwrap();
@@ -2564,6 +2569,7 @@ mod tests {
             previous_actions: Vec::new(),
             call_chain: Vec::new(),
             tenant_id: None,
+            verification_tier: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         assert!(
@@ -2584,6 +2590,7 @@ mod tests {
             previous_actions: Vec::new(),
             call_chain: Vec::new(),
             tenant_id: None,
+            verification_tier: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         assert_eq!(sanitized.agent_id, Some(max_id));
@@ -2600,6 +2607,7 @@ mod tests {
             previous_actions: Vec::new(),
             call_chain: Vec::new(),
             tenant_id: None,
+            verification_tier: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         assert!(

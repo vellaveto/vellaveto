@@ -1,11 +1,13 @@
 #[cfg(feature = "a2a")]
 pub mod a2a;
+pub mod accountability;
 pub mod agent_message;
 pub mod agent_trust;
 pub mod attack_sim;
 pub mod auth_level;
 pub mod capability;
 pub mod data_flow;
+pub mod did_plc;
 pub mod elicitation;
 pub mod escalation_detector;
 pub mod etdi;

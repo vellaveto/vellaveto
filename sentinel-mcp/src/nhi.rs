@@ -9,11 +9,14 @@
 //!
 //! Reference: CyberArk NHI research, SPIFFE/SPIRE, RFC 9449.
 
+use crate::accountability;
+use crate::did_plc;
 use sentinel_config::NhiConfig;
 use sentinel_types::{
-    NhiAgentIdentity, NhiAttestationType, NhiBehavioralBaseline, NhiBehavioralCheckResult,
-    NhiBehavioralDeviation, NhiBehavioralRecommendation, NhiCredentialRotation, NhiDelegationChain,
-    NhiDelegationLink, NhiDpopProof, NhiDpopVerificationResult, NhiIdentityStatus, NhiStats,
+    AccountabilityAttestation, AttestationVerificationResult, DidPlc, NhiAgentIdentity,
+    NhiAttestationType, NhiBehavioralBaseline, NhiBehavioralCheckResult, NhiBehavioralDeviation,
+    NhiBehavioralRecommendation, NhiCredentialRotation, NhiDelegationChain, NhiDelegationLink,
+    NhiDpopProof, NhiDpopVerificationResult, NhiIdentityStatus, NhiStats, VerificationTier,
 };
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -144,6 +147,9 @@ impl NhiManager {
             last_auth: None,
             tags,
             metadata,
+            verification_tier: VerificationTier::default(),
+            did_plc: None,
+            attestations: Vec::new(),
         };
 
         let mut identities = self.identities.write().await;
@@ -840,6 +846,154 @@ impl NhiManager {
     }
 
     // ═══════════════════════════════════════════════════
+    // DID:PLC & VERIFICATION TIER MANAGEMENT
+    // ═══════════════════════════════════════════════════
+
+    /// Generate a DID:PLC for an agent identity.
+    ///
+    /// Requires the agent to have a public key and key algorithm configured.
+    /// The generated DID is stored on the identity and returned.
+    pub async fn generate_agent_did(&self, agent_id: &str) -> Result<DidPlc, NhiError> {
+        if !self.config.enabled {
+            return Err(NhiError::Disabled);
+        }
+
+        let mut identities = self.identities.write().await;
+        let identity = identities
+            .get_mut(agent_id)
+            .ok_or_else(|| NhiError::IdentityNotFound(agent_id.to_string()))?;
+
+        let public_key = identity
+            .public_key
+            .as_ref()
+            .ok_or_else(|| NhiError::NoPublicKey(agent_id.to_string()))?;
+        let key_algorithm = identity.key_algorithm.as_deref().unwrap_or("Ed25519");
+
+        let did = did_plc::generate_did_plc_from_key(public_key, key_algorithm)
+            .map_err(|e| NhiError::DidGenerationFailed(e.to_string()))?;
+
+        identity.did_plc = Some(did.as_str().to_string());
+        Ok(did)
+    }
+
+    /// Set the verification tier for an agent.
+    ///
+    /// Tiers can only go up (no downgrades), except that `Unverified` can
+    /// always be set (admin reset).
+    pub async fn set_verification_tier(
+        &self,
+        agent_id: &str,
+        tier: VerificationTier,
+    ) -> Result<(), NhiError> {
+        if !self.config.enabled {
+            return Err(NhiError::Disabled);
+        }
+
+        let mut identities = self.identities.write().await;
+        let identity = identities
+            .get_mut(agent_id)
+            .ok_or_else(|| NhiError::IdentityNotFound(agent_id.to_string()))?;
+
+        // No downgrades (except to Unverified for admin reset)
+        if tier != VerificationTier::Unverified && tier < identity.verification_tier {
+            return Err(NhiError::TierDowngradeNotAllowed {
+                current: identity.verification_tier,
+                requested: tier,
+            });
+        }
+
+        identity.verification_tier = tier;
+        Ok(())
+    }
+
+    /// Get the verification tier for an agent.
+    pub async fn get_verification_tier(
+        &self,
+        agent_id: &str,
+    ) -> Result<VerificationTier, NhiError> {
+        let identities = self.identities.read().await;
+        let identity = identities
+            .get(agent_id)
+            .ok_or_else(|| NhiError::IdentityNotFound(agent_id.to_string()))?;
+        Ok(identity.verification_tier)
+    }
+
+    /// Sign an accountability attestation for an agent.
+    ///
+    /// The agent must have a public key configured. The attestation is stored
+    /// on the identity and returned.
+    pub async fn sign_accountability_attestation(
+        &self,
+        agent_id: &str,
+        statement: &str,
+        policy_hash: &str,
+        signing_key_hex: &str,
+        ttl_secs: u64,
+    ) -> Result<AccountabilityAttestation, NhiError> {
+        if !self.config.enabled {
+            return Err(NhiError::Disabled);
+        }
+
+        let max_attestations = self.config.verification.max_attestations_per_identity;
+
+        let mut identities = self.identities.write().await;
+        let identity = identities
+            .get_mut(agent_id)
+            .ok_or_else(|| NhiError::IdentityNotFound(agent_id.to_string()))?;
+
+        // Check attestation limit
+        if identity.attestations.len() >= max_attestations {
+            return Err(NhiError::AttestationLimitExceeded {
+                agent_id: agent_id.to_string(),
+                max: max_attestations,
+            });
+        }
+
+        let did = identity.did_plc.as_deref();
+
+        let attestation = accountability::sign_attestation(
+            agent_id,
+            did,
+            statement,
+            policy_hash,
+            signing_key_hex,
+            ttl_secs,
+        )
+        .map_err(|e| NhiError::AttestationError(e.to_string()))?;
+
+        identity.attestations.push(attestation.clone());
+        Ok(attestation)
+    }
+
+    /// Verify an accountability attestation.
+    pub async fn verify_accountability_attestation(
+        &self,
+        attestation: &AccountabilityAttestation,
+    ) -> Result<AttestationVerificationResult, NhiError> {
+        // Look up the agent's registered public key for comparison
+        let identities = self.identities.read().await;
+        let expected_key = identities
+            .get(&attestation.agent_id)
+            .and_then(|id| id.public_key.as_deref());
+
+        let now = chrono::Utc::now();
+        accountability::verify_attestation(attestation, expected_key, &now)
+            .map_err(|e| NhiError::AttestationError(e.to_string()))
+    }
+
+    /// List all attestations for an agent.
+    pub async fn list_attestations(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<AccountabilityAttestation>, NhiError> {
+        let identities = self.identities.read().await;
+        let identity = identities
+            .get(agent_id)
+            .ok_or_else(|| NhiError::IdentityNotFound(agent_id.to_string()))?;
+        Ok(identity.attestations.clone())
+    }
+
+    // ═══════════════════════════════════════════════════
     // STATISTICS
     // ═══════════════════════════════════════════════════
 
@@ -993,6 +1147,19 @@ pub enum NhiError {
     DelegationNotFound { from: String, to: String },
     /// Delegation chain too deep.
     ChainTooDeep { depth: usize, max: usize },
+    /// DID generation failed.
+    DidGenerationFailed(String),
+    /// Agent has no public key configured.
+    NoPublicKey(String),
+    /// Attestation signing or verification error.
+    AttestationError(String),
+    /// Too many attestations for this identity.
+    AttestationLimitExceeded { agent_id: String, max: usize },
+    /// Verification tier downgrade is not allowed.
+    TierDowngradeNotAllowed {
+        current: VerificationTier,
+        requested: VerificationTier,
+    },
 }
 
 impl std::fmt::Display for NhiError {
@@ -1018,6 +1185,29 @@ impl std::fmt::Display for NhiError {
                     f,
                     "Delegation chain depth {} exceeds maximum {}",
                     depth, max
+                )
+            }
+            NhiError::DidGenerationFailed(msg) => {
+                write!(f, "DID generation failed: {}", msg)
+            }
+            NhiError::NoPublicKey(id) => {
+                write!(f, "Agent '{}' has no public key configured", id)
+            }
+            NhiError::AttestationError(msg) => {
+                write!(f, "Attestation error: {}", msg)
+            }
+            NhiError::AttestationLimitExceeded { agent_id, max } => {
+                write!(
+                    f,
+                    "Agent '{}' exceeds attestation limit of {}",
+                    agent_id, max
+                )
+            }
+            NhiError::TierDowngradeNotAllowed { current, requested } => {
+                write!(
+                    f,
+                    "Cannot downgrade verification tier from {} to {}",
+                    current, requested
                 )
             }
         }
@@ -1361,5 +1551,280 @@ mod tests {
         let stats = manager.stats().await;
         assert_eq!(stats.total_identities, 2);
         assert_eq!(stats.active_identities, 2); // Probationary counts as active
+    }
+
+    #[tokio::test]
+    async fn test_generate_agent_did() {
+        let manager = NhiManager::new(enabled_config());
+
+        let id = manager
+            .register_identity(
+                "DID Test Agent",
+                NhiAttestationType::Jwt,
+                None,
+                Some("abcdef1234567890abcdef1234567890"),
+                Some("Ed25519"),
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        let did = manager.generate_agent_did(&id).await.unwrap();
+        assert!(did.as_str().starts_with("did:plc:"));
+        assert_eq!(did.identifier().len(), 24);
+
+        // Should be stored on the identity
+        let identity = manager.get_identity(&id).await.unwrap();
+        assert_eq!(identity.did_plc.as_deref(), Some(did.as_str()));
+    }
+
+    #[tokio::test]
+    async fn test_generate_agent_did_no_public_key() {
+        let manager = NhiManager::new(enabled_config());
+
+        let id = manager
+            .register_identity(
+                "No Key Agent",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        let result = manager.generate_agent_did(&id).await;
+        assert!(matches!(result, Err(NhiError::NoPublicKey(_))));
+    }
+
+    #[tokio::test]
+    async fn test_generate_agent_did_deterministic() {
+        let manager = NhiManager::new(enabled_config());
+
+        let id = manager
+            .register_identity(
+                "Deterministic DID",
+                NhiAttestationType::Jwt,
+                None,
+                Some("deadbeef12345678"),
+                Some("Ed25519"),
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        let did1 = manager.generate_agent_did(&id).await.unwrap();
+        let did2 = manager.generate_agent_did(&id).await.unwrap();
+        assert_eq!(did1, did2, "Same key must produce same DID");
+    }
+
+    #[tokio::test]
+    async fn test_set_verification_tier() {
+        let manager = NhiManager::new(enabled_config());
+
+        let id = manager
+            .register_identity(
+                "Tier Test",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Default tier should be Unverified
+        let tier = manager.get_verification_tier(&id).await.unwrap();
+        assert_eq!(tier, VerificationTier::Unverified);
+
+        // Upgrade to EmailVerified
+        manager
+            .set_verification_tier(&id, VerificationTier::EmailVerified)
+            .await
+            .unwrap();
+        let tier = manager.get_verification_tier(&id).await.unwrap();
+        assert_eq!(tier, VerificationTier::EmailVerified);
+
+        // Upgrade to DidVerified
+        manager
+            .set_verification_tier(&id, VerificationTier::DidVerified)
+            .await
+            .unwrap();
+        let tier = manager.get_verification_tier(&id).await.unwrap();
+        assert_eq!(tier, VerificationTier::DidVerified);
+    }
+
+    #[tokio::test]
+    async fn test_set_verification_tier_no_downgrade() {
+        let manager = NhiManager::new(enabled_config());
+
+        let id = manager
+            .register_identity(
+                "No Downgrade",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Set to DidVerified
+        manager
+            .set_verification_tier(&id, VerificationTier::DidVerified)
+            .await
+            .unwrap();
+
+        // Try to downgrade to EmailVerified — should fail
+        let result = manager
+            .set_verification_tier(&id, VerificationTier::EmailVerified)
+            .await;
+        assert!(matches!(
+            result,
+            Err(NhiError::TierDowngradeNotAllowed { .. })
+        ));
+
+        // Tier should still be DidVerified
+        let tier = manager.get_verification_tier(&id).await.unwrap();
+        assert_eq!(tier, VerificationTier::DidVerified);
+    }
+
+    #[tokio::test]
+    async fn test_sign_and_verify_attestation() {
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[42u8; 32]);
+        let signing_key_hex = hex::encode(signing_key.to_bytes());
+        let verifying_key = signing_key.verifying_key();
+        let public_key_hex = hex::encode(verifying_key.as_bytes());
+
+        let manager = NhiManager::new(enabled_config());
+
+        let id = manager
+            .register_identity(
+                "Attestation Agent",
+                NhiAttestationType::Jwt,
+                None,
+                Some(&public_key_hex),
+                Some("Ed25519"),
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        let attestation = manager
+            .sign_accountability_attestation(
+                &id,
+                "I accept the data handling policy",
+                "sha256:abc123",
+                &signing_key_hex,
+                86400,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(attestation.agent_id, id);
+        assert_eq!(attestation.algorithm, "Ed25519");
+
+        // Verify
+        let result = manager
+            .verify_accountability_attestation(&attestation)
+            .await
+            .unwrap();
+        assert!(result.is_valid());
+        assert!(result.signature_valid);
+        assert!(!result.expired);
+    }
+
+    #[tokio::test]
+    async fn test_attestation_stored_on_identity() {
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[42u8; 32]);
+        let signing_key_hex = hex::encode(signing_key.to_bytes());
+
+        let manager = NhiManager::new(enabled_config());
+
+        let id = manager
+            .register_identity(
+                "Storage Test",
+                NhiAttestationType::Jwt,
+                None,
+                Some("test-key"),
+                Some("Ed25519"),
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        manager
+            .sign_accountability_attestation(&id, "stmt-1", "hash-1", &signing_key_hex, 86400)
+            .await
+            .unwrap();
+        manager
+            .sign_accountability_attestation(&id, "stmt-2", "hash-2", &signing_key_hex, 86400)
+            .await
+            .unwrap();
+
+        let attestations = manager.list_attestations(&id).await.unwrap();
+        assert_eq!(attestations.len(), 2);
+        assert_eq!(attestations[0].statement, "stmt-1");
+        assert_eq!(attestations[1].statement, "stmt-2");
+    }
+
+    #[tokio::test]
+    async fn test_attestation_limit_enforced() {
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&[42u8; 32]);
+        let signing_key_hex = hex::encode(signing_key.to_bytes());
+
+        let mut config = enabled_config();
+        config.verification.max_attestations_per_identity = 2;
+        let manager = NhiManager::new(config);
+
+        let id = manager
+            .register_identity(
+                "Limit Test",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // First two should succeed
+        manager
+            .sign_accountability_attestation(&id, "s1", "h1", &signing_key_hex, 86400)
+            .await
+            .unwrap();
+        manager
+            .sign_accountability_attestation(&id, "s2", "h2", &signing_key_hex, 86400)
+            .await
+            .unwrap();
+
+        // Third should fail
+        let result = manager
+            .sign_accountability_attestation(&id, "s3", "h3", &signing_key_hex, 86400)
+            .await;
+        assert!(matches!(
+            result,
+            Err(NhiError::AttestationLimitExceeded { .. })
+        ));
     }
 }

@@ -1,6 +1,7 @@
 //! Non-Human Identity (NHI) lifecycle types — attestation, behavioral baselines,
 //! delegation chains, DPoP proofs, and credential rotation.
 
+use crate::verification::{AccountabilityAttestation, VerificationTier};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -110,6 +111,15 @@ pub struct NhiAgentIdentity {
     /// Custom metadata.
     #[serde(default)]
     pub metadata: HashMap<String, String>,
+    /// Verification tier for this identity.
+    #[serde(default)]
+    pub verification_tier: VerificationTier,
+    /// DID:PLC identifier (if generated).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub did_plc: Option<String>,
+    /// Accountability attestations signed by this identity.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attestations: Vec<AccountabilityAttestation>,
 }
 
 /// Behavioral baseline for continuous agent authentication.
