@@ -93,7 +93,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Audit: security event logging helpers | `sentinel-audit/src/events.rs` |
 | Audit: ETDI tool security logging | `sentinel-audit/src/etdi_audit.rs` |
 | Audit: tests (~130 unit tests) | `sentinel-audit/src/tests.rs` |
-| Config root + PolicyConfig | `sentinel-config/src/lib.rs` |
+| Config: module root + PolicyConfig + re-exports | `sentinel-config/src/lib.rs` |
 | Config: injection/DLP/rate-limit/audit | `sentinel-config/src/detection.rs` |
 | Config: supply chain verification | `sentinel-config/src/supply_chain.rs` |
 | Config: tool manifest signing | `sentinel-config/src/manifest.rs` |
@@ -106,6 +106,13 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Config: RAG defense / grounding | `sentinel-config/src/rag_defense_config.rs` |
 | Config: observability | `sentinel-config/src/observability.rs` |
 | Config: validation helpers | `sentinel-config/src/validation.rs` |
+| Config: PolicyRule struct + helpers | `sentinel-config/src/policy_rule.rs` |
+| Config: ToolRegistryConfig | `sentinel-config/src/tool_registry.rs` |
+| Config: ClusterConfig (Redis/local) | `sentinel-config/src/cluster.rs` |
+| Config: A2aConfig (Agent-to-Agent) | `sentinel-config/src/a2a.rs` |
+| Config: LimitsConfig + validate() | `sentinel-config/src/limits.rs` |
+| Config: PolicyConfig::validate() + load_file() | `sentinel-config/src/config_validate.rs` |
+| Config: tests (~153 unit tests) | `sentinel-config/src/tests.rs` |
 | MCP handling | `sentinel-mcp/src/lib.rs` |
 | Proxy bridge: struct + constructor | `sentinel-mcp/src/proxy/bridge/mod.rs` |
 | Proxy bridge: builder methods | `sentinel-mcp/src/proxy/bridge/builder.rs` |
