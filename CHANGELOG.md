@@ -76,6 +76,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Refactor
 
+- **HTTP proxy modularization**:
+  - Split `sentinel-http-proxy/src/proxy.rs` (6,712 lines) into 8 focused submodules under `proxy/`
+  - Created: `mod.rs` (187), `handlers.rs` (2,082), `tests.rs` (1,729), `inspection.rs` (817), `upstream.rs` (805), `call_chain.rs` (464), `auth.rs` (395), `helpers.rs` (195), `origin.rs` (174)
+  - Public API unchanged: `ProxyState`, `handle_mcp_post`, `handle_mcp_delete`, `handle_protected_resource_metadata`, `TrustedProxyContext`, `McpQueryParams`, `PrivilegeEscalationCheck`
+  - All 169 proxy unit tests pass, zero clippy warnings
+  - Follows the `sentinel-mcp/src/proxy/bridge/` split pattern
+
 - **DPoP audit function parameter consolidation**:
   - Introduced `DpopAuditParams` struct to group OAuth DPoP audit parameters
   - Reduces `audit_dpop_validation_failure()` function arguments from 8 to 2

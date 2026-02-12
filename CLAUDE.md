@@ -159,12 +159,12 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - Prometheus metrics endpoint (`/metrics`) with evaluation histograms (`sentinel-server/src/metrics.rs`)
 - Hot policy reload via filesystem watcher and `/api/policies/reload` endpoint
 - Admin dashboard — server-rendered HTML (`sentinel-server/src/dashboard.rs`)
-- Multi-agent communication monitoring — privilege escalation detection (`sentinel-http-proxy/src/proxy.rs`)
+- Multi-agent communication monitoring — privilege escalation detection (`sentinel-http-proxy/src/proxy/call_chain.rs`)
 
 **MCP Ecosystem:**
 - Tool registry with trust scoring (`sentinel-mcp/src/tool_registry.rs`)
 - Elicitation interception — capability/schema/rate-limit validation (`sentinel-mcp/src/elicitation.rs`)
-- Sampling request policy enforcement — configurable model/content/tool-output rules (`sentinel-mcp/src/proxy.rs`)
+- Sampling request policy enforcement — configurable model/content/tool-output rules (`sentinel-mcp/src/proxy/bridge/relay.rs`)
 
 **Semantic Guardrails (Phase 12):**
 - LLM-based policy evaluation with pluggable backends (`sentinel-mcp/src/semantic_guardrails/`)

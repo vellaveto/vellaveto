@@ -11,7 +11,7 @@
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-4%2C200%2B_passing-brightgreen.svg" alt="Tests: 4,200+ passing">
+    <img src="https://img.shields.io/badge/tests-4%2C300%2B_passing-brightgreen.svg" alt="Tests: 4,300+ passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <img src="https://img.shields.io/badge/security_audit-35_rounds%2C_390%2B_findings-informational.svg" alt="Security Audit: 35 rounds, 390+ findings">
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
@@ -35,33 +35,23 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>2.2.1</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>4,200+ tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>4,300+ tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
 <tr><td>📄 <strong>License</strong></td><td>Apache 2.0</td></tr>
 </table>
 
-## Recent Updates (2026-02-11)
+## Recent Updates (2026-02-12)
 
+- **Architecture: HTTP proxy modularization** — Split `sentinel-http-proxy/src/proxy.rs` (6,712 lines) into 8 focused submodules under `proxy/`: `mod.rs`, `handlers.rs`, `auth.rs`, `origin.rs`, `call_chain.rs`, `upstream.rs`, `inspection.rs`, `helpers.rs`, `tests.rs`. Public API unchanged, all 169 proxy tests passing.
+- **Architecture: Config modularization** — Split `sentinel-config/src/lib.rs` into 10 logical submodules. Split `sentinel-mcp/src/proxy/bridge.rs` into 6 focused submodules.
 - Updated MCP protocol support to `2025-11-25` with compatibility for `2025-06-18` and `2025-03-26`.
 - Strengthened Streamable HTTP parity: SSE responses now enforce structured output schema validation fail-closed.
 - Hardened `X-Upstream-Agents` handling: malformed/oversized headers and over-limit entry arrays are now rejected fail-closed across MCP method paths (no truncation fallback).
 - Completed runtime OPA decision enforcement wiring in `sentinel-server` request paths with fail-open/fail-closed behavior, runtime metrics, and audit metadata.
-- Expanded observability test coverage with async integration tests and property-based invariants.
-- Applied bounded runtime preallocation in `sentinel-mcp` session/state maps to reduce allocation churn on hot paths.
-- Added full workspace architecture and feature ownership maps for module-split navigation.
-- Added a research-validated hardening backlog to docs:
-  - P0: CI supply-chain hardening pack (dependency review, Dependabot, action SHA pinning, provenance attestations, SBOM publishing)
-  - P0: Sender-constrained OAuth enforcement in HTTP proxy request path (DPoP integration)
-  - P1: `cargo-deny` dependency policy gate and completion of OPA runtime decision wiring
-- Implemented CI supply-chain baseline controls:
-  - Added PR dependency review workflow (`.github/workflows/dependency-review.yml`)
-  - Added Dependabot automation for Cargo and GitHub Actions (`.github/dependabot.yml`)
-  - Added `cargo-deny` policy workflow and baseline config (`.github/workflows/cargo-deny.yml`, `deny.toml`)
-- Added release provenance + SBOM workflow (`.github/workflows/provenance-sbom.yml`) with SHA-pinned actions, lockfile immutability checks, build attestations, and CycloneDX artifact publishing.
-- Added attestation verification in CI (`gh attestation verify`) so release provenance is validated, not only emitted.
-- Added explicit DPoP failure observability in `sentinel-http-proxy`: dedicated counters (`sentinel_oauth_dpop_failures_total`, `sentinel_oauth_dpop_replay_total`) and structured audit events for missing/invalid/replayed proofs.
+- Implemented CI supply-chain baseline controls (dependency review, Dependabot, `cargo-deny`, provenance + SBOM, attestation verification).
+- Added explicit DPoP failure observability in `sentinel-http-proxy`: dedicated counters and structured audit events.
 - See `docs/SECURITY.md` (Verified Hardening Backlog) and `ROADMAP.md` for current prioritization.
 - See `CHANGELOG.md` for full release and patch details.
 

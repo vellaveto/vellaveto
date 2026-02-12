@@ -1,7 +1,7 @@
 # Sentinel Roadmap v2.2
 
 > **Version:** 2.2.1 (Released)
-> **Generated:** 2026-02-11
+> **Generated:** 2026-02-12
 > **Status:** v2.2.1 released; v2.2 Phases 12-15 complete; Phase 16+ planned; architecture split and post-quantum readiness tracks active; OPA runtime decision enforcement is active (fail-open/fail-closed configurable); web-validated supply-chain and sender-constrained auth hardening tracks delivered
 > **Based on:** Multi-agent research (MCP spec 2025-11-25, OWASP ASI Top 10, enterprise patterns, competitor analysis)
 
@@ -247,7 +247,7 @@ Strengthen agent identity and authorization checks.
 - `sentinel-server/src/lib.rs` — AppState integration
 - `sentinel-server/src/routes.rs` — Admin API endpoints
 - `sentinel-audit/src/lib.rs` — Security event helpers
-- `sentinel-http-proxy/src/proxy.rs` — HTTP proxy integration
+- `sentinel-http-proxy/src/proxy/` — HTTP proxy integration (8 submodules)
 
 **Completed:** 2026-02-08
 
@@ -1595,6 +1595,9 @@ v2.2 Complete! Ready for v2.3 planning.
 | Task | Priority | Effort | Status |
 |------|----------|--------|--------|
 | Extract route handlers to dedicated modules (`sentinel-server`) | P2 | 3 days | ✅ Complete |
+| Split `sentinel-http-proxy/src/proxy.rs` into submodules | P2 | 2 days | ✅ Complete |
+| Split `sentinel-config/src/lib.rs` into submodules | P2 | 2 days | ✅ Complete |
+| Split `sentinel-mcp/src/proxy/bridge.rs` into submodules | P2 | 1 day | ✅ Complete |
 | Maintain crate-boundary architecture map (owners, interfaces, tests) | P2 | 2 days | Active |
 | Enforce split safety gates (`check`, `clippy`, workspace tests) per extraction step | P1 | Ongoing | Active |
 | Track formatting drift and non-functional deltas during split windows | P2 | Ongoing | Active |
@@ -1603,6 +1606,7 @@ v2.2 Complete! Ready for v2.3 planning.
 
 **2026-02-11 Update:** Server route modularization complete. Created 17 dedicated route modules (approval, audit, auth_level, circuit_breaker, deputy, etdi, exec_graph, memory, nhi, observability, policy, registry, sampling, schema_lineage, shadow_agent, task_state, tenant). Reduced `routes/main.rs` from ~3300 to ~2500 lines.
 **2026-02-11 Update:** Added post-split `sentinel-types` contract CI gate (`sentinel-types-contract`) and published contributor guidance in `MODULE_EXTRACTION_PLAYBOOK.md`.
+**2026-02-12 Update:** HTTP proxy modularization complete. Split `sentinel-http-proxy/src/proxy.rs` (6,712 lines) into 8 focused submodules: `mod.rs`, `handlers.rs`, `auth.rs`, `origin.rs`, `call_chain.rs`, `upstream.rs`, `inspection.rs`, `helpers.rs`. Public API unchanged, all 169 tests pass.
 
 ### 16.7 Post-Quantum Cryptography Transition (Active)
 
