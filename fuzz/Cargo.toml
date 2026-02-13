@@ -16,6 +16,8 @@ sentinel-types = { path = "../sentinel-types" }
 sentinel-config = { path = "../sentinel-config" }
 chrono = "0.4"
 serde_json = "1.0"
+prost = "0.13"
+prost-types = "0.13"
 tokio = { version = "1.0", features = ["rt", "io-util", "macros"] }
 
 [[bin]]
@@ -141,5 +143,11 @@ doc = false
 [[bin]]
 name = "fuzz_ws_frame"
 path = "fuzz_targets/fuzz_ws_frame.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_grpc_proto"
+path = "fuzz_targets/fuzz_grpc_proto.rs"
 test = false
 doc = false

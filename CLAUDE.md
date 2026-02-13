@@ -1,11 +1,11 @@
 # CLAUDE.md — Sentinel Project Instructions
 
 > **Project:** Sentinel — MCP Tool Firewall
-> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phase 17.1 complete, Phases 17.2–23 remaining)
+> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phases 17.1–17.2 complete, Phases 17.3–23 remaining)
 > **Version:** 3.0.0-dev (crates at 2.2.1, targeting v3.0 release)
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 4,307+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
-> **Fuzz targets:** 21
+> **Tests:** 4,353+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
+> **Fuzz targets:** 22
 > **CI workflows:** 11
 > **Updated:** 2026-02-13
 
@@ -143,6 +143,14 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | HTTP proxy: tests | `sentinel-http-proxy/src/proxy/tests.rs` |
 | HTTP proxy: WebSocket handler + relay | `sentinel-http-proxy/src/proxy/websocket/mod.rs` |
 | HTTP proxy: WebSocket tests (~29 tests) | `sentinel-http-proxy/src/proxy/websocket/tests.rs` |
+| HTTP proxy: gRPC module root + GrpcConfig + server start | `sentinel-http-proxy/src/proxy/grpc/mod.rs` |
+| HTTP proxy: gRPC proto↔JSON conversion | `sentinel-http-proxy/src/proxy/grpc/convert.rs` |
+| HTTP proxy: gRPC auth interceptor + metadata extraction | `sentinel-http-proxy/src/proxy/grpc/interceptors.rs` |
+| HTTP proxy: gRPC McpService impl (unary + streaming) | `sentinel-http-proxy/src/proxy/grpc/service.rs` |
+| HTTP proxy: gRPC upstream forwarding (HTTP fallback) | `sentinel-http-proxy/src/proxy/grpc/upstream.rs` |
+| HTTP proxy: gRPC tests (~46 tests) | `sentinel-http-proxy/src/proxy/grpc/tests.rs` |
+| Config: gRPC transport configuration | `sentinel-config/src/grpc_transport.rs` |
+| Proto: MCP JSON-RPC gRPC schema | `proto/mcp/v1/mcp.proto` |
 | Stdio proxy | `sentinel-proxy/src/main.rs` |
 | HTTP API server | `sentinel-server/src/main.rs` |
 | Server routes | `sentinel-server/src/routes.rs` |
@@ -186,7 +194,7 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - MCP 2025-06-18 compliance (protocol version header, resource indicators, `_meta`)
 
 **Deployment & Operations:**
-- Four deployment modes: HTTP API, stdio proxy, HTTP reverse proxy, WebSocket reverse proxy
+- Five deployment modes: HTTP API, stdio proxy, HTTP reverse proxy, WebSocket reverse proxy, gRPC reverse proxy
 - Canonical presets for common security scenarios
 - CI: `cargo audit`, `unwrap()` hygiene, clippy clean
 - Distributed clustering via `sentinel-cluster` crate (LocalBackend + RedisBackend with feature gate)
@@ -207,6 +215,23 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - Metrics: `sentinel_ws_connections_total`, `sentinel_ws_messages_total`
 - CLI args: `--ws-max-message-size`, `--ws-idle-timeout`, `--ws-message-rate-limit`
 - 29 unit tests + `fuzz_ws_frame` fuzz target
+
+**gRPC Transport (Phase 17.2):**
+- gRPC reverse proxy on separate port (default 50051) via `tonic` (`sentinel-http-proxy/src/proxy/grpc/mod.rs`)
+- Full policy enforcement on unary and bidirectional streaming calls with fail-closed semantics
+- Proto↔JSON conversion layer with depth-bounded recursion (MAX_DEPTH=64) (`sentinel-http-proxy/src/proxy/grpc/convert.rs`)
+- NaN/Infinity float rejection, policy denials as JSON-RPC errors (not gRPC status codes)
+- Auth interceptor with constant-time SHA-256 API key validation (`sentinel-http-proxy/src/proxy/grpc/interceptors.rs`)
+- DLP scanning + injection detection on upstream responses
+- gRPC-to-HTTP upstream fallback — gRPC clients work with existing HTTP MCP servers
+- gRPC Health Checking v1 via `tonic-health`
+- Protobuf schema using `google.protobuf.Struct` for dynamic JSON fields (`proto/mcp/v1/mcp.proto`)
+- Feature-gated behind `grpc` — zero impact on non-grpc builds
+- Metrics: `sentinel_grpc_requests_total`, `sentinel_grpc_messages_total`
+- CLI args: `--grpc`, `--grpc-port`, `--grpc-max-message-size`, `--upstream-grpc-url`
+- Config type: `GrpcTransportConfig` (`sentinel-config/src/grpc_transport.rs`)
+- 46 unit tests + `fuzz_grpc_proto` fuzz target
+- Coordinated graceful shutdown with HTTP server via `CancellationToken`
 
 **MCP Ecosystem:**
 - Tool registry with trust scoring (`sentinel-mcp/src/tool_registry.rs`)

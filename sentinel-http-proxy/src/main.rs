@@ -167,6 +167,23 @@ struct Args {
     /// Maximum WebSocket messages per second per connection (default: 100). 0 = no limit.
     #[arg(long, default_value_t = 100)]
     ws_message_rate_limit: u32,
+
+    /// gRPC transport listen port (default: 50051). Requires --features grpc.
+    #[arg(long, default_value_t = 50051)]
+    grpc_port: u16,
+
+    /// gRPC maximum message size in bytes (default: 4194304 = 4 MB).
+    #[arg(long, default_value_t = 4_194_304)]
+    grpc_max_message_size: usize,
+
+    /// Upstream gRPC URL for native gRPC-to-gRPC forwarding.
+    /// When absent, gRPC requests are converted to HTTP and forwarded to --upstream.
+    #[arg(long)]
+    upstream_grpc_url: Option<String>,
+
+    /// Enable gRPC transport (requires --features grpc at compile time).
+    #[arg(long)]
+    grpc: bool,
 }
 
 fn resolve_oauth_security(args: &Args) -> Result<DpopMode> {
@@ -667,6 +684,10 @@ async fn main() -> Result<()> {
         }
     };
 
+    // Clone state for gRPC server before moving into axum router.
+    #[cfg(feature = "grpc")]
+    let grpc_proxy_state = state.clone();
+
     // Build router
     // SECURITY (R8-HTTP-1): Apply a 1 MB request body limit to prevent
     // resource exhaustion from oversized payloads. Matches sentinel-server.
@@ -743,7 +764,58 @@ async fn main() -> Result<()> {
         );
     }
 
-    // Start server
+    // Start gRPC server if enabled and compiled with the grpc feature.
+    #[cfg(feature = "grpc")]
+    let grpc_shutdown_token = {
+        let token = tokio_util::sync::CancellationToken::new();
+        if args.grpc {
+            let grpc_listen_addr: std::net::SocketAddr =
+                format!("{}:{}", bind_addr.ip(), args.grpc_port)
+                    .parse()
+                    .context(format!("Invalid gRPC listen address: {}", args.grpc_port))?;
+
+            let grpc_config = sentinel_http_proxy::proxy::grpc::GrpcConfig {
+                listen_addr: grpc_listen_addr,
+                max_message_size: args.grpc_max_message_size,
+                upstream_grpc_url: args.upstream_grpc_url.clone(),
+                health_enabled: true,
+            };
+
+            let grpc_state = grpc_proxy_state.clone();
+            let grpc_shutdown = token.clone();
+
+            tokio::spawn(async move {
+                if let Err(e) = sentinel_http_proxy::proxy::grpc::start_grpc_server(
+                    grpc_state,
+                    grpc_config,
+                    grpc_shutdown,
+                )
+                .await
+                {
+                    tracing::error!("gRPC server error: {}", e);
+                }
+            });
+
+            tracing::info!(
+                "gRPC transport listening on {} (max_message={}B)",
+                grpc_listen_addr,
+                args.grpc_max_message_size,
+            );
+        }
+        token
+    };
+
+    #[cfg(not(feature = "grpc"))]
+    {
+        if args.grpc {
+            tracing::warn!(
+                "--grpc flag set but binary was compiled without grpc feature. \
+                 Rebuild with `--features grpc` to enable gRPC transport."
+            );
+        }
+    }
+
+    // Start HTTP server
     let listener = tokio::net::TcpListener::bind(bind_addr)
         .await
         .context(format!("Failed to bind to {}", bind_addr))?;
@@ -758,7 +830,12 @@ async fn main() -> Result<()> {
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal())
+    .with_graceful_shutdown(async move {
+        shutdown_signal().await;
+        // Cancel gRPC server when HTTP server shuts down.
+        #[cfg(feature = "grpc")]
+        grpc_shutdown_token.cancel();
+    })
     .await
     .context("Server error")?;
 
@@ -852,6 +929,10 @@ mod tests {
             ws_max_message_size: 1_048_576,
             ws_idle_timeout: 300,
             ws_message_rate_limit: 100,
+            grpc_port: 50051,
+            grpc_max_message_size: 4_194_304,
+            upstream_grpc_url: None,
+            grpc: false,
         }
     }
 

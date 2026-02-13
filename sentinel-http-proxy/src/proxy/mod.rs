@@ -6,6 +6,8 @@
 
 mod auth;
 mod call_chain;
+#[cfg(feature = "grpc")]
+pub mod grpc;
 mod handlers;
 mod helpers;
 mod inspection;

@@ -21,6 +21,7 @@ pub mod threat_detection;
 pub mod a2a;
 pub mod cluster;
 pub mod config_validate;
+pub mod grpc_transport;
 pub mod limits;
 pub mod policy_rule;
 pub mod tool_registry;
@@ -91,6 +92,7 @@ pub use config_validate::{
     MAX_ALLOWED_SERVERS, MAX_CUSTOM_PII_PATTERNS, MAX_DISABLED_INJECTION_PATTERNS,
     MAX_EXTRA_INJECTION_PATTERNS, MAX_KNOWN_TOOL_NAMES, MAX_POLICIES, MAX_TRUSTED_KEYS,
 };
+pub use grpc_transport::GrpcTransportConfig;
 pub use limits::LimitsConfig;
 pub use policy_rule::PolicyRule;
 pub use tool_registry::ToolRegistryConfig;

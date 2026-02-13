@@ -1,0 +1,93 @@
+// MCP JSON-RPC gRPC transport wrapper.
+//
+// This is a thin transport layer around JSON-RPC messages. MCP parameters,
+// results, and errors are dynamic JSON structures, so we use
+// google.protobuf.Struct rather than strongly-typed per-method messages.
+//
+// Designed to be replaceable when Google publishes the official MCP protobuf
+// schema (expected June 2026).
+
+syntax = "proto3";
+
+package mcp.v1;
+
+import "google/protobuf/struct.proto";
+
+// McpService provides JSON-RPC over gRPC for the Model Context Protocol.
+service McpService {
+  // Unary call — one JSON-RPC request, one JSON-RPC response.
+  rpc Call(JsonRpcRequest) returns (JsonRpcResponse);
+
+  // Bidirectional streaming — multiple JSON-RPC messages in each direction.
+  rpc StreamCall(stream JsonRpcRequest) returns (stream JsonRpcResponse);
+
+  // Server-streaming — subscribe to notification methods.
+  rpc Subscribe(SubscribeRequest) returns (stream JsonRpcNotification);
+}
+
+// A JSON-RPC 2.0 request encoded as a protobuf message.
+message JsonRpcRequest {
+  // Must be "2.0".
+  string jsonrpc = 1;
+
+  // JSON-RPC request ID. May be an integer or string.
+  oneof id_oneof {
+    int64 id_int = 2;
+    string id_string = 3;
+  }
+
+  // JSON-RPC method name (e.g., "tools/call", "resources/read").
+  string method = 4;
+
+  // JSON-RPC params as a dynamic struct.
+  google.protobuf.Struct params = 5;
+}
+
+// A JSON-RPC 2.0 response encoded as a protobuf message.
+message JsonRpcResponse {
+  // Must be "2.0".
+  string jsonrpc = 1;
+
+  // JSON-RPC response ID matching the request.
+  oneof id_oneof {
+    int64 id_int = 2;
+    string id_string = 3;
+  }
+
+  // Successful result (mutually exclusive with error).
+  google.protobuf.Struct result = 4;
+
+  // Error result (mutually exclusive with result).
+  JsonRpcError error = 5;
+}
+
+// A JSON-RPC 2.0 error object.
+message JsonRpcError {
+  // Error code (e.g., -32600, -32601, -32001).
+  int32 code = 1;
+
+  // Human-readable error message.
+  string message = 2;
+
+  // Optional structured error data.
+  google.protobuf.Struct data = 3;
+}
+
+// A JSON-RPC 2.0 notification (no ID, no response expected).
+message JsonRpcNotification {
+  // Must be "2.0".
+  string jsonrpc = 1;
+
+  // Notification method name.
+  string method = 2;
+
+  // Notification params.
+  google.protobuf.Struct params = 3;
+}
+
+// Request to subscribe to server-sent notifications.
+message SubscribeRequest {
+  // Notification method names to subscribe to (e.g., "notifications/progress").
+  // Empty means subscribe to all notifications.
+  repeated string methods = 1;
+}

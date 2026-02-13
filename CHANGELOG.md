@@ -44,6 +44,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Fuzz target** — `fuzz_ws_frame` for arbitrary bytes → text frame → JSON parse → classify → extract action (21 fuzz targets total)
 - **New dependencies**: `tokio-tungstenite = "0.26"` (workspace), `axum` `ws` feature
 
+#### Phase 17.2: gRPC Transport Support
+- **gRPC reverse proxy** — Protocol Buffers–based MCP transport on separate port (default 50051) using `tonic` (`sentinel-http-proxy/src/proxy/grpc/mod.rs`), feature-gated behind `grpc`
+- **Protobuf schema** — `proto/mcp/v1/mcp.proto` with `McpService` (Call, StreamCall, Subscribe RPCs) using `google.protobuf.Struct` for dynamic JSON-RPC params/result fields
+- **Proto↔JSON conversion** — Bidirectional conversion between prost `Struct` and `serde_json::Value` with depth-bounded recursion (MAX_DEPTH=64) and NaN/Infinity float rejection (`sentinel-http-proxy/src/proxy/grpc/convert.rs`)
+- **Full policy enforcement** — Unary and bidirectional streaming calls classified via `classify_message()`, evaluated against policies with fail-closed semantics; policy denials returned as JSON-RPC errors inside successful gRPC responses (matching HTTP/WS behavior)
+- **Auth interceptor** — Constant-time SHA-256 API key validation on gRPC metadata (FIND-008 pattern), returns `UNAUTHENTICATED` status on failure (`sentinel-http-proxy/src/proxy/grpc/interceptors.rs`)
+- **Response scanning** — DLP scanning and injection detection on upstream→client responses before proto conversion
+- **gRPC-to-HTTP fallback** — When no upstream gRPC URL configured, converts proto→JSON, POSTs to upstream HTTP URL, converts response back to proto (`sentinel-http-proxy/src/proxy/grpc/upstream.rs`)
+- **gRPC Health Checking v1** — `tonic-health` service registered alongside McpService
+- **Coordinated shutdown** — `CancellationToken` shared between HTTP and gRPC servers for graceful shutdown
+- **Metrics** — `sentinel_grpc_requests_total` and `sentinel_grpc_messages_total` counters with direction labels
+- **CLI args** — `--grpc` (enable), `--grpc-port` (default 50051), `--grpc-max-message-size` (default 4MB), `--upstream-grpc-url` (optional)
+- **Config type** — `GrpcTransportConfig` in `sentinel-config/src/grpc_transport.rs` with serde support
+- **46 unit tests** covering proto↔JSON conversion (all 6 prost value types, NaN/Infinity, depth limits, roundtrips), config defaults/serde, message classification via proto, session/request-id extraction, error response construction, metadata constants
+- **Fuzz target** — `fuzz_grpc_proto` for arbitrary bytes → prost decode → convert → classify (22 fuzz targets total)
+- **New workspace dependencies**: `tonic = "0.13"`, `prost = "0.13"`, `prost-types = "0.13"`, `tonic-health = "0.13"`, `tonic-build = "0.13"`, `tokio-util = "0.7"`, `tokio-stream = "0.1"`
+- **Zero impact on non-grpc builds** — All code behind `#[cfg(feature = "grpc")]`
+
 - Docker Compose for local deployment (`docker-compose.yml`)
 - Docker image build and publish workflow (GHCR + Trivy scanning)
 - GitHub release automation workflow (static binaries, checksums, SBOM, provenance)

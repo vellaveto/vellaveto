@@ -11,7 +11,7 @@
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-4%2C307%2B_passing-brightgreen.svg" alt="Tests: 4,307+ passing">
+    <img src="https://img.shields.io/badge/tests-4%2C353%2B_passing-brightgreen.svg" alt="Tests: 4,353+ passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <img src="https://img.shields.io/badge/security_audit-35_rounds%2C_390%2B_findings-informational.svg" alt="Security Audit: 35 rounds, 390+ findings">
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
@@ -35,7 +35,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>3.0.0-dev (crates at 2.2.1)</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>4,307+ tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>4,353+ tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
@@ -44,6 +44,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 
 ## Recent Updates (2026-02-13)
 
+- **Phase 17.2: gRPC Transport (Google Proposal)** — Protocol Buffers-based MCP transport on separate port (50051) via tonic 0.13, feature-gated behind `grpc`. Full policy enforcement pipeline (classify → evaluate → audit → forward → DLP/injection scan), depth-bounded proto↔JSON conversion (MAX_DEPTH=64), constant-time auth interceptor, gRPC Health v1, bidirectional streaming with per-message evaluation, gRPC-to-HTTP fallback for existing HTTP MCP servers. 46 unit tests + `fuzz_grpc_proto` fuzz target. New CLI args: `--grpc`, `--grpc-port`, `--grpc-max-message-size`, `--upstream-grpc-url`.
 - **Phase 17.1: WebSocket Transport (SEP-1288)** — Bidirectional MCP-over-WebSocket reverse proxy at `/mcp/ws` with full policy enforcement, DLP/injection response scanning, TOCTOU-safe canonicalization, per-connection rate limiting, idle timeout, session binding, and fail-closed semantics. 29 unit tests + `fuzz_ws_frame` fuzz target. New CLI args: `--ws-max-message-size`, `--ws-idle-timeout`, `--ws-message-rate-limit`.
 - **Production-ready CI/CD** — 11 GitHub Actions workflows: CI, security audit, cargo-deny, dependency review, scorecard, provenance/SBOM, Docker publish (GHCR + Trivy), release automation (static binaries, checksums, SBOM, provenance), rustdoc Pages, PyPI publish (trusted OIDC), and crates.io publish (dependency-ordered).
 - **Python SDK** — 130 tests covering types, sync/async client, LangChain, LangGraph, and parameter redaction. Client-side secret stripping via `ParameterRedactor` with 3 modes.
@@ -55,7 +56,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 - **Identity Verification Primitives** — DID:PLC generation, ordered verification tiers with fail-closed enforcement, Ed25519-signed accountability attestations, `min_verification_tier` policy condition.
 - **Adversarial Audit Hardening (FIND-055–074)** — Agent card SSRF prevention, bounded JSON traversal, control character rejection, regex pattern length limits, observability exporter bounds, attestation validation, audit log permission warnings.
 - **RwLock Poisoning Hardening** — All lock acquisition patterns across 12 modules replaced with explicit match blocks and fail-closed defaults.
-- **21 fuzz targets** — Coverage for JSON-RPC framing, path normalization, domain extraction, CIDR parsing, DLP scanning, injection detection, agent card URL/parse, A2A classification, homoglyph normalization, attestation verification, WebSocket frame parsing.
+- **22 fuzz targets** — Coverage for JSON-RPC framing, path normalization, domain extraction, CIDR parsing, DLP scanning, injection detection, agent card URL/parse, A2A classification, homoglyph normalization, attestation verification, WebSocket frame parsing, gRPC proto conversion.
 - See `CHANGELOG.md` for full release and patch details.
 
 ## 🧪 Post-Quantum Readiness (Research Track)
@@ -118,7 +119,7 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Token security analysis** — Special token injection, context flooding, glitch token patterns, and Unicode normalization attack detection
 
 ### 🚀 Deployment & Operations
-- **Four deployment modes**: HTTP API server, MCP stdio proxy, HTTP reverse proxy, WebSocket reverse proxy
+- **Five deployment modes**: HTTP API server, MCP stdio proxy, HTTP reverse proxy, WebSocket reverse proxy, gRPC proxy (feature-gated)
 - **Prometheus metrics** at `/metrics` with evaluation latency histograms, verdict counters, and DLP finding counts
 - **Hot policy reload** via SIGHUP signal or filesystem watching with atomic swap and audit trail
 - **SIEM export** in CEF (Common Event Format) and JSON Lines for integration with Splunk, ArcSight, Elasticsearch, and Datadog
@@ -358,7 +359,7 @@ curl -s http://localhost:3000/api/evaluate \
                      Ed25519 signatures)
 ```
 
-Sentinel supports four deployment modes:
+Sentinel supports five deployment modes:
 
 | Mode | Binary | Use Case |
 |------|--------|----------|
@@ -366,6 +367,7 @@ Sentinel supports four deployment modes:
 | 📡 **Stdio Proxy** | `sentinel-proxy` | Wraps a local MCP server; intercepts stdin/stdout |
 | 🔄 **HTTP Proxy** | `sentinel-http-proxy` | Reverse proxy for remote MCP servers (Streamable HTTP + SSE) |
 | 🔌 **WebSocket Proxy** | `sentinel-http-proxy` | WebSocket reverse proxy at `/mcp/ws` for bidirectional MCP |
+| ⚡ **gRPC Proxy** | `sentinel-http-proxy --grpc` | gRPC transport on port 50051 (requires `grpc` feature) |
 
 ## 📝 Policy Configuration
 
@@ -922,7 +924,7 @@ Sentinel has undergone 35 rounds of adversarial security audit covering 31+ atta
 | Total findings triaged | 390+ |
 | Findings fixed | 310+ |
 | Critical/HIGH findings fixed | 85+ |
-| Test count post-audit | 4,307+ |
+| Test count post-audit | 4,353+ |
 
 Key areas covered: tool poisoning, prompt injection, path traversal, SSRF/domain bypass, session fixation, JSON parsing, memory poisoning, elicitation social engineering, audit log tampering, OAuth/JWT validation, SIEM export injection, rug-pull detection, tool squatting, DLP bypass, SSE transport parity, config reload races, Unicode case-folding, IPv6 transition mechanisms, CEF/SIEM injection, and webhook SSRF.
 
@@ -1118,7 +1120,11 @@ sentinel-http-proxy \
   [--canonicalize] \
   [--ws-max-message-size 1048576] \
   [--ws-idle-timeout 300] \
-  [--ws-message-rate-limit 100]
+  [--ws-message-rate-limit 100] \
+  [--grpc] \
+  [--grpc-port 50051] \
+  [--grpc-max-message-size 4194304] \
+  [--upstream-grpc-url <url>]
 ```
 
 ## 🧑‍💻 Development
@@ -1187,7 +1193,7 @@ kill -HUP $(pidof sentinel-server)
 | `sdk/python/` | Python SDK and framework adapters |
 | `policies/` | Policy samples and templates |
 | `examples/` | Demo workflows and reference configs |
-| `fuzz/` | 21 fuzzing harnesses and targets |
+| `fuzz/` | 22 fuzzing harnesses and targets |
 | `helm/` | Kubernetes chart packaging |
 | `scripts/` | Project automation scripts |
 | `docs/` | Operations/API/security documentation |
