@@ -385,12 +385,20 @@ impl AuditLogger {
         // SECURITY (R16-AUDIT-4): Restrict audit log file permissions on Unix (0o600).
         // Parity with checkpoint file permissions — prevents other users from
         // reading action parameters or modifying the hash chain.
+        // SECURITY (FIND-065): Log warning on permission failure instead of silently ignoring.
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ =
+            if let Err(e) =
                 tokio::fs::set_permissions(&self.log_path, std::fs::Permissions::from_mode(0o600))
-                    .await;
+                    .await
+            {
+                tracing::warn!(
+                    path = %self.log_path.display(),
+                    error = %e,
+                    "Failed to set audit log file permissions to 0o600"
+                );
+            }
         }
 
         // Fix #35: For Deny verdicts, call sync_data() to ensure the entry
@@ -412,30 +420,22 @@ impl AuditLogger {
 
     /// Validate an action before logging.
     ///
-    /// Rejects actions with newlines or null bytes in tool/function names,
+    /// Rejects actions with control characters in tool/function names,
     /// and limits JSON nesting depth in parameters.
+    ///
+    /// SECURITY (FIND-074): Expanded from newline/null checks to reject ALL
+    /// control characters (U+0000–U+001F, U+007F, U+0080–U+009F). This
+    /// prevents log injection via tabs, backspaces, escape sequences, etc.
     fn validate_action(&self, action: &Action) -> Result<(), AuditError> {
-        // Check for newlines in tool/function names
-        if action.tool.contains('\n') || action.tool.contains('\r') {
+        // Check for control characters in tool/function names
+        if action.tool.chars().any(|c| c.is_control()) {
             return Err(AuditError::Validation(
-                "Tool name contains newline characters".to_string(),
+                "Tool name contains control characters".to_string(),
             ));
         }
-        if action.function.contains('\n') || action.function.contains('\r') {
+        if action.function.chars().any(|c| c.is_control()) {
             return Err(AuditError::Validation(
-                "Function name contains newline characters".to_string(),
-            ));
-        }
-
-        // Check for null bytes
-        if action.tool.contains('\0') {
-            return Err(AuditError::Validation(
-                "Tool name contains null bytes".to_string(),
-            ));
-        }
-        if action.function.contains('\0') {
-            return Err(AuditError::Validation(
-                "Function name contains null bytes".to_string(),
+                "Function name contains control characters".to_string(),
             ));
         }
 

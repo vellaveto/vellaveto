@@ -542,6 +542,32 @@ impl Default for ObservabilityExporterConfig {
     }
 }
 
+impl ObservabilityExporterConfig {
+    /// Maximum allowed batch size to prevent excessive memory allocation.
+    ///
+    /// SECURITY (FIND-071): Without an upper bound, a misconfigured or malicious
+    /// batch_size could cause OOM by allocating enormous span buffers.
+    pub const MAX_BATCH_SIZE: usize = 10_000;
+
+    /// Validate the exporter configuration.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.batch_size == 0 {
+            return Err("batch_size must be > 0".to_string());
+        }
+        if self.batch_size > Self::MAX_BATCH_SIZE {
+            return Err(format!(
+                "batch_size must be <= {}, got {}",
+                Self::MAX_BATCH_SIZE,
+                self.batch_size
+            ));
+        }
+        if self.timeout_secs == 0 {
+            return Err("timeout_secs must be > 0".to_string());
+        }
+        Ok(())
+    }
+}
+
 /// Trait for observability platform exporters.
 ///
 /// Unlike `SiemExporter` which works with `AuditEntry` logs, this trait
@@ -1648,6 +1674,53 @@ mod tests {
             1000,
             "all 1000 generated span IDs should be unique"
         );
+    }
+
+    // ========================================
+    // FIND-071: ObservabilityExporterConfig validation
+    // ========================================
+
+    #[test]
+    fn test_exporter_config_default_valid() {
+        let config = ObservabilityExporterConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_exporter_config_rejects_zero_batch_size() {
+        let config = ObservabilityExporterConfig {
+            batch_size: 0,
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_exporter_config_rejects_excessive_batch_size() {
+        let config = ObservabilityExporterConfig {
+            batch_size: ObservabilityExporterConfig::MAX_BATCH_SIZE + 1,
+            ..Default::default()
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("batch_size"));
+    }
+
+    #[test]
+    fn test_exporter_config_accepts_max_batch_size() {
+        let config = ObservabilityExporterConfig {
+            batch_size: ObservabilityExporterConfig::MAX_BATCH_SIZE,
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_exporter_config_rejects_zero_timeout() {
+        let config = ObservabilityExporterConfig {
+            timeout_secs: 0,
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
     }
 
     #[test]

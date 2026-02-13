@@ -508,6 +508,9 @@ Agent B claims to be Agent A using forged identity assertions
 | DNS Rebinding | IP Rules | Domain Validation | 99%+ |
 | Agent Impersonation | DID:PLC + Verification Tiers | Behavioral Baselines | 98%+ |
 | A2A Protocol Abuse | Message Classification | Batch Rejection + Auth Validation | 99%+ |
+| Agent Card SSRF | URL Scheme/Host Validation | Private IP Rejection | 99%+ |
+| Log Injection | Control Char Rejection | JSONL Encoding | 99%+ |
+| Config ReDoS | Pattern Length Limits | Regex Compilation Validation | 99%+ |
 
 ---
 

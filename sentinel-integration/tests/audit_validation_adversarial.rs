@@ -238,16 +238,16 @@ fn allows_special_characters_without_newlines() {
 }
 
 #[test]
-fn allows_tab_character_in_tool_name() {
-    // Tabs are not newlines; the validator only rejects \n, \r, and \0
+fn rejects_tab_character_in_tool_name() {
+    // SECURITY (FIND-074): All control characters are now rejected
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
         let action = make_action("tool\twith\ttabs", "func", json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
         assert!(
-            result.is_ok(),
-            "Tab characters should be allowed (not newlines)"
+            result.is_err(),
+            "Tab characters should be rejected (control chars)"
         );
     });
 }

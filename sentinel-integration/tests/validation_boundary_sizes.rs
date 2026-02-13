@@ -201,17 +201,33 @@ fn very_long_tool_name_accepted() {
     });
 }
 
-/// Tool name with only whitespace (no newlines) should be accepted.
+/// Tool name with tabs is now rejected (FIND-074: all control chars rejected).
+/// Spaces are still accepted.
 #[test]
-fn tool_name_with_spaces_and_tabs_accepted() {
+fn tool_name_with_tabs_rejected() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
         let action = make_action_with_params("  \t  ", "func", json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
         assert!(
+            result.is_err(),
+            "Tabs in tool name should be rejected (control chars)"
+        );
+    });
+}
+
+/// Tool name with only spaces (no control chars) should still be accepted.
+#[test]
+fn tool_name_with_spaces_only_accepted() {
+    let rt = runtime();
+    rt.block_on(async {
+        let (logger, _tmp) = setup_logger();
+        let action = make_action_with_params("  tool  name  ", "func", json!({}));
+        let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
+        assert!(
             result.is_ok(),
-            "Spaces and tabs in tool name should be accepted"
+            "Spaces in tool name should be accepted"
         );
     });
 }

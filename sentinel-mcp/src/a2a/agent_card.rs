@@ -252,7 +252,115 @@ impl Default for AgentCardCache {
     }
 }
 
+/// Validate an agent card base URL for SSRF safety.
+///
+/// SECURITY (FIND-055): Rejects URLs with non-HTTPS schemes, internal/private
+/// IPs, and other SSRF vectors before any HTTP fetch is attempted.
+///
+/// Returns `Ok(())` if the URL is safe, or an error describing the violation.
+pub fn validate_agent_card_base_url(base_url: &str) -> Result<(), A2aError> {
+    let trimmed = base_url.trim();
+    if trimmed.is_empty() {
+        return Err(A2aError::AgentCardInvalid(
+            "agent card base URL must not be empty".to_string(),
+        ));
+    }
+
+    // Only allow HTTPS scheme
+    if !trimmed.starts_with("https://") {
+        return Err(A2aError::AgentCardInvalid(format!(
+            "agent card URL must use HTTPS scheme, got '{}'",
+            trimmed.split("://").next().unwrap_or("unknown")
+        )));
+    }
+
+    // Extract host portion
+    let after_scheme = &trimmed["https://".len()..];
+    let authority = after_scheme
+        .find('/')
+        .map_or(after_scheme, |i| &after_scheme[..i]);
+    // Strip userinfo before @
+    let host_portion = match authority.rfind('@') {
+        Some(at) => &authority[at + 1..],
+        None => authority,
+    };
+    let host = if host_portion.starts_with('[') {
+        // IPv6 bracket extraction
+        if let Some(bracket_end) = host_portion.find(']') {
+            host_portion[1..bracket_end].to_lowercase()
+        } else {
+            return Err(A2aError::AgentCardInvalid(
+                "malformed IPv6 address (missing ']')".to_string(),
+            ));
+        }
+    } else {
+        let host_end = host_portion
+            .find([':', '/', '?', '#'])
+            .unwrap_or(host_portion.len());
+        host_portion[..host_end].to_lowercase()
+    };
+
+    if host.is_empty() {
+        return Err(A2aError::AgentCardInvalid(
+            "agent card URL has no host".to_string(),
+        ));
+    }
+
+    // Reject localhost/loopback
+    let loopbacks = ["localhost", "127.0.0.1", "::1", "0.0.0.0"];
+    if loopbacks.iter().any(|lb| host == *lb) {
+        return Err(A2aError::AgentCardInvalid(format!(
+            "agent card URL must not target localhost/loopback, got '{}'",
+            host
+        )));
+    }
+
+    // Reject private IPv4 ranges
+    if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+        let is_private = ip.is_loopback()
+            || ip.octets()[0] == 10
+            || (ip.octets()[0] == 172 && (ip.octets()[1] & 0xf0) == 16)
+            || (ip.octets()[0] == 192 && ip.octets()[1] == 168)
+            || (ip.octets()[0] == 169 && ip.octets()[1] == 254)
+            || ip.octets()[0] == 0;
+        if is_private {
+            return Err(A2aError::AgentCardInvalid(format!(
+                "agent card URL must not target private/internal IPs, got '{}'",
+                host
+            )));
+        }
+    }
+
+    // Reject private IPv6 ranges
+    if let Ok(ip6) = host.parse::<std::net::Ipv6Addr>() {
+        let segs = ip6.segments();
+        let is_private = ip6.is_loopback()
+            || ip6.is_unspecified()
+            || (segs[0] & 0xfe00) == 0xfc00
+            || (segs[0] & 0xffc0) == 0xfe80;
+        if is_private {
+            return Err(A2aError::AgentCardInvalid(format!(
+                "agent card URL must not target private/internal IPv6 ranges, got '{}'",
+                host
+            )));
+        }
+    }
+
+    // Reject path traversal in the URL
+    if after_scheme.contains("/../") || after_scheme.contains("/..") {
+        return Err(A2aError::AgentCardInvalid(
+            "agent card URL must not contain path traversal".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 /// Build the well-known URL for an agent card from a base URL.
+///
+/// **NOTE:** This function only constructs the URL. Callers MUST call
+/// [`validate_agent_card_base_url`] before making any HTTP request to
+/// prevent SSRF attacks (FIND-055).
 ///
 /// # Example
 ///
@@ -728,5 +836,64 @@ mod tests {
             validate_agent_card(&card).is_ok(),
             "validate_agent_card checks required fields, not content"
         );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-055: SSRF validation for agent card base URLs
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_validate_url_https_allowed() {
+        assert!(validate_agent_card_base_url("https://agent.example.com").is_ok());
+        assert!(validate_agent_card_base_url("https://agent.example.com/api").is_ok());
+    }
+
+    #[test]
+    fn test_validate_url_rejects_http() {
+        let err = validate_agent_card_base_url("http://agent.example.com").unwrap_err();
+        assert!(err.to_string().contains("HTTPS"));
+    }
+
+    #[test]
+    fn test_validate_url_rejects_file_scheme() {
+        let err = validate_agent_card_base_url("file:///etc/passwd").unwrap_err();
+        assert!(err.to_string().contains("HTTPS"));
+    }
+
+    #[test]
+    fn test_validate_url_rejects_empty() {
+        assert!(validate_agent_card_base_url("").is_err());
+        assert!(validate_agent_card_base_url("   ").is_err());
+    }
+
+    #[test]
+    fn test_validate_url_rejects_localhost() {
+        assert!(validate_agent_card_base_url("https://localhost").is_err());
+        assert!(validate_agent_card_base_url("https://127.0.0.1").is_err());
+        assert!(validate_agent_card_base_url("https://0.0.0.0").is_err());
+    }
+
+    #[test]
+    fn test_validate_url_rejects_private_ips() {
+        assert!(validate_agent_card_base_url("https://10.0.0.1").is_err());
+        assert!(validate_agent_card_base_url("https://172.16.0.1").is_err());
+        assert!(validate_agent_card_base_url("https://192.168.1.1").is_err());
+        assert!(validate_agent_card_base_url("https://169.254.169.254").is_err());
+    }
+
+    #[test]
+    fn test_validate_url_rejects_path_traversal() {
+        assert!(validate_agent_card_base_url("https://example.com/../../..").is_err());
+    }
+
+    #[test]
+    fn test_validate_url_rejects_ipv6_loopback() {
+        assert!(validate_agent_card_base_url("https://[::1]").is_err());
+    }
+
+    #[test]
+    fn test_validate_url_strips_userinfo() {
+        // Should still validate the actual host, not the userinfo
+        assert!(validate_agent_card_base_url("https://evil.com@127.0.0.1/path").is_err());
     }
 }

@@ -1,7 +1,9 @@
-//! Tests that probe audit logger validation for control characters
-//! beyond basic \n. The source code rejects \n, \r, and \0.
-//! These tests verify that ONLY those specific characters are rejected,
-//! and that other control characters (tabs, form feeds) are accepted.
+//! Tests that probe audit logger validation for control characters.
+//!
+//! SECURITY (FIND-074): The validator now rejects ALL control characters
+//! (U+0000–U+001F, U+007F, U+0080–U+009F) in tool/function names, not
+//! just \n, \r, and \0. This prevents log injection via tabs, backspaces,
+//! escape sequences, and other control chars.
 
 use sentinel_audit::AuditLogger;
 use sentinel_types::{Action, Verdict};
@@ -81,60 +83,54 @@ fn rejects_function_with_null_byte() {
 }
 
 // ═══════════════════════════════════
-// CHARACTERS THAT SHOULD BE ACCEPTED
+// ALL CONTROL CHARACTERS REJECTED (FIND-074)
 // ═══════════════════════════════════
 
-/// Tab characters are NOT rejected by the validator.
+/// Tab characters are now rejected as control characters.
 #[test]
-fn accepts_tool_with_tab() {
+fn rejects_tool_with_tab() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
         let action = make_action("tool\twith\ttabs", "func");
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_ok(), "Tab characters should be accepted");
+        assert!(result.is_err(), "Tab characters should be rejected");
     });
 }
 
-/// Form feed is NOT rejected.
+/// Form feed is now rejected as a control character.
 #[test]
-fn accepts_tool_with_form_feed() {
+fn rejects_tool_with_form_feed() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
         let action = make_action("tool\x0cfunc", "func");
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(
-            result.is_ok(),
-            "Form feed should be accepted (not in reject list)"
-        );
+        assert!(result.is_err(), "Form feed should be rejected");
     });
 }
 
-/// Backspace is NOT rejected.
+/// Backspace is now rejected as a control character.
 #[test]
-fn accepts_tool_with_backspace() {
+fn rejects_tool_with_backspace() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
         let action = make_action("tool\x08here", "func");
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(
-            result.is_ok(),
-            "Backspace should be accepted (not in reject list)"
-        );
+        assert!(result.is_err(), "Backspace should be rejected");
     });
 }
 
-/// Vertical tab is NOT rejected.
+/// Vertical tab is now rejected as a control character.
 #[test]
-fn accepts_tool_with_vertical_tab() {
+fn rejects_tool_with_vertical_tab() {
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
         let action = make_action("tool\x0bhere", "func");
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_ok(), "Vertical tab should be accepted");
+        assert!(result.is_err(), "Vertical tab should be rejected");
     });
 }
 
@@ -172,7 +168,7 @@ fn rejects_tool_with_null_before_newline() {
 // ═══════════════════════════════════
 
 /// Long tool name with no control characters should pass validation.
-/// The validator only checks for \n, \r, \0 — no length limit on names.
+/// The validator checks for control chars — no length limit on names.
 #[test]
 fn accepts_very_long_tool_name() {
     let rt = runtime();

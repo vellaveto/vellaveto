@@ -1,9 +1,9 @@
 # CLAUDE.md — Sentinel Project Instructions
 
 > **Project:** Sentinel — MCP Tool Firewall
-> **State:** All priority items (P0–P4) implemented, Phase 14 A2A protocol security complete, all adversarial audit findings (FIND-043–054) addressed
-> **Tests:** 4,300+ passing, zero warnings, zero `unwrap()` in library code
-> **Updated:** 2026-02-12
+> **State:** All priority items (P0–P4) implemented, Phase 14 A2A protocol security complete, all adversarial audit findings (FIND-043–074) addressed
+> **Tests:** 4,278+ passing, zero warnings, zero `unwrap()` in library code
+> **Updated:** 2026-02-13
 
 ---
 
@@ -225,7 +225,7 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - Criterion benchmarks for policy evaluation, path normalization, domain matching, DLP scanning (`sentinel-engine/benches/`, `sentinel-mcp/benches/`)
 - Fuzz targets for JSON-RPC framing, path normalization, domain extraction, CIDR parsing, message classification, scan_params_for_targets (`fuzz/fuzz_targets/`)
 
-**Adversarial Audit Coverage (FIND-043–054):**
+**Adversarial Audit Coverage (FIND-043–074):**
 - 25 context condition tests covering all 10 condition types (MaxChainDepth, AgentIdentityMatch, AsyncTaskPolicy, ResourceIndicator, CapabilityRequired, StepUpAuth, CircuitBreaker, DeputyValidation, SchemaPoisoningCheck, ShadowAgentCheck)
 - Circuit breaker HalfOpen→Closed recovery + Open→HalfOpen auto-transition tests
 - 16 end-to-end OAuth JWT validation tests (sign → mock JWKS server → validate_token)
@@ -238,6 +238,14 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - Behavioral EMA edge case tests (epsilon guard, u64::MAX, overflow)
 - Output validation depth bomb tests (nested schemas at/beyond MAX_VALIDATION_DEPTH)
 - Elicitation rate limit boundary tests (u32::MAX, exact boundary)
+- FIND-055: Agent card SSRF prevention — URL scheme/host/private-IP validation with 9 tests
+- FIND-057: Bounded stack size in `collect_string_leaves()` to prevent DoS via wide JSON
+- FIND-063: Regex pattern length validation (MAX_PATTERN_LEN = 2048) before compilation
+- FIND-065: Audit log permission failures now logged as warnings instead of silently ignored
+- FIND-068: Accountability attestation rejects empty agent_id/statement/policy_hash
+- FIND-071: `ObservabilityExporterConfig` validation with MAX_BATCH_SIZE bound
+- FIND-074: All control characters (U+0000–U+009F) rejected in tool/function names
+- RwLock poisoning hardened across 10 modules (schema_poisoning, agent_trust, workflow_tracker, tool_namespace, sampling_detector, shadow_agent, token_security, output_security, agent_message, goal_tracking)
 
 ---
 

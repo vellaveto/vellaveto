@@ -67,6 +67,24 @@ pub fn sign_attestation(
     signing_key_hex: &str,
     ttl_secs: u64,
 ) -> Result<AccountabilityAttestation, AttestationError> {
+    // SECURITY (FIND-068): Validate required fields are non-empty.
+    // Empty agent_id or statement would produce valid but meaningless attestations.
+    if agent_id.is_empty() {
+        return Err(AttestationError::SigningFailed(
+            "agent_id must not be empty".to_string(),
+        ));
+    }
+    if statement.is_empty() {
+        return Err(AttestationError::SigningFailed(
+            "statement must not be empty".to_string(),
+        ));
+    }
+    if policy_hash.is_empty() {
+        return Err(AttestationError::SigningFailed(
+            "policy_hash must not be empty".to_string(),
+        ));
+    }
+
     // Parse signing key
     let key_bytes = hex::decode(signing_key_hex)
         .map_err(|e| AttestationError::InvalidKey(format!("hex decode failed: {}", e)))?;
@@ -359,6 +377,31 @@ mod tests {
     fn test_sign_invalid_key_length() {
         let result = sign_attestation("agent", None, "stmt", "hash", "abcd", 86400);
         assert!(matches!(result, Err(AttestationError::InvalidKey(_))));
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-068: Empty field validation
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_sign_rejects_empty_agent_id() {
+        let (signing_key_hex, _) = generate_test_keypair();
+        let result = sign_attestation("", None, "stmt", "hash", &signing_key_hex, 86400);
+        assert!(matches!(result, Err(AttestationError::SigningFailed(_))));
+    }
+
+    #[test]
+    fn test_sign_rejects_empty_statement() {
+        let (signing_key_hex, _) = generate_test_keypair();
+        let result = sign_attestation("agent", None, "", "hash", &signing_key_hex, 86400);
+        assert!(matches!(result, Err(AttestationError::SigningFailed(_))));
+    }
+
+    #[test]
+    fn test_sign_rejects_empty_policy_hash() {
+        let (signing_key_hex, _) = generate_test_keypair();
+        let result = sign_attestation("agent", None, "stmt", "", &signing_key_hex, 86400);
+        assert!(matches!(result, Err(AttestationError::SigningFailed(_))));
     }
 
     #[test]

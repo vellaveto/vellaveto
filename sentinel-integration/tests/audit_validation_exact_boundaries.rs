@@ -77,7 +77,8 @@ fn nesting_depth_21_rejected() {
 
 /// Tool with tab character is allowed (only \n, \r, \0 are rejected).
 #[test]
-fn tool_with_tab_is_accepted() {
+fn tool_with_tab_is_rejected() {
+    // SECURITY (FIND-074): All control characters are now rejected
     let rt = runtime();
     rt.block_on(async {
         let (logger, _tmp) = setup_logger();
@@ -87,7 +88,7 @@ fn tool_with_tab_is_accepted() {
             json!({}),
         );
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(result.is_ok(), "Tab in tool name should be accepted");
+        assert!(result.is_err(), "Tab in tool name should be rejected");
     });
 }
 

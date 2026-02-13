@@ -909,6 +909,31 @@ This section captures externally researched controls and current implementation 
 - **DID:PLC generation:**
   Deterministic decentralized identifiers from SHA-256 + Base32 encoding of canonicalized genesis operations.
   Integrated into NHI lifecycle for agent identity binding.
+- **Agent card SSRF prevention (FIND-055):**
+  `validate_agent_card_base_url()` rejects non-HTTPS schemes, localhost, private IPs,
+  IPv6 private ranges, path traversal, and userinfo-based host spoofing.
+- **Control character rejection (FIND-074):**
+  Audit logger now rejects ALL control characters (U+0000–U+009F) in tool/function names,
+  not just \n, \r, and \0. Prevents log injection via tabs, backspaces, and escape sequences.
+
+### P2
+- **Bounded JSON traversal (FIND-057):**
+  `collect_string_leaves()` now enforces MAX_STACK_SIZE (10,000) to prevent memory exhaustion
+  from extremely wide fan-out JSON structures in A2A messages.
+- **Regex pattern length limits (FIND-063):**
+  DLP and PII pattern strings bounded to MAX_PATTERN_LEN (2,048 chars) before regex compilation.
+  Prevents ReDoS and excessive compile-time memory usage from malicious config patterns.
+
+### P3
+- **Audit log permission warnings (FIND-065):**
+  `set_permissions(0o600)` failures on Unix are now logged as `tracing::warn!` instead of silently
+  ignored with `let _ =`. Operators can now detect permission issues in their logs.
+- **Attestation empty field validation (FIND-068):**
+  `sign_attestation()` rejects empty agent_id, statement, and policy_hash to prevent
+  valid but meaningless attestations.
+- **Observability batch size bounds (FIND-071):**
+  `ObservabilityExporterConfig` validates batch_size (1..=10,000) and timeout_secs (>0)
+  to prevent OOM from misconfigured exporter buffers.
 
 Status details and rollout progress are tracked in:
 - `ROADMAP.md` (active/planned tracks)
@@ -967,7 +992,7 @@ When using the A2A (Agent-to-Agent) protocol, Sentinel provides:
 
 - **Message classification** — Parses and classifies A2A JSON-RPC messages by method type
 - **Batch rejection** — JSON-RPC batch requests rejected to prevent TOCTOU attacks
-- **Agent Card validation** — Fetches and validates `/.well-known/agent.json` with TTL-based cache expiration
+- **Agent Card validation** — Fetches and validates `/.well-known/agent.json` with TTL-based cache expiration and SSRF-safe URL validation (FIND-055)
 - **Authentication validation** — Validates request authentication against agent card supported schemes
 - **DLP and injection scanning** — Full security pipeline applied to A2A message content
 

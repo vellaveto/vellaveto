@@ -471,13 +471,16 @@ fn collect_part_text_content(part: &Value, texts: &mut Vec<String>) {
 ///
 /// SECURITY (FIND-043): Bounded by MAX_STRING_LEAVES to prevent OOM from
 /// deeply nested or very wide JSON structures sent by malicious A2A upstreams.
+/// SECURITY (FIND-057): Stack size bounded by MAX_STACK_SIZE to prevent
+/// memory exhaustion from extremely wide (fan-out) JSON structures.
 fn collect_string_leaves(value: &Value, texts: &mut Vec<String>) {
     const MAX_STRING_LEAVES: usize = 1024;
     const MAX_TRAVERSAL_DEPTH: usize = 32;
+    const MAX_STACK_SIZE: usize = 10_000;
 
     let mut stack: Vec<(&Value, usize)> = vec![(value, 0)];
     while let Some((current, depth)) = stack.pop() {
-        if texts.len() >= MAX_STRING_LEAVES {
+        if texts.len() >= MAX_STRING_LEAVES || stack.len() >= MAX_STACK_SIZE {
             break;
         }
         if depth > MAX_TRAVERSAL_DEPTH {

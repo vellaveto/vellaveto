@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Adversarial Audit Hardening (FIND-055–074)**:
+  - FIND-055 (P1): Agent card SSRF prevention — `validate_agent_card_base_url()` rejects non-HTTPS schemes, localhost, private IPs, IPv6 private ranges, path traversal, and userinfo-based host spoofing (9 tests)
+  - FIND-057 (P2): Bounded stack size in `collect_string_leaves()` (MAX_STACK_SIZE=10,000) to prevent memory exhaustion from wide JSON fan-out in A2A messages
+  - FIND-063 (P2): Regex pattern length validation (MAX_PATTERN_LEN=2,048) for DLP and PII patterns before regex compilation to prevent ReDoS
+  - FIND-065 (P3): Audit log file permission failures now logged as `tracing::warn!` instead of silently ignored with `let _ =`
+  - FIND-068 (P3): Accountability attestation `sign_attestation()` rejects empty agent_id, statement, and policy_hash (3 tests)
+  - FIND-071 (P3): `ObservabilityExporterConfig` validation with MAX_BATCH_SIZE=10,000 and timeout_secs>0 bounds (5 tests)
+  - FIND-074 (P3): Audit logger now rejects ALL control characters (U+0000–U+009F) in tool/function names, not just \n, \r, and \0 — prevents log injection via tabs, backspaces, escape sequences
+  - Updated 4 integration test files to match new control character rejection behavior
+
 ### Testing
 
 - **Adversarial Audit Test Coverage (FIND-043–054)**:

@@ -64,7 +64,19 @@ impl PolicyConfig {
                 MAX_EXTRA_INJECTION_PATTERNS
             ));
         }
+        // SECURITY (FIND-063): Bound pattern length before regex compilation.
+        // Unbounded patterns can cause ReDoS or excessive compile-time memory usage.
+        const MAX_PATTERN_LEN: usize = 2048;
         for (i, (name, pattern)) in self.dlp.extra_patterns.iter().enumerate() {
+            if pattern.len() > MAX_PATTERN_LEN {
+                return Err(format!(
+                    "dlp.extra_patterns[{}] '{}' exceeds max pattern length ({} > {})",
+                    i,
+                    name,
+                    pattern.len(),
+                    MAX_PATTERN_LEN
+                ));
+            }
             if let Err(e) = regex::Regex::new(pattern) {
                 return Err(format!(
                     "dlp.extra_patterns[{}] '{}' has invalid regex: {}",
@@ -80,6 +92,15 @@ impl PolicyConfig {
             ));
         }
         for (i, pattern) in self.audit.custom_pii_patterns.iter().enumerate() {
+            if pattern.pattern.len() > MAX_PATTERN_LEN {
+                return Err(format!(
+                    "audit.custom_pii_patterns[{}] '{}' exceeds max pattern length ({} > {})",
+                    i,
+                    pattern.name,
+                    pattern.pattern.len(),
+                    MAX_PATTERN_LEN
+                ));
+            }
             if let Err(e) = regex::Regex::new(&pattern.pattern) {
                 return Err(format!(
                     "audit.custom_pii_patterns[{}] '{}' has invalid regex: {}",
