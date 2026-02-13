@@ -780,6 +780,8 @@ fn make_test_proxy_state(canonicalize: bool) -> ProxyState {
         sampling_detector: None,
         // Runtime limits
         limits: sentinel_config::LimitsConfig::default(),
+        // WebSocket config
+        ws_config: None,
     }
 }
 

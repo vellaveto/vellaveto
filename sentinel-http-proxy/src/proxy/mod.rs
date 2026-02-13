@@ -13,9 +13,11 @@ mod origin;
 #[cfg(test)]
 mod tests;
 mod upstream;
+pub mod websocket;
 
 pub use call_chain::PrivilegeEscalationCheck;
 pub use handlers::{handle_mcp_delete, handle_mcp_post, handle_protected_resource_metadata};
+pub use websocket::{handle_ws_upgrade, WebSocketConfig};
 
 use hmac::Hmac;
 use sentinel_approval::ApprovalStore;
@@ -154,6 +156,14 @@ pub struct ProxyState {
     /// Configurable runtime limits for memory bounds, timeouts, and chain lengths.
     /// Provides operator control over previously hardcoded security constants.
     pub limits: sentinel_config::LimitsConfig,
+
+    // =========================================================================
+    // WebSocket Transport (Phase 17.1 — SEP-1288)
+    // =========================================================================
+    /// WebSocket transport configuration. When `Some`, the `/mcp/ws` endpoint
+    /// is active with the specified message size, idle timeout, and rate limit.
+    /// When `None`, WebSocket requests use default configuration.
+    pub ws_config: Option<WebSocketConfig>,
 }
 
 /// Per-request trust signal for forwarded-header handling.

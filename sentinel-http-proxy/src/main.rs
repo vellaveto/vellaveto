@@ -155,6 +155,18 @@ struct Args {
     /// Maximum requests per second (global rate limit). 0 = no limit.
     #[arg(long, default_value_t = 200)]
     rate_limit: u32,
+
+    /// Maximum WebSocket message size in bytes (default: 1048576 = 1 MB).
+    #[arg(long, default_value_t = 1_048_576)]
+    ws_max_message_size: usize,
+
+    /// WebSocket idle timeout in seconds (default: 300). 0 = no timeout.
+    #[arg(long, default_value_t = 300)]
+    ws_idle_timeout: u64,
+
+    /// Maximum WebSocket messages per second per connection (default: 100). 0 = no limit.
+    #[arg(long, default_value_t = 100)]
+    ws_message_rate_limit: u32,
 }
 
 fn resolve_oauth_security(args: &Args) -> Result<DpopMode> {
@@ -600,11 +612,27 @@ async fn main() -> Result<()> {
 
         // Runtime limits from config
         limits: policy_config.limits.clone(),
+
+        // WebSocket transport configuration (Phase 17.1)
+        ws_config: Some(proxy::WebSocketConfig {
+            max_message_size: args.ws_max_message_size,
+            idle_timeout_secs: args.ws_idle_timeout,
+            message_rate_limit: args.ws_message_rate_limit,
+        }),
     };
 
     if state.canonicalize {
         tracing::info!("TOCTOU canonicalization enabled — forwarding re-serialized JSON");
     }
+
+    // Log WebSocket transport configuration
+    tracing::info!(
+        "WebSocket transport: /mcp/ws (max_message={}B, idle_timeout={}s, rate_limit={}/s)",
+        args.ws_max_message_size,
+        args.ws_idle_timeout,
+        args.ws_message_rate_limit,
+    );
+
 
     // TASK-015: Log DNS rebinding defense configuration
     if state.allowed_origins.is_empty() {
@@ -648,6 +676,7 @@ async fn main() -> Result<()> {
             "/mcp",
             axum::routing::post(proxy::handle_mcp_post).delete(proxy::handle_mcp_delete),
         )
+        .route("/mcp/ws", axum::routing::get(proxy::handle_ws_upgrade))
         .route("/health", axum::routing::get(health))
         // RFC 9728: Protected Resource Metadata endpoint for OAuth discovery
         .route(
@@ -821,6 +850,9 @@ mod tests {
             session_max_lifetime: 86400,
             no_canonicalize: false,
             rate_limit: 200,
+            ws_max_message_size: 1_048_576,
+            ws_idle_timeout: 300,
+            ws_message_rate_limit: 100,
         }
     }
 

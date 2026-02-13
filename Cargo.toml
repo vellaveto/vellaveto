@@ -38,6 +38,7 @@ opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.30", features = ["grpc-tonic", "http-proto"] }
 opentelemetry-semantic-conventions = "0.30"
 tracing-opentelemetry = "0.31"
+tokio-tungstenite = "0.26"
 
 [profile.release]
 lto = "thin"

@@ -137,3 +137,9 @@ name = "fuzz_attestation_verify"
 path = "fuzz_targets/fuzz_attestation_verify.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_ws_frame"
+path = "fuzz_targets/fuzz_ws_frame.rs"
+test = false
+doc = false
