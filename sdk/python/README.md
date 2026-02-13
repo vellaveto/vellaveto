@@ -181,6 +181,35 @@ graph = StateGraph(MyState)
 graph.add_node("tools", tool_node)  # Policy evaluation + execution
 ```
 
+## Parameter Redaction
+
+Strip sensitive parameter values before they transit the network to Sentinel:
+
+```python
+from sentinel import SentinelClient, ParameterRedactor
+
+# Keys-only (default): redacts values for known sensitive parameter names
+redactor = ParameterRedactor()
+
+# Values: also scans string values for secret patterns (sk-..., ghp_..., JWTs)
+redactor = ParameterRedactor(mode="values")
+
+# All: redacts every parameter value (sends only keys to Sentinel)
+redactor = ParameterRedactor(mode="all")
+
+# Custom sensitive keys (added to defaults)
+redactor = ParameterRedactor(extra_keys={"internal_token", "vault_path"})
+
+client = SentinelClient(url="http://localhost:3000", redactor=redactor)
+
+# api_key value is replaced with "[REDACTED]" before sending
+client.evaluate(
+    tool="http",
+    function="fetch",
+    parameters={"url": "https://api.example.com", "api_key": "sk-secret123"},
+)
+```
+
 ## Configuration
 
 ### Client Options
@@ -191,6 +220,7 @@ client = SentinelClient(
     api_key="your-api-key",       # API key for authentication
     timeout=30.0,                  # Request timeout in seconds
     verify_ssl=True,               # Verify SSL certificates
+    redactor=ParameterRedactor(),  # Client-side parameter redaction (optional)
 )
 ```
 

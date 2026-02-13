@@ -15,6 +15,7 @@ Example:
 """
 
 from sentinel.client import SentinelClient, SentinelError, PolicyDenied, ApprovalRequired
+from sentinel.redaction import ParameterRedactor
 from sentinel.types import Verdict, EvaluationResult, Action
 
 __version__ = "2.2.1"
@@ -23,6 +24,7 @@ __all__ = [
     "SentinelError",
     "PolicyDenied",
     "ApprovalRequired",
+    "ParameterRedactor",
     "Verdict",
     "EvaluationResult",
     "Action",

@@ -1173,6 +1173,7 @@ Comprehensive documentation is available in the `docs/` directory:
 
 | Document | Description |
 |----------|-------------|
+| [Framework Quickstart](docs/QUICKSTART.md) | Integration guides for Anthropic, OpenAI, LangChain, LangGraph, MCP |
 | [Deployment Guide](docs/DEPLOYMENT.md) | Docker, Kubernetes (Helm), and bare metal installation |
 | [Operations Runbook](docs/OPERATIONS.md) | Monitoring, troubleshooting, and maintenance procedures |
 | [Security Model](docs/SECURITY_MODEL.md) | Trust boundaries, data flows, storage, and residual risks |

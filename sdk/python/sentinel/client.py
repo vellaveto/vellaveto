@@ -78,6 +78,7 @@ class SentinelClient:
         url: Base URL of the Sentinel server
         api_key: API key for authentication (optional)
         timeout: Request timeout in seconds
+        redactor: Optional ParameterRedactor for client-side secret stripping
     """
 
     def __init__(
@@ -86,6 +87,7 @@ class SentinelClient:
         api_key: Optional[str] = None,
         timeout: float = 30.0,
         verify_ssl: bool = True,
+        redactor: Optional["ParameterRedactor"] = None,
     ):
         """
         Initialize the Sentinel client.
@@ -95,11 +97,13 @@ class SentinelClient:
             api_key: API key for authentication
             timeout: Request timeout in seconds
             verify_ssl: Whether to verify SSL certificates
+            redactor: Optional ParameterRedactor for client-side secret stripping
         """
         self.url = url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
         self.verify_ssl = verify_ssl
+        self.redactor = redactor
 
         if HAS_HTTPX:
             self._client = httpx.Client(
@@ -195,10 +199,14 @@ class SentinelClient:
             ApprovalRequired: If action requires approval (when raise_on_deny=True)
             SentinelError: On API errors
         """
+        effective_params = parameters or {}
+        if self.redactor is not None:
+            effective_params = self.redactor.redact(effective_params)
+
         action = Action(
             tool=tool,
             function=function,
-            parameters=parameters or {},
+            parameters=effective_params,
             target_paths=target_paths or [],
             target_domains=target_domains or [],
         )
@@ -329,6 +337,7 @@ class AsyncSentinelClient:
         api_key: Optional[str] = None,
         timeout: float = 30.0,
         verify_ssl: bool = True,
+        redactor: Optional["ParameterRedactor"] = None,
     ):
         if not HAS_HTTPX:
             raise ImportError(
@@ -340,6 +349,7 @@ class AsyncSentinelClient:
         self.api_key = api_key
         self.timeout = timeout
         self.verify_ssl = verify_ssl
+        self.redactor = redactor
         self._client: Optional[httpx.AsyncClient] = None
 
     async def __aenter__(self) -> "AsyncSentinelClient":
@@ -400,10 +410,14 @@ class AsyncSentinelClient:
         trace: bool = False,
     ) -> EvaluationResult:
         """Evaluate a tool call against Sentinel policies (async)."""
+        effective_params = parameters or {}
+        if self.redactor is not None:
+            effective_params = self.redactor.redact(effective_params)
+
         action = Action(
             tool=tool,
             function=function,
-            parameters=parameters or {},
+            parameters=effective_params,
             target_paths=target_paths or [],
             target_domains=target_domains or [],
         )
