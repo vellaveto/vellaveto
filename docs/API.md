@@ -17,6 +17,9 @@ This document provides a complete reference for the Sentinel HTTP API.
   - [Tenants](#tenants)
   - [Security Managers](#security-managers)
   - [Execution Graphs](#execution-graphs)
+  - [ETDI: Cryptographic Tool Security](#etdi-cryptographic-tool-security)
+  - [MINJA: Memory Injection Defense](#minja-memory-injection-defense)
+  - [NHI: Non-Human Identity Lifecycle](#nhi-non-human-identity-lifecycle)
 - [Error Codes](#error-codes)
 
 ---
@@ -1388,6 +1391,460 @@ Get execution graph statistics.
   },
   "avg_duration_ms": 250,
   "allow_rate": 0.93
+}
+```
+
+---
+
+### ETDI: Cryptographic Tool Security
+
+#### GET /api/etdi/signatures
+
+List all tool signatures.
+
+**Authentication:** Required
+
+**Response:**
+
+```json
+{
+  "signatures": [
+    {
+      "tool": "file_read",
+      "algorithm": "Ed25519",
+      "signer": "trusted-signer-1",
+      "created_at": "2026-01-15T00:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+#### GET /api/etdi/signatures/{tool}
+
+Get signature for a specific tool.
+
+**Authentication:** Required
+
+**Path Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `tool` | Tool name |
+
+---
+
+#### POST /api/etdi/signatures/{tool}/verify
+
+Verify a tool's cryptographic signature against the stored definition.
+
+**Authentication:** Required
+
+**Response:**
+
+```json
+{
+  "valid": true,
+  "algorithm": "Ed25519",
+  "signer": "trusted-signer-1"
+}
+```
+
+---
+
+#### GET /api/etdi/attestations
+
+List all attestation chains.
+
+**Authentication:** Required
+
+---
+
+#### GET /api/etdi/attestations/{tool}
+
+Get attestation chain for a tool, showing provenance from initial registration through version updates.
+
+**Authentication:** Required
+
+---
+
+#### GET /api/etdi/attestations/{tool}/verify
+
+Verify attestation chain integrity for a tool.
+
+**Authentication:** Required
+
+**Response:**
+
+```json
+{
+  "valid": true,
+  "chain_length": 3,
+  "first_attestation": "2026-01-01T00:00:00Z",
+  "last_attestation": "2026-02-10T00:00:00Z"
+}
+```
+
+---
+
+#### GET /api/etdi/pins
+
+List all version pins.
+
+**Authentication:** Required
+
+---
+
+#### GET /api/etdi/pins/{tool}
+
+Get version pin for a specific tool.
+
+**Authentication:** Required
+
+---
+
+#### POST /api/etdi/pins/{tool}
+
+Create a version pin for a tool.
+
+**Authentication:** Required (admin scope)
+
+**Request Body:**
+
+```json
+{
+  "version_constraint": "^1.0.0",
+  "hash": "sha256:abc123..."
+}
+```
+
+---
+
+#### DELETE /api/etdi/pins/{tool}
+
+Remove a version pin.
+
+**Authentication:** Required (admin scope)
+
+---
+
+### MINJA: Memory Injection Defense
+
+#### GET /api/minja/taint/{id}
+
+Get taint status for a data item.
+
+**Authentication:** Required
+
+**Response:**
+
+```json
+{
+  "id": "data-123",
+  "tainted": true,
+  "severity": "high",
+  "source": "tool_response",
+  "tainted_at": "2026-02-08T10:00:00Z"
+}
+```
+
+---
+
+#### POST /api/minja/taint
+
+Mark data as tainted with a severity level.
+
+**Authentication:** Required
+
+**Request Body:**
+
+```json
+{
+  "id": "data-123",
+  "severity": "high",
+  "source": "external_input"
+}
+```
+
+---
+
+#### GET /api/minja/provenance/{id}
+
+Get provenance graph for a data item showing lineage and trust inheritance.
+
+**Authentication:** Required
+
+**Response:**
+
+```json
+{
+  "id": "data-123",
+  "ancestors": ["data-100", "data-101"],
+  "trust_score": 0.7,
+  "created_at": "2026-02-08T09:00:00Z"
+}
+```
+
+---
+
+#### POST /api/minja/provenance
+
+Record a data lineage relationship.
+
+**Authentication:** Required
+
+**Request Body:**
+
+```json
+{
+  "child_id": "data-200",
+  "parent_ids": ["data-123", "data-124"],
+  "operation": "merge"
+}
+```
+
+---
+
+#### GET /api/minja/trust/{id}
+
+Get current trust score with exponential decay applied.
+
+**Authentication:** Required
+
+---
+
+#### POST /api/minja/trust/{id}/refresh
+
+Refresh trust score timestamp to reset decay.
+
+**Authentication:** Required
+
+---
+
+#### GET /api/minja/quarantine
+
+List quarantined data items.
+
+**Authentication:** Required
+
+---
+
+#### POST /api/minja/quarantine/{id}
+
+Quarantine a data item.
+
+**Authentication:** Required
+
+---
+
+#### DELETE /api/minja/quarantine/{id}
+
+Release a data item from quarantine.
+
+**Authentication:** Required (admin scope)
+
+---
+
+#### GET /api/minja/namespaces/{agent}
+
+Get namespace isolation status for an agent.
+
+**Authentication:** Required
+
+---
+
+### NHI: Non-Human Identity Lifecycle
+
+#### GET /api/nhi/agents
+
+List registered agent identities.
+
+**Authentication:** Required
+
+**Response:**
+
+```json
+{
+  "agents": [
+    {
+      "id": "agent-123",
+      "state": "active",
+      "attestation_type": "jwt",
+      "created_at": "2026-01-01T00:00:00Z",
+      "expires_at": "2026-07-01T00:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+#### POST /api/nhi/agents
+
+Register a new agent identity.
+
+**Authentication:** Required (admin scope)
+
+**Request Body:**
+
+```json
+{
+  "agent_id": "agent-456",
+  "attestation_type": "mtls",
+  "public_key": "base64-encoded-key",
+  "ttl_secs": 86400
+}
+```
+
+---
+
+#### GET /api/nhi/agents/{id}
+
+Get agent identity details including lifecycle state and behavioral baseline.
+
+**Authentication:** Required
+
+---
+
+#### DELETE /api/nhi/agents/{id}
+
+Revoke an agent identity (transitions to Revoked state).
+
+**Authentication:** Required (admin scope)
+
+---
+
+#### POST /api/nhi/agents/{id}/activate
+
+Activate a probationary identity (Probationary → Active).
+
+**Authentication:** Required (admin scope)
+
+---
+
+#### POST /api/nhi/agents/{id}/suspend
+
+Suspend an active identity (Active → Suspended).
+
+**Authentication:** Required (admin scope)
+
+---
+
+#### GET /api/nhi/agents/{id}/baseline
+
+Get behavioral baseline for an agent.
+
+**Authentication:** Required
+
+---
+
+#### POST /api/nhi/agents/{id}/check
+
+Check agent behavior against its baseline using Welford's online variance.
+
+**Authentication:** Required
+
+---
+
+#### GET /api/nhi/delegations
+
+List all delegations.
+
+**Authentication:** Required
+
+---
+
+#### POST /api/nhi/delegations
+
+Create a delegation between agents with scope constraints.
+
+**Authentication:** Required (admin scope)
+
+**Request Body:**
+
+```json
+{
+  "from_agent": "agent-123",
+  "to_agent": "agent-456",
+  "allowed_tools": ["file_read"],
+  "max_depth": 2,
+  "expires_secs": 3600
+}
+```
+
+---
+
+#### GET /api/nhi/delegations/{from}/{to}
+
+Get delegation details between two agents.
+
+**Authentication:** Required
+
+---
+
+#### DELETE /api/nhi/delegations/{from}/{to}
+
+Revoke a delegation.
+
+**Authentication:** Required (admin scope)
+
+---
+
+#### GET /api/nhi/delegations/{id}/chain
+
+Resolve full delegation chain for transitive delegation tracking.
+
+**Authentication:** Required
+
+---
+
+#### POST /api/nhi/agents/{id}/rotate
+
+Rotate agent credentials with rotation history tracking.
+
+**Authentication:** Required (admin scope)
+
+---
+
+#### GET /api/nhi/expiring
+
+Get identities expiring soon for proactive rotation.
+
+**Authentication:** Required
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `within_secs` | integer | 86400 | Time window to check for expiring identities |
+
+---
+
+#### POST /api/nhi/dpop/nonce
+
+Generate a DPoP nonce for RFC 9449 proof-of-possession.
+
+**Authentication:** Required
+
+---
+
+#### GET /api/nhi/stats
+
+Get NHI subsystem statistics.
+
+**Authentication:** Required
+
+**Response:**
+
+```json
+{
+  "total_agents": 25,
+  "active": 20,
+  "probationary": 3,
+  "suspended": 1,
+  "revoked": 1,
+  "delegations": 8
 }
 ```
 

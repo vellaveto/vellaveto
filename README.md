@@ -42,16 +42,17 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 <tr><td>📄 <strong>License</strong></td><td>Apache 2.0</td></tr>
 </table>
 
-## Recent Updates (2026-02-12)
+## Recent Updates (2026-02-13)
 
-- **Architecture: HTTP proxy modularization** — Split `sentinel-http-proxy/src/proxy.rs` (6,712 lines) into 8 focused submodules under `proxy/`: `mod.rs`, `handlers.rs`, `auth.rs`, `origin.rs`, `call_chain.rs`, `upstream.rs`, `inspection.rs`, `helpers.rs`, `tests.rs`. Public API unchanged, all 169 proxy tests passing.
-- **Architecture: Config modularization** — Split `sentinel-config/src/lib.rs` into 10 logical submodules. Split `sentinel-mcp/src/proxy/bridge.rs` into 6 focused submodules.
+- **Phase 14: A2A Protocol Security** — Full Google A2A (Agent-to-Agent) protocol security with message classification, action extraction, Agent Card caching/validation, HTTP proxy service, batch rejection for TOCTOU prevention, and authentication validation against agent card schemes.
+- **Phase 15: AI Observability Platform Integration** — Langfuse, Arize, Helicone, and Webhook exporters with `SecuritySpan` tracing for real-time security event streaming to observability platforms.
+- **Identity Verification Primitives** — DID:PLC generation (SHA-256 + Base32 from canonicalized genesis operations), ordered verification tiers (Unverified through FullyVerified) with fail-closed policy enforcement, Ed25519-signed accountability attestations with length-prefixed content, and `min_verification_tier` policy condition.
+- **RwLock Poisoning Hardening** — All `unwrap_or_else(|e| e.into_inner())` patterns on RwLock operations across 12 sentinel-mcp modules replaced with explicit match blocks that log `tracing::error!` and return fail-closed defaults. Zero silent lock recovery.
+- **Constant-time key comparison** — Public key matching in accountability attestations now uses `subtle::ConstantTimeEq` to prevent timing side-channel attacks.
+- **Architecture: HTTP proxy modularization** — Split `sentinel-http-proxy/src/proxy.rs` (6,712 lines) into 8 focused submodules. Split `sentinel-config/src/lib.rs` into 10 logical submodules. Split `sentinel-mcp/src/proxy/bridge.rs` into 6 focused submodules.
 - Updated MCP protocol support to `2025-11-25` with compatibility for `2025-06-18` and `2025-03-26`.
-- Strengthened Streamable HTTP parity: SSE responses now enforce structured output schema validation fail-closed.
-- Hardened `X-Upstream-Agents` handling: malformed/oversized headers and over-limit entry arrays are now rejected fail-closed across MCP method paths (no truncation fallback).
-- Completed runtime OPA decision enforcement wiring in `sentinel-server` request paths with fail-open/fail-closed behavior, runtime metrics, and audit metadata.
+- Completed runtime OPA decision enforcement wiring with fail-open/fail-closed controls and runtime metrics.
 - Implemented CI supply-chain baseline controls (dependency review, Dependabot, `cargo-deny`, provenance + SBOM, attestation verification).
-- Added explicit DPoP failure observability in `sentinel-http-proxy`: dedicated counters and structured audit events.
 - See `docs/SECURITY.md` (Verified Hardening Backlog) and `ROADMAP.md` for current prioritization.
 - See `CHANGELOG.md` for full release and patch details.
 
@@ -192,6 +193,12 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Authentication validation** — Validate request authentication against agent card supported schemes (API key, Bearer, OAuth 2.0, mTLS)
 - **Task operation restrictions** — Configurable allowlist for task operations (get, cancel, resubscribe)
 
+### 🪪 Identity Verification
+- **DID:PLC generation** — Deterministic decentralized identifiers from SHA-256 + Base32 encoding of canonicalized genesis operations
+- **Verification tiers** — Ordered enum (Unverified, SelfAsserted, ThirdPartyAttested, CryptographicallyVerified, FullyVerified) with fail-closed policy enforcement when tier is missing
+- **Accountability attestations** — Ed25519 signed, length-prefixed content with constant-time public key verification (`subtle::ConstantTimeEq`)
+- **Policy condition: `min_verification_tier`** — Fail-closed when verification tier is absent from evaluation context
+
 ### 🏢 Enterprise Features
 - **mTLS / SPIFFE-SPIRE** — Mutual TLS with client certificate verification, SPIFFE identity extraction from X.509 SAN URIs, trust domains, workload identity, and ID-to-role mapping
 - **OPA Integration** — Runtime decision enforcement is active in server evaluation paths with merge semantics (OPA deny overrides allow), fail-open/fail-closed controls, query/error latency metrics, and optional `opa.require_https` enforcement for OPA control-plane transport
@@ -199,6 +206,7 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Just-In-Time Access** — Session-based temporary elevated permissions with approval workflows, per-principal session limits, auto-revocation on security alerts, and permission/tool access checking
 
 ### 📊 Observability & Tooling
+- **AI Observability Exporters** — Langfuse, Arize Phoenix, Helicone, and Webhook backends with `SecuritySpan` tracing for streaming security events to observability platforms in real time
 - **Execution Graphs** — Visual call chain tracking with DOT (Graphviz) and JSON export, color-coded verdicts, parent-child relationships, and graph statistics API
 - **Policy Validation CLI** — Enhanced `sentinel check` with strict mode, JSON/text output, best-practice and security checks, shadow policy detection, and wide pattern warnings
 - **Attack Simulation** — Automated red-teaming framework with 40+ OWASP ASI Top 10 attack payloads, multi-step sequences, schema mutations, and result summarization

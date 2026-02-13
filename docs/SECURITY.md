@@ -879,7 +879,7 @@ sha256sum /usr/local/bin/mcp-*
 
 ---
 
-## Verified Hardening Backlog (2026-02-11)
+## Verified Hardening Backlog (2026-02-13)
 
 This section captures externally researched controls and current implementation status.
 
@@ -890,15 +890,93 @@ This section captures externally researched controls and current implementation 
 - OAuth sender-constrained token enforcement in HTTP proxy:
   DPoP proof validation is integrated into request authorization path (not only NHI subsystem),
   with explicit failure/replay audit events and dedicated proxy counters.
+- **RwLock poisoning fail-closed hardening:**
+  All `unwrap_or_else(|e| e.into_inner())` patterns on RwLock operations across 12 `sentinel-mcp` modules
+  and `sentinel-server/src/opa.rs` replaced with explicit `match` blocks. Each logs `tracing::error!`
+  with the exact method name and returns a fail-closed default (Deny, empty set, None, or error).
+  Zero silent lock recovery — all poisoned lock states are now observable and fail-closed.
+- **Constant-time key comparison:**
+  Public key matching in `accountability.rs` now uses `subtle::ConstantTimeEq`
+  to prevent timing side-channel attacks on attestation verification.
 
 ### P1
 - `cargo-deny` dependency policy checks (advisories/bans/sources/licenses) are now wired in CI with a baseline `deny.toml`.
 - OPA runtime decision enforcement wiring is active with fail-open/fail-closed controls and runtime metrics.
   Remaining: expand complex-policy integration matrix coverage as architecture split stabilizes.
+- **Identity verification tiers:**
+  Ordered enum (Unverified → FullyVerified) with fail-closed policy enforcement via `min_verification_tier`
+  condition. Missing verification tier in evaluation context produces Deny.
+- **DID:PLC generation:**
+  Deterministic decentralized identifiers from SHA-256 + Base32 encoding of canonicalized genesis operations.
+  Integrated into NHI lifecycle for agent identity binding.
 
 Status details and rollout progress are tracked in:
 - `ROADMAP.md` (active/planned tracks)
 - `CHANGELOG.md` (shipped controls)
+
+---
+
+## Identity Verification & A2A Security
+
+### Verification Tiers
+
+Sentinel supports ordered identity verification tiers for policy enforcement:
+
+| Tier | Description |
+|------|-------------|
+| `Unverified` | No verification performed |
+| `SelfAsserted` | Agent self-reported identity |
+| `ThirdPartyAttested` | Identity attested by a trusted third party |
+| `CryptographicallyVerified` | Identity verified via cryptographic proof (e.g., Ed25519 signature) |
+| `FullyVerified` | All verification layers passed |
+
+Configure minimum verification tier requirements in policies:
+
+```toml
+[[policies]]
+name = "Require cryptographic verification for sensitive tools"
+tool_pattern = "database"
+function_pattern = "write"
+priority = 300
+
+[policies.policy_type.Conditional.conditions]
+min_verification_tier = "CryptographicallyVerified"
+```
+
+When `min_verification_tier` is set, actions without a verification tier in the evaluation context are **denied** (fail-closed).
+
+### DID:PLC Identifiers
+
+Sentinel generates deterministic decentralized identifiers (DID:PLC) for agent identity binding:
+
+- SHA-256 hash of canonicalized genesis operations
+- Base32 encoding for URL-safe identifier representation
+- Integrated into NHI lifecycle for identity-to-key binding
+
+### Accountability Attestations
+
+Ed25519-signed accountability attestations provide non-repudiation:
+
+- Length-prefixed content prevents boundary collision attacks
+- Constant-time public key comparison (`subtle::ConstantTimeEq`) prevents timing side-channels
+- Expiry checking with fail-closed default (unparseable expiry = expired)
+
+### A2A Protocol Security
+
+When using the A2A (Agent-to-Agent) protocol, Sentinel provides:
+
+- **Message classification** — Parses and classifies A2A JSON-RPC messages by method type
+- **Batch rejection** — JSON-RPC batch requests rejected to prevent TOCTOU attacks
+- **Agent Card validation** — Fetches and validates `/.well-known/agent.json` with TTL-based cache expiration
+- **Authentication validation** — Validates request authentication against agent card supported schemes
+- **DLP and injection scanning** — Full security pipeline applied to A2A message content
+
+```toml
+[a2a]
+enabled = true
+allowed_operations = ["tasks/get", "message/send"]
+agent_card_cache_ttl_secs = 300
+```
 
 ---
 

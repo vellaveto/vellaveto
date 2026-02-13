@@ -261,6 +261,9 @@ require_message_signing = true
 - Nonce-based anti-replay protection
 - Shadow agent detection via fingerprinting
 - Trust level enforcement
+- A2A protocol security with message classification and Agent Card validation
+- DID:PLC identity binding with verification tiers
+- Accountability attestations with constant-time key comparison
 
 ### ASI08: Unsafe Output Handling
 
@@ -441,6 +444,43 @@ Failing tool causes downstream failures
 
 ---
 
+### A2A Protocol Attacks
+
+**Agent Card Spoofing:**
+```
+Attacker hosts fake /.well-known/agent.json with manipulated capabilities
+```
+
+**Sentinel Defense:**
+- Agent Card URL validation (blocks file://, internal IPs, path traversal, XSS)
+- TTL-based cache with re-validation
+- Authentication scheme enforcement against declared card schemes
+
+**TOCTOU via Batch Requests:**
+```json
+[
+  {"jsonrpc":"2.0","id":1,"method":"message/send","params":{...}},
+  {"jsonrpc":"2.0","id":2,"method":"tasks/cancel","params":{...}}
+]
+```
+
+**Sentinel Defense:**
+- JSON-RPC batch requests rejected outright (matching MCP security pattern)
+- Each message must be submitted and evaluated individually
+
+**Cross-Agent Identity Spoofing:**
+```
+Agent B claims to be Agent A using forged identity assertions
+```
+
+**Sentinel Defense:**
+- DID:PLC deterministic identifier generation from cryptographic keys
+- Verification tiers (Unverified → FullyVerified) with fail-closed enforcement
+- Ed25519 accountability attestations with constant-time key comparison
+- Behavioral baselines detect anomalous identity claims
+
+---
+
 ## Security Controls
 
 ### Defense in Depth Layers
@@ -466,6 +506,8 @@ Failing tool causes downstream failures
 | Data Exfiltration | DLP Scanning | Network Rules | 95%+ |
 | Path Traversal | Path Normalization | Allowlists | 99%+ |
 | DNS Rebinding | IP Rules | Domain Validation | 99%+ |
+| Agent Impersonation | DID:PLC + Verification Tiers | Behavioral Baselines | 98%+ |
+| A2A Protocol Abuse | Message Classification | Batch Rejection + Auth Validation | 99%+ |
 
 ---
 

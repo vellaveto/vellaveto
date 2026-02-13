@@ -80,11 +80,61 @@ Sentinel exposes Prometheus metrics at the `/metrics` endpoint. All metrics use 
 | `sentinel_dns_resolution_duration_seconds` | histogram | DNS resolution latency |
 | `sentinel_blocked_ips_total` | counter | Blocked IP addresses |
 
+#### Observability Exporter Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `sentinel_exporter_events_total` | counter | Events sent to observability exporters (label: backend) |
+| `sentinel_exporter_errors_total` | counter | Exporter delivery errors (label: backend) |
+| `sentinel_exporter_latency_seconds` | histogram | Exporter delivery latency (label: backend) |
+
 #### Cluster Metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
 | `sentinel_cluster_backend_latency_seconds` | histogram | Cluster backend latency (label: operation) |
+
+### AI Observability Exporters
+
+Sentinel can stream `SecuritySpan` events to AI observability platforms in real time:
+
+| Backend | Description | Configuration Key |
+|---------|-------------|-------------------|
+| **Langfuse** | Open-source LLM observability | `observability.langfuse` |
+| **Arize Phoenix** | ML observability and monitoring | `observability.arize` |
+| **Helicone** | LLM proxy and analytics | `observability.helicone` |
+| **Webhook** | Generic HTTP webhook for custom pipelines | `observability.webhook` |
+
+Example configuration:
+
+```toml
+[observability]
+enabled = true
+
+[observability.langfuse]
+enabled = true
+endpoint = "https://cloud.langfuse.com"
+public_key_env = "LANGFUSE_PUBLIC_KEY"
+secret_key_env = "LANGFUSE_SECRET_KEY"
+
+[observability.arize]
+enabled = true
+endpoint = "https://api.arize.com"
+api_key_env = "ARIZE_API_KEY"
+space_key_env = "ARIZE_SPACE_KEY"
+
+[observability.webhook]
+enabled = true
+url = "https://your-pipeline.example.com/ingest"
+batch_size = 50
+flush_interval_secs = 10
+```
+
+Each exporter receives `SecuritySpan` events containing:
+- Tool name, function, and verdict
+- Detection results (injection, DLP, anomaly scores)
+- Evaluation latency and policy chain
+- Session and agent context
 
 ### Key Metrics to Watch
 
