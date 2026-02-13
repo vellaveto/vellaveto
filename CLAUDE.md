@@ -1,11 +1,11 @@
 # CLAUDE.md — Sentinel Project Instructions
 
 > **Project:** Sentinel — MCP Tool Firewall
-> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phases 17–23)
+> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phase 17.1 complete, Phases 17.2–23 remaining)
 > **Version:** 3.0.0-dev (crates at 2.2.1, targeting v3.0 release)
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 4,278+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
-> **Fuzz targets:** 20
+> **Tests:** 4,307+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
+> **Fuzz targets:** 21
 > **CI workflows:** 11
 > **Updated:** 2026-02-13
 
@@ -141,6 +141,8 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | HTTP proxy: response inspection | `sentinel-http-proxy/src/proxy/inspection.rs` |
 | HTTP proxy: utility helpers | `sentinel-http-proxy/src/proxy/helpers.rs` |
 | HTTP proxy: tests | `sentinel-http-proxy/src/proxy/tests.rs` |
+| HTTP proxy: WebSocket handler + relay | `sentinel-http-proxy/src/proxy/websocket/mod.rs` |
+| HTTP proxy: WebSocket tests (~29 tests) | `sentinel-http-proxy/src/proxy/websocket/tests.rs` |
 | Stdio proxy | `sentinel-proxy/src/main.rs` |
 | HTTP API server | `sentinel-server/src/main.rs` |
 | Server routes | `sentinel-server/src/routes.rs` |
@@ -184,7 +186,7 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - MCP 2025-06-18 compliance (protocol version header, resource indicators, `_meta`)
 
 **Deployment & Operations:**
-- Three deployment modes: HTTP API, stdio proxy, HTTP reverse proxy
+- Four deployment modes: HTTP API, stdio proxy, HTTP reverse proxy, WebSocket reverse proxy
 - Canonical presets for common security scenarios
 - CI: `cargo audit`, `unwrap()` hygiene, clippy clean
 - Distributed clustering via `sentinel-cluster` crate (LocalBackend + RedisBackend with feature gate)
@@ -192,6 +194,19 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - Hot policy reload via filesystem watcher and `/api/policies/reload` endpoint
 - Admin dashboard — server-rendered HTML (`sentinel-server/src/dashboard.rs`)
 - Multi-agent communication monitoring — privilege escalation detection (`sentinel-http-proxy/src/proxy/call_chain.rs`)
+
+**WebSocket Transport (Phase 17.1 — SEP-1288):**
+- Bidirectional MCP-over-WebSocket reverse proxy at `/mcp/ws` (`sentinel-http-proxy/src/proxy/websocket/mod.rs`)
+- Full policy enforcement on client→upstream tool calls with fail-closed semantics
+- DLP scanning + injection detection on upstream→client responses
+- TOCTOU-safe JSON canonicalization before forwarding
+- Per-connection rate limiting (sliding window), idle timeout, max message size enforcement
+- Session binding — each WebSocket connection bound to exactly one `SessionState`
+- Binary frame rejection (close 1003), unparseable message rejection (close 1008)
+- Upstream connection via `tokio-tungstenite` with http→ws / https→wss URL conversion
+- Metrics: `sentinel_ws_connections_total`, `sentinel_ws_messages_total`
+- CLI args: `--ws-max-message-size`, `--ws-idle-timeout`, `--ws-message-rate-limit`
+- 29 unit tests + `fuzz_ws_frame` fuzz target
 
 **MCP Ecosystem:**
 - Tool registry with trust scoring (`sentinel-mcp/src/tool_registry.rs`)
@@ -227,7 +242,7 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 
 **Testing & Quality:**
 - Criterion benchmarks for policy evaluation, path normalization, domain matching, DLP scanning (`sentinel-engine/benches/`, `sentinel-mcp/benches/`)
-- Fuzz targets for JSON-RPC framing, path normalization, domain extraction, CIDR parsing, message classification, scan_params_for_targets (`fuzz/fuzz_targets/`)
+- Fuzz targets for JSON-RPC framing, path normalization, domain extraction, CIDR parsing, message classification, scan_params_for_targets, WebSocket frame parsing (`fuzz/fuzz_targets/`)
 
 **Adversarial Audit Coverage (FIND-043–074):**
 - 25 context condition tests covering all 10 condition types (MaxChainDepth, AgentIdentityMatch, AsyncTaskPolicy, ResourceIndicator, CapabilityRequired, StepUpAuth, CircuitBreaker, DeputyValidation, SchemaPoisoningCheck, ShadowAgentCheck)
