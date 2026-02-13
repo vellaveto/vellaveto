@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+  attestations: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-release:
+    name: Build Release Binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561 # master
+        with:
+          toolchain: stable
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+        with:
+          cache-on-failure: true
+
+      - name: Run tests
+        run: cargo test --workspace --locked
+
+      - name: Build release binaries (static musl)
+        run: cargo build --release --locked --target x86_64-unknown-linux-musl
+
+      - name: Strip binaries
+        run: |
+          strip target/x86_64-unknown-linux-musl/release/sentinel
+          strip target/x86_64-unknown-linux-musl/release/sentinel-http-proxy
+          strip target/x86_64-unknown-linux-musl/release/sentinel-proxy
+
+      - name: Create release archive
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p release
+          for bin in sentinel sentinel-http-proxy sentinel-proxy; do
+            cp "target/x86_64-unknown-linux-musl/release/$bin" "release/"
+          done
+          cp LICENSE LICENSING.md NOTICE README.md CHANGELOG.md release/
+          cp -r examples/ release/examples/
+          tar czf "sentinel-${VERSION}-x86_64-linux-musl.tar.gz" -C release .
+          sha256sum "sentinel-${VERSION}-x86_64-linux-musl.tar.gz" > checksums-sha256.txt
+          for bin in release/sentinel release/sentinel-http-proxy release/sentinel-proxy; do
+            sha256sum "$bin" >> checksums-sha256.txt
+          done
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@28d71544de8eaf1b958d335707167c5f783590ad # v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+
+      - name: Attest binary provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            release/sentinel
+            release/sentinel-http-proxy
+            release/sentinel-proxy
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Extract section between this version header and the next
+          awk "/^## \[${VERSION}\]/{found=1;next} /^## \[/{if(found)exit} found{print}" CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "Release ${VERSION}" > release-notes.md
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2
+        with:
+          body_path: release-notes.md
+          files: |
+            sentinel-*-x86_64-linux-musl.tar.gz
+            checksums-sha256.txt
+            sbom.cdx.json
+          fail_on_unmatched_files: true
+          generate_release_notes: false
