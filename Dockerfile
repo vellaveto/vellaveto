@@ -54,10 +54,13 @@ RUN cargo build --release --target x86_64-unknown-linux-musl \
 # Copy actual source code
 COPY sentinel-types/src sentinel-types/src/
 COPY sentinel-engine/src sentinel-engine/src/
+COPY sentinel-engine/benches sentinel-engine/benches/
 COPY sentinel-audit/src sentinel-audit/src/
+COPY sentinel-audit/benches sentinel-audit/benches/
 COPY sentinel-config/src sentinel-config/src/
 COPY sentinel-canonical/src sentinel-canonical/src/
 COPY sentinel-mcp/src sentinel-mcp/src/
+COPY sentinel-mcp/benches sentinel-mcp/benches/
 COPY sentinel-approval/src sentinel-approval/src/
 COPY sentinel-cluster/src sentinel-cluster/src/
 COPY sentinel-server/src sentinel-server/src/
