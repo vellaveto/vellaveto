@@ -6,7 +6,7 @@ import pytest
 import httpx
 
 from sentinel.redaction import ParameterRedactor, DEFAULT_SENSITIVE_KEYS, REDACTED_PLACEHOLDER
-from sentinel.client import SentinelClient
+from sentinel.client import SentinelClient, AsyncSentinelClient
 from sentinel.types import Verdict
 
 
@@ -355,3 +355,145 @@ class TestClientRedactorIntegration:
         assert body["action"]["parameters"]["path"] == REDACTED_PLACEHOLDER
         assert body["action"]["parameters"]["mode"] == REDACTED_PLACEHOLDER
         client.close()
+
+
+class TestAsyncClientRedactorIntegration:
+    """Tests for AsyncSentinelClient + ParameterRedactor integration."""
+
+    @pytest.mark.asyncio
+    async def test_async_evaluate_redacts_parameters(self, httpx_mock):
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/evaluate",
+            json={"verdict": "allow"},
+        )
+
+        r = ParameterRedactor()
+        async with AsyncSentinelClient(redactor=r) as client:
+            await client.evaluate(
+                tool="http",
+                function="fetch",
+                parameters={"url": "https://example.com", "api_key": "sk-secret"},
+            )
+
+        request = httpx_mock.get_request()
+        body = json.loads(request.content)
+        assert body["action"]["parameters"]["url"] == "https://example.com"
+        assert body["action"]["parameters"]["api_key"] == REDACTED_PLACEHOLDER
+
+    @pytest.mark.asyncio
+    async def test_async_evaluate_without_redactor_sends_raw(self, httpx_mock):
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/evaluate",
+            json={"verdict": "allow"},
+        )
+
+        async with AsyncSentinelClient() as client:
+            await client.evaluate(
+                tool="http",
+                function="fetch",
+                parameters={"api_key": "sk-secret"},
+            )
+
+        request = httpx_mock.get_request()
+        body = json.loads(request.content)
+        assert body["action"]["parameters"]["api_key"] == "sk-secret"
+
+    @pytest.mark.asyncio
+    async def test_async_evaluate_redactor_values_mode(self, httpx_mock):
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/evaluate",
+            json={"verdict": "allow"},
+        )
+
+        r = ParameterRedactor(mode="values")
+        async with AsyncSentinelClient(redactor=r) as client:
+            await client.evaluate(
+                tool="test",
+                parameters={"data": "sk-abcdefghijklmnopqrstuvwxyz1234"},
+            )
+
+        request = httpx_mock.get_request()
+        body = json.loads(request.content)
+        assert body["action"]["parameters"]["data"] == REDACTED_PLACEHOLDER
+
+    @pytest.mark.asyncio
+    async def test_async_evaluate_redactor_all_mode(self, httpx_mock):
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/evaluate",
+            json={"verdict": "allow"},
+        )
+
+        r = ParameterRedactor(mode="all")
+        async with AsyncSentinelClient(redactor=r) as client:
+            await client.evaluate(
+                tool="test",
+                parameters={"path": "/tmp/x", "query": "SELECT 1"},
+            )
+
+        request = httpx_mock.get_request()
+        body = json.loads(request.content)
+        assert body["action"]["parameters"]["path"] == REDACTED_PLACEHOLDER
+        assert body["action"]["parameters"]["query"] == REDACTED_PLACEHOLDER
+
+
+class TestUnicodeRedaction:
+    """Tests for Unicode edge cases in parameter redaction."""
+
+    def test_uppercase_key_redacted(self):
+        r = ParameterRedactor()
+        result = r.redact({"PASSWORD": "secret", "API_KEY": "key123"})
+        assert result["PASSWORD"] == REDACTED_PLACEHOLDER
+        assert result["API_KEY"] == REDACTED_PLACEHOLDER
+
+    def test_mixed_case_suffix_match(self):
+        r = ParameterRedactor()
+        result = r.redact({"OPENAI_API_KEY": "sk-123", "my_Password": "hunter2"})
+        assert result["OPENAI_API_KEY"] == REDACTED_PLACEHOLDER
+        assert result["my_Password"] == REDACTED_PLACEHOLDER
+
+    def test_numeric_values_not_redacted(self):
+        r = ParameterRedactor()
+        result = r.redact({"password": "secret", "count": 42, "flag": True})
+        assert result["password"] == REDACTED_PLACEHOLDER
+        assert result["count"] == 42
+        assert result["flag"] is True
+
+    def test_empty_string_value_redacted_for_sensitive_key(self):
+        r = ParameterRedactor()
+        result = r.redact({"password": ""})
+        assert result["password"] == REDACTED_PLACEHOLDER
+
+    def test_nested_list_of_dicts(self):
+        r = ParameterRedactor()
+        result = r.redact({
+            "configs": [
+                {"name": "prod", "token": "abc123"},
+                {"name": "dev", "secret": "def456"},
+            ]
+        })
+        assert result["configs"][0]["name"] == "prod"
+        assert result["configs"][0]["token"] == REDACTED_PLACEHOLDER
+        assert result["configs"][1]["name"] == "dev"
+        assert result["configs"][1]["secret"] == REDACTED_PLACEHOLDER
+
+    def test_mixed_list_types(self):
+        r = ParameterRedactor(mode="values")
+        result = r.redact({
+            "items": [42, "normal", {"password": "secret"}, [1, 2, 3]]
+        })
+        assert result["items"][0] == 42
+        assert result["items"][1] == "normal"
+        assert result["items"][2]["password"] == REDACTED_PLACEHOLDER
+        assert result["items"][3] == [1, 2, 3]
+
+    def test_dot_notation_suffix_match(self):
+        r = ParameterRedactor()
+        assert r.is_sensitive_key("db.password") is True
+        assert r.is_sensitive_key("config.api_key") is True
+        assert r.is_sensitive_key("auth.token") is True
+
+    def test_deeply_nested_sensitive_key(self):
+        r = ParameterRedactor()
+        data = {"level1": {"level2": {"level3": {"password": "deep-secret"}}}}
+        result = r.redact(data)
+        assert result["level1"]["level2"]["level3"]["password"] == REDACTED_PLACEHOLDER

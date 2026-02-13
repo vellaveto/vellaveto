@@ -1,0 +1,45 @@
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Build artifacts
+target/
+fuzz/target/
+fuzz/corpus/
+fuzz/artifacts/
+
+# IDE and editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# CI/CD
+.github/
+
+# Development tooling
+.claude/
+coordination/
+scripts/
+security-testing/
+
+# Documentation (not needed in image)
+docs/
+*.md
+!README.md
+LICENSE*
+
+# SDK (not needed in Rust image)
+sdk/
+
+# Helm charts (not needed in image)
+helm/
+
+# Local/temporary files
+.env
+.env.*
+*.log
+MONETIZATION_STRATEGY.md
+.well-known/

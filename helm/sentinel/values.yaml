@@ -81,6 +81,20 @@ autoscaling:
   targetCPUUtilizationPercentage: 80
   # targetMemoryUtilizationPercentage: 80
 
+# Network policy (restricts pod traffic)
+networkPolicy:
+  enabled: false
+  # Namespaces allowed to reach Sentinel (empty = all)
+  allowedNamespaces: []
+  # CIDRs allowed for egress (e.g., external APIs)
+  allowedEgressCIDRs: []
+
+# Pod disruption budget (availability during upgrades)
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1  # alternative to minAvailable
+
 # Node selector
 nodeSelector: {}
 

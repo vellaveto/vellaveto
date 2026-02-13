@@ -54,13 +54,10 @@ RUN cargo build --release --target x86_64-unknown-linux-musl \
 # Copy actual source code
 COPY sentinel-types/src sentinel-types/src/
 COPY sentinel-engine/src sentinel-engine/src/
-COPY sentinel-engine/benches sentinel-engine/benches/
 COPY sentinel-audit/src sentinel-audit/src/
-COPY sentinel-audit/benches sentinel-audit/benches/
 COPY sentinel-config/src sentinel-config/src/
 COPY sentinel-canonical/src sentinel-canonical/src/
 COPY sentinel-mcp/src sentinel-mcp/src/
-COPY sentinel-mcp/benches sentinel-mcp/benches/
 COPY sentinel-approval/src sentinel-approval/src/
 COPY sentinel-cluster/src sentinel-cluster/src/
 COPY sentinel-server/src sentinel-server/src/
@@ -80,6 +77,12 @@ RUN test -x /build/target/x86_64-unknown-linux-musl/release/sentinel \
 
 # Runtime stage: Minimal Alpine image
 FROM alpine:3.21
+
+LABEL org.opencontainers.image.title="Sentinel" \
+      org.opencontainers.image.description="Runtime security engine for AI agent tool calls" \
+      org.opencontainers.image.source="https://github.com/paolovella/sentinel" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.vendor="Paolo Vella"
 
 # Security: Run as non-root user
 RUN addgroup -S sentinel && adduser -S sentinel -G sentinel
