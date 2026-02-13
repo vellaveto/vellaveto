@@ -5,7 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Unreleased] — targeting v3.0.0
+
+### Documentation
+
+- **Roadmap v3.0**: Replaced v2.2 roadmap with 12-month v3.0 plan (Q1–Q4 2026) covering 7 phases:
+  - Phase 17 (P0): MCP next spec preparation — WebSocket transport (SEP-1288), gRPC transport (Google), async operations (SEP-1391), protocol extensions framework
+  - Phase 18 (P0): MCP June 2026 spec compliance — spec delta adoption, SDK tiering, transport negotiation and fallback
+  - Phase 19 (P0): Regulatory compliance — EU AI Act Article 50 transparency (Aug 2 2026 deadline), OpenTelemetry GenAI semantic conventions, CoSAI/Adversa AI threat gap closure, SOC 2 Type II audit enhancements
+  - Phase 20 (P1): MCP gateway mode — session-aware routing, multi-server tool discovery, health-aware upstream routing, Kubernetes-native StatefulSet deployment
+  - Phase 21 (P1): Advanced authorization — Cedar-style ABAC engine, least-agency enforcement, identity federation, continuous authorization
+  - Phase 22 (P2): Developer experience — visual execution graph UI, VS Code extension, policy playground, GitHub Action CI gate, SDK ecosystem (Go, Java, TypeScript)
+  - Phase 23 (P3): Research — multimodal injection detection, continuous autonomous red teaming, FIPS 140-3 compliance, Sigstore/Rekor transparency logs, stateful session reasoning guards
+- Added expanded competitor comparison (Cisco AI Defense, Prisma AIRS, Radware, CalypsoAI, Akamai, Microsoft MCP Gateway)
+- Added CoSAI 12-category and Adversa AI TOP 25 threat coverage matrices
+- Added updated OWASP ASI Top 10 coverage with v3.0 enhancement mapping
+- Added 25-entry research bibliography with links
+- Archived all v2.0–v2.2 completed phases (1–15) in collapsible appendix
 
 ### Added
 
@@ -885,6 +901,7 @@ This is the initial stable release. No breaking changes from previous versions.
 - **Fixed** for any bug fixes
 - **Security** for vulnerability fixes
 
+[Unreleased]: https://github.com/paolovella/sentinel/compare/v2.2.1...HEAD
 [2.2.1]: https://github.com/paolovella/sentinel/compare/v2.0.0...v2.2.1
 [2.0.0]: https://github.com/paolovella/sentinel/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/paolovella/sentinel/compare/v0.1.0...v1.0.0
