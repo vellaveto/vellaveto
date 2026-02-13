@@ -5,13 +5,14 @@
 //! content to prevent boundary collision attacks (same pattern as audit
 //! checkpoints in `sentinel-audit/src/checkpoints.rs`).
 //!
-//! No new dependencies — uses `ed25519-dalek`, `sha2`, `hex`, `chrono`, `uuid`
-//! already present in this crate.
+//! Uses `ed25519-dalek`, `sha2`, `hex`, `chrono`, `uuid`, and `subtle`
+//! (transitive dep of ed25519-dalek, now direct for constant-time comparison).
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use sentinel_types::{AccountabilityAttestation, AttestationVerificationResult};
 use sha2::{Digest, Sha256};
 use std::fmt;
+use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
 /// Errors from attestation operations.
@@ -169,9 +170,13 @@ pub fn verify_attestation(
         .map(|expires| now >= &expires.with_timezone(&chrono::Utc))
         .unwrap_or(true); // Fail-closed: unparseable expiry = expired
 
-    // Check key match
+    // Check key match (constant-time to prevent timing side-channel)
     let key_matches_agent = match expected_public_key_hex {
-        Some(expected) => attestation.public_key.eq_ignore_ascii_case(expected),
+        Some(expected) => {
+            let a = attestation.public_key.to_ascii_lowercase();
+            let b = expected.to_ascii_lowercase();
+            a.len() == b.len() && a.as_bytes().ct_eq(b.as_bytes()).into()
+        }
         None => true, // No expected key to compare against
     };
 

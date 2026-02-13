@@ -157,11 +157,20 @@ impl ShadowAgentDetector {
     pub fn register_agent(&self, fingerprint: AgentFingerprint, claimed_id: &str) {
         let now = Self::now();
 
-        let mut agents = self.known_agents.write().unwrap_or_else(|p| p.into_inner());
-        let mut index = self
-            .fingerprint_index
-            .write()
-            .unwrap_or_else(|p| p.into_inner());
+        let mut agents = match self.known_agents.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ShadowAgentDetector::register_agent (known_agents)");
+                return;
+            }
+        };
+        let mut index = match self.fingerprint_index.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ShadowAgentDetector::register_agent (fingerprint_index)");
+                return;
+            }
+        };
 
         // Evict if at capacity
         if agents.len() >= self.max_agents {
@@ -205,11 +214,20 @@ impl ShadowAgentDetector {
     ///
     /// Returns the agent record if the fingerprint matches a known agent.
     pub fn identify_agent(&self, fingerprint: &AgentFingerprint) -> Option<AgentRecord> {
-        let index = self
-            .fingerprint_index
-            .read()
-            .unwrap_or_else(|p| p.into_inner());
-        let agents = self.known_agents.read().unwrap_or_else(|p| p.into_inner());
+        let index = match self.fingerprint_index.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ShadowAgentDetector::identify_agent (fingerprint_index)");
+                return None;
+            }
+        };
+        let agents = match self.known_agents.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ShadowAgentDetector::identify_agent (known_agents)");
+                return None;
+            }
+        };
 
         index
             .get(fingerprint)
@@ -231,7 +249,18 @@ impl ShadowAgentDetector {
         claimed_id: &str,
         fingerprint: &AgentFingerprint,
     ) -> Result<(), Box<ShadowAgentAlert>> {
-        let agents = self.known_agents.read().unwrap_or_else(|p| p.into_inner());
+        let agents = match self.known_agents.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ShadowAgentDetector::detect_shadow (known_agents)");
+                return Err(Box::new(ShadowAgentAlert {
+                    claimed_id: claimed_id.to_string(),
+                    expected_fingerprint: AgentFingerprint::default(),
+                    actual_fingerprint: fingerprint.clone(),
+                    severity: AlertSeverity::Critical,
+                }));
+            }
+        };
 
         let known_record = match agents.get(claimed_id) {
             Some(r) => r,
@@ -286,11 +315,20 @@ impl ShadowAgentDetector {
 
     /// Upgrade the trust level for an agent.
     pub fn upgrade_trust(&self, fingerprint: &AgentFingerprint, level: TrustLevel) {
-        let index = self
-            .fingerprint_index
-            .read()
-            .unwrap_or_else(|p| p.into_inner());
-        let mut agents = self.known_agents.write().unwrap_or_else(|p| p.into_inner());
+        let index = match self.fingerprint_index.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ShadowAgentDetector::upgrade_trust (fingerprint_index)");
+                return;
+            }
+        };
+        let mut agents = match self.known_agents.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ShadowAgentDetector::upgrade_trust (known_agents)");
+                return;
+            }
+        };
 
         if let Some(id) = index.get(fingerprint) {
             if let Some(record) = agents.get_mut(id) {
@@ -306,11 +344,20 @@ impl ShadowAgentDetector {
 
     /// Get the trust level for a fingerprint.
     pub fn get_trust_level(&self, fingerprint: &AgentFingerprint) -> TrustLevel {
-        let index = self
-            .fingerprint_index
-            .read()
-            .unwrap_or_else(|p| p.into_inner());
-        let agents = self.known_agents.read().unwrap_or_else(|p| p.into_inner());
+        let index = match self.fingerprint_index.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ShadowAgentDetector::get_trust_level (fingerprint_index)");
+                return TrustLevel::Unknown;
+            }
+        };
+        let agents = match self.known_agents.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ShadowAgentDetector::get_trust_level (known_agents)");
+                return TrustLevel::Unknown;
+            }
+        };
 
         index
             .get(fingerprint)
@@ -324,7 +371,13 @@ impl ShadowAgentDetector {
     /// Updates the last_seen timestamp and request count.
     pub fn record_request(&self, claimed_id: &str) {
         let now = Self::now();
-        let mut agents = self.known_agents.write().unwrap_or_else(|p| p.into_inner());
+        let mut agents = match self.known_agents.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ShadowAgentDetector::record_request (known_agents)");
+                return;
+            }
+        };
 
         if let Some(record) = agents.get_mut(claimed_id) {
             record.touch(now);
@@ -333,7 +386,13 @@ impl ShadowAgentDetector {
 
     /// Associate a session with an agent.
     pub fn associate_session(&self, claimed_id: &str, session_id: &str) {
-        let mut agents = self.known_agents.write().unwrap_or_else(|p| p.into_inner());
+        let mut agents = match self.known_agents.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ShadowAgentDetector::associate_session (known_agents)");
+                return;
+            }
+        };
 
         if let Some(record) = agents.get_mut(claimed_id) {
             record.associated_sessions.insert(session_id.to_string());
@@ -342,13 +401,25 @@ impl ShadowAgentDetector {
 
     /// Get the number of known agents.
     pub fn known_count(&self) -> usize {
-        let agents = self.known_agents.read().unwrap_or_else(|p| p.into_inner());
+        let agents = match self.known_agents.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ShadowAgentDetector::known_count (known_agents)");
+                return 0;
+            }
+        };
         agents.len()
     }
 
     /// Get all known agent IDs.
     pub fn known_ids(&self) -> Vec<String> {
-        let agents = self.known_agents.read().unwrap_or_else(|p| p.into_inner());
+        let agents = match self.known_agents.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ShadowAgentDetector::known_ids (known_agents)");
+                return vec![];
+            }
+        };
         agents.keys().cloned().collect()
     }
 }

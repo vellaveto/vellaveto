@@ -177,7 +177,15 @@ impl ToolNamespaceRegistry {
         }
 
         let normalized_name = tool_name.to_lowercase();
-        let mut tools = self.tools.write().unwrap_or_else(|e| e.into_inner());
+        let mut tools = match self.tools.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ToolNamespaceRegistry::register (tools)");
+                return Err(NamespaceError::InvalidName(
+                    "internal error: lock poisoned".to_string(),
+                ));
+            }
+        };
 
         // Check capacity
         if tools.len() >= self.config.max_tools && !tools.contains_key(&normalized_name) {
@@ -215,10 +223,15 @@ impl ToolNamespaceRegistry {
         }
 
         // Check for trust violation on protected names
-        let protected = self
-            .protected_names
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let protected = match self.protected_names.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ToolNamespaceRegistry::register (protected_names)");
+                return Err(NamespaceError::InvalidName(
+                    "internal error: lock poisoned".to_string(),
+                ));
+            }
+        };
         if !source.trusted && protected.iter().any(|p| normalized_name.contains(p)) {
             return Err(NamespaceError::Collision(Box::new(CollisionAlert {
                 tool_name: tool_name.to_string(),
@@ -294,7 +307,13 @@ impl ToolNamespaceRegistry {
     /// Check for namespace collision without registering.
     pub fn check_collision(&self, tool_name: &str, source: &ToolSource) -> Option<CollisionAlert> {
         let normalized_name = tool_name.to_lowercase();
-        let tools = self.tools.read().unwrap_or_else(|e| e.into_inner());
+        let tools = match self.tools.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ToolNamespaceRegistry::check_collision");
+                return None;
+            }
+        };
 
         // Check exact collision
         if let Some(existing) = tools.get(&normalized_name) {
@@ -323,7 +342,18 @@ impl ToolNamespaceRegistry {
         selected_source: &str,
     ) -> Result<(), SelectionError> {
         let normalized_name = tool_name.to_lowercase();
-        let mut tools = self.tools.write().unwrap_or_else(|e| e.into_inner());
+        let mut tools = match self.tools.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ToolNamespaceRegistry::validate_selection");
+                return Err(SelectionError {
+                    tool_name: tool_name.to_string(),
+                    expected_source: "unknown".to_string(),
+                    actual_source: selected_source.to_string(),
+                    description: "Lock poisoned — cannot validate tool selection".to_string(),
+                });
+            }
+        };
 
         let entry = match tools.get_mut(&normalized_name) {
             Some(e) => e,
@@ -365,7 +395,13 @@ impl ToolNamespaceRegistry {
     /// Get the registered source for a tool.
     pub fn get_source(&self, tool_name: &str) -> Option<ToolSource> {
         let normalized_name = tool_name.to_lowercase();
-        let tools = self.tools.read().unwrap_or_else(|e| e.into_inner());
+        let tools = match self.tools.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ToolNamespaceRegistry::get_source");
+                return None;
+            }
+        };
         tools
             .get(&normalized_name)
             .map(|e| e.primary_source.clone())
@@ -374,22 +410,37 @@ impl ToolNamespaceRegistry {
     /// Remove a tool from the registry.
     pub fn remove(&self, tool_name: &str) -> bool {
         let normalized_name = tool_name.to_lowercase();
-        let mut tools = self.tools.write().unwrap_or_else(|e| e.into_inner());
+        let mut tools = match self.tools.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ToolNamespaceRegistry::remove");
+                return false;
+            }
+        };
         tools.remove(&normalized_name).is_some()
     }
 
     /// Add a protected name pattern.
     pub fn add_protected_name(&self, pattern: &str) {
-        let mut protected = self
-            .protected_names
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut protected = match self.protected_names.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ToolNamespaceRegistry::add_protected_name");
+                return;
+            }
+        };
         protected.push(pattern.to_lowercase());
     }
 
     /// List all registered tools.
     pub fn list_tools(&self) -> Vec<(String, ToolSource)> {
-        let tools = self.tools.read().unwrap_or_else(|e| e.into_inner());
+        let tools = match self.tools.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ToolNamespaceRegistry::list_tools");
+                return vec![];
+            }
+        };
         tools
             .iter()
             .map(|(name, entry)| (name.clone(), entry.primary_source.clone()))
@@ -398,13 +449,25 @@ impl ToolNamespaceRegistry {
 
     /// Get tool count.
     pub fn tool_count(&self) -> usize {
-        let tools = self.tools.read().unwrap_or_else(|e| e.into_inner());
+        let tools = match self.tools.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ToolNamespaceRegistry::tool_count");
+                return 0;
+            }
+        };
         tools.len()
     }
 
     /// Clear all tools.
     pub fn clear(&self) {
-        let mut tools = self.tools.write().unwrap_or_else(|e| e.into_inner());
+        let mut tools = match self.tools.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in ToolNamespaceRegistry::clear");
+                return;
+            }
+        };
         tools.clear();
     }
 }

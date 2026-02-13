@@ -170,7 +170,13 @@ impl GoalTracker {
             last_activity: Instant::now(),
         };
 
-        let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
+        let mut sessions = match self.sessions.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in GoalTracker::set_initial_goal");
+                return;
+            }
+        };
 
         // Enforce max sessions limit
         if sessions.len() >= self.config.max_sessions && !sessions.contains_key(session_id) {
@@ -182,7 +188,16 @@ impl GoalTracker {
 
     /// Check if an action aligns with the session's initial goal.
     pub fn check_goal_alignment(&self, session_id: &str, action: &Action) -> GoalAlignmentResult {
-        let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
+        let mut sessions = match self.sessions.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in GoalTracker::check_goal_alignment");
+                return GoalAlignmentResult::Diverged {
+                    similarity: 0.0,
+                    description: "RwLock poisoned — fail-closed".to_string(),
+                };
+            }
+        };
 
         let state = match sessions.get_mut(session_id) {
             Some(s) => s,
@@ -241,7 +256,13 @@ impl GoalTracker {
     /// This should be called when the agent receives new instructions or
     /// when goal manipulation is suspected.
     pub fn detect_drift(&self, session_id: &str, current_goal: &str) -> Option<GoalDriftAlert> {
-        let sessions = self.sessions.read().unwrap_or_else(|e| e.into_inner());
+        let sessions = match self.sessions.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in GoalTracker::detect_drift");
+                return None;
+            }
+        };
 
         let state = sessions.get(session_id)?;
         let current_fingerprint = self.create_fingerprint(current_goal);
@@ -277,7 +298,13 @@ impl GoalTracker {
 
     /// Get statistics for a session.
     pub fn get_session_stats(&self, session_id: &str) -> Option<SessionStats> {
-        let sessions = self.sessions.read().unwrap_or_else(|e| e.into_inner());
+        let sessions = match self.sessions.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in GoalTracker::get_session_stats");
+                return None;
+            }
+        };
         let state = sessions.get(session_id)?;
 
         Some(SessionStats {
@@ -290,13 +317,25 @@ impl GoalTracker {
 
     /// Clear a session's goal tracking state.
     pub fn clear_session(&self, session_id: &str) {
-        let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
+        let mut sessions = match self.sessions.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in GoalTracker::clear_session");
+                return;
+            }
+        };
         sessions.remove(session_id);
     }
 
     /// Get the number of tracked sessions.
     pub fn session_count(&self) -> usize {
-        let sessions = self.sessions.read().unwrap_or_else(|e| e.into_inner());
+        let sessions = match self.sessions.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in GoalTracker::session_count");
+                return 0;
+            }
+        };
         sessions.len()
     }
 

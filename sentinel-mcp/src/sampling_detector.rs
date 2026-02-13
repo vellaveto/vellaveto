@@ -181,7 +181,16 @@ impl SamplingDetector {
 
         // Check rate limit
         let now = Self::now();
-        let mut stats = self.stats.write().unwrap_or_else(|p| p.into_inner());
+        let mut stats = match self.stats.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in SamplingDetector::check_request");
+                return Err(SamplingDenied::RateLimitExceeded {
+                    count: self.max_requests,
+                    limit: self.max_requests,
+                });
+            }
+        };
 
         let session_stats = stats
             .entry(session_id.to_string())
@@ -208,7 +217,13 @@ impl SamplingDetector {
     /// Call this after check_request succeeds.
     pub fn record_request(&self, session_id: &str) {
         let now = Self::now();
-        let mut stats = self.stats.write().unwrap_or_else(|p| p.into_inner());
+        let mut stats = match self.stats.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in SamplingDetector::record_request");
+                return;
+            }
+        };
 
         let session_stats = stats
             .entry(session_id.to_string())
@@ -269,14 +284,26 @@ impl SamplingDetector {
 
     /// Get stats for a session.
     pub fn get_stats(&self, session_id: &str) -> Option<SamplingStats> {
-        let stats = self.stats.read().unwrap_or_else(|p| p.into_inner());
+        let stats = match self.stats.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in SamplingDetector::get_stats");
+                return None;
+            }
+        };
         stats.get(session_id).cloned()
     }
 
     /// Get remaining requests for a session in current window.
     pub fn remaining_requests(&self, session_id: &str) -> u32 {
         let now = Self::now();
-        let stats = self.stats.read().unwrap_or_else(|p| p.into_inner());
+        let stats = match self.stats.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in SamplingDetector::remaining_requests");
+                return 0;
+            }
+        };
 
         match stats.get(session_id) {
             Some(s) => {
@@ -292,7 +319,13 @@ impl SamplingDetector {
 
     /// Clear stats for a session.
     pub fn clear_session(&self, session_id: &str) {
-        let mut stats = self.stats.write().unwrap_or_else(|p| p.into_inner());
+        let mut stats = match self.stats.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in SamplingDetector::clear_session");
+                return;
+            }
+        };
         stats.remove(session_id);
     }
 
@@ -301,7 +334,13 @@ impl SamplingDetector {
     /// Returns the number of sessions cleaned up.
     pub fn cleanup_expired(&self) -> usize {
         let now = Self::now();
-        let mut stats = self.stats.write().unwrap_or_else(|p| p.into_inner());
+        let mut stats = match self.stats.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in SamplingDetector::cleanup_expired");
+                return 0;
+            }
+        };
 
         let old_len = stats.len();
         // Keep sessions that have activity within 2 window periods
@@ -313,7 +352,13 @@ impl SamplingDetector {
 
     /// Get the number of tracked sessions.
     pub fn session_count(&self) -> usize {
-        let stats = self.stats.read().unwrap_or_else(|p| p.into_inner());
+        let stats = match self.stats.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in SamplingDetector::session_count");
+                return 0;
+            }
+        };
         stats.len()
     }
 

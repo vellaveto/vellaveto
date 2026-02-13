@@ -412,10 +412,18 @@ impl TokenSecurityAnalyzer {
         // Estimate token count (rough heuristic: ~4 chars per token for English)
         let estimated_tokens = self.estimate_tokens(input);
 
-        let mut contexts = self
-            .session_contexts
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut contexts = match self.session_contexts.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in TokenSecurityAnalyzer::check_context_budget");
+                return Err(ContextFloodingAlert {
+                    estimated_tokens: input.len() / 4,
+                    budget: self.config.default_context_budget,
+                    usage_percent: 100.0,
+                    description: "Context budget check failed: lock poisoned (fail-closed)".to_string(),
+                });
+            }
+        };
         let context = contexts
             .entry(session_id.to_string())
             .or_insert(SessionContext {
@@ -487,10 +495,13 @@ impl TokenSecurityAnalyzer {
 
     /// Set custom context budget for a session.
     pub fn set_session_budget(&self, session_id: &str, budget: usize) {
-        let mut contexts = self
-            .session_contexts
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut contexts = match self.session_contexts.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in TokenSecurityAnalyzer::set_session_budget");
+                return;
+            }
+        };
         let context = contexts
             .entry(session_id.to_string())
             .or_insert(SessionContext {
@@ -504,29 +515,38 @@ impl TokenSecurityAnalyzer {
 
     /// Reset session context.
     pub fn reset_session(&self, session_id: &str) {
-        let mut contexts = self
-            .session_contexts
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut contexts = match self.session_contexts.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in TokenSecurityAnalyzer::reset_session");
+                return;
+            }
+        };
         contexts.remove(session_id);
     }
 
     /// Clean up expired sessions.
     pub fn cleanup_expired_sessions(&self, max_age: Duration) {
-        let mut contexts = self
-            .session_contexts
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut contexts = match self.session_contexts.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in TokenSecurityAnalyzer::cleanup_expired_sessions");
+                return;
+            }
+        };
         let now = Instant::now();
         contexts.retain(|_, ctx| now.duration_since(ctx.last_activity) < max_age);
     }
 
     /// Get session statistics.
     pub fn get_session_stats(&self, session_id: &str) -> Option<(usize, usize, f32)> {
-        let contexts = self
-            .session_contexts
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let contexts = match self.session_contexts.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in TokenSecurityAnalyzer::get_session_stats");
+                return None;
+            }
+        };
         contexts.get(session_id).map(|ctx| {
             (
                 ctx.total_tokens,

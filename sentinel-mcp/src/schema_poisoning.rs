@@ -206,7 +206,22 @@ impl SchemaLineageTracker {
         let now = Self::now();
         let hash = Self::hash_schema(schema);
 
-        let mut schemas = self.schemas.write().unwrap_or_else(|p| p.into_inner());
+        let mut schemas = match self.schemas.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in SchemaPoisoningDetector::observe_schema");
+                return ObservationResult::MajorChange {
+                    similarity: 0.0,
+                    alert: PoisoningAlert {
+                        tool: tool.to_string(),
+                        previous_hash: String::new(),
+                        current_hash: hash,
+                        similarity: 0.0,
+                        changed_fields: vec!["lock_poisoned".to_string()],
+                    },
+                };
+            }
+        };
 
         // Check if we have a previous record
         if let Some(record) = schemas.get_mut(tool) {
@@ -308,7 +323,19 @@ impl SchemaLineageTracker {
     /// # Returns
     /// `Ok(())` if schema is acceptable, `Err(PoisoningAlert)` if poisoning detected.
     pub fn detect_poisoning(&self, tool: &str, schema: &Value) -> Result<(), PoisoningAlert> {
-        let schemas = self.schemas.read().unwrap_or_else(|p| p.into_inner());
+        let schemas = match self.schemas.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in SchemaPoisoningDetector::detect_poisoning");
+                return Err(PoisoningAlert {
+                    tool: tool.to_string(),
+                    previous_hash: String::new(),
+                    current_hash: Self::hash_schema(schema),
+                    similarity: 0.0,
+                    changed_fields: vec!["lock_poisoned".to_string()],
+                });
+            }
+        };
 
         let record = match schemas.get(tool) {
             Some(r) => r,
@@ -347,20 +374,38 @@ impl SchemaLineageTracker {
 
     /// Get trust score for a tool based on schema stability.
     pub fn get_trust_score(&self, tool: &str) -> f32 {
-        let schemas = self.schemas.read().unwrap_or_else(|p| p.into_inner());
+        let schemas = match self.schemas.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in SchemaPoisoningDetector::get_trust_score");
+                return 0.0;
+            }
+        };
 
         schemas.get(tool).map(|r| r.trust_score).unwrap_or(0.0)
     }
 
     /// Get schema lineage history for a tool.
     pub fn get_lineage(&self, tool: &str) -> Option<SchemaRecord> {
-        let schemas = self.schemas.read().unwrap_or_else(|p| p.into_inner());
+        let schemas = match self.schemas.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in SchemaPoisoningDetector::get_lineage");
+                return None;
+            }
+        };
         schemas.get(tool).cloned()
     }
 
     /// Reset trust for a tool (after manual verification).
     pub fn reset_trust(&self, tool: &str, score: f32) {
-        let mut schemas = self.schemas.write().unwrap_or_else(|p| p.into_inner());
+        let mut schemas = match self.schemas.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in SchemaPoisoningDetector::reset_trust");
+                return;
+            }
+        };
 
         if let Some(record) = schemas.get_mut(tool) {
             record.trust_score = score.clamp(0.0, 1.0);
@@ -376,7 +421,13 @@ impl SchemaLineageTracker {
     ///
     /// Call this after successful observations to build trust.
     pub fn increment_trust(&self, tool: &str, increment: f32) {
-        let mut schemas = self.schemas.write().unwrap_or_else(|p| p.into_inner());
+        let mut schemas = match self.schemas.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in SchemaPoisoningDetector::increment_trust");
+                return;
+            }
+        };
 
         if let Some(record) = schemas.get_mut(tool) {
             record.trust_score = (record.trust_score + increment).min(1.0);
@@ -385,13 +436,25 @@ impl SchemaLineageTracker {
 
     /// Get the number of tracked schemas.
     pub fn tracked_count(&self) -> usize {
-        let schemas = self.schemas.read().unwrap_or_else(|p| p.into_inner());
+        let schemas = match self.schemas.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in SchemaPoisoningDetector::tracked_count");
+                return 0;
+            }
+        };
         schemas.len()
     }
 
     /// Remove a tool's schema record.
     pub fn remove(&self, tool: &str) {
-        let mut schemas = self.schemas.write().unwrap_or_else(|p| p.into_inner());
+        let mut schemas = match self.schemas.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in SchemaPoisoningDetector::remove");
+                return;
+            }
+        };
         schemas.remove(tool);
     }
 }

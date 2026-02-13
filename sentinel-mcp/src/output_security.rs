@@ -521,10 +521,13 @@ impl OutputSecurityAnalyzer {
 
     /// Update session baseline with new entropy sample.
     pub fn update_baseline(&self, session_id: &str, entropy: f32) {
-        let mut baselines = self
-            .session_baselines
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut baselines = match self.session_baselines.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in OutputSecurityAnalyzer::update_baseline");
+                return;
+            }
+        };
 
         let baseline = baselines
             .entry(session_id.to_string())
@@ -546,10 +549,13 @@ impl OutputSecurityAnalyzer {
 
     /// Get baseline for a session.
     pub fn get_baseline(&self, session_id: &str) -> Option<(f32, f32)> {
-        let baselines = self
-            .session_baselines
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let baselines = match self.session_baselines.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in OutputSecurityAnalyzer::get_baseline");
+                return None;
+            }
+        };
         baselines.get(session_id).map(|b| (b.average, b.std_dev))
     }
 

@@ -105,20 +105,26 @@ fn runtime_client_slot() -> &'static StdRwLock<Option<Arc<OpaClient>>> {
 /// Configure the process-wide runtime OPA client from policy config.
 ///
 /// When OPA is disabled, this clears any previously configured runtime client.
+/// Returns an error if the internal lock is poisoned (fail-closed).
 pub fn configure_runtime_client(config: &OpaConfig) -> Result<(), OpaError> {
     let client = OpaClient::new(config)?.map(Arc::new);
     let slot = runtime_client_slot();
-    let mut guard = slot
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut guard = slot.write().map_err(|_| {
+        OpaError::InvalidResponse(
+            "OPA runtime client lock poisoned — cannot configure".to_string(),
+        )
+    })?;
     *guard = client;
     Ok(())
 }
 
 /// Get the current process-wide runtime OPA client, if configured.
+///
+/// Returns `None` if the lock is poisoned (fail-closed: no OPA client
+/// means the caller falls back to deny-by-default behavior).
 pub fn runtime_client() -> Option<Arc<OpaClient>> {
     let slot = runtime_client_slot();
-    let guard = slot.read().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let guard = slot.read().ok()?;
     guard.clone()
 }
 

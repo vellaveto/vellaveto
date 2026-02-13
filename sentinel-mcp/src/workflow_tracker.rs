@@ -217,7 +217,13 @@ impl WorkflowTracker {
 
     /// Start a new workflow for a session.
     pub fn start_workflow(&self, session_id: &str, workflow_id: &str) -> bool {
-        let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
+        let mut sessions = match self.sessions.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in WorkflowTracker::start_workflow");
+                return false;
+            }
+        };
 
         // Ensure session exists
         let session = sessions
@@ -250,7 +256,16 @@ impl WorkflowTracker {
 
     /// Record a workflow step.
     pub fn record_step(&self, session_id: &str, workflow_id: &str, action: &Action) -> StepResult {
-        let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
+        let mut sessions = match self.sessions.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in WorkflowTracker::record_step");
+                return StepResult::BudgetExceeded {
+                    step_count: 0,
+                    budget: 0,
+                };
+            }
+        };
 
         // SECURITY (FIND-027): Use entry API to avoid unwrap() after insert.
         let session = sessions.entry(session_id.to_string()).or_insert_with(|| {
@@ -342,7 +357,13 @@ impl WorkflowTracker {
             return None;
         }
 
-        let sessions = self.sessions.read().unwrap_or_else(|e| e.into_inner());
+        let sessions = match self.sessions.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in WorkflowTracker::check_cumulative_effects");
+                return None;
+            }
+        };
         let session = sessions.get(session_id)?;
 
         // Check for suspicious patterns
@@ -411,7 +432,18 @@ impl WorkflowTracker {
 
     /// Predict workflow outcome based on pattern matching.
     pub fn predict_outcome(&self, session_id: &str) -> OutcomePrediction {
-        let sessions = self.sessions.read().unwrap_or_else(|e| e.into_inner());
+        let sessions = match self.sessions.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in WorkflowTracker::predict_outcome");
+                return OutcomePrediction {
+                    category: OutcomeCategory::LikelyMalicious,
+                    confidence: 0.0,
+                    reasoning: "RwLock poisoned — fail-closed".to_string(),
+                    suggested_action: SuggestedAction::Terminate,
+                };
+            }
+        };
 
         let session = match sessions.get(session_id) {
             Some(s) => s,
@@ -499,7 +531,13 @@ impl WorkflowTracker {
 
     /// End a workflow.
     pub fn end_workflow(&self, session_id: &str, workflow_id: &str) {
-        let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
+        let mut sessions = match self.sessions.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in WorkflowTracker::end_workflow");
+                return;
+            }
+        };
         if let Some(session) = sessions.get_mut(session_id) {
             if let Some(workflow) = session.workflows.get_mut(workflow_id) {
                 workflow.active = false;
@@ -509,13 +547,25 @@ impl WorkflowTracker {
 
     /// Clear a session.
     pub fn clear_session(&self, session_id: &str) {
-        let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
+        let mut sessions = match self.sessions.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in WorkflowTracker::clear_session");
+                return;
+            }
+        };
         sessions.remove(session_id);
     }
 
     /// Get workflow statistics.
     pub fn get_stats(&self, session_id: &str) -> Option<WorkflowStats> {
-        let sessions = self.sessions.read().unwrap_or_else(|e| e.into_inner());
+        let sessions = match self.sessions.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in WorkflowTracker::get_stats");
+                return None;
+            }
+        };
         let session = sessions.get(session_id)?;
 
         Some(WorkflowStats {
@@ -528,13 +578,25 @@ impl WorkflowTracker {
 
     /// Get session count.
     pub fn session_count(&self) -> usize {
-        let sessions = self.sessions.read().unwrap_or_else(|e| e.into_inner());
+        let sessions = match self.sessions.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in WorkflowTracker::session_count");
+                return 0;
+            }
+        };
         sessions.len()
     }
 
     /// Set custom budget for a workflow.
     pub fn set_workflow_budget(&self, session_id: &str, workflow_id: &str, budget: usize) {
-        let mut sessions = self.sessions.write().unwrap_or_else(|e| e.into_inner());
+        let mut sessions = match self.sessions.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in WorkflowTracker::set_workflow_budget");
+                return;
+            }
+        };
         if let Some(session) = sessions.get_mut(session_id) {
             if let Some(workflow) = session.workflows.get_mut(workflow_id) {
                 workflow.custom_budget = Some(budget);

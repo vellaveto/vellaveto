@@ -124,22 +124,34 @@ impl AgentTrustGraph {
 
     /// Register an agent with a privilege level.
     pub fn register_agent(&self, agent_id: &str, level: PrivilegeLevel) {
-        let mut levels = self
-            .privilege_levels
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut levels = match self.privilege_levels.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::register_agent (privilege_levels)");
+                return;
+            }
+        };
         levels.insert(agent_id.to_string(), level);
 
-        let mut activity = self
-            .last_activity
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut activity = match self.last_activity.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::register_agent (last_activity)");
+                return;
+            }
+        };
         activity.insert(agent_id.to_string(), Instant::now());
     }
 
     /// Add a trust relationship: `from_agent` trusts `to_agent`.
     pub fn add_trust(&self, from_agent: &str, to_agent: &str) {
-        let mut edges = self.trust_edges.write().unwrap_or_else(|e| e.into_inner());
+        let mut edges = match self.trust_edges.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::add_trust");
+                return;
+            }
+        };
         edges
             .entry(from_agent.to_string())
             .or_default()
@@ -148,7 +160,13 @@ impl AgentTrustGraph {
 
     /// Remove a trust relationship.
     pub fn remove_trust(&self, from_agent: &str, to_agent: &str) {
-        let mut edges = self.trust_edges.write().unwrap_or_else(|e| e.into_inner());
+        let mut edges = match self.trust_edges.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::remove_trust");
+                return;
+            }
+        };
         if let Some(trusted) = edges.get_mut(from_agent) {
             trusted.remove(to_agent);
         }
@@ -156,10 +174,13 @@ impl AgentTrustGraph {
 
     /// Mark an agent as globally trusted.
     pub fn add_trusted_agent(&self, agent_id: &str) {
-        let mut trusted = self
-            .trusted_agents
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut trusted = match self.trusted_agents.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::add_trusted_agent");
+                return;
+            }
+        };
         trusted.insert(agent_id.to_string());
     }
 
@@ -171,16 +192,25 @@ impl AgentTrustGraph {
     /// 3. agent_a's privilege level can delegate to agent_b's level
     pub fn can_delegate(&self, from_agent: &str, to_agent: &str) -> bool {
         // Check if to_agent is globally trusted
-        let trusted = self
-            .trusted_agents
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let trusted = match self.trusted_agents.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::can_delegate (trusted_agents)");
+                return false;
+            }
+        };
         if trusted.contains(to_agent) {
             return true;
         }
 
         // Check explicit trust relationship
-        let edges = self.trust_edges.read().unwrap_or_else(|e| e.into_inner());
+        let edges = match self.trust_edges.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::can_delegate (trust_edges)");
+                return false;
+            }
+        };
         let has_trust = edges
             .get(from_agent)
             .map(|t| t.contains(to_agent))
@@ -191,10 +221,13 @@ impl AgentTrustGraph {
         }
 
         // Check privilege levels
-        let levels = self
-            .privilege_levels
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let levels = match self.privilege_levels.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::can_delegate (privilege_levels)");
+                return false;
+            }
+        };
         let from_level = levels
             .get(from_agent)
             .copied()
@@ -220,29 +253,38 @@ impl AgentTrustGraph {
             session_id: session_id.to_string(),
         };
 
-        let mut chains = self
-            .request_chains
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut chains = match self.request_chains.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::record_request (request_chains)");
+                return;
+            }
+        };
         chains
             .entry(session_id.to_string())
             .or_default()
             .push(entry);
 
-        let mut activity = self
-            .last_activity
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut activity = match self.last_activity.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::record_request (last_activity)");
+                return;
+            }
+        };
         activity.insert(from_agent.to_string(), Instant::now());
         activity.insert(to_agent.to_string(), Instant::now());
     }
 
     /// Get the request chain for a session.
     pub fn get_chain(&self, session_id: &str) -> Vec<RequestChainEntry> {
-        let chains = self
-            .request_chains
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let chains = match self.request_chains.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::get_chain");
+                return vec![];
+            }
+        };
         chains.get(session_id).cloned().unwrap_or_default()
     }
 
@@ -276,14 +318,34 @@ impl AgentTrustGraph {
             });
         }
 
-        let levels = self
-            .privilege_levels
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
-        let trusted = self
-            .trusted_agents
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let levels = match self.privilege_levels.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::detect_privilege_escalation (privilege_levels)");
+                return Some(EscalationAlert {
+                    alert_type: EscalationAlertType::TrustBoundaryViolation,
+                    source_agent: chain.first().map(|e| e.from_agent.clone()).unwrap_or_default(),
+                    target_agent: chain.last().map(|e| e.to_agent.clone()),
+                    chain: chain.to_vec(),
+                    description: "Lock poisoned — fail-closed escalation alert".to_string(),
+                    severity: 5,
+                });
+            }
+        };
+        let trusted = match self.trusted_agents.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::detect_privilege_escalation (trusted_agents)");
+                return Some(EscalationAlert {
+                    alert_type: EscalationAlertType::TrustBoundaryViolation,
+                    source_agent: chain.first().map(|e| e.from_agent.clone()).unwrap_or_default(),
+                    target_agent: chain.last().map(|e| e.to_agent.clone()),
+                    chain: chain.to_vec(),
+                    description: "Lock poisoned — fail-closed escalation alert".to_string(),
+                    severity: 5,
+                });
+            }
+        };
 
         // Track visited agents for circular delegation detection
         let mut visited = HashSet::new();
@@ -343,7 +405,13 @@ impl AgentTrustGraph {
     ///
     /// Returns all agents that the given agent transitively trusts.
     pub fn trust_closure(&self, agent: &str) -> HashSet<String> {
-        let edges = self.trust_edges.read().unwrap_or_else(|e| e.into_inner());
+        let edges = match self.trust_edges.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::trust_closure");
+                return HashSet::new();
+            }
+        };
         let mut closure = HashSet::new();
         let mut to_visit = vec![agent.to_string()];
 
@@ -362,37 +430,82 @@ impl AgentTrustGraph {
 
     /// Get the privilege level for an agent.
     pub fn get_privilege_level(&self, agent: &str) -> PrivilegeLevel {
-        let levels = self
-            .privilege_levels
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let levels = match self.privilege_levels.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::get_privilege_level");
+                return PrivilegeLevel::None;
+            }
+        };
         levels.get(agent).copied().unwrap_or(PrivilegeLevel::None)
     }
 
     /// Check if an agent is registered.
     pub fn is_registered(&self, agent: &str) -> bool {
-        let levels = self
-            .privilege_levels
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let levels = match self.privilege_levels.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::is_registered");
+                return false;
+            }
+        };
         levels.contains_key(agent)
     }
 
     /// Get statistics about the trust graph.
     pub fn stats(&self) -> TrustGraphStats {
-        let edges = self.trust_edges.read().unwrap_or_else(|e| e.into_inner());
-        let levels = self
-            .privilege_levels
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
-        let chains = self
-            .request_chains
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
-        let trusted = self
-            .trusted_agents
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let edges = match self.trust_edges.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::stats (trust_edges)");
+                return TrustGraphStats {
+                    registered_agents: 0,
+                    trusted_agents: 0,
+                    total_trust_edges: 0,
+                    active_sessions: 0,
+                    max_chain_depth: self.max_chain_depth,
+                };
+            }
+        };
+        let levels = match self.privilege_levels.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::stats (privilege_levels)");
+                return TrustGraphStats {
+                    registered_agents: 0,
+                    trusted_agents: 0,
+                    total_trust_edges: 0,
+                    active_sessions: 0,
+                    max_chain_depth: self.max_chain_depth,
+                };
+            }
+        };
+        let chains = match self.request_chains.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::stats (request_chains)");
+                return TrustGraphStats {
+                    registered_agents: 0,
+                    trusted_agents: 0,
+                    total_trust_edges: 0,
+                    active_sessions: 0,
+                    max_chain_depth: self.max_chain_depth,
+                };
+            }
+        };
+        let trusted = match self.trusted_agents.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::stats (trusted_agents)");
+                return TrustGraphStats {
+                    registered_agents: 0,
+                    trusted_agents: 0,
+                    total_trust_edges: 0,
+                    active_sessions: 0,
+                    max_chain_depth: self.max_chain_depth,
+                };
+            }
+        };
 
         let total_edges: usize = edges.values().map(|s| s.len()).sum();
 
@@ -410,10 +523,13 @@ impl AgentTrustGraph {
         let now = Instant::now();
 
         // Clean up old chains
-        let mut chains = self
-            .request_chains
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut chains = match self.request_chains.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::cleanup (request_chains)");
+                return;
+            }
+        };
         chains.retain(|_, entries| {
             if let Some(last) = entries.last() {
                 let entry_time =
@@ -429,36 +545,49 @@ impl AgentTrustGraph {
         });
 
         // Clean up inactive agents
-        let mut activity = self
-            .last_activity
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut activity = match self.last_activity.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::cleanup (last_activity)");
+                return;
+            }
+        };
         activity.retain(|_, last| now.duration_since(*last) < self.chain_ttl);
     }
 
     /// Clear all data (for testing).
     #[cfg(test)]
     pub fn clear(&self) {
-        self.trust_edges
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
-        self.privilege_levels
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
-        self.request_chains
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
-        self.trusted_agents
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
-        self.last_activity
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
+        if let Ok(mut g) = self.trust_edges.write() {
+            g.clear();
+        } else {
+            tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::clear (trust_edges)");
+            return;
+        }
+        if let Ok(mut g) = self.privilege_levels.write() {
+            g.clear();
+        } else {
+            tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::clear (privilege_levels)");
+            return;
+        }
+        if let Ok(mut g) = self.request_chains.write() {
+            g.clear();
+        } else {
+            tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::clear (request_chains)");
+            return;
+        }
+        if let Ok(mut g) = self.trusted_agents.write() {
+            g.clear();
+        } else {
+            tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::clear (trusted_agents)");
+            return;
+        }
+        if let Ok(mut g) = self.last_activity.write() {
+            g.clear();
+        } else {
+            tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::clear (last_activity)");
+            return;
+        }
     }
 }
 

@@ -223,7 +223,13 @@ impl NonceTracker {
     pub fn check_and_record(&self, nonce: &[u8; 32]) -> bool {
         let now = Instant::now();
 
-        let mut seen = self.seen_nonces.write().unwrap_or_else(|e| e.into_inner());
+        let mut seen = match self.seen_nonces.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in NonceTracker::check_and_record");
+                return false; // fail-closed: treat as replay (block the message)
+            }
+        };
 
         // Clean up expired nonces first
         seen.retain(|_, first_seen| now.duration_since(*first_seen) < self.expiry_duration);
@@ -248,26 +254,50 @@ impl NonceTracker {
 
     /// Check if a nonce has been seen (without recording).
     pub fn is_seen(&self, nonce: &[u8; 32]) -> bool {
-        let seen = self.seen_nonces.read().unwrap_or_else(|e| e.into_inner());
+        let seen = match self.seen_nonces.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in NonceTracker::is_seen");
+                return true; // fail-closed: assume seen (block)
+            }
+        };
         seen.contains_key(nonce)
     }
 
     /// Get the number of tracked nonces.
     pub fn count(&self) -> usize {
-        let seen = self.seen_nonces.read().unwrap_or_else(|e| e.into_inner());
+        let seen = match self.seen_nonces.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in NonceTracker::count");
+                return 0;
+            }
+        };
         seen.len()
     }
 
     /// Clear all tracked nonces.
     pub fn clear(&self) {
-        let mut seen = self.seen_nonces.write().unwrap_or_else(|e| e.into_inner());
+        let mut seen = match self.seen_nonces.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in NonceTracker::clear");
+                return;
+            }
+        };
         seen.clear();
     }
 
     /// Perform cleanup of expired nonces.
     pub fn cleanup(&self) {
         let now = Instant::now();
-        let mut seen = self.seen_nonces.write().unwrap_or_else(|e| e.into_inner());
+        let mut seen = match self.seen_nonces.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in NonceTracker::cleanup");
+                return;
+            }
+        };
         seen.retain(|_, first_seen| now.duration_since(*first_seen) < self.expiry_duration);
     }
 }
@@ -352,7 +382,13 @@ impl AgentKeyRegistry {
 
     /// Register an agent's public key.
     pub fn register(&self, agent_id: &str, key: VerifyingKey) {
-        let mut keys = self.keys.write().unwrap_or_else(|e| e.into_inner());
+        let mut keys = match self.keys.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentKeyRegistry::register");
+                return; // fail-closed: don't register with corrupted state
+            }
+        };
         keys.insert(agent_id.to_string(), key);
     }
 
@@ -366,25 +402,49 @@ impl AgentKeyRegistry {
 
     /// Get an agent's public key.
     pub fn get(&self, agent_id: &str) -> Option<VerifyingKey> {
-        let keys = self.keys.read().unwrap_or_else(|e| e.into_inner());
+        let keys = match self.keys.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentKeyRegistry::get");
+                return None; // fail-closed: no key = can't verify
+            }
+        };
         keys.get(agent_id).copied()
     }
 
     /// Remove an agent's public key.
     pub fn remove(&self, agent_id: &str) {
-        let mut keys = self.keys.write().unwrap_or_else(|e| e.into_inner());
+        let mut keys = match self.keys.write() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentKeyRegistry::remove");
+                return;
+            }
+        };
         keys.remove(agent_id);
     }
 
     /// Check if an agent is registered.
     pub fn is_registered(&self, agent_id: &str) -> bool {
-        let keys = self.keys.read().unwrap_or_else(|e| e.into_inner());
+        let keys = match self.keys.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentKeyRegistry::is_registered");
+                return false; // fail-closed: not registered = can't proceed
+            }
+        };
         keys.contains_key(agent_id)
     }
 
     /// Get the number of registered agents.
     pub fn count(&self) -> usize {
-        let keys = self.keys.read().unwrap_or_else(|e| e.into_inner());
+        let keys = match self.keys.read() {
+            Ok(g) => g,
+            Err(_) => {
+                tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentKeyRegistry::count");
+                return 0;
+            }
+        };
         keys.len()
     }
 
