@@ -9,7 +9,7 @@
 FROM rust:1.93-alpine AS builder
 
 # Install build dependencies
-RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig
+RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig file
 
 # Create a non-root user for the build
 WORKDIR /build
