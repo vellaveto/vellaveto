@@ -11,7 +11,7 @@
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-4%2C300%2B_passing-brightgreen.svg" alt="Tests: 4,300+ passing">
+    <img src="https://img.shields.io/badge/tests-4%2C400%2B_passing-brightgreen.svg" alt="Tests: 4,400+ passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <img src="https://img.shields.io/badge/security_audit-35_rounds%2C_390%2B_findings-informational.svg" alt="Security Audit: 35 rounds, 390+ findings">
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
@@ -35,7 +35,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>2.2.1</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>4,300+ tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>4,400+ tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
@@ -45,7 +45,9 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 ## Recent Updates (2026-02-13)
 
 - **Production-ready CI/CD** — 11 GitHub Actions workflows: CI, security audit, cargo-deny, dependency review, scorecard, provenance/SBOM, Docker publish (GHCR + Trivy), release automation (static binaries, checksums, SBOM, provenance), rustdoc Pages, PyPI publish (trusted OIDC), and crates.io publish (dependency-ordered).
-- **Python SDK test suite** — 86 tests covering types, sync/async client, LangChain callback handler/tool guard, and LangGraph sentinel node integration.
+- **Python SDK** — 130 tests covering types, sync/async client, LangChain, LangGraph, and parameter redaction. Client-side secret stripping via `ParameterRedactor` with 3 modes.
+- **Framework quickstart guides** — Step-by-step integration for Anthropic SDK, OpenAI SDK, LangChain, LangGraph, and MCP proxy.
+- **Policy presets** — 5 curated configurations for dev-laptop, CI/CD, RAG, database, and browser agent scenarios.
 - **AGPL-3.0 dual license** — Switched from Apache-2.0 to AGPL-3.0 with commercial license option. Machine-readable AI training opt-out for EU CDSM Article 4 compliance.
 - **Phase 14: A2A Protocol Security** — Full Google A2A protocol security with message classification, action extraction, Agent Card caching/validation, HTTP proxy service, batch rejection for TOCTOU prevention.
 - **Phase 15: AI Observability Platform Integration** — Langfuse, Arize, Helicone, and Webhook exporters with `SecuritySpan` tracing.
