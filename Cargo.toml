@@ -17,7 +17,7 @@ members = [
 ]
 
 [workspace.package]
-license = "Apache-2.0"
+license = "AGPL-3.0-only"
 repository = "https://github.com/paolovella/sentinel"
 
 [workspace.dependencies]

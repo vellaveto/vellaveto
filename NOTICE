@@ -1,0 +1,8 @@
+Sentinel — Runtime Security Engine for AI Agent Tool Calls
+Copyright 2026 Paolo Vella
+
+This product is licensed under the GNU Affero General Public License v3.0.
+A commercial license is also available. See LICENSING.md for details.
+
+This project includes software developed by third parties.
+See individual crate licenses via `cargo license`.

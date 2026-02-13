@@ -9,7 +9,7 @@
   <p align="center">
     <a href="https://github.com/paolovella/sentinel/releases"><img src="https://img.shields.io/badge/version-2.2.1-blue.svg" alt="Version 2.2.1"></a>
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
-    <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
+    <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
     <img src="https://img.shields.io/badge/tests-4%2C300%2B_passing-brightgreen.svg" alt="Tests: 4,300+ passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
@@ -39,7 +39,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
-<tr><td>📄 <strong>License</strong></td><td>Apache 2.0</td></tr>
+<tr><td>📄 <strong>License</strong></td><td>AGPL-3.0 (dual license available)</td></tr>
 </table>
 
 ## Recent Updates (2026-02-13)
@@ -1172,4 +1172,6 @@ Comprehensive documentation is available in the `docs/` directory:
 
 ## 📄 License
 
-This project is licensed under the [Apache License 2.0](LICENSE).
+This project is dual-licensed under the [GNU Affero General Public License v3.0](LICENSE) and a commercial license. See [LICENSING.md](LICENSING.md) for details.
+
+If you modify Sentinel and offer it as a network service, the AGPL-3.0 requires you to make your source code available. For proprietary use or managed service offerings without source disclosure, contact **paolo@paolovella.com** for a commercial license.

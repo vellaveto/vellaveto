@@ -267,4 +267,4 @@ ruff check sentinel
 
 ## License
 
-Apache 2.0 - see [LICENSE](../../LICENSE) for details.
+AGPL-3.0 (dual license available) - see [LICENSING.md](../../LICENSING.md) for details.

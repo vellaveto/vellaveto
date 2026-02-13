@@ -1,0 +1,16 @@
+# AI Training Policy for Sentinel
+# https://github.com/paolovella/sentinel
+#
+# In accordance with EU Directive 2019/790 (CDSM) Article 4 and
+# EU AI Act (2024/1689) Article 53, the copyright holder expressly
+# reserves all rights regarding text and data mining.
+#
+# Use of this repository's source code, documentation, and associated
+# materials as training data for machine learning models (including
+# large language models) is NOT permitted without explicit written
+# authorization from the copyright holder.
+#
+# Contact: paolo@paolovella.com
+
+User-Agent: *
+Disallow-AI-Training: yes
