@@ -1,0 +1,103 @@
+# Sentinel Preset: Browser Automation Agent
+#
+# For AI agents that automate web browsers (Playwright, Puppeteer,
+# Selenium). Prevents navigation to malicious sites, blocks credential
+# harvesting, and restricts file downloads.
+#
+# Usage:
+#   sentinel serve --config examples/presets/browser-agent.toml --port 3000
+
+# --- Block credential file access ---
+[[policies]]
+name = "Block credential files"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "browser:*:credential-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "**/.env",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env.*",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/credentials*",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/passwords*",        on_match = "deny", on_missing = "skip" },
+]
+
+# --- Block navigation to dangerous sites ---
+[[policies]]
+name = "Block malicious domains"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 250
+id = "browser:*:domain-block"
+
+[policies.network_rules]
+allowed_domains = []
+blocked_domains = [
+  # Exfiltration endpoints
+  "pastebin.com",
+  "hastebin.com",
+  "transfer.sh",
+  "file.io",
+  "0x0.st",
+  "webhook.site",
+  "requestbin.com",
+  # Phishing/malware infrastructure
+  "bit.ly",
+  "tinyurl.com",
+]
+
+[policies.network_rules.ip_rules]
+block_private = true
+
+# --- Block form submissions to unknown domains ---
+[[policies]]
+name = "Require approval for form submissions"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 200
+id = "browser:*:form-approval"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "(?i)(submit|post).*form",   on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "(?i)fill.*(password|credit|ssn)", on_match = "deny", on_missing = "skip" },
+]
+
+# --- Block downloads to sensitive paths ---
+[[policies]]
+name = "Block downloads outside /tmp"
+tool_pattern = "*"
+function_pattern = "download*"
+priority = 150
+id = "browser:download:path-restrict"
+
+[policies.path_rules]
+allowed_globs = ["/tmp/**", "/home/*/Downloads/**"]
+blocked_globs = ["/etc/**", "/var/**", "/usr/**"]
+
+# --- Default allow ---
+[[policies]]
+name = "Default allow for browser"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 1
+id = "browser:*:default-allow"
+policy_type = "Allow"
+
+# --- Injection detection ---
+[injection]
+enabled = true
+blocking = true
+
+# --- DLP scanning ---
+[dlp]
+enabled = true
+blocking = true
+scan_responses = true
+
+# --- Audit ---
+[audit]
+redaction_level = "High"

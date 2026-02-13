@@ -1,0 +1,88 @@
+# Sentinel Preset: RAG Agent
+#
+# For retrieval-augmented generation agents that query vector databases,
+# search APIs, and document stores. Focuses on preventing data
+# exfiltration, injection via retrieved documents, and unauthorized
+# data access.
+#
+# Usage:
+#   sentinel serve --config examples/presets/rag-agent.toml --port 3000
+
+# --- Block credential file access ---
+[[policies]]
+name = "Block credential files"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "rag:*:credential-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "**/.env",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env.*",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/credentials*",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets*",           on_match = "deny", on_missing = "skip" },
+]
+
+# --- Restrict network to approved data sources ---
+[[policies]]
+name = "Network allowlist for data sources"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 250
+id = "rag:*:network-allowlist"
+
+[policies.network_rules]
+allowed_domains = [
+  # Add your vector DB, search API, and document store domains here
+  # "pinecone.io",
+  # "weaviate.example.com",
+  # "elasticsearch.internal",
+]
+blocked_domains = [
+  # Known exfiltration targets
+  "pastebin.com",
+  "hastebin.com",
+  "transfer.sh",
+  "file.io",
+  "0x0.st",
+]
+
+[policies.network_rules.ip_rules]
+block_private = true
+
+# --- Block write operations on sensitive paths ---
+[[policies]]
+name = "Block writes to system paths"
+tool_pattern = "*"
+function_pattern = "write*"
+priority = 200
+id = "rag:write:system-block"
+
+[policies.path_rules]
+blocked_globs = ["/etc/**", "/var/**", "/usr/**", "/bin/**", "/sbin/**"]
+
+# --- Default allow for reads ---
+[[policies]]
+name = "Default allow for RAG"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 1
+id = "rag:*:default-allow"
+policy_type = "Allow"
+
+# --- Injection detection (critical for RAG) ---
+[injection]
+enabled = true
+blocking = true
+
+# --- DLP scanning (prevent exfiltration of retrieved data) ---
+[dlp]
+enabled = true
+blocking = true
+scan_responses = true
+
+# --- Audit ---
+[audit]
+redaction_level = "KeysAndPatterns"
