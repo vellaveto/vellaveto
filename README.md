@@ -264,8 +264,26 @@ sha256sum dist/sentinel-main-*.zip
 
 ## 🚀 Quick Start
 
+### Docker (recommended)
+
 ```bash
-# Build (if not using Docker)
+# Clone and start with docker compose
+git clone https://github.com/paolovella/sentinel.git
+cd sentinel
+export SENTINEL_API_KEY=$(openssl rand -hex 32)
+docker compose up -d
+
+# Evaluate a tool call
+curl -s http://localhost:3000/api/evaluate \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $SENTINEL_API_KEY" \
+  -d '{"tool":"file","function":"read","parameters":{"path":"/tmp/test"}}' | jq .
+```
+
+### From Source
+
+```bash
+# Build
 cargo build --release
 
 # Create a policy config (deny-by-default baseline)

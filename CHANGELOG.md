@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Docker Compose for local deployment (`docker-compose.yml`)
+- Docker image build and publish workflow (GHCR + Trivy scanning)
+- GitHub release automation workflow (static binaries, checksums, SBOM, provenance)
+- Rustdoc GitHub Pages deployment workflow
+- CONTRIBUTING.md with development rules and release checklist
+- LICENSING.md with dual license terms and AI training opt-out
+- 5 new fuzz targets: agent card URL/parse, A2A classify, homoglyph, attestation verify (15 → 20 total)
+- Machine-readable AI training opt-out (`.well-known/ai-policy.txt`)
+
+### Changed
+
+- License switched from Apache-2.0 to AGPL-3.0 dual license
+- All crate versions synced from 2.0.0 to 2.2.1
+- Helm chart version synced to 2.2.1, license annotation corrected
+- Python SDK version synced to 2.2.1
+
+## [2.2.1] - 2026-02-13
+
 ### Security
 
 - **Adversarial Audit Hardening (FIND-055–074)**:
@@ -846,5 +866,7 @@ This is the initial stable release. No breaking changes from previous versions.
 - **Fixed** for any bug fixes
 - **Security** for vulnerability fixes
 
+[2.2.1]: https://github.com/paolovella/sentinel/compare/v2.0.0...v2.2.1
+[2.0.0]: https://github.com/paolovella/sentinel/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/paolovella/sentinel/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/paolovella/sentinel/releases/tag/v0.1.0

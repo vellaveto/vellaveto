@@ -2,7 +2,10 @@
 
 > **Project:** Sentinel — MCP Tool Firewall
 > **State:** All priority items (P0–P4) implemented, Phase 14 A2A protocol security complete, all adversarial audit findings (FIND-043–074) addressed
+> **Version:** 2.2.1 (all crates, Helm, SDK synced)
+> **License:** AGPL-3.0 dual license (see LICENSING.md)
 > **Tests:** 4,278+ passing, zero warnings, zero `unwrap()` in library code
+> **Fuzz targets:** 20
 > **Updated:** 2026-02-13
 
 ---
