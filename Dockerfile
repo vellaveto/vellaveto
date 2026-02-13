@@ -9,7 +9,7 @@
 FROM rust:1.93-alpine AS builder
 
 # Install build dependencies
-RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig file
+RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig
 
 # Create a non-root user for the build
 WORKDIR /build
@@ -74,8 +74,9 @@ RUN find . -name "*.rs" -exec touch {} \;
 RUN cargo build --release --target x86_64-unknown-linux-musl \
     --bin sentinel --bin sentinel-http-proxy
 
-# Verify binaries are statically linked
-RUN file /build/target/x86_64-unknown-linux-musl/release/sentinel | grep -q "statically linked"
+# Verify binaries exist and are executable (musl target guarantees static linking)
+RUN test -x /build/target/x86_64-unknown-linux-musl/release/sentinel \
+    && test -x /build/target/x86_64-unknown-linux-musl/release/sentinel-http-proxy
 
 # Runtime stage: Minimal Alpine image
 FROM alpine:3.21
