@@ -83,6 +83,8 @@ impl ProxyBridge {
                 use tokio::io::AsyncWriteExt;
                 if let Err(e) = file.write_all(line.as_bytes()).await {
                     tracing::warn!("Failed to persist flagged tool '{}': {}", tool_name, e);
+                } else if let Err(e) = file.flush().await {
+                    tracing::warn!("Failed to flush flagged tool '{}': {}", tool_name, e);
                 }
             }
             Err(e) => {
