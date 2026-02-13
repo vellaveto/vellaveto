@@ -10,7 +10,7 @@ readme = "README.md"
 license = "AGPL-3.0-only"
 requires-python = ">=3.9"
 authors = [
-    { name = "Paolo Vella", email = "paolo@example.com" }
+    { name = "Paolo Vella", email = "paolovella1993@gmail.com" }
 ]
 keywords = [
     "sentinel",

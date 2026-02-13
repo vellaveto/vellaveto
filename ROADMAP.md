@@ -892,11 +892,11 @@ The following research agents provided input for this roadmap:
 | ~~Memory Injection Defense (MINJA)~~ | Agent Security Bench | ✅ Implemented (Phase 9) | ~~P1~~ |
 | ~~Non-Human Identity (NHI) Lifecycle~~ | ATF, CyberArk | ✅ Implemented (Phase 10) | ~~P1~~ |
 | Stateful Session Reasoning Guards | NeMo Guardrails | Not implemented | P2 |
-| Semantic Guardrails (LLM-based) | Guardrails AI, NeMo | Not implemented | P2 |
-| A2A Protocol Security | Google A2A (2025) | Not implemented | P2 |
+| ~~Semantic Guardrails (LLM-based)~~ | Guardrails AI, NeMo | ✅ Implemented (Phase 12) | ~~P2~~ |
+| ~~A2A Protocol Security~~ | Google A2A (2025) | ✅ Implemented (Phase 14) | ~~P2~~ |
 | RAG Poisoning Detection | Microsoft research | Not implemented | P2 |
-| MCP Tasks Primitive Support | MCP 2025-11-25 | Not implemented | P1 |
-| Agent Observability Platform Integration | Arize, Langfuse | Partial (OTEL) | P3 |
+| ~~MCP Tasks Primitive Support~~ | MCP 2025-11-25 | ✅ Implemented (Phase 1) | ~~P1~~ |
+| ~~Agent Observability Platform Integration~~ | Arize, Langfuse | ✅ Implemented (Phase 15) | ~~P3~~ |
 
 ---
 

@@ -8,7 +8,7 @@ Example:
     from sentinel import SentinelClient
     from sentinel.langchain import SentinelCallbackHandler
 
-    client = SentinelClient(url="http://localhost:8080")
+    client = SentinelClient(url="http://localhost:3000")
     handler = SentinelCallbackHandler(client)
 
     chain = LLMChain(..., callbacks=[handler])

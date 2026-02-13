@@ -25,7 +25,7 @@ struct Cli {
 enum Commands {
     /// Start the HTTP server
     Serve {
-        #[arg(short, long, default_value_t = 8080)]
+        #[arg(short, long, default_value_t = 3000)]
         port: u16,
         #[arg(short, long)]
         config: String,

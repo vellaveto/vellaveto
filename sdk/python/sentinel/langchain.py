@@ -10,7 +10,7 @@ Example:
     from sentinel import SentinelClient
     from sentinel.langchain import SentinelCallbackHandler
 
-    client = SentinelClient(url="http://localhost:8080")
+    client = SentinelClient(url="http://localhost:3000")
     handler = SentinelCallbackHandler(client)
 
     llm = OpenAI()
@@ -51,7 +51,7 @@ class SentinelCallbackHandler(BaseCallbackHandler):
         from sentinel import SentinelClient
         from sentinel.langchain import SentinelCallbackHandler
 
-        client = SentinelClient(url="http://localhost:8080")
+        client = SentinelClient(url="http://localhost:3000")
         handler = SentinelCallbackHandler(
             client=client,
             session_id="my-session",
@@ -299,7 +299,7 @@ class SentinelToolGuard:
         from sentinel import SentinelClient
         from sentinel.langchain import SentinelToolGuard
 
-        client = SentinelClient(url="http://localhost:8080")
+        client = SentinelClient(url="http://localhost:3000")
         guard = SentinelToolGuard(client)
 
         @tool
@@ -397,7 +397,7 @@ def create_guarded_toolkit(
         from sentinel import SentinelClient
         from sentinel.langchain import create_guarded_toolkit
 
-        client = SentinelClient(url="http://localhost:8080")
+        client = SentinelClient(url="http://localhost:3000")
         toolkit = FileManagementToolkit()
         guarded_tools = create_guarded_toolkit(client, toolkit)
 

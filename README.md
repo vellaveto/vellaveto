@@ -314,22 +314,22 @@ priority = 0  # Lowest priority — catches everything not explicitly allowed
 EOF
 
 # Start the server
-SENTINEL_API_KEY=your-secret sentinel serve --config policy.toml --port 8080
+SENTINEL_API_KEY=your-secret sentinel serve --config policy.toml --port 3000
 
 # Evaluate a tool call (another terminal)
-curl -s http://localhost:8080/api/evaluate \
+curl -s http://localhost:3000/api/evaluate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-secret" \
   -d '{"tool":"file","function":"read","parameters":{"path":"/tmp/test"}}' | jq .
 # -> {"verdict":"Allow", ...}  (allowed by "Allow file reads in /tmp")
 
-curl -s http://localhost:8080/api/evaluate \
+curl -s http://localhost:3000/api/evaluate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-secret" \
   -d '{"tool":"file","function":"read","parameters":{"path":"/etc/passwd"}}' | jq .
 # -> {"verdict":{"Deny":{"reason":"..."}}, ...}  (denied — path not in /tmp)
 
-curl -s http://localhost:8080/api/evaluate \
+curl -s http://localhost:3000/api/evaluate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-secret" \
   -d '{"tool":"bash","function":"exec","parameters":{"cmd":"ls"}}' | jq .
@@ -459,13 +459,13 @@ When triggered, the evaluation response includes an `approval_id`. Use the appro
 
 ```bash
 # Approve
-curl -X POST http://localhost:8080/api/approvals/$APPROVAL_ID/approve \
+curl -X POST http://localhost:3000/api/approvals/$APPROVAL_ID/approve \
   -H "Authorization: Bearer $SENTINEL_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"resolved_by": "alice@example.com"}'
 
 # Deny
-curl -X POST http://localhost:8080/api/approvals/$APPROVAL_ID/deny \
+curl -X POST http://localhost:3000/api/approvals/$APPROVAL_ID/deny \
   -H "Authorization: Bearer $SENTINEL_API_KEY"
 ```
 
@@ -581,7 +581,7 @@ The primary mode. Runs a standalone HTTP server that agents call to evaluate too
 ```bash
 SENTINEL_API_KEY=your-secret sentinel serve \
   --config policy.toml \
-  --port 8080 \
+  --port 3000 \
   --bind 127.0.0.1
 ```
 
@@ -718,7 +718,7 @@ All endpoints except `/health`, `/metrics`, and `/api/metrics` require a `Bearer
 ### Example: Evaluate
 
 ```bash
-curl -X POST http://localhost:8080/api/evaluate \
+curl -X POST http://localhost:3000/api/evaluate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $SENTINEL_API_KEY" \
   -d '{
@@ -747,7 +747,7 @@ curl -X POST http://localhost:8080/api/evaluate \
 ### Example: Prometheus Metrics
 
 ```bash
-curl http://localhost:8080/metrics
+curl http://localhost:3000/metrics
 ```
 
 ```
@@ -766,11 +766,11 @@ sentinel_evaluation_duration_seconds_bucket{le="0.001"} 1129
 
 ```bash
 # Export in CEF format
-curl "http://localhost:8080/api/audit/export?format=cef&limit=100" \
+curl "http://localhost:3000/api/audit/export?format=cef&limit=100" \
   -H "Authorization: Bearer $SENTINEL_API_KEY"
 
 # Export in JSON Lines format
-curl "http://localhost:8080/api/audit/export?format=jsonl&since=2026-02-04T00:00:00Z" \
+curl "http://localhost:3000/api/audit/export?format=jsonl&since=2026-02-04T00:00:00Z" \
   -H "Authorization: Bearer $SENTINEL_API_KEY"
 ```
 
@@ -796,12 +796,12 @@ Every policy decision is logged to a tamper-evident audit trail.
 sentinel verify --audit audit.log
 
 # Via API (live verification)
-curl http://localhost:8080/api/audit/verify \
+curl http://localhost:3000/api/audit/verify \
   -H "Authorization: Bearer $SENTINEL_API_KEY" | jq .
 # -> {"valid": true, "entries_checked": 142, "first_broken_at": null}
 
 # Verify checkpoint signatures
-curl http://localhost:8080/api/audit/checkpoints/verify \
+curl http://localhost:3000/api/audit/checkpoints/verify \
   -H "Authorization: Bearer $SENTINEL_API_KEY" | jq .
 ```
 
@@ -1045,7 +1045,7 @@ Benchmark results (criterion, single-threaded):
 
 ```bash
 # HTTP policy server
-sentinel serve --config policy.toml [--port 8080] [--bind 127.0.0.1] [--allow-anonymous]
+sentinel serve --config policy.toml [--port 3000] [--bind 127.0.0.1] [--allow-anonymous]
 
 # One-shot evaluation (no server needed)
 sentinel evaluate --tool file --function read \

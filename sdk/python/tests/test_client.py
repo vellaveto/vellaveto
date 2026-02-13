@@ -21,7 +21,7 @@ class TestSentinelClientInit:
 
     def test_default_url(self):
         client = SentinelClient()
-        assert client.url == "http://localhost:8080"
+        assert client.url == "http://localhost:3000"
         client.close()
 
     def test_custom_url_trailing_slash(self):
@@ -59,7 +59,7 @@ class TestSentinelClientEvaluate:
 
     def test_evaluate_allow(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "allow", "policy_id": "p1", "policy_name": "test-policy"},
         )
 
@@ -71,7 +71,7 @@ class TestSentinelClientEvaluate:
 
     def test_evaluate_deny(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "deny", "reason": "Path blocked by policy"},
         )
 
@@ -88,7 +88,7 @@ class TestSentinelClientEvaluate:
 
     def test_evaluate_require_approval(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={
                 "verdict": "require_approval",
                 "reason": "Sensitive operation",
@@ -104,7 +104,7 @@ class TestSentinelClientEvaluate:
 
     def test_evaluate_with_context(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "allow"},
         )
 
@@ -143,7 +143,7 @@ class TestSentinelClientEvaluate:
 
     def test_evaluate_request_payload(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "allow"},
         )
 
@@ -171,7 +171,7 @@ class TestSentinelClientEvaluateOrRaise:
 
     def test_evaluate_or_raise_allow(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "allow"},
         )
 
@@ -182,7 +182,7 @@ class TestSentinelClientEvaluateOrRaise:
 
     def test_evaluate_or_raise_deny(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "deny", "reason": "Blocked", "policy_id": "p1"},
         )
 
@@ -197,7 +197,7 @@ class TestSentinelClientEvaluateOrRaise:
 
     def test_evaluate_or_raise_approval_required(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={
                 "verdict": "require_approval",
                 "reason": "Needs review",
@@ -220,7 +220,7 @@ class TestSentinelClientEndpoints:
 
     def test_health(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/health",
+            url="http://localhost:3000/health",
             json={"status": "ok", "version": "2.2.1"},
         )
 
@@ -231,7 +231,7 @@ class TestSentinelClientEndpoints:
 
     def test_list_policies(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/policies",
+            url="http://localhost:3000/api/policies",
             json=[{"id": "p1", "name": "test"}],
         )
 
@@ -243,7 +243,7 @@ class TestSentinelClientEndpoints:
 
     def test_reload_policies(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/policies/reload",
+            url="http://localhost:3000/api/policies/reload",
             json={"reloaded": True, "policy_count": 5},
         )
 
@@ -254,7 +254,7 @@ class TestSentinelClientEndpoints:
 
     def test_get_pending_approvals(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/approvals",
+            url="http://localhost:3000/api/approvals",
             json=[{"id": "apr-1", "tool": "database", "status": "pending"}],
         )
 
@@ -266,7 +266,7 @@ class TestSentinelClientEndpoints:
 
     def test_resolve_approval(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/approvals/apr-1",
+            url="http://localhost:3000/api/approvals/apr-1",
             json={"resolved": True},
         )
 
@@ -286,7 +286,7 @@ class TestSentinelClientErrors:
 
     def test_http_error_raises_sentinel_error(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             status_code=500,
         )
 
@@ -298,7 +298,7 @@ class TestSentinelClientErrors:
     def test_connection_error(self, httpx_mock):
         httpx_mock.add_exception(
             httpx.ConnectError("Connection refused"),
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
         )
 
         client = SentinelClient()
@@ -340,7 +340,7 @@ class TestAsyncSentinelClient:
     @pytest.mark.asyncio
     async def test_async_evaluate_allow(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "allow", "policy_id": "p1"},
         )
 
@@ -351,7 +351,7 @@ class TestAsyncSentinelClient:
     @pytest.mark.asyncio
     async def test_async_evaluate_deny(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "deny", "reason": "Blocked"},
         )
 
@@ -363,7 +363,7 @@ class TestAsyncSentinelClient:
     @pytest.mark.asyncio
     async def test_async_evaluate_or_raise_deny(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "deny", "reason": "No"},
         )
 
@@ -374,7 +374,7 @@ class TestAsyncSentinelClient:
     @pytest.mark.asyncio
     async def test_async_evaluate_or_raise_approval(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={
                 "verdict": "require_approval",
                 "reason": "Review",
@@ -389,7 +389,7 @@ class TestAsyncSentinelClient:
     @pytest.mark.asyncio
     async def test_async_health(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/health",
+            url="http://localhost:3000/health",
             json={"status": "ok"},
         )
 
@@ -400,7 +400,7 @@ class TestAsyncSentinelClient:
     @pytest.mark.asyncio
     async def test_async_list_policies(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/policies",
+            url="http://localhost:3000/api/policies",
             json=[{"id": "p1"}],
         )
 

@@ -17,7 +17,7 @@ class TestSentinelCallbackHandler:
         if response_json is None:
             response_json = {"verdict": "allow"}
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json=response_json,
         )
         client = SentinelClient()
@@ -70,7 +70,7 @@ class TestSentinelCallbackHandler:
 
     def test_on_tool_start_deny_no_raise(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "deny", "reason": "Blocked"},
         )
         client = SentinelClient()
@@ -89,7 +89,7 @@ class TestSentinelCallbackHandler:
         # Allow multiple responses
         for _ in range(3):
             httpx_mock.add_response(
-                url="http://localhost:8080/api/evaluate",
+                url="http://localhost:3000/api/evaluate",
                 json={"verdict": "allow"},
             )
 
@@ -111,7 +111,7 @@ class TestSentinelCallbackHandler:
     def test_call_chain_max_length(self, httpx_mock):
         for _ in range(25):
             httpx_mock.add_response(
-                url="http://localhost:8080/api/evaluate",
+                url="http://localhost:3000/api/evaluate",
                 json={"verdict": "allow"},
             )
 
@@ -134,7 +134,7 @@ class TestSentinelCallbackHandler:
 
     def test_extract_paths_from_input(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "allow"},
         )
 
@@ -155,7 +155,7 @@ class TestSentinelCallbackHandler:
 
     def test_extract_domains_from_input(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "allow"},
         )
 
@@ -176,7 +176,7 @@ class TestSentinelCallbackHandler:
 
     def test_string_input_handled(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "allow"},
         )
 
@@ -197,7 +197,7 @@ class TestSentinelCallbackHandler:
 
     def test_fail_closed_on_api_error(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             status_code=500,
         )
 
@@ -215,7 +215,7 @@ class TestSentinelCallbackHandler:
 
     def test_inputs_kwarg_preferred(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "allow"},
         )
 
@@ -241,7 +241,7 @@ class TestSentinelToolGuard:
 
     def test_guard_allows_execution(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "allow"},
         )
 
@@ -260,7 +260,7 @@ class TestSentinelToolGuard:
 
     def test_guard_blocks_execution(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "deny", "reason": "Blocked"},
         )
 
@@ -283,7 +283,7 @@ class TestSentinelToolGuard:
 
     def test_guard_extracts_paths(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "allow"},
         )
 

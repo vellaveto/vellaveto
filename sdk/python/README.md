@@ -25,7 +25,7 @@ pip install sentinel-sdk[all]
 ```python
 from sentinel import SentinelClient, Verdict
 
-client = SentinelClient(url="http://localhost:8080", api_key="your-key")
+client = SentinelClient(url="http://localhost:3000", api_key="your-key")
 
 # Evaluate a tool call
 result = client.evaluate(
@@ -48,7 +48,7 @@ elif result.verdict == Verdict.REQUIRE_APPROVAL:
 ```python
 from sentinel import SentinelClient, PolicyDenied, ApprovalRequired
 
-client = SentinelClient(url="http://localhost:8080")
+client = SentinelClient(url="http://localhost:3000")
 
 try:
     client.evaluate_or_raise(
@@ -68,7 +68,7 @@ except ApprovalRequired as e:
 ```python
 from sentinel import AsyncSentinelClient
 
-async with AsyncSentinelClient(url="http://localhost:8080") as client:
+async with AsyncSentinelClient(url="http://localhost:3000") as client:
     result = await client.evaluate(
         tool="bash",
         function="execute",
@@ -88,7 +88,7 @@ from langchain_openai import ChatOpenAI
 from sentinel import SentinelClient
 from sentinel.langchain import SentinelCallbackHandler
 
-client = SentinelClient(url="http://localhost:8080")
+client = SentinelClient(url="http://localhost:3000")
 handler = SentinelCallbackHandler(
     client=client,
     session_id="my-session",
@@ -111,7 +111,7 @@ from langchain.tools import tool
 from sentinel import SentinelClient
 from sentinel.langchain import SentinelToolGuard
 
-client = SentinelClient(url="http://localhost:8080")
+client = SentinelClient(url="http://localhost:3000")
 guard = SentinelToolGuard(client)
 
 @tool
@@ -129,7 +129,7 @@ from langchain_community.agent_toolkits import FileManagementToolkit
 from sentinel import SentinelClient
 from sentinel.langchain import create_guarded_toolkit
 
-client = SentinelClient(url="http://localhost:8080")
+client = SentinelClient(url="http://localhost:3000")
 toolkit = FileManagementToolkit()
 guarded_tools = create_guarded_toolkit(client, toolkit)
 ```
@@ -145,7 +145,7 @@ from langgraph.graph import StateGraph, END
 from sentinel import SentinelClient
 from sentinel.langgraph import create_sentinel_node, SentinelState
 
-client = SentinelClient(url="http://localhost:8080")
+client = SentinelClient(url="http://localhost:3000")
 sentinel_node = create_sentinel_node(client, on_deny="block")
 
 class MyState(SentinelState):
@@ -174,7 +174,7 @@ from langgraph.graph import StateGraph
 from sentinel import SentinelClient
 from sentinel.langgraph import create_sentinel_tool_node
 
-client = SentinelClient(url="http://localhost:8080")
+client = SentinelClient(url="http://localhost:3000")
 tool_node = create_sentinel_tool_node(client, [read_file, write_file])
 
 graph = StateGraph(MyState)
@@ -187,7 +187,7 @@ graph.add_node("tools", tool_node)  # Policy evaluation + execution
 
 ```python
 client = SentinelClient(
-    url="http://localhost:8080",  # Sentinel server URL
+    url="http://localhost:3000",  # Sentinel server URL
     api_key="your-api-key",       # API key for authentication
     timeout=30.0,                  # Request timeout in seconds
     verify_ssl=True,               # Verify SSL certificates

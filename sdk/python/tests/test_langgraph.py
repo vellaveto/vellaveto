@@ -14,7 +14,7 @@ class TestCreateSentinelNode:
 
     def test_allow_sets_not_blocked(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "allow", "policy_id": "p1"},
         )
 
@@ -33,7 +33,7 @@ class TestCreateSentinelNode:
 
     def test_deny_blocks_tool(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "deny", "reason": "Path blocked"},
         )
 
@@ -53,7 +53,7 @@ class TestCreateSentinelNode:
 
     def test_deny_continue_mode(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "deny", "reason": "Soft deny"},
         )
 
@@ -72,7 +72,7 @@ class TestCreateSentinelNode:
 
     def test_approval_required_blocks(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={
                 "verdict": "require_approval",
                 "reason": "Needs review",
@@ -105,7 +105,7 @@ class TestCreateSentinelNode:
 
     def test_call_chain_updated(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "allow"},
         )
 
@@ -124,7 +124,7 @@ class TestCreateSentinelNode:
 
     def test_call_chain_bounded(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "allow"},
         )
 
@@ -146,7 +146,7 @@ class TestCreateSentinelNode:
 
     def test_path_extraction(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "allow"},
         )
 
@@ -166,7 +166,7 @@ class TestCreateSentinelNode:
 
     def test_domain_extraction(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "allow"},
         )
 
@@ -186,7 +186,7 @@ class TestCreateSentinelNode:
 
     def test_url_pattern_extraction(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "allow"},
         )
 
@@ -206,7 +206,7 @@ class TestCreateSentinelNode:
 
     def test_fail_closed_on_error(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             status_code=500,
         )
 
@@ -225,7 +225,7 @@ class TestCreateSentinelNode:
 
     def test_context_passed_from_state(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:8080/api/evaluate",
+            url="http://localhost:3000/api/evaluate",
             json={"verdict": "allow"},
         )
 

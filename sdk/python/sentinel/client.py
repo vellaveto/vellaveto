@@ -59,7 +59,7 @@ class SentinelClient:
     Synchronous client for the Sentinel API.
 
     Example:
-        client = SentinelClient(url="http://localhost:8080", api_key="your-key")
+        client = SentinelClient(url="http://localhost:3000", api_key="your-key")
 
         # Evaluate a tool call
         result = client.evaluate(
@@ -82,7 +82,7 @@ class SentinelClient:
 
     def __init__(
         self,
-        url: str = "http://localhost:8080",
+        url: str = "http://localhost:3000",
         api_key: Optional[str] = None,
         timeout: float = 30.0,
         verify_ssl: bool = True,
@@ -313,7 +313,7 @@ class AsyncSentinelClient:
     Asynchronous client for the Sentinel API.
 
     Example:
-        async with AsyncSentinelClient(url="http://localhost:8080") as client:
+        async with AsyncSentinelClient(url="http://localhost:3000") as client:
             result = await client.evaluate(
                 tool="filesystem",
                 function="read_file",
@@ -325,7 +325,7 @@ class AsyncSentinelClient:
 
     def __init__(
         self,
-        url: str = "http://localhost:8080",
+        url: str = "http://localhost:3000",
         api_key: Optional[str] = None,
         timeout: float = 30.0,
         verify_ssl: bool = True,

@@ -9,7 +9,7 @@ Example:
     from sentinel import SentinelClient
     from sentinel.langgraph import create_sentinel_node, SentinelState
 
-    client = SentinelClient(url="http://localhost:8080")
+    client = SentinelClient(url="http://localhost:3000")
     sentinel_node = create_sentinel_node(client)
 
     # Add to your graph
@@ -86,7 +86,7 @@ def create_sentinel_node(
         from sentinel import SentinelClient
         from sentinel.langgraph import create_sentinel_node
 
-        client = SentinelClient(url="http://localhost:8080")
+        client = SentinelClient(url="http://localhost:3000")
         sentinel_node = create_sentinel_node(client, on_deny="block")
 
         graph = StateGraph(MyState)
@@ -209,7 +209,7 @@ def create_sentinel_tool_node(
             '''Read a file.'''
             return open(path).read()
 
-        client = SentinelClient(url="http://localhost:8080")
+        client = SentinelClient(url="http://localhost:3000")
         tool_node = create_sentinel_tool_node(client, [read_file])
 
         graph = StateGraph(MyState)
@@ -330,7 +330,7 @@ class SentinelCheckpoint:
         from sentinel import SentinelClient
         from sentinel.langgraph import SentinelCheckpoint
 
-        client = SentinelClient(url="http://localhost:8080")
+        client = SentinelClient(url="http://localhost:3000")
         checkpoint = SentinelCheckpoint(client, MemorySaver())
 
         graph = graph.compile(checkpointer=checkpoint)
