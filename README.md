@@ -7,7 +7,7 @@
     🔍 Intercept &middot; ⚖️ Evaluate &middot; 🚫 Enforce &middot; 📋 Audit
   </p>
   <p align="center">
-    <a href="https://github.com/paolovella/sentinel/releases"><img src="https://img.shields.io/badge/version-2.2.1-blue.svg" alt="Version 2.2.1"></a>
+    <a href="https://github.com/paolovella/sentinel/releases"><img src="https://img.shields.io/badge/version-3.0.0--dev-blue.svg" alt="Version 3.0.0-dev"></a>
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
@@ -33,7 +33,7 @@
 Sentinel is a lightweight, high-performance firewall that sits between AI agents and their tools. It intercepts [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) and function-calling requests, enforces security policies on paths, domains, and actions, and maintains a tamper-evident audit trail with cryptographic guarantees.
 
 <table>
-<tr><td>🏷️ <strong>Version</strong></td><td>2.2.1</td></tr>
+<tr><td>🏷️ <strong>Version</strong></td><td>3.0.0-dev (crates at 2.2.1)</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
 <tr><td>✅ <strong>Test suite</strong></td><td>4,278+ tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
@@ -970,7 +970,7 @@ sentinel-  sentinel- sentinel-
 server     proxy     http-proxy   HTTP API, stdio proxy, HTTP reverse proxy
 ```
 
-### Full Workspace Module Map (v2.2.1)
+### Full Workspace Module Map (v3.0)
 
 | Module | Type | Path | Responsibility | Verify |
 |--------|------|------|----------------|--------|
