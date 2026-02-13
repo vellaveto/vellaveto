@@ -49,6 +49,7 @@ scripts/run-deepeval.sh
 scripts/run-quality-gates.sh
 
 # Fuzz artifacts
+fuzz/Cargo.lock
 fuzz/target/
 
 # Quality reports (session-local)

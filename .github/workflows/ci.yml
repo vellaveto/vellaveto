@@ -202,7 +202,7 @@ jobs:
 
       - name: Check fuzz targets compile
         working-directory: fuzz
-        run: cargo +nightly check --all-targets --locked
+        run: cargo +nightly check --all-targets
 
   # ───────────────────────────────────────────────────────
   # 6. Benchmark regression gate (push to main only)
