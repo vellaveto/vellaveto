@@ -454,7 +454,7 @@ Type=simple
 User=sentinel
 Group=sentinel
 ExecStart=/usr/local/bin/sentinel-http-proxy \
-    --listen 0.0.0.0:8080 \
+    --listen 0.0.0.0:3000 \
     --sentinel http://localhost:3000 \
     --upstream http://localhost:9000
 Restart=on-failure
