@@ -4,8 +4,9 @@
 > **State:** All priority items (P0–P4) implemented, Phase 14 A2A protocol security complete, all adversarial audit findings (FIND-043–074) addressed
 > **Version:** 2.2.1 (all crates, Helm, SDK synced)
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 4,278+ passing, zero warnings, zero `unwrap()` in library code
+> **Tests:** 4,278+ Rust tests + 86 Python SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 20
+> **CI workflows:** 11
 > **Updated:** 2026-02-13
 
 ---
@@ -249,6 +250,22 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - FIND-071: `ObservabilityExporterConfig` validation with MAX_BATCH_SIZE bound
 - FIND-074: All control characters (U+0000–U+009F) rejected in tool/function names
 - RwLock poisoning hardened across 10 modules (schema_poisoning, agent_trust, workflow_tracker, tool_namespace, sampling_detector, shadow_agent, token_security, output_security, agent_message, goal_tracking)
+
+**CI/CD & Publishing:**
+- 11 GitHub Actions workflows: CI, security-audit, cargo-deny, dependency-review, scorecard, provenance-sbom, docker-publish, release, docs, publish-pypi, publish-crates
+- Docker publish workflow with GHCR push and Trivy vulnerability scanning
+- Release automation: static musl binaries, SHA-256 checksums, CycloneDX SBOM, provenance attestation, GitHub Release
+- Rustdoc GitHub Pages deployment
+- PyPI publishing with trusted OIDC and Python 3.9–3.12 test matrix
+- crates.io publishing with dependency-ordered workspace crate publishing
+- Docker Compose for local deployment with hardened services
+- GitHub issue templates (bug report, feature request) and PR template
+
+**Python SDK:**
+- Sync and async HTTP clients with httpx/requests fallback (`sdk/python/sentinel/client.py`)
+- LangChain callback handler and tool guard decorator (`sdk/python/sentinel/langchain.py`)
+- LangGraph sentinel node and guarded tool node (`sdk/python/sentinel/langgraph.py`)
+- 86 pytest tests covering types, client, langchain, and langgraph modules (`sdk/python/tests/`)
 
 ---
 

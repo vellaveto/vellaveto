@@ -17,13 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - LICENSING.md with dual license terms and AI training opt-out
 - 5 new fuzz targets: agent card URL/parse, A2A classify, homoglyph, attestation verify (15 → 20 total)
 - Machine-readable AI training opt-out (`.well-known/ai-policy.txt`)
+- GitHub issue templates (bug report, feature request) with structured forms
+- GitHub pull request template with testing checklist
+- Python SDK test suite: 86 tests covering types, client, langchain, and langgraph modules
+- crates.io publishing workflow (manual trigger, dependency-ordered, dry-run support)
+- PyPI publishing workflow (tag trigger, trusted publishing OIDC, multi-version matrix)
 
 ### Changed
 
 - License switched from Apache-2.0 to AGPL-3.0 dual license
 - All crate versions synced from 2.0.0 to 2.2.1
 - Helm chart version synced to 2.2.1, license annotation corrected
-- Python SDK version synced to 2.2.1
+- Python SDK version synced to 2.2.1 (including `__init__.py`)
 
 ## [2.2.1] - 2026-02-13
 

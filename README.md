@@ -44,17 +44,15 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 
 ## Recent Updates (2026-02-13)
 
-- **Phase 14: A2A Protocol Security** — Full Google A2A (Agent-to-Agent) protocol security with message classification, action extraction, Agent Card caching/validation, HTTP proxy service, batch rejection for TOCTOU prevention, and authentication validation against agent card schemes.
-- **Phase 15: AI Observability Platform Integration** — Langfuse, Arize, Helicone, and Webhook exporters with `SecuritySpan` tracing for real-time security event streaming to observability platforms.
-- **Identity Verification Primitives** — DID:PLC generation (SHA-256 + Base32 from canonicalized genesis operations), ordered verification tiers (Unverified through FullyVerified) with fail-closed policy enforcement, Ed25519-signed accountability attestations with length-prefixed content, and `min_verification_tier` policy condition.
-- **RwLock Poisoning Hardening** — All `unwrap_or_else(|e| e.into_inner())` patterns on RwLock operations across 12 sentinel-mcp modules replaced with explicit match blocks that log `tracing::error!` and return fail-closed defaults. Zero silent lock recovery.
-- **Constant-time key comparison** — Public key matching in accountability attestations now uses `subtle::ConstantTimeEq` to prevent timing side-channel attacks.
-- **Adversarial Audit Hardening (FIND-055–074)** — Agent card SSRF prevention with URL validation, bounded JSON traversal in A2A proxy, all control characters rejected in audit logger, regex pattern length limits, observability exporter batch size bounds, attestation empty field validation, and audit log permission failure warnings.
-- **Architecture: HTTP proxy modularization** — Split `sentinel-http-proxy/src/proxy.rs` (6,712 lines) into 8 focused submodules. Split `sentinel-config/src/lib.rs` into 10 logical submodules. Split `sentinel-mcp/src/proxy/bridge.rs` into 6 focused submodules.
-- Updated MCP protocol support to `2025-11-25` with compatibility for `2025-06-18` and `2025-03-26`.
-- Completed runtime OPA decision enforcement wiring with fail-open/fail-closed controls and runtime metrics.
-- Implemented CI supply-chain baseline controls (dependency review, Dependabot, `cargo-deny`, provenance + SBOM, attestation verification).
-- See `docs/SECURITY.md` (Verified Hardening Backlog) and `ROADMAP.md` for current prioritization.
+- **Production-ready CI/CD** — 11 GitHub Actions workflows: CI, security audit, cargo-deny, dependency review, scorecard, provenance/SBOM, Docker publish (GHCR + Trivy), release automation (static binaries, checksums, SBOM, provenance), rustdoc Pages, PyPI publish (trusted OIDC), and crates.io publish (dependency-ordered).
+- **Python SDK test suite** — 86 tests covering types, sync/async client, LangChain callback handler/tool guard, and LangGraph sentinel node integration.
+- **AGPL-3.0 dual license** — Switched from Apache-2.0 to AGPL-3.0 with commercial license option. Machine-readable AI training opt-out for EU CDSM Article 4 compliance.
+- **Phase 14: A2A Protocol Security** — Full Google A2A protocol security with message classification, action extraction, Agent Card caching/validation, HTTP proxy service, batch rejection for TOCTOU prevention.
+- **Phase 15: AI Observability Platform Integration** — Langfuse, Arize, Helicone, and Webhook exporters with `SecuritySpan` tracing.
+- **Identity Verification Primitives** — DID:PLC generation, ordered verification tiers with fail-closed enforcement, Ed25519-signed accountability attestations, `min_verification_tier` policy condition.
+- **Adversarial Audit Hardening (FIND-055–074)** — Agent card SSRF prevention, bounded JSON traversal, control character rejection, regex pattern length limits, observability exporter bounds, attestation validation, audit log permission warnings.
+- **RwLock Poisoning Hardening** — All lock acquisition patterns across 12 modules replaced with explicit match blocks and fail-closed defaults.
+- **20 fuzz targets** — Coverage for JSON-RPC framing, path normalization, domain extraction, CIDR parsing, DLP scanning, injection detection, agent card URL/parse, A2A classification, homoglyph normalization, attestation verification.
 - See `CHANGELOG.md` for full release and patch details.
 
 ## 🧪 Post-Quantum Readiness (Research Track)
@@ -1122,16 +1120,21 @@ kill -HUP $(pidof sentinel-server)
 
 ### 🔄 CI Pipeline
 
-CI runs 6 parallel jobs on every push and pull request:
+11 workflows cover CI, security, publishing, and deployment:
 
-| Job | Description |
-|-----|-------------|
-| 🧹 **Check & Lint** | `cargo fmt`, `cargo check`, `cargo clippy`, `unwrap()` hygiene scan |
-| 🧪 **Test Suite** | `cargo test --workspace`, doc build verification |
-| 🔐 **Security Audit** | `cargo audit` via `rustsec/audit-check` for dependency CVEs |
-| 🐛 **Fuzz Targets** | Compiles all 7 fuzz targets on nightly to catch build regressions |
-| 📈 **Benchmarks** | Runs criterion benchmarks with cached baselines (main branch only) |
-| 📦 **Release Build** | Full LTO release build with 50MB binary size guard |
+| Workflow | Trigger | Description |
+|----------|---------|-------------|
+| 🧹 **CI** | push, PR | `cargo fmt`, `cargo check`, `cargo clippy`, `cargo test`, `unwrap()` hygiene, fuzz compilation, benchmarks, release build |
+| 🔐 **Security Audit** | push, PR, schedule | `cargo audit` for dependency CVEs |
+| 🚫 **Cargo Deny** | push, PR | License and advisory checks |
+| 📋 **Dependency Review** | PR | New dependency risk assessment |
+| 🔒 **Scorecard** | push, schedule | OpenSSF supply-chain scorecard |
+| 📦 **Provenance & SBOM** | push (main) | SLSA provenance attestation + CycloneDX SBOM |
+| 🐳 **Docker Publish** | push (main, tags) | Multi-stage build, GHCR push, Trivy vulnerability scan |
+| 🏷️ **Release** | tag push (`v*`) | Static musl binaries, checksums, SBOM, GitHub Release |
+| 📖 **Docs** | push (main) | Rustdoc build and GitHub Pages deployment |
+| 🐍 **PyPI Publish** | tag push (`v*`) | Python SDK test matrix (3.9–3.12), trusted publishing |
+| 📦 **crates.io Publish** | manual | Dependency-ordered workspace crate publishing |
 
 ## 📁 Project Structure
 
@@ -1152,7 +1155,7 @@ CI runs 6 parallel jobs on every push and pull request:
 | `sdk/python/` | Python SDK and framework adapters |
 | `policies/` | Policy samples and templates |
 | `examples/` | Demo workflows and reference configs |
-| `fuzz/` | Fuzzing harnesses and targets |
+| `fuzz/` | 20 fuzzing harnesses and targets |
 | `helm/` | Kubernetes chart packaging |
 | `scripts/` | Project automation scripts |
 | `docs/` | Operations/API/security documentation |
@@ -1178,6 +1181,7 @@ Comprehensive documentation is available in the `docs/` directory:
 | [Roadmap](ROADMAP.md) | Current release status and upcoming phases |
 | [Module Extraction Playbook](MODULE_EXTRACTION_PLAYBOOK.md) | Contributor workflow for safe module splits |
 | [Changelog](CHANGELOG.md) | Version history and release notes |
+| [Contributing](CONTRIBUTING.md) | Development rules, commit format, release checklist |
 
 ## 📚 References
 
