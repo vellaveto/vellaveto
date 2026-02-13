@@ -11,7 +11,7 @@
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-4%2C400%2B_passing-brightgreen.svg" alt="Tests: 4,400+ passing">
+    <img src="https://img.shields.io/badge/tests-4%2C278%2B_passing-brightgreen.svg" alt="Tests: 4,278+ passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <img src="https://img.shields.io/badge/security_audit-35_rounds%2C_390%2B_findings-informational.svg" alt="Security Audit: 35 rounds, 390+ findings">
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
@@ -35,7 +35,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>2.2.1</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>4,400+ tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>4,278+ tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
@@ -895,7 +895,7 @@ Sentinel has undergone 35 rounds of adversarial security audit covering 31+ atta
 | Total findings triaged | 390+ |
 | Findings fixed | 310+ |
 | Critical/HIGH findings fixed | 85+ |
-| Test count post-audit | 3,643 |
+| Test count post-audit | 4,278+ |
 
 Key areas covered: tool poisoning, prompt injection, path traversal, SSRF/domain bypass, session fixation, JSON parsing, memory poisoning, elicitation social engineering, audit log tampering, OAuth/JWT validation, SIEM export injection, rug-pull detection, tool squatting, DLP bypass, SSE transport parity, config reload races, Unicode case-folding, IPv6 transition mechanisms, CEF/SIEM injection, and webhook SSRF.
 
@@ -1029,7 +1029,7 @@ server     proxy     http-proxy   HTTP API, stdio proxy, HTTP reverse proxy
 ### ⚡ Performance
 
 All patterns are pre-compiled at load time using:
-- **Aho-Corasick automaton** for multi-pattern injection scanning (15 patterns in a single pass)
+- **Aho-Corasick automaton** for multi-pattern injection scanning (40 patterns in a single pass)
 - **Compiled glob matchers** and **compiled regex** for constraint evaluation
 - **Cow-based normalization** to avoid allocations when no transformation is needed
 - **Pre-computed verdict reason strings** to eliminate `format!()` on the hot path

@@ -378,7 +378,7 @@ For HTTP-based MCP servers, Sentinel acts as a reverse proxy.
 sentinel-http-proxy \
   --config examples/presets/rag-agent.toml \
   --listen 0.0.0.0:3000 \
-  --upstream http://localhost:8080
+  --upstream http://localhost:9000
 ```
 
 Your agent connects to `localhost:3000` instead of the upstream server directly. Sentinel inspects every request and response.
