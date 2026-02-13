@@ -1175,6 +1175,7 @@ Comprehensive documentation is available in the `docs/` directory:
 |----------|-------------|
 | [Deployment Guide](docs/DEPLOYMENT.md) | Docker, Kubernetes (Helm), and bare metal installation |
 | [Operations Runbook](docs/OPERATIONS.md) | Monitoring, troubleshooting, and maintenance procedures |
+| [Security Model](docs/SECURITY_MODEL.md) | Trust boundaries, data flows, storage, and residual risks |
 | [Security Hardening](docs/SECURITY.md) | Security configuration best practices |
 | [Quantum Migration Runbook](docs/quantum-migration.md) | Phased TLS PQ rollout and rollback gates |
 | [API Reference](docs/API.md) | Complete HTTP API documentation |
