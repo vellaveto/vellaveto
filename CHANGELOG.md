@@ -22,8 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Python SDK test suite: 86 tests covering types, client, langchain, and langgraph modules
 - crates.io publishing workflow (manual trigger, dependency-ordered, dry-run support)
 - PyPI publishing workflow (tag trigger, trusted publishing OIDC, multi-version matrix)
+- Security Model document (`docs/SECURITY_MODEL.md`): trust boundaries, data flows, storage guarantees, residual risks
+- Benchmark guide (`docs/BENCHMARKS.md`): reproducible performance benchmarks with methodology and CI integration
+- 5 curated policy presets: `dev-laptop`, `ci-agent`, `rag-agent`, `database-agent`, `browser-agent`
 
 ### Changed
+
+- Default server port standardized from 8080 to 3000 across CLI, SDK, and documentation
 
 - License switched from Apache-2.0 to AGPL-3.0 dual license
 - All crate versions synced from 2.0.0 to 2.2.1
