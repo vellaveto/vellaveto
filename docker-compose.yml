@@ -1,0 +1,68 @@
+# Sentinel — Docker Compose for local development and testing
+#
+# Usage:
+#   docker compose up -d          # Start Sentinel
+#   docker compose logs -f        # Follow logs
+#   docker compose down           # Stop
+#
+# Environment variables:
+#   SENTINEL_API_KEY    — API key for authenticated endpoints (required)
+#   SENTINEL_CONFIG     — Path to config file (default: /etc/sentinel/config.toml)
+#
+# Ports:
+#   3000 — Sentinel HTTP API server
+#   3001 — Sentinel HTTP reverse proxy
+
+services:
+  sentinel:
+    build: .
+    image: ghcr.io/paolovella/sentinel:2.2.1
+    ports:
+      - "3000:3000"
+    environment:
+      - SENTINEL_API_KEY=${SENTINEL_API_KEY:-changeme}
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - ./examples/production.toml:/etc/sentinel/config.toml:ro
+      - sentinel-audit:/var/log/sentinel
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  sentinel-proxy:
+    build: .
+    image: ghcr.io/paolovella/sentinel:2.2.1
+    entrypoint: ["sentinel-http-proxy"]
+    command: ["--config", "/etc/sentinel/config.toml", "--listen", "0.0.0.0:3001"]
+    ports:
+      - "3001:3001"
+    environment:
+      - SENTINEL_API_KEY=${SENTINEL_API_KEY:-changeme}
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - ./examples/production.toml:/etc/sentinel/config.toml:ro
+      - sentinel-audit:/var/log/sentinel
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  sentinel-audit:
