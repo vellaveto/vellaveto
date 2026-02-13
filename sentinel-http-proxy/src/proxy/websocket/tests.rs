@@ -92,9 +92,8 @@ fn test_ws_rate_limit_zero_means_unlimited() {
 fn test_ws_rate_limit_resets_after_window() {
     let counter = AtomicU64::new(0);
     // Start window 2 seconds in the past to simulate window expiry
-    let window = std::sync::Mutex::new(
-        std::time::Instant::now() - std::time::Duration::from_secs(2),
-    );
+    let window =
+        std::sync::Mutex::new(std::time::Instant::now() - std::time::Duration::from_secs(2));
 
     // Fill and exceed
     for _ in 0..5 {
@@ -407,8 +406,7 @@ fn make_test_state() -> ProxyState {
 
     let engine = PolicyEngine::new(false);
     let audit = AuditLogger::new(std::path::PathBuf::from("/dev/null"));
-    let sessions =
-        crate::session::SessionStore::new(Duration::from_secs(300), 100);
+    let sessions = crate::session::SessionStore::new(Duration::from_secs(300), 100);
 
     ProxyState {
         engine: Arc::new(engine),

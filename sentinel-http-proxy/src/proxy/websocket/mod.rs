@@ -127,9 +127,7 @@ pub async fn handle_ws_upgrade(
     }
 
     // 3. Get or create session
-    let session_id = state
-        .sessions
-        .get_or_create(query.session_id.as_deref());
+    let session_id = state.sessions.get_or_create(query.session_id.as_deref());
 
     let ws_config = state.ws_config.clone().unwrap_or_default();
 
@@ -141,9 +139,7 @@ pub async fn handle_ws_upgrade(
 
     // 4. Configure and upgrade
     ws.max_message_size(ws_config.max_message_size)
-        .on_upgrade(move |socket| {
-            handle_ws_connection(socket, state, session_id, ws_config, addr)
-        })
+        .on_upgrade(move |socket| handle_ws_connection(socket, state, session_id, ws_config, addr))
 }
 
 /// Handle an established WebSocket connection.
@@ -305,8 +301,11 @@ async fn relay_client_to_upstream(
         match msg {
             Message::Text(text) => {
                 // Rate limiting
-                if !check_rate_limit(&rate_counter, &rate_window_start, ws_config.message_rate_limit)
-                {
+                if !check_rate_limit(
+                    &rate_counter,
+                    &rate_window_start,
+                    ws_config.message_rate_limit,
+                ) {
                     tracing::warn!(
                         session_id = %session_id,
                         "WebSocket rate limit exceeded, closing"
@@ -402,12 +401,14 @@ async fn relay_client_to_upstream(
                                                 "SECURITY: WS canonicalization failed: {}",
                                                 e
                                             );
-                                            let error_resp =
-                                                make_ws_error_response(Some(id), -32603, "Internal error");
+                                            let error_resp = make_ws_error_response(
+                                                Some(id),
+                                                -32603,
+                                                "Internal error",
+                                            );
                                             let mut sink = client_sink.lock().await;
-                                            let _ = sink
-                                                .send(Message::Text(error_resp.into()))
-                                                .await;
+                                            let _ =
+                                                sink.send(Message::Text(error_resp.into())).await;
                                             continue;
                                         }
                                     }
@@ -457,8 +458,7 @@ async fn relay_client_to_upstream(
                             }
                             Verdict::RequireApproval { ref reason, .. } => {
                                 // Treat as deny for WebSocket transport
-                                let deny_reason =
-                                    format!("Requires approval: {}", reason);
+                                let deny_reason = format!("Requires approval: {}", reason);
                                 if let Err(e) = state
                                     .audit
                                     .log_entry(
@@ -520,7 +520,8 @@ async fn relay_client_to_upstream(
                         match verdict {
                             Verdict::Allow => {
                                 let forward_text = if state.canonicalize {
-                                    serde_json::to_string(&parsed).unwrap_or_else(|_| text.to_string())
+                                    serde_json::to_string(&parsed)
+                                        .unwrap_or_else(|_| text.to_string())
                                 } else {
                                     text.to_string()
                                 };
@@ -877,12 +878,7 @@ async fn connect_upstream_ws(
     String,
 > {
     let connect_timeout = Duration::from_secs(10);
-    match tokio::time::timeout(
-        connect_timeout,
-        tokio_tungstenite::connect_async(url),
-    )
-    .await
-    {
+    match tokio::time::timeout(connect_timeout, tokio_tungstenite::connect_async(url)).await {
         Ok(Ok((ws_stream, _response))) => Ok(ws_stream),
         Ok(Err(e)) => Err(format!("WebSocket connection error: {}", e)),
         Err(_) => Err("WebSocket connection timeout (10s)".to_string()),

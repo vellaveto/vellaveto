@@ -633,7 +633,6 @@ async fn main() -> Result<()> {
         args.ws_message_rate_limit,
     );
 
-
     // TASK-015: Log DNS rebinding defense configuration
     if state.allowed_origins.is_empty() {
         if bind_addr.ip().is_loopback() {
