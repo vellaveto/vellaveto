@@ -17,7 +17,7 @@ Example:
 from sentinel.client import SentinelClient, SentinelError, PolicyDenied, ApprovalRequired
 from sentinel.types import Verdict, EvaluationResult, Action
 
-__version__ = "0.1.0"
+__version__ = "2.2.1"
 __all__ = [
     "SentinelClient",
     "SentinelError",

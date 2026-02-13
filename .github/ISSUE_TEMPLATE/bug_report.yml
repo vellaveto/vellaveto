@@ -1,0 +1,78 @@
+name: Bug Report
+description: Report a bug in Sentinel
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug. Please fill out the sections below to help us investigate.
+
+  - type: input
+    id: version
+    attributes:
+      label: Sentinel Version
+      description: Output of `sentinel --version` or crate version
+      placeholder: "2.2.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment Mode
+      options:
+        - HTTP API server (sentinel-server)
+        - HTTP reverse proxy (sentinel-http-proxy)
+        - Stdio proxy (sentinel-proxy)
+        - Python SDK
+        - Library (embedded crate)
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what happened.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal steps to reproduce the bug.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: Relevant policy config (redact secrets).
+      render: toml
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Error Output
+      description: Relevant logs or error messages.
+      render: text
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      placeholder: "Ubuntu 24.04 / macOS 15 / Alpine 3.21"
