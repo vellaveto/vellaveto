@@ -25,13 +25,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 17.1: WebSocket Transport Support (SEP-1288)
+- **WebSocket reverse proxy** — Bidirectional MCP-over-WebSocket at `/mcp/ws` endpoint (`sentinel-http-proxy/src/proxy/websocket/mod.rs`)
+- **Full policy enforcement** — Client→upstream tool calls classified via `classify_message()`, evaluated against policies with fail-closed semantics; engine errors and unknown verdict variants produce Deny
+- **Response scanning** — Upstream→client responses scanned for DLP secrets and injection patterns before forwarding
+- **TOCTOU-safe canonicalization** — JSON re-serialized before forwarding to prevent time-of-check/time-of-use attacks
+- **Per-connection rate limiting** — Sliding window rate limiter (configurable messages/sec, default 100/s) with atomic counter and 1-second window reset
+- **Idle timeout** — Configurable inactivity timeout (default 300s) closes stale WebSocket connections
+- **Max message size** — Configurable limit (default 1MB) rejects oversized frames with close code 1009
+- **Session binding** — Each WebSocket connection bound to exactly one `SessionState` via query parameter or auto-created
+- **Binary frame rejection** — Non-text frames rejected with close code 1003 (Unsupported Data)
+- **Unparseable message rejection** — Invalid JSON or unclassifiable messages rejected with close code 1008 (Policy Violation)
+- **Upstream connection** — `tokio-tungstenite` client with http→ws / https→wss URL scheme conversion and 10s connection timeout
+- **Metrics** — `sentinel_ws_connections_total` and `sentinel_ws_messages_total` counters with direction labels
+- **CLI args** — `--ws-max-message-size`, `--ws-idle-timeout`, `--ws-message-rate-limit`
+- **WebSocketConfig** — New config struct in `ProxyState` for WebSocket transport parameters
+- **29 unit tests** covering URL conversion, rate limiting, frame classification, error responses, scannable text extraction, config defaults, close codes, metrics, evaluation context, and query params
+- **Fuzz target** — `fuzz_ws_frame` for arbitrary bytes → text frame → JSON parse → classify → extract action (21 fuzz targets total)
+- **New dependencies**: `tokio-tungstenite = "0.26"` (workspace), `axum` `ws` feature
+
 - Docker Compose for local deployment (`docker-compose.yml`)
 - Docker image build and publish workflow (GHCR + Trivy scanning)
 - GitHub release automation workflow (static binaries, checksums, SBOM, provenance)
 - Rustdoc GitHub Pages deployment workflow
 - CONTRIBUTING.md with development rules and release checklist
 - LICENSING.md with dual license terms and AI training opt-out
-- 5 new fuzz targets: agent card URL/parse, A2A classify, homoglyph, attestation verify (15 → 20 total)
+- 5 new fuzz targets: agent card URL/parse, A2A classify, homoglyph, attestation verify (15 → 20 total, now 21 with Phase 17.1)
 - Machine-readable AI training opt-out (`.well-known/ai-policy.txt`)
 - GitHub issue templates (bug report, feature request) with structured forms
 - GitHub pull request template with testing checklist
