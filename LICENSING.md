@@ -20,7 +20,7 @@ For organizations that cannot comply with the AGPL-3.0 — for example, if you
 want to embed Sentinel in proprietary software or offer it as a managed service
 without open-sourcing your modifications — a commercial license is available.
 
-Contact: **paolo@paolovella.com**
+Contact: **paolovella1993@gmail.com**
 
 The commercial license removes all copyleft obligations and includes:
 - Permission to use Sentinel in proprietary products and services
