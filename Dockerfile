@@ -6,7 +6,7 @@
 #   docker run -p 3000:3000 sentinel:latest serve --config /etc/sentinel/config.toml
 
 # Build stage: Compile Rust binaries with musl for static linking
-FROM rust:1.85-alpine AS builder
+FROM rust:1.93-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig

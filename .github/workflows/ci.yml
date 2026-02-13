@@ -54,9 +54,9 @@ jobs:
       - name: Reject unwrap()/expect() in library code
         run: |
           # Scan library source for .unwrap() and .expect() calls.
-          # Excludes: main.rs, *_tests.rs (path-included test modules),
+          # Excludes: main.rs, tests.rs, *_tests.rs (test modules),
           # #[cfg(test)] blocks, and doc comments (//! and ///).
-          HITS=$(find sentinel-*/src/ -name '*.rs' -not -name 'main.rs' -not -name '*_tests.rs' \
+          HITS=$(find sentinel-*/src/ -name '*.rs' -not -name 'main.rs' -not -name 'tests.rs' -not -name '*_tests.rs' \
             | xargs awk 'FNR==1 { skip=0 }
               /^#\[cfg\(test\)\]/ { skip=1 }
               skip==0 && /^[[:space:]]*(\/\/!|\/\/\/)/ { next }
