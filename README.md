@@ -1178,6 +1178,7 @@ Comprehensive documentation is available in the `docs/` directory:
 | [Security Model](docs/SECURITY_MODEL.md) | Trust boundaries, data flows, storage, and residual risks |
 | [Security Hardening](docs/SECURITY.md) | Security configuration best practices |
 | [Quantum Migration Runbook](docs/quantum-migration.md) | Phased TLS PQ rollout and rollback gates |
+| [Benchmarks](docs/BENCHMARKS.md) | Reproducible performance benchmarks and methodology |
 | [API Reference](docs/API.md) | Complete HTTP API documentation |
 | [Roadmap](ROADMAP.md) | Current release status and upcoming phases |
 | [Changelog](CHANGELOG.md) | Version history and release notes |
