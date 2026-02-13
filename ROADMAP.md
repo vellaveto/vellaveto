@@ -750,6 +750,70 @@ forbid(
 
 ---
 
+## MCP Ecosystem Security Gaps Analysis
+
+> **Full analysis:** [`docs/MCP_SECURITY_GAPS.md`](docs/MCP_SECURITY_GAPS.md)
+>
+> Eight critical, well-defined gaps exist across the MCP security landscape. Only 14% of organizations running agents in production have runtime guardrails (Lakera, Q4 2025). The table below maps each gap to Sentinel's current coverage and planned roadmap work.
+
+| # | Gap | Severity | Sentinel Current Coverage | Roadmap Phase | Status |
+|---|-----|----------|--------------------------|---------------|--------|
+| 1 | **Formal verification of MCP policy enforcement** | Critical | No formal model exists in any framework (TLA+, Alloy, Lean, Coq). No one has verified safety/liveness/complete mediation for any MCP policy engine. | Phase 23 (Research) | 🔲 Open research question |
+| 2 | **Cryptographic audit trails** | Critical | ✅ **Sentinel is the only shipping product combining runtime firewall + cryptographic audit.** SHA-256 hash chains, Ed25519 signed checkpoints, rotation manifests, SIEM export (CEF/JSONL/webhook). | Phase 19.4 (SOC 2 enhancements) | ✅ Production-ready — Merkle tree inclusion proofs and zk-audit are future work |
+| 3 | **Multi-agent delegation / confused deputy** | Critical | ✅ Deputy validation, delegation chains with depth limits, call chain tracking, NHI lifecycle, agent trust graph, Ed25519 message signing. No protocol-level capability tokens yet. | Phase 21.1 (ABAC), Phase 21.3 (Federation) | ⚠️ Runtime enforcement implemented; protocol-level capability tokens planned |
+| 4 | **MCP supply chain security** | Critical | ✅ ETDI tool signing (Ed25519/ECDSA), attestation chains, version pinning with hash drift detection, rug-pull detection, schema poisoning (Jaccard), tool squatting (Levenshtein + homoglyph), SHA-256 binary verification. | Phase 23.4 (Sigstore/Rekor) | ✅ Runtime enforcement shipped — transparency log integration planned |
+| 5 | **Performance benchmarking** | Important | ✅ Criterion benchmarks: 7–31 ns single policy, ~1.2 μs for 100 policies. Sub-5ms P99 claimed. No peer-reviewed publication yet. | — | ⚠️ Internal benchmarks exist; rigorous paper needed (OSDI/NSDI target) |
+| 6 | **MCP protocol-level security deficits** | Critical | ✅ Sentinel enforces what the spec leaves advisory: tool pinning (ETDI), namespace isolation (collision detection), annotation tracking (rug-pull alerts), session binding (not in URLs), auth enforcement. | Phases 18–21 | ✅ Application-layer mitigations shipped for all 6 protocol deficits |
+| 7 | **Compliance frameworks for agentic AI** | Critical | ✅ MITRE ATLAS (14 techniques), OWASP AIVSS scoring, NIST AI RMF, ISO 27090 readiness. Audit trail with decision context, user attribution, approval chains. | Phase 19 (EU AI Act, SOC 2, OTel GenAI) | ⚠️ Mapping exists; EU AI Act Article 50 + SOC 2 evidence generation planned |
+| 8 | **MCP incident tracking infrastructure** | Important | ✅ 4 known CVEs mitigated (CVE-2025-68143/44/45, CVE-2025-6514). Adversa TOP 25: 25/25 addressed. CoSAI 12 categories: all covered. | — | ⚠️ No centralized MCP vulnerability DB exists ecosystem-wide |
+
+### Sentinel's Position Relative to Ecosystem Gaps
+
+**Gaps where Sentinel leads the ecosystem:**
+- **Cryptographic audit trail** (#2) — Only shipping product combining runtime firewall + hash-chained audit with Ed25519 signatures
+- **Supply chain integrity** (#4) — Most comprehensive runtime enforcement: ETDI signing, attestation chains, version pinning, rug-pull/schema poisoning/squatting detection
+- **Protocol deficit mitigations** (#6) — Application-layer enforcement for all 6 spec-level gaps (tool pinning, namespace isolation, annotation enforcement, session binding, auth)
+- **Threat coverage** (#8) — 25/25 Adversa TOP 25, all 12 CoSAI categories, all 10 OWASP ASI threats
+
+**Gaps where Sentinel has partial coverage (roadmap planned):**
+- **Multi-agent delegation** (#3) — Runtime enforcement exists (deputy validation, trust graph, NHI); protocol-level capability tokens with monotonic attenuation are Phase 21
+- **Compliance evidence** (#7) — Standards mapping exists; automated evidence generation for EU AI Act Article 50 and SOC 2 TSC is Phase 19
+- **Performance characterization** (#5) — Internal criterion benchmarks exist; rigorous peer-reviewed paper needed
+
+**Gaps that are open research (no one has solved):**
+- **Formal verification** (#1) — No formal model of MCP exists in any framework. A TLA+/Alloy specification + Lean/Coq proofs of Sentinel's policy engine would be a first-of-its-kind contribution targeting USENIX Security/CCS/S&P
+
+### Strategic Research Opportunities
+
+The single most impactful research combination: **formal verification of complete mediation + cryptographic audit trail + deterministic performance characterization.** This trifecta — provably correct enforcement, tamper-evident logging, and rigorous latency guarantees — does not exist anywhere. Publishing it would establish the definitive reference implementation for MCP runtime security.
+
+| Opportunity | Target Venue | Difficulty | Timeline |
+|-------------|-------------|------------|----------|
+| TLA+/Alloy formal model of MCP + verified policy engine properties | USENIX Security, CCS, S&P | High | 12–18 months |
+| Capability-based delegation replacing ambient authority | S&P, CCS | High | 12 months |
+| Merkle-tree transparency log for agent actions | OSDI, NSDI | Medium | 6–9 months |
+| Deterministic vs. probabilistic enforcement benchmarking paper | MLSys, NSDI | Low–Medium | 3–6 months |
+| EU AI Act Article 50 compliance evidence generation | Regulatory/policy venue | Medium | 6 months |
+
+### Key External References
+
+| Source | Relevance |
+|--------|-----------|
+| [Securing the Model Context Protocol](https://arxiv.org/abs/2511.20920) (arXiv, Nov 2025) | Formal verification called out as open research question |
+| [VeriGuard](https://arxiv.org/abs/2510.05156) (Google DeepMind, Oct 2025) | Nagini/Viper formal verification of safety policies (not MCP) |
+| [31 Formal Properties for Agentic AI](https://arxiv.org/abs/2510.14133) (Allegrini et al., Oct 2025) | CTL/LTL specifications, no model-checking against real systems |
+| [AAP: Agent Authorization Profile](https://aap-protocol.org) | Most complete capability delegation spec for agents |
+| [Capabilities Are the Only Way](https://niyikiza.dev) (Niyikiza, Dec 2025) | Object-capability theory applied to agent delegation |
+| [zk-MCP](https://arxiv.org/abs/2512.14737) (Jing & Qi, Dec 2025) | ZK-SNARK privacy-preserving MCP audit (<4.14% overhead) |
+| [Missing Primitives for Trustworthy AI Agents](https://sakurasky.dev) (Stevens, Nov 2025) | Cryptographic audit architecture for agents (design only) |
+| [Singapore IMDA Agentic AI Framework](https://www.imda.gov.sg) (v1.0, Jan 2026) | First government governance framework for agentic AI |
+| [NIST RFI on AI Agent Security](https://www.nist.gov) (Jan 2026, deadline Mar 9) | Federal interest in agent runtime security standards |
+| [MCP-Guard](https://arxiv.org/abs/2508.10991) | Multi-stage MCP guardrails with LLM arbitration (~456ms full pipeline) |
+| [Invariant Labs](https://invariantlabs.ai) | Information-flow analyzer for agent traces (ETH Zurich) |
+| [ToolHive by Stacklok](https://github.com/stacklok/toolhive) | Sigstore + GitHub Attestations for container provenance |
+
+---
+
 ## Research Bibliography
 
 1. **MCP Specification 2025-06-18** — modelcontextprotocol.io
@@ -777,6 +841,20 @@ forbid(
 23. **Cedar Policy Language** — cedarpolicy.com (Amazon, 2023)
 24. **Sigstore: Software Signing for Everyone** — sigstore.dev
 25. **MITRE ATLAS** — atlas.mitre.org
+26. **Securing the Model Context Protocol** — arxiv:2511.20920 (2025)
+27. **VeriGuard: Formal Verification of Safety Policies** — arxiv:2510.05156, Google DeepMind (2025)
+28. **31 Formal Properties for Agentic AI** — arxiv:2510.14133, Allegrini et al. (2025)
+29. **AAP: Agent Authorization Profile** — aap-protocol.org (2025)
+30. **zk-MCP: Privacy-Preserving Audit** — arxiv:2512.14737, Jing & Qi (2025)
+31. **Missing Primitives for Trustworthy AI Agents** — Sakura Sky / Andrew Stevens (2025)
+32. **Singapore IMDA Model AI Governance Framework for Agentic AI** — v1.0 (2026)
+33. **MCP-Guard: Multi-Stage Guardrails** — arxiv:2508.10991 (2025)
+34. **Invariant Labs: Information-Flow Analysis for Agents** — invariantlabs.ai (2024)
+35. **ToolHive: Sigstore for MCP Supply Chain** — Stacklok (2025)
+36. **Capabilities Are the Only Way to Secure Agent Delegation** — Niyikiza (2025)
+37. **Constant-Size Cryptographic Evidence Structures** — arxiv:2511.17118, Codebat Technologies (2025)
+38. **OIDC-A 1.0: OpenID Connect for Agents** — Subramanya N (2025)
+39. **Lakera Agent Security Report Q4 2025** — lakera.ai (2025)
 
 ---
 
