@@ -9,11 +9,12 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-sentinel-mcp = { path = "../sentinel-mcp", features = ["semantic-detection"] }
+sentinel-mcp = { path = "../sentinel-mcp", features = ["semantic-detection", "a2a"] }
 sentinel-engine = { path = "../sentinel-engine" }
 sentinel-server = { path = "../sentinel-server" }
 sentinel-types = { path = "../sentinel-types" }
 sentinel-config = { path = "../sentinel-config" }
+chrono = "0.4"
 serde_json = "1.0"
 tokio = { version = "1.0", features = ["rt", "io-util", "macros"] }
 
@@ -104,5 +105,35 @@ doc = false
 [[bin]]
 name = "fuzz_etdi_signature"
 path = "fuzz_targets/fuzz_etdi_signature.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_agent_card_url"
+path = "fuzz_targets/fuzz_agent_card_url.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_agent_card_parse"
+path = "fuzz_targets/fuzz_agent_card_parse.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_homoglyph"
+path = "fuzz_targets/fuzz_homoglyph.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_a2a_classify"
+path = "fuzz_targets/fuzz_a2a_classify.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_attestation_verify"
+path = "fuzz_targets/fuzz_attestation_verify.rs"
 test = false
 doc = false
