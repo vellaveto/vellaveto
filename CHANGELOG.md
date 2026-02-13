@@ -26,9 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Benchmark guide (`docs/BENCHMARKS.md`): reproducible performance benchmarks with methodology and CI integration
 - 5 curated policy presets: `dev-laptop`, `ci-agent`, `rag-agent`, `database-agent`, `browser-agent`
 - Framework quickstart guide (`docs/QUICKSTART.md`): step-by-step Anthropic, OpenAI, LangChain, LangGraph, MCP proxy integration
-- Python SDK parameter redaction (`sentinel.redaction`): client-side secret stripping with 3 modes (keys_only, values, all), 44 tests
+- Python SDK parameter redaction (`sentinel.redaction`): client-side secret stripping with 3 modes (keys_only, values, all), 56 tests
+- `.dockerignore` for faster, smaller Docker builds
+- OCI image labels on Dockerfile (title, description, source, license, vendor)
+- Helm NetworkPolicy template with configurable ingress/egress rules
+- Helm PodDisruptionBudget template for HA during K8s maintenance
+- Helm ServiceMonitor template for Prometheus metrics discovery
 
 ### Changed
+
+- Docker Compose: added resource limits (1 CPU, 256MB) and log rotation (10MB x 3 files)
 
 - Default server port standardized from 8080 to 3000 across CLI, SDK, and documentation
 
