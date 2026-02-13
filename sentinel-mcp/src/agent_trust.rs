@@ -592,7 +592,6 @@ impl AgentTrustGraph {
             g.clear();
         } else {
             tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::clear (last_activity)");
-            return;
         }
     }
 }

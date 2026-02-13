@@ -50,6 +50,8 @@ jobs:
     name: Deploy to GitHub Pages
     needs: build
     runs-on: ubuntu-latest
+    # Requires GitHub Pages to be enabled: Settings > Pages > Source: GitHub Actions
+    if: github.repository == 'paolovella/sentinel'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
