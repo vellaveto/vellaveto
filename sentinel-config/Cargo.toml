@@ -1,6 +1,6 @@
 [package]
 name = "sentinel-config"
-version = "2.0.0"
+version = "2.2.1"
 description = "Configuration parsing and validation for Sentinel policies"
 edition = "2021"
 license.workspace = true

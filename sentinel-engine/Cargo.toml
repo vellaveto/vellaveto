@@ -1,6 +1,6 @@
 [package]
 name = "sentinel-engine"
-version = "2.0.0"
+version = "2.2.1"
 description = "Policy evaluation engine with glob, regex, and domain matching"
 edition = "2021"
 license.workspace = true
