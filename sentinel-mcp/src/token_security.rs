@@ -420,7 +420,8 @@ impl TokenSecurityAnalyzer {
                     estimated_tokens: input.len() / 4,
                     budget: self.config.default_context_budget,
                     usage_percent: 100.0,
-                    description: "Context budget check failed: lock poisoned (fail-closed)".to_string(),
+                    description: "Context budget check failed: lock poisoned (fail-closed)"
+                        .to_string(),
                 });
             }
         };

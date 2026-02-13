@@ -225,10 +225,7 @@ fn tool_name_with_spaces_only_accepted() {
         let (logger, _tmp) = setup_logger();
         let action = make_action_with_params("  tool  name  ", "func", json!({}));
         let result = logger.log_entry(&action, &Verdict::Allow, json!({})).await;
-        assert!(
-            result.is_ok(),
-            "Spaces in tool name should be accepted"
-        );
+        assert!(result.is_ok(), "Spaces in tool name should be accepted");
     });
 }
 

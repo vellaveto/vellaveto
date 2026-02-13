@@ -1179,7 +1179,6 @@ Comprehensive documentation is available in the `docs/` directory:
 | [Quantum Migration Runbook](docs/quantum-migration.md) | Phased TLS PQ rollout and rollback gates |
 | [API Reference](docs/API.md) | Complete HTTP API documentation |
 | [Roadmap](ROADMAP.md) | Current release status and upcoming phases |
-| [Module Extraction Playbook](MODULE_EXTRACTION_PLAYBOOK.md) | Contributor workflow for safe module splits |
 | [Changelog](CHANGELOG.md) | Version history and release notes |
 | [Contributing](CONTRIBUTING.md) | Development rules, commit format, release checklist |
 

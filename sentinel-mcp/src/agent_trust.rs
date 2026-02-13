@@ -324,7 +324,10 @@ impl AgentTrustGraph {
                 tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::detect_privilege_escalation (privilege_levels)");
                 return Some(EscalationAlert {
                     alert_type: EscalationAlertType::TrustBoundaryViolation,
-                    source_agent: chain.first().map(|e| e.from_agent.clone()).unwrap_or_default(),
+                    source_agent: chain
+                        .first()
+                        .map(|e| e.from_agent.clone())
+                        .unwrap_or_default(),
                     target_agent: chain.last().map(|e| e.to_agent.clone()),
                     chain: chain.to_vec(),
                     description: "Lock poisoned — fail-closed escalation alert".to_string(),
@@ -338,7 +341,10 @@ impl AgentTrustGraph {
                 tracing::error!(target: "sentinel::security", "RwLock poisoned in AgentTrustGraph::detect_privilege_escalation (trusted_agents)");
                 return Some(EscalationAlert {
                     alert_type: EscalationAlertType::TrustBoundaryViolation,
-                    source_agent: chain.first().map(|e| e.from_agent.clone()).unwrap_or_default(),
+                    source_agent: chain
+                        .first()
+                        .map(|e| e.from_agent.clone())
+                        .unwrap_or_default(),
                     target_agent: chain.last().map(|e| e.to_agent.clone()),
                     chain: chain.to_vec(),
                     description: "Lock poisoned — fail-closed escalation alert".to_string(),

@@ -110,9 +110,7 @@ pub fn configure_runtime_client(config: &OpaConfig) -> Result<(), OpaError> {
     let client = OpaClient::new(config)?.map(Arc::new);
     let slot = runtime_client_slot();
     let mut guard = slot.write().map_err(|_| {
-        OpaError::InvalidResponse(
-            "OPA runtime client lock poisoned — cannot configure".to_string(),
-        )
+        OpaError::InvalidResponse("OPA runtime client lock poisoned — cannot configure".to_string())
     })?;
     *guard = client;
     Ok(())
