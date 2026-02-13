@@ -1200,4 +1200,4 @@ Comprehensive documentation is available in the `docs/` directory:
 
 This project is dual-licensed under the [GNU Affero General Public License v3.0](LICENSE) and a commercial license. See [LICENSING.md](LICENSING.md) for details.
 
-If you modify Sentinel and offer it as a network service, the AGPL-3.0 requires you to make your source code available. For proprietary use or managed service offerings without source disclosure, contact **paolo@paolovella.com** for a commercial license.
+If you modify Sentinel and offer it as a network service, the AGPL-3.0 requires you to make your source code available. For proprietary use or managed service offerings without source disclosure, contact **paolovella1993@gmail.com** for a commercial license.
