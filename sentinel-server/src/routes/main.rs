@@ -46,6 +46,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/compliance/status", get(super::compliance::compliance_status))
         .route("/api/compliance/eu-ai-act/report", get(super::compliance::eu_ai_act_report))
         .route("/api/compliance/soc2/evidence", get(super::compliance::soc2_evidence))
+        // Threat coverage and gap analysis endpoints (Phase 19.3)
+        .route("/api/compliance/threat-coverage", get(super::compliance::threat_coverage))
+        .route("/api/compliance/gap-analysis", get(super::compliance::gap_analysis))
         .route(
             "/api/audit/checkpoints",
             get(super::audit::list_checkpoints),

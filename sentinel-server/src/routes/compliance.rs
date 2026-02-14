@@ -1,8 +1,9 @@
 //! Compliance evidence generation API routes.
 //!
-//! Provides endpoints for EU AI Act and SOC 2 compliance reporting.
-//! These read-only endpoints generate reports at request time using
-//! registry-based classification (read-time, not write-time).
+//! Provides endpoints for EU AI Act, SOC 2, CoSAI, Adversa TOP 25, and
+//! cross-framework gap analysis reporting. These read-only endpoints generate
+//! reports at request time using registry-based classification (read-time,
+//! not write-time).
 
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
@@ -237,6 +238,67 @@ pub async fn soc2_evidence(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
                     error: "Failed to generate report".to_string(),
+                }),
+            )
+        })
+}
+
+/// `GET /api/compliance/threat-coverage` — Threat framework coverage.
+///
+/// Returns coverage reports for MITRE ATLAS, CoSAI, and Adversa TOP 25
+/// threat/vulnerability frameworks.
+#[tracing::instrument(name = "sentinel.threat_coverage")]
+pub async fn threat_coverage(
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let atlas = sentinel_audit::atlas::AtlasRegistry::new();
+    let atlas_report = atlas.generate_coverage_report();
+
+    let cosai = sentinel_audit::cosai::CosaiRegistry::new();
+    let cosai_report = cosai.generate_coverage_report();
+
+    let adversa = sentinel_audit::adversa_top25::AdversaTop25Registry::new();
+    let adversa_report = adversa.generate_coverage_report();
+
+    let response = serde_json::json!({
+        "atlas": {
+            "total_techniques": atlas_report.total_techniques,
+            "covered": atlas_report.covered_techniques.len(),
+            "coverage_percent": atlas_report.coverage_percent,
+        },
+        "cosai": {
+            "total_categories": cosai_report.total_categories,
+            "covered_categories": cosai_report.covered_categories,
+            "total_threats": cosai_report.total_threats,
+            "covered_threats": cosai_report.covered_threats.len(),
+            "coverage_percent": cosai_report.coverage_percent,
+        },
+        "adversa_top25": {
+            "total_vulnerabilities": adversa_report.total_vulnerabilities,
+            "covered": adversa_report.covered_count,
+            "coverage_percent": adversa_report.coverage_percent,
+        },
+    });
+
+    Ok(Json(response))
+}
+
+/// `GET /api/compliance/gap-analysis` — Cross-framework gap analysis.
+///
+/// Generates a consolidated gap analysis across all 6 security frameworks
+/// (ATLAS, NIST RMF, ISO 27090, EU AI Act, CoSAI, Adversa TOP 25).
+#[tracing::instrument(name = "sentinel.gap_analysis")]
+pub async fn gap_analysis(
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let report = sentinel_audit::gap_analysis::generate_gap_analysis();
+
+    serde_json::to_value(&report)
+        .map(Json)
+        .map_err(|e| {
+            tracing::error!("Failed to serialize gap analysis report: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Failed to generate gap analysis report".to_string(),
                 }),
             )
         })

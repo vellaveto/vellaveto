@@ -34,6 +34,11 @@ pub mod observability;
 pub mod pii;
 pub mod streaming;
 
+// ── Phase 19.3: CoSAI/Adversa threat coverage registries ────────────────────
+pub mod adversa_top25;
+pub mod cosai;
+pub mod gap_analysis;
+
 // ── Re-exports: preserve exact public API ────────────────────────────────────
 
 // Types
