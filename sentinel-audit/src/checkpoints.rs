@@ -53,6 +53,16 @@ impl AuditLogger {
         let entries = self.load_entries().await?;
         let chain_head_hash = entries.last().and_then(|e| e.entry_hash.clone());
 
+        // Read Merkle root if tree is enabled
+        let merkle_root = if let Some(ref merkle) = self.merkle_tree {
+            let tree = merkle.lock().map_err(|e| {
+                AuditError::Validation(format!("Merkle tree lock poisoned: {}", e))
+            })?;
+            tree.root_hex()
+        } else {
+            None
+        };
+
         let mut checkpoint = Checkpoint {
             id: Uuid::new_v4().to_string(),
             timestamp: Utc::now().to_rfc3339(),
@@ -60,6 +70,7 @@ impl AuditLogger {
             chain_head_hash,
             signature: String::new(),
             verifying_key: hex::encode(signing_key.verifying_key().as_bytes()),
+            merkle_root,
         };
 
         // Sign the canonical content

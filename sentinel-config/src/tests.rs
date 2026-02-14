@@ -1107,6 +1107,7 @@ fn test_validate_rejects_too_many_policies() {
         observability: ObservabilityConfig::default(),
         metrics_require_auth: true,
         limits: LimitsConfig::default(),
+        compliance: ComplianceConfig::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {

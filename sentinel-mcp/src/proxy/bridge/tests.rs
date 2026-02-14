@@ -1330,6 +1330,7 @@ fn test_task_request_with_context() {
         call_chain: Vec::new(),
         tenant_id: None,
         verification_tier: None,
+        capability_token: None,
     };
     let result = bridge.evaluate_action_inner(&action, Some(&ctx));
     assert!(

@@ -88,6 +88,11 @@ pub struct Checkpoint {
     /// Ed25519 verifying key (public key) for this checkpoint.
     /// Hex-encoded 32-byte key.
     pub verifying_key: String,
+    /// Merkle tree root hash at checkpoint time (hex-encoded SHA-256).
+    /// None if Merkle tree is not enabled or the tree is empty.
+    /// Backward compatible: old checkpoints without this field still verify.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merkle_root: Option<String>,
 }
 
 impl Checkpoint {
@@ -104,6 +109,11 @@ impl Checkpoint {
             &mut hasher,
             self.chain_head_hash.as_deref().unwrap_or("").as_bytes(),
         );
+        // Include merkle_root only when present (backward compat: old
+        // checkpoints without merkle_root still produce the same content).
+        if let Some(ref mr) = self.merkle_root {
+            Self::hash_field(&mut hasher, mr.as_bytes());
+        }
         hasher.finalize().to_vec()
     }
 

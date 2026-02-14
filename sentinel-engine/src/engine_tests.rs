@@ -8368,3 +8368,161 @@ fn test_context_async_task_policy_marker_passes_through() {
         v
     );
 }
+
+// ── Capability token context condition tests ────────────────────────────────
+
+#[test]
+fn test_require_capability_token_missing_denied() {
+    let policy = make_context_policy(json!([{
+        "type": "require_capability_token"
+    }]));
+    let engine = make_context_engine(policy.clone());
+    let action = Action::new("read_file".to_string(), "read".to_string(), json!({}));
+    let ctx = EvaluationContext::default();
+    let v = engine
+        .evaluate_action_with_context(&action, &[policy], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Missing token should deny: {:?}", v);
+}
+
+#[test]
+fn test_require_capability_token_present_allowed() {
+    let policy = make_context_policy(json!([{
+        "type": "require_capability_token"
+    }]));
+    let engine = make_context_engine(policy.clone());
+    let action = Action::new("read_file".to_string(), "read".to_string(), json!({}));
+    let token = sentinel_types::CapabilityToken {
+        token_id: "tok-1".into(),
+        parent_token_id: None,
+        issuer: "root-agent".into(),
+        holder: "agent-a".into(),
+        grants: vec![sentinel_types::CapabilityGrant {
+            tool_pattern: "*".into(),
+            function_pattern: "*".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth: 3,
+        issued_at: "2026-01-01T00:00:00Z".into(),
+        expires_at: "2027-01-01T00:00:00Z".into(),
+        signature: "deadbeef".into(),
+        issuer_public_key: "cafebabe".into(),
+    };
+    let ctx = EvaluationContext::builder()
+        .agent_id("agent-a")
+        .capability_token(token)
+        .build();
+    let v = engine
+        .evaluate_action_with_context(&action, &[policy], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Allow), "Token present should allow: {:?}", v);
+}
+
+#[test]
+fn test_require_capability_token_holder_mismatch_denied() {
+    let policy = make_context_policy(json!([{
+        "type": "require_capability_token"
+    }]));
+    let engine = make_context_engine(policy.clone());
+    let action = Action::new("read_file".to_string(), "read".to_string(), json!({}));
+    let token = sentinel_types::CapabilityToken {
+        token_id: "tok-1".into(),
+        parent_token_id: None,
+        issuer: "root".into(),
+        holder: "agent-b".into(),
+        grants: vec![sentinel_types::CapabilityGrant {
+            tool_pattern: "*".into(),
+            function_pattern: "*".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth: 3,
+        issued_at: "2026-01-01T00:00:00Z".into(),
+        expires_at: "2027-01-01T00:00:00Z".into(),
+        signature: "x".into(),
+        issuer_public_key: "y".into(),
+    };
+    let ctx = EvaluationContext::builder()
+        .agent_id("agent-a")
+        .capability_token(token)
+        .build();
+    let v = engine
+        .evaluate_action_with_context(&action, &[policy], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Holder mismatch should deny: {:?}", v);
+}
+
+#[test]
+fn test_require_capability_token_issuer_allowlist_denied() {
+    let policy = make_context_policy(json!([{
+        "type": "require_capability_token",
+        "required_issuers": ["trusted-issuer"]
+    }]));
+    let engine = make_context_engine(policy.clone());
+    let action = Action::new("read_file".to_string(), "read".to_string(), json!({}));
+    let token = sentinel_types::CapabilityToken {
+        token_id: "tok-1".into(),
+        parent_token_id: None,
+        issuer: "untrusted-issuer".into(),
+        holder: "agent-a".into(),
+        grants: vec![sentinel_types::CapabilityGrant {
+            tool_pattern: "*".into(),
+            function_pattern: "*".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth: 3,
+        issued_at: "2026-01-01T00:00:00Z".into(),
+        expires_at: "2027-01-01T00:00:00Z".into(),
+        signature: "x".into(),
+        issuer_public_key: "y".into(),
+    };
+    let ctx = EvaluationContext::builder()
+        .agent_id("agent-a")
+        .capability_token(token)
+        .build();
+    let v = engine
+        .evaluate_action_with_context(&action, &[policy], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Wrong issuer should deny: {:?}", v);
+}
+
+#[test]
+fn test_require_capability_token_depth_insufficient() {
+    let policy = make_context_policy(json!([{
+        "type": "require_capability_token",
+        "min_remaining_depth": 3
+    }]));
+    let engine = make_context_engine(policy.clone());
+    let action = Action::new("read_file".to_string(), "read".to_string(), json!({}));
+    let token = sentinel_types::CapabilityToken {
+        token_id: "tok-1".into(),
+        parent_token_id: None,
+        issuer: "root".into(),
+        holder: "agent-a".into(),
+        grants: vec![sentinel_types::CapabilityGrant {
+            tool_pattern: "*".into(),
+            function_pattern: "*".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth: 1,
+        issued_at: "2026-01-01T00:00:00Z".into(),
+        expires_at: "2027-01-01T00:00:00Z".into(),
+        signature: "x".into(),
+        issuer_public_key: "y".into(),
+    };
+    let ctx = EvaluationContext::builder()
+        .agent_id("agent-a")
+        .capability_token(token)
+        .build();
+    let v = engine
+        .evaluate_action_with_context(&action, &[policy], Some(&ctx))
+        .unwrap();
+    assert!(matches!(v, Verdict::Deny { .. }), "Insufficient depth should deny: {:?}", v);
+}

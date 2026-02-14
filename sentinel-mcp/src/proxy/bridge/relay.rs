@@ -108,6 +108,7 @@ impl RelayState {
             call_chain: Vec::new(),
             tenant_id: None,
             verification_tier: None,
+            capability_token: None,
         }
     }
 

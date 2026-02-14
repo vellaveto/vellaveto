@@ -44,6 +44,14 @@ impl AuditLogger {
         self.entry_count
             .store(entries.len() as u64, Ordering::Relaxed);
 
+        // Initialize Merkle tree from existing leaf file (if enabled)
+        if let Some(ref merkle) = self.merkle_tree {
+            let mut tree = merkle.lock().map_err(|e| {
+                AuditError::Validation(format!("Merkle tree lock poisoned: {}", e))
+            })?;
+            tree.initialize()?;
+        }
+
         Ok(())
     }
 
@@ -125,6 +133,32 @@ impl AuditLogger {
 
         let rotated_path = self.rotated_path();
         tokio::fs::rename(&self.log_path, &rotated_path).await?;
+
+        // Rename the Merkle leaf file alongside the rotated log, then reset the tree
+        if let Some(ref merkle) = self.merkle_tree {
+            let leaf_path = self.merkle_leaf_path();
+            if leaf_path.exists() {
+                let rotated_leaf_path = {
+                    let rotated_stem = rotated_path
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy();
+                    let rotated_parent =
+                        rotated_path.parent().unwrap_or(std::path::Path::new("."));
+                    rotated_parent.join(format!("{rotated_stem}.merkle-leaves"))
+                };
+                if let Err(e) = tokio::fs::rename(&leaf_path, &rotated_leaf_path).await {
+                    tracing::warn!(
+                        error = %e,
+                        "Failed to rename Merkle leaf file during rotation"
+                    );
+                }
+            }
+            let mut tree = merkle.lock().map_err(|e| {
+                AuditError::Validation(format!("Merkle tree lock poisoned: {}", e))
+            })?;
+            tree.reset();
+        }
 
         // H1: Append rotation manifest entry
         // SECURITY (R9-1): Sign the manifest entry with Ed25519 when a signing

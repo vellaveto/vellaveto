@@ -26,6 +26,7 @@ pub mod approval;
 pub mod audit;
 pub mod auth_level;
 pub mod circuit_breaker;
+pub mod compliance;
 pub mod deputy;
 pub mod etdi;
 pub mod exec_graph;

@@ -63,6 +63,7 @@ fn test_state_with_rbac(rbac_config: RbacConfig) -> (AppState, TempDir) {
                 path_rules: None,
                 network_rules: None,
             }],
+            compliance_config: Default::default(),
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test-config.toml".to_string()),

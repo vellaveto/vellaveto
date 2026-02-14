@@ -145,6 +145,7 @@ pub async fn add_policy(
             state.policy_state.store(Arc::new(crate::PolicySnapshot {
                 engine: compiled_engine,
                 policies: candidate,
+                compliance_config: state.policy_state.load().compliance_config.clone(),
             }));
             tracing::info!("Added policy: {}", id);
         }
@@ -235,6 +236,7 @@ pub async fn remove_policy(
             state.policy_state.store(Arc::new(crate::PolicySnapshot {
                 engine: compiled_engine,
                 policies: candidate,
+                compliance_config: state.policy_state.load().compliance_config.clone(),
             }));
             tracing::info!("Removed {} policy(ies) with id: {}", removed, id);
         }

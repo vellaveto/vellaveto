@@ -37,6 +37,7 @@ fn make_state() -> (AppState, TempDir) {
                     network_rules: None,
                 },
             ],
+            compliance_config: Default::default(),
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
@@ -87,6 +88,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
             policies: vec![],
+            compliance_config: Default::default(),
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
@@ -521,6 +523,7 @@ priority = 1
         policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
             policies: vec![],
+            compliance_config: Default::default(),
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new(config_path.to_str().unwrap().to_string()),
@@ -638,6 +641,7 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
             engine,
             policies,
+            compliance_config: Default::default(),
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
@@ -876,6 +880,7 @@ async fn test_find004_metrics_require_auth_true_blocks_unauthenticated() {
         policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
             policies: vec![],
+            compliance_config: Default::default(),
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
@@ -937,6 +942,7 @@ async fn test_find004_metrics_require_auth_false_allows_unauthenticated() {
         policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
             policies: vec![],
+            compliance_config: Default::default(),
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),

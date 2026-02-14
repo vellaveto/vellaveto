@@ -1,3 +1,5 @@
+pub mod capability;
+pub mod compliance;
 pub mod core;
 pub mod did_plc;
 pub mod etdi;
@@ -15,6 +17,8 @@ mod tests;
 
 // Re-export everything for backward compatibility.
 // External crates import types from the crate root.
+pub use capability::*;
+pub use compliance::*;
 pub use self::core::*;
 pub use did_plc::*;
 pub use etdi::*;

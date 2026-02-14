@@ -359,6 +359,26 @@ pub enum CompiledContextCondition {
         required_tier: u8,
         deny_reason: String,
     },
+
+    /// Capability-based delegation token enforcement.
+    ///
+    /// Requires a valid capability token to be present in the evaluation context.
+    /// Checks that the token's holder matches the agent_id, and optionally
+    /// restricts which issuers are trusted and requires minimum delegation depth.
+    ///
+    /// # Security (MCP Gap #3 — Capability Delegation)
+    ///
+    /// - Fail-closed: missing token = Deny
+    /// - Holder must match agent_id (prevents token theft)
+    /// - Issuer allowlist prevents unauthorized token sources
+    /// - Grant coverage is verified by the proxy layer before attaching to context
+    RequireCapabilityToken {
+        /// If non-empty, the token's issuer must be in this list.
+        required_issuers: Vec<String>,
+        /// Minimum remaining delegation depth required (0 = terminal tokens accepted).
+        min_remaining_depth: u8,
+        deny_reason: String,
+    },
 }
 
 /// Pre-parsed fields extracted from a policy's `conditions` JSON.

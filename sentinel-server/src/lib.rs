@@ -532,6 +532,8 @@ impl Metrics {
 pub struct PolicySnapshot {
     pub engine: PolicyEngine,
     pub policies: Vec<Policy>,
+    /// Compliance configuration for evidence generation (Phase 19/21).
+    pub compliance_config: sentinel_config::compliance::ComplianceConfig,
 }
 
 /// Shared application state for axum handlers.
@@ -884,6 +886,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             observability: Default::default(),
             metrics_require_auth: true,
             limits: Default::default(),
+            compliance: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {
@@ -945,6 +948,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
     state.policy_state.store(Arc::new(PolicySnapshot {
         engine: new_engine,
         policies: new_policies,
+        compliance_config: policy_config.compliance.clone(),
     }));
 
     tracing::info!(

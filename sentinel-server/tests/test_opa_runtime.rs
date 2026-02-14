@@ -51,6 +51,7 @@ fn test_state() -> (AppState, TempDir) {
                     network_rules: None,
                 },
             ],
+            compliance_config: Default::default(),
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test-config.toml".to_string()),

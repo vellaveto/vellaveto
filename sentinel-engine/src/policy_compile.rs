@@ -1218,6 +1218,46 @@ impl PolicyEngine {
                 })
             }
 
+            "require_capability_token" => {
+                // Parse required_issuers (optional array of strings)
+                let required_issuers = obj
+                    .get("required_issuers")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_ascii_lowercase()))
+                            .collect::<Vec<String>>()
+                    })
+                    .unwrap_or_default();
+
+                // Parse min_remaining_depth (optional, default 0)
+                let min_remaining_depth = obj
+                    .get("min_remaining_depth")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                if min_remaining_depth > 16 {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!(
+                            "require_capability_token min_remaining_depth must be 0-16, got {}",
+                            min_remaining_depth
+                        ),
+                    });
+                }
+
+                let deny_reason = format!(
+                    "Capability token required for policy '{}'",
+                    policy.name
+                );
+
+                Ok(CompiledContextCondition::RequireCapabilityToken {
+                    required_issuers,
+                    min_remaining_depth: min_remaining_depth as u8,
+                    deny_reason,
+                })
+            }
+
             "min_verification_tier" => {
                 // Parse required_tier as integer or string name
                 let required_tier = if let Some(level_val) = obj.get("required_tier") {

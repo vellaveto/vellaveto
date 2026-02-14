@@ -671,6 +671,64 @@ impl PolicyEngine {
                         }
                     }
                 }
+
+                CompiledContextCondition::RequireCapabilityToken {
+                    required_issuers,
+                    min_remaining_depth,
+                    deny_reason,
+                } => {
+                    // Capability-based delegation token enforcement.
+                    // SECURITY: Fail-closed when capability_token is None.
+                    match &context.capability_token {
+                        Some(token) => {
+                            // Check holder matches agent_id (prevents token theft)
+                            if let Some(ref agent_id) = context.agent_id {
+                                if !token.holder.eq_ignore_ascii_case(agent_id) {
+                                    return Some(Verdict::Deny {
+                                        reason: format!(
+                                            "{} (token holder '{}' does not match agent_id '{}')",
+                                            deny_reason, token.holder, agent_id
+                                        ),
+                                    });
+                                }
+                            }
+
+                            // Check issuer allowlist
+                            if !required_issuers.is_empty() {
+                                let issuer_lower = token.issuer.to_ascii_lowercase();
+                                if !required_issuers.contains(&issuer_lower) {
+                                    return Some(Verdict::Deny {
+                                        reason: format!(
+                                            "{} (issuer '{}' not in allowed list)",
+                                            deny_reason, token.issuer
+                                        ),
+                                    });
+                                }
+                            }
+
+                            // Check remaining delegation depth
+                            if token.remaining_depth < *min_remaining_depth {
+                                return Some(Verdict::Deny {
+                                    reason: format!(
+                                        "{} (remaining depth {} below required {})",
+                                        deny_reason,
+                                        token.remaining_depth,
+                                        min_remaining_depth
+                                    ),
+                                });
+                            }
+                        }
+                        None => {
+                            // Fail-closed: no capability token in context
+                            return Some(Verdict::Deny {
+                                reason: format!(
+                                    "{} (no capability token in context — fail-closed)",
+                                    deny_reason
+                                ),
+                            });
+                        }
+                    }
+                }
             }
         }
         None

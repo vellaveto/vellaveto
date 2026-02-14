@@ -1,6 +1,7 @@
 //! Agent identity types — attested identity, call chain entries,
 //! evaluation context, and context builder.
 
+use crate::capability::CapabilityToken;
 use crate::verification::VerificationTier;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -133,6 +134,11 @@ pub struct EvaluationContext {
     /// When `None`, policies requiring a minimum tier will deny (fail-closed).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verification_tier: Option<VerificationTier>,
+    /// Capability delegation token for the agent.
+    /// Used by `require_capability_token` context condition.
+    /// When `None`, policies requiring a capability token will deny (fail-closed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_token: Option<CapabilityToken>,
 }
 
 impl EvaluationContext {
@@ -154,6 +160,7 @@ impl EvaluationContext {
             || !self.call_chain.is_empty()
             || self.tenant_id.is_some()
             || self.verification_tier.is_some()
+            || self.capability_token.is_some()
     }
 
     /// Returns the depth of the current call chain (number of agents in the chain).
@@ -200,6 +207,7 @@ pub struct EvaluationContextBuilder {
     call_chain: Vec<CallChainEntry>,
     tenant_id: Option<String>,
     verification_tier: Option<VerificationTier>,
+    capability_token: Option<CapabilityToken>,
 }
 
 impl EvaluationContextBuilder {
@@ -269,6 +277,12 @@ impl EvaluationContextBuilder {
         self
     }
 
+    /// Set the capability delegation token for capability-based access control.
+    pub fn capability_token(mut self, token: CapabilityToken) -> Self {
+        self.capability_token = Some(token);
+        self
+    }
+
     /// Build the [`EvaluationContext`].
     pub fn build(self) -> EvaluationContext {
         EvaluationContext {
@@ -280,6 +294,7 @@ impl EvaluationContextBuilder {
             call_chain: self.call_chain,
             tenant_id: self.tenant_id,
             verification_tier: self.verification_tier,
+            capability_token: self.capability_token,
         }
     }
 }

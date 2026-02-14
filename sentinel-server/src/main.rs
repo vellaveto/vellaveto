@@ -690,6 +690,7 @@ async fn cmd_serve(
         policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
             engine,
             policies,
+            compliance_config: policy_config.compliance.clone(),
         })),
         audit,
         config_path: Arc::new(config),
@@ -1338,6 +1339,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         observability: Default::default(),
         metrics_require_auth: true,
         limits: Default::default(),
+        compliance: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

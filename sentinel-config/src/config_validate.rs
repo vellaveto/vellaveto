@@ -812,6 +812,9 @@ impl PolicyConfig {
             );
         }
 
+        // Compliance evidence configuration bounds
+        self.compliance.validate()?;
+
         Ok(())
     }
 

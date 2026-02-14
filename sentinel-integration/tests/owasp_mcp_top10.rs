@@ -873,6 +873,7 @@ mod owasp_mcp07_auth {
                     path_rules: None,
                     network_rules: None,
                 }],
+                compliance_config: Default::default(),
             })),
             audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
             config_path: Arc::new("test.toml".to_string()),
@@ -1289,6 +1290,7 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
             policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
                 engine: PolicyEngine::new(false),
                 policies: vec![],
+                compliance_config: Default::default(),
             })),
             audit: logger,
             config_path: Arc::new("test.toml".to_string()),
@@ -1556,6 +1558,7 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
         policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
             policies: vec![allow_policy("file:read", "Allow reads", 10)],
+            compliance_config: Default::default(),
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
@@ -1659,6 +1662,7 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
         policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
             policies: vec![allow_policy("file:read", "Allow", 10)],
+            compliance_config: Default::default(),
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),

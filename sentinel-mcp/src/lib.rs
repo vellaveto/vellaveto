@@ -2,10 +2,14 @@
 pub mod a2a;
 pub mod accountability;
 pub mod agent_message;
+// Note: `capability` is the MCP protocol capability parsing module (CIMD).
+// `capability_token` is the delegation token crypto operations module.
+
 pub mod agent_trust;
 pub mod attack_sim;
 pub mod auth_level;
 pub mod capability;
+pub mod capability_token;
 pub mod data_flow;
 pub mod did_plc;
 pub mod elicitation;

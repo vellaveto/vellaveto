@@ -20,6 +20,7 @@ pub mod threat_detection;
 // ═══════════════════════════════════════════════════════════════════════════════
 pub mod a2a;
 pub mod cluster;
+pub mod compliance;
 pub mod config_validate;
 pub mod grpc_transport;
 pub mod limits;
@@ -87,6 +88,9 @@ pub use rag_defense_config::{
 
 // Re-exports from Phase 16.6 split submodules
 pub use a2a::A2aConfig;
+pub use compliance::{
+    AiActRiskClass, ComplianceConfig, EuAiActConfig, Soc2Config, TrustServicesCategory,
+};
 pub use cluster::ClusterConfig;
 pub use config_validate::{
     MAX_ALLOWED_SERVERS, MAX_CUSTOM_PII_PATTERNS, MAX_DISABLED_INJECTION_PATTERNS,
@@ -360,6 +364,13 @@ pub struct PolicyConfig {
     /// Controls memory bounds, timeouts, and chain lengths.
     #[serde(default)]
     pub limits: LimitsConfig,
+
+    // ═══════════════════════════════════════════════════
+    // COMPLIANCE EVIDENCE CONFIGURATION
+    // ═══════════════════════════════════════════════════
+    /// Compliance evidence generation configuration (EU AI Act, SOC 2).
+    #[serde(default)]
+    pub compliance: ComplianceConfig,
 }
 
 impl PolicyConfig {

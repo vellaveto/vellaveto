@@ -15,6 +15,7 @@ mod checkpoints;
 mod etdi_audit;
 mod events;
 pub mod logger;
+pub mod merkle;
 mod redaction;
 mod rotation;
 mod types;
@@ -25,8 +26,10 @@ pub mod aivss;
 pub mod atlas;
 pub mod exec_graph;
 pub mod export;
+pub mod eu_ai_act;
 pub mod iso27090;
 pub mod nist_rmf;
+pub mod soc2;
 pub mod observability;
 pub mod pii;
 pub mod streaming;
@@ -52,6 +55,9 @@ pub use observability::{
     SecurityDetection, SecuritySpan, SecuritySpanBuilder, SpanKind, SpanSampler, TraceContext,
     VerdictSummary,
 };
+
+// Merkle tree re-exports
+pub use merkle::{MerkleProof, MerkleTree, MerkleVerification, ProofStep};
 
 // PII re-exports
 pub use pii::{validate_regex_safety, CustomPiiPattern, PiiScanner};

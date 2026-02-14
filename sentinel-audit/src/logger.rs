@@ -1,3 +1,4 @@
+use crate::merkle::MerkleTree;
 use crate::pii::PiiScanner;
 use crate::redaction::{
     redact_keys_and_patterns, redact_keys_and_patterns_with_scanner, redact_keys_only, PII_REGEXES,
@@ -51,6 +52,9 @@ pub struct AuditLogger {
     /// Incremented after each successful write. Reset to 0 on rotation.
     /// Used to avoid re-reading the file to count entries during rotation.
     pub(crate) entry_count: AtomicU64,
+    /// Optional Merkle tree for inclusion proofs.
+    /// When enabled, every log entry's hash is appended as a leaf.
+    pub(crate) merkle_tree: Option<std::sync::Mutex<MerkleTree>>,
 }
 
 impl AuditLogger {
@@ -72,6 +76,7 @@ impl AuditLogger {
             trusted_verifying_key: None,
             pii_scanner: Some(PiiScanner::new(&[])),
             entry_count: AtomicU64::new(0),
+            merkle_tree: None,
         }
     }
 
@@ -87,6 +92,7 @@ impl AuditLogger {
             trusted_verifying_key: None,
             pii_scanner: None,
             entry_count: AtomicU64::new(0),
+            merkle_tree: None,
         }
     }
 
@@ -131,6 +137,34 @@ impl AuditLogger {
     pub fn with_custom_pii_patterns(mut self, patterns: &[CustomPiiPattern]) -> Self {
         self.pii_scanner = Some(PiiScanner::new(patterns));
         self
+    }
+
+    /// Enable Merkle tree inclusion proofs.
+    ///
+    /// When enabled, every audit entry's hash is appended as a leaf to an
+    /// incremental Merkle tree. The tree root is included in checkpoints,
+    /// and inclusion proofs can be generated for individual entries.
+    ///
+    /// The Merkle tree leaf file is stored alongside the audit log with a
+    /// `.merkle-leaves` suffix.
+    pub fn with_merkle_tree(mut self) -> Self {
+        let leaf_path = self.merkle_leaf_path();
+        self.merkle_tree = Some(std::sync::Mutex::new(MerkleTree::new(leaf_path)));
+        self
+    }
+
+    /// Compute the path to the Merkle leaf file for this audit log.
+    pub(crate) fn merkle_leaf_path(&self) -> PathBuf {
+        let stem = self
+            .log_path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy();
+        let parent = self
+            .log_path
+            .parent()
+            .unwrap_or(std::path::Path::new("."));
+        parent.join(format!("{stem}.merkle-leaves"))
     }
 
     /// Generate a new random Ed25519 signing key.
@@ -410,7 +444,23 @@ impl AuditLogger {
         // Update chain head ONLY after successful file write.
         // If the write fails, the in-memory hash must not advance,
         // otherwise the chain diverges from what's on disk.
-        *last_hash_guard = Some(hash);
+        *last_hash_guard = Some(hash.clone());
+
+        // Append leaf hash to Merkle tree (if enabled)
+        if let Some(ref merkle) = self.merkle_tree {
+            let leaf_bytes = hex::decode(&hash).map_err(|e| {
+                AuditError::Validation(format!("Invalid entry hash hex for Merkle tree: {}", e))
+            })?;
+            let mut leaf_arr = [0u8; 32];
+            if leaf_bytes.len() == 32 {
+                leaf_arr.copy_from_slice(&leaf_bytes);
+            }
+            let leaf = crate::merkle::hash_leaf(&leaf_arr);
+            let mut tree = merkle.lock().map_err(|e| {
+                AuditError::Validation(format!("Merkle tree lock poisoned: {}", e))
+            })?;
+            tree.append(leaf)?;
+        }
 
         // Increment in-memory entry count for rotation metadata
         self.entry_count.fetch_add(1, Ordering::Relaxed);

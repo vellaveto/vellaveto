@@ -42,6 +42,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/audit/export", get(super::audit::audit_export))
         .route("/api/audit/report", get(super::audit::audit_report))
         .route("/api/audit/verify", get(super::audit::audit_verify))
+        // Compliance evidence endpoints (Phase 19/21)
+        .route("/api/compliance/status", get(super::compliance::compliance_status))
+        .route("/api/compliance/eu-ai-act/report", get(super::compliance::eu_ai_act_report))
+        .route("/api/compliance/soc2/evidence", get(super::compliance::soc2_evidence))
         .route(
             "/api/audit/checkpoints",
             get(super::audit::list_checkpoints),
@@ -1347,6 +1351,7 @@ fn sanitize_context(
             // Tenant ID is set by the tenant middleware, not client-controlled
             tenant_id,
             verification_tier: None,
+            capability_token: None,
         }
     })
 }
@@ -2465,6 +2470,7 @@ mod tests {
             call_chain: Vec::new(),
             tenant_id: None,
             verification_tier: None,
+            capability_token: None,
         };
         let sanitized = sanitize_context(Some(spoofed), &headers, None).unwrap();
         // agent_id preserved (no auth header)
@@ -2488,6 +2494,7 @@ mod tests {
             call_chain: Vec::new(),
             tenant_id: None,
             verification_tier: None,
+            capability_token: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         assert_eq!(sanitized.agent_id, Some("my-agent".to_string()));
@@ -2511,6 +2518,7 @@ mod tests {
             call_chain: Vec::new(),
             tenant_id: None,
             verification_tier: None,
+            capability_token: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         let agent_id = sanitized.agent_id.unwrap();
@@ -2543,6 +2551,7 @@ mod tests {
             call_chain: Vec::new(),
             tenant_id: None,
             verification_tier: None,
+            capability_token: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         let agent_id = sanitized.agent_id.unwrap();
@@ -2570,6 +2579,7 @@ mod tests {
             call_chain: Vec::new(),
             tenant_id: None,
             verification_tier: None,
+            capability_token: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         assert!(
@@ -2591,6 +2601,7 @@ mod tests {
             call_chain: Vec::new(),
             tenant_id: None,
             verification_tier: None,
+            capability_token: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         assert_eq!(sanitized.agent_id, Some(max_id));
@@ -2608,6 +2619,7 @@ mod tests {
             call_chain: Vec::new(),
             tenant_id: None,
             verification_tier: None,
+            capability_token: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         assert!(

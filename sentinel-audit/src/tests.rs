@@ -1648,6 +1648,7 @@ async fn test_checkpoint_key_continuity_rejects_key_change() {
         chain_head_hash: entries.last().and_then(|e| e.entry_hash.clone()),
         signature: String::new(),
         verifying_key: hex::encode(key2.verifying_key().as_bytes()),
+        merkle_root: None,
     };
     let sig = key2.sign(&cp2.signing_content());
     cp2.signature = hex::encode(sig.to_bytes());
@@ -1714,6 +1715,7 @@ async fn test_checkpoint_decreasing_entry_count_detected() {
         chain_head_hash: None,
         signature: String::new(),
         verifying_key: hex::encode(key.verifying_key().as_bytes()),
+        merkle_root: None,
     };
     let content = forged_cp.signing_content();
     let sig = key.sign(&content);
@@ -2751,4 +2753,419 @@ async fn test_rotation_manifest_entry_reordering_detected() {
             );
         }
     }
+}
+
+// ── Merkle tree tests ──────────────────────────────────────────────────────
+
+#[test]
+fn test_merkle_empty_tree_root_is_none() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let tree = merkle::MerkleTree::new(dir.path().join("leaves"));
+    assert!(tree.root().is_none());
+    assert_eq!(tree.leaf_count(), 0);
+}
+
+#[test]
+fn test_merkle_single_leaf() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let mut tree = merkle::MerkleTree::new(dir.path().join("leaves"));
+    let leaf = merkle::hash_leaf(b"hello");
+    tree.append(leaf).unwrap();
+    assert_eq!(tree.leaf_count(), 1);
+    let root = tree.root().unwrap();
+    // Single leaf: root == leaf hash
+    assert_eq!(root, leaf);
+}
+
+#[test]
+fn test_merkle_two_leaves() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let mut tree = merkle::MerkleTree::new(dir.path().join("leaves"));
+    let l0 = merkle::hash_leaf(b"a");
+    let l1 = merkle::hash_leaf(b"b");
+    tree.append(l0).unwrap();
+    tree.append(l1).unwrap();
+    assert_eq!(tree.leaf_count(), 2);
+    let root = tree.root().unwrap();
+    // Manual: internal(l0, l1)
+    let expected = {
+        use sha2::{Digest, Sha256};
+        let mut h = Sha256::new();
+        h.update([0x01]);
+        h.update(l0);
+        h.update(l1);
+        let r: [u8; 32] = h.finalize().into();
+        r
+    };
+    assert_eq!(root, expected);
+}
+
+#[test]
+fn test_merkle_three_leaves() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let mut tree = merkle::MerkleTree::new(dir.path().join("leaves"));
+    let l0 = merkle::hash_leaf(b"a");
+    let l1 = merkle::hash_leaf(b"b");
+    let l2 = merkle::hash_leaf(b"c");
+    tree.append(l0).unwrap();
+    tree.append(l1).unwrap();
+    tree.append(l2).unwrap();
+    assert_eq!(tree.leaf_count(), 3);
+    // Root should be deterministic
+    let root1 = tree.root().unwrap();
+    let root2 = tree.root().unwrap();
+    assert_eq!(root1, root2);
+}
+
+#[test]
+fn test_merkle_power_of_two_leaves() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let mut tree = merkle::MerkleTree::new(dir.path().join("leaves"));
+    for i in 0u8..8 {
+        tree.append(merkle::hash_leaf(&[i])).unwrap();
+    }
+    assert_eq!(tree.leaf_count(), 8);
+    assert!(tree.root().is_some());
+}
+
+#[test]
+fn test_merkle_root_determinism() {
+    // Same leaves → same root
+    let dir1 = tempfile::TempDir::new().unwrap();
+    let dir2 = tempfile::TempDir::new().unwrap();
+    let mut t1 = merkle::MerkleTree::new(dir1.path().join("leaves"));
+    let mut t2 = merkle::MerkleTree::new(dir2.path().join("leaves"));
+    for i in 0u8..5 {
+        let leaf = merkle::hash_leaf(&[i]);
+        t1.append(leaf).unwrap();
+        t2.append(leaf).unwrap();
+    }
+    assert_eq!(t1.root(), t2.root());
+}
+
+#[test]
+fn test_merkle_order_dependence() {
+    // Different order → different root
+    let dir1 = tempfile::TempDir::new().unwrap();
+    let dir2 = tempfile::TempDir::new().unwrap();
+    let mut t1 = merkle::MerkleTree::new(dir1.path().join("leaves"));
+    let mut t2 = merkle::MerkleTree::new(dir2.path().join("leaves"));
+    let la = merkle::hash_leaf(b"a");
+    let lb = merkle::hash_leaf(b"b");
+    t1.append(la).unwrap();
+    t1.append(lb).unwrap();
+    t2.append(lb).unwrap();
+    t2.append(la).unwrap();
+    assert_ne!(t1.root(), t2.root());
+}
+
+#[test]
+fn test_merkle_proof_roundtrip_single() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let mut tree = merkle::MerkleTree::new(dir.path().join("leaves"));
+    let leaf = merkle::hash_leaf(b"single");
+    tree.append(leaf).unwrap();
+    let proof = tree.generate_proof(0).unwrap();
+    let result = merkle::MerkleTree::verify_proof(leaf, &proof).unwrap();
+    assert!(result.valid, "Proof should be valid: {:?}", result.failure_reason);
+}
+
+#[test]
+fn test_merkle_proof_roundtrip_multiple() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let mut tree = merkle::MerkleTree::new(dir.path().join("leaves"));
+    let leaves: Vec<[u8; 32]> = (0u8..7).map(|i| merkle::hash_leaf(&[i])).collect();
+    for leaf in &leaves {
+        tree.append(*leaf).unwrap();
+    }
+    // Verify proof for each leaf
+    for (i, leaf) in leaves.iter().enumerate() {
+        let proof = tree.generate_proof(i as u64).unwrap();
+        let result = merkle::MerkleTree::verify_proof(*leaf, &proof).unwrap();
+        assert!(result.valid, "Proof for leaf {} should be valid: {:?}", i, result.failure_reason);
+    }
+}
+
+#[test]
+fn test_merkle_proof_tampered_leaf_rejected() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let mut tree = merkle::MerkleTree::new(dir.path().join("leaves"));
+    let leaf = merkle::hash_leaf(b"original");
+    tree.append(leaf).unwrap();
+    tree.append(merkle::hash_leaf(b"other")).unwrap();
+    let proof = tree.generate_proof(0).unwrap();
+    // Verify with wrong leaf
+    let wrong_leaf = merkle::hash_leaf(b"tampered");
+    let result = merkle::MerkleTree::verify_proof(wrong_leaf, &proof).unwrap();
+    assert!(!result.valid);
+    assert!(result.failure_reason.unwrap().contains("Root mismatch"));
+}
+
+#[test]
+fn test_merkle_proof_tampered_sibling_rejected() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let mut tree = merkle::MerkleTree::new(dir.path().join("leaves"));
+    let leaf = merkle::hash_leaf(b"leaf0");
+    tree.append(leaf).unwrap();
+    tree.append(merkle::hash_leaf(b"leaf1")).unwrap();
+    let mut proof = tree.generate_proof(0).unwrap();
+    // Tamper with sibling
+    if !proof.siblings.is_empty() {
+        proof.siblings[0].hash = hex::encode([0xffu8; 32]);
+    }
+    let result = merkle::MerkleTree::verify_proof(leaf, &proof).unwrap();
+    assert!(!result.valid);
+}
+
+#[test]
+fn test_merkle_proof_tampered_root_rejected() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let mut tree = merkle::MerkleTree::new(dir.path().join("leaves"));
+    let leaf = merkle::hash_leaf(b"data");
+    tree.append(leaf).unwrap();
+    let mut proof = tree.generate_proof(0).unwrap();
+    proof.root_hash = hex::encode([0xaa; 32]);
+    let result = merkle::MerkleTree::verify_proof(leaf, &proof).unwrap();
+    assert!(!result.valid);
+}
+
+#[test]
+fn test_merkle_proof_out_of_range() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let mut tree = merkle::MerkleTree::new(dir.path().join("leaves"));
+    tree.append(merkle::hash_leaf(b"x")).unwrap();
+    let err = tree.generate_proof(1).unwrap_err();
+    match err {
+        AuditError::Validation(msg) => assert!(msg.contains("out of range")),
+        _ => panic!("Expected Validation error"),
+    }
+}
+
+#[test]
+fn test_merkle_proof_zero_tree_size() {
+    let proof = merkle::MerkleProof {
+        leaf_index: 0,
+        tree_size: 0,
+        siblings: vec![],
+        root_hash: String::new(),
+    };
+    let result = merkle::MerkleTree::verify_proof([0u8; 32], &proof).unwrap();
+    assert!(!result.valid);
+    assert!(result.failure_reason.unwrap().contains("zero tree size"));
+}
+
+#[test]
+fn test_merkle_crash_recovery() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let leaf_path = dir.path().join("leaves");
+    let leaves: Vec<[u8; 32]> = (0u8..5).map(|i| merkle::hash_leaf(&[i])).collect();
+    let original_root;
+    {
+        let mut tree = merkle::MerkleTree::new(leaf_path.clone());
+        for leaf in &leaves {
+            tree.append(*leaf).unwrap();
+        }
+        original_root = tree.root();
+    }
+    // Rebuild from file
+    let mut tree2 = merkle::MerkleTree::new(leaf_path);
+    tree2.initialize().unwrap();
+    assert_eq!(tree2.leaf_count(), 5);
+    assert_eq!(tree2.root(), original_root);
+}
+
+#[test]
+fn test_merkle_partial_write_truncation() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let leaf_path = dir.path().join("leaves");
+    {
+        let mut tree = merkle::MerkleTree::new(leaf_path.clone());
+        tree.append(merkle::hash_leaf(b"a")).unwrap();
+        tree.append(merkle::hash_leaf(b"b")).unwrap();
+    }
+    // Append partial bytes (simulate crash mid-write)
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&leaf_path)
+        .unwrap();
+    f.write_all(&[0xde, 0xad]).unwrap();
+    // Rebuild should truncate the partial write
+    let mut tree2 = merkle::MerkleTree::new(leaf_path);
+    tree2.initialize().unwrap();
+    assert_eq!(tree2.leaf_count(), 2);
+}
+
+#[test]
+fn test_merkle_reset_clears_tree() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let mut tree = merkle::MerkleTree::new(dir.path().join("leaves"));
+    tree.append(merkle::hash_leaf(b"a")).unwrap();
+    tree.append(merkle::hash_leaf(b"b")).unwrap();
+    assert_eq!(tree.leaf_count(), 2);
+    tree.reset();
+    assert_eq!(tree.leaf_count(), 0);
+    assert!(tree.root().is_none());
+}
+
+#[test]
+fn test_merkle_domain_separation_leaf_ne_internal() {
+    // hash_leaf(data) ≠ hash_internal(data, data)
+    use sha2::{Digest, Sha256};
+    let data = [0x42u8; 32];
+    let leaf = merkle::hash_leaf(&data);
+    let internal = {
+        let mut h = Sha256::new();
+        h.update([0x01]);
+        h.update(data);
+        h.update(data);
+        let r: [u8; 32] = h.finalize().into();
+        r
+    };
+    assert_ne!(leaf, internal);
+}
+
+#[test]
+fn test_merkle_domain_separation_non_commutative() {
+    // hash_internal(a, b) ≠ hash_internal(b, a)
+    use sha2::{Digest, Sha256};
+    let a = [1u8; 32];
+    let b = [2u8; 32];
+    let ab = {
+        let mut h = Sha256::new();
+        h.update([0x01]);
+        h.update(a);
+        h.update(b);
+        let r: [u8; 32] = h.finalize().into();
+        r
+    };
+    let ba = {
+        let mut h = Sha256::new();
+        h.update([0x01]);
+        h.update(b);
+        h.update(a);
+        let r: [u8; 32] = h.finalize().into();
+        r
+    };
+    assert_ne!(ab, ba);
+}
+
+#[tokio::test]
+async fn test_merkle_logger_integration_entries_with_merkle() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = AuditLogger::new_unredacted(log_path)
+        .with_merkle_tree();
+
+    let action = test_action();
+    logger
+        .log_entry(&action, &Verdict::Allow, json!({}))
+        .await
+        .unwrap();
+    logger
+        .log_entry(&action, &Verdict::Deny { reason: "test".into() }, json!({}))
+        .await
+        .unwrap();
+
+    // Verify Merkle tree has 2 leaves
+    let tree = logger.merkle_tree.as_ref().unwrap().lock().unwrap();
+    assert_eq!(tree.leaf_count(), 2);
+    assert!(tree.root().is_some());
+}
+
+#[tokio::test]
+async fn test_merkle_logger_checkpoint_includes_root() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let signing_key = AuditLogger::generate_signing_key();
+    let logger = AuditLogger::new_unredacted(log_path)
+        .with_signing_key(signing_key)
+        .with_merkle_tree();
+
+    let action = test_action();
+    logger
+        .log_entry(&action, &Verdict::Allow, json!({}))
+        .await
+        .unwrap();
+
+    let checkpoint = logger.create_checkpoint().await.unwrap();
+    assert!(checkpoint.merkle_root.is_some(), "Checkpoint should contain Merkle root");
+    // Root should be a hex-encoded SHA-256
+    let root = checkpoint.merkle_root.unwrap();
+    assert_eq!(root.len(), 64, "Merkle root should be 64 hex chars");
+}
+
+#[tokio::test]
+async fn test_merkle_logger_proof_generation_and_verification() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = AuditLogger::new_unredacted(log_path)
+        .with_merkle_tree();
+
+    let action = test_action();
+    for _ in 0..3 {
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+    }
+
+    // Load entries to get the hash
+    let entries = logger.load_entries().await.unwrap();
+    assert_eq!(entries.len(), 3);
+
+    // Generate and verify proof for each entry
+    for (i, entry) in entries.iter().enumerate() {
+        let proof = logger.generate_merkle_proof(i as u64).unwrap();
+        let entry_hash = entry.entry_hash.as_ref().unwrap();
+        let result = AuditLogger::verify_merkle_proof(entry_hash, &proof).unwrap();
+        assert!(result.valid, "Proof for entry {} should be valid: {:?}", i, result.failure_reason);
+    }
+}
+
+#[test]
+fn test_merkle_proof_serde_roundtrip() {
+    let proof = merkle::MerkleProof {
+        leaf_index: 42,
+        tree_size: 100,
+        siblings: vec![
+            merkle::ProofStep {
+                hash: hex::encode([1u8; 32]),
+                is_left: true,
+            },
+            merkle::ProofStep {
+                hash: hex::encode([2u8; 32]),
+                is_left: false,
+            },
+        ],
+        root_hash: hex::encode([3u8; 32]),
+    };
+    let json = serde_json::to_string(&proof).unwrap();
+    let deserialized: merkle::MerkleProof = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.leaf_index, 42);
+    assert_eq!(deserialized.tree_size, 100);
+    assert_eq!(deserialized.siblings.len(), 2);
+}
+
+#[tokio::test]
+async fn test_merkle_checkpoint_backward_compat() {
+    // Old checkpoint without merkle_root should still deserialize and verify
+    let dir = tempfile::TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let signing_key = AuditLogger::generate_signing_key();
+
+    // Create a checkpoint WITHOUT merkle tree (old behavior)
+    let logger_no_merkle = AuditLogger::new_unredacted(log_path.clone())
+        .with_signing_key(signing_key.clone());
+    let action = test_action();
+    logger_no_merkle
+        .log_entry(&action, &Verdict::Allow, json!({}))
+        .await
+        .unwrap();
+    let old_cp = logger_no_merkle.create_checkpoint().await.unwrap();
+    assert!(old_cp.merkle_root.is_none());
+
+    // Old checkpoint should still verify
+    let result = logger_no_merkle.verify_checkpoints().await.unwrap();
+    assert!(result.valid);
 }

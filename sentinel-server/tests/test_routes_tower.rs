@@ -38,6 +38,7 @@ fn make_state() -> (AppState, TempDir) {
                     network_rules: None,
                 },
             ],
+            compliance_config: Default::default(),
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
@@ -88,6 +89,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
             policies: vec![],
+            compliance_config: Default::default(),
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
@@ -1186,6 +1188,7 @@ priority = 1
         policy_state: Arc::new(ArcSwap::from_pointee(sentinel_server::PolicySnapshot {
             engine: PolicyEngine::new(false),
             policies: vec![],
+            compliance_config: Default::default(),
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new(config_path.to_str().unwrap().to_string()),
@@ -1301,6 +1304,7 @@ fn make_approval_state() -> (AppState, TempDir) {
                     network_rules: None,
                 },
             ],
+            compliance_config: Default::default(),
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
@@ -1777,6 +1781,7 @@ fn make_authed_state() -> (AppState, TempDir) {
                 path_rules: None,
                 network_rules: None,
             }],
+            compliance_config: Default::default(),
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
@@ -2275,6 +2280,7 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
                 path_rules: None,
                 network_rules: None,
             }],
+            compliance_config: Default::default(),
         })),
         audit: Arc::new(
             AuditLogger::new(tmp.path().join("audit.log")).with_signing_key(signing_key),
@@ -2978,6 +2984,7 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
                 path_rules: None,
                 network_rules: None,
             }],
+            compliance_config: Default::default(),
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("nonexistent.toml".to_string()),
@@ -3328,6 +3335,7 @@ async fn remove_policy_atomic_store_updates_both() {
             .store(Arc::new(sentinel_server::PolicySnapshot {
                 engine,
                 policies: snapshot.policies.clone(),
+                compliance_config: Default::default(),
             }));
     }
 

@@ -39,6 +39,7 @@ fn make_test_state(tmp: &TempDir) -> AppState {
                 path_rules: None,
                 network_rules: None,
             }],
+            compliance_config: Default::default(),
         })),
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         config_path: Arc::new("test.toml".to_string()),
@@ -159,6 +160,7 @@ mod filesystem_errors {
                     path_rules: None,
                     network_rules: None,
                 }],
+                compliance_config: Default::default(),
             })),
             approvals,
             ..make_test_state(&tmp)
@@ -222,6 +224,7 @@ mod policy_errors {
                     }),
                     network_rules: None,
                 }],
+                compliance_config: Default::default(),
             })),
             ..make_test_state(&tmp)
         };
@@ -253,6 +256,7 @@ mod policy_errors {
             policy_state: Arc::new(ArcSwap::from_pointee(PolicySnapshot {
                 engine: PolicyEngine::new(false),
                 policies: vec![], // No policies
+                compliance_config: Default::default(),
             })),
             ..make_test_state(&tmp)
         };
@@ -316,6 +320,7 @@ mod policy_reload_races {
                                 path_rules: None,
                                 network_rules: None,
                             }],
+                            compliance_config: Default::default(),
                         };
                         ps.store(Arc::new(new_snapshot));
                         uc.fetch_add(1, Ordering::Relaxed);
@@ -364,6 +369,7 @@ mod policy_reload_races {
                         path_rules: None,
                         network_rules: None,
                     }],
+                    compliance_config: Default::default(),
                 };
                 ps.store(Arc::new(new_snapshot));
                 tokio::time::sleep(Duration::from_millis(1)).await;

@@ -199,4 +199,44 @@ impl AuditLogger {
             entries,
         })
     }
+
+    /// Generate a Merkle inclusion proof for the audit entry at `index`.
+    ///
+    /// Requires the Merkle tree to be enabled via `with_merkle_tree()`.
+    pub fn generate_merkle_proof(
+        &self,
+        index: u64,
+    ) -> Result<crate::merkle::MerkleProof, AuditError> {
+        let merkle = self.merkle_tree.as_ref().ok_or_else(|| {
+            AuditError::Validation("Merkle tree not enabled on this logger".to_string())
+        })?;
+        let tree = merkle.lock().map_err(|e| {
+            AuditError::Validation(format!("Merkle tree lock poisoned: {}", e))
+        })?;
+        tree.generate_proof(index)
+    }
+
+    /// Verify a Merkle inclusion proof for an audit entry.
+    ///
+    /// This is a convenience wrapper around `MerkleTree::verify_proof`.
+    /// The `entry_hash` should be the SHA-256 hash from the audit entry's
+    /// `entry_hash` field.
+    pub fn verify_merkle_proof(
+        entry_hash: &str,
+        proof: &crate::merkle::MerkleProof,
+    ) -> Result<crate::merkle::MerkleVerification, AuditError> {
+        let hash_bytes = hex::decode(entry_hash).map_err(|e| {
+            AuditError::Validation(format!("Invalid entry hash hex: {}", e))
+        })?;
+        if hash_bytes.len() != 32 {
+            return Err(AuditError::Validation(format!(
+                "Entry hash has wrong length: {} (expected 32)",
+                hash_bytes.len()
+            )));
+        }
+        let mut leaf_arr = [0u8; 32];
+        leaf_arr.copy_from_slice(&hash_bytes);
+        let leaf = crate::merkle::hash_leaf(&leaf_arr);
+        crate::merkle::MerkleTree::verify_proof(leaf, proof)
+    }
 }
