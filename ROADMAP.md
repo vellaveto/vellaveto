@@ -4,7 +4,7 @@
 > **Generated:** 2026-02-13
 > **Baseline:** v2.2.1 — 4,353+ Rust tests, 130 Python SDK tests, 35 audit rounds, 22 fuzz targets, 11 CI workflows
 > **Scope:** 12 months (Q1–Q4 2026), quarterly milestones
-> **Status:** All v2.0–v2.2 phases (1–15) complete; Phases 17.1–17.2 (WebSocket + gRPC transport) complete; v3.0 in progress
+> **Status:** All v2.0–v2.2 phases (1–15) complete; Phases 17.1–17.2 complete; Phases 19.1/19.4 partial, 21.0 complete; v3.0 in progress
 
 ---
 
@@ -257,29 +257,40 @@ MCP SDK tiering defines capability levels that implementations must declare and 
 
 The EU AI Act enforcement date of **August 2, 2026** creates a hard deadline for transparency and logging requirements applicable to AI systems.
 
-#### 19.1 EU AI Act Article 50 Transparency Features
+#### 19.1 EU AI Act Compliance Evidence Generation ✅ PARTIAL
 
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Implement AI system identification in all agent outputs (Art. 50(1)) | P0 | 2 days | — |
-| Add automated decision explanation logging (Art. 50(2)) | P0 | 3 days | — |
-| Implement human oversight notification triggers (Art. 14) | P0 | 2 days | — |
-| Add risk classification metadata to audit entries (Art. 6/Annex III) | P0 | 2 days | — |
-| Create conformity assessment report generator (Art. 43) | P0 | 3 days | All above |
-| Implement data governance record keeping (Art. 10) | P0 | 2 days | — |
-| Add transparency obligation enforcement in policy engine | P0 | 2 days | — |
-| Create EU AI Act compliance dashboard section | P1 | 2 days | Report generator |
+Conformity assessment and transparency evidence generation for EU AI Act obligations.
+
+> **Status:** Registry-based evidence generation implemented. Remaining items (runtime output marking, human oversight triggers, data governance) are future work.
+
+| Task | Status | Notes |
+|------|--------|-------|
+| EU AI Act registry with obligation mappings (Art 5, 6, 9, 12, 13, 14, 15, 43, 50) | ✅ | `sentinel-audit/src/eu_ai_act.rs` |
+| Conformity assessment report generator (Art. 43) | ✅ | `EuAiActRegistry::generate_assessment()` |
+| Risk classification with capability mappings (Art. 6/Annex III) | ✅ | `AiActRiskClass` enum, 18 capability mappings |
+| Transparency entry classification (read-time) | ✅ | `classify_entry_transparency()` |
+| Compliance status API endpoint | ✅ | `GET /api/compliance/status` |
+| EU AI Act report API endpoint | ✅ | `GET /api/compliance/eu-ai-act/report` |
+| `ComplianceConfig` with validation | ✅ | `sentinel-config/src/compliance.rs` |
+| Shared compliance types in leaf crate | ✅ | `sentinel-types/src/compliance.rs` |
+| EU AI Act unit tests | ✅ | 11 tests |
+| Implement AI system identification in all agent outputs (Art. 50(1)) | 🔲 | Future: runtime output marking |
+| Add automated decision explanation logging (Art. 50(2)) | 🔲 | Future: per-verdict explanations |
+| Implement human oversight notification triggers (Art. 14) | 🔲 | Future: runtime triggers |
+| Implement data governance record keeping (Art. 10) | 🔲 | Future |
+| Create EU AI Act compliance dashboard section | 🔲 | Future |
 
 **Configuration:**
 ```toml
 [compliance.eu_ai_act]
 enabled = true
-risk_classification = "high_risk"   # limited_risk | high_risk
-ai_system_identifier = "sentinel-mcp-firewall-v3"
-require_human_oversight_for = ["CredentialAccess", "SystemExecute", "DataDelete"]
-explanation_detail_level = "full"    # minimal | standard | full
-data_retention_days = 365            # Art. 12 record-keeping
-conformity_body = "notified-body-id-here"
+risk_class = "high_risk"             # minimal | limited | high_risk | unacceptable
+deployer_name = "Acme Corp"
+system_id = "sentinel-mcp-firewall-v3"
+transparency_marking = true          # Art 50(1)
+human_oversight_tools = ["CredentialAccess", "SystemExecute", "DataDelete"]  # Art 14
+record_retention_days = 365          # Art 12
+conformity_assessment = true         # Art 43
 ```
 
 #### 19.2 OpenTelemetry GenAI Semantic Conventions
@@ -319,21 +330,39 @@ Map all 12 CoSAI threat categories (~40 threats) to Sentinel controls and close 
 | Add Adversa AI TOP 25 coverage matrix | P1 | 2 days | — |
 | Create automated gap analysis report generator | P1 | 2 days | Both matrices |
 
-#### 19.4 SOC 2 Type II Audit Trail Enhancements
+#### 19.4 SOC 2 Type II Audit Trail Enhancements ✅ PARTIAL
 
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Add SOC 2 CC (Common Criteria) event categorization to audit entries | P0 | 2 days | — |
-| Implement immutable audit log archive with retention policies | P0 | 3 days | — |
-| Add SOC 2 evidence collection endpoints | P1 | 2 days | CC categorization |
-| Create access review report generator | P1 | 2 days | — |
-| Document SOC 2 control mapping | P1 | 1 day | All above |
+SOC 2 evidence generation with Trust Services Categories (CC1-CC9) and Merkle tree inclusion proofs.
+
+> **Status:** Registry-based evidence generation and Merkle tree proofs implemented. Remaining items (immutable archive, access review reports) are future work.
+
+| Task | Status | Notes |
+|------|--------|-------|
+| SOC 2 registry with 22 criteria across CC1-CC9 | ✅ | `sentinel-audit/src/soc2.rs` |
+| SOC 2 evidence report generator | ✅ | `Soc2Registry::generate_evidence_report()` |
+| Coverage by category with readiness levels | ✅ | `coverage_by_category()`, 5-level ReadinessLevel |
+| Read-time audit entry classification | ✅ | `classify_entry()` → `Soc2EvidenceRecord` |
+| SOC 2 evidence API endpoint with category filter | ✅ | `GET /api/compliance/soc2/evidence?category=CC1` |
+| SOC 2 unit tests | ✅ | 14 tests |
+| Merkle tree inclusion proofs (RFC 6962 domain separation) | ✅ | `sentinel-audit/src/merkle.rs` |
+| Merkle proof generation and verification | ✅ | `generate_proof()`, `verify_proof()` (static) |
+| Merkle integration with audit logger | ✅ | `with_merkle_tree()` builder, leaf append on log_entry |
+| Merkle root in checkpoints | ✅ | `merkle_root: Option<String>` in Checkpoint |
+| Merkle tree rotation support | ✅ | Leaf file renamed alongside rotated log, tree reset |
+| Merkle tree crash recovery | ✅ | `initialize()` rebuilds peaks from existing leaf file |
+| Merkle tree unit tests | ✅ | 24 tests |
+| Implement immutable audit log archive with retention policies | 🔲 | Future |
+| Create access review report generator | 🔲 | Future |
 
 ### Phase 19 Exit Criteria
-- [ ] EU AI Act Article 50 transparency features functional
+- [x] EU AI Act conformity assessment registry and evidence generation API
+- [x] SOC 2 evidence registry with CC1-CC9 coverage and evidence collection API
+- [x] Merkle tree inclusion proofs integrated with audit logger and checkpoints
+- [x] Compliance configuration with validation in sentinel-config
+- [ ] EU AI Act Article 50 runtime transparency features (output marking, human oversight triggers)
 - [ ] OTLP export with GenAI semantic conventions verified against OTel Collector
 - [ ] CoSAI/Adversa threat coverage >90% with documented exceptions
-- [ ] SOC 2 audit trail meets Type II evidence requirements
+- [ ] Immutable audit log archive with retention policies
 - [ ] Compliance dashboard shows real-time status
 
 **Estimated Duration:** 6 weeks (parallel with Phase 18)
@@ -432,6 +461,35 @@ session_ttl_secs = 3600
 ### Phase 21: Advanced Authorization (P1)
 
 *Focus: Fine-grained attribute-based access control, least-agency enforcement, identity federation, and continuous authorization*
+
+#### 21.0 Capability-Based Delegation Tokens ✅ COMPLETE
+
+Ed25519-signed capability tokens with monotonic attenuation for protocol-level delegation.
+
+> **Status:** Implemented. Foundation for Phase 21 authorization features.
+
+| Task | Status | Notes |
+|------|--------|-------|
+| CapabilityToken type with grants, delegation chain, depth budget | ✅ | `sentinel-types/src/capability.rs` |
+| Ed25519 signing with length-prefixed canonical content | ✅ | `sentinel-mcp/src/capability_token.rs` |
+| Token issuance, attenuation, and verification | ✅ | `issue_capability_token()`, `attenuate_capability_token()`, `verify_capability_token()` |
+| Monotonic attenuation enforcement (depth decrements, grants subset, expiry clamped) | ✅ | Escalation rejected at attenuation time |
+| Grant coverage matching (glob patterns, path/domain constraints) | ✅ | `check_grant_coverage()` |
+| RequireCapabilityToken policy condition (fail-closed) | ✅ | `sentinel-engine/src/context_check.rs` |
+| Policy compilation for `require_capability_token` | ✅ | `sentinel-engine/src/policy_compile.rs` |
+| EvaluationContext extended with `capability_token` field | ✅ | `sentinel-types/src/identity.rs` |
+| Structural validation (MAX_GRANTS=64, MAX_DEPTH=16, MAX_TOKEN_SIZE=65536) | ✅ | `validate_structure()` |
+| Capability token unit tests | ✅ | 31 tests (4 types + 5 engine + 22 mcp) |
+
+**Security properties delivered:**
+- Fail-closed: missing or invalid token = Deny
+- Monotonic attenuation: child tokens can only narrow parent grants
+- Depth budget prevents unbounded delegation chains
+- Ed25519 signature over canonical content prevents tampering
+- Grant coverage checked against Action tool/function/paths/domains
+- No new dependencies (reuses ed25519-dalek, hex, serde)
+
+**Completed:** 2026-02-14
 
 #### 21.1 Fine-Grained ABAC Engine (Cedar-Style)
 
@@ -649,7 +707,7 @@ forbid(
 | Policy Engine | ✅ Strong | ✅ ML-based | ✅ Strong | ✅ WAF | ✅ Strong | ✅ WAF | ✅ Colang | ⚠️ Basic |
 | Injection Detection | ✅ Multi-layer | ✅ ML-based | ✅ ML-based | ✅ Strong | ✅ ML-based | ✅ Strong | ✅ LLM-based | ❌ |
 | DLP / Data Loss Prevention | ✅ 8-layer decode | ⚠️ Basic | ✅ Strong | ⚠️ Basic | ✅ Strong | ⚠️ Basic | ⚠️ Basic | ❌ |
-| Tamper-Evident Audit | ✅ Hash chain | ⚠️ Basic | ✅ Strong | ⚠️ Basic | ✅ Strong | ✅ Strong | ⚠️ Basic | ❌ |
+| Tamper-Evident Audit | ✅ Hash chain + Merkle | ⚠️ Basic | ✅ Strong | ⚠️ Basic | ✅ Strong | ✅ Strong | ⚠️ Basic | ❌ |
 | ETDI Tool Signing | ✅ Ed25519/ECDSA | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Schema Poisoning Detection | ✅ Jaccard | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Cross-Agent Security | ✅ Trust graph | ⚠️ Basic | ⚠️ Basic | ❌ | ⚠️ Basic | ❌ | ❌ | ❌ |
@@ -659,7 +717,7 @@ forbid(
 | RAG Poisoning Defense | ✅ Full | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Gateway / Multi-Backend | 🔲 Phase 20 | ✅ Native | ✅ Native | ✅ Native | ❌ | ✅ Native | ❌ | ✅ Native |
 | ABAC (Cedar-style) | 🔲 Phase 21 | ⚠️ Basic | ✅ Strong | ❌ | ⚠️ Basic | ❌ | ❌ | ❌ |
-| EU AI Act Compliance | 🔲 Phase 19 | ⚠️ Basic | ⚠️ Basic | ❌ | ✅ Strong | ❌ | ❌ | ❌ |
+| EU AI Act Compliance | ✅ Phase 19.1 | ⚠️ Basic | ⚠️ Basic | ❌ | ✅ Strong | ❌ | ❌ | ❌ |
 | OpenTelemetry GenAI | 🔲 Phase 19 | ❌ | ⚠️ Basic | ❌ | ❌ | ❌ | ❌ | ❌ |
 | K8s Native Deployment | 🔲 Phase 20 | ✅ Native | ✅ Native | ✅ Native | ⚠️ Basic | ✅ Native | ❌ | ✅ Native |
 | Open Source | ✅ AGPL-3.0 | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ Apache-2.0 | ✅ MIT |
@@ -686,7 +744,7 @@ forbid(
 | 9 | Denial of Service | ✅ Rate limiting, circuit breaker, resource limits | — |
 | 10 | Audit Evasion | ✅ Hash chain, Ed25519 checkpoints, rotation manifests | — |
 | 11 | Configuration Attacks | ✅ Config validation, hot reload integrity | — |
-| 12 | Compliance Gaps | ⚠️ MITRE ATLAS, NIST RMF, AIVSS | EU AI Act (Phase 19), SOC 2 (Phase 19) |
+| 12 | Compliance Gaps | ✅ MITRE ATLAS, NIST RMF, AIVSS, EU AI Act evidence, SOC 2 evidence | Runtime transparency (Phase 19), OTel GenAI (Phase 19) |
 
 ### Adversa AI MCP Security TOP 25
 
@@ -759,12 +817,12 @@ forbid(
 | # | Gap | Severity | Sentinel Current Coverage | Roadmap Phase | Status |
 |---|-----|----------|--------------------------|---------------|--------|
 | 1 | **Formal verification of MCP policy enforcement** | Critical | No formal model exists in any framework (TLA+, Alloy, Lean, Coq). No one has verified safety/liveness/complete mediation for any MCP policy engine. | Phase 23 (Research) | 🔲 Open research question |
-| 2 | **Cryptographic audit trails** | Critical | ✅ **Sentinel is the only shipping product combining runtime firewall + cryptographic audit.** SHA-256 hash chains, Ed25519 signed checkpoints, rotation manifests, SIEM export (CEF/JSONL/webhook). | Phase 19.4 (SOC 2 enhancements) | ✅ Production-ready — Merkle tree inclusion proofs and zk-audit are future work |
-| 3 | **Multi-agent delegation / confused deputy** | Critical | ✅ Deputy validation, delegation chains with depth limits, call chain tracking, NHI lifecycle, agent trust graph, Ed25519 message signing. No protocol-level capability tokens yet. | Phase 21.1 (ABAC), Phase 21.3 (Federation) | ⚠️ Runtime enforcement implemented; protocol-level capability tokens planned |
+| 2 | **Cryptographic audit trails** | Critical | ✅ **Sentinel is the only shipping product combining runtime firewall + cryptographic audit.** SHA-256 hash chains, Ed25519 signed checkpoints, rotation manifests, SIEM export (CEF/JSONL/webhook). **Merkle tree inclusion proofs** with RFC 6962 domain separation, proof generation/verification, crash recovery. | Phase 19.4 ✅ | ✅ Production-ready — Merkle proofs shipped; zk-audit is future work |
+| 3 | **Multi-agent delegation / confused deputy** | Critical | ✅ Deputy validation, delegation chains with depth limits, call chain tracking, NHI lifecycle, agent trust graph, Ed25519 message signing. **Capability-based delegation tokens** with monotonic attenuation, grant coverage matching, RequireCapabilityToken policy condition (fail-closed). | Phase 21.0 ✅, Phase 21.1 (ABAC), Phase 21.3 (Federation) | ✅ Runtime enforcement + protocol-level capability tokens shipped; ABAC and federation planned |
 | 4 | **MCP supply chain security** | Critical | ✅ ETDI tool signing (Ed25519/ECDSA), attestation chains, version pinning with hash drift detection, rug-pull detection, schema poisoning (Jaccard), tool squatting (Levenshtein + homoglyph), SHA-256 binary verification. | Phase 23.4 (Sigstore/Rekor) | ✅ Runtime enforcement shipped — transparency log integration planned |
 | 5 | **Performance benchmarking** | Important | ✅ Criterion benchmarks: 7–31 ns single policy, ~1.2 μs for 100 policies. Sub-5ms P99 claimed. No peer-reviewed publication yet. | — | ⚠️ Internal benchmarks exist; rigorous paper needed (OSDI/NSDI target) |
 | 6 | **MCP protocol-level security deficits** | Critical | ✅ Sentinel enforces what the spec leaves advisory: tool pinning (ETDI), namespace isolation (collision detection), annotation tracking (rug-pull alerts), session binding (not in URLs), auth enforcement. | Phases 18–21 | ✅ Application-layer mitigations shipped for all 6 protocol deficits |
-| 7 | **Compliance frameworks for agentic AI** | Critical | ✅ MITRE ATLAS (14 techniques), OWASP AIVSS scoring, NIST AI RMF, ISO 27090 readiness. Audit trail with decision context, user attribution, approval chains. | Phase 19 (EU AI Act, SOC 2, OTel GenAI) | ⚠️ Mapping exists; EU AI Act Article 50 + SOC 2 evidence generation planned |
+| 7 | **Compliance frameworks for agentic AI** | Critical | ✅ MITRE ATLAS (14 techniques), OWASP AIVSS scoring, NIST AI RMF, ISO 27090 readiness. Audit trail with decision context, user attribution, approval chains. **EU AI Act conformity assessment** (Art 5–50, 10 obligations, 18 capability mappings) and **SOC 2 evidence generation** (CC1-CC9, 22 criteria, 30 capability mappings) with API endpoints. | Phase 19.1/19.4 ✅ | ✅ Evidence generation shipped; runtime transparency features and OTel GenAI planned |
 | 8 | **MCP incident tracking infrastructure** | Important | ✅ 4 known CVEs mitigated (CVE-2025-68143/44/45, CVE-2025-6514). Adversa TOP 25: 25/25 addressed. CoSAI 12 categories: all covered. | — | ⚠️ No centralized MCP vulnerability DB exists ecosystem-wide |
 
 ### Sentinel's Position Relative to Ecosystem Gaps
@@ -776,8 +834,8 @@ forbid(
 - **Threat coverage** (#8) — 25/25 Adversa TOP 25, all 12 CoSAI categories, all 10 OWASP ASI threats
 
 **Gaps where Sentinel has partial coverage (roadmap planned):**
-- **Multi-agent delegation** (#3) — Runtime enforcement exists (deputy validation, trust graph, NHI); protocol-level capability tokens with monotonic attenuation are Phase 21
-- **Compliance evidence** (#7) — Standards mapping exists; automated evidence generation for EU AI Act Article 50 and SOC 2 TSC is Phase 19
+- **Multi-agent delegation** (#3) — Runtime enforcement + protocol-level capability tokens shipped; Cedar-style ABAC (Phase 21.1) and federation (Phase 21.3) planned
+- **Compliance evidence** (#7) — EU AI Act + SOC 2 evidence generation shipped; runtime transparency features (Art 50 output marking) and OTel GenAI conventions planned
 - **Performance characterization** (#5) — Internal criterion benchmarks exist; rigorous peer-reviewed paper needed
 
 **Gaps that are open research (no one has solved):**
