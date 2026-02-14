@@ -42,6 +42,7 @@ pub mod streaming;
 pub mod adversa_top25;
 pub mod cosai;
 pub mod gap_analysis;
+pub mod iso42001;
 
 // ── Re-exports: preserve exact public API ────────────────────────────────────
 

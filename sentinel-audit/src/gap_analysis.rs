@@ -1,7 +1,7 @@
 //! Cross-Framework Gap Analysis Report Generator.
 //!
 //! Queries all security framework registries (MITRE ATLAS, NIST AI RMF,
-//! ISO 27090, EU AI Act, SOC 2, CoSAI, Adversa TOP 25) and produces a
+//! ISO 27090, ISO 42001, EU AI Act, SOC 2, CoSAI, Adversa TOP 25) and produces a
 //! consolidated gap analysis report with coverage percentages, identified
 //! gaps, and recommendations.
 //!
@@ -197,7 +197,30 @@ pub fn generate_gap_analysis() -> GapAnalysisReport {
         }
     }
 
-    // ── 6. Adversa TOP 25 ───────────────────────────────────────────────
+    // ── 6. ISO 42001 ─────────────────────────────────────────────────────
+    let iso42001 = crate::iso42001::Iso42001Registry::new();
+    let iso42001_report = iso42001.generate_report("Gap Analysis", "gap-analysis-system");
+    frameworks.push(FrameworkSummary {
+        name: "ISO 42001".to_string(),
+        total_items: iso42001_report.total_clauses,
+        covered_items: iso42001_report.compliant_clauses + iso42001_report.partial_clauses,
+        coverage_percent: iso42001_report.compliance_percentage,
+    });
+    for assessment in &iso42001_report.assessments {
+        if assessment.status == crate::iso42001::ComplianceStatus::NotImplemented {
+            critical_gaps.push(Gap {
+                framework: "ISO 42001".to_string(),
+                item_id: assessment.clause_id.clone(),
+                description: format!(
+                    "Clause {} ({}) has no Sentinel evidence",
+                    assessment.clause_id, assessment.title
+                ),
+                severity: "Medium".to_string(),
+            });
+        }
+    }
+
+    // ── 7. Adversa TOP 25 ───────────────────────────────────────────────
     let adversa = crate::adversa_top25::AdversaTop25Registry::new();
     let adversa_report = adversa.generate_coverage_report();
     frameworks.push(FrameworkSummary {
@@ -276,13 +299,14 @@ mod tests {
     }
 
     #[test]
-    fn test_all_6_frameworks_present() {
+    fn test_all_7_frameworks_present() {
         let report = generate_gap_analysis();
         let names: Vec<&str> = report.frameworks.iter().map(|f| f.name.as_str()).collect();
 
         assert!(names.contains(&"MITRE ATLAS"), "Missing MITRE ATLAS");
         assert!(names.contains(&"NIST AI RMF"), "Missing NIST AI RMF");
         assert!(names.contains(&"ISO 27090"), "Missing ISO 27090");
+        assert!(names.contains(&"ISO 42001"), "Missing ISO 42001");
         assert!(names.contains(&"EU AI Act"), "Missing EU AI Act");
         assert!(names.contains(&"CoSAI"), "Missing CoSAI");
         assert!(names.contains(&"Adversa TOP 25"), "Missing Adversa TOP 25");

@@ -48,6 +48,10 @@ pub fn build_router(state: AppState) -> Router {
             get(super::compliance::compliance_status),
         )
         .route(
+            "/api/compliance/iso42001/report",
+            get(super::compliance::iso42001_report),
+        )
+        .route(
             "/api/compliance/eu-ai-act/report",
             get(super::compliance::eu_ai_act_report),
         )

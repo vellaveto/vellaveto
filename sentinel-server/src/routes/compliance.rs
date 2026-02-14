@@ -1,7 +1,7 @@
 //! Compliance evidence generation API routes.
 //!
-//! Provides endpoints for EU AI Act, SOC 2, CoSAI, Adversa TOP 25, and
-//! cross-framework gap analysis reporting. These read-only endpoints generate
+//! Provides endpoints for EU AI Act, SOC 2, ISO 42001, CoSAI, Adversa TOP 25,
+//! and cross-framework gap analysis reporting. These read-only endpoints generate
 //! reports at request time using registry-based classification (read-time,
 //! not write-time).
 
@@ -43,7 +43,7 @@ pub struct Soc2EvidenceQuery {
 /// `GET /api/compliance/status` — Overall compliance posture.
 ///
 /// Returns a summary of compliance readiness across all frameworks:
-/// EU AI Act, SOC 2, NIST AI RMF, and ISO 27090.
+/// EU AI Act, SOC 2, NIST AI RMF, ISO 27090, and ISO 42001.
 #[tracing::instrument(name = "sentinel.compliance_status", skip(state))]
 pub async fn compliance_status(
     State(state): State<AppState>,
@@ -128,7 +128,37 @@ pub async fn compliance_status(
         response["iso27090"] = iso;
     }
 
+    // ISO 42001
+    let iso42001_registry = sentinel_audit::iso42001::Iso42001Registry::new();
+    let iso42001_report = iso42001_registry.generate_report("Sentinel", "sentinel-runtime");
+    response["iso42001"] = serde_json::json!({
+        "compliance_percentage": iso42001_report.compliance_percentage,
+        "total_clauses": iso42001_report.total_clauses,
+        "compliant_clauses": iso42001_report.compliant_clauses,
+        "partial_clauses": iso42001_report.partial_clauses,
+    });
+
     Ok(Json(response))
+}
+
+/// `GET /api/compliance/iso42001/report` — ISO/IEC 42001 compliance evidence.
+///
+/// Generates a full ISO 42001 AI Management System compliance evidence report.
+#[tracing::instrument(name = "sentinel.iso42001_report")]
+pub async fn iso42001_report(
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let registry = sentinel_audit::iso42001::Iso42001Registry::new();
+    let report = registry.generate_report("Sentinel", "sentinel-runtime");
+
+    serde_json::to_value(&report).map(Json).map_err(|e| {
+        tracing::error!("Failed to serialize ISO 42001 report: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Failed to generate report".to_string(),
+            }),
+        )
+    })
 }
 
 /// `GET /api/compliance/eu-ai-act/report` — EU AI Act conformity assessment.
@@ -277,8 +307,8 @@ pub async fn threat_coverage() -> Result<Json<serde_json::Value>, (StatusCode, J
 
 /// `GET /api/compliance/gap-analysis` — Cross-framework gap analysis.
 ///
-/// Generates a consolidated gap analysis across all 6 security frameworks
-/// (ATLAS, NIST RMF, ISO 27090, EU AI Act, CoSAI, Adversa TOP 25).
+/// Generates a consolidated gap analysis across all 7 security frameworks
+/// (ATLAS, NIST RMF, ISO 27090, ISO 42001, EU AI Act, CoSAI, Adversa TOP 25).
 #[tracing::instrument(name = "sentinel.gap_analysis")]
 pub async fn gap_analysis() -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let report = sentinel_audit::gap_analysis::generate_gap_analysis();
