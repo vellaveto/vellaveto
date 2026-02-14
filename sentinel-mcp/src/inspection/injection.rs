@@ -247,10 +247,24 @@ impl InjectionScanner {
         let sanitized = sanitize_for_injection_scan(text);
         let lower = sanitized.to_lowercase();
 
-        self.automaton
+        let mut all_matches: Vec<&str> = self.automaton
             .find_iter(&lower)
             .map(|m| self.patterns[m.pattern().as_usize()].as_str())
-            .collect()
+            .collect();
+
+        // SECURITY (FIND-075): Also scan with invisible chars fully stripped
+        let stripped = sanitize_stripped(text);
+        let stripped_lower = stripped.to_lowercase();
+        if stripped_lower != lower {
+            for m in self.automaton.find_iter(&stripped_lower) {
+                let pattern = self.patterns[m.pattern().as_usize()].as_str();
+                if !all_matches.contains(&pattern) {
+                    all_matches.push(pattern);
+                }
+            }
+        }
+
+        all_matches
     }
 
     /// Scan a JSON-RPC response for injection using this scanner's custom patterns.
@@ -414,33 +428,26 @@ pub fn sanitize_for_injection_scan(text: &str) -> String {
             let cp = c as u32;
             // Replace invisible/control characters with space so word boundaries
             // are preserved (e.g. "ignore\u{200B}all" → "ignore all").
-            if (0xE0000..=0xE007F).contains(&cp)   // Tag characters
-                || (0x200B..=0x200F).contains(&cp)  // Zero-width characters
-                || (0x202A..=0x202E).contains(&cp)  // Bidi overrides
-                || (0xFE00..=0xFE0F).contains(&cp)  // Variation selectors
-                || cp == 0xFEFF                      // BOM / ZWNBSP
-                || (0x2060..=0x2064).contains(&cp)   // Word joiners / invisible operators
-                // SECURITY (R23-MCP-8): Additional invisible format characters
-                || (0xFFF9..=0xFFFB).contains(&cp)   // Interlinear Annotation (Anchor/Separator/Terminator)
-                || cp == 0x180E                       // Mongolian Vowel Separator
-                || cp == 0x00AD                       // Soft Hyphen
-                // SECURITY (R25-MCP-5): Bidi Isolate characters can reorder
-                // displayed text to hide injected instructions visually.
-                || (0x2066..=0x2069).contains(&cp)
-            // LRI, RLI, FSI, PDI
-            {
+            if is_invisible_char(cp) {
                 ' '
             } else {
                 c
             }
         })
         .collect();
-    // NFKC normalization canonicalizes homoglyphs and fullwidth chars
+    // NFKC normalization canonicalizes fullwidth chars to ASCII equivalents
     let normalized: String = stripped.nfkc().collect();
-    // Collapse consecutive spaces so "ignore\u{200B} all" → "ignore all" (not "ignore  all")
-    let mut result = String::with_capacity(normalized.len());
+    // SECURITY (FIND-076): Map Cyrillic/Greek homoglyphs to Latin equivalents.
+    // NFKC does not normalize cross-script confusables (e.g., Cyrillic 'а' ≠ Latin 'a').
+    // Without this, "ignоrе" (Cyrillic о/е) bypasses injection detection.
+    let deconfused: String = normalized
+        .chars()
+        .map(|c| confusable_to_latin(c).unwrap_or(c))
+        .collect();
+    // Collapse consecutive spaces
+    let mut result = String::with_capacity(deconfused.len());
     let mut prev_space = false;
-    for c in normalized.chars() {
+    for c in deconfused.chars() {
         if c == ' ' {
             if !prev_space {
                 result.push(' ');
@@ -452,6 +459,86 @@ pub fn sanitize_for_injection_scan(text: &str) -> String {
         }
     }
     result
+}
+
+/// SECURITY (FIND-075): Check if a Unicode code point is an invisible/format character.
+fn is_invisible_char(cp: u32) -> bool {
+    (0xE0000..=0xE007F).contains(&cp)   // Tag characters
+        || (0x200B..=0x200F).contains(&cp)  // Zero-width characters
+        || (0x202A..=0x202E).contains(&cp)  // Bidi overrides
+        || (0xFE00..=0xFE0F).contains(&cp)  // Variation selectors
+        || cp == 0xFEFF                      // BOM / ZWNBSP
+        || (0x2060..=0x2064).contains(&cp)   // Word joiners / invisible operators
+        // SECURITY (R23-MCP-8): Additional invisible format characters
+        || (0xFFF9..=0xFFFB).contains(&cp)   // Interlinear Annotation
+        || cp == 0x180E                       // Mongolian Vowel Separator
+        || cp == 0x00AD                       // Soft Hyphen
+        // SECURITY (R25-MCP-5): Bidi Isolate characters
+        || (0x2066..=0x2069).contains(&cp)
+}
+
+/// SECURITY (FIND-075): Variant of sanitize that *removes* invisible chars entirely
+/// instead of replacing with space. This catches intra-word evasion like
+/// "i\u{200B}g\u{200B}n\u{200B}o\u{200B}r\u{200B}e" → "ignore".
+fn sanitize_stripped(text: &str) -> String {
+    let stripped: String = text
+        .chars()
+        .filter(|c| !is_invisible_char(*c as u32))
+        .collect();
+    let normalized: String = stripped.nfkc().collect();
+    normalized
+        .chars()
+        .map(|c| confusable_to_latin(c).unwrap_or(c))
+        .collect()
+}
+
+/// SECURITY (FIND-076): Map visually confusable Unicode characters to their
+/// Latin equivalents. Covers the most common cross-script homoglyphs used
+/// in injection evasion: Cyrillic, Greek, and mathematical symbols.
+///
+/// Source: Unicode TR39 confusable mappings (subset of security-critical chars).
+fn confusable_to_latin(c: char) -> Option<char> {
+    match c {
+        // Cyrillic → Latin
+        '\u{0430}' => Some('a'), // а
+        '\u{0441}' => Some('c'), // с
+        '\u{0435}' => Some('e'), // е
+        '\u{04BB}' => Some('h'), // һ
+        '\u{0456}' => Some('i'), // і
+        '\u{0458}' => Some('j'), // ј
+        '\u{043E}' => Some('o'), // о
+        '\u{0440}' => Some('p'), // р
+        '\u{0455}' => Some('s'), // ѕ
+        '\u{0443}' => Some('u'), // у
+        '\u{045E}' => Some('u'), // ў
+        '\u{0445}' => Some('x'), // х
+        '\u{0454}' => Some('e'), // є (Ukrainian)
+        '\u{0457}' => Some('i'), // ї
+        '\u{0491}' => Some('g'), // ґ
+        // Cyrillic uppercase → lowercase Latin
+        '\u{0410}' => Some('a'), // А
+        '\u{0412}' => Some('b'), // В (looks like B)
+        '\u{0415}' => Some('e'), // Е
+        '\u{041A}' => Some('k'), // К
+        '\u{041C}' => Some('m'), // М
+        '\u{041D}' => Some('h'), // Н (looks like H)
+        '\u{041E}' => Some('o'), // О
+        '\u{0420}' => Some('p'), // Р
+        '\u{0421}' => Some('c'), // С
+        '\u{0422}' => Some('t'), // Т
+        '\u{0425}' => Some('x'), // Х
+        // Greek → Latin
+        '\u{03B1}' => Some('a'), // α
+        '\u{03B5}' => Some('e'), // ε
+        '\u{03B9}' => Some('i'), // ι
+        '\u{03BF}' => Some('o'), // ο
+        '\u{03C1}' => Some('p'), // ρ (rho)
+        '\u{03C5}' => Some('u'), // υ
+        '\u{03BA}' => Some('k'), // κ
+        '\u{03BD}' => Some('v'), // ν (nu)
+        '\u{03C9}' => Some('w'), // ω
+        _ => None,
+    }
 }
 
 /// NATO phonetic alphabet mapping to letters (MCPTox defense).
@@ -629,6 +716,20 @@ pub fn inspect_for_injection(text: &str) -> Vec<&'static str> {
         .find_iter(&lower)
         .map(|m| DEFAULT_INJECTION_PATTERNS[m.pattern().as_usize()])
         .collect();
+
+    // SECURITY (FIND-075): Also scan with invisible chars fully stripped (not
+    // replaced with space). This catches intra-word evasion like
+    // "i\u{200B}g\u{200B}n\u{200B}o\u{200B}r\u{200B}e" → "ignore".
+    let stripped = sanitize_stripped(text);
+    let stripped_lower = stripped.to_lowercase();
+    if stripped_lower != lower {
+        for m in automaton.find_iter(&stripped_lower) {
+            let pattern = DEFAULT_INJECTION_PATTERNS[m.pattern().as_usize()];
+            if !all_matches.contains(&pattern) {
+                all_matches.push(pattern);
+            }
+        }
+    }
 
     // MCPTox defense: Also scan phonetic-decoded text
     if let Some(phonetic_decoded) = decode_phonetic(&lower) {
