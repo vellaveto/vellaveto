@@ -565,10 +565,12 @@ impl MultimodalScanner {
 
     /// Extract readable ASCII strings from EXIF data.
     ///
-    /// Simplified approach: scan for ASCII strings >= 8 chars. This catches
+    /// Simplified approach: scan for ASCII strings >= 4 chars. This catches
     /// UserComment, ImageDescription, XPComment, etc. without a full TIFF IFD
-    /// parser. Sufficient for injection detection.
+    /// parser. The low threshold ensures short injection keywords like "exec",
+    /// "eval", "sudo" are captured. Sufficient for injection detection.
     fn extract_exif_text(exif_data: &[u8]) -> Option<String> {
+        const MIN_STRING_LEN: usize = 4;
         let mut texts = Vec::new();
         let mut current = String::new();
 
@@ -576,13 +578,13 @@ impl MultimodalScanner {
             // Skip "Exif\0\0"
             if (0x20..0x7F).contains(&byte) {
                 current.push(byte as char);
-            } else if current.len() >= 8 {
+            } else if current.len() >= MIN_STRING_LEN {
                 texts.push(std::mem::take(&mut current));
             } else {
                 current.clear();
             }
         }
-        if current.len() >= 8 {
+        if current.len() >= MIN_STRING_LEN {
             texts.push(current);
         }
 
@@ -645,7 +647,7 @@ impl MultimodalScanner {
             };
 
             // Check for FlateDecode in the dictionary before this stream (max 256 bytes back)
-            let dict_start = stream_pos.saturating_sub(256);
+            let dict_start = stream_pos.saturating_sub(4096);
             let is_flate = Self::find_bytes(data, b"FlateDecode", dict_start)
                 .is_some_and(|pos| pos < stream_pos);
 
@@ -715,6 +717,8 @@ impl MultimodalScanner {
     }
 
     /// Extract text from PDF text operators (Tj, TJ, ', ").
+    ///
+    /// Handles both literal strings `(...)` and hex strings `<...>`.
     fn extract_pdf_text_operators(content: &str) -> Option<String> {
         let mut texts = Vec::new();
         let bytes = content.as_bytes();
@@ -747,6 +751,35 @@ impl MultimodalScanner {
                     }
                     i += 1; // Skip closing paren
                 }
+            } else if bytes[i] == b'<' && i + 1 < bytes.len() && bytes[i + 1] != b'<' {
+                // Parse hex string <hex digits>
+                // Skip "<<" which is a dictionary delimiter, not a hex string
+                let start = i + 1;
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'>' {
+                    i += 1;
+                }
+                if i < bytes.len() {
+                    let hex_str = &content[start..i];
+                    // Decode hex pairs into bytes, ignoring whitespace
+                    let hex_clean: String = hex_str
+                        .chars()
+                        .filter(|c| c.is_ascii_hexdigit())
+                        .collect();
+                    if hex_clean.len() >= 2 {
+                        let decoded_bytes: Vec<u8> = (0..hex_clean.len() / 2)
+                            .filter_map(|j| {
+                                u8::from_str_radix(&hex_clean[j * 2..j * 2 + 2], 16).ok()
+                            })
+                            .collect();
+                        let text = String::from_utf8_lossy(&decoded_bytes);
+                        let trimmed = text.trim();
+                        if !trimmed.is_empty() && trimmed.chars().any(|c| c.is_alphabetic()) {
+                            texts.push(trimmed.to_string());
+                        }
+                    }
+                    i += 1; // Skip closing >
+                }
             } else {
                 i += 1;
             }
@@ -760,12 +793,21 @@ impl MultimodalScanner {
     }
 
     /// Scan extracted text for injection patterns.
+    ///
+    /// Normalizes whitespace before scanning so that payloads split across
+    /// multiple metadata chunks (joined with `\n`) are still detected.
     fn scan_text_for_injection(
         &self,
         text: &str,
         scanner: &InjectionScanner,
     ) -> Vec<MultimodalInjectionFinding> {
-        let matches = scanner.inspect(text);
+        // Collapse all whitespace (newlines, tabs, etc.) into single spaces
+        // so injection payloads split across chunks are caught.
+        let normalized: String = text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let matches = scanner.inspect(&normalized);
 
         matches
             .into_iter()
@@ -783,6 +825,28 @@ impl MultimodalScanner {
     /// LSB steganography makes the least-significant-bit distribution more
     /// uniform. A chi-squared test detecting suspiciously uniform LSBs
     /// indicates potential hidden data.
+    ///
+    /// # Limitations
+    ///
+    /// This is a **heuristic** detector with known limitations:
+    ///
+    /// - **Low-payload stego**: If only a small fraction of pixels carry hidden
+    ///   data, the overall LSB distribution may remain non-uniform enough to
+    ///   evade detection. The chi-squared test requires a statistically
+    ///   significant sample of modified pixels.
+    /// - **Adaptive stego**: Advanced techniques (e.g., F5, outguess) that
+    ///   preserve natural LSB statistics will evade this detector.
+    /// - **Non-LSB methods**: Steganography using DCT coefficients, palette
+    ///   manipulation, or other non-LSB channels is not detected.
+    /// - **False positives**: Synthetic images with naturally uniform pixel
+    ///   distributions (e.g., gradients, solid fills) may trigger alerts.
+    /// - **Compressed formats**: JPEG image data is DCT-compressed; the raw
+    ///   bytes after the SOS marker are entropy-coded, not raw pixel values.
+    ///   LSB analysis on JPEG entropy data has limited accuracy compared to
+    ///   uncompressed formats (PNG, BMP).
+    ///
+    /// For high-assurance environments, combine with content-type restrictions
+    /// and out-of-band image re-encoding to strip hidden payloads.
     fn detect_steganography(
         &self,
         data: &[u8],
@@ -840,6 +904,8 @@ impl MultimodalScanner {
 
     /// Get the image data region (skip headers) for statistical analysis.
     fn get_image_data_region(data: &[u8]) -> &[u8] {
+        const MAX_MARKER_ITERATIONS: usize = 500;
+
         if data.len() >= 8 && data.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
             // PNG: skip signature (8) + IHDR chunk (~25 bytes)
             let skip = 33.min(data.len());
@@ -847,7 +913,9 @@ impl MultimodalScanner {
         } else if data.len() >= 3 && data.starts_with(&[0xFF, 0xD8, 0xFF]) {
             // JPEG: find SOS marker — image data follows
             let mut offset = 2;
-            while offset + 2 <= data.len() {
+            let mut iterations = 0;
+            while offset + 2 <= data.len() && iterations < MAX_MARKER_ITERATIONS {
+                iterations += 1;
                 if data[offset] == 0xFF && data[offset + 1] == 0xDA {
                     if offset + 4 <= data.len() {
                         let sos_len =

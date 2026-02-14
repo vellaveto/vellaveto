@@ -23,6 +23,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added 25-entry research bibliography with links
 - Archived all v2.0–v2.2 completed phases (1–15) in collapsible appendix
 
+### Security
+
+#### Phase 23 Adversarial Hardening (Round 2 — Medium Findings)
+- **FIND-P23-005**: JPEG stego `get_image_data_region` loop now bounded to `MAX_MARKER_ITERATIONS=500` — prevents infinite loop on malformed JPEG with no SOS marker.
+- **FIND-P23-006**: PDF dictionary look-back window increased from 256 to 4096 bytes — correctly detects `/FlateDecode` in large PDF object dictionaries.
+- **FIND-P23-007**: `scan_text_for_injection` now normalizes whitespace before scanning — detects injection payloads split across multiple PNG tEXt chunks joined by newlines.
+- **FIND-P23-008**: EXIF ASCII string minimum lowered from 8 to 4 characters — catches short injection keywords like "exec", "eval", "sudo".
+- **FIND-P23-009**: PDF `extract_pdf_text_operators` now parses hex strings `<...>` in addition to literal strings `(...)` — `<<` dictionary delimiters correctly excluded.
+- **FIND-P23-010**: `detect_steganography` documented with comprehensive limitations section (adaptive stego, low-payload evasion, JPEG DCT, false positives, non-LSB methods).
+- **8 new integration tests** in `pentest_phase23_hardening.rs` (total 23).
+
 ### Added
 
 #### Phase 23: Research & Future (23.1–23.5)

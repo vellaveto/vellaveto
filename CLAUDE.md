@@ -1,10 +1,10 @@
 # CLAUDE.md — Sentinel Project Instructions
 
 > **Project:** Sentinel — MCP Tool Firewall
-> **State:** v2.2.1 stable (Phases 1–23 complete, 37 audit rounds — all phases done)
+> **State:** v2.2.1 stable (Phases 1–23 complete, 38 audit rounds — all phases done)
 > **Version:** 3.0.0-dev (crates at 2.2.1, targeting v3.0 release)
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 4,804 Rust tests + 130 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 4,812 Rust tests + 130 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 22
 > **CI workflows:** 11
 > **Updated:** 2026-02-14
@@ -133,7 +133,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 ## What's Done (DO NOT rebuild)
 
-All 23 phases implemented, tested, and hardened through 37 audit rounds. Details in CHANGELOG.md.
+All 23 phases implemented, tested, and hardened through 38 audit rounds. Details in CHANGELOG.md.
 
 - **Core Engine:** Policy evaluation with glob/regex/domain matching, path traversal protection, DNS rebinding defense, context-aware policies (time windows, call limits, agent ID, action sequences)
 - **Audit:** Tamper-evident logging (SHA-256 chain, Merkle proofs, Ed25519 checkpoints, rotation), export (CEF/JSONL/webhook/syslog), immutable archive with retention
@@ -146,7 +146,7 @@ All 23 phases implemented, tested, and hardened through 37 audit rounds. Details
 - **Transport (Phases 17–18):** WebSocket bidirectional proxy, gRPC reverse proxy (tonic), extension registry, transport discovery/negotiation/fallback
 - **Research (Phase 23):** Red team mutation engine, FIPS 140-3 mode, Rekor transparency log, stateful session guards
 - **Developer Experience (Phase 22):** Policy simulator API, CLI simulate, GitHub Action, dashboard SVG charts
-- **Adversarial Hardening:** 4 pentest rounds (FIND-043–084 + Phase 23 round), RwLock poisoning hardened, PDF byte-level parsing, session guard fail-closed, Rekor canonical JSON
+- **Adversarial Hardening:** 5 pentest rounds (FIND-043–084 + Phase 23 Critical/High + Medium), RwLock poisoning hardened, PDF byte-level parsing, session guard fail-closed, Rekor canonical JSON, JPEG stego loop bound, PDF 4096-byte dict look-back, whitespace-normalized injection scan, EXIF 4-char min extraction, PDF hex string parsing, stego limitations documented
 - **CI/CD:** 11 workflows, Docker/GHCR, release automation, SBOM, provenance attestation
 - **SDKs:** Python (sync+async, LangChain/LangGraph, 130 tests), TypeScript (fetch-based, 15 tests), Go (stdlib-only, 28 tests)
 - **Docs:** Quickstart guides, security model, benchmarks, 5 policy presets
