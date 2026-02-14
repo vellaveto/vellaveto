@@ -66,3 +66,8 @@ tonic-build = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = "3.0"
+criterion = { version = "0.8", features = ["html_reports"] }
+
+[[bench]]
+name = "http_proxy"
+harness = false

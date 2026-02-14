@@ -638,7 +638,7 @@ Risk-score-based per-request authorization with configurable thresholds and degr
 |------|--------|
 | React/WASM execution graph UI (22.1) | Deferred — server-rendered SVG sufficient for now |
 | VS Code extension (22.2) | Deferred |
-| Go SDK | Deferred |
+| Go SDK | **Done** — stdlib-only client, 28 tests, zero dependencies |
 | Java SDK | Deferred |
 
 ### Phase 22 Exit Criteria
