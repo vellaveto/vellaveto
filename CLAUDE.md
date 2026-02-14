@@ -1,10 +1,10 @@
 # CLAUDE.md — Sentinel Project Instructions
 
 > **Project:** Sentinel — MCP Tool Firewall
-> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phase 17 complete, Phase 18 complete, 19.1–19.4 complete, 20.1–20.3 complete, 21.0–21.4 complete, Phase 22 complete, Phase 23 remaining)
+> **State:** v2.2.1 stable (Phases 1–15 complete, 36 audit rounds); v3.0 roadmap active (Phase 17 complete, Phase 18 complete, 19.1–19.4 complete, 20.1–20.3 complete, 21.0–21.4 complete, Phase 22 complete, Phase 23 remaining)
 > **Version:** 3.0.0-dev (crates at 2.2.1, targeting v3.0 release)
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 4,600+ Rust tests + 130 Python SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 4,710+ Rust tests + 130 Python SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 22
 > **CI workflows:** 11
 > **Updated:** 2026-02-14
@@ -186,7 +186,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Server: simulator API endpoints (evaluate, batch, validate, diff) | `sentinel-server/src/routes/simulator.rs` |
 | Server: dashboard SVG charts (verdict sparkline, policy pie chart) | `sentinel-server/src/dashboard.rs` |
 | Cluster backend | `sentinel-cluster/src/lib.rs` |
-| Integration tests | `sentinel-integration/tests/` (~95 test files) |
+| Integration tests | `sentinel-integration/tests/` (~109 test files) |
 | Example configs | `examples/` |
 | GitHub Action: policy-check | `.github/actions/policy-check/action.yml` |
 | TypeScript SDK: types + client + tests | `sdk/typescript/` |
@@ -449,6 +449,12 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - FIND-071: `ObservabilityExporterConfig` validation with MAX_BATCH_SIZE bound
 - FIND-074: All control characters (U+0000–U+009F) rejected in tool/function names
 - RwLock poisoning hardened across 10 modules (schema_poisoning, agent_trust, workflow_tracker, tool_namespace, sampling_detector, shadow_agent, token_security, output_security, agent_message, goal_tracking)
+
+**Adversarial Pentest Round 2 (75 tests across 4 files):**
+- `pentest_behavioral_circuit_evasion.rs` (20): EMA gradual ramp evasion (117x undetected), cold-start poisoning, agent ID rotation, circuit breaker case sensitivity, HalfOpen state bypass, no backoff
+- `pentest_delegation_identity_attacks.rs` (20): re-delegation scope overwrite, empty allowed_tools=grant-all, session collision, self-approval Cyrillic/fullwidth blocked, fail-closed identity/capability/chain depth
+- `pentest_injection_redaction_evasion.rs` (20): typo/multilingual/base64/split-field injection evasion, fullwidth digit SSN bypass (Rust `\d` ASCII-only), memory tracker eviction, Mathematical Bold/RTL detected
+- `pentest_capability_supply_chain.rs` (15): grant path traversal (glob without normalization), empty paths=no restriction, schema hash canonicalization, monotonic attenuation, combined rug-pull+injection defense-in-depth
 
 **CI/CD & Publishing:**
 - 11 GitHub Actions workflows: CI, security-audit, cargo-deny, dependency-review, scorecard, provenance-sbom, docker-publish, release, docs, publish-pypi, publish-crates
