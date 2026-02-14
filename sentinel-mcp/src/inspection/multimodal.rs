@@ -1550,12 +1550,8 @@ mod tests {
         let mut data = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]; // PNG header
         data.extend_from_slice(&[0; 25]);
         // Add data with heavy bias toward even bytes (LSB=0)
-        for _ in 0..2000 {
-            data.push(0x42); // Even = LSB 0
-        }
-        for _ in 0..200 {
-            data.push(0x43); // Odd = LSB 1
-        }
+        data.extend(std::iter::repeat_n(0x42_u8, 2000)); // Even = LSB 0
+        data.extend(std::iter::repeat_n(0x43_u8, 200)); // Odd = LSB 1
 
         let config = MultimodalConfig {
             enabled: true,
