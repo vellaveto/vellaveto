@@ -4,7 +4,7 @@
 > **State:** v2.2.1 stable (Phases 1–15 complete, 37 audit rounds); v3.0 roadmap active (Phase 17 complete, Phase 18 complete, 19.1–19.4 complete, 20.1–20.3 complete, 21.0–21.4 complete, Phase 22 complete, Phase 23 complete — all phases done)
 > **Version:** 3.0.0-dev (crates at 2.2.1, targeting v3.0 release)
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 4,783 Rust tests + 130 Python SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 4,786 Rust tests + 130 Python SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 22
 > **CI workflows:** 11
 > **Updated:** 2026-02-14
@@ -138,6 +138,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Config: TransportConfig (discovery/negotiation/fallback) | `sentinel-config/src/transport.rs` |
 | Config: GatewayConfig, BackendConfig (multi-backend routing) | `sentinel-config/src/gateway.rs` |
 | Config: AbacConfig, LeastAgencyConfig, FederationConfig, ContinuousAuthConfig | `sentinel-config/src/abac.rs` |
+| Config: FipsConfig (FIPS 140-3 mode toggle + signature algorithm) | `sentinel-config/src/fips.rs` |
 | Config: PolicyConfig::validate() + load_file() | `sentinel-config/src/config_validate.rs` |
 | Config: tests (~164 unit tests) | `sentinel-config/src/tests.rs` |
 | MCP handling | `sentinel-mcp/src/lib.rs` |
@@ -503,7 +504,11 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - Sigstore/Rekor transparency log integration (23.4) — `RekorEntry` types, `RekorVerifier` with RFC 6962 Merkle tree inclusion proof verification, offline tool hash matching (`sentinel-mcp/src/rekor.rs`)
 - Stateful session reasoning guards (23.5) — formal state machine (Init→Active→Suspicious→Locked→Ended), configurable thresholds, `SessionGuard` with `WorkflowTracker` and `GoalTracker` integration (`sentinel-mcp/src/session_guard.rs`)
 - Red team API endpoint — `POST /api/simulator/red-team` runs mutation engine against current policies (`sentinel-server/src/routes/simulator.rs`)
-- 71 new tests (12 multimodal + 15 red team + 12 FIPS + 12 Rekor + 20 session guard)
+- `FipsConfig` in sentinel-config — FIPS mode toggle + signature algorithm selection (`sentinel-config/src/fips.rs`)
+- `rekor_entry: Option<serde_json::Value>` on `ToolSignature` — Rekor transparency log provenance (`sentinel-types/src/etdi.rs`)
+- `session_state: Option<String>` on `EvaluationContext` — session guard integration in policy evaluation (`sentinel-types/src/identity.rs`)
+- `SessionStateRequired` context condition — fail-closed session state enforcement in policy engine (`sentinel-engine/src/compiled.rs`, `sentinel-engine/src/policy_compile.rs`, `sentinel-engine/src/context_check.rs`)
+- 74 new tests (12 multimodal + 15 red team + 12 FIPS + 12 Rekor + 20 session guard + 3 fips config)
 
 **TypeScript SDK:**
 - HTTP client with native `fetch()` — zero runtime dependencies, Node 18+ (`sdk/typescript/src/client.ts`)
