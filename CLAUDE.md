@@ -1,8 +1,8 @@
 # CLAUDE.md — Sentinel Project Instructions
 
 > **Project:** Sentinel — MCP Tool Firewall
-> **State:** v2.2.1 stable (Phases 1–23 complete, 38 audit rounds — all phases done)
-> **Version:** 3.0.0-dev (crates at 2.2.1, targeting v3.0 release)
+> **State:** v3.0.0 stable (Phases 1–23 complete, 38 audit rounds — all phases done)
+> **Version:** 3.0.0
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
 > **Tests:** 4,812 Rust tests + 130 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 22

@@ -1,6 +1,6 @@
 [package]
 name = "sentinel-audit"
-version = "2.2.1"
+version = "3.0.0"
 description = "Tamper-evident audit logging with hash chains and Ed25519 checkpoints"
 edition = "2021"
 license.workspace = true

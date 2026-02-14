@@ -5,7 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — targeting v3.0.0
+## [3.0.0] — 2026-02-14
+
+### Added
+
+#### Go SDK
+- **Zero-dependency Go client** — stdlib-only (`net/http`, `encoding/json`) HTTP client with full API parity: `Evaluate`, `EvaluateOrError`, `Health`, `ListPolicies`, `ReloadPolicies`, `Simulate`, `BatchEvaluate`, `ValidateConfig`, `DiffConfigs`, `ListPendingApprovals`, `ApproveApproval`, `DenyApproval` (`sdk/go/`).
+- Functional options pattern: `WithAPIKey()`, `WithTimeout()`, `WithHTTPClient()`, `WithHeaders()`.
+- `context.Context` on all public methods.
+- Fail-closed verdict parsing — unknown verdict strings map to `VerdictDeny`.
+- Both string and object verdict form parsing (matching Python/TypeScript behavior).
+- Typed errors: `SentinelError`, `PolicyDeniedError`, `ApprovalRequiredError`.
+- 28 table-driven tests using `net/http/httptest`.
+
+#### HTTP Proxy Benchmarks
+- **35 Criterion benchmarks** for the production hot path (`sentinel-http-proxy/benches/http_proxy.rs`):
+  - Origin validation (5 benchmarks): `is_loopback` variants, `build_loopback_origins`, `extract_authority` (5 URL formats), `validate_origin` (4 scenarios).
+  - HMAC operations (7 benchmarks): signing content, compute (small/4KB), verify (valid/invalid), build entry (with/without HMAC).
+  - Call chain parsing (4 benchmarks): header extraction with 0/1/5 entries, with/without HMAC.
+  - Privilege escalation (4 benchmarks): 0/1/5/10-hop chains.
+  - Audit context (3 benchmarks): minimal, with OAuth, with 3-hop chain.
+- Made `origin` and `call_chain` modules `pub` (from `pub(super)`) to enable benchmark access.
+- All operations sub-microsecond to low-microsecond: origin validation <440ns, HMAC <1.6µs, privilege escalation <76ns.
+
+### Changed
+
+- **CLAUDE.md trimmed** — 47,834 bytes → 11,675 bytes (76% reduction). Collapsed "What's Done" section to 16 one-line summaries, trimmed file locations table from ~120 to ~52 rows, simplified Bottega section to reference `.claude/rules/`.
 
 ### Documentation
 
@@ -1097,7 +1122,8 @@ This is the initial stable release. No breaking changes from previous versions.
 - **Fixed** for any bug fixes
 - **Security** for vulnerability fixes
 
-[Unreleased]: https://github.com/paolovella/sentinel/compare/v2.2.1...HEAD
+[Unreleased]: https://github.com/paolovella/sentinel/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/paolovella/sentinel/compare/v2.2.1...v3.0.0
 [2.2.1]: https://github.com/paolovella/sentinel/compare/v2.0.0...v2.2.1
 [2.0.0]: https://github.com/paolovella/sentinel/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/paolovella/sentinel/compare/v0.1.0...v1.0.0

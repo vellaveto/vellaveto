@@ -16,7 +16,7 @@
 services:
   sentinel:
     build: .
-    image: ghcr.io/paolovella/sentinel:2.2.1
+    image: ghcr.io/paolovella/sentinel:3.0.0
     ports:
       - "3000:3000"
     environment:
@@ -53,7 +53,7 @@ services:
 
   sentinel-proxy:
     build: .
-    image: ghcr.io/paolovella/sentinel:2.2.1
+    image: ghcr.io/paolovella/sentinel:3.0.0
     entrypoint: ["sentinel-http-proxy"]
     command: ["--config", "/etc/sentinel/config.toml", "--listen", "0.0.0.0:3001"]
     ports:

@@ -1,6 +1,6 @@
 # Sentinel Roadmap v3.0
 
-> **Version:** 3.0.0 (Planning)
+> **Version:** 3.0.0
 > **Generated:** 2026-02-13
 > **Baseline:** v2.2.1 — 4,783 Rust tests, 130 Python SDK tests, 37 audit rounds, 22 fuzz targets, 11 CI workflows
 > **Scope:** 12 months (Q1–Q4 2026), quarterly milestones

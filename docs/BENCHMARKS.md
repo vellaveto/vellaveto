@@ -16,6 +16,11 @@ Sentinel ships with Criterion benchmarks to validate performance targets and det
 | Injection detection | < 5 ms | ~500 us - 2 ms |
 | Rug-pull detection | < 1 ms | ~200-800 ns |
 | Audit log write | < 1 ms | ~5-50 us |
+| HTTP proxy origin validation | < 1 ms | ~10-440 ns |
+| HTTP proxy HMAC sign/verify | < 1 ms | ~600 ns - 1.6 µs |
+| HTTP proxy call chain parse (5 entries) | < 1 ms | ~3.8 µs |
+| HTTP proxy privilege escalation check | < 1 ms | ~16-76 ns |
+| HTTP proxy audit context build | < 1 ms | ~74 ns - 1.1 µs |
 | Memory baseline | < 50 MB | ~20-30 MB idle |
 
 Measurements taken on a 4-core x86_64 Linux machine. Your results will vary with hardware.
@@ -115,6 +120,24 @@ Tests audit log performance:
 |-----------|-------------|
 | `log_entry` | Single audit entry write (JSON serialize + hash chain) |
 | `log_entry_with_redaction` | Entry write with PII/secret redaction |
+
+### `sentinel-http-proxy/benches/http_proxy.rs`
+
+Tests the HTTP reverse proxy hot path (35 benchmarks across 5 groups):
+
+| Group | Benchmark | Description |
+|-------|-----------|-------------|
+| **Origin validation** | `is_loopback_v4/v6/non` | Loopback address detection |
+| | `build_loopback_origins` | Build localhost origin allowlist |
+| | `extract_authority_*` | Extract host:port from 5 origin URL formats |
+| | `validate_origin_*` | Full origin validation (no header, loopback match, allowlist, rebinding reject) |
+| **HMAC operations** | `signing_content` | Build HMAC signing content string |
+| | `compute_hmac_*` | HMAC-SHA256 computation (small + 4KB payloads) |
+| | `verify_hmac_*` | HMAC verification (valid + invalid) |
+| | `build_entry_*` | Build CallChainEntry with/without HMAC |
+| **Call chain parsing** | `extract_chain_*` | Parse X-Upstream-Agents header (1/5 entries, with/without HMAC) |
+| **Privilege escalation** | `no_chain` to `10_hop_chain` | Privilege escalation detection (0/1/5/10 hops) |
+| **Audit context** | `build_minimal/with_oauth/with_chain` | Build audit context from request headers |
 
 ---
 

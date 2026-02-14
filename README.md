@@ -7,13 +7,13 @@
     🔍 Intercept &middot; ⚖️ Evaluate &middot; 🚫 Enforce &middot; 📋 Audit
   </p>
   <p align="center">
-    <a href="https://github.com/paolovella/sentinel/releases"><img src="https://img.shields.io/badge/version-3.0.0--dev-blue.svg" alt="Version 3.0.0-dev"></a>
+    <a href="https://github.com/paolovella/sentinel/releases"><img src="https://img.shields.io/badge/version-3.0.0-blue.svg" alt="Version 3.0.0"></a>
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-4%2C783_passing-brightgreen.svg" alt="Tests: 4,783 passing">
+    <img src="https://img.shields.io/badge/tests-4%2C812_passing-brightgreen.svg" alt="Tests: 4,812 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
-    <img src="https://img.shields.io/badge/security_audit-37_rounds%2C_400%2B_findings-informational.svg" alt="Security Audit: 37 rounds, 400+ findings">
+    <img src="https://img.shields.io/badge/security_audit-38_rounds%2C_400%2B_findings-informational.svg" alt="Security Audit: 38 rounds, 400+ findings">
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
   </p>
@@ -33,9 +33,9 @@
 Sentinel is a lightweight, high-performance firewall that sits between AI agents and their tools. It intercepts [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) and function-calling requests, enforces security policies on paths, domains, and actions, and maintains a tamper-evident audit trail with cryptographic guarantees.
 
 <table>
-<tr><td>🏷️ <strong>Version</strong></td><td>3.0.0-dev (crates at 2.2.1)</td></tr>
+<tr><td>🏷️ <strong>Version</strong></td><td>3.0.0</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>4,500+ tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>4,812+ tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
@@ -44,6 +44,8 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 
 ## Recent Updates (2026-02-14)
 
+- **Go SDK** — Zero-dependency Go client (`sdk/go/`) with full API parity (12 methods), functional options, `context.Context` on all methods, fail-closed verdict parsing (unknown → Deny), 28 table-driven tests using `httptest`. Go 1.21+.
+- **HTTP Proxy Benchmarks** — 35 Criterion benchmarks for the production hot path (`sentinel-http-proxy/benches/http_proxy.rs`): origin validation (<440ns), HMAC signing/verification (<1.6µs), call chain parsing (<3.8µs), privilege escalation detection (<76ns), audit context building (<1.1µs).
 - **Phase 17 Complete** — All 6 exit criteria delivered. Phase 17.3 (Async Operations) adds TaskRequest policy enforcement across all 4 transports (HTTP, WebSocket, gRPC, stdio) with fail-closed semantics, `ProgressNotification` classification for `notifications/progress`. Phase 17.4 (Protocol Extensions) adds `ExtensionHandler` trait with lifecycle hooks, `ExtensionRegistry` with thread-safe registration and glob-based negotiation, `x-` prefix method routing through policy evaluation, and `AuditQueryExtension` example handling `x-sentinel-audit/stats`. 50+ new tests. New types: `ExtensionDescriptor`, `ExtensionResourceLimits`, `ExtensionConfig`.
 - **Phase 19: Regulatory Compliance Complete** — All 9 exit criteria delivered:
   - **Compliance dashboard** — Real-time status cards (EU AI Act %, SOC 2 %, Framework Coverage %, Critical Gaps) and 6-framework coverage table with color-coded thresholds in the admin dashboard.
@@ -241,12 +243,12 @@ Sentinel enforces security policies on every tool call before it reaches the too
 
 ```bash
 # Pull the latest release
-docker pull ghcr.io/paolovella/sentinel:2.2.1
+docker pull ghcr.io/paolovella/sentinel:3.0.0
 
 # Run with a policy config
 docker run -p 3000:3000 \
   -v /path/to/config.toml:/etc/sentinel/config.toml:ro \
-  ghcr.io/paolovella/sentinel:2.2.1
+  ghcr.io/paolovella/sentinel:3.0.0
 ```
 
 ### Kubernetes (Helm)
@@ -380,7 +382,7 @@ curl -s http://localhost:3000/api/evaluate \
                      Ed25519 signatures)
 ```
 
-Sentinel supports five deployment modes:
+Sentinel supports six deployment modes:
 
 | Mode | Binary | Use Case |
 |------|--------|----------|
@@ -389,6 +391,7 @@ Sentinel supports five deployment modes:
 | 🔄 **HTTP Proxy** | `sentinel-http-proxy` | Reverse proxy for remote MCP servers (Streamable HTTP + SSE) |
 | 🔌 **WebSocket Proxy** | `sentinel-http-proxy` | WebSocket reverse proxy at `/mcp/ws` for bidirectional MCP |
 | ⚡ **gRPC Proxy** | `sentinel-http-proxy --grpc` | gRPC transport on port 50051 (requires `grpc` feature) |
+| 🌐 **MCP Gateway** | `sentinel-http-proxy` | Multi-backend routing with health checks and session affinity |
 
 ## 📝 Policy Configuration
 
@@ -944,16 +947,16 @@ Environment variables override values set in the config file.
 
 ### 🔬 Security Audit
 
-Sentinel has undergone 35 rounds of adversarial security audit covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/).
+Sentinel has undergone 37 rounds of adversarial security audit covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/).
 
 | Metric | Value |
 |--------|-------|
-| Audit rounds completed | 35 |
+| Audit rounds completed | 37 |
 | Attack classes tested | 31+ |
-| Total findings triaged | 390+ |
+| Total findings triaged | 400+ |
 | Findings fixed | 310+ |
 | Critical/HIGH findings fixed | 85+ |
-| Test count post-audit | 4,442+ |
+| Test count post-audit | 4,800+ |
 
 Key areas covered: tool poisoning, prompt injection, path traversal, SSRF/domain bypass, session fixation, JSON parsing, memory poisoning, elicitation social engineering, audit log tampering, OAuth/JWT validation, SIEM export injection, rug-pull detection, tool squatting, DLP bypass, SSE transport parity, config reload races, Unicode case-folding, IPv6 transition mechanisms, CEF/SIEM injection, and webhook SSRF.
 
@@ -1103,6 +1106,7 @@ server     proxy     http-proxy   HTTP API, stdio proxy, HTTP reverse proxy
 | Observability exporters and traces | `sentinel-audit`, `sentinel-integration` | exporter backends and trace propagation | `sentinel-integration/tests/observability_test.rs`, `sentinel-audit/tests/proptest_observability.rs` |
 | Python SDK integrations | `sdk/python` | SDK client APIs and middleware callbacks | `sdk/python` test suite |
 | TypeScript SDK | `sdk/typescript` | HTTP client, types, simulator methods | `sdk/typescript` test suite |
+| Go SDK | `sdk/go` | HTTP client, types, functional options | `sdk/go` test suite |
 | Policy simulator API | `sentinel-server` | Evaluate/batch/validate/diff endpoints | `sentinel-server/src/routes/simulator.rs` tests |
 | Fuzzing and adversarial validation | `fuzz`, `security-testing`, `sentinel-integration` | fuzz targets + red-team scripts | `fuzz/*`, `sentinel-integration/tests/full_attack_battery.rs` |
 
@@ -1129,6 +1133,12 @@ Benchmark results (criterion, single-threaded):
 | Single policy evaluation | 7–31 ns |
 | 100 policies | ~1.2 μs |
 | 1,000 policies | ~12 μs |
+| Origin validation (loopback) | ~10 ns |
+| Origin validation (allowlist) | ~440 ns |
+| HMAC-SHA256 sign + verify | ~600 ns–1.6 μs |
+| Call chain parsing (5 entries) | ~3.8 μs |
+| Privilege escalation check | 16–76 ns |
+| Audit context build (with OAuth) | ~360 ns |
 
 ## 💻 CLI Reference
 
@@ -1250,6 +1260,7 @@ kill -HUP $(pidof sentinel-server)
 | `sentinel-integration/` | Cross-crate adversarial and integration tests |
 | `sdk/python/` | Python SDK and framework adapters |
 | `sdk/typescript/` | TypeScript SDK (zero runtime deps) |
+| `sdk/go/` | Go SDK (zero external deps, stdlib only) |
 | `policies/` | Policy samples and templates |
 | `examples/` | Demo workflows and reference configs |
 | `fuzz/` | 22 fuzzing harnesses and targets |
