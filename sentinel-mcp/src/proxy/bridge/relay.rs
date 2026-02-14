@@ -110,6 +110,7 @@ impl RelayState {
             tenant_id: None,
             verification_tier: None,
             capability_token: None,
+            session_state: None,
         }
     }
 

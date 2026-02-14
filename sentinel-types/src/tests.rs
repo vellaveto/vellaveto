@@ -1263,6 +1263,7 @@ fn test_tool_signature_serialization_roundtrip() {
         signed_at: "2026-01-15T12:00:00Z".to_string(),
         expires_at: Some("2027-01-15T12:00:00Z".to_string()),
         signer_spiffe_id: Some("spiffe://example.org/agent".to_string()),
+        rekor_entry: None,
     };
     let json_str = serde_json::to_string(&sig).unwrap();
     let deserialized: ToolSignature = serde_json::from_str(&json_str).unwrap();
@@ -1280,6 +1281,7 @@ fn test_tool_signature_is_expired() {
         signed_at: "2026-01-01T00:00:00Z".to_string(),
         expires_at: Some("2026-06-01T00:00:00Z".to_string()),
         signer_spiffe_id: None,
+        rekor_entry: None,
     };
 
     // Before expiry
@@ -1301,6 +1303,7 @@ fn test_tool_signature_no_expiry_never_expires() {
         signed_at: "2026-01-01T00:00:00Z".to_string(),
         expires_at: None,
         signer_spiffe_id: None,
+        rekor_entry: None,
     };
     assert!(!sig.is_expired("2099-12-31T23:59:59Z"));
 }
@@ -1364,6 +1367,7 @@ fn test_tool_attestation_is_initial() {
         signed_at: "2026-01-01T00:00:00Z".to_string(),
         expires_at: None,
         signer_spiffe_id: None,
+        rekor_entry: None,
     };
 
     let initial = ToolAttestation {
@@ -1402,6 +1406,7 @@ fn test_tool_attestation_serialization() {
         signed_at: "2026-01-01T00:00:00Z".to_string(),
         expires_at: None,
         signer_spiffe_id: None,
+        rekor_entry: None,
     };
     let attestation = ToolAttestation {
         attestation_id: "att-1".to_string(),

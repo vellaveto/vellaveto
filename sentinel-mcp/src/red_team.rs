@@ -10,8 +10,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::attack_sim::{AttackContent, AttackPayload, AttackResult, AttackScenario};
-#[cfg(test)]
-use crate::attack_sim::AttackSimulator;
 
 // ═══════════════════════════════════════════════════════════════════
 // Mutation Engine

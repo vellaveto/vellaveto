@@ -1363,6 +1363,7 @@ fn sanitize_context(
             tenant_id,
             verification_tier: None,
             capability_token: None,
+            session_state: None,
         }
     })
 }
@@ -2482,6 +2483,7 @@ mod tests {
             tenant_id: None,
             verification_tier: None,
             capability_token: None,
+            session_state: None,
         };
         let sanitized = sanitize_context(Some(spoofed), &headers, None).unwrap();
         // agent_id preserved (no auth header)
@@ -2506,6 +2508,7 @@ mod tests {
             tenant_id: None,
             verification_tier: None,
             capability_token: None,
+            session_state: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         assert_eq!(sanitized.agent_id, Some("my-agent".to_string()));
@@ -2530,6 +2533,7 @@ mod tests {
             tenant_id: None,
             verification_tier: None,
             capability_token: None,
+            session_state: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         let agent_id = sanitized.agent_id.unwrap();
@@ -2563,6 +2567,7 @@ mod tests {
             tenant_id: None,
             verification_tier: None,
             capability_token: None,
+            session_state: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         let agent_id = sanitized.agent_id.unwrap();
@@ -2591,6 +2596,7 @@ mod tests {
             tenant_id: None,
             verification_tier: None,
             capability_token: None,
+            session_state: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         assert!(
@@ -2613,6 +2619,7 @@ mod tests {
             tenant_id: None,
             verification_tier: None,
             capability_token: None,
+            session_state: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         assert_eq!(sanitized.agent_id, Some(max_id));
@@ -2631,6 +2638,7 @@ mod tests {
             tenant_id: None,
             verification_tier: None,
             capability_token: None,
+            session_state: None,
         };
         let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
         assert!(

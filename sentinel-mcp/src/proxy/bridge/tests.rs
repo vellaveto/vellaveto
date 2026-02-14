@@ -1331,6 +1331,7 @@ fn test_task_request_with_context() {
         tenant_id: None,
         verification_tier: None,
         capability_token: None,
+        session_state: None,
     };
     let result = bridge.evaluate_action_inner(&action, Some(&ctx));
     assert!(

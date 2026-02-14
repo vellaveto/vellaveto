@@ -1112,6 +1112,7 @@ fn test_validate_rejects_too_many_policies() {
         transport: TransportConfig::default(),
         gateway: GatewayConfig::default(),
         abac: AbacConfig::default(),
+        fips: Default::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {
