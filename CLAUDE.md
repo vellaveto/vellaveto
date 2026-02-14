@@ -1,13 +1,13 @@
 # CLAUDE.md — Sentinel Project Instructions
 
 > **Project:** Sentinel — MCP Tool Firewall
-> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phases 17.1–17.2 complete, Phases 17.3–23 remaining)
+> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phases 17.1–17.2 complete, 19.1/19.4 partial, 21.0 complete, Phases 17.3–23 remaining)
 > **Version:** 3.0.0-dev (crates at 2.2.1, targeting v3.0 release)
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 4,353+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 4,442+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 22
 > **CI workflows:** 11
-> **Updated:** 2026-02-13
+> **Updated:** 2026-02-14
 
 ---
 
@@ -87,7 +87,9 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Types: NHI lifecycle, behavioral baselines, delegation, DPoP | `sentinel-types/src/nhi.rs` |
 | Types: DID:PLC identifiers, genesis operations, validation | `sentinel-types/src/did_plc.rs` |
 | Types: VerificationTier, AccountabilityAttestation | `sentinel-types/src/verification.rs` |
-| Types: tests (~115 unit tests) | `sentinel-types/src/tests.rs` |
+| Types: CapabilityToken, CapabilityGrant, CapabilityVerification | `sentinel-types/src/capability.rs` |
+| Types: AiActRiskClass, TrustServicesCategory (shared compliance enums) | `sentinel-types/src/compliance.rs` |
+| Types: tests (~119 unit tests) | `sentinel-types/src/tests.rs` |
 | Policy evaluation | `sentinel-engine/src/lib.rs` |
 | Audit: module root + re-exports | `sentinel-audit/src/lib.rs` |
 | Audit: types (AuditEntry, AuditError, etc.) | `sentinel-audit/src/types.rs` |
@@ -98,7 +100,10 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Audit: Ed25519 signed checkpoints | `sentinel-audit/src/checkpoints.rs` |
 | Audit: security event logging helpers | `sentinel-audit/src/events.rs` |
 | Audit: ETDI tool security logging | `sentinel-audit/src/etdi_audit.rs` |
-| Audit: tests (~130 unit tests) | `sentinel-audit/src/tests.rs` |
+| Audit: Merkle tree inclusion proofs (RFC 6962) | `sentinel-audit/src/merkle.rs` |
+| Audit: EU AI Act conformity assessment registry | `sentinel-audit/src/eu_ai_act.rs` |
+| Audit: SOC 2 evidence generation registry | `sentinel-audit/src/soc2.rs` |
+| Audit: tests (~179 unit tests) | `sentinel-audit/src/tests.rs` |
 | Config: module root + PolicyConfig + re-exports | `sentinel-config/src/lib.rs` |
 | Config: injection/DLP/rate-limit/audit | `sentinel-config/src/detection.rs` |
 | Config: supply chain verification | `sentinel-config/src/supply_chain.rs` |
@@ -117,8 +122,9 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Config: ClusterConfig (Redis/local) | `sentinel-config/src/cluster.rs` |
 | Config: A2aConfig (Agent-to-Agent) | `sentinel-config/src/a2a.rs` |
 | Config: LimitsConfig + validate() | `sentinel-config/src/limits.rs` |
+| Config: ComplianceConfig (EU AI Act + SOC 2) | `sentinel-config/src/compliance.rs` |
 | Config: PolicyConfig::validate() + load_file() | `sentinel-config/src/config_validate.rs` |
-| Config: tests (~153 unit tests) | `sentinel-config/src/tests.rs` |
+| Config: tests (~162 unit tests) | `sentinel-config/src/tests.rs` |
 | MCP handling | `sentinel-mcp/src/lib.rs` |
 | Proxy bridge: struct + constructor | `sentinel-mcp/src/proxy/bridge/mod.rs` |
 | Proxy bridge: builder methods | `sentinel-mcp/src/proxy/bridge/builder.rs` |
@@ -128,6 +134,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Proxy bridge: tests | `sentinel-mcp/src/proxy/bridge/tests.rs` |
 | DID:PLC generation + Base32 encoding | `sentinel-mcp/src/did_plc.rs` |
 | Accountability attestation sign/verify | `sentinel-mcp/src/accountability.rs` |
+| Capability token issue/attenuate/verify | `sentinel-mcp/src/capability_token.rs` |
 | DLP / inspection | `sentinel-mcp/src/inspection.rs` |
 | Output validation | `sentinel-mcp/src/output_validation.rs` |
 | Semantic guardrails | `sentinel-mcp/src/semantic_guardrails/` |
@@ -154,6 +161,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Stdio proxy | `sentinel-proxy/src/main.rs` |
 | HTTP API server | `sentinel-server/src/main.rs` |
 | Server routes | `sentinel-server/src/routes.rs` |
+| Server: compliance API endpoints (EU AI Act, SOC 2) | `sentinel-server/src/routes/compliance.rs` |
 | Cluster backend | `sentinel-cluster/src/lib.rs` |
 | Integration tests | `sentinel-integration/tests/` (~95 test files) |
 | Example configs | `examples/` |
@@ -172,7 +180,7 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - Context-aware policies (time windows, per-session call limits, agent ID, action sequences)
 
 **Audit & Approvals:**
-- Tamper-evident audit logging (SHA-256 hash chain, Ed25519 checkpoints, rotation)
+- Tamper-evident audit logging (SHA-256 hash chain, Merkle tree inclusion proofs, Ed25519 checkpoints, rotation)
 - Human-in-the-loop approvals with deduplication and audit trail
 - Audit log export: CEF, JSON Lines, webhook, syslog (`sentinel-audit/src/export.rs`)
 
@@ -256,6 +264,37 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - Batch rejection — JSON-RPC batch requests rejected for TOCTOU attack prevention
 - Security integration — DLP scanning, injection detection, circuit breaker support
 - Feature flag: `a2a`
+
+**Merkle Tree Inclusion Proofs (Phase 19.4):**
+- Append-only Merkle tree with RFC 6962 domain separation — `hash_leaf(0x00||data)`, `hash_internal(0x01||l||r)` (`sentinel-audit/src/merkle.rs`)
+- Inclusion proof generation and static verification (no disk access for verification)
+- Audit logger integration via `with_merkle_tree()` builder — leaf hash appended on each `log_entry()`
+- Checkpoint integration — `merkle_root: Option<String>` in `Checkpoint` with backward-compatible `signing_content()`
+- Log rotation support — `.merkle-leaves` file renamed alongside rotated log, tree reset
+- Crash recovery — `initialize()` rebuilds peaks from existing leaf file
+- 24 unit tests
+
+**Capability-Based Delegation Tokens (Phase 21.0):**
+- `CapabilityToken` with Ed25519 signature, delegation chain, depth budget, grants, expiry (`sentinel-types/src/capability.rs`)
+- `CapabilityGrant` — tool/function glob patterns, path/domain constraints, invocation limits
+- `issue_capability_token()`, `attenuate_capability_token()`, `verify_capability_token()` (`sentinel-mcp/src/capability_token.rs`)
+- Monotonic attenuation — depth decrements, grants subset of parent, expiry clamped to parent
+- `check_grant_coverage()` — matches grants against Action tool/function/paths/domains
+- `RequireCapabilityToken` policy condition with fail-closed semantics (`sentinel-engine/src/context_check.rs`)
+- Policy compilation for `require_capability_token` condition (`sentinel-engine/src/policy_compile.rs`)
+- `EvaluationContext` extended with `capability_token: Option<CapabilityToken>` (`sentinel-types/src/identity.rs`)
+- Structural validation: MAX_GRANTS=64, MAX_DELEGATION_DEPTH=16, MAX_TOKEN_SIZE=65536
+- 31 unit tests (4 types + 5 engine + 22 mcp)
+
+**Compliance Evidence Generation (Phase 19.1 / 19.4):**
+- Shared compliance enums in leaf crate — `AiActRiskClass`, `TrustServicesCategory` (`sentinel-types/src/compliance.rs`)
+- `ComplianceConfig` — `EuAiActConfig` + `Soc2Config` with validation (`sentinel-config/src/compliance.rs`)
+- EU AI Act registry — 10 obligations (Art 5–50), 18 capability mappings, conformity assessment reports (`sentinel-audit/src/eu_ai_act.rs`)
+- SOC 2 registry — 22 criteria across CC1-CC9, ~30 capability mappings, evidence reports with readiness levels (`sentinel-audit/src/soc2.rs`)
+- Read-time entry classification for both frameworks (not write-time)
+- Compliance API endpoints — `GET /api/compliance/status`, `GET /api/compliance/eu-ai-act/report`, `GET /api/compliance/soc2/evidence` (`sentinel-server/src/routes/compliance.rs`)
+- `PolicySnapshot` extended with `compliance_config` for atomic policy reload
+- 34 unit tests (9 config + 11 EU AI Act + 14 SOC 2)
 
 **Identity Verification Primitives:**
 - DID:PLC generation — SHA-256 + Base32 from canonicalized genesis operations (`sentinel-mcp/src/did_plc.rs`)
