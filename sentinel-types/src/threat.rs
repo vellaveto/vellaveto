@@ -139,6 +139,10 @@ pub struct CircuitStats {
     pub last_failure: Option<u64>,
     /// Unix timestamp of the last state change.
     pub last_state_change: u64,
+    /// Number of times the circuit has tripped (HalfOpen→Open transitions).
+    /// Used for exponential backoff of open duration. Capped at 5 (32x max).
+    #[serde(default)]
+    pub trip_count: u32,
 }
 
 impl Default for CircuitStats {
@@ -149,6 +153,7 @@ impl Default for CircuitStats {
             success_count: 0,
             last_failure: None,
             last_state_change: 0,
+            trip_count: 0,
         }
     }
 }

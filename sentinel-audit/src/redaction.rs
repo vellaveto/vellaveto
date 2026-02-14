@@ -1,6 +1,7 @@
 use crate::pii::PiiScanner;
 use regex::Regex;
 use std::sync::LazyLock;
+use unicode_normalization::UnicodeNormalization;
 
 /// Sensitive parameter key names that should always be redacted.
 const SENSITIVE_PARAM_KEYS: &[&str] = &[
@@ -123,7 +124,14 @@ pub fn redact_keys_and_patterns(value: &serde_json::Value) -> serde_json::Value 
             if SENSITIVE_VALUE_PREFIXES
                 .iter()
                 .any(|prefix| s_lower.starts_with(&prefix.to_lowercase()))
-                || PII_REGEXES.iter().any(|re| re.is_match(s))
+            {
+                return serde_json::Value::String(REDACTED.to_string());
+            }
+            // SECURITY (FIND-084): Apply NFKC normalization before PII regex matching.
+            // This converts fullwidth digits (U+FF10-FF19) to ASCII digits,
+            // preventing bypass via Unicode digit variants.
+            let normalized: String = s.nfkc().collect();
+            if PII_REGEXES.iter().any(|re| re.is_match(&normalized))
             {
                 serde_json::Value::String(REDACTED.to_string())
             } else {
@@ -184,9 +192,17 @@ pub(crate) fn redact_keys_and_patterns_with_scanner(
             {
                 serde_json::Value::String(REDACTED.to_string())
             } else {
-                // Substring PII redaction via scanner
-                let redacted = scanner.redact_string(s);
-                serde_json::Value::String(redacted)
+                // SECURITY (FIND-084): NFKC-normalize before PII scanning.
+                let normalized: String = s.nfkc().collect();
+                // Substring PII redaction via scanner (on normalized text)
+                let redacted = scanner.redact_string(&normalized);
+                if redacted != normalized {
+                    // PII was found in normalized form — redact the original
+                    serde_json::Value::String(REDACTED.to_string())
+                } else {
+                    // No PII found — return original
+                    serde_json::Value::String(scanner.redact_string(s))
+                }
             }
         }
         // SECURITY (R9-3): Numbers can contain PII (credit card numbers, SSNs

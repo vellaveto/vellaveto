@@ -49,6 +49,22 @@ pub struct BehavioralConfig {
     /// Default: 10_000
     #[serde(default = "default_max_agents")]
     pub max_agents: usize,
+
+    /// Absolute ceiling for tool call count per session (FIND-080).
+    /// When set, any session with a tool call count exceeding this value
+    /// triggers a Critical alert regardless of EMA baseline.
+    /// Prevents gradual ramp evasion where EMA adapts to slow increases.
+    /// Default: None (no absolute ceiling)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub absolute_ceiling: Option<u64>,
+
+    /// Maximum initial EMA value for cold-start protection (FIND-081).
+    /// When set, the first observation's EMA is capped at this value,
+    /// preventing attackers from setting an artificially high baseline
+    /// by flooding calls during the first session.
+    /// Default: None (no cap)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_initial_ema: Option<f64>,
 }
 
 fn default_alpha() -> f64 {
@@ -75,6 +91,8 @@ impl Default for BehavioralConfig {
             min_sessions: default_min_sessions(),
             max_tools_per_agent: default_max_tools(),
             max_agents: default_max_agents(),
+            absolute_ceiling: None,
+            max_initial_ema: None,
         }
     }
 }
@@ -283,6 +301,42 @@ impl BehavioralTracker {
                 continue;
             }
 
+            // SECURITY (FIND-080): Check absolute ceiling before EMA-based detection.
+            // This catches gradual ramp attacks where EMA adapts to slow increases.
+            if let Some(ceiling) = self.config.absolute_ceiling {
+                if count > ceiling {
+                    let alert = AnomalyAlert {
+                        severity: AnomalySeverity::Critical,
+                        tool: tool.clone(),
+                        current_count: count,
+                        baseline_ema: self
+                            .agents
+                            .get(agent_id)
+                            .and_then(|a| a.tools.get(tool))
+                            .map_or(0.0, |b| b.ema),
+                        deviation_ratio: count as f64 / ceiling as f64,
+                        agent_id: agent_id.to_string(),
+                    };
+
+                    metrics::counter!(
+                        "sentinel_anomaly_detections_total",
+                        "severity" => "critical"
+                    )
+                    .increment(1);
+
+                    tracing::warn!(
+                        agent_id = %agent_id,
+                        tool = %tool,
+                        current_count = %count,
+                        ceiling = %ceiling,
+                        "CRITICAL: Tool call count exceeds absolute ceiling"
+                    );
+
+                    alerts.push(alert);
+                    continue; // Already flagged — skip EMA check for this tool
+                }
+            }
+
             let baseline = match agent.tools.get(tool) {
                 Some(b) => b,
                 None => continue, // New tool — no baseline yet
@@ -424,7 +478,12 @@ impl BehavioralTracker {
             // EMA update
             if baseline.session_count == 0 {
                 // First observation: initialize EMA directly
-                baseline.ema = count as f64;
+                // SECURITY (FIND-081): Cap initial EMA to prevent cold-start poisoning.
+                baseline.ema = if let Some(cap) = self.config.max_initial_ema {
+                    (count as f64).min(cap)
+                } else {
+                    count as f64
+                };
             } else {
                 baseline.ema =
                     self.config.alpha * count as f64 + (1.0 - self.config.alpha) * baseline.ema;

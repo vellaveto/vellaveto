@@ -344,6 +344,35 @@ pub fn check_grant_coverage(token: &CapabilityToken, action: &Action) -> Option<
     None
 }
 
+/// Normalize a path by resolving `.` and `..` components.
+///
+/// SECURITY (FIND-083): Fail-closed — returns `None` if the path contains
+/// null bytes or attempts to traverse above the root.
+fn normalize_path_for_grant(path: &str) -> Option<String> {
+    if path.contains('\0') {
+        return None; // Null byte injection — fail-closed
+    }
+    let mut components: Vec<&str> = Vec::new();
+    for component in path.split('/') {
+        match component {
+            "" | "." => continue,
+            ".." => {
+                if components.is_empty() {
+                    return None; // Traversal above root — fail-closed
+                }
+                components.pop();
+            }
+            c => components.push(c),
+        }
+    }
+    let normalized = if path.starts_with('/') {
+        format!("/{}", components.join("/"))
+    } else {
+        components.join("/")
+    };
+    Some(normalized)
+}
+
 /// Check if a grant covers the given action.
 fn grant_covers_action(grant: &CapabilityGrant, action: &Action) -> bool {
     // Check tool pattern
@@ -355,12 +384,19 @@ fn grant_covers_action(grant: &CapabilityGrant, action: &Action) -> bool {
         return false;
     }
     // Check path constraints (if any)
+    // SECURITY (FIND-083): Normalize action paths before matching to prevent
+    // path traversal attacks (e.g., "/safe/../etc/passwd" matching "/safe/**").
     if !grant.allowed_paths.is_empty() && !action.target_paths.is_empty() {
         let all_covered = action.target_paths.iter().all(|path| {
+            // Fail-closed: if normalization fails, deny the grant
+            let normalized = match normalize_path_for_grant(path) {
+                Some(n) => n,
+                None => return false,
+            };
             grant
                 .allowed_paths
                 .iter()
-                .any(|pattern| pattern_matches(pattern, path))
+                .any(|pattern| pattern_matches(pattern, &normalized))
         });
         if !all_covered {
             return false;

@@ -117,6 +117,15 @@ impl CircuitBreakerManager {
         })
     }
 
+    /// Compute effective open duration with exponential backoff.
+    ///
+    /// Each HalfOpen→Open transition (trip) doubles the duration, capped at 32x.
+    /// Resets to base duration when circuit fully recovers (HalfOpen→Closed).
+    fn effective_open_duration(&self, stats: &CircuitStats) -> u64 {
+        let multiplier = 1u64 << stats.trip_count.min(5); // 2^trip_count, max 32x
+        self.open_duration_secs.saturating_mul(multiplier)
+    }
+
     /// Check if a request can proceed for the given tool.
     ///
     /// Returns `Ok(())` if allowed, `Err(reason)` if blocked.
@@ -131,6 +140,8 @@ impl CircuitBreakerManager {
     /// - `sentinel_circuit_breaker_rejections_total`: Counter of rejected requests
     pub fn can_proceed(&self, tool: &str) -> Result<(), String> {
         let start = std::time::Instant::now();
+        // SECURITY (FIND-077): Normalize tool name to prevent case-variation bypass.
+        let tool_lower = tool.to_lowercase();
 
         // SECURITY: Fail-closed on RwLock poisoning instead of recovering stale state.
         let circuits = self.circuits.read().map_err(|_| {
@@ -143,14 +154,14 @@ impl CircuitBreakerManager {
             // GAP-011: Record rejection metric
             metrics::counter!(
                 "sentinel_circuit_breaker_rejections_total",
-                "tool" => tool.to_string(),
+                "tool" => tool_lower.clone(),
                 "reason" => "rwlock_poisoned"
             )
             .increment(1);
             reason
         })?;
 
-        let stats = match circuits.get(tool) {
+        let stats = match circuits.get(&tool_lower) {
             Some(s) => s,
             None => {
                 // GAP-011: Record successful check latency
@@ -166,12 +177,63 @@ impl CircuitBreakerManager {
                 // Check if it's time to transition to half-open
                 // SECURITY: Fail-closed on system time error.
                 let now = Self::now()?;
-                if now >= stats.last_state_change + self.open_duration_secs {
-                    // Would transition to half-open, allow one request
-                    Ok(())
+                let eff_duration = self.effective_open_duration(stats);
+                if now >= stats.last_state_change + eff_duration {
+                    // SECURITY (FIND-078): Upgrade to write lock and transition to HalfOpen.
+                    // Double-check locking prevents TOCTOU: re-verify state after acquiring write lock.
+                    drop(circuits);
+                    let mut circuits_w = self.circuits.write().map_err(|_| {
+                        format!("Circuit breaker unavailable for tool '{tool}' (internal error — failing closed)")
+                    })?;
+                    if let Some(stats_w) = circuits_w.get_mut(&tool_lower) {
+                        if stats_w.state == CircuitState::Open {
+                            let now = Self::now()?;
+                            let eff_duration = self.effective_open_duration(stats_w);
+                            if now >= stats_w.last_state_change + eff_duration {
+                                stats_w.state = CircuitState::HalfOpen;
+                                stats_w.success_count = 0;
+                                stats_w.last_state_change = now;
+                                metrics::counter!(
+                                    "sentinel_circuit_breaker_state_changes_total",
+                                    "from_state" => "open",
+                                    "to_state" => "half_open"
+                                )
+                                .increment(1);
+                                tracing::info!(
+                                    tool = %tool,
+                                    "Circuit breaker transitioning to half-open in can_proceed"
+                                );
+                            }
+                        }
+                        // Now check HalfOpen limit
+                        if stats_w.state == CircuitState::HalfOpen {
+                            if stats_w.success_count < self.half_open_max_requests {
+                                metrics::histogram!("sentinel_circuit_breaker_check_duration_seconds")
+                                    .record(start.elapsed().as_secs_f64());
+                                return Ok(());
+                            } else {
+                                let reason = format!(
+                                    "Circuit breaker half-open for tool '{tool}' (testing recovery)"
+                                );
+                                metrics::counter!(
+                                    "sentinel_circuit_breaker_rejections_total",
+                                    "tool" => tool_lower,
+                                    "reason" => "half_open_limit"
+                                )
+                                .increment(1);
+                                metrics::histogram!("sentinel_circuit_breaker_check_duration_seconds")
+                                    .record(start.elapsed().as_secs_f64());
+                                return Err(reason);
+                            }
+                        }
+                    }
+                    // No entry found after write lock (race: removed between locks) — allow
+                    metrics::histogram!("sentinel_circuit_breaker_check_duration_seconds")
+                        .record(start.elapsed().as_secs_f64());
+                    return Ok(());
                 } else {
                     let opens_in =
-                        (stats.last_state_change + self.open_duration_secs).saturating_sub(now);
+                        (stats.last_state_change + eff_duration).saturating_sub(now);
                     let failure_count = stats.failure_count;
                     let reason = format!(
                         "Circuit breaker open for tool '{tool}' (failures: {failure_count}, opens in {opens_in}s)"
@@ -179,7 +241,7 @@ impl CircuitBreakerManager {
                     // GAP-011: Record rejection metric
                     metrics::counter!(
                         "sentinel_circuit_breaker_rejections_total",
-                        "tool" => tool.to_string(),
+                        "tool" => tool_lower,
                         "reason" => "circuit_open"
                     )
                     .increment(1);
@@ -196,7 +258,7 @@ impl CircuitBreakerManager {
                     // GAP-011: Record rejection metric
                     metrics::counter!(
                         "sentinel_circuit_breaker_rejections_total",
-                        "tool" => tool.to_string(),
+                        "tool" => tool_lower,
                         "reason" => "half_open_limit"
                     )
                     .increment(1);
@@ -218,6 +280,8 @@ impl CircuitBreakerManager {
     /// This is acceptable because record_success is not on the security-critical
     /// path (can_proceed is). However, persistent poisoning will be visible in logs.
     pub fn record_success(&self, tool: &str) {
+        // SECURITY (FIND-077): Normalize tool name to prevent case-variation bypass.
+        let tool_lower = tool.to_lowercase();
         let mut circuits = match self.circuits.write() {
             Ok(c) => c,
             Err(e) => {
@@ -232,13 +296,14 @@ impl CircuitBreakerManager {
         let now = Self::now_or_zero();
 
         let stats = circuits
-            .entry(tool.to_string())
+            .entry(tool_lower)
             .or_insert_with(|| CircuitStats {
                 state: CircuitState::Closed,
                 failure_count: 0,
                 success_count: 0,
                 last_failure: None,
                 last_state_change: now,
+                trip_count: 0,
             });
 
         match stats.state {
@@ -248,7 +313,8 @@ impl CircuitBreakerManager {
             }
             CircuitState::Open => {
                 // Check if transitioning to half-open
-                if now >= stats.last_state_change + self.open_duration_secs {
+                let eff_duration = self.effective_open_duration(stats);
+                if now >= stats.last_state_change + eff_duration {
                     stats.state = CircuitState::HalfOpen;
                     stats.success_count = 1;
                     stats.last_state_change = now;
@@ -273,6 +339,8 @@ impl CircuitBreakerManager {
                     stats.state = CircuitState::Closed;
                     stats.failure_count = 0;
                     stats.success_count = 0;
+                    // SECURITY (FIND-079): Reset trip_count on full recovery.
+                    stats.trip_count = 0;
                     stats.last_state_change = now;
                     // IMPROVEMENT_PLAN 1.3: Record state change metric
                     metrics::counter!(
@@ -295,6 +363,8 @@ impl CircuitBreakerManager {
     /// Note: If RwLock is poisoned, logs a critical error and returns Open
     /// (fail-closed behavior for the returned state).
     pub fn record_failure(&self, tool: &str) -> CircuitState {
+        // SECURITY (FIND-077): Normalize tool name to prevent case-variation bypass.
+        let tool_lower = tool.to_lowercase();
         let mut circuits = match self.circuits.write() {
             Ok(c) => c,
             Err(e) => {
@@ -310,13 +380,14 @@ impl CircuitBreakerManager {
         let now = Self::now_or_zero();
 
         let stats = circuits
-            .entry(tool.to_string())
+            .entry(tool_lower)
             .or_insert_with(|| CircuitStats {
                 state: CircuitState::Closed,
                 failure_count: 0,
                 success_count: 0,
                 last_failure: None,
                 last_state_change: now,
+                trip_count: 0,
             });
 
         stats.last_failure = Some(now);
@@ -352,6 +423,8 @@ impl CircuitBreakerManager {
                 stats.state = CircuitState::Open;
                 stats.failure_count += 1;
                 stats.success_count = 0;
+                // SECURITY (FIND-079): Increment trip_count for exponential backoff.
+                stats.trip_count = stats.trip_count.saturating_add(1);
                 stats.last_state_change = now;
                 // IMPROVEMENT_PLAN 1.3: Record state change metric
                 metrics::counter!(
@@ -362,7 +435,9 @@ impl CircuitBreakerManager {
                 .increment(1);
                 tracing::warn!(
                     tool = %tool,
-                    "Circuit breaker reopened after half-open failure"
+                    trip_count = stats.trip_count,
+                    "Circuit breaker reopened after half-open failure (backoff trip #{})",
+                    stats.trip_count
                 );
             }
         }
@@ -374,6 +449,8 @@ impl CircuitBreakerManager {
     ///
     /// Note: If RwLock is poisoned, returns Open (fail-closed behavior).
     pub fn get_state(&self, tool: &str) -> CircuitState {
+        // SECURITY (FIND-077): Normalize tool name.
+        let tool_lower = tool.to_lowercase();
         let circuits = match self.circuits.read() {
             Ok(c) => c,
             Err(e) => {
@@ -388,12 +465,13 @@ impl CircuitBreakerManager {
         };
 
         circuits
-            .get(tool)
+            .get(&tool_lower)
             .map(|s| {
                 // Check for automatic transition to half-open
                 if s.state == CircuitState::Open {
                     let now = Self::now_or_zero();
-                    if now >= s.last_state_change + self.open_duration_secs {
+                    let eff_duration = self.effective_open_duration(s);
+                    if now >= s.last_state_change + eff_duration {
                         return CircuitState::HalfOpen;
                     }
                 }
@@ -406,6 +484,8 @@ impl CircuitBreakerManager {
     ///
     /// Note: If RwLock is poisoned, returns None and logs error.
     pub fn get_stats(&self, tool: &str) -> Option<CircuitStats> {
+        // SECURITY (FIND-077): Normalize tool name.
+        let tool_lower = tool.to_lowercase();
         let circuits = match self.circuits.read() {
             Ok(c) => c,
             Err(e) => {
@@ -417,13 +497,15 @@ impl CircuitBreakerManager {
                 return None;
             }
         };
-        circuits.get(tool).cloned()
+        circuits.get(&tool_lower).cloned()
     }
 
     /// Manually reset a circuit to closed state.
     ///
     /// Note: If RwLock is poisoned, logs error and does nothing.
     pub fn reset(&self, tool: &str) {
+        // SECURITY (FIND-077): Normalize tool name.
+        let tool_lower = tool.to_lowercase();
         let mut circuits = match self.circuits.write() {
             Ok(c) => c,
             Err(e) => {
@@ -435,7 +517,7 @@ impl CircuitBreakerManager {
                 return;
             }
         };
-        circuits.remove(tool);
+        circuits.remove(&tool_lower);
         tracing::info!(
             tool = %tool,
             "Circuit breaker manually reset"
@@ -493,7 +575,8 @@ impl CircuitBreakerManager {
             match stats.state {
                 CircuitState::Closed => closed += 1,
                 CircuitState::Open => {
-                    if now >= stats.last_state_change + self.open_duration_secs {
+                    let eff_duration = self.effective_open_duration(stats);
+                    if now >= stats.last_state_change + eff_duration {
                         half_open += 1;
                     } else {
                         open += 1;

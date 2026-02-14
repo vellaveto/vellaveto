@@ -21,6 +21,7 @@ ed25519-dalek = { version = "2", features = ["rand_core"] }
 rand = "0.8"
 serde_json_canonicalizer = "0.3"
 regex = "1"
+unicode-normalization = "0.1"
 # Streaming SIEM exporters (Phase 4)
 reqwest = { workspace = true, optional = true }
 base64 = { version = "0.22", optional = true }

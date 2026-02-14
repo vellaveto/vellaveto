@@ -209,12 +209,36 @@ impl DeputyValidator {
             });
         }
 
+        // SECURITY (FIND-082): Intersect requested tools with parent's granted scope.
+        // Prevents re-delegation from granting tools beyond the parent's authorization.
+        let effective_tools = if let Some(parent) = contexts.get(session_id) {
+            if parent.allowed_tools.is_empty() {
+                // Parent has unrestricted access — use child's requested tools
+                allowed_tools.to_vec()
+            } else {
+                // Intersect: child can only get tools parent already has
+                allowed_tools
+                    .iter()
+                    .filter(|t| {
+                        parent
+                            .allowed_tools
+                            .iter()
+                            .any(|p| p.eq_ignore_ascii_case(t))
+                    })
+                    .cloned()
+                    .collect()
+            }
+        } else {
+            // No parent context — first delegation, use as-is
+            allowed_tools.to_vec()
+        };
+
         // Create new context
         let ctx = PrincipalContext {
             original_principal: from.to_string(),
             delegated_to: Some(to.to_string()),
             delegation_depth: new_depth,
-            allowed_tools: allowed_tools.to_vec(),
+            allowed_tools: effective_tools,
             delegation_expires: None, // Could be set from rule
         };
 

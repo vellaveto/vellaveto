@@ -970,6 +970,7 @@ fn test_circuit_stats_serialization() {
         success_count: 0,
         last_failure: Some(1_704_067_200),
         last_state_change: 1_704_067_200,
+        trip_count: 0,
     };
     let json_str = serde_json::to_string(&stats).unwrap();
     let deserialized: CircuitStats = serde_json::from_str(&json_str).unwrap();
