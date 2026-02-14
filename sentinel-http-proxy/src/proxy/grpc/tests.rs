@@ -857,3 +857,95 @@ fn test_metadata_constants() {
     assert_eq!(METADATA_UPSTREAM_AGENTS, "x-upstream-agents");
     assert_eq!(METADATA_REQUEST_ID, "x-request-id");
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// TaskRequest and ExtensionMethod policy enforcement tests
+// ═══════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_task_request_classification_grpc() {
+    // Verify task request is classified correctly from a proto request
+    let json_msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tasks/get",
+        "params": {"id": "task-abc"}
+    });
+    let classified = sentinel_mcp::extractor::classify_message(&json_msg);
+    match classified {
+        sentinel_mcp::extractor::MessageType::TaskRequest {
+            task_method,
+            task_id,
+            ..
+        } => {
+            assert_eq!(task_method, "tasks/get");
+            assert_eq!(task_id, Some("task-abc".to_string()));
+        }
+        other => panic!("Expected TaskRequest, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_task_request_action_extraction_grpc() {
+    let action =
+        sentinel_mcp::extractor::extract_task_action("tasks/cancel", Some("task-123"));
+    assert_eq!(action.tool, "tasks");
+    assert_eq!(action.function, "cancel");
+    assert_eq!(action.parameters["task_id"], "task-123");
+}
+
+#[test]
+fn test_task_request_fail_closed_no_policies_grpc() {
+    // With no policies, task requests should be denied (fail-closed)
+    let engine = sentinel_engine::PolicyEngine::new(false);
+    let action =
+        sentinel_mcp::extractor::extract_task_action("tasks/get", Some("task-abc"));
+    let verdict = engine
+        .evaluate_action(&action, &[])
+        .unwrap();
+    assert!(
+        matches!(verdict, sentinel_types::Verdict::Deny { .. }),
+        "Expected Deny with no policies, got: {:?}",
+        verdict
+    );
+}
+
+#[test]
+fn test_extension_method_classification_grpc() {
+    let json_msg = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "x-sentinel-audit/stats",
+        "params": {}
+    });
+    let classified = sentinel_mcp::extractor::classify_message(&json_msg);
+    match classified {
+        sentinel_mcp::extractor::MessageType::ExtensionMethod {
+            extension_id,
+            method,
+            ..
+        } => {
+            assert_eq!(extension_id, "x-sentinel-audit");
+            assert_eq!(method, "x-sentinel-audit/stats");
+        }
+        other => panic!("Expected ExtensionMethod, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_extension_method_fail_closed_no_policies_grpc() {
+    let engine = sentinel_engine::PolicyEngine::new(false);
+    let action = sentinel_mcp::extractor::extract_extension_action(
+        "x-sentinel-audit",
+        "x-sentinel-audit/stats",
+        &json!({}),
+    );
+    let verdict = engine
+        .evaluate_action(&action, &[])
+        .unwrap();
+    assert!(
+        matches!(verdict, sentinel_types::Verdict::Deny { .. }),
+        "Expected Deny with no policies, got: {:?}",
+        verdict
+    );
+}

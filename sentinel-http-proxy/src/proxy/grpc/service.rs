@@ -114,9 +114,39 @@ impl McpGrpcService {
                 self.forward_and_scan(proto_req, &json_req, session_id)
                     .await
             }
-            MessageType::ElicitationRequest { .. } | MessageType::TaskRequest { .. } => {
+            MessageType::ElicitationRequest { .. } | MessageType::ProgressNotification { .. } => {
                 self.forward_and_scan(proto_req, &json_req, session_id)
                     .await
+            }
+            MessageType::TaskRequest {
+                ref id,
+                ref task_method,
+                ref task_id,
+            } => {
+                self.handle_task_request(
+                    proto_req,
+                    &json_req,
+                    session_id,
+                    id,
+                    task_method,
+                    task_id.as_deref(),
+                )
+                .await
+            }
+            MessageType::ExtensionMethod {
+                ref id,
+                ref extension_id,
+                ref method,
+            } => {
+                self.handle_extension_method(
+                    proto_req,
+                    &json_req,
+                    session_id,
+                    id,
+                    extension_id,
+                    method,
+                )
+                .await
             }
             MessageType::Batch => make_proto_error_response(
                 proto_req,
@@ -429,6 +459,182 @@ impl McpGrpcService {
             Err(e) => {
                 tracing::error!("gRPC JSON→proto response conversion failed: {}", e);
                 make_proto_error_response(proto_req, -32603, "Response conversion error")
+            }
+        }
+    }
+
+    /// Handle a task request: extract action, evaluate policy, audit, forward or deny.
+    async fn handle_task_request(
+        &self,
+        proto_req: &JsonRpcRequest,
+        json_req: &Value,
+        session_id: &str,
+        _id: &Value,
+        task_method: &str,
+        task_id: Option<&str>,
+    ) -> JsonRpcResponse {
+        let action = extractor::extract_task_action(task_method, task_id);
+        let ctx = self.build_evaluation_context(session_id);
+
+        let verdict = match self.state.engine.evaluate_action_with_context(
+            &action,
+            &self.state.policies,
+            Some(&ctx),
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!(session_id = %session_id, "Task policy evaluation error: {}", e);
+                Verdict::Deny {
+                    reason: format!("Policy evaluation failed: {}", e),
+                }
+            }
+        };
+
+        match &verdict {
+            Verdict::Allow => {
+                if let Err(e) = self
+                    .state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Allow,
+                        json!({
+                            "source": "grpc_proxy",
+                            "session": session_id,
+                            "transport": "grpc",
+                            "task_method": task_method,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit gRPC task allow: {}", e);
+                }
+                self.forward_and_scan(proto_req, json_req, session_id).await
+            }
+            Verdict::Deny { reason } => {
+                if let Err(e) = self
+                    .state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "grpc_proxy",
+                            "session": session_id,
+                            "transport": "grpc",
+                            "task_method": task_method,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit gRPC task deny: {}", e);
+                }
+                make_proto_denial_response(proto_req, reason)
+            }
+            Verdict::RequireApproval { reason, .. } => {
+                let deny_reason = format!("Requires approval: {}", reason);
+                if let Err(e) = self
+                    .state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Deny {
+                            reason: deny_reason.clone(),
+                        },
+                        json!({
+                            "source": "grpc_proxy",
+                            "session": session_id,
+                            "transport": "grpc",
+                            "task_method": task_method,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit gRPC task approval request: {}", e);
+                }
+                make_proto_denial_response(proto_req, &deny_reason)
+            }
+            _ => make_proto_denial_response(proto_req, "Unknown verdict — fail-closed"),
+        }
+    }
+
+    /// Handle an extension method: extract action, evaluate policy, audit, forward or deny.
+    async fn handle_extension_method(
+        &self,
+        proto_req: &JsonRpcRequest,
+        json_req: &Value,
+        session_id: &str,
+        _id: &Value,
+        extension_id: &str,
+        method: &str,
+    ) -> JsonRpcResponse {
+        let params = json_req.get("params").cloned().unwrap_or(json!({}));
+        let action = extractor::extract_extension_action(extension_id, method, &params);
+        let ctx = self.build_evaluation_context(session_id);
+
+        let verdict = match self.state.engine.evaluate_action_with_context(
+            &action,
+            &self.state.policies,
+            Some(&ctx),
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!(session_id = %session_id, "Extension policy evaluation error: {}", e);
+                Verdict::Deny {
+                    reason: format!("Policy evaluation failed: {}", e),
+                }
+            }
+        };
+
+        match &verdict {
+            Verdict::Allow => {
+                if let Err(e) = self
+                    .state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Allow,
+                        json!({
+                            "source": "grpc_proxy",
+                            "session": session_id,
+                            "transport": "grpc",
+                            "extension_id": extension_id,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit gRPC extension allow: {}", e);
+                }
+                self.forward_and_scan(proto_req, json_req, session_id).await
+            }
+            Verdict::Deny { reason } => {
+                if let Err(e) = self
+                    .state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "grpc_proxy",
+                            "session": session_id,
+                            "transport": "grpc",
+                            "extension_id": extension_id,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit gRPC extension deny: {}", e);
+                }
+                make_proto_denial_response(proto_req, reason)
+            }
+            _ => {
+                let reason = match &verdict {
+                    Verdict::RequireApproval { reason, .. } => {
+                        format!("Requires approval: {}", reason)
+                    }
+                    _ => "Extension call denied — fail-closed".to_string(),
+                };
+                make_proto_denial_response(proto_req, &reason)
             }
         }
     }

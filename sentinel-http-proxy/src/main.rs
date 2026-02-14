@@ -636,6 +636,10 @@ async fn main() -> Result<()> {
             idle_timeout_secs: args.ws_idle_timeout,
             message_rate_limit: args.ws_message_rate_limit,
         }),
+
+        // Protocol extensions (Phase 17.4) — disabled for now; wired up in
+        // sentinel-server when extension config is enabled.
+        extension_registry: None,
     };
 
     if state.canonicalize {

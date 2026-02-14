@@ -185,6 +185,7 @@ fn to_policies_produces_correct_policy_structs() {
         metrics_require_auth: true,
         limits: Default::default(),
         compliance: Default::default(),
+        extension: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(policies.len(), 1);
@@ -251,6 +252,7 @@ fn to_policies_uses_default_priority_when_none() {
         metrics_require_auth: true,
         limits: Default::default(),
         compliance: Default::default(),
+        extension: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(
@@ -423,6 +425,7 @@ fn policy_config_toml_roundtrip() {
         metrics_require_auth: true,
         limits: Default::default(),
         compliance: Default::default(),
+        extension: Default::default(),
     };
     let toml_str = toml::to_string(&original).unwrap();
     let parsed = PolicyConfig::from_toml(&toml_str).unwrap();

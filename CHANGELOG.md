@@ -25,6 +25,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 17.3: Async Operations Enhancements (SEP-1391)
+- **TaskRequest policy enforcement across all transports** — `TaskRequest` messages (`tasks/get`, `tasks/cancel`, `tasks/resubscribe`, `tasks/send`) now receive full policy evaluation (extract action → evaluate → audit → forward/deny) in HTTP, WebSocket, gRPC, and stdio relay. Previously forwarded without policy checks.
+- **`ProgressNotification` message classification** — `notifications/progress` messages classified as `ProgressNotification` variant with `progress_token`, `progress`, and optional `total` fields for future per-transport handling. Currently forwarded as PassThrough.
+- **`ExtensionMethod` message classification** — Methods with `x-` prefix classified as `ExtensionMethod` variant with `extension_id` and `method` fields. Policy evaluation enforced on all transports.
+- **`extract_extension_action()`** — Converts extension method calls to `Action` for policy evaluation (`sentinel-mcp/src/extractor.rs`)
+- **32+ new tests** across WebSocket, gRPC, HTTP, and extractor test suites
+
+#### Phase 17.4: Protocol Extensions Framework
+- **Extension types** — `ExtensionDescriptor`, `ExtensionResourceLimits`, `ExtensionNegotiationResult`, `ExtensionError` in leaf crate (`sentinel-types/src/extension.rs`). 6 tests.
+- **Extension configuration** — `ExtensionConfig` with `enabled`, `allowed_extensions`, `blocked_extensions`, `require_signatures`, `trusted_public_keys`, `default_resource_limits` (`sentinel-config/src/extension.rs`). Added to `PolicyConfig` with `#[serde(default)]`. 2 tests.
+- **Extension registry** — `ExtensionHandler` trait with `on_load`, `on_unload`, `handle_method`, `descriptor` lifecycle hooks. `ExtensionRegistry` with RwLock-based thread-safe registration, glob-based allow/block negotiation, and O(1) method dispatch via `route_method()` (`sentinel-mcp/src/extension_registry.rs`). 12 tests.
+- **Audit query example extension** — `AuditQueryExtension` implementing `ExtensionHandler`, handles `x-sentinel-audit/stats` method (`sentinel-mcp/src/extensions/audit_query.rs`). 4 tests.
+- **`ProxyState.extension_registry`** — Optional `Arc<ExtensionRegistry>` field for extension method routing across HTTP, WebSocket, and gRPC transports (`sentinel-http-proxy/src/proxy/mod.rs`)
+- All Phase 17 exit criteria now complete (6/6)
+
 #### Phase 19: Regulatory Compliance — Remaining Exit Criteria
 - **Compliance dashboard section** — Real-time compliance status in admin dashboard (`sentinel-server/src/dashboard.rs`) with 4 metric cards (EU AI Act %, SOC 2 Readiness %, Framework Coverage %, Critical Gaps) and a 6-framework coverage table with color-coded thresholds (green >=90%, yellow >=70%, red <70%)
 - **EU AI Act Article 50 runtime transparency** — `mark_ai_mediated()` injects `result._meta.sentinel_ai_mediated = true` into tool-call responses before forwarding to agent (`sentinel-mcp/src/transparency.rs`). `requires_human_oversight()` checks tool names against configurable glob patterns and logs audit events. ProxyBridge extended with `with_transparency_marking(bool)` and `with_human_oversight_tools(Vec<String>)` builder methods. Art 50(1) status upgraded to Compliant in EU AI Act registry. 11 tests.

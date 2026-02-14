@@ -1952,6 +1952,136 @@ pub async fn handle_mcp_post(
                 &session_id,
             )
         }
+        MessageType::ProgressNotification { .. } => {
+            // Progress notifications are upstream→client; if received from client, forward as-is
+            let forward_body = match canonicalize_body(&state, &msg, body) {
+                Some(b) => b,
+                None => {
+                    return make_jsonrpc_error(
+                        msg.get("id"),
+                        -32603,
+                        "Internal error: canonicalization failed",
+                    )
+                }
+            };
+            let response = forward_to_upstream(
+                &state,
+                &session_id,
+                forward_body,
+                auth_header_for_upstream.as_deref(),
+            )
+            .await;
+            attach_session_header(response, &session_id)
+        }
+        MessageType::ExtensionMethod {
+            ref id,
+            ref extension_id,
+            ref method,
+        } => {
+            // Policy-evaluate extension method calls
+            let params = msg.get("params").cloned().unwrap_or(json!({}));
+            let action = extractor::extract_extension_action(extension_id, method, &params);
+            let eval_ctx = build_evaluation_context(&state.sessions, &session_id);
+
+            let verdict = match state
+                .engine
+                .evaluate_action_with_context(&action, &state.policies, eval_ctx.as_ref())
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::error!(
+                        session_id = %session_id,
+                        "Extension policy evaluation error: {}", e
+                    );
+                    Verdict::Deny {
+                        reason: format!("Policy evaluation failed: {}", e),
+                    }
+                }
+            };
+
+            match verdict {
+                Verdict::Allow => {
+                    if let Err(e) = state
+                        .audit
+                        .log_entry(
+                            &action,
+                            &Verdict::Allow,
+                            build_audit_context(
+                                &session_id,
+                                json!({
+                                    "event": "extension_method_allowed",
+                                    "extension_id": extension_id,
+                                    "method": method,
+                                }),
+                                &oauth_claims,
+                            ),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit extension allow: {}", e);
+                    }
+                    let forward_body = match canonicalize_body(&state, &msg, body) {
+                        Some(b) => b,
+                        None => {
+                            return make_jsonrpc_error(
+                                msg.get("id"),
+                                -32603,
+                                "Internal error: canonicalization failed",
+                            )
+                        }
+                    };
+                    let response = forward_to_upstream(
+                        &state,
+                        &session_id,
+                        forward_body,
+                        auth_header_for_upstream.as_deref(),
+                    )
+                    .await;
+                    attach_session_header(response, &session_id)
+                }
+                _ => {
+                    let reason = match &verdict {
+                        Verdict::Deny { reason } => reason.clone(),
+                        Verdict::RequireApproval { reason, .. } => {
+                            format!("Requires approval: {}", reason)
+                        }
+                        _ => "Extension call denied — fail-closed".to_string(),
+                    };
+                    if let Err(e) = state
+                        .audit
+                        .log_entry(
+                            &action,
+                            &verdict,
+                            build_audit_context(
+                                &session_id,
+                                json!({
+                                    "event": "extension_method_denied",
+                                    "extension_id": extension_id,
+                                    "method": method,
+                                    "reason": &reason,
+                                }),
+                                &oauth_claims,
+                            ),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit extension deny: {}", e);
+                    }
+                    let response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32001,
+                            "message": format!("Denied by policy: {}", reason)
+                        }
+                    });
+                    attach_session_header(
+                        (StatusCode::OK, Json(response)).into_response(),
+                        &session_id,
+                    )
+                }
+            }
+        }
         MessageType::Invalid { id, reason } => {
             let response = json!({
                 "jsonrpc": "2.0",

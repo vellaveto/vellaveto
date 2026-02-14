@@ -782,6 +782,8 @@ fn make_test_proxy_state(canonicalize: bool) -> ProxyState {
         limits: sentinel_config::LimitsConfig::default(),
         // WebSocket config
         ws_config: None,
+        // Extension registry
+        extension_registry: None,
     }
 }
 

@@ -7,8 +7,9 @@
 use super::ProxyBridge;
 use super::ToolAnnotations;
 use crate::extractor::{
-    classify_message, extract_action, extract_resource_action, extract_task_action,
-    make_batch_error_response, make_denial_response, make_invalid_response, MessageType,
+    classify_message, extract_action, extract_extension_action, extract_resource_action,
+    extract_task_action, make_batch_error_response, make_denial_response, make_invalid_response,
+    MessageType,
 };
 use crate::framing::{read_message, write_message};
 use crate::inspection::{
@@ -284,6 +285,18 @@ impl ProxyBridge {
                 write_message(io.agent, &response)
                     .await
                     .map_err(ProxyError::Framing)
+            }
+            MessageType::ProgressNotification { .. } => {
+                // Forward as-is (upstream→client DLP scanning applies)
+                self.handle_passthrough(&msg, state, io).await
+            }
+            MessageType::ExtensionMethod {
+                id,
+                extension_id,
+                method,
+            } => {
+                self.handle_extension_method(msg, id, extension_id, method, state, io)
+                    .await
             }
             MessageType::PassThrough => self.handle_passthrough(&msg, state, io).await,
         }
@@ -1174,6 +1187,137 @@ impl ProxyBridge {
                             "source": "proxy",
                             "event": "task_request_eval_error",
                             "task_method": task_method,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Audit log failed: {}", e);
+                }
+                let response = make_denial_response(&id, &reason);
+                write_message(agent_writer, &response)
+                    .await
+                    .map_err(ProxyError::Framing)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Handle an extension method call (`x-` prefixed methods) from the agent.
+    async fn handle_extension_method(
+        &self,
+        msg: Value,
+        id: Value,
+        extension_id: String,
+        method: String,
+        state: &mut RelayState,
+        io: &mut IoWriters<'_>,
+    ) -> Result<(), ProxyError> {
+        let IoWriters {
+            agent: agent_writer,
+            child: child_stdin,
+        } = io;
+        tracing::debug!("Extension method: {} (extension: {})", method, extension_id);
+
+        let params = msg.get("params").cloned().unwrap_or(json!({}));
+        let action = extract_extension_action(&extension_id, &method, &params);
+        let eval_ctx = state.evaluation_context();
+
+        match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
+            Ok((Verdict::Allow, _trace)) => {
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Allow,
+                        json!({
+                            "source": "proxy",
+                            "event": "extension_method_forwarded",
+                            "extension_id": extension_id,
+                            "method": method,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Audit log failed: {}", e);
+                }
+                state.record_forwarded_action(&method);
+                state.track_pending_request(&id, method);
+                write_message(child_stdin, &msg)
+                    .await
+                    .map_err(ProxyError::Framing)?;
+            }
+            Ok((verdict @ Verdict::Deny { .. }, _))
+            | Ok((verdict @ Verdict::RequireApproval { .. }, _)) => {
+                let reason = match &verdict {
+                    Verdict::Deny { reason } => reason.clone(),
+                    Verdict::RequireApproval { reason } => reason.clone(),
+                    _ => unreachable!(),
+                };
+                let response = make_denial_response(&id, &reason);
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "proxy",
+                            "event": "extension_method_denied",
+                            "extension_id": extension_id,
+                            "method": method,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Audit log failed: {}", e);
+                }
+                write_message(agent_writer, &response)
+                    .await
+                    .map_err(ProxyError::Framing)?;
+            }
+            Ok((_, _)) => {
+                let reason = "Unknown verdict type - failing closed".to_string();
+                let verdict = Verdict::Deny {
+                    reason: reason.clone(),
+                };
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "proxy",
+                            "event": "extension_method_unknown_verdict",
+                            "extension_id": extension_id,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Audit log failed: {}", e);
+                }
+                let response = make_denial_response(&id, &reason);
+                write_message(agent_writer, &response)
+                    .await
+                    .map_err(ProxyError::Framing)?;
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Policy evaluation error for extension '{}': {}",
+                    extension_id,
+                    e
+                );
+                let reason = "Policy evaluation failed".to_string();
+                let verdict = Verdict::Deny {
+                    reason: reason.clone(),
+                };
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "proxy",
+                            "event": "extension_method_eval_error",
+                            "extension_id": extension_id,
                         }),
                     )
                     .await

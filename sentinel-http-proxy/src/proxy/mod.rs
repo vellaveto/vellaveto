@@ -27,6 +27,7 @@ use sentinel_audit::AuditLogger;
 use sentinel_config::ManifestConfig;
 use sentinel_engine::PolicyEngine;
 use sentinel_engine::{circuit_breaker::CircuitBreakerManager, deputy::DeputyValidator};
+use sentinel_mcp::extension_registry::ExtensionRegistry;
 use sentinel_mcp::inspection::InjectionScanner;
 use sentinel_mcp::output_validation::OutputSchemaRegistry;
 use sentinel_mcp::{
@@ -166,6 +167,14 @@ pub struct ProxyState {
     /// is active with the specified message size, idle timeout, and rate limit.
     /// When `None`, WebSocket requests use default configuration.
     pub ws_config: Option<WebSocketConfig>,
+
+    // =========================================================================
+    // Protocol Extensions (Phase 17.4)
+    // =========================================================================
+    /// Extension registry for `x-` prefixed protocol extensions.
+    /// When `Some`, extension method calls are routed to registered handlers
+    /// before falling back to upstream forwarding.
+    pub extension_registry: Option<Arc<ExtensionRegistry>>,
 }
 
 /// Per-request trust signal for forwarded-header handling.

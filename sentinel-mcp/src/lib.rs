@@ -15,6 +15,8 @@ pub mod did_plc;
 pub mod elicitation;
 pub mod escalation_detector;
 pub mod etdi;
+pub mod extension_registry;
+pub mod extensions;
 pub mod extractor;
 pub mod framing;
 pub mod goal_tracking;

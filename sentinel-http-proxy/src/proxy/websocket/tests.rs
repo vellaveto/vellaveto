@@ -397,6 +397,100 @@ fn test_ws_query_params_default() {
 // Test helper: build a minimal ProxyState for unit tests
 // ==========================================================================
 
+// ==========================================================================
+// TaskRequest policy enforcement tests
+// ==========================================================================
+
+#[test]
+fn test_task_request_policy_deny_ws() {
+    // With no policies, task requests should be denied (fail-closed)
+    let state = make_test_state();
+    let session_id = state.sessions.get_or_create(None);
+
+    let action = extractor::extract_task_action("tasks/get", Some("task-123"));
+    let ctx = build_ws_evaluation_context(&state, &session_id);
+
+    let verdict = state
+        .engine
+        .evaluate_action_with_context(&action, &state.policies, Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "Expected Deny with no policies, got: {:?}",
+        verdict
+    );
+}
+
+#[test]
+fn test_task_request_policy_allow_ws() {
+    // With a wildcard allow policy, task requests should be allowed
+    let state = make_test_state_with_allow_all();
+    let session_id = state.sessions.get_or_create(None);
+
+    let action = extractor::extract_task_action("tasks/get", Some("task-123"));
+    let ctx = build_ws_evaluation_context(&state, &session_id);
+
+    let verdict = state
+        .engine
+        .evaluate_action_with_context(&action, &state.policies, Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(verdict, Verdict::Allow),
+        "Expected Allow with wildcard policy, got: {:?}",
+        verdict
+    );
+}
+
+#[test]
+fn test_extension_method_policy_deny_ws() {
+    // With no policies, extension method calls should be denied (fail-closed)
+    let state = make_test_state();
+    let session_id = state.sessions.get_or_create(None);
+
+    let action = extractor::extract_extension_action(
+        "x-sentinel-audit",
+        "x-sentinel-audit/stats",
+        &json!({}),
+    );
+    let ctx = build_ws_evaluation_context(&state, &session_id);
+
+    let verdict = state
+        .engine
+        .evaluate_action_with_context(&action, &state.policies, Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "Expected Deny with no policies, got: {:?}",
+        verdict
+    );
+}
+
+// ==========================================================================
+// Test helpers
+// ==========================================================================
+
+fn make_test_state_with_allow_all() -> ProxyState {
+    use sentinel_engine::PolicyEngine;
+    use sentinel_types::{Policy, PolicyType};
+
+    let policies = vec![Policy {
+        id: "*:*".to_string(),
+        name: "Allow all".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }];
+
+    let engine = PolicyEngine::with_policies(false, &policies)
+        .expect("Failed to compile test policies");
+
+    let mut state = make_test_state();
+    state.engine = Arc::new(engine);
+    state.policies = Arc::new(policies);
+    state
+}
+
 fn make_test_state() -> ProxyState {
     use sentinel_audit::AuditLogger;
     use sentinel_engine::PolicyEngine;
@@ -442,5 +536,6 @@ fn make_test_state() -> ProxyState {
         sampling_detector: None,
         limits: sentinel_config::LimitsConfig::default(),
         ws_config: Some(WebSocketConfig::default()),
+        extension_registry: None,
     }
 }

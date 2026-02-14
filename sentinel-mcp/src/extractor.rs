@@ -61,6 +61,18 @@ pub enum MessageType {
     Batch,
     /// An invalid request that should be rejected with an error response.
     Invalid { id: Value, reason: String },
+    /// A `notifications/progress` notification (upstream → client).
+    ProgressNotification {
+        progress_token: String,
+        progress: f64,
+        total: Option<f64>,
+    },
+    /// An extension method call (method starts with `x-` prefix).
+    ExtensionMethod {
+        id: Value,
+        extension_id: String,
+        method: String,
+    },
     /// Any other message (notifications, responses, other methods).
     PassThrough,
 }
@@ -192,6 +204,37 @@ pub fn classify_message(msg: &Value) -> MessageType {
                 id,
                 task_method: method.to_string(),
                 task_id,
+            }
+        }
+        "notifications/progress" => {
+            let progress_token = params
+                .and_then(|p| p.get("progressToken"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
+            let progress = params
+                .and_then(|p| p.get("progress"))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let total = params
+                .and_then(|p| p.get("total"))
+                .and_then(|v| v.as_f64());
+            MessageType::ProgressNotification {
+                progress_token,
+                progress,
+                total,
+            }
+        }
+        _ if normalized.starts_with("x-") => {
+            let extension_id = normalized
+                .split('/')
+                .next()
+                .unwrap_or(&normalized)
+                .to_string();
+            MessageType::ExtensionMethod {
+                id,
+                extension_id,
+                method: normalized,
             }
         }
         _ => MessageType::PassThrough,
@@ -437,6 +480,15 @@ pub fn extract_task_action(task_method: &str, task_id: Option<&str>) -> Action {
     Action::new("tasks", function, Value::Object(params))
 }
 
+/// Extract an [`Action`] from a classified extension method call.
+///
+/// The `tool` field is the extension prefix (e.g., `"x-sentinel-audit"`).
+/// The `function` field is the full normalized method name.
+/// The `parameters` field is forwarded from the original message params.
+pub fn extract_extension_action(extension_id: &str, method: &str, params: &Value) -> Action {
+    Action::new(extension_id, method, params.clone())
+}
+
 /// Build a JSON-RPC error response for a rejected batch request.
 ///
 /// Per MCP 2025-06-18, JSON-RPC batching is no longer supported.
@@ -585,10 +637,11 @@ mod tests {
 
     #[test]
     fn test_classify_notification() {
+        // Non-progress notifications are still PassThrough
         let msg = json!({
             "jsonrpc": "2.0",
-            "method": "notifications/progress",
-            "params": {"token": "abc"}
+            "method": "notifications/initialized",
+            "params": {}
         });
         assert_eq!(classify_message(&msg), MessageType::PassThrough);
     }
@@ -1295,5 +1348,118 @@ mod tests {
         let action = extract_task_action("tasks/list", None);
         assert_eq!(action.tool, "tasks");
         assert_eq!(action.function, "list");
+    }
+
+    // --- ProgressNotification classification tests ---
+
+    #[test]
+    fn test_classify_progress_notification() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/progress",
+            "params": {
+                "progressToken": "tok-123",
+                "progress": 50.0,
+                "total": 100.0
+            }
+        });
+        match classify_message(&msg) {
+            MessageType::ProgressNotification {
+                progress_token,
+                progress,
+                total,
+            } => {
+                assert_eq!(progress_token, "tok-123");
+                assert!((progress - 50.0).abs() < f64::EPSILON);
+                assert!((total.unwrap() - 100.0).abs() < f64::EPSILON);
+            }
+            other => panic!("Expected ProgressNotification, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_classify_progress_notification_missing_params() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/progress"
+        });
+        match classify_message(&msg) {
+            MessageType::ProgressNotification {
+                progress_token,
+                progress,
+                total,
+            } => {
+                assert_eq!(progress_token, "");
+                assert!((progress - 0.0).abs() < f64::EPSILON);
+                assert!(total.is_none());
+            }
+            other => panic!("Expected ProgressNotification, got {:?}", other),
+        }
+    }
+
+    // --- Extension method classification tests ---
+
+    #[test]
+    fn test_classify_extension_method() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 50,
+            "method": "x-sentinel-audit/stats",
+            "params": {}
+        });
+        match classify_message(&msg) {
+            MessageType::ExtensionMethod {
+                id,
+                extension_id,
+                method,
+            } => {
+                assert_eq!(id, json!(50));
+                assert_eq!(extension_id, "x-sentinel-audit");
+                assert_eq!(method, "x-sentinel-audit/stats");
+            }
+            other => panic!("Expected ExtensionMethod, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_classify_extension_with_subpath() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 51,
+            "method": "x-my-ext/deep/path",
+            "params": {}
+        });
+        match classify_message(&msg) {
+            MessageType::ExtensionMethod {
+                extension_id,
+                method,
+                ..
+            } => {
+                assert_eq!(extension_id, "x-my-ext");
+                assert_eq!(method, "x-my-ext/deep/path");
+            }
+            other => panic!("Expected ExtensionMethod, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_non_extension_passthrough() {
+        // Method not starting with "x-" should be PassThrough
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 52,
+            "method": "some/other/method",
+            "params": {}
+        });
+        assert_eq!(classify_message(&msg), MessageType::PassThrough);
+    }
+
+    #[test]
+    fn test_extract_extension_action() {
+        let params = json!({"query": "SELECT count(*)"});
+        let action = extract_extension_action("x-sentinel-audit", "x-sentinel-audit/query", &params);
+        assert_eq!(action.tool, "x-sentinel-audit");
+        assert_eq!(action.function, "x-sentinel-audit/query");
+        assert_eq!(action.parameters["query"], "SELECT count(*)");
     }
 }

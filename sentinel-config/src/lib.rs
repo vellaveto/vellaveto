@@ -7,6 +7,7 @@ pub mod validation;
 pub mod detection;
 pub mod enterprise;
 pub mod etdi;
+pub mod extension;
 pub mod manifest;
 pub mod mcp_protocol;
 pub mod memory_nhi;
@@ -97,6 +98,7 @@ pub use config_validate::{
     MAX_ALLOWED_SERVERS, MAX_CUSTOM_PII_PATTERNS, MAX_DISABLED_INJECTION_PATTERNS,
     MAX_EXTRA_INJECTION_PATTERNS, MAX_KNOWN_TOOL_NAMES, MAX_POLICIES, MAX_TRUSTED_KEYS,
 };
+pub use extension::ExtensionConfig;
 pub use grpc_transport::GrpcTransportConfig;
 pub use limits::LimitsConfig;
 pub use policy_rule::PolicyRule;
@@ -372,6 +374,14 @@ pub struct PolicyConfig {
     /// Compliance evidence generation configuration (EU AI Act, SOC 2).
     #[serde(default)]
     pub compliance: ComplianceConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 17.4: PROTOCOL EXTENSION FRAMEWORK
+    // ═══════════════════════════════════════════════════
+    /// Protocol extension framework configuration.
+    /// When enabled, allows registering extensions that handle `x-` prefixed methods.
+    #[serde(default)]
+    pub extension: ExtensionConfig,
 }
 
 impl PolicyConfig {

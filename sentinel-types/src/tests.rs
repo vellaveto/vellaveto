@@ -1768,3 +1768,85 @@ fn test_evaluation_context_builder_has_meaningful_fields() {
         .build();
     assert!(ctx_with_timestamp.has_any_meaningful_fields());
 }
+
+// --- Extension types tests ---
+
+#[test]
+fn test_extension_descriptor_serde_roundtrip() {
+    let desc = ExtensionDescriptor {
+        id: "sentinel-audit".to_string(),
+        name: "Audit Query Extension".to_string(),
+        version: "1.0.0".to_string(),
+        capabilities: vec!["read".to_string()],
+        methods: vec!["x-sentinel-audit/stats".to_string()],
+        signature: None,
+        public_key: None,
+    };
+    let json_str = serde_json::to_string(&desc).unwrap();
+    let deserialized: ExtensionDescriptor = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(desc, deserialized);
+}
+
+#[test]
+fn test_extension_descriptor_validate_valid() {
+    let desc = ExtensionDescriptor {
+        id: "my-ext".to_string(),
+        name: "My Extension".to_string(),
+        version: "0.1.0".to_string(),
+        capabilities: vec![],
+        methods: vec!["x-my-ext/do-thing".to_string()],
+        signature: None,
+        public_key: None,
+    };
+    assert!(desc.validate().is_ok());
+}
+
+#[test]
+fn test_extension_descriptor_validate_empty_id() {
+    let desc = ExtensionDescriptor {
+        id: "".to_string(),
+        name: "My Extension".to_string(),
+        version: "0.1.0".to_string(),
+        capabilities: vec![],
+        methods: vec![],
+        signature: None,
+        public_key: None,
+    };
+    let err = desc.validate().unwrap_err();
+    assert!(err.to_string().contains("id must not be empty"));
+}
+
+#[test]
+fn test_extension_descriptor_validate_empty_name() {
+    let desc = ExtensionDescriptor {
+        id: "my-ext".to_string(),
+        name: "".to_string(),
+        version: "0.1.0".to_string(),
+        capabilities: vec![],
+        methods: vec![],
+        signature: None,
+        public_key: None,
+    };
+    let err = desc.validate().unwrap_err();
+    assert!(err.to_string().contains("name must not be empty"));
+}
+
+#[test]
+fn test_extension_resource_limits_defaults() {
+    let limits = ExtensionResourceLimits::default();
+    assert_eq!(limits.max_concurrent_requests, 10);
+    assert_eq!(limits.max_requests_per_sec, 100);
+}
+
+#[test]
+fn test_extension_negotiation_result_serde() {
+    let result = ExtensionNegotiationResult {
+        accepted: vec!["ext-a".to_string()],
+        rejected: vec![("ext-b".to_string(), "blocked".to_string())],
+    };
+    let json_str = serde_json::to_string(&result).unwrap();
+    let deserialized: ExtensionNegotiationResult = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(deserialized.accepted, vec!["ext-a"]);
+    assert_eq!(deserialized.rejected.len(), 1);
+    assert_eq!(deserialized.rejected[0].0, "ext-b");
+}

@@ -1108,6 +1108,7 @@ fn test_validate_rejects_too_many_policies() {
         metrics_require_auth: true,
         limits: LimitsConfig::default(),
         compliance: ComplianceConfig::default(),
+        extension: ExtensionConfig::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {
@@ -2529,4 +2530,28 @@ fn test_limits_config_json_roundtrip() {
     let json = serde_json::to_string(&config).unwrap();
     let parsed: LimitsConfig = serde_json::from_str(&json).unwrap();
     assert_eq!(config, parsed);
+}
+
+// --- Extension config tests ---
+
+#[test]
+fn test_extension_config_default() {
+    let config = ExtensionConfig::default();
+    assert!(!config.enabled);
+    assert!(config.allowed_extensions.is_empty());
+    assert!(config.blocked_extensions.is_empty());
+    assert!(!config.require_signatures);
+    assert!(config.trusted_public_keys.is_empty());
+    assert_eq!(config.default_resource_limits.max_concurrent_requests, 10);
+    assert_eq!(config.default_resource_limits.max_requests_per_sec, 100);
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_extension_config_validation() {
+    let mut config = ExtensionConfig::default();
+    config.enabled = true;
+    config.default_resource_limits.max_concurrent_requests = 0;
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("max_concurrent_requests"));
 }

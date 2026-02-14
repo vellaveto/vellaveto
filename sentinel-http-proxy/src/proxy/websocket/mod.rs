@@ -595,9 +595,208 @@ async fn relay_client_to_upstream(
                                 .await;
                         }
                     }
+                    MessageType::TaskRequest {
+                        ref id,
+                        ref task_method,
+                        ref task_id,
+                    } => {
+                        // Policy-evaluate task requests (async operations)
+                        let action =
+                            extractor::extract_task_action(task_method, task_id.as_deref());
+                        let ctx = build_ws_evaluation_context(&state, &session_id);
+                        let verdict = match state.engine.evaluate_action_with_context(
+                            &action,
+                            &state.policies,
+                            Some(&ctx),
+                        ) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                tracing::error!(
+                                    session_id = %session_id,
+                                    "Task policy evaluation error: {}", e
+                                );
+                                Verdict::Deny {
+                                    reason: format!("Policy evaluation failed: {}", e),
+                                }
+                            }
+                        };
+
+                        match verdict {
+                            Verdict::Allow => {
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &Verdict::Allow,
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "task_method": task_method,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!("Failed to audit WS task allow: {}", e);
+                                }
+                                let forward_text = if state.canonicalize {
+                                    serde_json::to_string(&parsed)
+                                        .unwrap_or_else(|_| text.to_string())
+                                } else {
+                                    text.to_string()
+                                };
+                                let mut sink = upstream_sink.lock().await;
+                                if let Err(e) = sink
+                                    .send(tokio_tungstenite::tungstenite::Message::Text(
+                                        forward_text.into(),
+                                    ))
+                                    .await
+                                {
+                                    tracing::error!("Failed to forward task request: {}", e);
+                                    break;
+                                }
+                            }
+                            Verdict::Deny { ref reason } | Verdict::RequireApproval { ref reason, .. } => {
+                                let deny_reason = if matches!(verdict, Verdict::RequireApproval { .. }) {
+                                    format!("Requires approval: {}", reason)
+                                } else {
+                                    reason.clone()
+                                };
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &Verdict::Deny {
+                                            reason: deny_reason.clone(),
+                                        },
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "task_method": task_method,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!("Failed to audit WS task deny: {}", e);
+                                }
+                                let denial = extractor::make_denial_response(id, &deny_reason);
+                                let denial_text = serde_json::to_string(&denial)
+                                    .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32001,"message":"Denied"}}"#.to_string());
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(denial_text.into())).await;
+                            }
+                            _ => {
+                                let denial = extractor::make_denial_response(
+                                    id,
+                                    "Unknown verdict — fail-closed",
+                                );
+                                let denial_text = serde_json::to_string(&denial)
+                                    .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32001,"message":"Denied"}}"#.to_string());
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(denial_text.into())).await;
+                            }
+                        }
+                    }
+                    MessageType::ExtensionMethod {
+                        ref id,
+                        ref extension_id,
+                        ref method,
+                    } => {
+                        // Policy-evaluate extension method calls
+                        let params = parsed.get("params").cloned().unwrap_or(json!({}));
+                        let action =
+                            extractor::extract_extension_action(extension_id, method, &params);
+                        let ctx = build_ws_evaluation_context(&state, &session_id);
+                        let verdict = match state.engine.evaluate_action_with_context(
+                            &action,
+                            &state.policies,
+                            Some(&ctx),
+                        ) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                tracing::error!(
+                                    session_id = %session_id,
+                                    "Extension policy evaluation error: {}", e
+                                );
+                                Verdict::Deny {
+                                    reason: format!("Policy evaluation failed: {}", e),
+                                }
+                            }
+                        };
+
+                        match verdict {
+                            Verdict::Allow => {
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &Verdict::Allow,
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "extension_id": extension_id,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!("Failed to audit WS extension allow: {}", e);
+                                }
+                                let forward_text = if state.canonicalize {
+                                    serde_json::to_string(&parsed)
+                                        .unwrap_or_else(|_| text.to_string())
+                                } else {
+                                    text.to_string()
+                                };
+                                let mut sink = upstream_sink.lock().await;
+                                if let Err(e) = sink
+                                    .send(tokio_tungstenite::tungstenite::Message::Text(
+                                        forward_text.into(),
+                                    ))
+                                    .await
+                                {
+                                    tracing::error!("Failed to forward extension request: {}", e);
+                                    break;
+                                }
+                            }
+                            _ => {
+                                let reason = match &verdict {
+                                    Verdict::Deny { reason } => reason.clone(),
+                                    Verdict::RequireApproval { reason, .. } => {
+                                        format!("Requires approval: {}", reason)
+                                    }
+                                    _ => "Extension call denied — fail-closed".to_string(),
+                                };
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &Verdict::Deny {
+                                            reason: reason.clone(),
+                                        },
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "extension_id": extension_id,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!("Failed to audit WS extension deny: {}", e);
+                                }
+                                let denial = extractor::make_denial_response(id, &reason);
+                                let denial_text = serde_json::to_string(&denial)
+                                    .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32001,"message":"Denied"}}"#.to_string());
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(denial_text.into())).await;
+                            }
+                        }
+                    }
                     MessageType::PassThrough
                     | MessageType::ElicitationRequest { .. }
-                    | MessageType::TaskRequest { .. } => {
+                    | MessageType::ProgressNotification { .. } => {
                         // Forward as-is (canonicalized if enabled)
                         let forward_text = if state.canonicalize {
                             serde_json::to_string(&parsed).unwrap_or_else(|_| text.to_string())

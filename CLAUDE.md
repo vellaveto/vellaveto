@@ -1,10 +1,10 @@
 # CLAUDE.md — Sentinel Project Instructions
 
 > **Project:** Sentinel — MCP Tool Firewall
-> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phases 17.1–17.2 complete, 19.1–19.4 complete, 21.0 complete, Phases 17.3–18/20–23 remaining)
+> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phase 17 complete, 19.1–19.4 complete, 21.0 complete, Phases 18/20–23 remaining)
 > **Version:** 3.0.0-dev (crates at 2.2.1, targeting v3.0 release)
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 4,477+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 4,480+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 22
 > **CI workflows:** 11
 > **Updated:** 2026-02-14
@@ -89,7 +89,8 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Types: VerificationTier, AccountabilityAttestation | `sentinel-types/src/verification.rs` |
 | Types: CapabilityToken, CapabilityGrant, CapabilityVerification | `sentinel-types/src/capability.rs` |
 | Types: AiActRiskClass, TrustServicesCategory (shared compliance enums) | `sentinel-types/src/compliance.rs` |
-| Types: tests (~119 unit tests) | `sentinel-types/src/tests.rs` |
+| Types: ExtensionDescriptor, ExtensionResourceLimits, ExtensionError | `sentinel-types/src/extension.rs` |
+| Types: tests (~125 unit tests) | `sentinel-types/src/tests.rs` |
 | Policy evaluation | `sentinel-engine/src/lib.rs` |
 | Audit: module root + re-exports | `sentinel-audit/src/lib.rs` |
 | Audit: types (AuditEntry, AuditError, etc.) | `sentinel-audit/src/types.rs` |
@@ -128,8 +129,9 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Config: A2aConfig (Agent-to-Agent) | `sentinel-config/src/a2a.rs` |
 | Config: LimitsConfig + validate() | `sentinel-config/src/limits.rs` |
 | Config: ComplianceConfig (EU AI Act + SOC 2) | `sentinel-config/src/compliance.rs` |
+| Config: ExtensionConfig (allow/block/signatures/limits) | `sentinel-config/src/extension.rs` |
 | Config: PolicyConfig::validate() + load_file() | `sentinel-config/src/config_validate.rs` |
-| Config: tests (~162 unit tests) | `sentinel-config/src/tests.rs` |
+| Config: tests (~164 unit tests) | `sentinel-config/src/tests.rs` |
 | MCP handling | `sentinel-mcp/src/lib.rs` |
 | Proxy bridge: struct + constructor | `sentinel-mcp/src/proxy/bridge/mod.rs` |
 | Proxy bridge: builder methods | `sentinel-mcp/src/proxy/bridge/builder.rs` |
@@ -145,6 +147,8 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Semantic guardrails | `sentinel-mcp/src/semantic_guardrails/` |
 | A2A protocol security | `sentinel-mcp/src/a2a/` |
 | EU AI Act Art 50 transparency marking + human oversight | `sentinel-mcp/src/transparency.rs` |
+| Extension registry + ExtensionHandler trait | `sentinel-mcp/src/extension_registry.rs` |
+| Extensions: audit query example | `sentinel-mcp/src/extensions/audit_query.rs` |
 | HTTP proxy: structs + constants | `sentinel-http-proxy/src/proxy/mod.rs` |
 | HTTP proxy: handler functions | `sentinel-http-proxy/src/proxy/handlers.rs` |
 | HTTP proxy: OAuth/API key/agent auth | `sentinel-http-proxy/src/proxy/auth.rs` |
@@ -246,6 +250,18 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - Config type: `GrpcTransportConfig` (`sentinel-config/src/grpc_transport.rs`)
 - 46 unit tests + `fuzz_grpc_proto` fuzz target
 - Coordinated graceful shutdown with HTTP server via `CancellationToken`
+
+**Async Operations & Protocol Extensions (Phase 17.3/17.4):**
+- TaskRequest policy enforcement across all 4 transports (HTTP, WebSocket, gRPC, stdio) — extract action → evaluate → audit → forward/deny with fail-closed semantics
+- `ProgressNotification` message classification — `notifications/progress` identified for future per-transport handling
+- `ExtensionMethod` message classification — `x-` prefixed methods routed through policy evaluation
+- Extension types in leaf crate — `ExtensionDescriptor`, `ExtensionResourceLimits`, `ExtensionNegotiationResult`, `ExtensionError` (`sentinel-types/src/extension.rs`)
+- Extension configuration — `ExtensionConfig` with allow/block patterns, signature requirements, resource limits (`sentinel-config/src/extension.rs`)
+- Extension registry — `ExtensionHandler` trait with lifecycle hooks, `ExtensionRegistry` with thread-safe registration, glob-based negotiation, O(1) method dispatch (`sentinel-mcp/src/extension_registry.rs`)
+- Audit query example extension — `AuditQueryExtension` handling `x-sentinel-audit/stats` (`sentinel-mcp/src/extensions/audit_query.rs`)
+- `extract_extension_action()` — Converts extension method calls to `Action` for policy evaluation
+- `ProxyState.extension_registry` — Optional `Arc<ExtensionRegistry>` for extension method routing
+- 50+ new tests across all transport layers
 
 **MCP Ecosystem:**
 - Tool registry with trust scoring (`sentinel-mcp/src/tool_registry.rs`)
