@@ -22,6 +22,7 @@ pub mod transport;
 // EXTRACTED CONFIG SUBMODULES (Phase 16.6 split)
 // ═══════════════════════════════════════════════════════════════════════════════
 pub mod a2a;
+pub mod abac;
 pub mod cluster;
 pub mod compliance;
 pub mod config_validate;
@@ -92,6 +93,7 @@ pub use rag_defense_config::{
 
 // Re-exports from Phase 16.6 split submodules
 pub use a2a::A2aConfig;
+pub use abac::AbacConfig;
 pub use compliance::{
     AiActRiskClass, ComplianceConfig, EuAiActConfig, Soc2Config, TrustServicesCategory,
 };
@@ -403,6 +405,16 @@ pub struct PolicyConfig {
     /// MCP servers based on tool name prefix matching.
     #[serde(default)]
     pub gateway: GatewayConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 21: ADVANCED AUTHORIZATION (ABAC)
+    // ═══════════════════════════════════════════════════
+    /// Attribute-Based Access Control (ABAC) configuration.
+    /// Cedar-style permit/forbid policies with principal/action/resource
+    /// matching, least-agency enforcement, identity federation, and
+    /// continuous authorization.
+    #[serde(default)]
+    pub abac: AbacConfig,
 }
 
 impl PolicyConfig {

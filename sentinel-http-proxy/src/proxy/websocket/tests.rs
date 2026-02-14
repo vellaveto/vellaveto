@@ -540,5 +540,8 @@ fn make_test_state() -> ProxyState {
         transport_config: sentinel_config::TransportConfig::default(),
         grpc_port: None,
         gateway: None,
+        abac_engine: None,
+        least_agency: None,
+        continuous_auth_config: None,
     }
 }

@@ -74,6 +74,10 @@ pub struct SessionState {
     /// Phase 20: Tools discovered from each gateway backend.
     /// Maps backend_id → list of tool names for conflict detection.
     pub gateway_tools: HashMap<String, Vec<String>>,
+    /// Phase 21: Per-session risk score for continuous authorization.
+    pub risk_score: Option<sentinel_types::RiskScore>,
+    /// Phase 21: Granted ABAC policy IDs for least-agency tracking.
+    pub abac_granted_policies: Vec<String>,
 }
 
 impl SessionState {
@@ -100,6 +104,8 @@ impl SessionState {
             agent_identity: None,
             backend_sessions: HashMap::new(),
             gateway_tools: HashMap::new(),
+            risk_score: None,
+            abac_granted_policies: Vec::new(),
         }
     }
 

@@ -661,6 +661,42 @@ async fn main() -> Result<()> {
         } else {
             None
         },
+
+        // Phase 21: Advanced Authorization (ABAC)
+        abac_engine: if policy_config.abac.enabled {
+            match sentinel_engine::abac::AbacEngine::new(
+                &policy_config.abac.policies,
+                &policy_config.abac.entities,
+            ) {
+                Ok(engine) => {
+                    tracing::info!(
+                        "ABAC engine: {} policies, {} entities",
+                        policy_config.abac.policies.len(),
+                        policy_config.abac.entities.len()
+                    );
+                    Some(Arc::new(engine))
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("ABAC config error: {}", e));
+                }
+            }
+        } else {
+            None
+        },
+        least_agency: if policy_config.abac.least_agency.enabled {
+            Some(Arc::new(
+                sentinel_engine::least_agency::LeastAgencyTracker::new(
+                    policy_config.abac.least_agency.narrow_threshold,
+                ),
+            ))
+        } else {
+            None
+        },
+        continuous_auth_config: if policy_config.abac.continuous_auth.enabled {
+            Some(policy_config.abac.continuous_auth.clone())
+        } else {
+            None
+        },
     };
 
     // Phase 20: Spawn gateway health checker if gateway is enabled

@@ -1,7 +1,7 @@
 # CLAUDE.md — Sentinel Project Instructions
 
 > **Project:** Sentinel — MCP Tool Firewall
-> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phase 17 complete, Phase 18 complete, 19.1–19.4 complete, 20.1–20.3 complete, 21.0 complete, Phases 22–23 remaining)
+> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phase 17 complete, Phase 18 complete, 19.1–19.4 complete, 20.1–20.3 complete, 21.0–21.4 complete, Phases 22–23 remaining)
 > **Version:** 3.0.0-dev (crates at 2.2.1, targeting v3.0 release)
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
 > **Tests:** 4,530+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
@@ -92,8 +92,11 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Types: ExtensionDescriptor, ExtensionResourceLimits, ExtensionError | `sentinel-types/src/extension.rs` |
 | Types: TransportProtocol, SdkTier, TransportEndpoint, SdkCapabilities | `sentinel-types/src/transport.rs` |
 | Types: BackendHealth, UpstreamBackend, RoutingDecision, ToolConflict | `sentinel-types/src/gateway.rs` |
-| Types: tests (~132 unit tests) | `sentinel-types/src/tests.rs` |
+| Types: AbacPolicy, AbacEntity, AbacEffect, RiskScore, FederationTrustAnchor | `sentinel-types/src/abac.rs` |
+| Types: tests (~137 unit tests) | `sentinel-types/src/tests.rs` |
 | Policy evaluation | `sentinel-engine/src/lib.rs` |
+| ABAC engine + entity store + Cedar-style evaluation | `sentinel-engine/src/abac.rs` |
+| Least-agency tracker (permission usage tracking) | `sentinel-engine/src/least_agency.rs` |
 | Audit: module root + re-exports | `sentinel-audit/src/lib.rs` |
 | Audit: types (AuditEntry, AuditError, etc.) | `sentinel-audit/src/types.rs` |
 | Audit: sensitive key/PII redaction | `sentinel-audit/src/redaction.rs` |
@@ -134,6 +137,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Config: ExtensionConfig (allow/block/signatures/limits) | `sentinel-config/src/extension.rs` |
 | Config: TransportConfig (discovery/negotiation/fallback) | `sentinel-config/src/transport.rs` |
 | Config: GatewayConfig, BackendConfig (multi-backend routing) | `sentinel-config/src/gateway.rs` |
+| Config: AbacConfig, LeastAgencyConfig, FederationConfig, ContinuousAuthConfig | `sentinel-config/src/abac.rs` |
 | Config: PolicyConfig::validate() + load_file() | `sentinel-config/src/config_validate.rs` |
 | Config: tests (~164 unit tests) | `sentinel-config/src/tests.rs` |
 | MCP handling | `sentinel-mcp/src/lib.rs` |
@@ -324,6 +328,21 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - `EvaluationContext` extended with `capability_token: Option<CapabilityToken>` (`sentinel-types/src/identity.rs`)
 - Structural validation: MAX_GRANTS=64, MAX_DELEGATION_DEPTH=16, MAX_TOKEN_SIZE=65536
 - 31 unit tests (4 types + 5 engine + 22 mcp)
+
+**Advanced Authorization (Phase 21.1–21.4):**
+- ABAC types in leaf crate — `AbacPolicy`, `AbacEntity`, `AbacEffect` (Permit/Forbid), `AbacOp` (10 comparison operators), `PrincipalConstraint`, `ActionConstraint`, `ResourceConstraint`, `AbacCondition`, `RiskScore`, `FederationTrustAnchor`, `IdentityMapping`, `PermissionUsage`, `LeastAgencyReport`, `AgencyRecommendation` (`sentinel-types/src/abac.rs`)
+- `AbacConfig` — `LeastAgencyConfig`, `FederationConfig`, `ContinuousAuthConfig` with validation (policy count bounds, entity count, duplicate IDs, threshold ranges) (`sentinel-config/src/abac.rs`)
+- `AbacEngine` — compiled ABAC policies with forbid-overrides evaluation, `EntityStore` with transitive group membership (bounded depth=16), conflict detection (`sentinel-engine/src/abac.rs`)
+- `AbacEvalContext` — combines `EvaluationContext` with resolved principal type/ID and risk score
+- `AbacDecision::Allow { policy_id }` / `Deny { policy_id, reason }` / `NoMatch` — two-phase evaluation (PolicyEngine first, ABAC refines Allow)
+- `LeastAgencyTracker` — per-agent-session permission usage tracking with `register_grants()`, `record_usage()`, `check_unused()`, `generate_report()`, `recommend_narrowing()` (`sentinel-engine/src/least_agency.rs`)
+- Identity federation — `FederationTrustAnchor` with `IdentityMapping` (external JWT claims → internal principal), configurable trust anchors with validation
+- Continuous authorization — `ContinuousAuthConfig` with `risk_threshold`, `degradation_threshold`, `reevaluation_interval_secs`; risk-score-based deny at handler level
+- ABAC wiring across all 3 proxy transports (HTTP handlers, WebSocket, gRPC) — after PolicyEngine Allow, ABAC refines; forbid-overrides produce Deny with audit
+- `ProxyState` extended with `abac_engine: Option<Arc<AbacEngine>>`, `least_agency: Option<Arc<LeastAgencyTracker>>`, `continuous_auth_config: Option<ContinuousAuthConfig>`
+- `SessionState` extended with `risk_score: Option<RiskScore>`, `abac_granted_policies: Vec<String>`
+- Full backward compatibility — when `abac.enabled = false` (default), behavior identical to pre-Phase 21
+- ~49 new tests (5 types + 6 config + 27 engine + 8 least-agency + 3 proxy wiring)
 
 **MCP Gateway Mode (Phase 20.1–20.3):**
 - Gateway types in leaf crate — `BackendHealth` (Healthy/Degraded/Unhealthy), `UpstreamBackend`, `RoutingDecision`, `ToolConflict` (`sentinel-types/src/gateway.rs`)

@@ -789,6 +789,10 @@ fn make_test_proxy_state(canonicalize: bool) -> ProxyState {
         grpc_port: None,
         // Gateway (Phase 20)
         gateway: None,
+        // ABAC (Phase 21)
+        abac_engine: None,
+        least_agency: None,
+        continuous_auth_config: None,
     }
 }
 

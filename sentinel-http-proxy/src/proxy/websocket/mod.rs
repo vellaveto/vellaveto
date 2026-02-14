@@ -387,6 +387,87 @@ async fn relay_client_to_upstream(
 
                         match verdict {
                             Verdict::Allow => {
+                                // Phase 21: ABAC refinement — only runs when ABAC engine is configured
+                                if let Some(ref abac) = state.abac_engine {
+                                    let principal_id = ctx.agent_id.as_deref().unwrap_or("anonymous");
+                                    let principal_type = ctx
+                                        .agent_identity
+                                        .as_ref()
+                                        .and_then(|aid| aid.claims.get("type"))
+                                        .and_then(|v: &serde_json::Value| v.as_str())
+                                        .unwrap_or("Agent");
+                                    let session_risk = state
+                                        .sessions
+                                        .get_mut(&session_id)
+                                        .and_then(|s| s.risk_score.clone());
+                                    let abac_ctx = sentinel_engine::abac::AbacEvalContext {
+                                        eval_ctx: &ctx,
+                                        principal_type,
+                                        principal_id,
+                                        risk_score: session_risk.as_ref(),
+                                    };
+                                    match abac.evaluate(&action, &abac_ctx) {
+                                        sentinel_engine::abac::AbacDecision::Deny {
+                                            policy_id,
+                                            reason,
+                                        } => {
+                                            let deny_verdict = Verdict::Deny {
+                                                reason: format!(
+                                                    "ABAC denied by {}: {}",
+                                                    policy_id, reason
+                                                ),
+                                            };
+                                            if let Err(e) = state
+                                                .audit
+                                                .log_entry(
+                                                    &action,
+                                                    &deny_verdict,
+                                                    json!({
+                                                        "source": "ws_proxy",
+                                                        "session": session_id,
+                                                        "transport": "websocket",
+                                                        "abac_policy": policy_id,
+                                                    }),
+                                                )
+                                                .await
+                                            {
+                                                tracing::warn!(
+                                                    "Failed to audit WS ABAC deny: {}",
+                                                    e
+                                                );
+                                            }
+                                            let error_resp = make_ws_error_response(
+                                                Some(id),
+                                                -32001,
+                                                &format!(
+                                                    "ABAC denied by {}: {}",
+                                                    policy_id, reason
+                                                ),
+                                            );
+                                            let mut sink = client_sink.lock().await;
+                                            let _ =
+                                                sink.send(Message::Text(error_resp.into())).await;
+                                            continue;
+                                        }
+                                        sentinel_engine::abac::AbacDecision::Allow {
+                                            policy_id,
+                                        } => {
+                                            if let Some(ref la) = state.least_agency {
+                                                la.record_usage(
+                                                    principal_id,
+                                                    &session_id,
+                                                    &policy_id,
+                                                    tool_name,
+                                                    "",
+                                                );
+                                            }
+                                        }
+                                        sentinel_engine::abac::AbacDecision::NoMatch => {
+                                            // Fall through — existing Allow stands
+                                        }
+                                    }
+                                }
+
                                 // Touch session
                                 if let Some(mut session) = state.sessions.get_mut(&session_id) {
                                     session.touch();

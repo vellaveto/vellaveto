@@ -1111,6 +1111,7 @@ fn test_validate_rejects_too_many_policies() {
         extension: ExtensionConfig::default(),
         transport: TransportConfig::default(),
         gateway: GatewayConfig::default(),
+        abac: AbacConfig::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {
@@ -2740,5 +2741,122 @@ fn test_gateway_config_disabled_skips_validation() {
     config.gateway.enabled = false;
     // Invalid: no backends, but validation should skip because disabled
     config.gateway.backends = vec![];
+    assert!(config.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase 21: ABAC config tests
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_abac_default_config_valid() {
+    let config = minimal_config();
+    assert!(!config.abac.enabled);
+    assert!(config.abac.policies.is_empty());
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_abac_toml_parse_with_policies() {
+    let toml = r#"
+[[policies]]
+name = "allow-all"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+
+[abac]
+enabled = true
+
+[[abac.policies]]
+id = "p1"
+description = "Permit agents to read"
+effect = "permit"
+priority = 10
+
+[abac.policies.principal]
+principal_type = "Agent"
+id_patterns = ["code-*"]
+
+[abac.policies.action]
+patterns = ["filesystem:read_*"]
+"#;
+    let config = PolicyConfig::from_toml(toml).unwrap();
+    assert!(config.abac.enabled);
+    assert_eq!(config.abac.policies.len(), 1);
+    assert_eq!(config.abac.policies[0].id, "p1");
+    assert_eq!(
+        config.abac.policies[0].effect,
+        sentinel_types::AbacEffect::Permit
+    );
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_abac_validation_duplicate_policy_ids() {
+    let mut config = minimal_config();
+    config.abac.enabled = true;
+    let policy = sentinel_types::AbacPolicy {
+        id: "dup".to_string(),
+        description: "test".to_string(),
+        effect: sentinel_types::AbacEffect::Permit,
+        priority: 0,
+        principal: Default::default(),
+        action: Default::default(),
+        resource: Default::default(),
+        conditions: vec![],
+    };
+    config.abac.policies = vec![policy.clone(), policy];
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("duplicate id"), "got: {}", err);
+}
+
+#[test]
+fn test_abac_validation_too_many_policies() {
+    let mut config = minimal_config();
+    config.abac.enabled = true;
+    config.abac.policies = (0..513)
+        .map(|i| sentinel_types::AbacPolicy {
+            id: format!("p{}", i),
+            description: "test".to_string(),
+            effect: sentinel_types::AbacEffect::Permit,
+            priority: 0,
+            principal: Default::default(),
+            action: Default::default(),
+            resource: Default::default(),
+            conditions: vec![],
+        })
+        .collect();
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("max is 512"), "got: {}", err);
+}
+
+#[test]
+fn test_abac_validation_invalid_risk_threshold() {
+    let mut config = minimal_config();
+    config.abac.enabled = true;
+    config.abac.continuous_auth.enabled = true;
+    config.abac.continuous_auth.risk_threshold = 1.5;
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("risk_threshold"), "got: {}", err);
+}
+
+#[test]
+fn test_abac_disabled_skips_validation() {
+    let mut config = minimal_config();
+    config.abac.enabled = false;
+    // Invalid: too many policies, but validation should skip because disabled
+    config.abac.policies = (0..600)
+        .map(|i| sentinel_types::AbacPolicy {
+            id: format!("p{}", i),
+            description: "test".to_string(),
+            effect: sentinel_types::AbacEffect::Permit,
+            priority: 0,
+            principal: Default::default(),
+            action: Default::default(),
+            resource: Default::default(),
+            conditions: vec![],
+        })
+        .collect();
     assert!(config.validate().is_ok());
 }

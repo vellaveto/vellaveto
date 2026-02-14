@@ -1948,3 +1948,95 @@ fn test_upstream_backend_default_weight() {
     let backend: UpstreamBackend = serde_json::from_str(json_str).unwrap();
     assert_eq!(backend.weight, 100);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Phase 21: ABAC types tests
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_abac_effect_serde_roundtrip() {
+    let permit = AbacEffect::Permit;
+    let forbid = AbacEffect::Forbid;
+    let permit_json = serde_json::to_string(&permit).unwrap();
+    let forbid_json = serde_json::to_string(&forbid).unwrap();
+    assert_eq!(permit_json, r#""permit""#);
+    assert_eq!(forbid_json, r#""forbid""#);
+    let p: AbacEffect = serde_json::from_str(&permit_json).unwrap();
+    let f: AbacEffect = serde_json::from_str(&forbid_json).unwrap();
+    assert_eq!(p, AbacEffect::Permit);
+    assert_eq!(f, AbacEffect::Forbid);
+}
+
+#[test]
+fn test_abac_policy_serde_roundtrip() {
+    let policy = AbacPolicy {
+        id: "policy-1".to_string(),
+        description: "Allow agents to read files".to_string(),
+        effect: AbacEffect::Permit,
+        priority: 100,
+        principal: PrincipalConstraint {
+            principal_type: Some("Agent".to_string()),
+            id_patterns: vec!["code-*".to_string()],
+            claims: HashMap::new(),
+        },
+        action: ActionConstraint {
+            patterns: vec!["filesystem:read_*".to_string()],
+        },
+        resource: ResourceConstraint {
+            path_patterns: vec!["/home/**".to_string()],
+            domain_patterns: vec![],
+            tags: vec![],
+        },
+        conditions: vec![AbacCondition {
+            field: "context.verified".to_string(),
+            op: AbacOp::Eq,
+            value: json!(true),
+        }],
+    };
+    let json_str = serde_json::to_string(&policy).unwrap();
+    let deserialized: AbacPolicy = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(policy, deserialized);
+}
+
+#[test]
+fn test_risk_score_defaults() {
+    let score = RiskScore {
+        score: 0.42,
+        factors: vec![],
+        updated_at: "2026-02-14T00:00:00Z".to_string(),
+    };
+    assert_eq!(score.score, 0.42);
+    assert!(score.factors.is_empty());
+}
+
+#[test]
+fn test_abac_op_all_variants() {
+    let ops = vec![
+        AbacOp::Eq, AbacOp::Ne, AbacOp::In, AbacOp::NotIn,
+        AbacOp::Contains, AbacOp::StartsWith,
+        AbacOp::Gt, AbacOp::Lt, AbacOp::Gte, AbacOp::Lte,
+    ];
+    for op in ops {
+        let json_str = serde_json::to_string(&op).unwrap();
+        let deserialized: AbacOp = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(op, deserialized);
+    }
+}
+
+#[test]
+fn test_abac_entity_with_parents() {
+    let entity = AbacEntity {
+        entity_type: "Agent".to_string(),
+        id: "agent-42".to_string(),
+        attributes: {
+            let mut m = HashMap::new();
+            m.insert("team".to_string(), json!("security"));
+            m
+        },
+        parents: vec!["Group::admins".to_string()],
+    };
+    let json_str = serde_json::to_string(&entity).unwrap();
+    let deserialized: AbacEntity = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(entity, deserialized);
+    assert_eq!(deserialized.parents.len(), 1);
+}

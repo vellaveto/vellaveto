@@ -890,6 +890,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             extension: Default::default(),
             transport: Default::default(),
             gateway: Default::default(),
+            abac: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

@@ -821,6 +821,93 @@ pub async fn handle_mcp_post(
                         );
                     }
 
+                    // Phase 21: ABAC refinement — only runs when ABAC engine is configured.
+                    // If the PolicyEngine allowed the action, ABAC may still deny it
+                    // based on principal/action/resource/condition constraints.
+                    if let Some(ref abac) = state.abac_engine {
+                        let abac_eval_ctx =
+                            build_evaluation_context(&state.sessions, &session_id)
+                                .unwrap_or_default();
+                        let principal_id = abac_eval_ctx
+                            .agent_id
+                            .as_deref()
+                            .unwrap_or("anonymous");
+                        let principal_type = abac_eval_ctx
+                            .agent_identity
+                            .as_ref()
+                            .and_then(|id| id.claims.get("type"))
+                            .and_then(|v: &serde_json::Value| v.as_str())
+                            .unwrap_or("Agent");
+                        let session_risk = state
+                            .sessions
+                            .get_mut(&session_id)
+                            .and_then(|s| s.risk_score.clone());
+                        let abac_ctx = sentinel_engine::abac::AbacEvalContext {
+                            eval_ctx: &abac_eval_ctx,
+                            principal_type,
+                            principal_id,
+                            risk_score: session_risk.as_ref(),
+                        };
+
+                        match abac.evaluate(&action, &abac_ctx) {
+                            sentinel_engine::abac::AbacDecision::Deny {
+                                policy_id,
+                                reason,
+                            } => {
+                                let verdict = Verdict::Deny {
+                                    reason: reason.clone(),
+                                };
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &verdict,
+                                        build_audit_context_with_chain(
+                                            &session_id,
+                                            serde_json::json!({
+                                                "tool": tool_name,
+                                                "event": "abac_deny",
+                                                "abac_policy_id": policy_id,
+                                            }),
+                                            &oauth_claims,
+                                            &full_call_chain,
+                                        ),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!("Failed to audit ABAC deny: {}", e);
+                                }
+                                let response = serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "id": id,
+                                    "error": {
+                                        "code": -32001,
+                                        "message": "Denied by policy"
+                                    }
+                                });
+                                return attach_session_header(
+                                    (StatusCode::OK, Json(response)).into_response(),
+                                    &session_id,
+                                );
+                            }
+                            sentinel_engine::abac::AbacDecision::Allow { policy_id } => {
+                                // Record for least-agency tracking
+                                if let Some(ref la) = state.least_agency {
+                                    la.record_usage(
+                                        principal_id,
+                                        &session_id,
+                                        &policy_id,
+                                        &tool_name,
+                                        &action.function,
+                                    );
+                                }
+                            }
+                            sentinel_engine::abac::AbacDecision::NoMatch => {
+                                // Fall through — existing Allow verdict stands
+                            }
+                        }
+                    }
+
                     // Record tool call in registry on Allow (for trust score tracking)
                     if let Some(ref registry) = state.tool_registry {
                         registry.record_call(&tool_name).await;

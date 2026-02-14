@@ -122,6 +122,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Crash recovery** — `initialize()` rebuilds peaks from existing leaf file after restart
 - **24 unit tests** covering empty/single/multi-element trees, proof roundtrips, tampered leaf/sibling/root rejection, logger integration, rotation, crash recovery, domain separation, order dependence
 
+#### Advanced Authorization — ABAC, Least-Agency, Federation, Continuous Auth (Phase 21.1–21.4)
+- **ABAC types** — `AbacPolicy`, `AbacEntity`, `AbacEffect` (Permit/Forbid), `AbacOp` (10 operators), `PrincipalConstraint`, `ActionConstraint`, `ResourceConstraint`, `AbacCondition`, `RiskScore`, `RiskFactor`, `FederationTrustAnchor`, `IdentityMapping`, `PermissionUsage`, `LeastAgencyReport`, `AgencyRecommendation` (`sentinel-types/src/abac.rs`)
+- **AbacConfig** — `LeastAgencyConfig`, `FederationConfig`, `ContinuousAuthConfig` with validation (policy count bounds MAX_ABAC_POLICIES=512, entity count MAX_ENTITIES=4096, duplicate ID detection, threshold range checks) (`sentinel-config/src/abac.rs`)
+- **AbacEngine** — Compiled ABAC policies with pre-compiled pattern matchers, forbid-overrides evaluation (any forbid wins over all permits, Cedar semantics), `AbacDecision::Allow/Deny/NoMatch` (`sentinel-engine/src/abac.rs`)
+- **EntityStore** — In-memory entity store with transitive group membership lookup (bounded depth=16), `from_entities()` constructor
+- **Condition evaluation** — 10 comparison operators (Eq, Ne, In, NotIn, Contains, StartsWith, Gt, Lt, Gte, Lte) evaluated against action parameters
+- **Two-phase evaluation** — PolicyEngine runs first (coarse filter), AbacEngine refines Allow verdicts; if PolicyEngine says Deny, ABAC doesn't run
+- **LeastAgencyTracker** — Per-agent-session permission usage tracking with `register_grants()`, `record_usage()`, `check_unused()`, `generate_report()`, `recommend_narrowing()` (`sentinel-engine/src/least_agency.rs`)
+- **4-tier recommendation system** — Optimal (>80%), ReviewGrants (50–80%), NarrowScope (20–50%), Critical (<20% usage ratio)
+- **Identity federation** — `FederationTrustAnchor` with JWKS URI, issuer patterns, `IdentityMapping` (external JWT claims → internal principal via id_template)
+- **Continuous authorization** — `ContinuousAuthConfig` with `risk_threshold`, `degradation_threshold`, `reevaluation_interval_secs`; `RiskScore` with weighted `RiskFactor` list
+- **Transport wiring** — ABAC refinement integrated across HTTP handlers, WebSocket, and gRPC transports; deny with audit trail when forbid matches
+- **ProxyState extended** — `abac_engine: Option<Arc<AbacEngine>>`, `least_agency: Option<Arc<LeastAgencyTracker>>`, `continuous_auth_config: Option<ContinuousAuthConfig>`
+- **SessionState extended** — `risk_score: Option<RiskScore>`, `abac_granted_policies: Vec<String>`
+- **Full backward compatibility** — `abac.enabled = false` (default) makes behavior identical to pre-Phase 21
+- **~49 new tests** — 5 types + 6 config + 27 engine + 8 least-agency + 3 proxy wiring
+- **No new dependencies** — Reuses existing serde, glob matchers, HashMap from workspace
+
 #### Capability-Based Delegation Tokens (Phase 21.0)
 - **CapabilityToken type** — Ed25519-signed tokens with delegation chain, depth budget, grants, and expiry (`sentinel-types/src/capability.rs`)
 - **CapabilityGrant** — Tool/function glob patterns with path and domain constraints and invocation limits

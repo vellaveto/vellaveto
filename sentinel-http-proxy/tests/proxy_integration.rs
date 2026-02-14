@@ -246,6 +246,9 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         transport_config: sentinel_config::TransportConfig::default(),
         grpc_port: None,
         gateway: None,
+        abac_engine: None,
+        least_agency: None,
+        continuous_auth_config: None,
     }
 }
 
@@ -1896,6 +1899,9 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         transport_config: sentinel_config::TransportConfig::default(),
         grpc_port: None,
         gateway: None,
+        abac_engine: None,
+        least_agency: None,
+        continuous_auth_config: None,
     };
     let sessions = state.sessions.clone();
     let app = build_router(state);
@@ -2287,6 +2293,9 @@ async fn trace_resource_read_denied_includes_trace() {
         transport_config: sentinel_config::TransportConfig::default(),
         grpc_port: None,
         gateway: None,
+        abac_engine: None,
+        least_agency: None,
+        continuous_auth_config: None,
     };
     let app = build_router(state);
 
@@ -2382,6 +2391,9 @@ async fn trace_constraint_details_visible() {
         transport_config: sentinel_config::TransportConfig::default(),
         grpc_port: None,
         gateway: None,
+        abac_engine: None,
+        least_agency: None,
+        continuous_auth_config: None,
     };
     let app = build_router(state);
 
@@ -2820,6 +2832,9 @@ fn build_oauth_test_state_full(params: OAuthTestParams<'_>) -> ProxyState {
         transport_config: sentinel_config::TransportConfig::default(),
         grpc_port: None,
         gateway: None,
+        abac_engine: None,
+        least_agency: None,
+        continuous_auth_config: None,
     }
 }
 
@@ -3883,6 +3898,9 @@ fn build_api_key_test_state(
         transport_config: sentinel_config::TransportConfig::default(),
         grpc_port: None,
         gateway: None,
+        abac_engine: None,
+        least_agency: None,
+        continuous_auth_config: None,
     }
 }
 
@@ -4371,6 +4389,9 @@ fn build_test_state_deny_tasks(upstream_url: &str, tmp: &TempDir) -> ProxyState 
         transport_config: sentinel_config::TransportConfig::default(),
         grpc_port: None,
         gateway: None,
+        abac_engine: None,
+        least_agency: None,
+        continuous_auth_config: None,
     }
 }
 
@@ -4501,6 +4522,9 @@ async fn task_get_allowed_when_no_deny_policy() {
         transport_config: sentinel_config::TransportConfig::default(),
         grpc_port: None,
         gateway: None,
+        abac_engine: None,
+        least_agency: None,
+        continuous_auth_config: None,
     };
     let app = build_router(state);
 
@@ -4586,6 +4610,9 @@ async fn task_request_fail_closed_no_matching_policy() {
         transport_config: sentinel_config::TransportConfig::default(),
         grpc_port: None,
         gateway: None,
+        abac_engine: None,
+        least_agency: None,
+        continuous_auth_config: None,
     };
     let app = build_router(state);
 
@@ -4670,6 +4697,9 @@ async fn task_request_dlp_blocks_secret_in_task_id() {
         transport_config: sentinel_config::TransportConfig::default(),
         grpc_port: None,
         gateway: None,
+        abac_engine: None,
+        least_agency: None,
+        continuous_auth_config: None,
     };
     let app = build_router(state);
 
@@ -4761,6 +4791,9 @@ async fn task_request_clean_params_not_dlp_blocked() {
         transport_config: sentinel_config::TransportConfig::default(),
         grpc_port: None,
         gateway: None,
+        abac_engine: None,
+        least_agency: None,
+        continuous_auth_config: None,
     };
     let app = build_router(state);
 
@@ -4849,6 +4882,9 @@ async fn task_request_dlp_blocks_github_token_in_params() {
         transport_config: sentinel_config::TransportConfig::default(),
         grpc_port: None,
         gateway: None,
+        abac_engine: None,
+        least_agency: None,
+        continuous_auth_config: None,
     };
     let app = build_router(state);
 
@@ -5119,6 +5155,9 @@ fn build_chain_depth_test_state(upstream_url: &str, tmp: &TempDir, max_depth: us
         transport_config: sentinel_config::TransportConfig::default(),
         grpc_port: None,
         gateway: None,
+        abac_engine: None,
+        least_agency: None,
+        continuous_auth_config: None,
     }
 }
 
@@ -5657,6 +5696,9 @@ fn build_priv_escalation_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyS
         transport_config: sentinel_config::TransportConfig::default(),
         grpc_port: None,
         gateway: None,
+        abac_engine: None,
+        least_agency: None,
+        continuous_auth_config: None,
     }
 }
 

@@ -198,6 +198,19 @@ pub struct ProxyState {
     /// different upstream MCP servers based on tool name prefix matching.
     /// When `None`, all requests use `upstream_url` (single-server mode).
     pub gateway: Option<Arc<gateway::GatewayRouter>>,
+
+    // =========================================================================
+    // Phase 21: Advanced Authorization (ABAC)
+    // =========================================================================
+    /// ABAC policy engine for Cedar-style permit/forbid evaluation.
+    /// When `Some`, refines Allow verdicts from the PolicyEngine.
+    /// When `None`, behavior is identical to pre-Phase 21.
+    pub abac_engine: Option<Arc<sentinel_engine::abac::AbacEngine>>,
+    /// Least-agency tracker for permission usage monitoring.
+    /// When `Some`, records which permissions each agent actually uses.
+    pub least_agency: Option<Arc<sentinel_engine::least_agency::LeastAgencyTracker>>,
+    /// Continuous authorization config for risk-based deny.
+    pub continuous_auth_config: Option<sentinel_config::abac::ContinuousAuthConfig>,
 }
 
 /// Per-request trust signal for forwarded-header handling.

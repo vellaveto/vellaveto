@@ -1,3 +1,4 @@
+pub mod abac;
 pub mod capability;
 pub mod compliance;
 pub mod core;
@@ -20,6 +21,7 @@ mod tests;
 
 // Re-export everything for backward compatibility.
 // External crates import types from the crate root.
+pub use abac::*;
 pub use capability::*;
 pub use compliance::*;
 pub use self::core::*;

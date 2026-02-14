@@ -821,6 +821,9 @@ impl PolicyConfig {
         // Gateway configuration bounds
         self.gateway.validate()?;
 
+        // ABAC configuration bounds (Phase 21)
+        self.abac.validate()?;
+
         Ok(())
     }
 

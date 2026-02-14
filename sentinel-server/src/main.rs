@@ -1343,6 +1343,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         extension: Default::default(),
         transport: Default::default(),
         gateway: Default::default(),
+        abac: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;
