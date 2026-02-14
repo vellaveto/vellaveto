@@ -149,6 +149,12 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
 "#
     );
 
+    // ── Verdict distribution sparkline ─────────────
+    render_verdict_sparkline(&mut html, eval_allow, eval_deny, eval_approval);
+
+    // ── Policy type pie chart ────────────────────────
+    render_policy_pie_chart(&mut html, &snap.policies);
+
     // ── Pending approvals ─────────────────────────
     let pending = state.list_pending_approvals().await.unwrap_or_default();
     let _ = write!(html, r#"<h2>Pending Approvals ({pending_count})</h2>"#);
@@ -430,6 +436,139 @@ fn render_compliance_section(html: &mut String, snap: &crate::PolicySnapshot) {
     let _ = write!(html, "</table>");
 }
 
+/// Render an SVG bar chart showing the allow/deny/approval verdict distribution.
+fn render_verdict_sparkline(html: &mut String, allow: u64, deny: u64, approval: u64) {
+    let total = allow + deny + approval;
+    if total == 0 {
+        return;
+    }
+
+    let bar_width: u32 = 300;
+    let bar_height: u32 = 24;
+    let allow_w = (allow as f64 / total as f64 * bar_width as f64) as u32;
+    let deny_w = (deny as f64 / total as f64 * bar_width as f64) as u32;
+    // Approval gets the remainder to avoid off-by-one gaps
+    let approval_w = bar_width.saturating_sub(allow_w).saturating_sub(deny_w);
+
+    let _ = write!(
+        html,
+        r##"<h2>Verdict Distribution</h2>
+<svg width="{bar_width}" height="{bar_height}" role="img" aria-label="Verdict distribution bar chart" style="margin-bottom:16px">"##
+    );
+
+    if allow_w > 0 {
+        let _ = write!(
+            html,
+            r##"<rect x="0" y="0" width="{allow_w}" height="{bar_height}" fill="#3fb950" rx="2"/>"##
+        );
+    }
+    if deny_w > 0 {
+        let _ = write!(
+            html,
+            r##"<rect x="{allow_w}" y="0" width="{deny_w}" height="{bar_height}" fill="#f85149" rx="2"/>"##
+        );
+    }
+    if approval_w > 0 {
+        let offset = allow_w + deny_w;
+        let _ = write!(
+            html,
+            r##"<rect x="{offset}" y="0" width="{approval_w}" height="{bar_height}" fill="#d29922" rx="2"/>"##
+        );
+    }
+
+    let _ = write!(html, "</svg>");
+
+    // Legend
+    let allow_pct = (allow as f64 / total as f64 * 100.0) as u32;
+    let deny_pct = (deny as f64 / total as f64 * 100.0) as u32;
+    let approval_pct = 100u32.saturating_sub(allow_pct).saturating_sub(deny_pct);
+    let _ = write!(
+        html,
+        r##"<p style="font-size:0.8rem;color:#8b949e;margin-bottom:16px">
+<span style="color:#3fb950">Allow {allow_pct}%</span> &middot;
+<span style="color:#f85149">Deny {deny_pct}%</span> &middot;
+<span style="color:#d29922">Approval {approval_pct}%</span>
+({total} total)</p>"##
+    );
+}
+
+/// Render an SVG pie chart showing policy type distribution (Allow/Deny/Conditional).
+fn render_policy_pie_chart(html: &mut String, policies: &[sentinel_types::Policy]) {
+    if policies.is_empty() {
+        return;
+    }
+
+    let mut allow_count = 0u32;
+    let mut deny_count = 0u32;
+    let mut conditional_count = 0u32;
+    for p in policies {
+        match &p.policy_type {
+            sentinel_types::PolicyType::Allow => allow_count += 1,
+            sentinel_types::PolicyType::Deny => deny_count += 1,
+            sentinel_types::PolicyType::Conditional { .. } => conditional_count += 1,
+            _ => deny_count += 1,
+        }
+    }
+
+    let total = allow_count + deny_count + conditional_count;
+    if total == 0 {
+        return;
+    }
+
+    let r = 40.0f64; // radius
+    let cx = 50.0f64;
+    let cy = 50.0f64;
+
+    let _ = write!(
+        html,
+        r##"<h2>Policy Types</h2>
+<svg width="220" height="110" role="img" aria-label="Policy type pie chart" style="margin-bottom:16px">"##
+    );
+
+    let slices: Vec<(f64, &str)> = vec![
+        (allow_count as f64 / total as f64, "#3fb950"),
+        (deny_count as f64 / total as f64, "#f85149"),
+        (conditional_count as f64 / total as f64, "#d29922"),
+    ];
+
+    let mut angle = -std::f64::consts::FRAC_PI_2; // start at top
+    for (frac, color) in &slices {
+        if *frac <= 0.0 {
+            continue;
+        }
+        let sweep = frac * 2.0 * std::f64::consts::PI;
+        let x1 = cx + r * angle.cos();
+        let y1 = cy + r * angle.sin();
+        let end_angle = angle + sweep;
+        let x2 = cx + r * end_angle.cos();
+        let y2 = cy + r * end_angle.sin();
+        let large_arc = if sweep > std::f64::consts::PI { 1 } else { 0 };
+
+        if *frac >= 1.0 {
+            // Full circle
+            let _ = write!(
+                html,
+                r##"<circle cx="{cx}" cy="{cy}" r="{r}" fill="{color}"/>"##
+            );
+        } else {
+            let _ = write!(
+                html,
+                r##"<path d="M {cx} {cy} L {x1:.1} {y1:.1} A {r} {r} 0 {large_arc} 1 {x2:.1} {y2:.1} Z" fill="{color}"/>"##
+            );
+        }
+        angle = end_angle;
+    }
+
+    // Legend on the right
+    let _ = write!(
+        html,
+        r##"<text x="105" y="30" fill="#3fb950" font-size="12">Allow: {allow_count}</text>
+<text x="105" y="50" fill="#f85149" font-size="12">Deny: {deny_count}</text>
+<text x="105" y="70" fill="#d29922" font-size="12">Cond: {conditional_count}</text>
+</svg>"##
+    );
+}
+
 /// Handle approval form submission from dashboard.
 pub async fn dashboard_approve(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     // Validate approval ID length (defense against oversized paths)
@@ -597,5 +736,59 @@ mod tests {
         assert!(html.contains("EU AI Act"));
         assert!(html.contains("CoSAI"));
         assert!(html.contains("Adversa TOP 25"));
+    }
+
+    #[test]
+    fn test_verdict_sparkline_zero_totals() {
+        let mut html = String::new();
+        render_verdict_sparkline(&mut html, 0, 0, 0);
+        // Should produce no output when all counts are zero
+        assert!(html.is_empty());
+    }
+
+    #[test]
+    fn test_verdict_sparkline_with_data() {
+        let mut html = String::new();
+        render_verdict_sparkline(&mut html, 70, 20, 10);
+        assert!(html.contains("<svg"));
+        assert!(html.contains("Verdict Distribution"));
+        assert!(html.contains("#3fb950")); // green for allow
+        assert!(html.contains("#f85149")); // red for deny
+        assert!(html.contains("100 total"));
+    }
+
+    #[test]
+    fn test_policy_pie_chart_empty() {
+        let mut html = String::new();
+        render_policy_pie_chart(&mut html, &[]);
+        assert!(html.is_empty());
+    }
+
+    #[test]
+    fn test_policy_pie_chart_with_policies() {
+        let policies = vec![
+            sentinel_types::Policy {
+                id: "p1".into(),
+                name: "Allow".into(),
+                policy_type: sentinel_types::PolicyType::Allow,
+                priority: 100,
+                path_rules: None,
+                network_rules: None,
+            },
+            sentinel_types::Policy {
+                id: "p2".into(),
+                name: "Deny".into(),
+                policy_type: sentinel_types::PolicyType::Deny,
+                priority: 200,
+                path_rules: None,
+                network_rules: None,
+            },
+        ];
+        let mut html = String::new();
+        render_policy_pie_chart(&mut html, &policies);
+        assert!(html.contains("<svg"));
+        assert!(html.contains("Policy Types"));
+        assert!(html.contains("Allow: 1"));
+        assert!(html.contains("Deny: 1"));
     }
 }

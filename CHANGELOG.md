@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 22: Developer Experience (Backend Focus)
+- **Policy simulator API** — 4 new endpoints: `POST /api/simulator/evaluate` (single action with trace), `/batch` (up to 100 actions), `/validate` (config validation), `/diff` (policy diff). Supports inline TOML policy configs for sandbox evaluation. (`sentinel-server/src/routes/simulator.rs`). 9 tests.
+- **CLI `simulate` subcommand** — Batch-evaluate actions from a JSON file against a policy config. Supports text table and JSON output formats.
+- **GitHub Action `policy-check`** — Composite action that downloads Sentinel binary and runs `sentinel check` for CI policy gates. Supports version pinning, strict mode, and text/JSON output. (`.github/actions/policy-check/action.yml`). Example workflow at `examples/github-action-policy-check.yml`.
+- **Dashboard SVG charts** — Verdict distribution bar chart (allow/deny/approval) and policy type pie chart (Allow/Deny/Conditional) rendered as inline SVG in the admin dashboard. 4 tests.
+- **TypeScript SDK** — Zero runtime dependency HTTP client using native `fetch()` (Node 18+). Full API parity with Python SDK: `evaluate`, `health`, `listPolicies`, `reloadPolicies`, `simulate`, `batchEvaluate`, `validateConfig`, `diffConfigs`, `listPendingApprovals`, `approveApproval`, `denyApproval`. Error classes: `SentinelError`, `PolicyDenied`, `ApprovalRequired`. (`sdk/typescript/`). 15 Jest tests.
+
 #### Phase 20: MCP Gateway Mode (20.1–20.3)
 - **Gateway types** — `BackendHealth` (Healthy/Degraded/Unhealthy), `UpstreamBackend`, `RoutingDecision`, `ToolConflict` in leaf crate (`sentinel-types/src/gateway.rs`). 3 tests.
 - **Gateway configuration** — `GatewayConfig` with backend list, health check interval/thresholds, `BackendConfig` with tool prefixes and weights (`sentinel-config/src/gateway.rs`). Added to `PolicyConfig` with `#[serde(default)]`. Validation for duplicate IDs, zero weights, interval bounds, multiple defaults. 5 tests.

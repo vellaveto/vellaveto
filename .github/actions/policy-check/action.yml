@@ -1,0 +1,43 @@
+name: 'Sentinel Policy Check'
+description: 'Validate Sentinel policy configuration files in CI'
+inputs:
+  config:
+    description: 'Path to policy config file'
+    required: true
+  strict:
+    description: 'Treat warnings as errors'
+    required: false
+    default: 'false'
+  version:
+    description: 'Sentinel version to use (default: latest)'
+    required: false
+    default: 'latest'
+  format:
+    description: 'Output format (text or json)'
+    required: false
+    default: 'text'
+runs:
+  using: 'composite'
+  steps:
+    - name: Download Sentinel binary
+      shell: bash
+      run: |
+        VERSION="${{ inputs.version }}"
+        if [ "$VERSION" = "latest" ]; then
+          VERSION=$(curl -s https://api.github.com/repos/paolovella/sentinel/releases/latest | grep tag_name | cut -d '"' -f 4)
+        fi
+        ARCHIVE="sentinel-${VERSION}-x86_64-linux-musl.tar.gz"
+        URL="https://github.com/paolovella/sentinel/releases/download/${VERSION}/${ARCHIVE}"
+        echo "Downloading Sentinel ${VERSION}..."
+        curl -sL "${URL}" -o sentinel.tar.gz
+        tar xzf sentinel.tar.gz
+        chmod +x sentinel
+    - name: Run policy check
+      shell: bash
+      run: |
+        ARGS="--config ${{ inputs.config }}"
+        if [ "${{ inputs.strict }}" = "true" ]; then
+          ARGS="$ARGS --strict"
+        fi
+        ARGS="$ARGS --format ${{ inputs.format }}"
+        ./sentinel check $ARGS

@@ -13,6 +13,10 @@ code-logs/
 .pytest_cache/
 __pycache__/
 
+# Node.js / TypeScript
+node_modules/
+sdk/typescript/dist/
+
 # IDE
 .vscode/
 .idea/

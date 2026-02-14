@@ -137,6 +137,18 @@ enum Commands {
         #[arg(long)]
         signature: std::path::PathBuf,
     },
+    /// Batch-evaluate actions from a JSON file against a policy config
+    Simulate {
+        /// Path to policy config (TOML)
+        #[arg(short, long)]
+        config: String,
+        /// Path to actions JSON file (array of {tool, function, parameters})
+        #[arg(short, long)]
+        actions: String,
+        /// Output format: text or json
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
 }
 
 #[tokio::main]
@@ -204,6 +216,11 @@ async fn main() -> Result<()> {
             definition,
             signature,
         } => cmd_verify_signature(tool, definition, signature).await,
+        Commands::Simulate {
+            config,
+            actions,
+            format,
+        } => cmd_simulate(config, actions, format).await,
     }
 }
 
@@ -1667,6 +1684,126 @@ async fn cmd_verify_signature(
         println!("VERIFICATION FAILED");
         anyhow::bail!("Signature verification failed: {}", result.message)
     }
+}
+
+async fn cmd_simulate(config: String, actions_path: String, format: String) -> Result<()> {
+    // Load policy config
+    let policy_config = PolicyConfig::load_file(&config)
+        .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
+    let mut policies = policy_config.to_policies();
+    PolicyEngine::sort_policies(&mut policies);
+    let engine = PolicyEngine::with_policies(false, &policies).map_err(|errors| {
+        let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+        anyhow::anyhow!("Policy compilation errors: {}", msgs.join("; "))
+    })?;
+
+    // Read actions JSON file
+    let actions_json =
+        std::fs::read_to_string(&actions_path).context("Failed to read actions file")?;
+    let actions: Vec<Action> =
+        serde_json::from_str(&actions_json).context("Invalid JSON in actions file")?;
+
+    if actions.is_empty() {
+        anyhow::bail!("Actions file is empty");
+    }
+
+    let batch_start = std::time::Instant::now();
+    let mut results = Vec::with_capacity(actions.len());
+    let mut allowed = 0usize;
+    let mut denied = 0usize;
+    let mut errors = 0usize;
+
+    for (i, action) in actions.iter().enumerate() {
+        match engine.evaluate_action_traced_with_context(action, None) {
+            Ok((verdict, trace)) => {
+                match &verdict {
+                    Verdict::Allow => allowed += 1,
+                    Verdict::Deny { .. } => denied += 1,
+                    _ => {}
+                }
+                results.push((i, verdict, Some(trace), None::<String>));
+            }
+            Err(e) => {
+                errors += 1;
+                results.push((
+                    i,
+                    Verdict::Deny {
+                        reason: "Evaluation error".to_string(),
+                    },
+                    None,
+                    Some(e.to_string()),
+                ));
+            }
+        }
+    }
+
+    let total_us = batch_start.elapsed().as_micros() as u64;
+
+    if format == "json" {
+        let json_results: Vec<serde_json::Value> = results
+            .iter()
+            .map(|(i, verdict, trace, error)| {
+                json!({
+                    "action_index": i,
+                    "verdict": verdict,
+                    "trace": trace,
+                    "error": error,
+                })
+            })
+            .collect();
+        let output = serde_json::to_string_pretty(&json!({
+            "results": json_results,
+            "summary": {
+                "total": actions.len(),
+                "allowed": allowed,
+                "denied": denied,
+                "errors": errors,
+                "duration_us": total_us,
+            }
+        }))?;
+        println!("{}", output);
+    } else {
+        // Text format
+        for (i, verdict, trace, error) in &results {
+            let tool_func = format!("{}:{}", actions[*i].tool, actions[*i].function);
+            let (verdict_str, detail) = match verdict {
+                Verdict::Allow => ("ALLOW", String::new()),
+                Verdict::Deny { reason } => ("DENY ", format!(" ({})", reason)),
+                Verdict::RequireApproval { reason, .. } => {
+                    ("APPVL", format!(" ({})", reason))
+                }
+                _ => ("???  ", String::new()),
+            };
+            let duration = trace
+                .as_ref()
+                .map(|t| format!("{}μs", t.duration_us))
+                .unwrap_or_default();
+            if let Some(err) = error {
+                println!(
+                    "Action {}: {:<30} → ERROR ({})",
+                    i + 1,
+                    tool_func,
+                    err
+                );
+            } else {
+                println!(
+                    "Action {}: {:<30} → {} {}{}",
+                    i + 1,
+                    tool_func,
+                    verdict_str,
+                    duration,
+                    detail
+                );
+            }
+        }
+        println!();
+        println!(
+            "Summary: {} allowed, {} denied, {} errors ({}μs total)",
+            allowed, denied, errors, total_us
+        );
+    }
+
+    Ok(())
 }
 
 fn extract_tool_pattern(id: &str) -> String {

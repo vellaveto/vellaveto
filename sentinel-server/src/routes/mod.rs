@@ -39,6 +39,7 @@ pub mod registry;
 pub mod sampling;
 pub mod schema_lineage;
 pub mod shadow_agent;
+pub mod simulator;
 pub mod task_state;
 pub mod tenant;
 

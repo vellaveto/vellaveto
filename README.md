@@ -55,6 +55,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 - **Phase 19.1: EU AI Act Compliance Evidence** — Registry-based conformity assessment with 10 obligations (Art 5–50), 18 capability mappings, and `AiActRiskClass` enum. `GET /api/compliance/eu-ai-act/report` generates conformity assessment per Art 43. Read-time entry classification via `classify_entry_transparency()`. 11 tests.
 - **Phase 19.4: SOC 2 Evidence + Merkle Proofs** — SOC 2 registry with 22 criteria across CC1-CC9, ~30 capability mappings, and 5-level `ReadinessLevel` scoring. `GET /api/compliance/soc2/evidence` with category filter. Append-only Merkle tree with RFC 6962 domain separation, inclusion proof generation/verification, audit logger integration, checkpoint integration, crash recovery. 38 tests (14 SOC 2 + 24 Merkle).
 - **Phase 21: Advanced Authorization Complete** — Cedar-style ABAC engine with forbid-overrides evaluation, `AbacEngine` compiled policies + `EntityStore` with transitive group membership (bounded depth=16). `LeastAgencyTracker` for per-agent-session permission usage tracking with 4-tier recommendations (Optimal/ReviewGrants/NarrowScope/Critical). Identity federation via `FederationTrustAnchor` with JWT claim-to-principal mapping. Continuous authorization via `RiskScore`-based per-request deny. ABAC wired across HTTP/WebSocket/gRPC transports. Full backward compat when disabled. ~80 tests (31 Phase 21.0 + 49 Phase 21.1–21.4).
+- **Phase 22: Developer Experience** — Policy simulator API (single/batch/validate/diff endpoints), CLI `simulate` subcommand for batch evaluation from file, GitHub Action for CI policy gates, dashboard SVG charts (verdict distribution sparkline, policy type pie chart). TypeScript SDK with native `fetch()`, zero runtime deps, full API parity with Python SDK. 13 new Rust tests + 15 TypeScript tests.
 - **Phase 21.0: Capability-Based Delegation Tokens** — Ed25519-signed `CapabilityToken` with monotonic attenuation (depth decrements, grants subset, expiry clamped). `RequireCapabilityToken` policy condition with fail-closed semantics. Grant coverage matching via glob patterns on tool/function/paths/domains. Structural validation (MAX_GRANTS=64, MAX_DEPTH=16). 31 tests.
 - **Phase 17.2: gRPC Transport (Google Proposal)** — Protocol Buffers-based MCP transport on separate port (50051) via tonic 0.13, feature-gated behind `grpc`. Full policy enforcement pipeline (classify → evaluate → audit → forward → DLP/injection scan), depth-bounded proto↔JSON conversion (MAX_DEPTH=64), constant-time auth interceptor, gRPC Health v1, bidirectional streaming with per-message evaluation, gRPC-to-HTTP fallback for existing HTTP MCP servers. 46 unit tests + `fuzz_grpc_proto` fuzz target. New CLI args: `--grpc`, `--grpc-port`, `--grpc-max-message-size`, `--upstream-grpc-url`.
 - **Phase 17.1: WebSocket Transport (SEP-1288)** — Bidirectional MCP-over-WebSocket reverse proxy at `/mcp/ws` with full policy enforcement, DLP/injection response scanning, TOCTOU-safe canonicalization, per-connection rate limiting, idle timeout, session binding, and fail-closed semantics. 29 unit tests + `fuzz_ws_frame` fuzz target. New CLI args: `--ws-max-message-size`, `--ws-idle-timeout`, `--ws-message-rate-limit`.
@@ -1099,6 +1100,8 @@ server     proxy     http-proxy   HTTP API, stdio proxy, HTTP reverse proxy
 | Enterprise controls (mTLS/SPIFFE/OPA/JIT/Threat Intel) | `sentinel-server`, `sentinel-mcp`, `sentinel-cluster` | server runtime integrations and policy hooks (OPA runtime enforcement active) | `sentinel-server/src/threat_intel.rs` tests, `sentinel-server/tests/` |
 | Observability exporters and traces | `sentinel-audit`, `sentinel-integration` | exporter backends and trace propagation | `sentinel-integration/tests/observability_test.rs`, `sentinel-audit/tests/proptest_observability.rs` |
 | Python SDK integrations | `sdk/python` | SDK client APIs and middleware callbacks | `sdk/python` test suite |
+| TypeScript SDK | `sdk/typescript` | HTTP client, types, simulator methods | `sdk/typescript` test suite |
+| Policy simulator API | `sentinel-server` | Evaluate/batch/validate/diff endpoints | `sentinel-server/src/routes/simulator.rs` tests |
 | Fuzzing and adversarial validation | `fuzz`, `security-testing`, `sentinel-integration` | fuzz targets + red-team scripts | `fuzz/*`, `sentinel-integration/tests/full_attack_battery.rs` |
 
 ### Design Principles
@@ -1244,6 +1247,7 @@ kill -HUP $(pidof sentinel-server)
 | `sentinel-http-proxy/` | Streamable HTTP reverse proxy binary |
 | `sentinel-integration/` | Cross-crate adversarial and integration tests |
 | `sdk/python/` | Python SDK and framework adapters |
+| `sdk/typescript/` | TypeScript SDK (zero runtime deps) |
 | `policies/` | Policy samples and templates |
 | `examples/` | Demo workflows and reference configs |
 | `fuzz/` | 22 fuzzing harnesses and targets |

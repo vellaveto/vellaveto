@@ -1,10 +1,10 @@
 # CLAUDE.md — Sentinel Project Instructions
 
 > **Project:** Sentinel — MCP Tool Firewall
-> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phase 17 complete, Phase 18 complete, 19.1–19.4 complete, 20.1–20.3 complete, 21.0–21.4 complete, Phases 22–23 remaining)
+> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phase 17 complete, Phase 18 complete, 19.1–19.4 complete, 20.1–20.3 complete, 21.0–21.4 complete, Phase 22 complete, Phase 23 remaining)
 > **Version:** 3.0.0-dev (crates at 2.2.1, targeting v3.0 release)
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 4,580+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 4,600+ Rust tests + 130 Python SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 22
 > **CI workflows:** 11
 > **Updated:** 2026-02-14
@@ -183,9 +183,13 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | HTTP API server | `sentinel-server/src/main.rs` |
 | Server routes | `sentinel-server/src/routes.rs` |
 | Server: compliance API endpoints (EU AI Act, SOC 2, threat coverage, gap analysis) | `sentinel-server/src/routes/compliance.rs` |
+| Server: simulator API endpoints (evaluate, batch, validate, diff) | `sentinel-server/src/routes/simulator.rs` |
+| Server: dashboard SVG charts (verdict sparkline, policy pie chart) | `sentinel-server/src/dashboard.rs` |
 | Cluster backend | `sentinel-cluster/src/lib.rs` |
 | Integration tests | `sentinel-integration/tests/` (~95 test files) |
 | Example configs | `examples/` |
+| GitHub Action: policy-check | `.github/actions/policy-check/action.yml` |
+| TypeScript SDK: types + client + tests | `sdk/typescript/` |
 
 ---
 
@@ -462,6 +466,19 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - LangGraph sentinel node and guarded tool node (`sdk/python/sentinel/langgraph.py`)
 - Client-side parameter redaction with 3 modes — keys_only, values, all (`sdk/python/sentinel/redaction.py`)
 - 130 pytest tests covering types, client, langchain, langgraph, and redaction (`sdk/python/tests/`)
+
+**Developer Experience (Phase 22):**
+- Policy simulator API — `POST /api/simulator/evaluate` (single with trace), `/batch` (up to 100 actions), `/validate` (config validation), `/diff` (policy diff) (`sentinel-server/src/routes/simulator.rs`)
+- CLI `simulate` subcommand — batch-evaluate actions from JSON file against policy config, text/JSON output
+- GitHub Action `policy-check` — composite action downloading Sentinel binary, running `sentinel check` in CI (`.github/actions/policy-check/action.yml`)
+- Dashboard SVG charts — verdict distribution bar chart, policy type pie chart (`sentinel-server/src/dashboard.rs`)
+- 13 new Rust tests (9 simulator + 4 dashboard)
+
+**TypeScript SDK:**
+- HTTP client with native `fetch()` — zero runtime dependencies, Node 18+ (`sdk/typescript/src/client.ts`)
+- Full API coverage: `evaluate`, `health`, `listPolicies`, `reloadPolicies`, `simulate`, `batchEvaluate`, `validateConfig`, `diffConfigs`, `listPendingApprovals`, `approveApproval`, `denyApproval`
+- Type definitions mirroring Python SDK (`sdk/typescript/src/types.ts`)
+- 15 Jest tests covering all methods, error handling, auth headers (`sdk/typescript/tests/client.test.ts`)
 
 **Documentation:**
 - Framework quickstart guides: Anthropic, OpenAI, LangChain, LangGraph, MCP proxy (`docs/QUICKSTART.md`)

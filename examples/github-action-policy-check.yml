@@ -1,0 +1,13 @@
+# Example: Sentinel policy validation in CI
+# Copy this to .github/workflows/policy-check.yml in your repository
+name: Policy Validation
+on: [pull_request]
+jobs:
+  check-policies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: paolovella/sentinel/.github/actions/policy-check@main
+        with:
+          config: sentinel-config.toml
+          strict: 'true'
