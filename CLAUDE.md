@@ -1,10 +1,10 @@
 # CLAUDE.md — Sentinel Project Instructions
 
 > **Project:** Sentinel — MCP Tool Firewall
-> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phases 17.1–17.2 complete, 19.1/19.4 partial, 21.0 complete, Phases 17.3–23 remaining)
+> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phases 17.1–17.2 complete, 19.1/19.4 partial, 19.3/21.0 complete, Phases 17.3–23 remaining)
 > **Version:** 3.0.0-dev (crates at 2.2.1, targeting v3.0 release)
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 4,442+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 4,477+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 22
 > **CI workflows:** 11
 > **Updated:** 2026-02-14
@@ -103,7 +103,10 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Audit: Merkle tree inclusion proofs (RFC 6962) | `sentinel-audit/src/merkle.rs` |
 | Audit: EU AI Act conformity assessment registry | `sentinel-audit/src/eu_ai_act.rs` |
 | Audit: SOC 2 evidence generation registry | `sentinel-audit/src/soc2.rs` |
-| Audit: tests (~179 unit tests) | `sentinel-audit/src/tests.rs` |
+| Audit: CoSAI 12-category threat coverage registry | `sentinel-audit/src/cosai.rs` |
+| Audit: Adversa AI TOP 25 coverage matrix | `sentinel-audit/src/adversa_top25.rs` |
+| Audit: Cross-framework gap analysis (6 frameworks) | `sentinel-audit/src/gap_analysis.rs` |
+| Audit: tests (~214 unit tests) | `sentinel-audit/src/tests.rs` |
 | Config: module root + PolicyConfig + re-exports | `sentinel-config/src/lib.rs` |
 | Config: injection/DLP/rate-limit/audit | `sentinel-config/src/detection.rs` |
 | Config: supply chain verification | `sentinel-config/src/supply_chain.rs` |
@@ -161,7 +164,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Stdio proxy | `sentinel-proxy/src/main.rs` |
 | HTTP API server | `sentinel-server/src/main.rs` |
 | Server routes | `sentinel-server/src/routes.rs` |
-| Server: compliance API endpoints (EU AI Act, SOC 2) | `sentinel-server/src/routes/compliance.rs` |
+| Server: compliance API endpoints (EU AI Act, SOC 2, threat coverage, gap analysis) | `sentinel-server/src/routes/compliance.rs` |
 | Cluster backend | `sentinel-cluster/src/lib.rs` |
 | Integration tests | `sentinel-integration/tests/` (~95 test files) |
 | Example configs | `examples/` |
@@ -295,6 +298,15 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - Compliance API endpoints — `GET /api/compliance/status`, `GET /api/compliance/eu-ai-act/report`, `GET /api/compliance/soc2/evidence` (`sentinel-server/src/routes/compliance.rs`)
 - `PolicySnapshot` extended with `compliance_config` for atomic policy reload
 - 34 unit tests (9 config + 11 EU AI Act + 14 SOC 2)
+
+**CoSAI/Adversa Threat Coverage (Phase 19.3):**
+- CoSAI 12-category threat registry — 38 threats across all categories with `SentinelDetection` mappings and structural mitigations (`sentinel-audit/src/cosai.rs`)
+- Adversa AI TOP 25 coverage matrix — 25 ranked vulnerabilities with severity levels, detection mappings, and coverage matrix output (`sentinel-audit/src/adversa_top25.rs`)
+- Cross-framework gap analysis — unified report across 6 frameworks (ATLAS, NIST RMF, ISO 27090, EU AI Act, CoSAI, Adversa TOP 25) with weighted coverage and recommendations (`sentinel-audit/src/gap_analysis.rs`)
+- Threat coverage API endpoint — `GET /api/compliance/threat-coverage` (ATLAS + CoSAI + Adversa summaries)
+- Gap analysis API endpoint — `GET /api/compliance/gap-analysis` (consolidated 6-framework report)
+- 100% CoSAI coverage (38/38 threats), 100% Adversa TOP 25 coverage (25/25)
+- 35 unit tests (14 CoSAI + 14 Adversa + 7 gap analysis)
 
 **Identity Verification Primitives:**
 - DID:PLC generation — SHA-256 + Base32 from canonicalized genesis operations (`sentinel-mcp/src/did_plc.rs`)

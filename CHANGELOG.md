@@ -87,6 +87,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **31 unit tests** — 4 types tests (serde, validation), 5 engine tests (context condition), 22 mcp tests (sign/verify, attenuation, grant coverage, expiry, holder/issuer mismatch)
 - **No new dependencies** — Reuses ed25519-dalek, hex, serde already in workspace
 
+#### CoSAI/Adversa Threat Coverage Registries (Phase 19.3)
+- **CoSAI 12-category threat registry** — 38 threats across all 12 Coalition for Secure AI categories with `SentinelDetection` runtime mappings and structural mitigation coverage (`sentinel-audit/src/cosai.rs`)
+- **Adversa AI TOP 25 coverage matrix** — All 25 ranked MCP vulnerabilities (Critical/High/Medium) with detection mappings and mitigation tracking (`sentinel-audit/src/adversa_top25.rs`)
+- **Cross-framework gap analysis** — Unified report across 6 frameworks (MITRE ATLAS, NIST AI RMF, ISO 27090, EU AI Act, CoSAI, Adversa TOP 25) with weighted-average coverage, identified gaps, and recommendations (`sentinel-audit/src/gap_analysis.rs`)
+- **Threat coverage API endpoint** — `GET /api/compliance/threat-coverage` returns ATLAS, CoSAI, and Adversa coverage summaries
+- **Gap analysis API endpoint** — `GET /api/compliance/gap-analysis` returns consolidated 6-framework gap report
+- **100% CoSAI coverage** (38/38 threats across 12/12 categories), **100% Adversa TOP 25 coverage** (25/25 vulnerabilities)
+- **35 unit tests** — 14 CoSAI (registry, categories, detection mappings, coverage report, serde), 14 Adversa (registry, ranks, mitigations, matrix, serde), 7 gap analysis (generation, framework presence, coverage threshold, recommendations, serde)
+- **No new dependencies** — Reuses serde, chrono, HashMap from existing audit crate
+
 #### Compliance Evidence Generation (Phase 19.1 / 19.4)
 - **Shared compliance types** — `AiActRiskClass` (Minimal/Limited/HighRisk/Unacceptable) and `TrustServicesCategory` (CC1-CC9) in `sentinel-types/src/compliance.rs` (leaf crate, no dependency violations)
 - **ComplianceConfig** — `EuAiActConfig` and `Soc2Config` with validation (MAX_HUMAN_OVERSIGHT_TOOLS=500, MIN_RETENTION_DAYS=30, MAX_SOC2_CATEGORIES=9) (`sentinel-config/src/compliance.rs`)
