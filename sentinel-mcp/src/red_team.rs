@@ -538,7 +538,12 @@ impl RedTeamRunner {
         // Evaluate without policies means default-deny in strict mode
         match self.engine.evaluate_action(&action, &[]) {
             Ok(verdict) => {
-                let blocked = matches!(verdict, Verdict::Deny { .. });
+                // Both Deny and RequireApproval count as "blocked" —
+                // RequireApproval is NOT a bypass (FIND-P23-R01).
+                let blocked = matches!(
+                    verdict,
+                    Verdict::Deny { .. } | Verdict::RequireApproval { .. }
+                );
                 let verdict_str = format!("{:?}", verdict);
                 let reason = match &verdict {
                     Verdict::Deny { reason } => Some(reason.clone()),

@@ -597,6 +597,9 @@ impl MultimodalScanner {
     ///
     /// Finds stream/endstream pairs, inflates FlateDecode streams, and
     /// extracts text from Tj/TJ operators. No full PDF parser needed.
+    ///
+    /// Works directly on raw bytes to avoid index mismatches from
+    /// `String::from_utf8_lossy` replacement character insertion.
     fn extract_text_from_pdf(
         &self,
         data: &[u8],
@@ -606,36 +609,45 @@ impl MultimodalScanner {
         }
 
         let mut texts = Vec::new();
-        let data_str = String::from_utf8_lossy(data);
         let mut search_from = 0;
         let max_streams = 100; // Bound iteration to prevent DoS
         let mut stream_count = 0;
+        let mut aggregate_text_len = 0usize;
+        const MAX_AGGREGATE_TEXT: usize = 1024 * 1024; // 1MB aggregate text limit
 
         while stream_count < max_streams {
-            let stream_keyword = match data_str[search_from..].find("stream") {
-                Some(pos) => search_from + pos,
+            // Find "stream" keyword in raw bytes, but skip occurrences inside "endstream"
+            let stream_pos = match Self::find_stream_keyword(data, search_from) {
+                Some(pos) => pos,
                 None => break,
             };
 
             // Determine content start (after "stream\r\n" or "stream\n")
-            let content_start = if data_str[stream_keyword..].starts_with("stream\r\n") {
-                stream_keyword + 8
-            } else if data_str[stream_keyword..].starts_with("stream\n") {
-                stream_keyword + 7
+            let after_keyword = stream_pos + 6; // len(b"stream")
+            let content_start = if after_keyword < data.len() && data[after_keyword] == b'\r' {
+                if after_keyword + 1 < data.len() && data[after_keyword + 1] == b'\n' {
+                    after_keyword + 2
+                } else {
+                    search_from = after_keyword;
+                    continue;
+                }
+            } else if after_keyword < data.len() && data[after_keyword] == b'\n' {
+                after_keyword + 1
             } else {
-                search_from = stream_keyword + 6;
+                search_from = after_keyword;
                 continue;
             };
 
-            let endstream_pos = match data_str[content_start..].find("endstream") {
-                Some(pos) => content_start + pos,
+            // Find "endstream" in raw bytes
+            let endstream_pos = match Self::find_bytes(data, b"endstream", content_start) {
+                Some(pos) => pos,
                 None => break,
             };
 
-            // Check for FlateDecode in the dictionary before this stream
-            let dict_start = stream_keyword.saturating_sub(256);
-            let dict_region = &data_str[dict_start..stream_keyword];
-            let is_flate = dict_region.contains("FlateDecode");
+            // Check for FlateDecode in the dictionary before this stream (max 256 bytes back)
+            let dict_start = stream_pos.saturating_sub(256);
+            let is_flate = Self::find_bytes(data, b"FlateDecode", dict_start)
+                .is_some_and(|pos| pos < stream_pos);
 
             let stream_bytes = &data[content_start..endstream_pos];
 
@@ -649,12 +661,23 @@ impl MultimodalScanner {
                 let content_str = String::from_utf8_lossy(&content);
                 if let Some(text) = Self::extract_pdf_text_operators(&content_str) {
                     if !text.is_empty() {
+                        aggregate_text_len = aggregate_text_len.saturating_add(text.len());
+                        if aggregate_text_len > MAX_AGGREGATE_TEXT {
+                            // Truncate to stay within aggregate limit
+                            let remaining = MAX_AGGREGATE_TEXT.saturating_sub(
+                                aggregate_text_len.saturating_sub(text.len()),
+                            );
+                            if remaining > 0 {
+                                texts.push(text[..remaining.min(text.len())].to_string());
+                            }
+                            break; // Stop processing further streams
+                        }
                         texts.push(text);
                     }
                 }
             }
 
-            search_from = endstream_pos + 9;
+            search_from = endstream_pos + 9; // len(b"endstream")
             stream_count += 1;
         }
 
@@ -664,6 +687,31 @@ impl MultimodalScanner {
             let combined = texts.join("\n");
             Ok((Some(combined), Some(0.7))) // 0.7: partial extraction (no full PDF parser)
         }
+    }
+
+    /// Find the next "stream" keyword in raw bytes that is NOT part of "endstream".
+    fn find_stream_keyword(data: &[u8], start: usize) -> Option<usize> {
+        let mut pos = start;
+        while let Some(offset) = Self::find_bytes(data, b"stream", pos) {
+            // Check this is not part of "endstream" (preceded by "end")
+            if offset >= 3 && &data[offset - 3..offset] == b"end" {
+                pos = offset + 6;
+                continue;
+            }
+            return Some(offset);
+        }
+        None
+    }
+
+    /// Find a byte pattern in data starting from `start`. Returns byte offset.
+    fn find_bytes(data: &[u8], pattern: &[u8], start: usize) -> Option<usize> {
+        if pattern.is_empty() || start + pattern.len() > data.len() {
+            return None;
+        }
+        data[start..]
+            .windows(pattern.len())
+            .position(|w| w == pattern)
+            .map(|p| start + p)
     }
 
     /// Extract text from PDF text operators (Tj, TJ, ', ").
@@ -841,12 +889,22 @@ impl MultimodalScanner {
 
     /// Inflate zlib-compressed data (used for PNG zTXt and PDF FlateDecode).
     ///
-    /// Limits decompressed output to 10MB to prevent zip bombs.
+    /// Limits decompressed output to 1MB to prevent zip bombs.
+    /// Returns an error if the output would exceed this limit, rather than
+    /// silently truncating (which could allow injection bypass).
     fn inflate(data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
+        const MAX_DECOMPRESS: u64 = 1024 * 1024; // 1MB per stream
         let decoder = flate2::read::ZlibDecoder::new(data);
+        let mut limited = decoder.take(MAX_DECOMPRESS + 1);
         let mut output = Vec::new();
-        // Limit decompressed size to prevent zip bombs
-        decoder.take(10 * 1024 * 1024).read_to_end(&mut output)?;
+        limited.read_to_end(&mut output)?;
+        // If we read more than the limit, reject — don't silently truncate
+        if output.len() as u64 > MAX_DECOMPRESS {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Decompressed stream exceeds 1MB limit (potential zip bomb)",
+            ));
+        }
         Ok(output)
     }
 }
