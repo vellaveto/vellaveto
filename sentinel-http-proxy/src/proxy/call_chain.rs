@@ -367,6 +367,7 @@ pub fn call_chain_entry_signing_content(entry: &sentinel_types::CallChainEntry) 
 
 /// FIND-015: Compute HMAC-SHA256 over data, returning lowercase hex string.
 /// Returns `Err` if the HMAC key is rejected (should not happen for 32-byte keys).
+#[allow(clippy::result_unit_err)]
 pub fn compute_call_chain_hmac(key: &[u8; 32], data: &[u8]) -> Result<String, ()> {
     let mut mac = HmacSha256::new_from_slice(key).map_err(|_| ())?;
     mac.update(data);
@@ -376,6 +377,7 @@ pub fn compute_call_chain_hmac(key: &[u8; 32], data: &[u8]) -> Result<String, ()
 
 /// FIND-015: Verify HMAC-SHA256 of data against expected hex string.
 /// Returns `Ok(true)` if valid, `Ok(false)` if invalid, `Err` on initialization failure.
+#[allow(clippy::result_unit_err)]
 pub fn verify_call_chain_hmac(
     key: &[u8; 32],
     data: &[u8],
