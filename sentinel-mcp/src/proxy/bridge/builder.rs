@@ -220,4 +220,24 @@ impl ProxyBridge {
         self.memory_security = Some(manager);
         self
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 19: EU AI Act Article 50 Runtime Transparency
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Enable Art 50(1) transparency marking.
+    /// When true, `_meta.sentinel_ai_mediated = true` is injected into tool
+    /// responses before forwarding to the agent.
+    pub fn with_transparency_marking(mut self, enabled: bool) -> Self {
+        self.transparency_marking = enabled;
+        self
+    }
+
+    /// Set tool patterns requiring human oversight per Art 14.
+    /// Tools matching these glob patterns trigger an audit event
+    /// for human oversight tracking.
+    pub fn with_human_oversight_tools(mut self, patterns: Vec<String>) -> Self {
+        self.human_oversight_tools = patterns;
+        self
+    }
 }

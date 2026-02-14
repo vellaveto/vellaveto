@@ -1248,7 +1248,7 @@ impl ProxyBridge {
     /// Handle a response received from the child MCP server.
     async fn handle_child_response(
         &self,
-        msg: Value,
+        mut msg: Value,
         state: &mut RelayState,
         io: &mut IoWriters<'_>,
     ) -> Result<(), ProxyError> {
@@ -1789,6 +1789,53 @@ impl ProxyBridge {
 
         // OWASP ASI06: Record response data for poisoning detection
         state.memory_tracker.record_response(&msg);
+
+        // Phase 19: Art 50(1) transparency marking
+        if self.transparency_marking {
+            crate::transparency::mark_ai_mediated(&mut msg);
+        }
+
+        // Phase 19: Art 14 human oversight audit event
+        if let Some(tool_name) = msg
+            .get("id")
+            .and_then(|id| {
+                let id_str = match id {
+                    Value::String(s) => s.clone(),
+                    Value::Number(n) => n.to_string(),
+                    _ => return None,
+                };
+                state
+                    .pending_requests
+                    .get(&id_str)
+                    .map(|(_, name)| name.clone())
+            })
+        {
+            if crate::transparency::requires_human_oversight(
+                &tool_name,
+                &self.human_oversight_tools,
+            ) {
+                let oversight_action = sentinel_types::Action::new(
+                    "sentinel",
+                    "human_oversight_triggered",
+                    json!({"tool": tool_name}),
+                );
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &oversight_action,
+                        &Verdict::Allow,
+                        json!({
+                            "source": "proxy",
+                            "event": "human_oversight_triggered",
+                            "tool": tool_name,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit human oversight event: {}", e);
+                }
+            }
+        }
 
         // Relay child response to agent
         write_message(agent_writer, &msg)

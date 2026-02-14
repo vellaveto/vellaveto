@@ -330,6 +330,9 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
         let _ = write!(html, "</table>");
     }
 
+    // ── Compliance status ────────────────────────────
+    render_compliance_section(&mut html, &snap);
+
     // ── Footer ────────────────────────────────────
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
     let _ = write!(
@@ -340,6 +343,91 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
     );
 
     Html(html)
+}
+
+/// Return CSS class for a coverage percentage.
+fn coverage_class(percent: f32) -> &'static str {
+    if percent >= 90.0 {
+        "green"
+    } else if percent >= 70.0 {
+        "yellow"
+    } else {
+        "red"
+    }
+}
+
+/// Render compliance status section into the dashboard HTML.
+fn render_compliance_section(html: &mut String, snap: &crate::PolicySnapshot) {
+    let config = &snap.compliance_config;
+
+    // EU AI Act compliance %
+    let eu_registry = sentinel_audit::eu_ai_act::EuAiActRegistry::new();
+    let eu_report = eu_registry.generate_assessment(
+        config.eu_ai_act.risk_class,
+        &config.eu_ai_act.deployer_name,
+        &config.eu_ai_act.system_id,
+    );
+
+    // SOC 2 readiness %
+    let soc2_registry = sentinel_audit::soc2::Soc2Registry::new();
+    let soc2_report = soc2_registry.generate_evidence_report(
+        &config.soc2.organization_name,
+        &config.soc2.period_start,
+        &config.soc2.period_end,
+        &config.soc2.tracked_categories,
+    );
+
+    // Gap analysis
+    let gap_report = sentinel_audit::gap_analysis::generate_gap_analysis();
+
+    let eu_pct = eu_report.compliance_percentage;
+    let soc2_pct = soc2_report.overall_readiness;
+    let gap_pct = gap_report.overall_coverage_percent;
+    let critical_gaps = gap_report.critical_gaps.len();
+
+    let _ = write!(
+        html,
+        r#"<h2>Compliance Status</h2>
+<div class="grid">
+  <div class="card"><div class="label">EU AI Act</div><div class="value {eu_cls}">{eu_pct:.0}%</div></div>
+  <div class="card"><div class="label">SOC 2 Readiness</div><div class="value {soc2_cls}">{soc2_pct:.0}%</div></div>
+  <div class="card"><div class="label">Framework Coverage</div><div class="value {gap_cls}">{gap_pct:.0}%</div></div>
+  <div class="card"><div class="label">Critical Gaps</div><div class="value {gaps_cls}">{critical_gaps}</div></div>
+</div>
+<table>
+<tr><th>Framework</th><th>Coverage</th><th>Items</th><th>Status</th></tr>
+"#,
+        eu_cls = coverage_class(eu_pct),
+        soc2_cls = coverage_class(soc2_pct),
+        gap_cls = coverage_class(gap_pct),
+        gaps_cls = if critical_gaps == 0 { "green" } else { "red" },
+    );
+
+    for fw in &gap_report.frameworks {
+        let name = html_escape(&fw.name);
+        let cls = coverage_class(fw.coverage_percent);
+        let status = if fw.coverage_percent >= 90.0 {
+            "Compliant"
+        } else if fw.coverage_percent >= 70.0 {
+            "Partial"
+        } else {
+            "Gaps Found"
+        };
+        let _ = write!(
+            html,
+            r#"<tr>
+  <td>{name}</td>
+  <td class="{cls}">{pct:.0}%</td>
+  <td>{covered}/{total}</td>
+  <td class="{cls}">{status}</td>
+</tr>
+"#,
+            pct = fw.coverage_percent,
+            covered = fw.covered_items,
+            total = fw.total_items,
+        );
+    }
+    let _ = write!(html, "</table>");
 }
 
 /// Handle approval form submission from dashboard.
@@ -469,5 +557,45 @@ mod tests {
     #[test]
     fn test_format_duration_days() {
         assert_eq!(format_duration(90061), "1d 1h 1m");
+    }
+
+    #[test]
+    fn test_compliance_color_classes() {
+        assert_eq!(coverage_class(95.0), "green");
+        assert_eq!(coverage_class(90.0), "green");
+        assert_eq!(coverage_class(89.9), "yellow");
+        assert_eq!(coverage_class(70.0), "yellow");
+        assert_eq!(coverage_class(69.9), "red");
+        assert_eq!(coverage_class(0.0), "red");
+    }
+
+    #[test]
+    fn test_render_compliance_section_contains_heading() {
+        let snap = crate::PolicySnapshot {
+            engine: sentinel_engine::PolicyEngine::new(false),
+            policies: Vec::new(),
+            compliance_config: sentinel_config::compliance::ComplianceConfig::default(),
+        };
+        let mut html = String::new();
+        render_compliance_section(&mut html, &snap);
+        assert!(html.contains("Compliance Status"));
+    }
+
+    #[test]
+    fn test_render_compliance_section_contains_frameworks() {
+        let snap = crate::PolicySnapshot {
+            engine: sentinel_engine::PolicyEngine::new(false),
+            policies: Vec::new(),
+            compliance_config: sentinel_config::compliance::ComplianceConfig::default(),
+        };
+        let mut html = String::new();
+        render_compliance_section(&mut html, &snap);
+        // The gap analysis report includes these 6 frameworks
+        assert!(html.contains("MITRE ATLAS"));
+        assert!(html.contains("NIST AI RMF"));
+        assert!(html.contains("ISO 27090"));
+        assert!(html.contains("EU AI Act"));
+        assert!(html.contains("CoSAI"));
+        assert!(html.contains("Adversa TOP 25"));
     }
 }

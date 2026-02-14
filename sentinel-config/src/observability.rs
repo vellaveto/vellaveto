@@ -99,6 +99,10 @@ pub struct ObservabilityConfig {
     /// Generic webhook exporter configuration.
     #[serde(default)]
     pub webhook: WebhookExporterConfig,
+
+    /// OTLP (OpenTelemetry Protocol) exporter configuration.
+    #[serde(default)]
+    pub otlp: OtlpConfig,
 }
 
 fn default_sample_rate() -> f64 {
@@ -134,6 +138,7 @@ impl Default for ObservabilityConfig {
             arize: ArizeConfig::default(),
             helicone: HeliconeConfig::default(),
             webhook: WebhookExporterConfig::default(),
+            otlp: OtlpConfig::default(),
         }
     }
 }
@@ -431,6 +436,84 @@ impl Default for WebhookExporterConfig {
     }
 }
 
+/// OTLP transport protocol.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OtlpProtocol {
+    /// gRPC transport (default, port 4317).
+    #[default]
+    Grpc,
+    /// HTTP/protobuf transport (port 4318).
+    HttpProto,
+}
+
+/// OpenTelemetry Protocol (OTLP) exporter configuration.
+///
+/// Exports `SecuritySpan` traces to any OTLP-compatible collector
+/// (Jaeger, Grafana Tempo, Datadog, etc.) with GenAI semantic conventions.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OtlpConfig {
+    /// Enable OTLP exporter. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// OTLP collector endpoint. Default: `http://localhost:4317`.
+    #[serde(default = "default_otlp_endpoint")]
+    pub endpoint: String,
+
+    /// Transport protocol. Default: gRPC.
+    #[serde(default)]
+    pub protocol: OtlpProtocol,
+
+    /// Custom headers for authentication (e.g., API keys).
+    #[serde(default)]
+    pub headers: std::collections::HashMap<String, String>,
+
+    /// Maximum spans per batch. Default: 100.
+    #[serde(default = "default_batch_size")]
+    pub batch_size: usize,
+
+    /// Flush interval in seconds. Default: 5.
+    #[serde(default = "default_flush_interval")]
+    pub flush_interval_secs: u64,
+
+    /// Maximum retry attempts. Default: 3.
+    #[serde(default = "default_max_retries")]
+    pub max_retries: u32,
+
+    /// Request timeout in seconds. Default: 30.
+    #[serde(default = "default_timeout")]
+    pub timeout_secs: u64,
+
+    /// Service name for OTel resource. Default: `sentinel`.
+    #[serde(default = "default_otlp_service_name")]
+    pub service_name: String,
+}
+
+fn default_otlp_endpoint() -> String {
+    "http://localhost:4317".to_string()
+}
+
+fn default_otlp_service_name() -> String {
+    "sentinel".to_string()
+}
+
+impl Default for OtlpConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: default_otlp_endpoint(),
+            protocol: OtlpProtocol::default(),
+            headers: std::collections::HashMap::new(),
+            batch_size: default_batch_size(),
+            flush_interval_secs: default_flush_interval(),
+            max_retries: default_max_retries(),
+            timeout_secs: default_timeout(),
+            service_name: default_otlp_service_name(),
+        }
+    }
+}
+
 impl ObservabilityConfig {
     /// Check if any exporter is enabled.
     pub fn has_enabled_exporters(&self) -> bool {
@@ -438,7 +521,8 @@ impl ObservabilityConfig {
             && (self.langfuse.enabled
                 || self.arize.enabled
                 || self.helicone.enabled
-                || self.webhook.enabled)
+                || self.webhook.enabled
+                || self.otlp.enabled)
     }
 
     /// Validate the configuration.
@@ -534,6 +618,31 @@ impl ObservabilityConfig {
             }
             if self.helicone.flush_interval_secs == 0 {
                 return Err("observability.helicone.flush_interval_secs must be > 0".to_string());
+            }
+        }
+
+        // Validate OTLP config
+        if self.otlp.enabled {
+            if self.otlp.endpoint.is_empty() {
+                return Err(
+                    "observability.otlp.endpoint must not be empty when enabled".to_string(),
+                );
+            }
+            // OTLP endpoint can be localhost (collector is typically co-located),
+            // so we only validate URL format, not SSRF.
+            Self::validate_url(&self.otlp.endpoint, "observability.otlp.endpoint")?;
+
+            if self.otlp.batch_size == 0 || self.otlp.batch_size > 10_000 {
+                return Err(format!(
+                    "observability.otlp.batch_size must be 1-10000, got {}",
+                    self.otlp.batch_size
+                ));
+            }
+            if self.otlp.timeout_secs == 0 {
+                return Err("observability.otlp.timeout_secs must be > 0".to_string());
+            }
+            if self.otlp.flush_interval_secs == 0 {
+                return Err("observability.otlp.flush_interval_secs must be > 0".to_string());
             }
         }
 
@@ -999,6 +1108,63 @@ mod tests {
             config.has_enabled_exporters(),
             "master=true with multiple exporters should return true"
         );
+    }
+
+    #[test]
+    fn test_otlp_default() {
+        let config = OtlpConfig::default();
+        assert!(!config.enabled);
+        assert_eq!(config.endpoint, "http://localhost:4317");
+        assert_eq!(config.protocol, OtlpProtocol::Grpc);
+        assert_eq!(config.service_name, "sentinel");
+        assert_eq!(config.batch_size, 100);
+        assert_eq!(config.timeout_secs, 30);
+    }
+
+    #[test]
+    fn test_otlp_protocol_serde() {
+        let json = r#""grpc""#;
+        let proto: OtlpProtocol = serde_json::from_str(json).unwrap();
+        assert_eq!(proto, OtlpProtocol::Grpc);
+
+        let json = r#""http_proto""#;
+        let proto: OtlpProtocol = serde_json::from_str(json).unwrap();
+        assert_eq!(proto, OtlpProtocol::HttpProto);
+    }
+
+    #[test]
+    fn test_otlp_validation_empty_endpoint() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.otlp.enabled = true;
+        config.otlp.endpoint = String::new();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_otlp_validation_valid() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.otlp.enabled = true;
+        config.otlp.endpoint = "http://localhost:4317".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_otlp_validation_timeout_zero() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.otlp.enabled = true;
+        config.otlp.timeout_secs = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_has_enabled_exporters_otlp() {
+        let mut config = ObservabilityConfig::default();
+        config.enabled = true;
+        config.otlp.enabled = true;
+        assert!(config.has_enabled_exporters());
     }
 
     // ========================================

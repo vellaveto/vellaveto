@@ -36,6 +36,7 @@ pub mod semantic_detection;
 pub mod semantic_guardrails;
 pub mod shadow_agent;
 pub mod task_security;
+pub mod transparency;
 pub mod task_state;
 pub mod token_security;
 pub mod tool_namespace;

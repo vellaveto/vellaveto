@@ -54,6 +54,10 @@ pub struct EuAiActConfig {
     /// Whether conformity assessment is claimed (Art 43).
     #[serde(default)]
     pub conformity_assessment: bool,
+
+    /// Whether to compress rotated audit logs. Default: true.
+    #[serde(default = "super::default_true")]
+    pub compress_archives: bool,
 }
 
 fn default_retention_days() -> u32 {
@@ -71,6 +75,7 @@ impl Default for EuAiActConfig {
             human_oversight_tools: Vec::new(),
             record_retention_days: default_retention_days(),
             conformity_assessment: false,
+            compress_archives: true,
         }
     }
 }
@@ -153,6 +158,7 @@ mod tests {
         assert!(!config.soc2.enabled);
         assert_eq!(config.eu_ai_act.record_retention_days, 365);
         assert_eq!(config.eu_ai_act.risk_class, AiActRiskClass::Limited);
+        assert!(config.eu_ai_act.compress_archives);
     }
 
     #[test]
@@ -220,6 +226,7 @@ mod tests {
                 human_oversight_tools: vec!["shell_*".into()],
                 record_retention_days: 730,
                 conformity_assessment: true,
+                compress_archives: true,
             },
             soc2: Soc2Config {
                 enabled: true,

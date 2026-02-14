@@ -21,6 +21,10 @@ mod rotation;
 mod types;
 mod verification;
 
+// ── Phase 19: Immutable audit log archive ────────────────────────────────────
+#[cfg(feature = "archive")]
+pub mod archive;
+
 // ── Pre-existing submodules ──────────────────────────────────────────────────
 pub mod aivss;
 pub mod atlas;

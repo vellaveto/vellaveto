@@ -35,7 +35,8 @@ mod tests;
 // ═══════════════════════════════════════════════════════════════════════════════
 
 pub use observability::{
-    ArizeConfig, HeliconeConfig, LangfuseConfig, ObservabilityConfig, WebhookExporterConfig,
+    ArizeConfig, HeliconeConfig, LangfuseConfig, ObservabilityConfig, OtlpConfig, OtlpProtocol,
+    WebhookExporterConfig,
 };
 
 pub use detection::{

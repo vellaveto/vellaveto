@@ -125,6 +125,14 @@ pub struct ProxyBridge {
     /// When set, memory entries are tracked for taint propagation,
     /// provenance, and namespace isolation.
     memory_security: Option<Arc<crate::memory_security::MemorySecurityManager>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 19: EU AI Act Article 50 Runtime Transparency
+    // ═══════════════════════════════════════════════════════════════════
+    /// When true, inject `_meta.sentinel_ai_mediated = true` into responses.
+    transparency_marking: bool,
+    /// Tool patterns requiring human oversight (Art 14 glob patterns).
+    human_oversight_tools: Vec<String>,
 }
 
 impl ProxyBridge {
@@ -164,6 +172,9 @@ impl ProxyBridge {
             etdi_require_signatures: false,
             // Phase 9: MINJA (default: disabled)
             memory_security: None,
+            // Phase 19: Transparency (default: disabled)
+            transparency_marking: false,
+            human_oversight_tools: Vec::new(),
         }
     }
 }

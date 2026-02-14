@@ -261,8 +261,8 @@ impl EuAiActRegistry {
         self.add_mapping(
             TransparencyCapability::AiMediationMarking,
             "Art 50(1)",
-            ComplianceStatus::Partial,
-            Some("Sentinel can enforce transparency marking via policy rules on tool outputs"),
+            ComplianceStatus::Compliant,
+            Some("Runtime transparency marking injects _meta.sentinel_ai_mediated into tool responses per Art 50(1)"),
         );
 
         // Art 50(2): Synthetic content labeling
@@ -338,7 +338,7 @@ impl EuAiActRegistry {
             TransparencyCapability::HumanApproval,
             "Art 14",
             ComplianceStatus::Compliant,
-            Some("Human-in-the-loop approval workflow with deduplication and audit trail"),
+            Some("Human-in-the-loop approval workflow with deduplication, audit trail, and configurable human oversight tool triggers"),
         );
         self.add_mapping(
             TransparencyCapability::KillSwitch,
