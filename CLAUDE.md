@@ -1,10 +1,10 @@
 # CLAUDE.md — Sentinel Project Instructions
 
 > **Project:** Sentinel — MCP Tool Firewall
-> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phase 17 complete, Phase 18 complete, 19.1–19.4 complete, 21.0 complete, Phases 20–23 remaining)
+> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phase 17 complete, Phase 18 complete, 19.1–19.4 complete, 20.1–20.3 complete, 21.0 complete, Phases 22–23 remaining)
 > **Version:** 3.0.0-dev (crates at 2.2.1, targeting v3.0 release)
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 4,500+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 4,530+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 22
 > **CI workflows:** 11
 > **Updated:** 2026-02-14
@@ -91,7 +91,8 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Types: AiActRiskClass, TrustServicesCategory (shared compliance enums) | `sentinel-types/src/compliance.rs` |
 | Types: ExtensionDescriptor, ExtensionResourceLimits, ExtensionError | `sentinel-types/src/extension.rs` |
 | Types: TransportProtocol, SdkTier, TransportEndpoint, SdkCapabilities | `sentinel-types/src/transport.rs` |
-| Types: tests (~129 unit tests) | `sentinel-types/src/tests.rs` |
+| Types: BackendHealth, UpstreamBackend, RoutingDecision, ToolConflict | `sentinel-types/src/gateway.rs` |
+| Types: tests (~132 unit tests) | `sentinel-types/src/tests.rs` |
 | Policy evaluation | `sentinel-engine/src/lib.rs` |
 | Audit: module root + re-exports | `sentinel-audit/src/lib.rs` |
 | Audit: types (AuditEntry, AuditError, etc.) | `sentinel-audit/src/types.rs` |
@@ -132,6 +133,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Config: ComplianceConfig (EU AI Act + SOC 2) | `sentinel-config/src/compliance.rs` |
 | Config: ExtensionConfig (allow/block/signatures/limits) | `sentinel-config/src/extension.rs` |
 | Config: TransportConfig (discovery/negotiation/fallback) | `sentinel-config/src/transport.rs` |
+| Config: GatewayConfig, BackendConfig (multi-backend routing) | `sentinel-config/src/gateway.rs` |
 | Config: PolicyConfig::validate() + load_file() | `sentinel-config/src/config_validate.rs` |
 | Config: tests (~164 unit tests) | `sentinel-config/src/tests.rs` |
 | MCP handling | `sentinel-mcp/src/lib.rs` |
@@ -170,6 +172,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | HTTP proxy: gRPC McpService impl (unary + streaming) | `sentinel-http-proxy/src/proxy/grpc/service.rs` |
 | HTTP proxy: gRPC upstream forwarding (HTTP fallback) | `sentinel-http-proxy/src/proxy/grpc/upstream.rs` |
 | HTTP proxy: gRPC tests (~46 tests) | `sentinel-http-proxy/src/proxy/grpc/tests.rs` |
+| HTTP proxy: Gateway router, health checker, conflict detection | `sentinel-http-proxy/src/proxy/gateway.rs` |
 | Config: gRPC transport configuration | `sentinel-config/src/grpc_transport.rs` |
 | Proto: MCP JSON-RPC gRPC schema | `proto/mcp/v1/mcp.proto` |
 | Stdio proxy | `sentinel-proxy/src/main.rs` |
@@ -216,7 +219,7 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - MCP 2025-06-18 compliance (protocol version header, resource indicators, `_meta`)
 
 **Deployment & Operations:**
-- Five deployment modes: HTTP API, stdio proxy, HTTP reverse proxy, WebSocket reverse proxy, gRPC reverse proxy
+- Six deployment modes: HTTP API, stdio proxy, HTTP reverse proxy, WebSocket reverse proxy, gRPC reverse proxy, MCP gateway
 - Canonical presets for common security scenarios
 - CI: `cargo audit`, `unwrap()` hygiene, clippy clean
 - Distributed clustering via `sentinel-cluster` crate (LocalBackend + RedisBackend with feature gate)
@@ -321,6 +324,23 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - `EvaluationContext` extended with `capability_token: Option<CapabilityToken>` (`sentinel-types/src/identity.rs`)
 - Structural validation: MAX_GRANTS=64, MAX_DELEGATION_DEPTH=16, MAX_TOKEN_SIZE=65536
 - 31 unit tests (4 types + 5 engine + 22 mcp)
+
+**MCP Gateway Mode (Phase 20.1–20.3):**
+- Gateway types in leaf crate — `BackendHealth` (Healthy/Degraded/Unhealthy), `UpstreamBackend`, `RoutingDecision`, `ToolConflict` (`sentinel-types/src/gateway.rs`)
+- `GatewayConfig` — `BackendConfig` list, health check interval, unhealthy/healthy thresholds, validation (`sentinel-config/src/gateway.rs`)
+- `GatewayRouter` — longest-prefix-first tool routing, fail-closed when all backends unhealthy (`sentinel-http-proxy/src/proxy/gateway.rs`)
+- Health state machine — Healthy→Unhealthy after `unhealthy_threshold` failures, Unhealthy→Degraded→Healthy after successes
+- Session affinity — `route_with_affinity()` prefers previously-used backend if healthy
+- Tool conflict detection — `detect_conflicts()` finds tool names served by multiple backends
+- Health checker background task — periodic JSON-RPC `ping` with 5s timeout, updates metrics gauges
+- Handler wiring — ToolCall match arm routes via gateway, records success/failure from response status
+- `forward_to_upstream_url()` — extracted URL parameter from `forward_to_upstream()` for gateway routing
+- WebSocket gateway integration — default backend resolution for WS connections
+- gRPC gateway integration — default backend resolution for HTTP fallback forwarding
+- Session state extended with `backend_sessions` and `gateway_tools` HashMaps
+- `PolicyConfig.gateway` field with `#[serde(default)]` — zero-impact when disabled
+- Metrics: `sentinel_gateway_backends_total`, `sentinel_gateway_backends_healthy` gauges
+- 38 new tests (3 types + 5 config + 30 router)
 
 **Compliance Evidence Generation (Phase 19.1 / 19.4):**
 - Shared compliance enums in leaf crate — `AiActRiskClass`, `TrustServicesCategory` (`sentinel-types/src/compliance.rs`)

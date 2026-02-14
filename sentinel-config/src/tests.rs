@@ -1110,6 +1110,7 @@ fn test_validate_rejects_too_many_policies() {
         compliance: ComplianceConfig::default(),
         extension: ExtensionConfig::default(),
         transport: TransportConfig::default(),
+        gateway: GatewayConfig::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {
@@ -2619,4 +2620,125 @@ fallback_timeout_secs = 30
     assert!(!config.transport.discovery_enabled);
     assert_eq!(config.transport.max_fallback_retries, 3);
     assert_eq!(config.transport.fallback_timeout_secs, 30);
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 20: GATEWAY CONFIG TESTS
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_gateway_config_default() {
+    let config = GatewayConfig::default();
+    assert!(!config.enabled);
+    assert!(config.backends.is_empty());
+    assert_eq!(config.health_check_interval_secs, 15);
+    assert_eq!(config.unhealthy_threshold, 3);
+    assert_eq!(config.healthy_threshold, 2);
+}
+
+#[test]
+fn test_gateway_config_toml_parse() {
+    let toml_str = r#"
+[[policies]]
+name = "allow-all"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+
+[gateway]
+enabled = true
+health_check_interval_secs = 10
+unhealthy_threshold = 5
+healthy_threshold = 3
+
+[[gateway.backends]]
+id = "fs-server"
+url = "http://localhost:8001/mcp"
+tool_prefixes = ["fs_", "file_"]
+weight = 90
+
+[[gateway.backends]]
+id = "default"
+url = "http://localhost:8000/mcp"
+"#;
+    let config = PolicyConfig::from_toml(toml_str).unwrap();
+    assert!(config.gateway.enabled);
+    assert_eq!(config.gateway.backends.len(), 2);
+    assert_eq!(config.gateway.backends[0].id, "fs-server");
+    assert_eq!(
+        config.gateway.backends[0].tool_prefixes,
+        vec!["fs_", "file_"]
+    );
+    assert_eq!(config.gateway.backends[0].weight, 90);
+    assert_eq!(config.gateway.backends[1].id, "default");
+    assert!(config.gateway.backends[1].tool_prefixes.is_empty());
+    assert_eq!(config.gateway.backends[1].weight, 100); // default
+    assert_eq!(config.gateway.health_check_interval_secs, 10);
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_gateway_config_validate_duplicate_ids() {
+    let mut config = minimal_config();
+    config.gateway.enabled = true;
+    config.gateway.backends = vec![
+        BackendConfig {
+            id: "dup".to_string(),
+            url: "http://a:8000".to_string(),
+            tool_prefixes: vec!["a_".to_string()],
+            weight: 100,
+        },
+        BackendConfig {
+            id: "dup".to_string(),
+            url: "http://b:8000".to_string(),
+            tool_prefixes: vec!["b_".to_string()],
+            weight: 100,
+        },
+    ];
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("duplicate id"), "got: {}", err);
+}
+
+#[test]
+fn test_gateway_config_validate_zero_weight() {
+    let mut config = minimal_config();
+    config.gateway.enabled = true;
+    config.gateway.backends = vec![BackendConfig {
+        id: "b".to_string(),
+        url: "http://a:8000".to_string(),
+        tool_prefixes: vec![],
+        weight: 0,
+    }];
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("weight must be >= 1"), "got: {}", err);
+}
+
+#[test]
+fn test_gateway_config_validate_interval_bounds() {
+    let mut config = minimal_config();
+    config.gateway.enabled = true;
+    config.gateway.backends = vec![BackendConfig {
+        id: "b".to_string(),
+        url: "http://a:8000".to_string(),
+        tool_prefixes: vec![],
+        weight: 100,
+    }];
+
+    config.gateway.health_check_interval_secs = 4;
+    assert!(config.validate().unwrap_err().contains("[5, 300]"));
+
+    config.gateway.health_check_interval_secs = 301;
+    assert!(config.validate().unwrap_err().contains("[5, 300]"));
+
+    config.gateway.health_check_interval_secs = 15;
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_gateway_config_disabled_skips_validation() {
+    let mut config = minimal_config();
+    config.gateway.enabled = false;
+    // Invalid: no backends, but validation should skip because disabled
+    config.gateway.backends = vec![];
+    assert!(config.validate().is_ok());
 }

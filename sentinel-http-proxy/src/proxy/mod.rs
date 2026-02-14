@@ -7,8 +7,9 @@
 mod auth;
 mod call_chain;
 pub mod discovery;
-#[allow(dead_code)] // Phase 20 will wire this into production code paths
+#[allow(dead_code)] // Wired into gateway health checker in future phases
 mod fallback;
+pub mod gateway;
 #[cfg(feature = "grpc")]
 pub mod grpc;
 mod handlers;
@@ -189,6 +190,14 @@ pub struct ProxyState {
     /// gRPC listen port, when gRPC transport is enabled.
     /// Used by the discovery endpoint to advertise the gRPC endpoint.
     pub grpc_port: Option<u16>,
+
+    // =========================================================================
+    // Phase 20: MCP Gateway Mode
+    // =========================================================================
+    /// Multi-backend gateway router. When `Some`, tool calls are routed to
+    /// different upstream MCP servers based on tool name prefix matching.
+    /// When `None`, all requests use `upstream_url` (single-server mode).
+    pub gateway: Option<Arc<gateway::GatewayRouter>>,
 }
 
 /// Per-request trust signal for forwarded-header handling.

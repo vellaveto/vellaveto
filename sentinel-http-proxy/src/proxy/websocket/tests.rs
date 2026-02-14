@@ -539,5 +539,6 @@ fn make_test_state() -> ProxyState {
         extension_registry: None,
         transport_config: sentinel_config::TransportConfig::default(),
         grpc_port: None,
+        gateway: None,
     }
 }

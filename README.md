@@ -130,7 +130,7 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Token security analysis** — Special token injection, context flooding, glitch token patterns, and Unicode normalization attack detection
 
 ### 🚀 Deployment & Operations
-- **Five deployment modes**: HTTP API server, MCP stdio proxy, HTTP reverse proxy, WebSocket reverse proxy, gRPC proxy (feature-gated)
+- **Six deployment modes**: HTTP API server, MCP stdio proxy, HTTP reverse proxy, WebSocket reverse proxy, gRPC proxy (feature-gated), MCP gateway (multi-backend routing)
 - **Prometheus metrics** at `/metrics` with evaluation latency histograms, verdict counters, and DLP finding counts
 - **Hot policy reload** via SIGHUP signal or filesystem watching with atomic swap and audit trail
 - **SIEM export** in CEF (Common Event Format) and JSON Lines for integration with Splunk, ArcSight, Elasticsearch, and Datadog

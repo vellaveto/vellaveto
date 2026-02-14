@@ -157,8 +157,25 @@ async fn handle_ws_connection(
     record_ws_connection();
     let start = std::time::Instant::now();
 
-    // Connect to upstream
-    let upstream_url = convert_to_ws_url(&state.upstream_url);
+    // Connect to upstream — use gateway default backend if configured
+    let upstream_url = if let Some(ref gw) = state.gateway {
+        match gw.route("") {
+            Some(d) => convert_to_ws_url(&d.upstream_url),
+            None => {
+                tracing::error!(session_id = %session_id, "No healthy upstream for WebSocket");
+                let (mut client_sink, _) = client_ws.split();
+                let _ = client_sink
+                    .send(Message::Close(Some(CloseFrame {
+                        code: CLOSE_POLICY_VIOLATION,
+                        reason: "No healthy upstream available".into(),
+                    })))
+                    .await;
+                return;
+            }
+        }
+    } else {
+        convert_to_ws_url(&state.upstream_url)
+    };
     let upstream_ws = match connect_upstream_ws(&upstream_url).await {
         Ok(ws) => ws,
         Err(e) => {

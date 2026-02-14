@@ -787,6 +787,8 @@ fn make_test_proxy_state(canonicalize: bool) -> ProxyState {
         // Transport discovery (Phase 18)
         transport_config: sentinel_config::TransportConfig::default(),
         grpc_port: None,
+        // Gateway (Phase 20)
+        gateway: None,
     }
 }
 

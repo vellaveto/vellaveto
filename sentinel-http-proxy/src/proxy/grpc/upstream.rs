@@ -57,10 +57,19 @@ impl UpstreamForwarder {
         let body = serde_json::to_vec(json_req)
             .map_err(|e| UpstreamError::HttpError(format!("Failed to serialize request: {}", e)))?;
 
+        // Phase 20: Use gateway default backend if configured
+        let upstream_url = if let Some(ref gw) = self.state.gateway {
+            gw.route("")
+                .map(|d| d.upstream_url)
+                .unwrap_or_else(|| self.state.upstream_url.clone())
+        } else {
+            self.state.upstream_url.clone()
+        };
+
         let response = self
             .state
             .http_client
-            .post(&self.state.upstream_url)
+            .post(&upstream_url)
             .header("Content-Type", "application/json")
             .header("Accept", "application/json")
             .body(body)

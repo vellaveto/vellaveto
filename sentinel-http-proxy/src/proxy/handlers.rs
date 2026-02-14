@@ -24,7 +24,9 @@ use super::call_chain::{
 use super::helpers::resolve_domains;
 use super::inspection::{attach_session_header, attach_trace_header};
 use super::origin::validate_origin;
-use super::upstream::{canonicalize_body, forward_to_upstream, make_jsonrpc_error};
+use super::upstream::{
+    canonicalize_body, forward_to_upstream, forward_to_upstream_url, make_jsonrpc_error,
+};
 use super::{
     McpQueryParams, ProxyState, TrustedProxyContext, MCP_PROTOCOL_VERSION_HEADER, MCP_SESSION_ID,
     SUPPORTED_PROTOCOL_VERSIONS,
@@ -838,13 +840,74 @@ pub async fn handle_mcp_post(
                     // Track request->tool mapping so response validation can resolve
                     // tool context even when upstream omits result._meta.tool.
                     track_pending_tool_call(&state.sessions, &session_id, &id, &tool_name);
-                    let response = forward_to_upstream(
-                        &state,
-                        &session_id,
-                        forward_body,
-                        auth_header_for_upstream.as_deref(),
-                    )
-                    .await;
+
+                    // Phase 20: Gateway routing — resolve backend URL before forwarding
+                    let gateway_decision = if let Some(ref gw) = state.gateway {
+                        match gw.route(&tool_name) {
+                            Some(decision) => {
+                                tracing::debug!(
+                                    tool = %tool_name,
+                                    backend = %decision.backend_id,
+                                    "Gateway routed"
+                                );
+                                Some(decision)
+                            }
+                            None => {
+                                // All backends unhealthy — fail-closed
+                                let _ = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &Verdict::Deny {
+                                            reason: "No healthy backend available".into(),
+                                        },
+                                        json!({"event": "gateway_no_backend", "tool": tool_name}),
+                                    )
+                                    .await;
+                                return attach_session_header(
+                                    make_jsonrpc_error(
+                                        msg.get("id"),
+                                        -32000,
+                                        "Upstream unavailable",
+                                    ),
+                                    &session_id,
+                                );
+                            }
+                        }
+                    } else {
+                        None
+                    };
+
+                    let response = if let Some(ref decision) = gateway_decision {
+                        forward_to_upstream_url(
+                            &state,
+                            &decision.upstream_url,
+                            &session_id,
+                            forward_body,
+                            auth_header_for_upstream.as_deref(),
+                        )
+                        .await
+                    } else {
+                        forward_to_upstream(
+                            &state,
+                            &session_id,
+                            forward_body,
+                            auth_header_for_upstream.as_deref(),
+                        )
+                        .await
+                    };
+
+                    // Phase 20: Record backend health from response
+                    if let Some(ref gw) = state.gateway {
+                        if let Some(ref decision) = gateway_decision {
+                            if response.status().is_server_error() {
+                                gw.record_failure(&decision.backend_id);
+                            } else {
+                                gw.record_success(&decision.backend_id);
+                            }
+                        }
+                    }
+
                     let response = attach_session_header(response, &session_id);
                     attach_trace_header(response, trace)
                 }

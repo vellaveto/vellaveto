@@ -1900,3 +1900,51 @@ fn test_sdk_capabilities_serde_roundtrip() {
     assert_eq!(caps, deserialized);
     assert!(json_str.contains("\"extended\""));
 }
+
+// ═══════════════════════════════════════════════════
+// PHASE 20: GATEWAY TYPES TESTS
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_backend_health_serde_roundtrip() {
+    for health in [
+        BackendHealth::Healthy,
+        BackendHealth::Degraded,
+        BackendHealth::Unhealthy,
+    ] {
+        let json_str = serde_json::to_string(&health).unwrap();
+        let deserialized: BackendHealth = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(health, deserialized);
+    }
+    // Verify lowercase serialization
+    assert_eq!(
+        serde_json::to_string(&BackendHealth::Healthy).unwrap(),
+        "\"healthy\""
+    );
+}
+
+#[test]
+fn test_upstream_backend_serde_roundtrip() {
+    let backend = UpstreamBackend {
+        id: "backend-1".to_string(),
+        url: "http://localhost:8001/mcp".to_string(),
+        tool_prefixes: vec!["fs_".to_string(), "file_".to_string()],
+        weight: 80,
+        health: BackendHealth::Healthy,
+    };
+    let json_str = serde_json::to_string(&backend).unwrap();
+    let deserialized: UpstreamBackend = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(backend.id, deserialized.id);
+    assert_eq!(backend.url, deserialized.url);
+    assert_eq!(backend.tool_prefixes, deserialized.tool_prefixes);
+    assert_eq!(backend.weight, deserialized.weight);
+    // Health is skip(deserialize), so it defaults to Healthy
+    assert_eq!(deserialized.health, BackendHealth::Healthy);
+}
+
+#[test]
+fn test_upstream_backend_default_weight() {
+    let json_str = r#"{"id":"b","url":"http://localhost:8000","tool_prefixes":[]}"#;
+    let backend: UpstreamBackend = serde_json::from_str(json_str).unwrap();
+    assert_eq!(backend.weight, 100);
+}

@@ -8,6 +8,7 @@ pub mod detection;
 pub mod enterprise;
 pub mod etdi;
 pub mod extension;
+pub mod gateway;
 pub mod manifest;
 pub mod mcp_protocol;
 pub mod memory_nhi;
@@ -100,6 +101,7 @@ pub use config_validate::{
     MAX_EXTRA_INJECTION_PATTERNS, MAX_KNOWN_TOOL_NAMES, MAX_POLICIES, MAX_TRUSTED_KEYS,
 };
 pub use extension::ExtensionConfig;
+pub use gateway::{BackendConfig, GatewayConfig};
 pub use grpc_transport::GrpcTransportConfig;
 pub use limits::LimitsConfig;
 pub use policy_rule::PolicyRule;
@@ -392,6 +394,15 @@ pub struct PolicyConfig {
     /// Controls the `/.well-known/mcp-transport` endpoint and upstream fallback.
     #[serde(default)]
     pub transport: TransportConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 20: MCP GATEWAY MODE
+    // ═══════════════════════════════════════════════════
+    /// Gateway configuration for multi-backend MCP routing.
+    /// When enabled, Sentinel routes tool calls to different upstream
+    /// MCP servers based on tool name prefix matching.
+    #[serde(default)]
+    pub gateway: GatewayConfig,
 }
 
 impl PolicyConfig {

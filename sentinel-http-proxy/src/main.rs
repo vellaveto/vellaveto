@@ -644,7 +644,37 @@ async fn main() -> Result<()> {
         // Transport discovery & negotiation (Phase 18)
         transport_config: policy_config.transport.clone(),
         grpc_port: if args.grpc { Some(args.grpc_port) } else { None },
+
+        // Phase 20: MCP Gateway Mode
+        gateway: if policy_config.gateway.enabled {
+            match proxy::gateway::GatewayRouter::from_config(&policy_config.gateway) {
+                Ok(router) => {
+                    let gw = Arc::new(router);
+                    tracing::info!("Gateway mode: {} backends", gw.backend_count());
+                    Some(gw)
+                }
+                Err(e) => {
+                    // Fail-closed: invalid gateway config prevents startup
+                    return Err(anyhow::anyhow!("Gateway config error: {}", e));
+                }
+            }
+        } else {
+            None
+        },
     };
+
+    // Phase 20: Spawn gateway health checker if gateway is enabled
+    if let Some(ref gw) = state.gateway {
+        proxy::gateway::spawn_health_checker(
+            gw.clone(),
+            state.http_client.clone(),
+            policy_config.gateway.health_check_interval_secs,
+        );
+        tracing::info!(
+            "Gateway health checker started (interval={}s)",
+            policy_config.gateway.health_check_interval_secs
+        );
+    }
 
     if state.canonicalize {
         tracing::info!("TOCTOU canonicalization enabled — forwarding re-serialized JSON");

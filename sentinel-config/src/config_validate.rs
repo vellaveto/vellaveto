@@ -818,6 +818,9 @@ impl PolicyConfig {
         // Transport discovery & negotiation bounds
         self.transport.validate()?;
 
+        // Gateway configuration bounds
+        self.gateway.validate()?;
+
         Ok(())
     }
 

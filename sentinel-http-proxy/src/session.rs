@@ -68,6 +68,12 @@ pub struct SessionState {
     /// Populated when the header is present and valid, provides stronger identity
     /// guarantees than the legacy oauth_subject field.
     pub agent_identity: Option<AgentIdentity>,
+    /// Phase 20: Gateway backend session mapping.
+    /// Maps backend_id → upstream session_id for session affinity.
+    pub backend_sessions: HashMap<String, String>,
+    /// Phase 20: Tools discovered from each gateway backend.
+    /// Maps backend_id → list of tool names for conflict detection.
+    pub gateway_tools: HashMap<String, Vec<String>>,
 }
 
 impl SessionState {
@@ -92,6 +98,8 @@ impl SessionState {
             token_expires_at: None,
             current_call_chain: Vec::new(),
             agent_identity: None,
+            backend_sessions: HashMap::new(),
+            gateway_tools: HashMap::new(),
         }
     }
 

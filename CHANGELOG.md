@@ -25,6 +25,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 20: MCP Gateway Mode (20.1–20.3)
+- **Gateway types** — `BackendHealth` (Healthy/Degraded/Unhealthy), `UpstreamBackend`, `RoutingDecision`, `ToolConflict` in leaf crate (`sentinel-types/src/gateway.rs`). 3 tests.
+- **Gateway configuration** — `GatewayConfig` with backend list, health check interval/thresholds, `BackendConfig` with tool prefixes and weights (`sentinel-config/src/gateway.rs`). Added to `PolicyConfig` with `#[serde(default)]`. Validation for duplicate IDs, zero weights, interval bounds, multiple defaults. 5 tests.
+- **Gateway router** — `GatewayRouter` with longest-prefix-first tool name matching, configurable unhealthy/healthy thresholds, `route_with_affinity()` for session-sticky routing, fail-closed when all backends unhealthy (`sentinel-http-proxy/src/proxy/gateway.rs`). 30 tests.
+- **Health state machine** — Healthy→Unhealthy after `unhealthy_threshold` consecutive failures; Unhealthy→Degraded (1 success) →Healthy (`healthy_threshold` successes). Degraded backends remain routable.
+- **Health checker background task** — Periodic JSON-RPC `ping` to each backend with 5s timeout. Updates `sentinel_gateway_backends_total` and `sentinel_gateway_backends_healthy` gauge metrics.
+- **Handler wiring** — ToolCall match arm in `handle_mcp_post()` routes via gateway when `ProxyState.gateway` is `Some`. Records success/failure from HTTP response status.
+- **`forward_to_upstream_url()`** — Extracted URL parameter from `forward_to_upstream()` enabling gateway routing without rewriting the 808-line forwarding function.
+- **WebSocket gateway** — Default backend resolution for new WS connections; closes with 1008 if no healthy backend.
+- **gRPC gateway** — Default backend resolution for HTTP fallback forwarding.
+- **Tool conflict detection** — `detect_conflicts()` builds tool→backends map, returns entries served by multiple backends.
+- **Session state** — `backend_sessions: HashMap<String, String>` and `gateway_tools: HashMap<String, Vec<String>>` for session affinity and tool discovery tracking.
+- **38 new tests** across 4 files (3 types + 5 config + 30 router)
+
 #### Phase 18: MCP June 2026 Spec Compliance
 - **Transport & SDK tier types** — `TransportProtocol` (Grpc/WebSocket/Http/Stdio), `TransportEndpoint`, `SdkTier` (Core/Standard/Extended/Full), `SdkCapabilities` in leaf crate (`sentinel-types/src/transport.rs`). 4 tests.
 - **Transport configuration** — `TransportConfig` with `discovery_enabled`, `upstream_priorities`, `restricted_transports`, `advertise_capabilities`, `max_fallback_retries`, `fallback_timeout_secs` (`sentinel-config/src/transport.rs`). Added to `PolicyConfig` with `#[serde(default)]`. Validation for bounds and conflict detection. 4 tests.
