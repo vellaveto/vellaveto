@@ -186,6 +186,7 @@ fn to_policies_produces_correct_policy_structs() {
         limits: Default::default(),
         compliance: Default::default(),
         extension: Default::default(),
+        transport: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(policies.len(), 1);
@@ -253,6 +254,7 @@ fn to_policies_uses_default_priority_when_none() {
         limits: Default::default(),
         compliance: Default::default(),
         extension: Default::default(),
+        transport: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(
@@ -426,6 +428,7 @@ fn policy_config_toml_roundtrip() {
         limits: Default::default(),
         compliance: Default::default(),
         extension: Default::default(),
+        transport: Default::default(),
     };
     let toml_str = toml::to_string(&original).unwrap();
     let parsed = PolicyConfig::from_toml(&toml_str).unwrap();

@@ -6,6 +6,9 @@
 
 mod auth;
 mod call_chain;
+pub mod discovery;
+#[allow(dead_code)] // Phase 20 will wire this into production code paths
+mod fallback;
 #[cfg(feature = "grpc")]
 pub mod grpc;
 mod handlers;
@@ -18,6 +21,7 @@ mod upstream;
 pub mod websocket;
 
 pub use call_chain::PrivilegeEscalationCheck;
+pub use discovery::handle_transport_discovery;
 pub use handlers::{handle_mcp_delete, handle_mcp_post, handle_protected_resource_metadata};
 pub use websocket::{handle_ws_upgrade, WebSocketConfig};
 
@@ -175,6 +179,16 @@ pub struct ProxyState {
     /// When `Some`, extension method calls are routed to registered handlers
     /// before falling back to upstream forwarding.
     pub extension_registry: Option<Arc<ExtensionRegistry>>,
+
+    // =========================================================================
+    // Phase 18: Transport Discovery & Negotiation
+    // =========================================================================
+    /// Transport discovery and negotiation configuration.
+    pub transport_config: sentinel_config::TransportConfig,
+
+    /// gRPC listen port, when gRPC transport is enabled.
+    /// Used by the discovery endpoint to advertise the gRPC endpoint.
+    pub grpc_port: Option<u16>,
 }
 
 /// Per-request trust signal for forwarded-header handling.
@@ -194,7 +208,15 @@ const MCP_PROTOCOL_VERSION: &str = "2025-11-25";
 
 /// Supported MCP protocol versions for incoming requests.
 /// The proxy accepts these versions for backwards compatibility.
-const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26"];
+/// `2026-06` is a placeholder for the upcoming MCP June 2026 specification.
+const SUPPORTED_PROTOCOL_VERSIONS: &[&str] =
+    &["2026-06", "2025-11-25", "2025-06-18", "2025-03-26"];
+
+/// Header for client transport preference negotiation (MCP June 2026).
+/// Clients may send a comma-separated list of preferred transports.
+/// Used in request handling when transport-preference-aware routing is active.
+#[allow(dead_code)] // Wired into request handlers in Phase 20
+const MCP_TRANSPORT_PREFERENCE_HEADER: &str = "mcp-transport-preference";
 
 /// OWASP ASI08: Header for tracking upstream agents in multi-hop MCP scenarios.
 /// Contains a JSON-encoded array of CallChainEntry objects from previous hops.

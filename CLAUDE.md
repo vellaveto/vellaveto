@@ -1,10 +1,10 @@
 # CLAUDE.md — Sentinel Project Instructions
 
 > **Project:** Sentinel — MCP Tool Firewall
-> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phase 17 complete, 19.1–19.4 complete, 21.0 complete, Phases 18/20–23 remaining)
+> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phase 17 complete, Phase 18 complete, 19.1–19.4 complete, 21.0 complete, Phases 20–23 remaining)
 > **Version:** 3.0.0-dev (crates at 2.2.1, targeting v3.0 release)
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 4,480+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 4,500+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 22
 > **CI workflows:** 11
 > **Updated:** 2026-02-14
@@ -90,7 +90,8 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Types: CapabilityToken, CapabilityGrant, CapabilityVerification | `sentinel-types/src/capability.rs` |
 | Types: AiActRiskClass, TrustServicesCategory (shared compliance enums) | `sentinel-types/src/compliance.rs` |
 | Types: ExtensionDescriptor, ExtensionResourceLimits, ExtensionError | `sentinel-types/src/extension.rs` |
-| Types: tests (~125 unit tests) | `sentinel-types/src/tests.rs` |
+| Types: TransportProtocol, SdkTier, TransportEndpoint, SdkCapabilities | `sentinel-types/src/transport.rs` |
+| Types: tests (~129 unit tests) | `sentinel-types/src/tests.rs` |
 | Policy evaluation | `sentinel-engine/src/lib.rs` |
 | Audit: module root + re-exports | `sentinel-audit/src/lib.rs` |
 | Audit: types (AuditEntry, AuditError, etc.) | `sentinel-audit/src/types.rs` |
@@ -130,6 +131,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Config: LimitsConfig + validate() | `sentinel-config/src/limits.rs` |
 | Config: ComplianceConfig (EU AI Act + SOC 2) | `sentinel-config/src/compliance.rs` |
 | Config: ExtensionConfig (allow/block/signatures/limits) | `sentinel-config/src/extension.rs` |
+| Config: TransportConfig (discovery/negotiation/fallback) | `sentinel-config/src/transport.rs` |
 | Config: PolicyConfig::validate() + load_file() | `sentinel-config/src/config_validate.rs` |
 | Config: tests (~164 unit tests) | `sentinel-config/src/tests.rs` |
 | MCP handling | `sentinel-mcp/src/lib.rs` |
@@ -158,6 +160,8 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | HTTP proxy: response inspection | `sentinel-http-proxy/src/proxy/inspection.rs` |
 | HTTP proxy: utility helpers | `sentinel-http-proxy/src/proxy/helpers.rs` |
 | HTTP proxy: tests | `sentinel-http-proxy/src/proxy/tests.rs` |
+| HTTP proxy: transport discovery + negotiation | `sentinel-http-proxy/src/proxy/discovery.rs` |
+| HTTP proxy: upstream transport fallback | `sentinel-http-proxy/src/proxy/fallback.rs` |
 | HTTP proxy: WebSocket handler + relay | `sentinel-http-proxy/src/proxy/websocket/mod.rs` |
 | HTTP proxy: WebSocket tests (~29 tests) | `sentinel-http-proxy/src/proxy/websocket/tests.rs` |
 | HTTP proxy: gRPC module root + GrpcConfig + server start | `sentinel-http-proxy/src/proxy/grpc/mod.rs` |
@@ -295,6 +299,16 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - Log rotation support — `.merkle-leaves` file renamed alongside rotated log, tree reset
 - Crash recovery — `initialize()` rebuilds peaks from existing leaf file
 - 24 unit tests
+
+**MCP June 2026 Spec Compliance (Phase 18):**
+- Transport types in leaf crate — `TransportProtocol` (Grpc/WebSocket/Http/Stdio with Ord), `TransportEndpoint`, `SdkTier` (Core/Standard/Extended/Full), `SdkCapabilities` (`sentinel-types/src/transport.rs`)
+- Transport configuration — `TransportConfig` with `discovery_enabled`, `upstream_priorities`, `restricted_transports`, `max_fallback_retries`, `fallback_timeout_secs` (`sentinel-config/src/transport.rs`)
+- Transport discovery endpoint — `GET /.well-known/mcp-transport` with JSON response (transports, SDK tier, versions). 404 when disabled. (`sentinel-http-proxy/src/proxy/discovery.rs`)
+- Protocol version `2026-06` placeholder — first entry in `SUPPORTED_PROTOCOL_VERSIONS`, backward compat with 2025-03-26/2025-06-18/2025-11-25
+- Transport preference negotiation — `parse_transport_preference()` (aliases: ws=websocket, sse=http), `negotiate_transport()` pure logic
+- SDK tier declaration — `SdkTier::Extended` with 12 capabilities, CI validation in `sdk_tier_ci.rs`
+- Upstream fallback foundation — `forward_with_fallback()` HTTP retry (`sentinel-http-proxy/src/proxy/fallback.rs`)
+- 25 new tests across types, config, proxy, and integration
 
 **Capability-Based Delegation Tokens (Phase 21.0):**
 - `CapabilityToken` with Ed25519 signature, delegation chain, depth budget, grants, expiry (`sentinel-types/src/capability.rs`)

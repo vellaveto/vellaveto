@@ -1109,6 +1109,7 @@ fn test_validate_rejects_too_many_policies() {
         limits: LimitsConfig::default(),
         compliance: ComplianceConfig::default(),
         extension: ExtensionConfig::default(),
+        transport: TransportConfig::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {
@@ -2554,4 +2555,68 @@ fn test_extension_config_validation() {
     config.default_resource_limits.max_concurrent_requests = 0;
     let err = config.validate().unwrap_err();
     assert!(err.contains("max_concurrent_requests"));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 18: Transport configuration
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_transport_config_defaults() {
+    let config = TransportConfig::default();
+    assert!(config.discovery_enabled);
+    assert!(config.upstream_priorities.is_empty());
+    assert!(config.restricted_transports.is_empty());
+    assert!(config.advertise_capabilities);
+    assert_eq!(config.max_fallback_retries, 1);
+    assert_eq!(config.fallback_timeout_secs, 10);
+}
+
+#[test]
+fn test_transport_config_validation_conflict() {
+    use sentinel_types::TransportProtocol;
+    let config = TransportConfig {
+        upstream_priorities: vec![TransportProtocol::Grpc],
+        restricted_transports: vec![TransportProtocol::Grpc],
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("both upstream_priorities and restricted_transports"));
+}
+
+#[test]
+fn test_transport_config_validation_bounds() {
+    let mut config = TransportConfig::default();
+    config.max_fallback_retries = 11;
+    assert!(config.validate().is_err());
+
+    config.max_fallback_retries = 1;
+    config.fallback_timeout_secs = 0;
+    assert!(config.validate().is_err());
+
+    config.fallback_timeout_secs = 121;
+    assert!(config.validate().is_err());
+
+    config.fallback_timeout_secs = 60;
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_transport_config_toml_deserialization() {
+    let toml_str = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+
+[transport]
+discovery_enabled = false
+max_fallback_retries = 3
+fallback_timeout_secs = 30
+"#;
+    let config = PolicyConfig::from_toml(toml_str).unwrap();
+    assert!(!config.transport.discovery_enabled);
+    assert_eq!(config.transport.max_fallback_retries, 3);
+    assert_eq!(config.transport.fallback_timeout_secs, 30);
 }

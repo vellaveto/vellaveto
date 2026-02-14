@@ -537,5 +537,7 @@ fn make_test_state() -> ProxyState {
         limits: sentinel_config::LimitsConfig::default(),
         ws_config: Some(WebSocketConfig::default()),
         extension_registry: None,
+        transport_config: sentinel_config::TransportConfig::default(),
+        grpc_port: None,
     }
 }

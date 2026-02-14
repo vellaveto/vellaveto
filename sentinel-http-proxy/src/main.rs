@@ -640,6 +640,10 @@ async fn main() -> Result<()> {
         // Protocol extensions (Phase 17.4) — disabled for now; wired up in
         // sentinel-server when extension config is enabled.
         extension_registry: None,
+
+        // Transport discovery & negotiation (Phase 18)
+        transport_config: policy_config.transport.clone(),
+        grpc_port: if args.grpc { Some(args.grpc_port) } else { None },
     };
 
     if state.canonicalize {
@@ -706,6 +710,11 @@ async fn main() -> Result<()> {
         .route(
             "/.well-known/oauth-protected-resource",
             axum::routing::get(proxy::handle_protected_resource_metadata),
+        )
+        // MCP June 2026: Transport discovery endpoint (Phase 18)
+        .route(
+            "/.well-known/mcp-transport",
+            axum::routing::get(proxy::handle_transport_discovery),
         )
         .layer(axum::extract::DefaultBodyLimit::max(1_048_576))
         .layer(axum::middleware::from_fn(security_headers))

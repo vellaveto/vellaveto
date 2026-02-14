@@ -1850,3 +1850,53 @@ fn test_extension_negotiation_result_serde() {
     assert_eq!(deserialized.rejected.len(), 1);
     assert_eq!(deserialized.rejected[0].0, "ext-b");
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 18: Transport & SDK Tier types
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_transport_protocol_ordering() {
+    // gRPC > WebSocket > HTTP > stdio
+    assert!(TransportProtocol::Grpc < TransportProtocol::WebSocket);
+    assert!(TransportProtocol::WebSocket < TransportProtocol::Http);
+    assert!(TransportProtocol::Http < TransportProtocol::Stdio);
+}
+
+#[test]
+fn test_sdk_tier_ordering() {
+    assert!(SdkTier::Core < SdkTier::Standard);
+    assert!(SdkTier::Standard < SdkTier::Extended);
+    assert!(SdkTier::Extended < SdkTier::Full);
+}
+
+#[test]
+fn test_transport_endpoint_serde_roundtrip() {
+    let endpoint = TransportEndpoint {
+        protocol: TransportProtocol::WebSocket,
+        url: "ws://localhost:3001/mcp/ws".to_string(),
+        available: true,
+        protocol_versions: vec!["2026-06".to_string(), "2025-11-25".to_string()],
+    };
+    let json_str = serde_json::to_string(&endpoint).unwrap();
+    let deserialized: TransportEndpoint = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(endpoint, deserialized);
+    // Verify lowercase rename
+    assert!(json_str.contains("\"websocket\""));
+}
+
+#[test]
+fn test_sdk_capabilities_serde_roundtrip() {
+    let caps = SdkCapabilities {
+        tier: SdkTier::Extended,
+        capabilities: vec![
+            "policy-evaluation".to_string(),
+            "dlp-scanning".to_string(),
+        ],
+        supported_versions: vec!["2026-06".to_string()],
+    };
+    let json_str = serde_json::to_string(&caps).unwrap();
+    let deserialized: SdkCapabilities = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(caps, deserialized);
+    assert!(json_str.contains("\"extended\""));
+}

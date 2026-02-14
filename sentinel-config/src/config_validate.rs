@@ -815,6 +815,9 @@ impl PolicyConfig {
         // Compliance evidence configuration bounds
         self.compliance.validate()?;
 
+        // Transport discovery & negotiation bounds
+        self.transport.validate()?;
+
         Ok(())
     }
 

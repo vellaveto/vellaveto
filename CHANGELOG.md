@@ -25,6 +25,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 18: MCP June 2026 Spec Compliance
+- **Transport & SDK tier types** — `TransportProtocol` (Grpc/WebSocket/Http/Stdio), `TransportEndpoint`, `SdkTier` (Core/Standard/Extended/Full), `SdkCapabilities` in leaf crate (`sentinel-types/src/transport.rs`). 4 tests.
+- **Transport configuration** — `TransportConfig` with `discovery_enabled`, `upstream_priorities`, `restricted_transports`, `advertise_capabilities`, `max_fallback_retries`, `fallback_timeout_secs` (`sentinel-config/src/transport.rs`). Added to `PolicyConfig` with `#[serde(default)]`. Validation for bounds and conflict detection. 4 tests.
+- **Transport discovery endpoint** — `GET /.well-known/mcp-transport` returns JSON with available transports, SDK tier (Extended with 12 capabilities), and supported protocol versions. 404 when `discovery_enabled=false`. (`sentinel-http-proxy/src/proxy/discovery.rs`)
+- **Protocol version `2026-06` placeholder** — Added to `SUPPORTED_PROTOCOL_VERSIONS` (first position) for forward compatibility with upcoming MCP June 2026 spec. All existing versions (2025-11-25, 2025-06-18, 2025-03-26) preserved for backward compatibility.
+- **Transport preference negotiation** — `parse_transport_preference()` parses `mcp-transport-preference` header (aliases: ws=websocket, sse=http). `negotiate_transport()` pure logic finds best match respecting restrictions.
+- **Upstream fallback foundation** — `forward_with_fallback()` with timeout-based retry for HTTP transport. Cross-transport fallback deferred to Phase 20 (`sentinel-http-proxy/src/proxy/fallback.rs`).
+- **SDK tier CI validation** — `test_sdk_tier_minimum_standard` and `test_extended_tier_required_capabilities` ensure Sentinel maintains Extended tier (`sentinel-integration/tests/sdk_tier_ci.rs`).
+- **Backward compatibility tests** — Verify 2025-03-26, 2025-06-18, 2025-11-25 protocol versions remain supported and HTTP default works without negotiation headers (`sentinel-integration/tests/transport_negotiation.rs`).
+- **25 new tests** across 6 files (4 types + 4 config + 10 proxy + 5 transport integration + 2 SDK CI)
+
 #### Phase 17.3: Async Operations Enhancements (SEP-1391)
 - **TaskRequest policy enforcement across all transports** — `TaskRequest` messages (`tasks/get`, `tasks/cancel`, `tasks/resubscribe`, `tasks/send`) now receive full policy evaluation (extract action → evaluate → audit → forward/deny) in HTTP, WebSocket, gRPC, and stdio relay. Previously forwarded without policy checks.
 - **`ProgressNotification` message classification** — `notifications/progress` messages classified as `ProgressNotification` variant with `progress_token`, `progress`, and optional `total` fields for future per-transport handling. Currently forwarded as PassThrough.

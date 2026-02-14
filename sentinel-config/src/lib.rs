@@ -15,6 +15,7 @@ pub mod rag_defense_config;
 pub mod semantic_guardrails_config;
 pub mod supply_chain;
 pub mod threat_detection;
+pub mod transport;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // EXTRACTED CONFIG SUBMODULES (Phase 16.6 split)
@@ -103,6 +104,7 @@ pub use grpc_transport::GrpcTransportConfig;
 pub use limits::LimitsConfig;
 pub use policy_rule::PolicyRule;
 pub use tool_registry::ToolRegistryConfig;
+pub use transport::TransportConfig;
 
 use sentinel_types::{Policy, PolicyType};
 use serde::{Deserialize, Serialize};
@@ -382,6 +384,14 @@ pub struct PolicyConfig {
     /// When enabled, allows registering extensions that handle `x-` prefixed methods.
     #[serde(default)]
     pub extension: ExtensionConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 18: MCP JUNE 2026 SPEC COMPLIANCE
+    // ═══════════════════════════════════════════════════
+    /// Transport discovery and negotiation configuration.
+    /// Controls the `/.well-known/mcp-transport` endpoint and upstream fallback.
+    #[serde(default)]
+    pub transport: TransportConfig,
 }
 
 impl PolicyConfig {

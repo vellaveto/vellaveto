@@ -3047,6 +3047,7 @@ dependencies = [
  "sentinel-audit",
  "sentinel-config",
  "sentinel-engine",
+ "sentinel-http-proxy",
  "sentinel-mcp",
  "sentinel-server",
  "sentinel-types",

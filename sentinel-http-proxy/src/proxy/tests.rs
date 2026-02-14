@@ -784,6 +784,9 @@ fn make_test_proxy_state(canonicalize: bool) -> ProxyState {
         ws_config: None,
         // Extension registry
         extension_registry: None,
+        // Transport discovery (Phase 18)
+        transport_config: sentinel_config::TransportConfig::default(),
+        grpc_port: None,
     }
 }
 
@@ -1708,5 +1711,136 @@ fn test_extract_call_chain_rejects_excessive_entries() {
     assert!(
         result.is_empty(),
         "Excessive call chain should be rejected and dropped fail-closed"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 18: Transport discovery, negotiation, and protocol version tests
+// ═══════════════════════════════════════════════════════════════════
+
+use super::discovery::{
+    build_sdk_capabilities, negotiate_transport, parse_transport_preference, SENTINEL_SDK_TIER,
+};
+use sentinel_types::{SdkTier, TransportEndpoint, TransportProtocol};
+
+#[test]
+fn test_supported_protocol_versions_includes_2026_06() {
+    assert!(
+        SUPPORTED_PROTOCOL_VERSIONS.contains(&"2026-06"),
+        "2026-06 placeholder must be in SUPPORTED_PROTOCOL_VERSIONS"
+    );
+    // Must be the first (highest priority) entry
+    assert_eq!(SUPPORTED_PROTOCOL_VERSIONS[0], "2026-06");
+}
+
+#[test]
+fn test_parse_transport_preference_valid() {
+    let prefs = parse_transport_preference("grpc,websocket,http");
+    assert_eq!(
+        prefs,
+        vec![
+            TransportProtocol::Grpc,
+            TransportProtocol::WebSocket,
+            TransportProtocol::Http,
+        ]
+    );
+}
+
+#[test]
+fn test_parse_transport_preference_aliases() {
+    let prefs = parse_transport_preference("ws, sse");
+    assert_eq!(
+        prefs,
+        vec![TransportProtocol::WebSocket, TransportProtocol::Http]
+    );
+}
+
+#[test]
+fn test_parse_transport_preference_ignores_unknown() {
+    let prefs = parse_transport_preference("grpc,foobar,http");
+    assert_eq!(
+        prefs,
+        vec![TransportProtocol::Grpc, TransportProtocol::Http]
+    );
+}
+
+#[test]
+fn test_parse_transport_preference_empty() {
+    let prefs = parse_transport_preference("");
+    assert!(prefs.is_empty());
+}
+
+#[test]
+fn test_negotiate_transport_finds_preferred() {
+    let available = vec![
+        TransportEndpoint {
+            protocol: TransportProtocol::Http,
+            url: "http://localhost/mcp".into(),
+            available: true,
+            protocol_versions: vec!["2026-06".into()],
+        },
+        TransportEndpoint {
+            protocol: TransportProtocol::Grpc,
+            url: "http://localhost:50051".into(),
+            available: true,
+            protocol_versions: vec!["2026-06".into()],
+        },
+    ];
+    let prefs = vec![TransportProtocol::Grpc, TransportProtocol::Http];
+    let result = negotiate_transport(&prefs, &available, &[]);
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().protocol, TransportProtocol::Grpc);
+}
+
+#[test]
+fn test_negotiate_transport_skips_restricted() {
+    let available = vec![
+        TransportEndpoint {
+            protocol: TransportProtocol::Grpc,
+            url: "http://localhost:50051".into(),
+            available: true,
+            protocol_versions: vec!["2026-06".into()],
+        },
+        TransportEndpoint {
+            protocol: TransportProtocol::Http,
+            url: "http://localhost/mcp".into(),
+            available: true,
+            protocol_versions: vec!["2026-06".into()],
+        },
+    ];
+    let prefs = vec![TransportProtocol::Grpc, TransportProtocol::Http];
+    let restricted = vec![TransportProtocol::Grpc];
+    let result = negotiate_transport(&prefs, &available, &restricted);
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().protocol, TransportProtocol::Http);
+}
+
+#[test]
+fn test_negotiate_transport_none_available() {
+    let available = vec![TransportEndpoint {
+        protocol: TransportProtocol::Http,
+        url: "http://localhost/mcp".into(),
+        available: true,
+        protocol_versions: vec!["2026-06".into()],
+    }];
+    let prefs = vec![TransportProtocol::Grpc];
+    let result = negotiate_transport(&prefs, &available, &[]);
+    assert!(result.is_none());
+}
+
+#[test]
+fn test_sdk_capabilities_tier() {
+    assert_eq!(SENTINEL_SDK_TIER, SdkTier::Extended);
+    let caps = build_sdk_capabilities();
+    assert_eq!(caps.tier, SdkTier::Extended);
+    assert!(caps.capabilities.len() >= 8);
+    assert!(caps.supported_versions.contains(&"2026-06".to_string()));
+}
+
+#[test]
+fn test_transport_preference_header_constant() {
+    assert_eq!(
+        MCP_TRANSPORT_PREFERENCE_HEADER,
+        "mcp-transport-preference"
     );
 }

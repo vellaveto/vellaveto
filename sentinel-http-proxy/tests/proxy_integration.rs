@@ -243,6 +243,8 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         limits: sentinel_config::LimitsConfig::default(),
         ws_config: None,
         extension_registry: None,
+        transport_config: sentinel_config::TransportConfig::default(),
+        grpc_port: None,
     }
 }
 
@@ -1890,6 +1892,8 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         limits: sentinel_config::LimitsConfig::default(),
         ws_config: None,
         extension_registry: None,
+        transport_config: sentinel_config::TransportConfig::default(),
+        grpc_port: None,
     };
     let sessions = state.sessions.clone();
     let app = build_router(state);
@@ -2278,6 +2282,8 @@ async fn trace_resource_read_denied_includes_trace() {
         limits: sentinel_config::LimitsConfig::default(),
         ws_config: None,
         extension_registry: None,
+        transport_config: sentinel_config::TransportConfig::default(),
+        grpc_port: None,
     };
     let app = build_router(state);
 
@@ -2370,6 +2376,8 @@ async fn trace_constraint_details_visible() {
         limits: sentinel_config::LimitsConfig::default(),
         ws_config: None,
         extension_registry: None,
+        transport_config: sentinel_config::TransportConfig::default(),
+        grpc_port: None,
     };
     let app = build_router(state);
 
@@ -2805,6 +2813,8 @@ fn build_oauth_test_state_full(params: OAuthTestParams<'_>) -> ProxyState {
         limits: sentinel_config::LimitsConfig::default(),
         ws_config: None,
         extension_registry: None,
+        transport_config: sentinel_config::TransportConfig::default(),
+        grpc_port: None,
     }
 }
 
@@ -3865,6 +3875,8 @@ fn build_api_key_test_state(
         limits: sentinel_config::LimitsConfig::default(),
         ws_config: None,
         extension_registry: None,
+        transport_config: sentinel_config::TransportConfig::default(),
+        grpc_port: None,
     }
 }
 
@@ -4350,6 +4362,8 @@ fn build_test_state_deny_tasks(upstream_url: &str, tmp: &TempDir) -> ProxyState 
         limits: sentinel_config::LimitsConfig::default(),
         ws_config: None,
         extension_registry: None,
+        transport_config: sentinel_config::TransportConfig::default(),
+        grpc_port: None,
     }
 }
 
@@ -4477,6 +4491,8 @@ async fn task_get_allowed_when_no_deny_policy() {
         limits: sentinel_config::LimitsConfig::default(),
         ws_config: None,
         extension_registry: None,
+        transport_config: sentinel_config::TransportConfig::default(),
+        grpc_port: None,
     };
     let app = build_router(state);
 
@@ -4559,6 +4575,8 @@ async fn task_request_fail_closed_no_matching_policy() {
         limits: sentinel_config::LimitsConfig::default(),
         ws_config: None,
         extension_registry: None,
+        transport_config: sentinel_config::TransportConfig::default(),
+        grpc_port: None,
     };
     let app = build_router(state);
 
@@ -4640,6 +4658,8 @@ async fn task_request_dlp_blocks_secret_in_task_id() {
         limits: sentinel_config::LimitsConfig::default(),
         ws_config: None,
         extension_registry: None,
+        transport_config: sentinel_config::TransportConfig::default(),
+        grpc_port: None,
     };
     let app = build_router(state);
 
@@ -4728,6 +4748,8 @@ async fn task_request_clean_params_not_dlp_blocked() {
         limits: sentinel_config::LimitsConfig::default(),
         ws_config: None,
         extension_registry: None,
+        transport_config: sentinel_config::TransportConfig::default(),
+        grpc_port: None,
     };
     let app = build_router(state);
 
@@ -4813,6 +4835,8 @@ async fn task_request_dlp_blocks_github_token_in_params() {
         limits: sentinel_config::LimitsConfig::default(),
         ws_config: None,
         extension_registry: None,
+        transport_config: sentinel_config::TransportConfig::default(),
+        grpc_port: None,
     };
     let app = build_router(state);
 
@@ -5080,6 +5104,8 @@ fn build_chain_depth_test_state(upstream_url: &str, tmp: &TempDir, max_depth: us
         limits: sentinel_config::LimitsConfig::default(),
         ws_config: None,
         extension_registry: None,
+        transport_config: sentinel_config::TransportConfig::default(),
+        grpc_port: None,
     }
 }
 
@@ -5615,6 +5641,8 @@ fn build_priv_escalation_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyS
         limits: sentinel_config::LimitsConfig::default(),
         ws_config: None,
         extension_registry: None,
+        transport_config: sentinel_config::TransportConfig::default(),
+        grpc_port: None,
     }
 }
 
