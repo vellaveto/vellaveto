@@ -1,0 +1,25 @@
+apiVersion: v2
+name: vellaveto
+description: MCP Tool Firewall - Runtime security engine for AI agent tool calls
+type: application
+version: 3.0.0
+appVersion: "3.0.0"
+
+keywords:
+  - mcp
+  - security
+  - firewall
+  - ai-agents
+  - tool-control
+
+home: https://github.com/paolovella/vellaveto
+sources:
+  - https://github.com/paolovella/vellaveto
+
+maintainers:
+  - name: Paolo Vella
+    email: paolovella1993@gmail.com
+
+annotations:
+  artifacthub.io/license: AGPL-3.0-only
+  artifacthub.io/category: security

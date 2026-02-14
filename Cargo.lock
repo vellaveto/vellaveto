@@ -3004,327 +3004,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 
 [[package]]
-name = "sentinel-approval"
-version = "3.0.0"
-dependencies = [
- "chrono",
- "sentinel-types",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror",
- "tokio",
- "tracing",
- "unicode-normalization",
- "uuid",
-]
-
-[[package]]
-name = "sentinel-audit"
-version = "3.0.0"
-dependencies = [
- "async-trait",
- "base64",
- "chrono",
- "criterion",
- "ed25519-dalek",
- "filetime",
- "flate2",
- "hex",
- "hostname",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry-semantic-conventions",
- "opentelemetry_sdk",
- "proptest",
- "rand 0.8.5",
- "regex",
- "reqwest",
- "sentinel-types",
- "serde",
- "serde_json",
- "serde_json_canonicalizer",
- "sha2",
- "tempfile",
- "thiserror",
- "tokio",
- "tracing",
- "unicode-normalization",
- "uuid",
-]
-
-[[package]]
-name = "sentinel-canonical"
-version = "3.0.0"
-dependencies = [
- "proptest",
- "sentinel-types",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "sentinel-cluster"
-version = "3.0.0"
-dependencies = [
- "async-trait",
- "chrono",
- "deadpool-redis",
- "sentinel-approval",
- "sentinel-config",
- "sentinel-types",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror",
- "tokio",
- "toml",
- "tracing",
- "unicode-normalization",
- "uuid",
-]
-
-[[package]]
-name = "sentinel-config"
-version = "3.0.0"
-dependencies = [
- "ed25519-dalek",
- "hex",
- "rand 0.8.5",
- "regex",
- "sentinel-types",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "toml",
- "url",
-]
-
-[[package]]
-name = "sentinel-engine"
-version = "3.0.0"
-dependencies = [
- "chrono",
- "criterion",
- "globset",
- "idna",
- "ipnet",
- "metrics",
- "percent-encoding",
- "proptest",
- "regex",
- "sentinel-types",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "sentinel-http-proxy"
-version = "3.0.0"
-dependencies = [
- "anyhow",
- "axum",
- "base64",
- "bytes",
- "chrono",
- "clap",
- "criterion",
- "dashmap",
- "futures-util",
- "governor",
- "hex",
- "hmac",
- "http",
- "jsonwebtoken",
- "metrics",
- "prost",
- "prost-types",
- "reqwest",
- "sentinel-approval",
- "sentinel-audit",
- "sentinel-config",
- "sentinel-engine",
- "sentinel-mcp",
- "sentinel-types",
- "serde",
- "serde_json",
- "sha2",
- "subtle",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-stream",
- "tokio-tungstenite",
- "tokio-util",
- "tonic",
- "tonic-build",
- "tonic-health",
- "tonic-prost",
- "tonic-prost-build",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "sentinel-integration"
-version = "3.0.0"
-dependencies = [
- "arc-swap",
- "axum",
- "base64",
- "chrono",
- "ed25519-dalek",
- "flate2",
- "hex",
- "rand 0.8.5",
- "sentinel-approval",
- "sentinel-audit",
- "sentinel-config",
- "sentinel-engine",
- "sentinel-http-proxy",
- "sentinel-mcp",
- "sentinel-server",
- "sentinel-types",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tokio",
- "tower",
-]
-
-[[package]]
-name = "sentinel-mcp"
-version = "3.0.0"
-dependencies = [
- "aho-corasick",
- "async-trait",
- "base64",
- "chacha20poly1305",
- "chrono",
- "criterion",
- "ed25519-dalek",
- "flate2",
- "getrandom 0.2.17",
- "hex",
- "hmac",
- "image",
- "lru",
- "p256",
- "percent-encoding",
- "proptest",
- "rand 0.8.5",
- "regex",
- "reqwest",
- "semver",
- "sentinel-approval",
- "sentinel-audit",
- "sentinel-config",
- "sentinel-engine",
- "sentinel-types",
- "serde",
- "serde_json",
- "serde_json_canonicalizer",
- "sha2",
- "subtle",
- "tempfile",
- "thiserror",
- "tokio",
- "tracing",
- "unicode-normalization",
- "uuid",
-]
-
-[[package]]
-name = "sentinel-proxy"
-version = "3.0.0"
-dependencies = [
- "anyhow",
- "clap",
- "sentinel-audit",
- "sentinel-config",
- "sentinel-engine",
- "sentinel-mcp",
- "sentinel-types",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "sentinel-server"
-version = "3.0.0"
-dependencies = [
- "anyhow",
- "arc-swap",
- "async-trait",
- "axum",
- "chrono",
- "clap",
- "dashmap",
- "ed25519-dalek",
- "governor",
- "hex",
- "jsonwebtoken",
- "lru",
- "metrics",
- "metrics-exporter-prometheus",
- "notify",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry-semantic-conventions",
- "opentelemetry_sdk",
- "percent-encoding",
- "reqwest",
- "rustls",
- "sentinel-approval",
- "sentinel-audit",
- "sentinel-canonical",
- "sentinel-cluster",
- "sentinel-config",
- "sentinel-engine",
- "sentinel-mcp",
- "sentinel-types",
- "serde",
- "serde_json",
- "sha2",
- "subtle",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-rustls",
- "toml",
- "tower",
- "tower-http",
- "tracing",
- "tracing-opentelemetry",
- "tracing-subscriber",
- "url",
- "uuid",
- "x509-parser",
-]
-
-[[package]]
-name = "sentinel-types"
-version = "3.0.0"
-dependencies = [
- "proptest",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "serde"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4162,6 +3841,327 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
+
+[[package]]
+name = "vellaveto-approval"
+version = "3.0.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "unicode-normalization",
+ "uuid",
+ "vellaveto-types",
+]
+
+[[package]]
+name = "vellaveto-audit"
+version = "3.0.0"
+dependencies = [
+ "async-trait",
+ "base64",
+ "chrono",
+ "criterion",
+ "ed25519-dalek",
+ "filetime",
+ "flate2",
+ "hex",
+ "hostname",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry-semantic-conventions",
+ "opentelemetry_sdk",
+ "proptest",
+ "rand 0.8.5",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_json_canonicalizer",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "unicode-normalization",
+ "uuid",
+ "vellaveto-types",
+]
+
+[[package]]
+name = "vellaveto-canonical"
+version = "3.0.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+ "vellaveto-types",
+]
+
+[[package]]
+name = "vellaveto-cluster"
+version = "3.0.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "deadpool-redis",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "toml",
+ "tracing",
+ "unicode-normalization",
+ "uuid",
+ "vellaveto-approval",
+ "vellaveto-config",
+ "vellaveto-types",
+]
+
+[[package]]
+name = "vellaveto-config"
+version = "3.0.0"
+dependencies = [
+ "ed25519-dalek",
+ "hex",
+ "rand 0.8.5",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml",
+ "url",
+ "vellaveto-types",
+]
+
+[[package]]
+name = "vellaveto-engine"
+version = "3.0.0"
+dependencies = [
+ "chrono",
+ "criterion",
+ "globset",
+ "idna",
+ "ipnet",
+ "metrics",
+ "percent-encoding",
+ "proptest",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "vellaveto-types",
+]
+
+[[package]]
+name = "vellaveto-http-proxy"
+version = "3.0.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64",
+ "bytes",
+ "chrono",
+ "clap",
+ "criterion",
+ "dashmap",
+ "futures-util",
+ "governor",
+ "hex",
+ "hmac",
+ "http",
+ "jsonwebtoken",
+ "metrics",
+ "prost",
+ "prost-types",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tokio-tungstenite",
+ "tokio-util",
+ "tonic",
+ "tonic-build",
+ "tonic-health",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "vellaveto-approval",
+ "vellaveto-audit",
+ "vellaveto-config",
+ "vellaveto-engine",
+ "vellaveto-mcp",
+ "vellaveto-types",
+]
+
+[[package]]
+name = "vellaveto-integration"
+version = "3.0.0"
+dependencies = [
+ "arc-swap",
+ "axum",
+ "base64",
+ "chrono",
+ "ed25519-dalek",
+ "flate2",
+ "hex",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tower",
+ "vellaveto-approval",
+ "vellaveto-audit",
+ "vellaveto-config",
+ "vellaveto-engine",
+ "vellaveto-http-proxy",
+ "vellaveto-mcp",
+ "vellaveto-server",
+ "vellaveto-types",
+]
+
+[[package]]
+name = "vellaveto-mcp"
+version = "3.0.0"
+dependencies = [
+ "aho-corasick",
+ "async-trait",
+ "base64",
+ "chacha20poly1305",
+ "chrono",
+ "criterion",
+ "ed25519-dalek",
+ "flate2",
+ "getrandom 0.2.17",
+ "hex",
+ "hmac",
+ "image",
+ "lru",
+ "p256",
+ "percent-encoding",
+ "proptest",
+ "rand 0.8.5",
+ "regex",
+ "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
+ "serde_json_canonicalizer",
+ "sha2",
+ "subtle",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "unicode-normalization",
+ "uuid",
+ "vellaveto-approval",
+ "vellaveto-audit",
+ "vellaveto-config",
+ "vellaveto-engine",
+ "vellaveto-types",
+]
+
+[[package]]
+name = "vellaveto-proxy"
+version = "3.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "vellaveto-audit",
+ "vellaveto-config",
+ "vellaveto-engine",
+ "vellaveto-mcp",
+ "vellaveto-types",
+]
+
+[[package]]
+name = "vellaveto-server"
+version = "3.0.0"
+dependencies = [
+ "anyhow",
+ "arc-swap",
+ "async-trait",
+ "axum",
+ "chrono",
+ "clap",
+ "dashmap",
+ "ed25519-dalek",
+ "governor",
+ "hex",
+ "jsonwebtoken",
+ "lru",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "notify",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry-semantic-conventions",
+ "opentelemetry_sdk",
+ "percent-encoding",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-rustls",
+ "toml",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+ "vellaveto-approval",
+ "vellaveto-audit",
+ "vellaveto-canonical",
+ "vellaveto-cluster",
+ "vellaveto-config",
+ "vellaveto-engine",
+ "vellaveto-mcp",
+ "vellaveto-types",
+ "x509-parser",
+]
+
+[[package]]
+name = "vellaveto-types"
+version = "3.0.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "version_check"

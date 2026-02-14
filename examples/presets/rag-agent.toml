@@ -1,4 +1,4 @@
-# Sentinel Preset: RAG Agent
+# Vellaveto Preset: RAG Agent
 #
 # For retrieval-augmented generation agents that query vector databases,
 # search APIs, and document stores. Focuses on preventing data
@@ -6,7 +6,7 @@
 # data access.
 #
 # Usage:
-#   sentinel serve --config examples/presets/rag-agent.toml --port 3000
+#   vellaveto serve --config examples/presets/rag-agent.toml --port 3000
 
 # --- Block credential file access ---
 [[policies]]

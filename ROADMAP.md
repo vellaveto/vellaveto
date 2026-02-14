@@ -1,4 +1,4 @@
-# Sentinel Roadmap v3.0
+# Vellaveto Roadmap v3.0
 
 > **Version:** 3.0.0
 > **Generated:** 2026-02-13
@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Sentinel v2.2.1 is production-ready. The v3.0 roadmap addresses the next wave of protocol evolution, regulatory deadlines, and enterprise competition:
+Vellaveto v2.2.1 is production-ready. The v3.0 roadmap addresses the next wave of protocol evolution, regulatory deadlines, and enterprise competition:
 
 1. **MCP Next Spec (June 2026)** — WebSocket transport (SEP-1288), gRPC transport (Google), async operations (SEP-1391), protocol extensions, SDK tiering
 2. **EU AI Act Enforcement (August 2, 2026)** — High-risk AI system compliance, transparency obligations, penalties up to 7% global revenue
@@ -87,7 +87,7 @@ Bidirectional, session-persistent transport replacing HTTP SSE for real-time age
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Bidirectional MCP-over-WebSocket reverse proxy at `/mcp/ws` | ✅ | `sentinel-http-proxy/src/proxy/websocket/mod.rs` |
+| Bidirectional MCP-over-WebSocket reverse proxy at `/mcp/ws` | ✅ | `vellaveto-http-proxy/src/proxy/websocket/mod.rs` |
 | Full policy enforcement on client→upstream tool calls | ✅ | Fail-closed semantics, engine errors produce Deny |
 | DLP scanning + injection detection on upstream→client responses | ✅ | Reuses existing inspection infrastructure |
 | TOCTOU-safe JSON canonicalization before forwarding | ✅ | Matching HTTP proxy behavior |
@@ -98,7 +98,7 @@ Bidirectional, session-persistent transport replacing HTTP SSE for real-time age
 | Binary frame rejection | ✅ | Close code 1003 (Unsupported Data) |
 | Unparseable message rejection | ✅ | Close code 1008 (Policy Violation) |
 | Upstream WebSocket client via `tokio-tungstenite` | ✅ | http→ws / https→wss URL conversion, 10s timeout |
-| WebSocket metrics | ✅ | `sentinel_ws_connections_total`, `sentinel_ws_messages_total` |
+| WebSocket metrics | ✅ | `vellaveto_ws_connections_total`, `vellaveto_ws_messages_total` |
 | CLI args | ✅ | `--ws-max-message-size`, `--ws-idle-timeout`, `--ws-message-rate-limit` |
 | WebSocket transport fuzz target | ✅ | `fuzz_ws_frame` (21 fuzz targets total) |
 | WebSocket unit tests | ✅ | 29 tests covering all components |
@@ -129,7 +129,7 @@ Protocol Buffers-based transport for high-throughput, strongly-typed agent commu
 | Task | Status | Notes |
 |------|--------|-------|
 | Protobuf schema for MCP messages (`proto/mcp/v1/mcp.proto`) | ✅ | Unary Call, bidirectional StreamCall, server-streaming Subscribe |
-| gRPC transport adapter with tonic 0.13 | ✅ | `sentinel-http-proxy/src/proxy/grpc/mod.rs`, separate listener on port 50051 |
+| gRPC transport adapter with tonic 0.13 | ✅ | `vellaveto-http-proxy/src/proxy/grpc/mod.rs`, separate listener on port 50051 |
 | gRPC service with full policy evaluation pipeline | ✅ | `service.rs` — classify → evaluate → audit → forward → DLP/injection scan |
 | Proto↔JSON conversion with depth-bounded recursion | ✅ | `convert.rs` — MAX_DEPTH=64, NaN/Infinity rejection, fail-closed |
 | Auth interceptor with constant-time API key validation | ✅ | `interceptors.rs` — SHA-256 + `subtle::ConstantTimeEq` |
@@ -139,9 +139,9 @@ Protocol Buffers-based transport for high-throughput, strongly-typed agent commu
 | Bidirectional streaming with per-message policy evaluation | ✅ | `stream_call()` — same pattern as WebSocket relay |
 | gRPC transport fuzz target | ✅ | `fuzz_grpc_proto` (22 fuzz targets total) |
 | gRPC unit tests | ✅ | 46 tests covering conversion, config, classification, auth, interceptors |
-| GrpcTransportConfig in sentinel-config | ✅ | `sentinel-config/src/grpc_transport.rs` |
+| GrpcTransportConfig in vellaveto-config | ✅ | `vellaveto-config/src/grpc_transport.rs` |
 | CLI args for gRPC | ✅ | `--grpc`, `--grpc-port`, `--grpc-max-message-size`, `--upstream-grpc-url` |
-| Metrics | ✅ | `sentinel_grpc_requests_total`, `sentinel_grpc_messages_total` |
+| Metrics | ✅ | `vellaveto_grpc_requests_total`, `vellaveto_grpc_messages_total` |
 
 **Security properties delivered:**
 - Constant-time API key validation (SHA-256 hash comparison)
@@ -175,7 +175,7 @@ TaskRequest policy enforcement across all transports for long-running agent work
 | TaskRequest policy enforcement across all 4 transports (HTTP, WS, gRPC, stdio) | ✅ | Extract action → evaluate → audit → forward/deny with fail-closed semantics |
 | `ProgressNotification` message classification | ✅ | `notifications/progress` classified with progress_token, progress, total fields |
 | `ExtensionMethod` message classification | ✅ | `x-` prefixed methods classified and policy-evaluated on all transports |
-| `extract_extension_action()` for extension → Action conversion | ✅ | `sentinel-mcp/src/extractor.rs` |
+| `extract_extension_action()` for extension → Action conversion | ✅ | `vellaveto-mcp/src/extractor.rs` |
 | Unit tests across all transport layers | ✅ | 32+ new tests in extractor, WebSocket, gRPC, HTTP handler test suites |
 
 **Security properties delivered:**
@@ -194,14 +194,14 @@ Pluggable domain-specific extensions for MCP protocol with `x-` prefix conventio
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Extension types in leaf crate (`ExtensionDescriptor`, `ExtensionResourceLimits`, `ExtensionError`) | ✅ | `sentinel-types/src/extension.rs` |
-| Extension configuration (`ExtensionConfig` with allow/block/signatures/limits) | ✅ | `sentinel-config/src/extension.rs`, added to `PolicyConfig` |
-| Extension registry trait and lifecycle hooks (`ExtensionHandler`) | ✅ | `sentinel-mcp/src/extension_registry.rs` — `on_load`, `on_unload`, `handle_method`, `descriptor` |
+| Extension types in leaf crate (`ExtensionDescriptor`, `ExtensionResourceLimits`, `ExtensionError`) | ✅ | `vellaveto-types/src/extension.rs` |
+| Extension configuration (`ExtensionConfig` with allow/block/signatures/limits) | ✅ | `vellaveto-config/src/extension.rs`, added to `PolicyConfig` |
+| Extension registry trait and lifecycle hooks (`ExtensionHandler`) | ✅ | `vellaveto-mcp/src/extension_registry.rs` — `on_load`, `on_unload`, `handle_method`, `descriptor` |
 | Extension capability negotiation (glob-based allow/block) | ✅ | `ExtensionRegistry::negotiate()` with glob pattern matching |
 | Extension-scoped policy evaluation on all transports | ✅ | `ExtensionMethod` match arms in HTTP, WebSocket, gRPC, stdio |
 | Extension isolation (per-extension resource limits) | ✅ | `ExtensionResourceLimits` with `max_concurrent_requests` and `max_requests_per_sec` |
-| Example extension (audit query) | ✅ | `sentinel-mcp/src/extensions/audit_query.rs` handles `x-sentinel-audit/stats` |
-| `ProxyState.extension_registry` field for transport wiring | ✅ | `sentinel-http-proxy/src/proxy/mod.rs` |
+| Example extension (audit query) | ✅ | `vellaveto-mcp/src/extensions/audit_query.rs` handles `x-vellaveto-audit/stats` |
+| `ProxyState.extension_registry` field for transport wiring | ✅ | `vellaveto-http-proxy/src/proxy/mod.rs` |
 | Unit tests | ✅ | 24 tests (6 types + 2 config + 12 registry + 4 audit query) |
 
 **Security properties delivered:**
@@ -253,7 +253,7 @@ MCP SDK tiering defines capability levels that implementations must declare and 
 
 | Task | Priority | Effort | Depends On |
 |------|----------|--------|------------|
-| Declare Sentinel SDK tier level based on spec requirements | P0 | 1 day | Spec publication |
+| Declare Vellaveto SDK tier level based on spec requirements | P0 | 1 day | Spec publication |
 | Implement tier-specific capability advertisements | P0 | 2 days | Tier declaration |
 | Add tier compliance validation in CI | P0 | 1 day | Capability ads |
 | Create tier compatibility matrix documentation | P1 | 1 day | — |
@@ -294,20 +294,20 @@ Conformity assessment, transparency evidence generation, and runtime transparenc
 
 | Task | Status | Notes |
 |------|--------|-------|
-| EU AI Act registry with obligation mappings (Art 5, 6, 9, 12, 13, 14, 15, 43, 50) | ✅ | `sentinel-audit/src/eu_ai_act.rs` |
+| EU AI Act registry with obligation mappings (Art 5, 6, 9, 12, 13, 14, 15, 43, 50) | ✅ | `vellaveto-audit/src/eu_ai_act.rs` |
 | Conformity assessment report generator (Art. 43) | ✅ | `EuAiActRegistry::generate_assessment()` |
 | Risk classification with capability mappings (Art. 6/Annex III) | ✅ | `AiActRiskClass` enum, 18 capability mappings |
 | Transparency entry classification (read-time) | ✅ | `classify_entry_transparency()` |
 | Compliance status API endpoint | ✅ | `GET /api/compliance/status` |
 | EU AI Act report API endpoint | ✅ | `GET /api/compliance/eu-ai-act/report` |
-| `ComplianceConfig` with validation | ✅ | `sentinel-config/src/compliance.rs` |
-| Shared compliance types in leaf crate | ✅ | `sentinel-types/src/compliance.rs` |
+| `ComplianceConfig` with validation | ✅ | `vellaveto-config/src/compliance.rs` |
+| Shared compliance types in leaf crate | ✅ | `vellaveto-types/src/compliance.rs` |
 | EU AI Act unit tests | ✅ | 11 tests |
-| Implement AI system identification in all agent outputs (Art. 50(1)) | ✅ | `mark_ai_mediated()` injects `_meta.sentinel_ai_mediated` into responses (`sentinel-mcp/src/transparency.rs`) |
+| Implement AI system identification in all agent outputs (Art. 50(1)) | ✅ | `mark_ai_mediated()` injects `_meta.vellaveto_ai_mediated` into responses (`vellaveto-mcp/src/transparency.rs`) |
 | Add automated decision explanation logging (Art. 50(2)) | 🔲 | Future: per-verdict explanations |
 | Implement human oversight notification triggers (Art. 14) | ✅ | `requires_human_oversight()` with glob-based tool matching + audit events in relay loop |
 | Implement data governance record keeping (Art. 10) | 🔲 | Future |
-| Create EU AI Act compliance dashboard section | ✅ | 4 metric cards + 7-framework table in `sentinel-server/src/dashboard.rs` |
+| Create EU AI Act compliance dashboard section | ✅ | 4 metric cards + 7-framework table in `vellaveto-server/src/dashboard.rs` |
 
 **Configuration:**
 ```toml
@@ -315,7 +315,7 @@ Conformity assessment, transparency evidence generation, and runtime transparenc
 enabled = true
 risk_class = "high_risk"             # minimal | limited | high_risk | unacceptable
 deployer_name = "Acme Corp"
-system_id = "sentinel-mcp-firewall-v3"
+system_id = "vellaveto-mcp-firewall-v3"
 transparency_marking = true          # Art 50(1)
 human_oversight_tools = ["CredentialAccess", "SystemExecute", "DataDelete"]  # Art 14
 record_retention_days = 365          # Art 12
@@ -330,10 +330,10 @@ Native OTLP export using the standardized GenAI semantic conventions for agent o
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Implement OTLP exporter with GenAI semantic conventions | ✅ | `sentinel-audit/src/observability/otlp.rs` |
-| Add `gen_ai.system`, `gen_ai.operation.name` attributes | ✅ | `span_to_otel_attributes()` with GenAI + sentinel.* attributes |
+| Implement OTLP exporter with GenAI semantic conventions | ✅ | `vellaveto-audit/src/observability/otlp.rs` |
+| Add `gen_ai.system`, `gen_ai.operation.name` attributes | ✅ | `span_to_otel_attributes()` with GenAI + vellaveto.* attributes |
 | Map SecuritySpan to OTel spans (span kind, verdict→status, ID/time parsing) | ✅ | `map_span_kind()`, `verdict_to_status()`, `parse_trace_id()`, `parse_span_id()` |
-| OtlpConfig with endpoint/protocol/headers validation | ✅ | `sentinel-config/src/observability.rs` |
+| OtlpConfig with endpoint/protocol/headers validation | ✅ | `vellaveto-config/src/observability.rs` |
 | Feature-gated behind `otlp-exporter` | ✅ | Zero impact on default builds |
 | OTLP unit tests | ✅ | 11 tests |
 | Implement `gen_ai.agent.*` attributes for multi-agent tracing | 🔲 | Future: multi-agent trace context |
@@ -347,7 +347,7 @@ Native OTLP export using the standardized GenAI semantic conventions for agent o
 enabled = true
 endpoint = "http://otel-collector:4317"
 protocol = "grpc"                    # grpc | http_proto
-service_name = "sentinel"
+service_name = "vellaveto"
 batch_size = 100
 flush_interval_secs = 10
 max_retries = 3
@@ -358,17 +358,17 @@ timeout_secs = 30
 
 #### 19.3 CoSAI Threat Coverage Gap Closure ✅ COMPLETE
 
-Map all 12 CoSAI threat categories (~40 threats) to Sentinel controls and close identified gaps.
+Map all 12 CoSAI threat categories (~40 threats) to Vellaveto controls and close identified gaps.
 
 > **Status:** Implemented in commit `a8314c1`. All deliverables complete.
 
 | Task | Status | Notes |
 |------|--------|-------|
-| CoSAI 12-category threat registry (38 threats) | ✅ | `sentinel-audit/src/cosai.rs` |
-| CoSAI detection mappings (SentinelDetection → threats) | ✅ | Runtime + structural mitigations, 100% coverage |
+| CoSAI 12-category threat registry (38 threats) | ✅ | `vellaveto-audit/src/cosai.rs` |
+| CoSAI detection mappings (VellavetoDetection → threats) | ✅ | Runtime + structural mitigations, 100% coverage |
 | CoSAI coverage report generation | ✅ | `CosaiRegistry::generate_coverage_report()` |
-| Adversa AI TOP 25 coverage matrix (25/25) | ✅ | `sentinel-audit/src/adversa_top25.rs` |
-| Cross-framework gap analysis (7 frameworks) | ✅ | `sentinel-audit/src/gap_analysis.rs` |
+| Adversa AI TOP 25 coverage matrix (25/25) | ✅ | `vellaveto-audit/src/adversa_top25.rs` |
+| Cross-framework gap analysis (7 frameworks) | ✅ | `vellaveto-audit/src/gap_analysis.rs` |
 | Threat coverage API endpoint | ✅ | `GET /api/compliance/threat-coverage` |
 | Gap analysis API endpoint | ✅ | `GET /api/compliance/gap-analysis` |
 | Unit tests | ✅ | 35 tests (14 CoSAI + 14 Adversa + 7 gap analysis) |
@@ -392,27 +392,27 @@ SOC 2 evidence generation with Trust Services Categories (CC1-CC9), Merkle tree 
 
 | Task | Status | Notes |
 |------|--------|-------|
-| SOC 2 registry with 22 criteria across CC1-CC9 | ✅ | `sentinel-audit/src/soc2.rs` |
+| SOC 2 registry with 22 criteria across CC1-CC9 | ✅ | `vellaveto-audit/src/soc2.rs` |
 | SOC 2 evidence report generator | ✅ | `Soc2Registry::generate_evidence_report()` |
 | Coverage by category with readiness levels | ✅ | `coverage_by_category()`, 5-level ReadinessLevel |
 | Read-time audit entry classification | ✅ | `classify_entry()` → `Soc2EvidenceRecord` |
 | SOC 2 evidence API endpoint with category filter | ✅ | `GET /api/compliance/soc2/evidence?category=CC1` |
 | SOC 2 unit tests | ✅ | 14 tests |
-| Merkle tree inclusion proofs (RFC 6962 domain separation) | ✅ | `sentinel-audit/src/merkle.rs` |
+| Merkle tree inclusion proofs (RFC 6962 domain separation) | ✅ | `vellaveto-audit/src/merkle.rs` |
 | Merkle proof generation and verification | ✅ | `generate_proof()`, `verify_proof()` (static) |
 | Merkle integration with audit logger | ✅ | `with_merkle_tree()` builder, leaf append on log_entry |
 | Merkle root in checkpoints | ✅ | `merkle_root: Option<String>` in Checkpoint |
 | Merkle tree rotation support | ✅ | Leaf file renamed alongside rotated log, tree reset |
 | Merkle tree crash recovery | ✅ | `initialize()` rebuilds peaks from existing leaf file |
 | Merkle tree unit tests | ✅ | 24 tests |
-| Implement immutable audit log archive with retention policies | ✅ | `sentinel-audit/src/archive.rs` — gzip compression + retention enforcement, feature-gated `archive`. 9 tests |
+| Implement immutable audit log archive with retention policies | ✅ | `vellaveto-audit/src/archive.rs` — gzip compression + retention enforcement, feature-gated `archive`. 9 tests |
 | Create access review report generator | 🔲 | Future |
 
 ### Phase 19 Exit Criteria
 - [x] EU AI Act conformity assessment registry and evidence generation API
 - [x] SOC 2 evidence registry with CC1-CC9 coverage and evidence collection API
 - [x] Merkle tree inclusion proofs integrated with audit logger and checkpoints
-- [x] Compliance configuration with validation in sentinel-config
+- [x] Compliance configuration with validation in vellaveto-config
 - [x] EU AI Act Article 50 runtime transparency features (output marking, human oversight triggers)
 - [x] OTLP export with GenAI semantic conventions verified against OTel Collector
 - [x] CoSAI/Adversa threat coverage >90% with documented exceptions (100% CoSAI, 100% Adversa TOP 25)
@@ -427,11 +427,11 @@ SOC 2 evidence generation with Trust Services Categories (CC1-CC9), Merkle tree 
 
 ### Phase 20: MCP Gateway Mode (P1) ✅ COMPLETE
 
-*Focus: Transform Sentinel from a single-server proxy into a multi-backend MCP gateway with session routing, tool aggregation, and Kubernetes-native deployment*
+*Focus: Transform Vellaveto from a single-server proxy into a multi-backend MCP gateway with session routing, tool aggregation, and Kubernetes-native deployment*
 
 > **Status:** 20.1–20.3 implemented. Phase 20.4 (Kubernetes/Helm) deferred to Phase 22. Completed 2026-02-14.
 
-Enterprise deployments need a gateway that aggregates multiple MCP servers behind a single entry point — similar to Microsoft MCP Gateway but with Sentinel's security stack built in.
+Enterprise deployments need a gateway that aggregates multiple MCP servers behind a single entry point — similar to Microsoft MCP Gateway but with Vellaveto's security stack built in.
 
 #### 20.1 Session-Aware Routing
 
@@ -526,14 +526,14 @@ Ed25519-signed capability tokens with monotonic attenuation for protocol-level d
 
 | Task | Status | Notes |
 |------|--------|-------|
-| CapabilityToken type with grants, delegation chain, depth budget | ✅ | `sentinel-types/src/capability.rs` |
-| Ed25519 signing with length-prefixed canonical content | ✅ | `sentinel-mcp/src/capability_token.rs` |
+| CapabilityToken type with grants, delegation chain, depth budget | ✅ | `vellaveto-types/src/capability.rs` |
+| Ed25519 signing with length-prefixed canonical content | ✅ | `vellaveto-mcp/src/capability_token.rs` |
 | Token issuance, attenuation, and verification | ✅ | `issue_capability_token()`, `attenuate_capability_token()`, `verify_capability_token()` |
 | Monotonic attenuation enforcement (depth decrements, grants subset, expiry clamped) | ✅ | Escalation rejected at attenuation time |
 | Grant coverage matching (glob patterns, path/domain constraints) | ✅ | `check_grant_coverage()` |
-| RequireCapabilityToken policy condition (fail-closed) | ✅ | `sentinel-engine/src/context_check.rs` |
-| Policy compilation for `require_capability_token` | ✅ | `sentinel-engine/src/policy_compile.rs` |
-| EvaluationContext extended with `capability_token` field | ✅ | `sentinel-types/src/identity.rs` |
+| RequireCapabilityToken policy condition (fail-closed) | ✅ | `vellaveto-engine/src/context_check.rs` |
+| Policy compilation for `require_capability_token` | ✅ | `vellaveto-engine/src/policy_compile.rs` |
+| EvaluationContext extended with `capability_token` field | ✅ | `vellaveto-types/src/identity.rs` |
 | Structural validation (MAX_GRANTS=64, MAX_DEPTH=16, MAX_TOKEN_SIZE=65536) | ✅ | `validate_structure()` |
 | Capability token unit tests | ✅ | 31 tests (4 types + 5 engine + 22 mcp) |
 
@@ -555,10 +555,10 @@ TOML-based Cedar-style ABAC policies with compiled pattern matchers and forbid-o
 
 | Task | Status | Notes |
 |------|--------|-------|
-| ABAC types (AbacPolicy, AbacEntity, AbacEffect, AbacOp, constraints) | ✅ | `sentinel-types/src/abac.rs` |
-| AbacConfig with validation (bounds, duplicates, thresholds) | ✅ | `sentinel-config/src/abac.rs` |
-| Compiled ABAC engine with pattern matchers | ✅ | `sentinel-engine/src/abac.rs` |
-| Entity store with transitive group membership (bounded depth=16) | ✅ | `EntityStore` in `sentinel-engine/src/abac.rs` |
+| ABAC types (AbacPolicy, AbacEntity, AbacEffect, AbacOp, constraints) | ✅ | `vellaveto-types/src/abac.rs` |
+| AbacConfig with validation (bounds, duplicates, thresholds) | ✅ | `vellaveto-config/src/abac.rs` |
+| Compiled ABAC engine with pattern matchers | ✅ | `vellaveto-engine/src/abac.rs` |
+| Entity store with transitive group membership (bounded depth=16) | ✅ | `EntityStore` in `vellaveto-engine/src/abac.rs` |
 | Permit/forbid evaluation with forbid-overrides (Cedar semantics) | ✅ | `AbacDecision::Allow/Deny/NoMatch` |
 | Policy conflict detection | ✅ | `find_conflicts()` |
 | 10 condition operators (Eq, Ne, In, NotIn, Contains, StartsWith, Gt, Lt, Gte, Lte) | ✅ | `AbacOp` enum |
@@ -572,7 +572,7 @@ Per-agent-session permission usage tracking with unused-permission detection and
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Per-session permission usage tracking | ✅ | `LeastAgencyTracker` in `sentinel-engine/src/least_agency.rs` |
+| Per-session permission usage tracking | ✅ | `LeastAgencyTracker` in `vellaveto-engine/src/least_agency.rs` |
 | Unused-permission detection | ✅ | `check_unused()` returns unused policy IDs |
 | Compliance report generation (usage ratio, recommendation) | ✅ | `generate_report()` → `LeastAgencyReport` |
 | Permission narrowing recommendations | ✅ | `recommend_narrowing()` suggests policy IDs to revoke |
@@ -587,9 +587,9 @@ Cross-organization trust anchors with identity mapping from external JWT claims 
 
 | Task | Status | Notes |
 |------|--------|-------|
-| FederationTrustAnchor type (org_id, JWKS URI, issuer pattern) | ✅ | `sentinel-types/src/abac.rs` |
+| FederationTrustAnchor type (org_id, JWKS URI, issuer pattern) | ✅ | `vellaveto-types/src/abac.rs` |
 | IdentityMapping (external JWT claim → internal principal) | ✅ | `IdentityMapping` with id_template |
-| FederationConfig with validation | ✅ | `sentinel-config/src/abac.rs` (max 64 trust anchors) |
+| FederationConfig with validation | ✅ | `vellaveto-config/src/abac.rs` (max 64 trust anchors) |
 | ABAC principal resolution from federated identity | ✅ | `AbacEvalContext` principal_type/principal_id |
 
 #### 21.4 Continuous Authorization with Real-Time Context ✅ COMPLETE
@@ -600,8 +600,8 @@ Risk-score-based per-request authorization with configurable thresholds and degr
 
 | Task | Status | Notes |
 |------|--------|-------|
-| RiskScore type (0.0–1.0 with weighted factors) | ✅ | `sentinel-types/src/abac.rs` |
-| ContinuousAuthConfig (risk_threshold, degradation_threshold, interval) | ✅ | `sentinel-config/src/abac.rs` |
+| RiskScore type (0.0–1.0 with weighted factors) | ✅ | `vellaveto-types/src/abac.rs` |
+| ContinuousAuthConfig (risk_threshold, degradation_threshold, interval) | ✅ | `vellaveto-config/src/abac.rs` |
 | Per-session risk score in SessionState | ✅ | `risk_score: Option<RiskScore>` |
 | ABAC refinement wired in HTTP/WebSocket/gRPC handlers | ✅ | After PolicyEngine Allow, ABAC refines |
 | Full backward compatibility when disabled | ✅ | `abac.enabled = false` (default) → identical behavior |
@@ -621,15 +621,15 @@ Risk-score-based per-request authorization with configurable thresholds and degr
 
 ### Phase 22: Developer Experience (P2) ✅ COMPLETE
 
-*Focus: Make Sentinel accessible to developers with simulation APIs, CLI tools, CI gates, and SDKs*
+*Focus: Make Vellaveto accessible to developers with simulation APIs, CLI tools, CI gates, and SDKs*
 
 > **Status:** Phase 22 backend-first implementation complete. Completed 2026-02-14.
 
 #### Completed (22.3–22.5, CLI, Dashboard)
 
-- **Policy simulator API** — 4 endpoints: `POST /api/simulator/evaluate` (single with trace), `/batch` (up to 100 actions), `/validate` (config validation), `/diff` (policy diff). Supports inline TOML policy configs for sandbox evaluation. 9 tests. (`sentinel-server/src/routes/simulator.rs`)
+- **Policy simulator API** — 4 endpoints: `POST /api/simulator/evaluate` (single with trace), `/batch` (up to 100 actions), `/validate` (config validation), `/diff` (policy diff). Supports inline TOML policy configs for sandbox evaluation. 9 tests. (`vellaveto-server/src/routes/simulator.rs`)
 - **CLI `simulate` subcommand** — Batch-evaluate actions from JSON file against policy config. Text table and JSON output formats.
-- **GitHub Action `policy-check`** — Composite action downloading Sentinel binary, running `sentinel check` in CI. Supports version pinning, strict mode, text/JSON output. (`.github/actions/policy-check/action.yml`)
+- **GitHub Action `policy-check`** — Composite action downloading Vellaveto binary, running `vellaveto check` in CI. Supports version pinning, strict mode, text/JSON output. (`.github/actions/policy-check/action.yml`)
 - **Dashboard SVG charts** — Verdict distribution bar chart and policy type pie chart rendered as inline SVG. 4 tests.
 - **TypeScript SDK** — Zero runtime dependency HTTP client with native `fetch()` (Node 18+). Full API parity with Python SDK. 15 Jest tests. (`sdk/typescript/`)
 
@@ -703,7 +703,7 @@ Risk-score-based per-request authorization with configurable thresholds and degr
 
 ## Competitor Comparison (Updated)
 
-| Feature | Sentinel v3.0 | Cisco AI Defense | Prisma AIRS | Radware | CalypsoAI | Akamai | NeMo Guardrails | Microsoft MCP GW |
+| Feature | Vellaveto v3.0 | Cisco AI Defense | Prisma AIRS | Radware | CalypsoAI | Akamai | NeMo Guardrails | Microsoft MCP GW |
 |---------|--------------|-----------------|-------------|---------|-----------|--------|-----------------|------------------|
 | MCP Native Support | ✅ Full | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ Gateway |
 | A2A Protocol Support | ✅ Full | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -736,7 +736,7 @@ Risk-score-based per-request authorization with configurable thresholds and degr
 
 ### CoSAI MCP Security Whitepaper — 12 Threat Categories
 
-| # | Threat Category | Sentinel Coverage | Gaps |
+| # | Threat Category | Vellaveto Coverage | Gaps |
 |---|----------------|-------------------|------|
 | 1 | Tool Definition Manipulation | ✅ ETDI signing, schema poisoning, rug-pull detection | — |
 | 2 | Prompt Injection via Tool I/O | ✅ Multi-layer injection detection, semantic analysis | — |
@@ -753,7 +753,7 @@ Risk-score-based per-request authorization with configurable thresholds and degr
 
 ### Adversa AI MCP Security TOP 25
 
-| # | Vulnerability | Sentinel Status |
+| # | Vulnerability | Vellaveto Status |
 |---|--------------|----------------|
 | 1 | Tool Poisoning | ✅ ETDI + schema poisoning |
 | 2 | Rug Pull Attacks | ✅ Rug-pull detection with persistent flagging |
@@ -787,7 +787,7 @@ Risk-score-based per-request authorization with configurable thresholds and degr
 
 ## OWASP ASI Top 10 Coverage (Updated)
 
-| ID | Threat | Sentinel Coverage | v3.0 Enhancement |
+| ID | Threat | Vellaveto Coverage | v3.0 Enhancement |
 |----|--------|-------------------|------------------|
 | ASI01 | Prompt Injection | ✅ Multi-layer detection (Aho-Corasick, semantic, Unicode NFKC) | Multimodal detection (Phase 23) |
 | ASI02 | Sensitive Data Disclosure | ✅ DLP scanning (8-layer decode), DPoP, Art 50 transparency marking | — |
@@ -804,7 +804,7 @@ Risk-score-based per-request authorization with configurable thresholds and degr
 
 ## Known CVEs Addressed
 
-| CVE | Description | Sentinel Mitigation |
+| CVE | Description | Vellaveto Mitigation |
 |-----|-------------|---------------------|
 | CVE-2025-68143 | Git MCP Server path traversal | Path normalization (v1.0) |
 | CVE-2025-68144 | Git MCP Server arbitrary read | Path rules, DLP (v1.0) |
@@ -817,34 +817,34 @@ Risk-score-based per-request authorization with configurable thresholds and degr
 
 > **Full analysis:** [`docs/MCP_SECURITY_GAPS.md`](docs/MCP_SECURITY_GAPS.md)
 >
-> Eight critical, well-defined gaps exist across the MCP security landscape. Only 14% of organizations running agents in production have runtime guardrails (Lakera, Q4 2025). The table below maps each gap to Sentinel's current coverage and planned roadmap work.
+> Eight critical, well-defined gaps exist across the MCP security landscape. Only 14% of organizations running agents in production have runtime guardrails (Lakera, Q4 2025). The table below maps each gap to Vellaveto's current coverage and planned roadmap work.
 
-| # | Gap | Severity | Sentinel Current Coverage | Roadmap Phase | Status |
+| # | Gap | Severity | Vellaveto Current Coverage | Roadmap Phase | Status |
 |---|-----|----------|--------------------------|---------------|--------|
 | 1 | **Formal verification of MCP policy enforcement** | Critical | No formal model exists in any framework (TLA+, Alloy, Lean, Coq). No one has verified safety/liveness/complete mediation for any MCP policy engine. | Phase 23 (Research) | 🔲 Open research question |
-| 2 | **Cryptographic audit trails** | Critical | ✅ **Sentinel is the only shipping product combining runtime firewall + cryptographic audit.** SHA-256 hash chains, Ed25519 signed checkpoints, rotation manifests, SIEM export (CEF/JSONL/webhook). **Merkle tree inclusion proofs** with RFC 6962 domain separation, proof generation/verification, crash recovery. | Phase 19.4 ✅ | ✅ Production-ready — Merkle proofs shipped; zk-audit is future work |
+| 2 | **Cryptographic audit trails** | Critical | ✅ **Vellaveto is the only shipping product combining runtime firewall + cryptographic audit.** SHA-256 hash chains, Ed25519 signed checkpoints, rotation manifests, SIEM export (CEF/JSONL/webhook). **Merkle tree inclusion proofs** with RFC 6962 domain separation, proof generation/verification, crash recovery. | Phase 19.4 ✅ | ✅ Production-ready — Merkle proofs shipped; zk-audit is future work |
 | 3 | **Multi-agent delegation / confused deputy** | Critical | ✅ Deputy validation, delegation chains with depth limits, call chain tracking, NHI lifecycle, agent trust graph, Ed25519 message signing. **Capability-based delegation tokens** with monotonic attenuation, grant coverage matching, RequireCapabilityToken policy condition (fail-closed). | Phase 21.0 ✅, Phase 21.1 (ABAC), Phase 21.3 (Federation) | ✅ Runtime enforcement + protocol-level capability tokens shipped; ABAC and federation planned |
 | 4 | **MCP supply chain security** | Critical | ✅ ETDI tool signing (Ed25519/ECDSA), attestation chains, version pinning with hash drift detection, rug-pull detection, schema poisoning (Jaccard), tool squatting (Levenshtein + homoglyph), SHA-256 binary verification. | Phase 23.4 (Sigstore/Rekor) | ✅ Runtime enforcement shipped — transparency log integration planned |
 | 5 | **Performance benchmarking** | Important | ✅ Criterion benchmarks: 7–31 ns single policy, ~1.2 μs for 100 policies. Sub-5ms P99 claimed. No peer-reviewed publication yet. | — | ⚠️ Internal benchmarks exist; rigorous paper needed (OSDI/NSDI target) |
-| 6 | **MCP protocol-level security deficits** | Critical | ✅ Sentinel enforces what the spec leaves advisory: tool pinning (ETDI), namespace isolation (collision detection), annotation tracking (rug-pull alerts), session binding (not in URLs), auth enforcement. | Phases 18–21 | ✅ Application-layer mitigations shipped for all 6 protocol deficits |
+| 6 | **MCP protocol-level security deficits** | Critical | ✅ Vellaveto enforces what the spec leaves advisory: tool pinning (ETDI), namespace isolation (collision detection), annotation tracking (rug-pull alerts), session binding (not in URLs), auth enforcement. | Phases 18–21 | ✅ Application-layer mitigations shipped for all 6 protocol deficits |
 | 7 | **Compliance frameworks for agentic AI** | Critical | ✅ MITRE ATLAS (14 techniques), OWASP AIVSS scoring, NIST AI RMF, ISO 27090 readiness. Audit trail with decision context, user attribution, approval chains. **EU AI Act conformity assessment** (Art 5–50, 10 obligations, 18 capability mappings), **Art 50(1) runtime transparency marking**, **Art 14 human oversight triggers**, **SOC 2 evidence generation** (CC1-CC9, 22 criteria, 30 capability mappings), **OTLP export with GenAI semantic conventions**, **compliance dashboard**, **immutable audit archive** with API endpoints. | Phase 19 ✅ | ✅ All Phase 19 exit criteria shipped |
 | 8 | **MCP incident tracking infrastructure** | Important | ✅ 4 known CVEs mitigated (CVE-2025-68143/44/45, CVE-2025-6514). Adversa TOP 25: 25/25 addressed. CoSAI 12 categories: all covered. | — | ⚠️ No centralized MCP vulnerability DB exists ecosystem-wide |
 
-### Sentinel's Position Relative to Ecosystem Gaps
+### Vellaveto's Position Relative to Ecosystem Gaps
 
-**Gaps where Sentinel leads the ecosystem:**
+**Gaps where Vellaveto leads the ecosystem:**
 - **Cryptographic audit trail** (#2) — Only shipping product combining runtime firewall + hash-chained audit with Ed25519 signatures
 - **Supply chain integrity** (#4) — Most comprehensive runtime enforcement: ETDI signing, attestation chains, version pinning, rug-pull/schema poisoning/squatting detection
 - **Protocol deficit mitigations** (#6) — Application-layer enforcement for all 6 spec-level gaps (tool pinning, namespace isolation, annotation enforcement, session binding, auth)
 - **Compliance evidence** (#7) — EU AI Act (evidence + Art 50 transparency + Art 14 oversight), SOC 2 (CC1-CC9), OTLP GenAI export, immutable archive, compliance dashboard — all shipped
 - **Threat coverage** (#8) — 25/25 Adversa TOP 25, all 12 CoSAI categories, all 10 OWASP ASI threats
 
-**Gaps where Sentinel has partial coverage (roadmap planned):**
+**Gaps where Vellaveto has partial coverage (roadmap planned):**
 - **Multi-agent delegation** (#3) — Runtime enforcement + protocol-level capability tokens shipped; Cedar-style ABAC (Phase 21.1) and federation (Phase 21.3) planned
 - **Performance characterization** (#5) — Internal criterion benchmarks exist; rigorous peer-reviewed paper needed
 
 **Gaps that are open research (no one has solved):**
-- **Formal verification** (#1) — No formal model of MCP exists in any framework. A TLA+/Alloy specification + Lean/Coq proofs of Sentinel's policy engine would be a first-of-its-kind contribution targeting USENIX Security/CCS/S&P
+- **Formal verification** (#1) — No formal model of MCP exists in any framework. A TLA+/Alloy specification + Lean/Coq proofs of Vellaveto's policy engine would be a first-of-its-kind contribution targeting USENIX Security/CCS/S&P
 
 ### Strategic Research Opportunities
 
@@ -1060,7 +1060,7 @@ Strict principal binding, request origin chain validation, capability-based dele
 
 - [x] ProxyBridge manager integration
 - [x] Enforcement calls at request evaluation points
-- [x] AppState manager fields for sentinel-server
+- [x] AppState manager fields for vellaveto-server
 - [x] Admin API endpoints (25+ routes)
 - [x] Audit event generation helpers
 - [x] HTTP proxy integration with circuit breaker
@@ -1180,7 +1180,7 @@ Strict principal binding, request origin chain validation, capability-based dele
 
 - [x] Ed25519/ECDSA tool signature verification
 - [x] Attestation chain with provenance tracking
-- [x] Tool signing CLI (`sentinel generate-key`, `sign-tool`, `verify-signature`)
+- [x] Tool signing CLI (`vellaveto generate-key`, `sign-tool`, `verify-signature`)
 - [x] Version pinning with semantic versioning
 - [x] ETDI persistent store with HMAC protection
 - [x] SPIFFE workload identity trust

@@ -50,17 +50,17 @@ jobs:
 
           # Publish in dependency order (leaves first)
           CRATES=(
-            sentinel-types
-            sentinel-canonical
-            sentinel-config
-            sentinel-engine
-            sentinel-audit
-            sentinel-approval
-            sentinel-mcp
-            sentinel-cluster
-            sentinel-server
-            sentinel-http-proxy
-            sentinel-proxy
+            vellaveto-types
+            vellaveto-canonical
+            vellaveto-config
+            vellaveto-engine
+            vellaveto-audit
+            vellaveto-approval
+            vellaveto-mcp
+            vellaveto-cluster
+            vellaveto-server
+            vellaveto-http-proxy
+            vellaveto-proxy
           )
 
           for crate in "${CRATES[@]}"; do

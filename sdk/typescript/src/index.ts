@@ -1,11 +1,11 @@
 /**
- * Sentinel SDK for TypeScript.
+ * Vellaveto SDK for TypeScript.
  *
  * @example
  * ```typescript
- * import { SentinelClient, Verdict } from "@sentinel-sdk/typescript";
+ * import { VellavetoClient, Verdict } from "@vellaveto-sdk/typescript";
  *
- * const client = new SentinelClient({
+ * const client = new VellavetoClient({
  *   baseUrl: "http://localhost:3000",
  *   apiKey: "your-api-key",
  * });
@@ -22,7 +22,7 @@
  * ```
  */
 
-export { SentinelClient, SentinelClientOptions, SentinelError, PolicyDenied, ApprovalRequired } from "./client";
+export { VellavetoClient, VellavetoClientOptions, VellavetoError, PolicyDenied, ApprovalRequired } from "./client";
 export {
   Action,
   Approval,

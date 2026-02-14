@@ -53,7 +53,7 @@ jobs:
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: sentinel-sbom
+          name: vellaveto-sbom
           path: sbom.cdx.json
           if-no-files-found: error
 
@@ -61,9 +61,9 @@ jobs:
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: |
-            target/release/sentinel
-            target/release/sentinel-proxy
-            target/release/sentinel-http-proxy
+            target/release/vellaveto
+            target/release/vellaveto-proxy
+            target/release/vellaveto-http-proxy
 
       - name: Verify provenance attestations
         env:
@@ -71,9 +71,9 @@ jobs:
         run: |
           set -euo pipefail
           for artifact in \
-            target/release/sentinel \
-            target/release/sentinel-proxy \
-            target/release/sentinel-http-proxy; do
+            target/release/vellaveto \
+            target/release/vellaveto-proxy \
+            target/release/vellaveto-http-proxy; do
             if [ ! -f "$artifact" ]; then
               echo "::error::Expected build artifact missing: $artifact"
               exit 1

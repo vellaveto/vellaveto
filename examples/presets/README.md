@@ -1,4 +1,4 @@
-# Sentinel Policy Presets
+# Vellaveto Policy Presets
 
 Curated policy configurations for common agent deployment scenarios. Each preset is a complete, ready-to-use configuration.
 
@@ -15,13 +15,13 @@ Curated policy configurations for common agent deployment scenarios. Each preset
 ## Quick Start
 
 ```bash
-# Start Sentinel with a preset
-sentinel serve --config examples/presets/dev-laptop.toml --port 3000
+# Start Vellaveto with a preset
+vellaveto serve --config examples/presets/dev-laptop.toml --port 3000
 
 # Or with Docker
 docker run -p 3000:3000 \
-  -v ./examples/presets/ci-agent.toml:/etc/sentinel/config.toml:ro \
-  ghcr.io/paolovella/sentinel:latest
+  -v ./examples/presets/ci-agent.toml:/etc/vellaveto/config.toml:ro \
+  ghcr.io/paolovella/vellaveto:latest
 ```
 
 ## Customizing Presets

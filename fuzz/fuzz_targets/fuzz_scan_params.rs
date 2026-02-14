@@ -9,6 +9,6 @@ fuzz_target!(|data: &[u8]| {
     if let Ok(value) = serde_json::from_slice::<serde_json::Value>(data) {
         let mut paths = Vec::new();
         let mut domains = Vec::new();
-        sentinel_server::scan_params_for_targets(&value, &mut paths, &mut domains);
+        vellaveto_server::scan_params_for_targets(&value, &mut paths, &mut domains);
     }
 });

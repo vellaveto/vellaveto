@@ -1,0 +1,45 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "vellaveto.fullname" . }}
+  labels:
+    {{- include "vellaveto.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "vellaveto.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        {{- if .Values.networkPolicy.allowedNamespaces }}
+        {{- range .Values.networkPolicy.allowedNamespaces }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+        {{- end }}
+        {{- else }}
+        - {} # Allow from all namespaces by default
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.service.port }}
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- if .Values.networkPolicy.allowedEgressCIDRs }}
+    # Allow egress to specified CIDRs
+    - to:
+        {{- range .Values.networkPolicy.allowedEgressCIDRs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+    {{- end }}
+{{- end }}

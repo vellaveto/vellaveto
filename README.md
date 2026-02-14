@@ -1,5 +1,5 @@
 <p align="center">
-  <h1 align="center">🛡️ Sentinel</h1>
+  <h1 align="center">🛡️ Vellaveto</h1>
   <p align="center">
     <strong>Runtime security engine for AI agent tool calls</strong>
   </p>
@@ -7,9 +7,9 @@
     🔍 Intercept &middot; ⚖️ Evaluate &middot; 🚫 Enforce &middot; 📋 Audit
   </p>
   <p align="center">
-    <a href="https://github.com/paolovella/sentinel/releases"><img src="https://img.shields.io/badge/version-3.0.0-blue.svg" alt="Version 3.0.0"></a>
-    <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
-    <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
+    <a href="https://github.com/paolovella/vellaveto/releases"><img src="https://img.shields.io/badge/version-3.0.0-blue.svg" alt="Version 3.0.0"></a>
+    <a href="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+    <a href="https://github.com/paolovella/vellaveto/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
     <img src="https://img.shields.io/badge/tests-4%2C812_passing-brightgreen.svg" alt="Tests: 4,812 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
@@ -30,7 +30,7 @@
 
 ---
 
-Sentinel is a lightweight, high-performance firewall that sits between AI agents and their tools. It intercepts [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) and function-calling requests, enforces security policies on paths, domains, and actions, and maintains a tamper-evident audit trail with cryptographic guarantees.
+Vellaveto is a lightweight, high-performance firewall that sits between AI agents and their tools. It intercepts [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) and function-calling requests, enforces security policies on paths, domains, and actions, and maintains a tamper-evident audit trail with cryptographic guarantees.
 
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>3.0.0</td></tr>
@@ -45,14 +45,14 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 ## Recent Updates (2026-02-14)
 
 - **Go SDK** — Zero-dependency Go client (`sdk/go/`) with full API parity (12 methods), functional options, `context.Context` on all methods, fail-closed verdict parsing (unknown → Deny), 28 table-driven tests using `httptest`. Go 1.21+.
-- **HTTP Proxy Benchmarks** — 35 Criterion benchmarks for the production hot path (`sentinel-http-proxy/benches/http_proxy.rs`): origin validation (<440ns), HMAC signing/verification (<1.6µs), call chain parsing (<3.8µs), privilege escalation detection (<76ns), audit context building (<1.1µs).
-- **Phase 17 Complete** — All 6 exit criteria delivered. Phase 17.3 (Async Operations) adds TaskRequest policy enforcement across all 4 transports (HTTP, WebSocket, gRPC, stdio) with fail-closed semantics, `ProgressNotification` classification for `notifications/progress`. Phase 17.4 (Protocol Extensions) adds `ExtensionHandler` trait with lifecycle hooks, `ExtensionRegistry` with thread-safe registration and glob-based negotiation, `x-` prefix method routing through policy evaluation, and `AuditQueryExtension` example handling `x-sentinel-audit/stats`. 50+ new tests. New types: `ExtensionDescriptor`, `ExtensionResourceLimits`, `ExtensionConfig`.
+- **HTTP Proxy Benchmarks** — 35 Criterion benchmarks for the production hot path (`vellaveto-http-proxy/benches/http_proxy.rs`): origin validation (<440ns), HMAC signing/verification (<1.6µs), call chain parsing (<3.8µs), privilege escalation detection (<76ns), audit context building (<1.1µs).
+- **Phase 17 Complete** — All 6 exit criteria delivered. Phase 17.3 (Async Operations) adds TaskRequest policy enforcement across all 4 transports (HTTP, WebSocket, gRPC, stdio) with fail-closed semantics, `ProgressNotification` classification for `notifications/progress`. Phase 17.4 (Protocol Extensions) adds `ExtensionHandler` trait with lifecycle hooks, `ExtensionRegistry` with thread-safe registration and glob-based negotiation, `x-` prefix method routing through policy evaluation, and `AuditQueryExtension` example handling `x-vellaveto-audit/stats`. 50+ new tests. New types: `ExtensionDescriptor`, `ExtensionResourceLimits`, `ExtensionConfig`.
 - **Phase 19: Regulatory Compliance Complete** — All 9 exit criteria delivered:
   - **Compliance dashboard** — Real-time status cards (EU AI Act %, SOC 2 %, Framework Coverage %, Critical Gaps) and 7-framework coverage table with color-coded thresholds in the admin dashboard.
-  - **EU AI Act Article 50 transparency** — `mark_ai_mediated()` injects `_meta.sentinel_ai_mediated` into tool responses. `requires_human_oversight()` triggers audit events for configured tool patterns via glob matching. Art 50(1) status upgraded to Compliant. 11 tests.
+  - **EU AI Act Article 50 transparency** — `mark_ai_mediated()` injects `_meta.vellaveto_ai_mediated` into tool responses. `requires_human_oversight()` triggers audit events for configured tool patterns via glob matching. Art 50(1) status upgraded to Compliant. 11 tests.
   - **Immutable audit log archive** — gzip compression of rotated logs + retention enforcement (delete archives older than `retention_days`). Feature-gated behind `archive`. 9 tests.
-  - **OTLP export with GenAI semantic conventions** — `OtlpExporter` maps `SecuritySpan` to OpenTelemetry spans with `gen_ai.system`, `gen_ai.operation.name`, and `sentinel.*` attributes. Feature-gated behind `otlp-exporter`. 11 tests.
-  - **OtlpConfig** added to sentinel-config with endpoint/protocol/headers validation.
+  - **OTLP export with GenAI semantic conventions** — `OtlpExporter` maps `SecuritySpan` to OpenTelemetry spans with `gen_ai.system`, `gen_ai.operation.name`, and `vellaveto.*` attributes. Feature-gated behind `otlp-exporter`. 11 tests.
+  - **OtlpConfig** added to vellaveto-config with endpoint/protocol/headers validation.
 - **Phase 19.3: CoSAI/Adversa Threat Coverage** — CoSAI 12-category registry (38 threats, 100% coverage), Adversa AI TOP 25 matrix (25/25, 100% coverage), cross-framework gap analysis across 7 frameworks (ATLAS, NIST RMF, ISO 27090, EU AI Act, CoSAI, Adversa TOP 25, ISO 42001). New endpoints: `GET /api/compliance/threat-coverage`, `GET /api/compliance/gap-analysis`. 35 tests.
 - **Phase 19.1: EU AI Act Compliance Evidence** — Registry-based conformity assessment with 10 obligations (Art 5–50), 18 capability mappings, and `AiActRiskClass` enum. `GET /api/compliance/eu-ai-act/report` generates conformity assessment per Art 43. Read-time entry classification via `classify_entry_transparency()`. 11 tests.
 - **Phase 19.4: SOC 2 Evidence + Merkle Proofs** — SOC 2 registry with 22 criteria across CC1-CC9, ~30 capability mappings, and 5-level `ReadinessLevel` scoring. `GET /api/compliance/soc2/evidence` with category filter. Append-only Merkle tree with RFC 6962 domain separation, inclusion proof generation/verification, audit logger integration, checkpoint integration, crash recovery. 38 tests (14 SOC 2 + 24 Merkle).
@@ -78,8 +78,8 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 
 ## 🧪 Post-Quantum Readiness (Research Track)
 
-- Sentinel tracks NIST PQC standards: `FIPS 203 (ML-KEM)`, `FIPS 204 (ML-DSA)`, `FIPS 205 (SLH-DSA)`, plus migration guidance in `NIST SP 800-227` (finalized on 2025-08-13).
-- TLS post-quantum key exchange for TLS 1.3 is still draft-stage in IETF (hybrid and pure ML-KEM drafts), so Sentinel keeps a crypto-agile migration posture until RFCs and ecosystem support stabilize.
+- Vellaveto tracks NIST PQC standards: `FIPS 203 (ML-KEM)`, `FIPS 204 (ML-DSA)`, `FIPS 205 (SLH-DSA)`, plus migration guidance in `NIST SP 800-227` (finalized on 2025-08-13).
+- TLS post-quantum key exchange for TLS 1.3 is still draft-stage in IETF (hybrid and pure ML-KEM drafts), so Vellaveto keeps a crypto-agile migration posture until RFCs and ecosystem support stabilize.
 - Implemented controls:
   - Configurable `tls.kex_policy` (`classical_only`, `hybrid_preferred`, `hybrid_required_when_supported`) in `TlsConfig`
   - Validation guardrails: hybrid policies require `tls.mode` enabled and `tls.min_version = "1.3"`
@@ -88,9 +88,9 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
   - Fail-closed handling for ambiguous forwarded TLS metadata aliases/duplicates
 - Migration runbook:
   - `docs/quantum-migration.md` includes phased rollout, canary gates, and rollback procedure
-- Sentinel roadmap now tracks external migration milestones (goals by 2028, high-priority migration by 2031, full migration by 2035). See `ROADMAP.md`.
+- Vellaveto roadmap now tracks external migration milestones (goals by 2028, high-priority migration by 2031, full migration by 2035). See `ROADMAP.md`.
 
-## ❓ Why Sentinel?
+## ❓ Why Vellaveto?
 
 AI agents with tool access can read files, make HTTP requests, execute commands, and modify data. Without guardrails, a prompt injection or misbehaving agent can:
 
@@ -101,7 +101,7 @@ AI agents with tool access can read files, make HTTP requests, execute commands,
 - 🧪 **Launder data** by planting instructions in tool responses for later execution
 - 👥 **Impersonate tools** via name squatting with homoglyphs or typos
 
-Sentinel enforces security policies on every tool call before it reaches the tool server, and logs every decision to a tamper-evident audit trail.
+Vellaveto enforces security policies on every tool call before it reaches the tool server, and logs every decision to a tamper-evident audit trail.
 
 ## ✨ Features
 
@@ -211,7 +211,7 @@ Sentinel enforces security policies on every tool call before it reaches the too
 
 ### 🤝 A2A Protocol Security
 - **Message classification** — Parse and classify A2A JSON-RPC messages (message/send, message/stream, tasks/get, tasks/cancel, tasks/resubscribe)
-- **Action extraction** — Convert A2A messages to Sentinel Actions for policy evaluation with tool pattern "a2a"
+- **Action extraction** — Convert A2A messages to Vellaveto Actions for policy evaluation with tool pattern "a2a"
 - **Agent Card handling** — Fetch, cache, and validate A2A Agent Cards from `/.well-known/agent.json` with TTL-based expiration
 - **Proxy service** — HTTP proxy for A2A traffic with policy evaluation, DLP scanning, injection detection, and circuit breaker
 - **Batch rejection** — JSON-RPC batch requests rejected to prevent TOCTOU attacks (matching MCP security pattern)
@@ -232,9 +232,9 @@ Sentinel enforces security policies on every tool call before it reaches the too
 
 ### 📊 Observability & Tooling
 - **AI Observability Exporters** — Langfuse, Arize Phoenix, Helicone, Webhook, and **OTLP** backends with `SecuritySpan` tracing for streaming security events to observability platforms in real time
-- **OTLP Export with GenAI Semantic Conventions** — Maps `SecuritySpan` to OpenTelemetry spans with `gen_ai.system`, `gen_ai.operation.name`, and `sentinel.*` attributes. Compatible with Jaeger, Grafana Tempo, Datadog, and any OTLP collector. Feature-gated behind `otlp-exporter`
+- **OTLP Export with GenAI Semantic Conventions** — Maps `SecuritySpan` to OpenTelemetry spans with `gen_ai.system`, `gen_ai.operation.name`, and `vellaveto.*` attributes. Compatible with Jaeger, Grafana Tempo, Datadog, and any OTLP collector. Feature-gated behind `otlp-exporter`
 - **Execution Graphs** — Visual call chain tracking with DOT (Graphviz) and JSON export, color-coded verdicts, parent-child relationships, and graph statistics API
-- **Policy Validation CLI** — Enhanced `sentinel check` with strict mode, JSON/text output, best-practice and security checks, shadow policy detection, and wide pattern warnings
+- **Policy Validation CLI** — Enhanced `vellaveto check` with strict mode, JSON/text output, best-practice and security checks, shadow policy detection, and wide pattern warnings
 - **Attack Simulation** — Automated red-teaming framework with 40+ OWASP ASI Top 10 attack payloads, multi-step sequences, schema mutations, and result summarization
 
 ## 📦 Installation
@@ -243,20 +243,20 @@ Sentinel enforces security policies on every tool call before it reaches the too
 
 ```bash
 # Pull the latest release
-docker pull ghcr.io/paolovella/sentinel:3.0.0
+docker pull ghcr.io/paolovella/vellaveto:3.0.0
 
 # Run with a policy config
 docker run -p 3000:3000 \
-  -v /path/to/config.toml:/etc/sentinel/config.toml:ro \
-  ghcr.io/paolovella/sentinel:3.0.0
+  -v /path/to/config.toml:/etc/vellaveto/config.toml:ro \
+  ghcr.io/paolovella/vellaveto:3.0.0
 ```
 
 ### Kubernetes (Helm)
 
 ```bash
 # Install with Helm
-helm install sentinel ./helm/sentinel \
-  --namespace sentinel \
+helm install vellaveto ./helm/vellaveto \
+  --namespace vellaveto \
   --create-namespace \
   -f values-production.yaml
 ```
@@ -267,20 +267,20 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for complete deployment instruction
 
 ```bash
 # Clone and build
-git clone https://github.com/paolovella/sentinel.git
-cd sentinel
+git clone https://github.com/paolovella/vellaveto.git
+cd vellaveto
 cargo build --release
 
 # Binaries in target/release/
-ls target/release/sentinel target/release/sentinel-http-proxy
+ls target/release/vellaveto target/release/vellaveto-http-proxy
 ```
 
 ### Source Distribution (ZIP)
 
 ```bash
 mkdir -p dist
-git archive --format=zip --prefix=sentinel/ -o dist/sentinel-main-$(date +%Y%m%d-%H%M%S).zip HEAD
-sha256sum dist/sentinel-main-*.zip
+git archive --format=zip --prefix=vellaveto/ -o dist/vellaveto-main-$(date +%Y%m%d-%H%M%S).zip HEAD
+sha256sum dist/vellaveto-main-*.zip
 ```
 
 - Uses `git archive`, so only tracked files are included.
@@ -293,15 +293,15 @@ sha256sum dist/sentinel-main-*.zip
 
 ```bash
 # Clone and start with docker compose
-git clone https://github.com/paolovella/sentinel.git
-cd sentinel
-export SENTINEL_API_KEY=$(openssl rand -hex 32)
+git clone https://github.com/paolovella/vellaveto.git
+cd vellaveto
+export VELLAVETO_API_KEY=$(openssl rand -hex 32)
 docker compose up -d
 
 # Evaluate a tool call
 curl -s http://localhost:3000/api/evaluate \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $SENTINEL_API_KEY" \
+  -H "Authorization: Bearer $VELLAVETO_API_KEY" \
   -d '{"tool":"file","function":"read","parameters":{"path":"/tmp/test"}}' | jq .
 ```
 
@@ -341,7 +341,7 @@ priority = 0  # Lowest priority — catches everything not explicitly allowed
 EOF
 
 # Start the server
-SENTINEL_API_KEY=your-secret sentinel serve --config policy.toml --port 3000
+VELLAVETO_API_KEY=your-secret vellaveto serve --config policy.toml --port 3000
 
 # Evaluate a tool call (another terminal)
 curl -s http://localhost:3000/api/evaluate \
@@ -367,7 +367,7 @@ curl -s http://localhost:3000/api/evaluate \
 
 ```
                     +------------------+
-  AI Agent -------->|   🛡️ Sentinel   |--------> Tool Server
+  AI Agent -------->|   🛡️ Vellaveto   |--------> Tool Server
                     |                  |
                     |  1. Parse action |
                     |  2. Match policy |
@@ -382,16 +382,16 @@ curl -s http://localhost:3000/api/evaluate \
                      Ed25519 signatures)
 ```
 
-Sentinel supports six deployment modes:
+Vellaveto supports six deployment modes:
 
 | Mode | Binary | Use Case |
 |------|--------|----------|
-| 🖥️ **HTTP API** | `sentinel serve` | Standalone policy server; agents call `/api/evaluate` |
-| 📡 **Stdio Proxy** | `sentinel-proxy` | Wraps a local MCP server; intercepts stdin/stdout |
-| 🔄 **HTTP Proxy** | `sentinel-http-proxy` | Reverse proxy for remote MCP servers (Streamable HTTP + SSE) |
-| 🔌 **WebSocket Proxy** | `sentinel-http-proxy` | WebSocket reverse proxy at `/mcp/ws` for bidirectional MCP |
-| ⚡ **gRPC Proxy** | `sentinel-http-proxy --grpc` | gRPC transport on port 50051 (requires `grpc` feature) |
-| 🌐 **MCP Gateway** | `sentinel-http-proxy` | Multi-backend routing with health checks and session affinity |
+| 🖥️ **HTTP API** | `vellaveto serve` | Standalone policy server; agents call `/api/evaluate` |
+| 📡 **Stdio Proxy** | `vellaveto-proxy` | Wraps a local MCP server; intercepts stdin/stdout |
+| 🔄 **HTTP Proxy** | `vellaveto-http-proxy` | Reverse proxy for remote MCP servers (Streamable HTTP + SSE) |
+| 🔌 **WebSocket Proxy** | `vellaveto-http-proxy` | WebSocket reverse proxy at `/mcp/ws` for bidirectional MCP |
+| ⚡ **gRPC Proxy** | `vellaveto-http-proxy --grpc` | gRPC transport on port 50051 (requires `grpc` feature) |
+| 🌐 **MCP Gateway** | `vellaveto-http-proxy` | Multi-backend routing with health checks and session affinity |
 
 ## 📝 Policy Configuration
 
@@ -490,13 +490,13 @@ When triggered, the evaluation response includes an `approval_id`. Use the appro
 ```bash
 # Approve
 curl -X POST http://localhost:3000/api/approvals/$APPROVAL_ID/approve \
-  -H "Authorization: Bearer $SENTINEL_API_KEY" \
+  -H "Authorization: Bearer $VELLAVETO_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"resolved_by": "alice@example.com"}'
 
 # Deny
 curl -X POST http://localhost:3000/api/approvals/$APPROVAL_ID/deny \
-  -H "Authorization: Bearer $SENTINEL_API_KEY"
+  -H "Authorization: Bearer $VELLAVETO_API_KEY"
 ```
 
 Pending approvals expire after 15 minutes by default.
@@ -506,16 +506,16 @@ Pending approvals expire after 15 minutes by default.
 Built-in policy presets for common scenarios:
 
 ```bash
-sentinel policies --preset dangerous   # Blocks bash, shell, exec tools
-sentinel policies --preset network     # Domain allowlisting for HTTP
-sentinel policies --preset development # Project-directory-scoped file access
-sentinel policies --preset deny-all    # Deny everything by default
-sentinel policies --preset allow-all   # Allow everything (testing only)
+vellaveto policies --preset dangerous   # Blocks bash, shell, exec tools
+vellaveto policies --preset network     # Domain allowlisting for HTTP
+vellaveto policies --preset development # Project-directory-scoped file access
+vellaveto policies --preset deny-all    # Deny everything by default
+vellaveto policies --preset allow-all   # Allow everything (testing only)
 ```
 
 ### 🗳️ Elicitation & Sampling Policies
 
-Control how Sentinel handles MCP elicitation (server-initiated user prompts) and sampling (LLM re-invocation) requests:
+Control how Vellaveto handles MCP elicitation (server-initiated user prompts) and sampling (LLM re-invocation) requests:
 
 ```toml
 [elicitation]
@@ -545,7 +545,7 @@ When `block_on_injection` is `true`, responses matching injection patterns are r
 
 ### 🔒 DLP Response Scanning
 
-Sentinel scans tool **responses** for leaked secrets using 7 built-in patterns:
+Vellaveto scans tool **responses** for leaked secrets using 7 built-in patterns:
 
 | Pattern | Example Match |
 |---------|--------------|
@@ -609,7 +609,7 @@ enabled = true
 The primary mode. Runs a standalone HTTP server that agents call to evaluate tool calls.
 
 ```bash
-SENTINEL_API_KEY=your-secret sentinel serve \
+VELLAVETO_API_KEY=your-secret vellaveto serve \
   --config policy.toml \
   --port 3000 \
   --bind 127.0.0.1
@@ -620,7 +620,7 @@ SENTINEL_API_KEY=your-secret sentinel serve \
 Wraps a local MCP server process. Intercepts JSON-RPC messages over stdin/stdout.
 
 ```bash
-sentinel-proxy --config policy.toml -- /path/to/mcp-server --arg1 --arg2
+vellaveto-proxy --config policy.toml -- /path/to/mcp-server --arg1 --arg2
 ```
 
 Features:
@@ -637,7 +637,7 @@ Features:
 Sits between clients and a remote MCP server over HTTP. Supports SSE streaming and session management per the MCP Streamable HTTP transport spec.
 
 ```bash
-SENTINEL_API_KEY=your-secret sentinel-http-proxy \
+VELLAVETO_API_KEY=your-secret vellaveto-http-proxy \
   --upstream http://localhost:8000/mcp \
   --config policy.toml \
   --listen 127.0.0.1:3001
@@ -660,7 +660,7 @@ The HTTP reverse proxy also supports WebSocket transport at `/mcp/ws` for bidire
 
 ```bash
 # WebSocket is available on the same binary — connect at /mcp/ws
-sentinel-http-proxy \
+vellaveto-http-proxy \
   --upstream http://localhost:8000/mcp \
   --config policy.toml \
   --listen 127.0.0.1:3001 \
@@ -677,12 +677,12 @@ Features:
 - Session binding (one session per WebSocket connection)
 - Binary frame rejection (close code 1003), invalid JSON rejection (close code 1008)
 - Idle timeout enforcement with configurable duration
-- Metrics: `sentinel_ws_connections_total`, `sentinel_ws_messages_total`
+- Metrics: `vellaveto_ws_connections_total`, `vellaveto_ws_messages_total`
 
 #### 🔑 OAuth 2.1
 
 ```bash
-sentinel-http-proxy \
+vellaveto-http-proxy \
   --upstream http://localhost:8000/mcp \
   --config policy.toml \
   --oauth-issuer https://auth.example.com \
@@ -774,14 +774,14 @@ Security defaults and guardrails:
 | `GET` | `/api/compliance/threat-coverage` | Yes | Threat coverage across ATLAS, CoSAI, and Adversa TOP 25 |
 | `GET` | `/api/compliance/gap-analysis` | Yes | Cross-framework gap analysis (7 frameworks) |
 
-All endpoints except `/health`, `/metrics`, and `/api/metrics` require a `Bearer` token matching `SENTINEL_API_KEY`. Use `--allow-anonymous` to disable authentication for development.
+All endpoints except `/health`, `/metrics`, and `/api/metrics` require a `Bearer` token matching `VELLAVETO_API_KEY`. Use `--allow-anonymous` to disable authentication for development.
 
 ### Example: Evaluate
 
 ```bash
 curl -X POST http://localhost:3000/api/evaluate \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $SENTINEL_API_KEY" \
+  -H "Authorization: Bearer $VELLAVETO_API_KEY" \
   -d '{
     "tool": "file_system",
     "function": "read_file",
@@ -812,14 +812,14 @@ curl http://localhost:3000/metrics
 ```
 
 ```
-# HELP sentinel_evaluations_total Total policy evaluations
-# TYPE sentinel_evaluations_total counter
-sentinel_evaluations_total{verdict="allow"} 1042
-sentinel_evaluations_total{verdict="deny"} 87
-sentinel_evaluations_total{verdict="require_approval"} 12
-# HELP sentinel_evaluation_duration_seconds Policy evaluation latency
-# TYPE sentinel_evaluation_duration_seconds histogram
-sentinel_evaluation_duration_seconds_bucket{le="0.001"} 1129
+# HELP vellaveto_evaluations_total Total policy evaluations
+# TYPE vellaveto_evaluations_total counter
+vellaveto_evaluations_total{verdict="allow"} 1042
+vellaveto_evaluations_total{verdict="deny"} 87
+vellaveto_evaluations_total{verdict="require_approval"} 12
+# HELP vellaveto_evaluation_duration_seconds Policy evaluation latency
+# TYPE vellaveto_evaluation_duration_seconds histogram
+vellaveto_evaluation_duration_seconds_bucket{le="0.001"} 1129
 ...
 ```
 
@@ -828,11 +828,11 @@ sentinel_evaluation_duration_seconds_bucket{le="0.001"} 1129
 ```bash
 # Export in CEF format
 curl "http://localhost:3000/api/audit/export?format=cef&limit=100" \
-  -H "Authorization: Bearer $SENTINEL_API_KEY"
+  -H "Authorization: Bearer $VELLAVETO_API_KEY"
 
 # Export in JSON Lines format
 curl "http://localhost:3000/api/audit/export?format=jsonl&since=2026-02-04T00:00:00Z" \
-  -H "Authorization: Bearer $SENTINEL_API_KEY"
+  -H "Authorization: Bearer $VELLAVETO_API_KEY"
 ```
 
 ## 📋 Audit System
@@ -856,28 +856,28 @@ Every policy decision is logged to a tamper-evident audit trail.
 
 ```bash
 # Via CLI (offline verification)
-sentinel verify --audit audit.log
+vellaveto verify --audit audit.log
 
 # Via API (live verification)
 curl http://localhost:3000/api/audit/verify \
-  -H "Authorization: Bearer $SENTINEL_API_KEY" | jq .
+  -H "Authorization: Bearer $VELLAVETO_API_KEY" | jq .
 # -> {"valid": true, "entries_checked": 142, "first_broken_at": null}
 
 # Verify checkpoint signatures
 curl http://localhost:3000/api/audit/checkpoints/verify \
-  -H "Authorization: Bearer $SENTINEL_API_KEY" | jq .
+  -H "Authorization: Bearer $VELLAVETO_API_KEY" | jq .
 ```
 
 ### 🔑 Signing Key
 
 ```bash
 # Use a persistent key (hex-encoded 32-byte Ed25519 seed)
-export SENTINEL_SIGNING_KEY="a1b2c3d4..."
+export VELLAVETO_SIGNING_KEY="a1b2c3d4..."
 
-# Or let Sentinel auto-generate one (public key logged at startup)
+# Or let Vellaveto auto-generate one (public key logged at startup)
 ```
 
-Checkpoints are created every 300 seconds by default (configurable via `SENTINEL_CHECKPOINT_INTERVAL`).
+Checkpoints are created every 300 seconds by default (configurable via `VELLAVETO_CHECKPOINT_INTERVAL`).
 
 ## 🔎 Evaluation Traces
 
@@ -899,16 +899,16 @@ The trace includes:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SENTINEL_API_KEY` | *(required)* | Bearer token for all authenticated endpoints |
-| `SENTINEL_SIGNING_KEY` | *(auto-generated)* | Hex-encoded 32-byte Ed25519 seed for audit checkpoints |
-| `SENTINEL_CHECKPOINT_INTERVAL` | `300` | Seconds between automatic audit checkpoints (0 to disable) |
-| `SENTINEL_TRUSTED_PROXIES` | *(none)* | Comma-separated trusted proxy IPs for X-Forwarded-For |
-| `SENTINEL_CORS_ORIGINS` | *(localhost)* | Comma-separated allowed CORS origins (`*` for any) |
-| `SENTINEL_LOG_MAX_SIZE` | `104857600` | Max audit log size in bytes before rotation (0 to disable) |
-| `SENTINEL_NO_CANONICALIZE` | `false` | Disable JSON-RPC re-serialization before forwarding |
+| `VELLAVETO_API_KEY` | *(required)* | Bearer token for all authenticated endpoints |
+| `VELLAVETO_SIGNING_KEY` | *(auto-generated)* | Hex-encoded 32-byte Ed25519 seed for audit checkpoints |
+| `VELLAVETO_CHECKPOINT_INTERVAL` | `300` | Seconds between automatic audit checkpoints (0 to disable) |
+| `VELLAVETO_TRUSTED_PROXIES` | *(none)* | Comma-separated trusted proxy IPs for X-Forwarded-For |
+| `VELLAVETO_CORS_ORIGINS` | *(localhost)* | Comma-separated allowed CORS origins (`*` for any) |
+| `VELLAVETO_LOG_MAX_SIZE` | `104857600` | Max audit log size in bytes before rotation (0 to disable) |
+| `VELLAVETO_NO_CANONICALIZE` | `false` | Disable JSON-RPC re-serialization before forwarding |
 | `RUST_LOG` | `info` | Log level filter (`tracing` / `env_logger` syntax) |
 
-Rate limiting environment variables: `SENTINEL_RATE_EVALUATE`, `SENTINEL_RATE_EVALUATE_BURST`, `SENTINEL_RATE_ADMIN`, `SENTINEL_RATE_ADMIN_BURST`, `SENTINEL_RATE_READONLY`, `SENTINEL_RATE_READONLY_BURST`, `SENTINEL_RATE_PER_IP`, `SENTINEL_RATE_PER_IP_BURST`, `SENTINEL_RATE_PER_IP_MAX_CAPACITY`, `SENTINEL_RATE_PER_PRINCIPAL`, `SENTINEL_RATE_PER_PRINCIPAL_BURST`.
+Rate limiting environment variables: `VELLAVETO_RATE_EVALUATE`, `VELLAVETO_RATE_EVALUATE_BURST`, `VELLAVETO_RATE_ADMIN`, `VELLAVETO_RATE_ADMIN_BURST`, `VELLAVETO_RATE_READONLY`, `VELLAVETO_RATE_READONLY_BURST`, `VELLAVETO_RATE_PER_IP`, `VELLAVETO_RATE_PER_IP_BURST`, `VELLAVETO_RATE_PER_IP_MAX_CAPACITY`, `VELLAVETO_RATE_PER_PRINCIPAL`, `VELLAVETO_RATE_PER_PRINCIPAL_BURST`.
 
 Environment variables override values set in the config file.
 
@@ -948,7 +948,7 @@ Environment variables override values set in the config file.
 
 ### 🔬 Security Audit
 
-Sentinel has undergone 37 rounds of adversarial security audit covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/).
+Vellaveto has undergone 37 rounds of adversarial security audit covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/).
 
 | Metric | Value |
 |--------|-------|
@@ -963,24 +963,24 @@ Key areas covered: tool poisoning, prompt injection, path traversal, SSRF/domain
 
 ### 📋 Standards Compliance
 
-Sentinel provides built-in compliance mapping and reporting for major AI security standards:
+Vellaveto provides built-in compliance mapping and reporting for major AI security standards:
 
 | Standard | Module | Coverage |
 |----------|--------|----------|
-| **EU AI Act** | `sentinel-audit/src/eu_ai_act.rs` | 10 obligations (Art 5–50), 18 capability mappings, conformity assessment reports |
-| **SOC 2** | `sentinel-audit/src/soc2.rs` | 22 criteria across CC1-CC9, ~30 capability mappings, evidence reports |
-| **MITRE ATLAS** | `sentinel-audit/src/atlas.rs` | 14 techniques (AML.T0051-T0065), 30+ detection mappings |
-| **OWASP AIVSS** | `sentinel-audit/src/aivss.rs` | Full severity scoring with AI-specific multipliers |
-| **NIST AI RMF** | `sentinel-audit/src/nist_rmf.rs` | All 4 functions (Govern, Map, Measure, Manage) |
-| **ISO/IEC 27090** | `sentinel-audit/src/iso27090.rs` | 5 control domains, readiness assessment |
-| **CoSAI** | `sentinel-audit/src/cosai.rs` | 12 threat categories, 38 threats, 100% coverage |
-| **Adversa AI TOP 25** | `sentinel-audit/src/adversa_top25.rs` | 25 ranked vulnerabilities, 100% coverage |
-| **ISO/IEC 42001** | `sentinel-audit/src/iso42001.rs` | AI Management System controls, clause coverage, evidence reports |
-| **Cross-Framework** | `sentinel-audit/src/gap_analysis.rs` | Unified gap analysis across all 7 frameworks |
+| **EU AI Act** | `vellaveto-audit/src/eu_ai_act.rs` | 10 obligations (Art 5–50), 18 capability mappings, conformity assessment reports |
+| **SOC 2** | `vellaveto-audit/src/soc2.rs` | 22 criteria across CC1-CC9, ~30 capability mappings, evidence reports |
+| **MITRE ATLAS** | `vellaveto-audit/src/atlas.rs` | 14 techniques (AML.T0051-T0065), 30+ detection mappings |
+| **OWASP AIVSS** | `vellaveto-audit/src/aivss.rs` | Full severity scoring with AI-specific multipliers |
+| **NIST AI RMF** | `vellaveto-audit/src/nist_rmf.rs` | All 4 functions (Govern, Map, Measure, Manage) |
+| **ISO/IEC 27090** | `vellaveto-audit/src/iso27090.rs` | 5 control domains, readiness assessment |
+| **CoSAI** | `vellaveto-audit/src/cosai.rs` | 12 threat categories, 38 threats, 100% coverage |
+| **Adversa AI TOP 25** | `vellaveto-audit/src/adversa_top25.rs` | 25 ranked vulnerabilities, 100% coverage |
+| **ISO/IEC 42001** | `vellaveto-audit/src/iso42001.rs` | AI Management System controls, clause coverage, evidence reports |
+| **Cross-Framework** | `vellaveto-audit/src/gap_analysis.rs` | Unified gap analysis across all 7 frameworks |
 
 Generate compliance reports programmatically:
 ```rust
-use sentinel_audit::{
+use vellaveto_audit::{
     eu_ai_act::EuAiActRegistry, soc2::Soc2Registry,
     atlas::AtlasRegistry, nist_rmf::NistRmfRegistry, iso27090::Iso27090Registry,
     cosai::CosaiRegistry, adversa_top25::AdversaTop25Registry,
@@ -991,14 +991,14 @@ use sentinel_audit::{
 // EU AI Act conformity assessment
 let eu = EuAiActRegistry::new();
 let assessment = eu.generate_assessment(
-    sentinel_types::AiActRiskClass::HighRisk, "Acme Corp", "sentinel-v3",
+    vellaveto_types::AiActRiskClass::HighRisk, "Acme Corp", "vellaveto-v3",
 );
 
 // SOC 2 evidence report
 let soc2 = Soc2Registry::new();
 let report = soc2.generate_evidence_report(
     "Acme Corp", "2026-01-01", "2026-12-31",
-    &[sentinel_types::TrustServicesCategory::CC1, sentinel_types::TrustServicesCategory::CC6],
+    &[vellaveto_types::TrustServicesCategory::CC1, vellaveto_types::TrustServicesCategory::CC6],
 );
 
 // MITRE ATLAS coverage
@@ -1030,38 +1030,38 @@ println!("Overall coverage: {:.1}%", gap_report.overall_coverage_percent);
 
 - **DLP does not detect split secrets.** Secrets split across multiple JSON fields or fragmented within a field are not reassembled. Treat DLP as a best-effort safety net.
 
-- **No TLS termination.** Use a reverse proxy (nginx, Caddy) in front of Sentinel for HTTPS.
+- **No TLS termination.** Use a reverse proxy (nginx, Caddy) in front of Vellaveto for HTTPS.
 
-- **Distributed clustering is opt-in.** The `sentinel-cluster` crate supports Redis-backed state sharing (approvals, rate limits) across instances, but audit logs remain local to each process. Enable with the `redis` feature flag.
+- **Distributed clustering is opt-in.** The `vellaveto-cluster` crate supports Redis-backed state sharing (approvals, rate limits) across instances, but audit logs remain local to each process. Enable with the `redis` feature flag.
 
 - **Path normalization decode limit.** `normalize_path()` iteratively decodes up to 20 layers, then fails-closed to `"/"` to prevent CPU exhaustion.
 
-- **Checkpoint trust anchor.** Checkpoint signatures use self-embedded Ed25519 keys (TOFU model). Pin a trusted key via `SENTINEL_TRUSTED_KEY` for stronger guarantees.
+- **Checkpoint trust anchor.** Checkpoint signatures use self-embedded Ed25519 keys (TOFU model). Pin a trusted key via `VELLAVETO_TRUSTED_KEY` for stronger guarantees.
 
 ## 🏛️ Architecture
 
 ```
-sentinel-types             Core types: Action, Policy, Verdict, EvaluationTrace
+vellaveto-types             Core types: Action, Policy, Verdict, EvaluationTrace
        |
   +----+----+
   |         |
-sentinel-  sentinel-       Config parser (TOML/JSON) and built-in presets
+vellaveto-  vellaveto-       Config parser (TOML/JSON) and built-in presets
 config     canonical
   |
-sentinel-engine            Policy evaluation with pre-compiled patterns
+vellaveto-engine            Policy evaluation with pre-compiled patterns
   |
   +--------+--------+
   |        |        |
-sentinel- sentinel- sentinel-
+vellaveto- vellaveto- vellaveto-
 audit     approval  mcp        Audit logging, approval store, MCP protocol
   |        |        |
   +--------+--------+
            |
-     sentinel-cluster          Distributed state sharing (local + Redis)
+     vellaveto-cluster          Distributed state sharing (local + Redis)
            |
   +--------+--------+
   |        |        |
-sentinel-  sentinel- sentinel-
+vellaveto-  vellaveto- vellaveto-
 server     proxy     http-proxy   HTTP API, stdio proxy, HTTP reverse proxy
 ```
 
@@ -1069,24 +1069,24 @@ server     proxy     http-proxy   HTTP API, stdio proxy, HTTP reverse proxy
 
 | Module | Type | Path | Responsibility | Verify |
 |--------|------|------|----------------|--------|
-| `sentinel-types` | library | `sentinel-types/` | Shared contracts (`Action`, `Policy`, `Verdict`, context types) | `cargo test -p sentinel-types` |
-| `sentinel-engine` | library | `sentinel-engine/` | Policy compilation/evaluation, constraint matching, normalization | `cargo test -p sentinel-engine` |
-| `sentinel-config` | library | `sentinel-config/` | TOML/JSON config parsing, validation, safety defaults | `cargo test -p sentinel-config` |
-| `sentinel-canonical` | library | `sentinel-canonical/` | Built-in policy presets and deterministic serialization | `cargo test -p sentinel-canonical` |
-| `sentinel-audit` | library | `sentinel-audit/` | Tamper-evident audit chain, checkpoints, SIEM export, observability exporters | `cargo test -p sentinel-audit` |
-| `sentinel-approval` | library | `sentinel-approval/` | Human approval queue, deduplication, expiry, resolver audit hooks | `cargo test -p sentinel-approval` |
-| `sentinel-mcp` | library | `sentinel-mcp/` | MCP/A2A security managers, inspection, threat detection, ETDI/MINJA/NHI | `cargo test -p sentinel-mcp` |
-| `sentinel-cluster` | library | `sentinel-cluster/` | Shared runtime state backend (local and Redis-backed) | `cargo test -p sentinel-cluster` |
-| `sentinel-server` | binary | `sentinel-server/` | HTTP API/CLI runtime, RBAC, authn/authz, policy lifecycle endpoints | `cargo test -p sentinel-server` |
-| `sentinel-proxy` | binary | `sentinel-proxy/` | Stdio MCP proxy enforcement runtime | `cargo test -p sentinel-proxy` |
-| `sentinel-http-proxy` | binary | `sentinel-http-proxy/` | Streamable HTTP + WebSocket MCP reverse proxy with OAuth, session, SSE controls | `cargo test -p sentinel-http-proxy` |
-| `sentinel-integration` | test-suite | `sentinel-integration/` | Cross-crate regression, adversarial, and conformance tests | `cargo test -p sentinel-integration` |
+| `vellaveto-types` | library | `vellaveto-types/` | Shared contracts (`Action`, `Policy`, `Verdict`, context types) | `cargo test -p vellaveto-types` |
+| `vellaveto-engine` | library | `vellaveto-engine/` | Policy compilation/evaluation, constraint matching, normalization | `cargo test -p vellaveto-engine` |
+| `vellaveto-config` | library | `vellaveto-config/` | TOML/JSON config parsing, validation, safety defaults | `cargo test -p vellaveto-config` |
+| `vellaveto-canonical` | library | `vellaveto-canonical/` | Built-in policy presets and deterministic serialization | `cargo test -p vellaveto-canonical` |
+| `vellaveto-audit` | library | `vellaveto-audit/` | Tamper-evident audit chain, checkpoints, SIEM export, observability exporters | `cargo test -p vellaveto-audit` |
+| `vellaveto-approval` | library | `vellaveto-approval/` | Human approval queue, deduplication, expiry, resolver audit hooks | `cargo test -p vellaveto-approval` |
+| `vellaveto-mcp` | library | `vellaveto-mcp/` | MCP/A2A security managers, inspection, threat detection, ETDI/MINJA/NHI | `cargo test -p vellaveto-mcp` |
+| `vellaveto-cluster` | library | `vellaveto-cluster/` | Shared runtime state backend (local and Redis-backed) | `cargo test -p vellaveto-cluster` |
+| `vellaveto-server` | binary | `vellaveto-server/` | HTTP API/CLI runtime, RBAC, authn/authz, policy lifecycle endpoints | `cargo test -p vellaveto-server` |
+| `vellaveto-proxy` | binary | `vellaveto-proxy/` | Stdio MCP proxy enforcement runtime | `cargo test -p vellaveto-proxy` |
+| `vellaveto-http-proxy` | binary | `vellaveto-http-proxy/` | Streamable HTTP + WebSocket MCP reverse proxy with OAuth, session, SSE controls | `cargo test -p vellaveto-http-proxy` |
+| `vellaveto-integration` | test-suite | `vellaveto-integration/` | Cross-crate regression, adversarial, and conformance tests | `cargo test -p vellaveto-integration` |
 | `sdk/python` | sdk | `sdk/python/` | Python client + LangChain/LangGraph adapters | `cd sdk/python && pytest` |
-| `helm/sentinel` | deployment | `helm/sentinel/` | Kubernetes packaging and values templates | `helm lint helm/sentinel` |
+| `helm/vellaveto` | deployment | `helm/vellaveto/` | Kubernetes packaging and values templates | `helm lint helm/vellaveto` |
 | `fuzz` | fuzzing | `fuzz/` | Fuzz targets for parser/protocol/security boundary hardening | `cd fuzz && cargo +nightly fuzz list` |
 | `security-testing` | security | `security-testing/` | Pentest harnesses and red-team scenarios | `bash security-testing/run-shannon-pentest.sh` |
 | `policies` | config samples | `policies/` | Example and baseline policy bundles | load with `--config policies/*.toml` |
-| `examples` | examples | `examples/` | Demo configs and workflows | run `sentinel serve --config examples/*.toml` |
+| `examples` | examples | `examples/` | Demo configs and workflows | run `vellaveto serve --config examples/*.toml` |
 | `scripts` | tooling | `scripts/` | Automation helpers for local and CI checks | `bash scripts/<script>.sh` |
 | `docs` | docs | `docs/` | API, deployment, operations, security guidance | n/a |
 
@@ -1094,28 +1094,28 @@ server     proxy     http-proxy   HTTP API, stdio proxy, HTTP reverse proxy
 
 | Feature | Owning module(s) | Runtime entrypoint(s) | Primary tests |
 |--------|-------------------|-----------------------|---------------|
-| Policy evaluation and constraints | `sentinel-engine`, `sentinel-types` | `/api/evaluate`, `sentinel evaluate` | `sentinel-engine/tests/`, `sentinel-integration/tests/` |
-| Config parsing and policy loading | `sentinel-config`, `sentinel-canonical` | server/proxy startup + reload | `sentinel-config/tests/`, `sentinel-server/tests/test_config_*` |
-| Tamper-evident audit trail and SIEM export | `sentinel-audit`, `sentinel-server` | `/api/audit/*`, `sentinel verify` | `sentinel-audit/tests/`, `sentinel-integration/tests/audit_*` |
-| Human-in-the-loop approvals | `sentinel-approval`, `sentinel-server` | `/api/approvals/*` | `sentinel-approval/tests/`, `sentinel-server/tests/test_routes_*` |
-| MCP protocol guardrails and inspection | `sentinel-mcp`, `sentinel-proxy`, `sentinel-http-proxy` | stdio + HTTP proxy tool calls | `sentinel-mcp/tests/`, `sentinel-http-proxy/tests/proxy_integration.rs` |
-| Streaming SSE schema enforcement | `sentinel-http-proxy`, `sentinel-mcp` | Streamable HTTP responses | `sentinel-http-proxy/tests/proxy_integration.rs` |
-| OAuth/JWT and API auth controls | `sentinel-http-proxy`, `sentinel-server` | proxy auth middleware, server RBAC routes | `sentinel-http-proxy/tests/proxy_integration.rs`, `sentinel-server/tests/test_rbac.rs` |
-| Network/path/DNS rebinding defenses | `sentinel-engine`, `sentinel-server`, `sentinel-http-proxy` | path and domain constraints on evaluation | `sentinel-engine/src/domain.rs`, `sentinel-integration/tests/path_domain_security.rs` |
-| ETDI cryptographic tool trust | `sentinel-mcp`, `sentinel-server` | ETDI APIs and CLI signing/verification | `sentinel-integration/tests/etdi_test.rs` |
-| MINJA memory injection defense | `sentinel-mcp` | memory inspection managers in proxy bridge | `sentinel-integration/tests/minja_tests.rs` |
-| NHI lifecycle and behavioral attestation | `sentinel-mcp`, `sentinel-server` | NHI APIs and identity middleware | `sentinel-integration/tests/nhi_test.rs` |
-| Async task security primitives | `sentinel-mcp`, `sentinel-http-proxy` | `tasks/*` policy path enforcement | `sentinel-http-proxy/tests/proxy_integration.rs` |
-| Semantic guardrails (LLM-based) | `sentinel-mcp` | semantic evaluation pipeline | `sentinel-mcp/src/semantic/`, integration coverage in `sentinel-integration/tests/` |
-| RAG poisoning defense | `sentinel-mcp` | grounding/retrieval defense path | `sentinel-mcp/src/rag_defense/` tests |
-| A2A protocol security | `sentinel-mcp` | A2A message classification and proxy service | `sentinel-mcp/src/a2a.rs` tests, `sentinel-integration/tests/owasp_mcp_top10.rs` |
-| Enterprise controls (mTLS/SPIFFE/OPA/JIT/Threat Intel) | `sentinel-server`, `sentinel-mcp`, `sentinel-cluster` | server runtime integrations and policy hooks (OPA runtime enforcement active) | `sentinel-server/src/threat_intel.rs` tests, `sentinel-server/tests/` |
-| Observability exporters and traces | `sentinel-audit`, `sentinel-integration` | exporter backends and trace propagation | `sentinel-integration/tests/observability_test.rs`, `sentinel-audit/tests/proptest_observability.rs` |
+| Policy evaluation and constraints | `vellaveto-engine`, `vellaveto-types` | `/api/evaluate`, `vellaveto evaluate` | `vellaveto-engine/tests/`, `vellaveto-integration/tests/` |
+| Config parsing and policy loading | `vellaveto-config`, `vellaveto-canonical` | server/proxy startup + reload | `vellaveto-config/tests/`, `vellaveto-server/tests/test_config_*` |
+| Tamper-evident audit trail and SIEM export | `vellaveto-audit`, `vellaveto-server` | `/api/audit/*`, `vellaveto verify` | `vellaveto-audit/tests/`, `vellaveto-integration/tests/audit_*` |
+| Human-in-the-loop approvals | `vellaveto-approval`, `vellaveto-server` | `/api/approvals/*` | `vellaveto-approval/tests/`, `vellaveto-server/tests/test_routes_*` |
+| MCP protocol guardrails and inspection | `vellaveto-mcp`, `vellaveto-proxy`, `vellaveto-http-proxy` | stdio + HTTP proxy tool calls | `vellaveto-mcp/tests/`, `vellaveto-http-proxy/tests/proxy_integration.rs` |
+| Streaming SSE schema enforcement | `vellaveto-http-proxy`, `vellaveto-mcp` | Streamable HTTP responses | `vellaveto-http-proxy/tests/proxy_integration.rs` |
+| OAuth/JWT and API auth controls | `vellaveto-http-proxy`, `vellaveto-server` | proxy auth middleware, server RBAC routes | `vellaveto-http-proxy/tests/proxy_integration.rs`, `vellaveto-server/tests/test_rbac.rs` |
+| Network/path/DNS rebinding defenses | `vellaveto-engine`, `vellaveto-server`, `vellaveto-http-proxy` | path and domain constraints on evaluation | `vellaveto-engine/src/domain.rs`, `vellaveto-integration/tests/path_domain_security.rs` |
+| ETDI cryptographic tool trust | `vellaveto-mcp`, `vellaveto-server` | ETDI APIs and CLI signing/verification | `vellaveto-integration/tests/etdi_test.rs` |
+| MINJA memory injection defense | `vellaveto-mcp` | memory inspection managers in proxy bridge | `vellaveto-integration/tests/minja_tests.rs` |
+| NHI lifecycle and behavioral attestation | `vellaveto-mcp`, `vellaveto-server` | NHI APIs and identity middleware | `vellaveto-integration/tests/nhi_test.rs` |
+| Async task security primitives | `vellaveto-mcp`, `vellaveto-http-proxy` | `tasks/*` policy path enforcement | `vellaveto-http-proxy/tests/proxy_integration.rs` |
+| Semantic guardrails (LLM-based) | `vellaveto-mcp` | semantic evaluation pipeline | `vellaveto-mcp/src/semantic/`, integration coverage in `vellaveto-integration/tests/` |
+| RAG poisoning defense | `vellaveto-mcp` | grounding/retrieval defense path | `vellaveto-mcp/src/rag_defense/` tests |
+| A2A protocol security | `vellaveto-mcp` | A2A message classification and proxy service | `vellaveto-mcp/src/a2a.rs` tests, `vellaveto-integration/tests/owasp_mcp_top10.rs` |
+| Enterprise controls (mTLS/SPIFFE/OPA/JIT/Threat Intel) | `vellaveto-server`, `vellaveto-mcp`, `vellaveto-cluster` | server runtime integrations and policy hooks (OPA runtime enforcement active) | `vellaveto-server/src/threat_intel.rs` tests, `vellaveto-server/tests/` |
+| Observability exporters and traces | `vellaveto-audit`, `vellaveto-integration` | exporter backends and trace propagation | `vellaveto-integration/tests/observability_test.rs`, `vellaveto-audit/tests/proptest_observability.rs` |
 | Python SDK integrations | `sdk/python` | SDK client APIs and middleware callbacks | `sdk/python` test suite |
 | TypeScript SDK | `sdk/typescript` | HTTP client, types, simulator methods | `sdk/typescript` test suite |
 | Go SDK | `sdk/go` | HTTP client, types, functional options | `sdk/go` test suite |
-| Policy simulator API | `sentinel-server` | Evaluate/batch/validate/diff endpoints | `sentinel-server/src/routes/simulator.rs` tests |
-| Fuzzing and adversarial validation | `fuzz`, `security-testing`, `sentinel-integration` | fuzz targets + red-team scripts | `fuzz/*`, `sentinel-integration/tests/full_attack_battery.rs` |
+| Policy simulator API | `vellaveto-server` | Evaluate/batch/validate/diff endpoints | `vellaveto-server/src/routes/simulator.rs` tests |
+| Fuzzing and adversarial validation | `fuzz`, `security-testing`, `vellaveto-integration` | fuzz targets + red-team scripts | `fuzz/*`, `vellaveto-integration/tests/full_attack_battery.rs` |
 
 ### Design Principles
 
@@ -1151,38 +1151,38 @@ Benchmark results (criterion, single-threaded):
 
 ```bash
 # HTTP policy server
-sentinel serve --config policy.toml [--port 3000] [--bind 127.0.0.1] [--allow-anonymous]
+vellaveto serve --config policy.toml [--port 3000] [--bind 127.0.0.1] [--allow-anonymous]
 
 # One-shot evaluation (no server needed)
-sentinel evaluate --tool file --function read \
+vellaveto evaluate --tool file --function read \
   --params '{"path":"/tmp/x"}' --config policy.toml
 
 # Validate a config file
-sentinel check --config policy.toml
+vellaveto check --config policy.toml
 
 # Output canonical presets as TOML
-sentinel policies --preset dangerous
+vellaveto policies --preset dangerous
 
 # Verify audit log integrity
-sentinel verify --audit audit.log [--list-rotated]
+vellaveto verify --audit audit.log [--list-rotated]
 
 # ETDI: Generate Ed25519 keypair for tool signing
-sentinel generate-key --private-key key.priv --public-key key.pub
+vellaveto generate-key --private-key key.priv --public-key key.pub
 
 # ETDI: Sign a tool definition
-sentinel sign-tool --tool read_file --definition schema.json \
+vellaveto sign-tool --tool read_file --definition schema.json \
   --key key.priv --output signature.json [--expires-in-days 365]
 
 # ETDI: Verify a tool signature
-sentinel verify-signature --tool read_file --definition schema.json \
+vellaveto verify-signature --tool read_file --definition schema.json \
   --signature signature.json
 
 # Stdio MCP proxy
-sentinel-proxy --config policy.toml [--strict] [--timeout 30] [--trace] \
+vellaveto-proxy --config policy.toml [--strict] [--timeout 30] [--trace] \
   -- ./mcp-server --arg1
 
 # HTTP reverse proxy (Streamable HTTP + WebSocket)
-sentinel-http-proxy \
+vellaveto-http-proxy \
   --upstream http://localhost:8000/mcp \
   --config policy.toml \
   [--listen 127.0.0.1:3001] \
@@ -1228,7 +1228,7 @@ cd fuzz && cargo +nightly fuzz list
 cargo +nightly fuzz run fuzz_json_rpc_framing -- -max_total_time=60
 
 # Reload policies without restart
-kill -HUP $(pidof sentinel-server)
+kill -HUP $(pidof vellaveto-server)
 ```
 
 ### 🔄 CI Pipeline
@@ -1253,18 +1253,18 @@ kill -HUP $(pidof sentinel-server)
 
 | Path | Role |
 |------|------|
-| `sentinel-types/` | Core contracts and shared runtime types |
-| `sentinel-engine/` | Policy evaluation and constraint execution |
-| `sentinel-audit/` | Audit chain, checkpoints, SIEM export, observability |
-| `sentinel-approval/` | Approval queue lifecycle and persistence |
-| `sentinel-config/` | Config parsing and validation |
-| `sentinel-canonical/` | Canonical policy presets |
-| `sentinel-mcp/` | MCP/A2A security managers and inspection |
-| `sentinel-cluster/` | Shared state backends (local/Redis) |
-| `sentinel-server/` | HTTP API server + CLI binary |
-| `sentinel-proxy/` | Stdio MCP proxy binary |
-| `sentinel-http-proxy/` | Streamable HTTP reverse proxy binary |
-| `sentinel-integration/` | Cross-crate adversarial and integration tests |
+| `vellaveto-types/` | Core contracts and shared runtime types |
+| `vellaveto-engine/` | Policy evaluation and constraint execution |
+| `vellaveto-audit/` | Audit chain, checkpoints, SIEM export, observability |
+| `vellaveto-approval/` | Approval queue lifecycle and persistence |
+| `vellaveto-config/` | Config parsing and validation |
+| `vellaveto-canonical/` | Canonical policy presets |
+| `vellaveto-mcp/` | MCP/A2A security managers and inspection |
+| `vellaveto-cluster/` | Shared state backends (local/Redis) |
+| `vellaveto-server/` | HTTP API server + CLI binary |
+| `vellaveto-proxy/` | Stdio MCP proxy binary |
+| `vellaveto-http-proxy/` | Streamable HTTP reverse proxy binary |
+| `vellaveto-integration/` | Cross-crate adversarial and integration tests |
 | `sdk/python/` | Python SDK and framework adapters |
 | `sdk/typescript/` | TypeScript SDK (zero runtime deps) |
 | `sdk/go/` | Go SDK (zero external deps, stdlib only) |
@@ -1313,4 +1313,4 @@ Comprehensive documentation is available in the `docs/` directory:
 
 This project is dual-licensed under the [GNU Affero General Public License v3.0](LICENSE) and a commercial license. See [LICENSING.md](LICENSING.md) for details.
 
-If you modify Sentinel and offer it as a network service, the AGPL-3.0 requires you to make your source code available. For proprietary use or managed service offerings without source disclosure, contact **paolovella1993@gmail.com** for a commercial license.
+If you modify Vellaveto and offer it as a network service, the AGPL-3.0 requires you to make your source code available. For proprietary use or managed service offerings without source disclosure, contact **paolovella1993@gmail.com** for a commercial license.

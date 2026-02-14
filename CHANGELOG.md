@@ -15,11 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `context.Context` on all public methods.
 - Fail-closed verdict parsing — unknown verdict strings map to `VerdictDeny`.
 - Both string and object verdict form parsing (matching Python/TypeScript behavior).
-- Typed errors: `SentinelError`, `PolicyDeniedError`, `ApprovalRequiredError`.
+- Typed errors: `VellavetoError`, `PolicyDeniedError`, `ApprovalRequiredError`.
 - 28 table-driven tests using `net/http/httptest`.
 
 #### HTTP Proxy Benchmarks
-- **35 Criterion benchmarks** for the production hot path (`sentinel-http-proxy/benches/http_proxy.rs`):
+- **35 Criterion benchmarks** for the production hot path (`vellaveto-http-proxy/benches/http_proxy.rs`):
   - Origin validation (5 benchmarks): `is_loopback` variants, `build_loopback_origins`, `extract_authority` (5 URL formats), `validate_origin` (4 scenarios).
   - HMAC operations (7 benchmarks): signing content, compute (small/4KB), verify (valid/invalid), build entry (with/without HMAC).
   - Call chain parsing (4 benchmarks): header extraction with 0/1/5 entries, with/without HMAC.
@@ -62,28 +62,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 #### Phase 23: Research & Future (23.1–23.5)
-- **Multimodal injection detection (23.1)** — Pure-Rust PNG tEXt/zTXt/iTXt chunk extraction, JPEG COM/EXIF comment extraction, PDF stream/FlateDecode text extraction with Tj/TJ operator parsing, chi-squared LSB steganography detection. No `image`/`pdf`/OCR crates — uses `flate2` for decompression with 10MB zip bomb protection. (`sentinel-mcp/src/inspection/multimodal.rs`). 12 tests.
-- **Continuous autonomous red teaming (23.2)** — `MutationEngine` with 8 mutation types (URL encode, double encode, null byte inject, homoglyph replace, case variation, whitespace inject, parameter alias, context wrapping). `RedTeamRunner` evaluates mutated payloads against `PolicyEngine`, reports `BypassFinding` gaps. `CoverageReport` tracks by category and mutation type. (`sentinel-mcp/src/red_team.rs`). 15 tests.
+- **Multimodal injection detection (23.1)** — Pure-Rust PNG tEXt/zTXt/iTXt chunk extraction, JPEG COM/EXIF comment extraction, PDF stream/FlateDecode text extraction with Tj/TJ operator parsing, chi-squared LSB steganography detection. No `image`/`pdf`/OCR crates — uses `flate2` for decompression with 10MB zip bomb protection. (`vellaveto-mcp/src/inspection/multimodal.rs`). 12 tests.
+- **Continuous autonomous red teaming (23.2)** — `MutationEngine` with 8 mutation types (URL encode, double encode, null byte inject, homoglyph replace, case variation, whitespace inject, parameter alias, context wrapping). `RedTeamRunner` evaluates mutated payloads against `PolicyEngine`, reports `BypassFinding` gaps. `CoverageReport` tracks by category and mutation type. (`vellaveto-mcp/src/red_team.rs`). 15 tests.
 - **Red team API** — `POST /api/simulator/red-team` runs mutation engine against server's current policies, returns `RedTeamReport` with bypass findings and coverage gaps.
-- **FIPS 140-3 compliance mode (23.3)** — `FipsMode` with approved algorithm list (ECDSA P-256, SHA-256/384/512, AES-256-GCM, HMAC-SHA-256, RSA-PSS) and non-FIPS rejection list (Ed25519, ChaCha20-Poly1305, Blake2, Curve25519). Fail-closed for unknown algorithms. ECDSA P-256 sign/verify via `p256` crate, feature-gated behind `fips`. (`sentinel-mcp/src/fips.rs`). 12 tests.
-- **Sigstore/Rekor transparency log integration (23.4)** — `RekorEntry` types with full serde support. `RekorVerifier` with RFC 6962 domain-separated Merkle tree inclusion proof verification (leaf: `SHA-256(0x00||body)`, interior: `SHA-256(0x01||left||right)`). Offline tool hash matching and full `verify_entry()` combining proof + hash. (`sentinel-mcp/src/rekor.rs`). 12 tests.
-- **Stateful session reasoning guards (23.5)** — Formal state machine (Init→Active→Suspicious→Locked→Ended) with configurable `suspicious_threshold`, `lock_threshold`, `cooldown_secs`. `SessionGuard` integrates `WorkflowAlert` severity mapping and `GoalDriftAlert` similarity-to-severity conversion. Admin unlock, cooldown recovery, session eviction (max_sessions). (`sentinel-mcp/src/session_guard.rs`). 20 tests.
-- **Cross-crate integration** — `FipsConfig` in sentinel-config with module + `PolicyConfig` field. `rekor_entry: Option<serde_json::Value>` on `ToolSignature` for Rekor provenance. `session_state: Option<String>` on `EvaluationContext` with builder support. `SessionStateRequired` compiled context condition with fail-closed evaluation and policy compilation.
+- **FIPS 140-3 compliance mode (23.3)** — `FipsMode` with approved algorithm list (ECDSA P-256, SHA-256/384/512, AES-256-GCM, HMAC-SHA-256, RSA-PSS) and non-FIPS rejection list (Ed25519, ChaCha20-Poly1305, Blake2, Curve25519). Fail-closed for unknown algorithms. ECDSA P-256 sign/verify via `p256` crate, feature-gated behind `fips`. (`vellaveto-mcp/src/fips.rs`). 12 tests.
+- **Sigstore/Rekor transparency log integration (23.4)** — `RekorEntry` types with full serde support. `RekorVerifier` with RFC 6962 domain-separated Merkle tree inclusion proof verification (leaf: `SHA-256(0x00||body)`, interior: `SHA-256(0x01||left||right)`). Offline tool hash matching and full `verify_entry()` combining proof + hash. (`vellaveto-mcp/src/rekor.rs`). 12 tests.
+- **Stateful session reasoning guards (23.5)** — Formal state machine (Init→Active→Suspicious→Locked→Ended) with configurable `suspicious_threshold`, `lock_threshold`, `cooldown_secs`. `SessionGuard` integrates `WorkflowAlert` severity mapping and `GoalDriftAlert` similarity-to-severity conversion. Admin unlock, cooldown recovery, session eviction (max_sessions). (`vellaveto-mcp/src/session_guard.rs`). 20 tests.
+- **Cross-crate integration** — `FipsConfig` in vellaveto-config with module + `PolicyConfig` field. `rekor_entry: Option<serde_json::Value>` on `ToolSignature` for Rekor provenance. `session_state: Option<String>` on `EvaluationContext` with builder support. `SessionStateRequired` compiled context condition with fail-closed evaluation and policy compilation.
 - **74 new tests** across Phase 23 (12 multimodal + 15 red team + 12 FIPS + 12 Rekor + 20 session guard + 3 fips config)
 
 #### Phase 22: Developer Experience (Backend Focus)
-- **Policy simulator API** — 4 new endpoints: `POST /api/simulator/evaluate` (single action with trace), `/batch` (up to 100 actions), `/validate` (config validation), `/diff` (policy diff). Supports inline TOML policy configs for sandbox evaluation. (`sentinel-server/src/routes/simulator.rs`). 9 tests.
+- **Policy simulator API** — 4 new endpoints: `POST /api/simulator/evaluate` (single action with trace), `/batch` (up to 100 actions), `/validate` (config validation), `/diff` (policy diff). Supports inline TOML policy configs for sandbox evaluation. (`vellaveto-server/src/routes/simulator.rs`). 9 tests.
 - **CLI `simulate` subcommand** — Batch-evaluate actions from a JSON file against a policy config. Supports text table and JSON output formats.
-- **GitHub Action `policy-check`** — Composite action that downloads Sentinel binary and runs `sentinel check` for CI policy gates. Supports version pinning, strict mode, and text/JSON output. (`.github/actions/policy-check/action.yml`). Example workflow at `examples/github-action-policy-check.yml`.
+- **GitHub Action `policy-check`** — Composite action that downloads Vellaveto binary and runs `vellaveto check` for CI policy gates. Supports version pinning, strict mode, and text/JSON output. (`.github/actions/policy-check/action.yml`). Example workflow at `examples/github-action-policy-check.yml`.
 - **Dashboard SVG charts** — Verdict distribution bar chart (allow/deny/approval) and policy type pie chart (Allow/Deny/Conditional) rendered as inline SVG in the admin dashboard. 4 tests.
-- **TypeScript SDK** — Zero runtime dependency HTTP client using native `fetch()` (Node 18+). Full API parity with Python SDK: `evaluate`, `health`, `listPolicies`, `reloadPolicies`, `simulate`, `batchEvaluate`, `validateConfig`, `diffConfigs`, `listPendingApprovals`, `approveApproval`, `denyApproval`. Error classes: `SentinelError`, `PolicyDenied`, `ApprovalRequired`. (`sdk/typescript/`). 15 Jest tests.
+- **TypeScript SDK** — Zero runtime dependency HTTP client using native `fetch()` (Node 18+). Full API parity with Python SDK: `evaluate`, `health`, `listPolicies`, `reloadPolicies`, `simulate`, `batchEvaluate`, `validateConfig`, `diffConfigs`, `listPendingApprovals`, `approveApproval`, `denyApproval`. Error classes: `VellavetoError`, `PolicyDenied`, `ApprovalRequired`. (`sdk/typescript/`). 15 Jest tests.
 
 #### Phase 20: MCP Gateway Mode (20.1–20.3)
-- **Gateway types** — `BackendHealth` (Healthy/Degraded/Unhealthy), `UpstreamBackend`, `RoutingDecision`, `ToolConflict` in leaf crate (`sentinel-types/src/gateway.rs`). 3 tests.
-- **Gateway configuration** — `GatewayConfig` with backend list, health check interval/thresholds, `BackendConfig` with tool prefixes and weights (`sentinel-config/src/gateway.rs`). Added to `PolicyConfig` with `#[serde(default)]`. Validation for duplicate IDs, zero weights, interval bounds, multiple defaults. 5 tests.
-- **Gateway router** — `GatewayRouter` with longest-prefix-first tool name matching, configurable unhealthy/healthy thresholds, `route_with_affinity()` for session-sticky routing, fail-closed when all backends unhealthy (`sentinel-http-proxy/src/proxy/gateway.rs`). 30 tests.
+- **Gateway types** — `BackendHealth` (Healthy/Degraded/Unhealthy), `UpstreamBackend`, `RoutingDecision`, `ToolConflict` in leaf crate (`vellaveto-types/src/gateway.rs`). 3 tests.
+- **Gateway configuration** — `GatewayConfig` with backend list, health check interval/thresholds, `BackendConfig` with tool prefixes and weights (`vellaveto-config/src/gateway.rs`). Added to `PolicyConfig` with `#[serde(default)]`. Validation for duplicate IDs, zero weights, interval bounds, multiple defaults. 5 tests.
+- **Gateway router** — `GatewayRouter` with longest-prefix-first tool name matching, configurable unhealthy/healthy thresholds, `route_with_affinity()` for session-sticky routing, fail-closed when all backends unhealthy (`vellaveto-http-proxy/src/proxy/gateway.rs`). 30 tests.
 - **Health state machine** — Healthy→Unhealthy after `unhealthy_threshold` consecutive failures; Unhealthy→Degraded (1 success) →Healthy (`healthy_threshold` successes). Degraded backends remain routable.
-- **Health checker background task** — Periodic JSON-RPC `ping` to each backend with 5s timeout. Updates `sentinel_gateway_backends_total` and `sentinel_gateway_backends_healthy` gauge metrics.
+- **Health checker background task** — Periodic JSON-RPC `ping` to each backend with 5s timeout. Updates `vellaveto_gateway_backends_total` and `vellaveto_gateway_backends_healthy` gauge metrics.
 - **Handler wiring** — ToolCall match arm in `handle_mcp_post()` routes via gateway when `ProxyState.gateway` is `Some`. Records success/failure from HTTP response status.
 - **`forward_to_upstream_url()`** — Extracted URL parameter from `forward_to_upstream()` enabling gateway routing without rewriting the 808-line forwarding function.
 - **WebSocket gateway** — Default backend resolution for new WS connections; closes with 1008 if no healthy backend.
@@ -93,42 +93,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **38 new tests** across 4 files (3 types + 5 config + 30 router)
 
 #### Phase 18: MCP June 2026 Spec Compliance
-- **Transport & SDK tier types** — `TransportProtocol` (Grpc/WebSocket/Http/Stdio), `TransportEndpoint`, `SdkTier` (Core/Standard/Extended/Full), `SdkCapabilities` in leaf crate (`sentinel-types/src/transport.rs`). 4 tests.
-- **Transport configuration** — `TransportConfig` with `discovery_enabled`, `upstream_priorities`, `restricted_transports`, `advertise_capabilities`, `max_fallback_retries`, `fallback_timeout_secs` (`sentinel-config/src/transport.rs`). Added to `PolicyConfig` with `#[serde(default)]`. Validation for bounds and conflict detection. 4 tests.
-- **Transport discovery endpoint** — `GET /.well-known/mcp-transport` returns JSON with available transports, SDK tier (Extended with 12 capabilities), and supported protocol versions. 404 when `discovery_enabled=false`. (`sentinel-http-proxy/src/proxy/discovery.rs`)
+- **Transport & SDK tier types** — `TransportProtocol` (Grpc/WebSocket/Http/Stdio), `TransportEndpoint`, `SdkTier` (Core/Standard/Extended/Full), `SdkCapabilities` in leaf crate (`vellaveto-types/src/transport.rs`). 4 tests.
+- **Transport configuration** — `TransportConfig` with `discovery_enabled`, `upstream_priorities`, `restricted_transports`, `advertise_capabilities`, `max_fallback_retries`, `fallback_timeout_secs` (`vellaveto-config/src/transport.rs`). Added to `PolicyConfig` with `#[serde(default)]`. Validation for bounds and conflict detection. 4 tests.
+- **Transport discovery endpoint** — `GET /.well-known/mcp-transport` returns JSON with available transports, SDK tier (Extended with 12 capabilities), and supported protocol versions. 404 when `discovery_enabled=false`. (`vellaveto-http-proxy/src/proxy/discovery.rs`)
 - **Protocol version `2026-06` placeholder** — Added to `SUPPORTED_PROTOCOL_VERSIONS` (first position) for forward compatibility with upcoming MCP June 2026 spec. All existing versions (2025-11-25, 2025-06-18, 2025-03-26) preserved for backward compatibility.
 - **Transport preference negotiation** — `parse_transport_preference()` parses `mcp-transport-preference` header (aliases: ws=websocket, sse=http). `negotiate_transport()` pure logic finds best match respecting restrictions.
-- **Upstream fallback foundation** — `forward_with_fallback()` with timeout-based retry for HTTP transport. Cross-transport fallback deferred to Phase 20 (`sentinel-http-proxy/src/proxy/fallback.rs`).
-- **SDK tier CI validation** — `test_sdk_tier_minimum_standard` and `test_extended_tier_required_capabilities` ensure Sentinel maintains Extended tier (`sentinel-integration/tests/sdk_tier_ci.rs`).
-- **Backward compatibility tests** — Verify 2025-03-26, 2025-06-18, 2025-11-25 protocol versions remain supported and HTTP default works without negotiation headers (`sentinel-integration/tests/transport_negotiation.rs`).
+- **Upstream fallback foundation** — `forward_with_fallback()` with timeout-based retry for HTTP transport. Cross-transport fallback deferred to Phase 20 (`vellaveto-http-proxy/src/proxy/fallback.rs`).
+- **SDK tier CI validation** — `test_sdk_tier_minimum_standard` and `test_extended_tier_required_capabilities` ensure Vellaveto maintains Extended tier (`vellaveto-integration/tests/sdk_tier_ci.rs`).
+- **Backward compatibility tests** — Verify 2025-03-26, 2025-06-18, 2025-11-25 protocol versions remain supported and HTTP default works without negotiation headers (`vellaveto-integration/tests/transport_negotiation.rs`).
 - **25 new tests** across 6 files (4 types + 4 config + 10 proxy + 5 transport integration + 2 SDK CI)
 
 #### Phase 17.3: Async Operations Enhancements (SEP-1391)
 - **TaskRequest policy enforcement across all transports** — `TaskRequest` messages (`tasks/get`, `tasks/cancel`, `tasks/resubscribe`, `tasks/send`) now receive full policy evaluation (extract action → evaluate → audit → forward/deny) in HTTP, WebSocket, gRPC, and stdio relay. Previously forwarded without policy checks.
 - **`ProgressNotification` message classification** — `notifications/progress` messages classified as `ProgressNotification` variant with `progress_token`, `progress`, and optional `total` fields for future per-transport handling. Currently forwarded as PassThrough.
 - **`ExtensionMethod` message classification** — Methods with `x-` prefix classified as `ExtensionMethod` variant with `extension_id` and `method` fields. Policy evaluation enforced on all transports.
-- **`extract_extension_action()`** — Converts extension method calls to `Action` for policy evaluation (`sentinel-mcp/src/extractor.rs`)
+- **`extract_extension_action()`** — Converts extension method calls to `Action` for policy evaluation (`vellaveto-mcp/src/extractor.rs`)
 - **32+ new tests** across WebSocket, gRPC, HTTP, and extractor test suites
 
 #### Phase 17.4: Protocol Extensions Framework
-- **Extension types** — `ExtensionDescriptor`, `ExtensionResourceLimits`, `ExtensionNegotiationResult`, `ExtensionError` in leaf crate (`sentinel-types/src/extension.rs`). 6 tests.
-- **Extension configuration** — `ExtensionConfig` with `enabled`, `allowed_extensions`, `blocked_extensions`, `require_signatures`, `trusted_public_keys`, `default_resource_limits` (`sentinel-config/src/extension.rs`). Added to `PolicyConfig` with `#[serde(default)]`. 2 tests.
-- **Extension registry** — `ExtensionHandler` trait with `on_load`, `on_unload`, `handle_method`, `descriptor` lifecycle hooks. `ExtensionRegistry` with RwLock-based thread-safe registration, glob-based allow/block negotiation, and O(1) method dispatch via `route_method()` (`sentinel-mcp/src/extension_registry.rs`). 12 tests.
-- **Audit query example extension** — `AuditQueryExtension` implementing `ExtensionHandler`, handles `x-sentinel-audit/stats` method (`sentinel-mcp/src/extensions/audit_query.rs`). 4 tests.
-- **`ProxyState.extension_registry`** — Optional `Arc<ExtensionRegistry>` field for extension method routing across HTTP, WebSocket, and gRPC transports (`sentinel-http-proxy/src/proxy/mod.rs`)
+- **Extension types** — `ExtensionDescriptor`, `ExtensionResourceLimits`, `ExtensionNegotiationResult`, `ExtensionError` in leaf crate (`vellaveto-types/src/extension.rs`). 6 tests.
+- **Extension configuration** — `ExtensionConfig` with `enabled`, `allowed_extensions`, `blocked_extensions`, `require_signatures`, `trusted_public_keys`, `default_resource_limits` (`vellaveto-config/src/extension.rs`). Added to `PolicyConfig` with `#[serde(default)]`. 2 tests.
+- **Extension registry** — `ExtensionHandler` trait with `on_load`, `on_unload`, `handle_method`, `descriptor` lifecycle hooks. `ExtensionRegistry` with RwLock-based thread-safe registration, glob-based allow/block negotiation, and O(1) method dispatch via `route_method()` (`vellaveto-mcp/src/extension_registry.rs`). 12 tests.
+- **Audit query example extension** — `AuditQueryExtension` implementing `ExtensionHandler`, handles `x-vellaveto-audit/stats` method (`vellaveto-mcp/src/extensions/audit_query.rs`). 4 tests.
+- **`ProxyState.extension_registry`** — Optional `Arc<ExtensionRegistry>` field for extension method routing across HTTP, WebSocket, and gRPC transports (`vellaveto-http-proxy/src/proxy/mod.rs`)
 - All Phase 17 exit criteria now complete (6/6)
 
 #### Phase 19: Regulatory Compliance — Remaining Exit Criteria
-- **Compliance dashboard section** — Real-time compliance status in admin dashboard (`sentinel-server/src/dashboard.rs`) with 4 metric cards (EU AI Act %, SOC 2 Readiness %, Framework Coverage %, Critical Gaps) and a 7-framework coverage table with color-coded thresholds (green >=90%, yellow >=70%, red <70%)
-- **EU AI Act Article 50 runtime transparency** — `mark_ai_mediated()` injects `result._meta.sentinel_ai_mediated = true` into tool-call responses before forwarding to agent (`sentinel-mcp/src/transparency.rs`). `requires_human_oversight()` checks tool names against configurable glob patterns and logs audit events. ProxyBridge extended with `with_transparency_marking(bool)` and `with_human_oversight_tools(Vec<String>)` builder methods. Art 50(1) status upgraded to Compliant in EU AI Act registry. 11 tests.
-- **Immutable audit log archive** — gzip compression of rotated audit log files and retention enforcement (`sentinel-audit/src/archive.rs`). `compress_rotated_file()` compresses `.log` → `.log.gz` via `flate2`. `enforce_retention()` deletes archives older than configured `retention_days`. `run_archive_maintenance()` combines both in a single pass. Feature-gated behind `archive`. 9 tests.
-- **OTLP export with GenAI semantic conventions** — `OtlpExporter` implementing `ObservabilityExporter` trait maps `SecuritySpan` to OpenTelemetry spans (`sentinel-audit/src/observability/otlp.rs`). GenAI attributes: `gen_ai.system` → `"sentinel"`, `gen_ai.operation.name` → tool name. Sentinel attributes: `sentinel.verdict`, `sentinel.policy.id`, `sentinel.detection.type`, `sentinel.tool.name`. `map_span_kind()` maps Chain→Server, Tool→Internal, Llm→Client. `verdict_to_status()` maps allow→Ok, deny→Error. Feature-gated behind `otlp-exporter`. 11 tests.
-- **OtlpConfig** — New configuration type in `sentinel-config/src/observability.rs` with endpoint, protocol (Grpc/HttpProto), headers, batch_size, flush_interval_secs, max_retries, timeout_secs, service_name. Validation rejects empty endpoints and zero timeouts when enabled. 6 tests.
-- **`compress_archives` field** — Added to `EuAiActConfig` in `sentinel-config/src/compliance.rs` (default: true)
+- **Compliance dashboard section** — Real-time compliance status in admin dashboard (`vellaveto-server/src/dashboard.rs`) with 4 metric cards (EU AI Act %, SOC 2 Readiness %, Framework Coverage %, Critical Gaps) and a 7-framework coverage table with color-coded thresholds (green >=90%, yellow >=70%, red <70%)
+- **EU AI Act Article 50 runtime transparency** — `mark_ai_mediated()` injects `result._meta.vellaveto_ai_mediated = true` into tool-call responses before forwarding to agent (`vellaveto-mcp/src/transparency.rs`). `requires_human_oversight()` checks tool names against configurable glob patterns and logs audit events. ProxyBridge extended with `with_transparency_marking(bool)` and `with_human_oversight_tools(Vec<String>)` builder methods. Art 50(1) status upgraded to Compliant in EU AI Act registry. 11 tests.
+- **Immutable audit log archive** — gzip compression of rotated audit log files and retention enforcement (`vellaveto-audit/src/archive.rs`). `compress_rotated_file()` compresses `.log` → `.log.gz` via `flate2`. `enforce_retention()` deletes archives older than configured `retention_days`. `run_archive_maintenance()` combines both in a single pass. Feature-gated behind `archive`. 9 tests.
+- **OTLP export with GenAI semantic conventions** — `OtlpExporter` implementing `ObservabilityExporter` trait maps `SecuritySpan` to OpenTelemetry spans (`vellaveto-audit/src/observability/otlp.rs`). GenAI attributes: `gen_ai.system` → `"vellaveto"`, `gen_ai.operation.name` → tool name. Vellaveto attributes: `vellaveto.verdict`, `vellaveto.policy.id`, `vellaveto.detection.type`, `vellaveto.tool.name`. `map_span_kind()` maps Chain→Server, Tool→Internal, Llm→Client. `verdict_to_status()` maps allow→Ok, deny→Error. Feature-gated behind `otlp-exporter`. 11 tests.
+- **OtlpConfig** — New configuration type in `vellaveto-config/src/observability.rs` with endpoint, protocol (Grpc/HttpProto), headers, batch_size, flush_interval_secs, max_retries, timeout_secs, service_name. Validation rejects empty endpoints and zero timeouts when enabled. 6 tests.
+- **`compress_archives` field** — Added to `EuAiActConfig` in `vellaveto-config/src/compliance.rs` (default: true)
 - All Phase 19 exit criteria now complete (9/9)
 
 #### Phase 17.1: WebSocket Transport Support (SEP-1288)
-- **WebSocket reverse proxy** — Bidirectional MCP-over-WebSocket at `/mcp/ws` endpoint (`sentinel-http-proxy/src/proxy/websocket/mod.rs`)
+- **WebSocket reverse proxy** — Bidirectional MCP-over-WebSocket at `/mcp/ws` endpoint (`vellaveto-http-proxy/src/proxy/websocket/mod.rs`)
 - **Full policy enforcement** — Client→upstream tool calls classified via `classify_message()`, evaluated against policies with fail-closed semantics; engine errors and unknown verdict variants produce Deny
 - **Response scanning** — Upstream→client responses scanned for DLP secrets and injection patterns before forwarding
 - **TOCTOU-safe canonicalization** — JSON re-serialized before forwarding to prevent time-of-check/time-of-use attacks
@@ -139,7 +139,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Binary frame rejection** — Non-text frames rejected with close code 1003 (Unsupported Data)
 - **Unparseable message rejection** — Invalid JSON or unclassifiable messages rejected with close code 1008 (Policy Violation)
 - **Upstream connection** — `tokio-tungstenite` client with http→ws / https→wss URL scheme conversion and 10s connection timeout
-- **Metrics** — `sentinel_ws_connections_total` and `sentinel_ws_messages_total` counters with direction labels
+- **Metrics** — `vellaveto_ws_connections_total` and `vellaveto_ws_messages_total` counters with direction labels
 - **CLI args** — `--ws-max-message-size`, `--ws-idle-timeout`, `--ws-message-rate-limit`
 - **WebSocketConfig** — New config struct in `ProxyState` for WebSocket transport parameters
 - **29 unit tests** covering URL conversion, rate limiting, frame classification, error responses, scannable text extraction, config defaults, close codes, metrics, evaluation context, and query params
@@ -147,25 +147,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New dependencies**: `tokio-tungstenite = "0.26"` (workspace), `axum` `ws` feature
 
 #### Phase 17.2: gRPC Transport Support
-- **gRPC reverse proxy** — Protocol Buffers–based MCP transport on separate port (default 50051) using `tonic` (`sentinel-http-proxy/src/proxy/grpc/mod.rs`), feature-gated behind `grpc`
+- **gRPC reverse proxy** — Protocol Buffers–based MCP transport on separate port (default 50051) using `tonic` (`vellaveto-http-proxy/src/proxy/grpc/mod.rs`), feature-gated behind `grpc`
 - **Protobuf schema** — `proto/mcp/v1/mcp.proto` with `McpService` (Call, StreamCall, Subscribe RPCs) using `google.protobuf.Struct` for dynamic JSON-RPC params/result fields
-- **Proto↔JSON conversion** — Bidirectional conversion between prost `Struct` and `serde_json::Value` with depth-bounded recursion (MAX_DEPTH=64) and NaN/Infinity float rejection (`sentinel-http-proxy/src/proxy/grpc/convert.rs`)
+- **Proto↔JSON conversion** — Bidirectional conversion between prost `Struct` and `serde_json::Value` with depth-bounded recursion (MAX_DEPTH=64) and NaN/Infinity float rejection (`vellaveto-http-proxy/src/proxy/grpc/convert.rs`)
 - **Full policy enforcement** — Unary and bidirectional streaming calls classified via `classify_message()`, evaluated against policies with fail-closed semantics; policy denials returned as JSON-RPC errors inside successful gRPC responses (matching HTTP/WS behavior)
-- **Auth interceptor** — Constant-time SHA-256 API key validation on gRPC metadata (FIND-008 pattern), returns `UNAUTHENTICATED` status on failure (`sentinel-http-proxy/src/proxy/grpc/interceptors.rs`)
+- **Auth interceptor** — Constant-time SHA-256 API key validation on gRPC metadata (FIND-008 pattern), returns `UNAUTHENTICATED` status on failure (`vellaveto-http-proxy/src/proxy/grpc/interceptors.rs`)
 - **Response scanning** — DLP scanning and injection detection on upstream→client responses before proto conversion
-- **gRPC-to-HTTP fallback** — When no upstream gRPC URL configured, converts proto→JSON, POSTs to upstream HTTP URL, converts response back to proto (`sentinel-http-proxy/src/proxy/grpc/upstream.rs`)
+- **gRPC-to-HTTP fallback** — When no upstream gRPC URL configured, converts proto→JSON, POSTs to upstream HTTP URL, converts response back to proto (`vellaveto-http-proxy/src/proxy/grpc/upstream.rs`)
 - **gRPC Health Checking v1** — `tonic-health` service registered alongside McpService
 - **Coordinated shutdown** — `CancellationToken` shared between HTTP and gRPC servers for graceful shutdown
-- **Metrics** — `sentinel_grpc_requests_total` and `sentinel_grpc_messages_total` counters with direction labels
+- **Metrics** — `vellaveto_grpc_requests_total` and `vellaveto_grpc_messages_total` counters with direction labels
 - **CLI args** — `--grpc` (enable), `--grpc-port` (default 50051), `--grpc-max-message-size` (default 4MB), `--upstream-grpc-url` (optional)
-- **Config type** — `GrpcTransportConfig` in `sentinel-config/src/grpc_transport.rs` with serde support
+- **Config type** — `GrpcTransportConfig` in `vellaveto-config/src/grpc_transport.rs` with serde support
 - **46 unit tests** covering proto↔JSON conversion (all 6 prost value types, NaN/Infinity, depth limits, roundtrips), config defaults/serde, message classification via proto, session/request-id extraction, error response construction, metadata constants
 - **Fuzz target** — `fuzz_grpc_proto` for arbitrary bytes → prost decode → convert → classify (22 fuzz targets total)
 - **New workspace dependencies**: `tonic = "0.13"`, `prost = "0.13"`, `prost-types = "0.13"`, `tonic-health = "0.13"`, `tonic-build = "0.13"`, `tokio-util = "0.7"`, `tokio-stream = "0.1"`
 - **Zero impact on non-grpc builds** — All code behind `#[cfg(feature = "grpc")]`
 
 #### Merkle Tree Inclusion Proofs (Phase 19.4)
-- **Append-only Merkle tree** — Incremental construction with O(log n) peak-based append and RFC 6962 domain separation (`sentinel-audit/src/merkle.rs`)
+- **Append-only Merkle tree** — Incremental construction with O(log n) peak-based append and RFC 6962 domain separation (`vellaveto-audit/src/merkle.rs`)
 - **Domain separation** — `hash_leaf(data) = SHA-256(0x00 || data)`, `hash_internal(l, r) = SHA-256(0x01 || l || r)` prevents second-preimage attacks
 - **Inclusion proof generation** — `generate_proof(index)` produces bottom-up sibling path for any leaf in the tree
 - **Static proof verification** — `verify_proof(leaf_hash, proof)` verifies without disk access, suitable for external auditors
@@ -176,13 +176,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **24 unit tests** covering empty/single/multi-element trees, proof roundtrips, tampered leaf/sibling/root rejection, logger integration, rotation, crash recovery, domain separation, order dependence
 
 #### Advanced Authorization — ABAC, Least-Agency, Federation, Continuous Auth (Phase 21.1–21.4)
-- **ABAC types** — `AbacPolicy`, `AbacEntity`, `AbacEffect` (Permit/Forbid), `AbacOp` (10 operators), `PrincipalConstraint`, `ActionConstraint`, `ResourceConstraint`, `AbacCondition`, `RiskScore`, `RiskFactor`, `FederationTrustAnchor`, `IdentityMapping`, `PermissionUsage`, `LeastAgencyReport`, `AgencyRecommendation` (`sentinel-types/src/abac.rs`)
-- **AbacConfig** — `LeastAgencyConfig`, `FederationConfig`, `ContinuousAuthConfig` with validation (policy count bounds MAX_ABAC_POLICIES=512, entity count MAX_ENTITIES=4096, duplicate ID detection, threshold range checks) (`sentinel-config/src/abac.rs`)
-- **AbacEngine** — Compiled ABAC policies with pre-compiled pattern matchers, forbid-overrides evaluation (any forbid wins over all permits, Cedar semantics), `AbacDecision::Allow/Deny/NoMatch` (`sentinel-engine/src/abac.rs`)
+- **ABAC types** — `AbacPolicy`, `AbacEntity`, `AbacEffect` (Permit/Forbid), `AbacOp` (10 operators), `PrincipalConstraint`, `ActionConstraint`, `ResourceConstraint`, `AbacCondition`, `RiskScore`, `RiskFactor`, `FederationTrustAnchor`, `IdentityMapping`, `PermissionUsage`, `LeastAgencyReport`, `AgencyRecommendation` (`vellaveto-types/src/abac.rs`)
+- **AbacConfig** — `LeastAgencyConfig`, `FederationConfig`, `ContinuousAuthConfig` with validation (policy count bounds MAX_ABAC_POLICIES=512, entity count MAX_ENTITIES=4096, duplicate ID detection, threshold range checks) (`vellaveto-config/src/abac.rs`)
+- **AbacEngine** — Compiled ABAC policies with pre-compiled pattern matchers, forbid-overrides evaluation (any forbid wins over all permits, Cedar semantics), `AbacDecision::Allow/Deny/NoMatch` (`vellaveto-engine/src/abac.rs`)
 - **EntityStore** — In-memory entity store with transitive group membership lookup (bounded depth=16), `from_entities()` constructor
 - **Condition evaluation** — 10 comparison operators (Eq, Ne, In, NotIn, Contains, StartsWith, Gt, Lt, Gte, Lte) evaluated against action parameters
 - **Two-phase evaluation** — PolicyEngine runs first (coarse filter), AbacEngine refines Allow verdicts; if PolicyEngine says Deny, ABAC doesn't run
-- **LeastAgencyTracker** — Per-agent-session permission usage tracking with `register_grants()`, `record_usage()`, `check_unused()`, `generate_report()`, `recommend_narrowing()` (`sentinel-engine/src/least_agency.rs`)
+- **LeastAgencyTracker** — Per-agent-session permission usage tracking with `register_grants()`, `record_usage()`, `check_unused()`, `generate_report()`, `recommend_narrowing()` (`vellaveto-engine/src/least_agency.rs`)
 - **4-tier recommendation system** — Optimal (>80%), ReviewGrants (50–80%), NarrowScope (20–50%), Critical (<20% usage ratio)
 - **Identity federation** — `FederationTrustAnchor` with JWKS URI, issuer patterns, `IdentityMapping` (external JWT claims → internal principal via id_template)
 - **Continuous authorization** — `ContinuousAuthConfig` with `risk_threshold`, `degradation_threshold`, `reevaluation_interval_secs`; `RiskScore` with weighted `RiskFactor` list
@@ -194,23 +194,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **No new dependencies** — Reuses existing serde, glob matchers, HashMap from workspace
 
 #### Capability-Based Delegation Tokens (Phase 21.0)
-- **CapabilityToken type** — Ed25519-signed tokens with delegation chain, depth budget, grants, and expiry (`sentinel-types/src/capability.rs`)
+- **CapabilityToken type** — Ed25519-signed tokens with delegation chain, depth budget, grants, and expiry (`vellaveto-types/src/capability.rs`)
 - **CapabilityGrant** — Tool/function glob patterns with path and domain constraints and invocation limits
-- **Token issuance** — `issue_capability_token()` creates root tokens with Ed25519 signature over length-prefixed canonical content (`sentinel-mcp/src/capability_token.rs`)
+- **Token issuance** — `issue_capability_token()` creates root tokens with Ed25519 signature over length-prefixed canonical content (`vellaveto-mcp/src/capability_token.rs`)
 - **Monotonic attenuation** — `attenuate_capability_token()` enforces: depth decrements, grants must be subset of parent, expiry clamped to parent's expiry; escalation rejected
 - **Token verification** — `verify_capability_token()` validates signature, expiry, and holder match
 - **Grant coverage** — `check_grant_coverage()` matches token grants against `Action` tool/function/paths/domains with glob support
-- **RequireCapabilityToken policy condition** — Fail-closed evaluation in `sentinel-engine/src/context_check.rs`; missing token = Deny, invalid holder/issuer = Deny, insufficient depth = Deny
-- **Policy compilation** — `require_capability_token` condition compiled in `sentinel-engine/src/policy_compile.rs` with `required_issuers`, `min_remaining_depth`, and `deny_reason`
-- **EvaluationContext extended** — `capability_token: Option<CapabilityToken>` field added to `sentinel-types/src/identity.rs` with builder support
+- **RequireCapabilityToken policy condition** — Fail-closed evaluation in `vellaveto-engine/src/context_check.rs`; missing token = Deny, invalid holder/issuer = Deny, insufficient depth = Deny
+- **Policy compilation** — `require_capability_token` condition compiled in `vellaveto-engine/src/policy_compile.rs` with `required_issuers`, `min_remaining_depth`, and `deny_reason`
+- **EvaluationContext extended** — `capability_token: Option<CapabilityToken>` field added to `vellaveto-types/src/identity.rs` with builder support
 - **Structural validation** — `validate_structure()` enforces MAX_GRANTS=64, MAX_DELEGATION_DEPTH=16, MAX_TOKEN_SIZE=65536, rejects empty fields
 - **31 unit tests** — 4 types tests (serde, validation), 5 engine tests (context condition), 22 mcp tests (sign/verify, attenuation, grant coverage, expiry, holder/issuer mismatch)
 - **No new dependencies** — Reuses ed25519-dalek, hex, serde already in workspace
 
 #### CoSAI/Adversa Threat Coverage Registries (Phase 19.3)
-- **CoSAI 12-category threat registry** — 38 threats across all 12 Coalition for Secure AI categories with `SentinelDetection` runtime mappings and structural mitigation coverage (`sentinel-audit/src/cosai.rs`)
-- **Adversa AI TOP 25 coverage matrix** — All 25 ranked MCP vulnerabilities (Critical/High/Medium) with detection mappings and mitigation tracking (`sentinel-audit/src/adversa_top25.rs`)
-- **Cross-framework gap analysis** — Unified report across 7 frameworks (MITRE ATLAS, NIST AI RMF, ISO 27090, EU AI Act, CoSAI, Adversa TOP 25, ISO 42001) with weighted-average coverage, identified gaps, and recommendations (`sentinel-audit/src/gap_analysis.rs`)
+- **CoSAI 12-category threat registry** — 38 threats across all 12 Coalition for Secure AI categories with `VellavetoDetection` runtime mappings and structural mitigation coverage (`vellaveto-audit/src/cosai.rs`)
+- **Adversa AI TOP 25 coverage matrix** — All 25 ranked MCP vulnerabilities (Critical/High/Medium) with detection mappings and mitigation tracking (`vellaveto-audit/src/adversa_top25.rs`)
+- **Cross-framework gap analysis** — Unified report across 7 frameworks (MITRE ATLAS, NIST AI RMF, ISO 27090, EU AI Act, CoSAI, Adversa TOP 25, ISO 42001) with weighted-average coverage, identified gaps, and recommendations (`vellaveto-audit/src/gap_analysis.rs`)
 - **Threat coverage API endpoint** — `GET /api/compliance/threat-coverage` returns ATLAS, CoSAI, and Adversa coverage summaries
 - **Gap analysis API endpoint** — `GET /api/compliance/gap-analysis` returns consolidated 7-framework gap report
 - **100% CoSAI coverage** (38/38 threats across 12/12 categories), **100% Adversa TOP 25 coverage** (25/25 vulnerabilities)
@@ -218,16 +218,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **No new dependencies** — Reuses serde, chrono, HashMap from existing audit crate
 
 #### Compliance Evidence Generation (Phase 19.1 / 19.4)
-- **Shared compliance types** — `AiActRiskClass` (Minimal/Limited/HighRisk/Unacceptable) and `TrustServicesCategory` (CC1-CC9) in `sentinel-types/src/compliance.rs` (leaf crate, no dependency violations)
-- **ComplianceConfig** — `EuAiActConfig` and `Soc2Config` with validation (MAX_HUMAN_OVERSIGHT_TOOLS=500, MIN_RETENTION_DAYS=30, MAX_SOC2_CATEGORIES=9) (`sentinel-config/src/compliance.rs`)
-- **EU AI Act registry** — `EuAiActRegistry` with 10 obligations (Art 5, 6, 9, 12, 13, 14, 15, 43, 50(1), 50(2)) and 18 capability mappings across `TransparencyCapability` enum (`sentinel-audit/src/eu_ai_act.rs`)
+- **Shared compliance types** — `AiActRiskClass` (Minimal/Limited/HighRisk/Unacceptable) and `TrustServicesCategory` (CC1-CC9) in `vellaveto-types/src/compliance.rs` (leaf crate, no dependency violations)
+- **ComplianceConfig** — `EuAiActConfig` and `Soc2Config` with validation (MAX_HUMAN_OVERSIGHT_TOOLS=500, MIN_RETENTION_DAYS=30, MAX_SOC2_CATEGORIES=9) (`vellaveto-config/src/compliance.rs`)
+- **EU AI Act registry** — `EuAiActRegistry` with 10 obligations (Art 5, 6, 9, 12, 13, 14, 15, 43, 50(1), 50(2)) and 18 capability mappings across `TransparencyCapability` enum (`vellaveto-audit/src/eu_ai_act.rs`)
 - **EU AI Act conformity assessment** — `generate_assessment(risk_class, deployer_name, system_id)` produces `ConformityAssessmentReport` with compliance percentage, applicable/compliant/partial articles
 - **EU AI Act entry classification** — `classify_entry_transparency()` classifies audit entries at read-time into transparency records
-- **SOC 2 registry** — `Soc2Registry` with 22 criteria across CC1-CC9 and ~30 capability mappings with `ReadinessLevel` (NotStarted through Optimizing, scored 0-5) (`sentinel-audit/src/soc2.rs`)
+- **SOC 2 registry** — `Soc2Registry` with 22 criteria across CC1-CC9 and ~30 capability mappings with `ReadinessLevel` (NotStarted through Optimizing, scored 0-5) (`vellaveto-audit/src/soc2.rs`)
 - **SOC 2 evidence report** — `generate_evidence_report(org_name, period_start, period_end, tracked_categories)` produces `Soc2EvidenceReport` with overall readiness, scores, and gaps
 - **SOC 2 coverage analysis** — `coverage_by_category()` returns per-category coverage with readiness levels
 - **SOC 2 entry classification** — `classify_entry()` classifies audit entries at read-time into evidence records
-- **Compliance API endpoints** — Three new routes registered in `sentinel-server`:
+- **Compliance API endpoints** — Three new routes registered in `vellaveto-server`:
   - `GET /api/compliance/status` — Overall compliance posture (EU AI Act + SOC 2 + optional NIST RMF + ISO 27090)
   - `GET /api/compliance/eu-ai-act/report` — Full conformity assessment report per Art 43
   - `GET /api/compliance/soc2/evidence?category=CC1` — SOC 2 evidence collection with optional category filter
@@ -252,7 +252,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Benchmark guide (`docs/BENCHMARKS.md`): reproducible performance benchmarks with methodology and CI integration
 - 5 curated policy presets: `dev-laptop`, `ci-agent`, `rag-agent`, `database-agent`, `browser-agent`
 - Framework quickstart guide (`docs/QUICKSTART.md`): step-by-step Anthropic, OpenAI, LangChain, LangGraph, MCP proxy integration
-- Python SDK parameter redaction (`sentinel.redaction`): client-side secret stripping with 3 modes (keys_only, values, all), 56 tests
+- Python SDK parameter redaction (`vellaveto.redaction`): client-side secret stripping with 3 modes (keys_only, values, all), 56 tests
 - `.dockerignore` for faster, smaller Docker builds
 - OCI image labels on Dockerfile (title, description, source, license, vendor)
 - Helm NetworkPolicy template with configurable ingress/egress rules
@@ -332,7 +332,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Clarified OPA runtime status in `README.md` and `ROADMAP.md`: request-path enforcement is active with fail-open/fail-closed controls and runtime observability.
   - Added 2026-02-11 research-backed hardening backlog updates across `README.md`, `ROADMAP.md`, and `docs/SECURITY.md`:
     - P0 CI supply-chain hardening pack
-    - P0 sender-constrained OAuth (DPoP) enforcement path in `sentinel-http-proxy`
+    - P0 sender-constrained OAuth (DPoP) enforcement path in `vellaveto-http-proxy`
     - P1 `cargo-deny` policy gate and OPA runtime decision-path completion
 
 ### Added
@@ -355,7 +355,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Hybrid policies require `tls.mode` to be `tls` or `mtls`
     - Hybrid policies require `tls.min_version = "1.3"`
     - `tls.min_version` now validates accepted values (`"1.2"` or `"1.3"`)
-  - Added rustls provider KEX-group policy application in `sentinel-server` TLS setup with explicit downgrade warnings when hybrid is requested but unavailable.
+  - Added rustls provider KEX-group policy application in `vellaveto-server` TLS setup with explicit downgrade warnings when hybrid is requested but unavailable.
   - Added example config snippet documenting `tls.kex_policy` usage.
 
 - **Source distribution packaging**:
@@ -365,11 +365,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Refactor
 
 - **HTTP proxy modularization**:
-  - Split `sentinel-http-proxy/src/proxy.rs` (6,712 lines) into 8 focused submodules under `proxy/`
+  - Split `vellaveto-http-proxy/src/proxy.rs` (6,712 lines) into 8 focused submodules under `proxy/`
   - Created: `mod.rs` (187), `handlers.rs` (2,082), `tests.rs` (1,729), `inspection.rs` (817), `upstream.rs` (805), `call_chain.rs` (464), `auth.rs` (395), `helpers.rs` (195), `origin.rs` (174)
   - Public API unchanged: `ProxyState`, `handle_mcp_post`, `handle_mcp_delete`, `handle_protected_resource_metadata`, `TrustedProxyContext`, `McpQueryParams`, `PrivilegeEscalationCheck`
   - All 169 proxy unit tests pass, zero clippy warnings
-  - Follows the `sentinel-mcp/src/proxy/bridge/` split pattern
+  - Follows the `vellaveto-mcp/src/proxy/bridge/` split pattern
 
 - **DPoP audit function parameter consolidation**:
   - Introduced `DpopAuditParams` struct to group OAuth DPoP audit parameters
@@ -389,7 +389,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Reduces code duplication while maintaining security properties across scanners
 
 - **HTTP proxy test helper simplification**:
-  - Reduced `build_oauth_test_state_full` argument count in `sentinel-http-proxy` integration tests.
+  - Reduced `build_oauth_test_state_full` argument count in `vellaveto-http-proxy` integration tests.
   - Improves maintainability and readability of OAuth test setup paths.
 
 - **MCP code hygiene cleanup**:
@@ -399,13 +399,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Format string interpolation**:
   - Replaced `format!("{}", var)` with `format!("{var}")` across core crates
-  - Applied to sentinel-types, sentinel-engine, sentinel-audit, sentinel-approval, sentinel-mcp
+  - Applied to vellaveto-types, vellaveto-engine, vellaveto-audit, vellaveto-approval, vellaveto-mcp
   - Cleaner, more readable format strings
   - Fixes `clippy::uninlined_format_args` pedantic warnings
 
 - **Option chain simplification**:
   - Replaced `map().unwrap_or()` with `map_or()` for cleaner Option handling
-  - Applied to sentinel-types, sentinel-engine (deputy, legacy, lib)
+  - Applied to vellaveto-types, vellaveto-engine (deputy, legacy, lib)
   - Fixes `clippy::map_unwrap_or` pedantic warnings
 
 - **Numeric literal formatting**:
@@ -427,7 +427,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Eliminates per-call regex compilation in steganography detection
 
 - **Runtime allocation tuning**:
-  - Added bounded `HashMap::with_capacity` hints in `sentinel-mcp` runtime/session managers:
+  - Added bounded `HashMap::with_capacity` hints in `vellaveto-mcp` runtime/session managers:
     - `token_security`
     - `task_state`
     - `auth_level`
@@ -437,12 +437,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **Call-chain header hardening (`sentinel-http-proxy`)**:
+- **Call-chain header hardening (`vellaveto-http-proxy`)**:
   - Enforced fail-closed `X-Upstream-Agents` validation across MCP method paths.
   - Added explicit rejection for headers whose entry count exceeds `limits.max_call_chain_length` (instead of truncation).
   - Added regression coverage for malformed and over-limit call-chain headers on tool-call, pass-through, sampling, resource, and task paths.
 
-- **OPA runtime decision enforcement (`sentinel-server`)**:
+- **OPA runtime decision enforcement (`vellaveto-server`)**:
   - Runtime OPA verdict wiring is active in evaluation request paths with fail-open/fail-closed controls and runtime query/error metrics.
   - Added route-level regression coverage for fail-open and fail-closed behavior when OPA is unreachable.
   - Added `opa.require_https` hardening control to require `https://` OPA endpoints.
@@ -462,19 +462,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dependency audit policy hygiene**:
   - Removed stale `RUSTSEC-2024-0384` ignore from `.cargo/audit.toml`; lockfile no longer includes the affected transitive crate.
 
-- **DPoP failure observability (`sentinel-http-proxy`)**:
-  - Added dedicated DPoP counters: `sentinel_oauth_dpop_failures_total` (reason-labeled) and `sentinel_oauth_dpop_replay_total`.
+- **DPoP failure observability (`vellaveto-http-proxy`)**:
+  - Added dedicated DPoP counters: `vellaveto_oauth_dpop_failures_total` (reason-labeled) and `vellaveto_oauth_dpop_replay_total`.
   - Added explicit audit events for DPoP validation failures with `dpop_reason`, `dpop_mode`, `oauth_subject`, and header/session context.
   - Added integration coverage for missing-proof and replay-detected audit paths.
 
-- **OAuth/DPoP startup and replay hardening (`sentinel-http-proxy`)**:
+- **OAuth/DPoP startup and replay hardening (`vellaveto-http-proxy`)**:
   - Added startup guardrails for pass-through mode: `--oauth-pass-through` now requires explicit `--unsafe-oauth-pass-through`, RFC 8707 expected resource binding, and DPoP `required` mode.
   - Added hardened OAuth profile support (`--oauth-security-profile hardened`) to enforce sender-constrained posture at startup.
   - Added startup warnings when OAuth is enabled with weak defaults (`dpop_mode=off` or missing expected resource) in standard profile.
   - Enforced sender-constrained token binding in DPoP `required` mode: access tokens must contain `cnf.jkt`, and runtime now verifies `cnf.jkt` against the presented DPoP proof key thumbprint (RFC 7638).
   - Hardened DPoP replay cache input handling by bounding untrusted `jti`/replay-key size and keying replays by `jti:ath` when token binding is available.
 
-- **TLS metadata observability (`sentinel-server`)**:
+- **TLS metadata observability (`vellaveto-server`)**:
   - Added evaluate-path extraction of sanitized forwarded TLS handshake metadata (`protocol`, `cipher`, `kex_group`).
   - Trusted forwarded TLS metadata headers only when the direct connection peer is a configured trusted proxy.
   - Trusted `X-Forwarded-Proto` for HSTS decisions only when the direct connection peer is a configured trusted proxy.
@@ -482,14 +482,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added per-principal rate-limit integration coverage for trusted proxy + `X-Forwarded-For` chains with stable `X-Principal` identity.
   - Rejected control characters in trusted `X-Principal` header values before principal-key derivation.
   - Treated missing trusted-proxy request context as untrusted when evaluating forwarded TLS metadata (fail-safe default).
-  - Added `sentinel_forwarded_header_rejections_total{header=...}` metric and incremented it when untrusted `X-Forwarded-Proto` or forwarded TLS metadata headers are ignored.
+  - Added `vellaveto_forwarded_header_rejections_total{header=...}` metric and incremented it when untrusted `X-Forwarded-Proto` or forwarded TLS metadata headers are ignored.
   - Included TLS metadata in audit entry metadata for `/api/evaluate` decisions.
 
-- **HTTP proxy request-id hardening (`sentinel-http-proxy`)**:
+- **HTTP proxy request-id hardening (`vellaveto-http-proxy`)**:
   - Rejected control characters in client-supplied `X-Request-Id` values before echoing to response headers.
 
-- **HTTP proxy forwarded-header trust hardening (`sentinel-http-proxy`)**:
-  - Added trusted-proxy context propagation based on direct peer IP (`ConnectInfo`) and `SENTINEL_TRUSTED_PROXIES`.
+- **HTTP proxy forwarded-header trust hardening (`vellaveto-http-proxy`)**:
+  - Added trusted-proxy context propagation based on direct peer IP (`ConnectInfo`) and `VELLAVETO_TRUSTED_PROXIES`.
   - Trusted `X-Forwarded-Proto` for HSTS decisions only when the direct connection peer is a configured trusted proxy.
   - Trusted `X-Forwarded-Proto` / `X-Forwarded-Host` for OAuth effective request URI construction only when the direct connection peer is a configured trusted proxy.
   - Added regression coverage for trusted vs untrusted forwarded-header URI reconstruction and trusted-proxy peer detection helpers.
@@ -502,12 +502,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Workspace outbound TLS backend standardization**:
   - Standardized workspace `reqwest` backend to rustls by setting `default-features = false` and enabling `rustls-tls` at the workspace dependency root.
-  - Keeps outbound HTTP client behavior consistent across `sentinel-server`, `sentinel-http-proxy`, `sentinel-audit` exporters, and `sentinel-mcp` cloud backends.
-  - Updated `sentinel-server` TLS provider selection to explicitly use rustls `aws-lc-rs` provider, avoiding runtime panics when multiple rustls providers are enabled in the dependency graph.
-  - Verified compile coverage for key reqwest consumers, including `sentinel-audit --features observability-exporters` and `sentinel-mcp --features llm-cloud`.
+  - Keeps outbound HTTP client behavior consistent across `vellaveto-server`, `vellaveto-http-proxy`, `vellaveto-audit` exporters, and `vellaveto-mcp` cloud backends.
+  - Updated `vellaveto-server` TLS provider selection to explicitly use rustls `aws-lc-rs` provider, avoiding runtime panics when multiple rustls providers are enabled in the dependency graph.
+  - Verified compile coverage for key reqwest consumers, including `vellaveto-audit --features observability-exporters` and `vellaveto-mcp --features llm-cloud`.
 
 - **DLP pattern validation at startup (SEC-006)**:
-  - Both `sentinel-server` and `sentinel-http-proxy` now validate all DLP patterns compile successfully during startup
+  - Both `vellaveto-server` and `vellaveto-http-proxy` now validate all DLP patterns compile successfully during startup
   - If any pattern fails to compile, the application fails to start rather than silently skipping secret detection
   - Prevents silent gaps in DLP coverage from malformed patterns
 
@@ -517,7 +517,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Consistent with DLP validation for defense-in-depth
 
 - **Health endpoint security scanning status (SEC-006)**:
-  - Enhanced `/health` endpoint in both `sentinel-server` and `sentinel-http-proxy` to report scanning subsystem availability
+  - Enhanced `/health` endpoint in both `vellaveto-server` and `vellaveto-http-proxy` to report scanning subsystem availability
   - New response fields: `scanning.dlp_available` and `scanning.injection_available`
   - Health status reports "degraded" if either DLP or injection detection is unavailable
   - Provides visibility into security posture for monitoring and alerting
@@ -608,13 +608,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GroundingConfig` in `RagDefenseConfig` for runtime configuration
 
 #### Python SDK (Phase 1)
-- New `sdk/python/sentinel` package for LangChain/LangGraph integration
-- `SentinelClient` — Sync/async HTTP client supporting httpx and requests backends
-- `SentinelCallbackHandler` — LangChain callback for intercepting tool calls
-- `SentinelToolGuard` — Decorator for guarding individual tools
-- `create_guarded_toolkit()` — Wraps existing LangChain toolkits with Sentinel guards
-- `create_sentinel_node()` — LangGraph node factory for policy evaluation
-- `create_sentinel_tool_node()` — Combined tool execution + policy evaluation node
+- New `sdk/python/vellaveto` package for LangChain/LangGraph integration
+- `VellavetoClient` — Sync/async HTTP client supporting httpx and requests backends
+- `VellavetoCallbackHandler` — LangChain callback for intercepting tool calls
+- `VellavetoToolGuard` — Decorator for guarding individual tools
+- `create_guarded_toolkit()` — Wraps existing LangChain toolkits with Vellaveto guards
+- `create_vellaveto_node()` — LangGraph node factory for policy evaluation
+- `create_vellaveto_tool_node()` — Combined tool execution + policy evaluation node
 
 #### API Stability (Phase 2)
 - Added `#[non_exhaustive]` to core enums for forward compatibility:
@@ -656,7 +656,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### DLP Pattern Validation at Config Load (FIND-002)
 - Added regex validation for `dlp.extra_patterns` at config load time
 - Invalid regex patterns now fail startup instead of being silently skipped
-- Added `regex` dependency to `sentinel-config`
+- Added `regex` dependency to `vellaveto-config`
 
 #### Call Chain Security Hardening
 - Added `MAX_CALL_CHAIN_LENGTH` (20) and `MAX_CALL_CHAIN_HEADER_SIZE` (8KB) limits
@@ -690,20 +690,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Dependency cleanup**: Removed `rustls-pemfile` crate, now using `rustls::pki_types::pem::PemObject` trait for PEM parsing
-- **JSON-RPC error code consolidation**: Moved hardcoded error codes into `sentinel-types/src/json_rpc.rs` module with named constants for all standard JSON-RPC 2.0 codes and Sentinel application-specific codes (-32001 to -32021)
+- **JSON-RPC error code consolidation**: Moved hardcoded error codes into `vellaveto-types/src/json_rpc.rs` module with named constants for all standard JSON-RPC 2.0 codes and Vellaveto application-specific codes (-32001 to -32021)
 - **OpenTelemetry upgrade**: Upgraded from 0.22 to 0.30, eliminating major dependency duplicates (axum 0.6→0.8, hyper 0.14→1.x, http 0.2→1.x, h2 0.3→0.4, tower 0.4→0.5)
 - **Workspace dependency unification**: Unified reqwest to 0.13 as workspace dependency with "json" and "query" features
 - **Security manager initialization**: Phase 1-10 security managers (task_state, circuit_breaker, auth_level, deputy, shadow_agent, schema_lineage, sampling_detector, etdi, memory_security, nhi) now properly initialized from PolicyConfig instead of TODO placeholders
-- **Crate metadata**: Added description field to all 9 crates that were missing it (sentinel-types, sentinel-engine, sentinel-audit, sentinel-mcp, sentinel-canonical, sentinel-config, sentinel-approval, sentinel-proxy, sentinel-integration)
+- **Crate metadata**: Added description field to all 9 crates that were missing it (vellaveto-types, vellaveto-engine, vellaveto-audit, vellaveto-mcp, vellaveto-canonical, vellaveto-config, vellaveto-approval, vellaveto-proxy, vellaveto-integration)
 
 ### Added
 
 - **Bracket notation for parameter paths**: Support `params.items[0].value` syntax in parameter constraints for array element access
 - **Evaluation tracing**: Add `?trace=true` query parameter to get full OPA-style decision traces
 - **Audit heartbeat entries**: Periodic heartbeat entries for detecting log truncation/deletion attacks
-- **DLP observability metrics**: `sentinel_dlp_findings_total`, `sentinel_dlp_scan_duration_seconds` histograms
-- **Anomaly detection metrics**: `sentinel_anomaly_detections_total` counter with agent/tool labels
-- **Circuit breaker metrics**: `sentinel_circuit_breaker_state_changes_total`, state duration histograms
+- **DLP observability metrics**: `vellaveto_dlp_findings_total`, `vellaveto_dlp_scan_duration_seconds` histograms
+- **Anomaly detection metrics**: `vellaveto_anomaly_detections_total` counter with agent/tool labels
+- **Circuit breaker metrics**: `vellaveto_circuit_breaker_state_changes_total`, state duration histograms
 - **DlpConfig**: Configurable DLP scanning with `enabled`, `block_on_finding`, `max_decode_depth`, `time_budget_ms`, `extra_patterns`, `disabled_patterns`
 
 ### Security
@@ -722,19 +722,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Invalid Glob Handling** — Malformed glob patterns now produce `Deny` verdicts instead of 500 errors (fail-closed)
 
 #### Code Quality Fixes
-- **FIND-027** — Eliminated `expect()`/`unwrap()` violations in `sentinel-mcp` library code per no-panic policy:
+- **FIND-027** — Eliminated `expect()`/`unwrap()` violations in `vellaveto-mcp` library code per no-panic policy:
   - `cache.rs`: Replaced `expect()` with const `FALLBACK_CACHE_SIZE` and `unwrap_or()`
   - `task_security.rs`: Changed `generate_resume_token` to return `Result`, propagating HMAC and RNG errors
 - **FIND-021/FIND-002** — Standardized workspace dependency management:
-  - `sentinel-config`: Use `workspace = true` for serde, serde_json
-  - `sentinel-audit`: Use `workspace = true` for tokio, tracing
-  - `sentinel-proxy`: Use `workspace = true` for tracing
+  - `vellaveto-config`: Use `workspace = true` for serde, serde_json
+  - `vellaveto-audit`: Use `workspace = true` for tokio, tracing
+  - `vellaveto-proxy`: Use `workspace = true` for tracing
 
 ### Added
 
 #### Phase 14: A2A Protocol Security
 - **A2A Message Classification** — Parse and classify A2A JSON-RPC messages (message/send, message/stream, tasks/get, tasks/cancel, tasks/resubscribe) with method normalization to prevent Unicode bypass attacks
-- **Action Extraction** — Convert A2A messages to Sentinel Actions for policy evaluation using tool pattern "a2a" with function-specific mapping (message_send, message_stream, task_get, task_cancel, task_resubscribe)
+- **Action Extraction** — Convert A2A messages to Vellaveto Actions for policy evaluation using tool pattern "a2a" with function-specific mapping (message_send, message_stream, task_get, task_cancel, task_resubscribe)
 - **Agent Card Handling** — Fetch, parse, and cache A2A Agent Cards from `/.well-known/agent.json` with TTL-based expiration, capability validation, and authentication scheme detection
 - **A2A Proxy Service** — HTTP proxy for A2A traffic with policy evaluation, security scanning integration (DLP, injection detection), circuit breaker support, and configurable task operation restrictions
 - **Batch Rejection** — JSON-RPC batch requests rejected at transport layer to prevent TOCTOU attacks (matching MCP security pattern)
@@ -844,9 +844,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `GET/POST/DELETE /api/etdi/pins/{tool}` — Manage version pins
 - **Tool Registry Integration** — Signature verification on tool registration with configurable `require_signatures` mode for fail-closed enforcement
 - **ETDI CLI Commands**:
-  - `sentinel generate-key` — Generate Ed25519 keypair for tool signing
-  - `sentinel sign-tool` — Sign a tool definition with expiration support
-  - `sentinel verify-signature` — Verify a tool signature against its definition
+  - `vellaveto generate-key` — Generate Ed25519 keypair for tool signing
+  - `vellaveto sign-tool` — Sign a tool definition with expiration support
+  - `vellaveto verify-signature` — Verify a tool signature against its definition
 
 ### Security
 
@@ -891,7 +891,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `GET /api/graphs/{session}` — Get graph in JSON format
   - `GET /api/graphs/{session}/dot` — Get graph in DOT (Graphviz) format
   - `GET /api/graphs/{session}/stats` — Get graph statistics (node count, depths, tool distribution)
-- **Policy Validation CLI** — Enhanced `sentinel check` command with:
+- **Policy Validation CLI** — Enhanced `vellaveto check` command with:
   - `--strict` mode (warnings become errors)
   - `--format json|text` output format
   - `--no-best-practices` to skip best practice checks
@@ -918,7 +918,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Just-In-Time Access** — Temporary elevated permissions with configurable TTL, max sessions per principal, approval requirements, automatic revocation on security events, and notification webhooks
 
 #### Phase 4.1: Standards Alignment
-- **MITRE ATLAS Threat Mapping** — Registry of 14 ATLAS techniques (AML.T0051-T0065) with detection mappings for 30+ Sentinel detection types, coverage reports, and audit event enrichment
+- **MITRE ATLAS Threat Mapping** — Registry of 14 ATLAS techniques (AML.T0051-T0065) with detection mappings for 30+ Vellaveto detection types, coverage reports, and audit event enrichment
 - **OWASP AIVSS Integration** — AI Vulnerability Scoring System with CVSS-style base scores plus AI-specific multipliers (autonomy, persistence, reversibility), severity levels (None/Low/Medium/High/Critical), vector string parsing, and predefined profiles for common detections
 - **NIST AI RMF Alignment** — Complete mapping to all 4 RMF functions (Govern, Map, Measure, Manage) with 25+ subcategory mappings, coverage statistics, compliance reports, and audit metadata enrichment
 - **ISO/IEC 27090 Preparation** — Readiness assessment for 5 control domains (Data Security, Model Security, Operational Security, Supply Chain Security, Privacy & Ethics), gap analysis, recommendations engine, and certification readiness scoring
@@ -980,7 +980,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0] - 2026-02-08
 
-Initial production release of Sentinel, a runtime security engine for AI agent tool calls.
+Initial production release of Vellaveto, a runtime security engine for AI agent tool calls.
 
 ### Core Features
 
@@ -1122,9 +1122,9 @@ This is the initial stable release. No breaking changes from previous versions.
 - **Fixed** for any bug fixes
 - **Security** for vulnerability fixes
 
-[Unreleased]: https://github.com/paolovella/sentinel/compare/v3.0.0...HEAD
-[3.0.0]: https://github.com/paolovella/sentinel/compare/v2.2.1...v3.0.0
-[2.2.1]: https://github.com/paolovella/sentinel/compare/v2.0.0...v2.2.1
-[2.0.0]: https://github.com/paolovella/sentinel/compare/v1.0.0...v2.0.0
-[1.0.0]: https://github.com/paolovella/sentinel/compare/v0.1.0...v1.0.0
-[0.1.0]: https://github.com/paolovella/sentinel/releases/tag/v0.1.0
+[Unreleased]: https://github.com/paolovella/vellaveto/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/paolovella/vellaveto/compare/v2.2.1...v3.0.0
+[2.2.1]: https://github.com/paolovella/vellaveto/compare/v2.0.0...v2.2.1
+[2.0.0]: https://github.com/paolovella/vellaveto/compare/v1.0.0...v2.0.0
+[1.0.0]: https://github.com/paolovella/vellaveto/compare/v0.1.0...v1.0.0
+[0.1.0]: https://github.com/paolovella/vellaveto/releases/tag/v0.1.0

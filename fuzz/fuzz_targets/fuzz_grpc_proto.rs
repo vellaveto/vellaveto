@@ -11,7 +11,7 @@ use prost::Message;
 
 fuzz_target!(|data: &[u8]| {
     // Step 1: Try to decode as a protobuf JsonRpcRequest.
-    // We can't import the generated types from sentinel-http-proxy here
+    // We can't import the generated types from vellaveto-http-proxy here
     // (it requires the grpc feature), so we test the prost_types conversion
     // layer directly.
 
@@ -31,7 +31,7 @@ fuzz_target!(|data: &[u8]| {
 
     // Step 4: Try to decode and classify as a JSON-RPC message.
     if let Ok(json_val) = convert_struct_to_json(&s, 0) {
-        let _ = sentinel_mcp::extractor::classify_message(&json_val);
+        let _ = vellaveto_mcp::extractor::classify_message(&json_val);
     }
 });
 

@@ -1,4 +1,4 @@
-"""Tests for sentinel.langchain module."""
+"""Tests for vellaveto.langchain module."""
 
 import json
 from unittest.mock import MagicMock, patch
@@ -6,12 +6,12 @@ from uuid import uuid4
 
 import pytest
 
-from sentinel.client import PolicyDenied, ApprovalRequired, SentinelClient
-from sentinel.types import EvaluationResult, Verdict
+from vellaveto.client import PolicyDenied, ApprovalRequired, VellavetoClient
+from vellaveto.types import EvaluationResult, Verdict
 
 
-class TestSentinelCallbackHandler:
-    """Tests for SentinelCallbackHandler."""
+class TestVellavetoCallbackHandler:
+    """Tests for VellavetoCallbackHandler."""
 
     def _make_handler(self, httpx_mock, response_json=None):
         if response_json is None:
@@ -20,11 +20,11 @@ class TestSentinelCallbackHandler:
             url="http://localhost:3000/api/evaluate",
             json=response_json,
         )
-        client = SentinelClient()
+        client = VellavetoClient()
         # Import after mock is set up
-        from sentinel.langchain import SentinelCallbackHandler
+        from vellaveto.langchain import VellavetoCallbackHandler
 
-        return SentinelCallbackHandler(
+        return VellavetoCallbackHandler(
             client=client,
             session_id="test-session",
             agent_id="test-agent",
@@ -73,10 +73,10 @@ class TestSentinelCallbackHandler:
             url="http://localhost:3000/api/evaluate",
             json={"verdict": "deny", "reason": "Blocked"},
         )
-        client = SentinelClient()
-        from sentinel.langchain import SentinelCallbackHandler
+        client = VellavetoClient()
+        from vellaveto.langchain import VellavetoCallbackHandler
 
-        handler = SentinelCallbackHandler(client=client, raise_on_deny=False)
+        handler = VellavetoCallbackHandler(client=client, raise_on_deny=False)
         # Should not raise when raise_on_deny=False
         handler.on_tool_start(
             serialized={"name": "test"},
@@ -93,10 +93,10 @@ class TestSentinelCallbackHandler:
                 json={"verdict": "allow"},
             )
 
-        client = SentinelClient()
-        from sentinel.langchain import SentinelCallbackHandler
+        client = VellavetoClient()
+        from vellaveto.langchain import VellavetoCallbackHandler
 
-        handler = SentinelCallbackHandler(client=client, log_evaluations=False)
+        handler = VellavetoCallbackHandler(client=client, log_evaluations=False)
 
         for name in ["tool_a", "tool_b", "tool_c"]:
             handler.on_tool_start(
@@ -115,10 +115,10 @@ class TestSentinelCallbackHandler:
                 json={"verdict": "allow"},
             )
 
-        client = SentinelClient()
-        from sentinel.langchain import SentinelCallbackHandler
+        client = VellavetoClient()
+        from vellaveto.langchain import VellavetoCallbackHandler
 
-        handler = SentinelCallbackHandler(client=client, log_evaluations=False)
+        handler = VellavetoCallbackHandler(client=client, log_evaluations=False)
 
         for i in range(25):
             handler.on_tool_start(
@@ -138,10 +138,10 @@ class TestSentinelCallbackHandler:
             json={"verdict": "allow"},
         )
 
-        client = SentinelClient()
-        from sentinel.langchain import SentinelCallbackHandler
+        client = VellavetoClient()
+        from vellaveto.langchain import VellavetoCallbackHandler
 
-        handler = SentinelCallbackHandler(client=client, log_evaluations=False)
+        handler = VellavetoCallbackHandler(client=client, log_evaluations=False)
         handler.on_tool_start(
             serialized={"name": "read_file"},
             input_str='{"path": "/tmp/test.txt", "mode": "r"}',
@@ -159,10 +159,10 @@ class TestSentinelCallbackHandler:
             json={"verdict": "allow"},
         )
 
-        client = SentinelClient()
-        from sentinel.langchain import SentinelCallbackHandler
+        client = VellavetoClient()
+        from vellaveto.langchain import VellavetoCallbackHandler
 
-        handler = SentinelCallbackHandler(client=client, log_evaluations=False)
+        handler = VellavetoCallbackHandler(client=client, log_evaluations=False)
         handler.on_tool_start(
             serialized={"name": "fetch"},
             input_str='{"url": "https://example.com/api"}',
@@ -180,10 +180,10 @@ class TestSentinelCallbackHandler:
             json={"verdict": "allow"},
         )
 
-        client = SentinelClient()
-        from sentinel.langchain import SentinelCallbackHandler
+        client = VellavetoClient()
+        from vellaveto.langchain import VellavetoCallbackHandler
 
-        handler = SentinelCallbackHandler(client=client, log_evaluations=False)
+        handler = VellavetoCallbackHandler(client=client, log_evaluations=False)
         handler.on_tool_start(
             serialized={"name": "search"},
             input_str="plain string query",
@@ -201,10 +201,10 @@ class TestSentinelCallbackHandler:
             status_code=500,
         )
 
-        client = SentinelClient()
-        from sentinel.langchain import SentinelCallbackHandler
+        client = VellavetoClient()
+        from vellaveto.langchain import VellavetoCallbackHandler
 
-        handler = SentinelCallbackHandler(client=client, raise_on_deny=True)
+        handler = VellavetoCallbackHandler(client=client, raise_on_deny=True)
         with pytest.raises(PolicyDenied, match="Evaluation failed"):
             handler.on_tool_start(
                 serialized={"name": "test"},
@@ -219,10 +219,10 @@ class TestSentinelCallbackHandler:
             json={"verdict": "allow"},
         )
 
-        client = SentinelClient()
-        from sentinel.langchain import SentinelCallbackHandler
+        client = VellavetoClient()
+        from vellaveto.langchain import VellavetoCallbackHandler
 
-        handler = SentinelCallbackHandler(client=client, log_evaluations=False)
+        handler = VellavetoCallbackHandler(client=client, log_evaluations=False)
         handler.on_tool_start(
             serialized={"name": "test"},
             input_str='{"old": "data"}',
@@ -236,8 +236,8 @@ class TestSentinelCallbackHandler:
         client.close()
 
 
-class TestSentinelToolGuard:
-    """Tests for SentinelToolGuard decorator."""
+class TestVellavetoToolGuard:
+    """Tests for VellavetoToolGuard decorator."""
 
     def test_guard_allows_execution(self, httpx_mock):
         httpx_mock.add_response(
@@ -245,10 +245,10 @@ class TestSentinelToolGuard:
             json={"verdict": "allow"},
         )
 
-        client = SentinelClient()
-        from sentinel.langchain import SentinelToolGuard
+        client = VellavetoClient()
+        from vellaveto.langchain import VellavetoToolGuard
 
-        guard = SentinelToolGuard(client)
+        guard = VellavetoToolGuard(client)
 
         @guard("filesystem", "read_file")
         def read_file(path: str) -> str:
@@ -264,10 +264,10 @@ class TestSentinelToolGuard:
             json={"verdict": "deny", "reason": "Blocked"},
         )
 
-        client = SentinelClient()
-        from sentinel.langchain import SentinelToolGuard
+        client = VellavetoClient()
+        from vellaveto.langchain import VellavetoToolGuard
 
-        guard = SentinelToolGuard(client)
+        guard = VellavetoToolGuard(client)
         call_count = 0
 
         @guard("filesystem", "write_file")
@@ -287,10 +287,10 @@ class TestSentinelToolGuard:
             json={"verdict": "allow"},
         )
 
-        client = SentinelClient()
-        from sentinel.langchain import SentinelToolGuard
+        client = VellavetoClient()
+        from vellaveto.langchain import VellavetoToolGuard
 
-        guard = SentinelToolGuard(client)
+        guard = VellavetoToolGuard(client)
 
         @guard("fs", extract_paths=["filepath"])
         def read(filepath: str) -> str:

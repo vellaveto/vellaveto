@@ -39,12 +39,12 @@ jobs:
       - name: Type check
         run: |
           cd sdk/python
-          mypy sentinel/ --ignore-missing-imports
+          mypy vellaveto/ --ignore-missing-imports
 
       - name: Lint
         run: |
           cd sdk/python
-          ruff check sentinel/
+          ruff check vellaveto/
 
   publish:
     name: Publish to PyPI
@@ -53,7 +53,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     environment:
       name: pypi
-      url: https://pypi.org/p/sentinel-sdk
+      url: https://pypi.org/p/vellaveto-sdk
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -75,4 +75,4 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: sdk/python/dist/
-          # Uses trusted publishing (OIDC) - configure at pypi.org/manage/project/sentinel-sdk/settings/publishing/
+          # Uses trusted publishing (OIDC) - configure at pypi.org/manage/project/vellaveto-sdk/settings/publishing/

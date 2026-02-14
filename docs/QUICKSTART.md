@@ -1,34 +1,34 @@
 # Framework Integration Quickstart
 
-Step-by-step guides for integrating Sentinel with popular AI agent frameworks.
+Step-by-step guides for integrating Vellaveto with popular AI agent frameworks.
 
 ## Prerequisites
 
 ```bash
-# Start Sentinel (pick one)
-sentinel serve --config examples/presets/dev-laptop.toml --port 3000
+# Start Vellaveto (pick one)
+vellaveto serve --config examples/presets/dev-laptop.toml --port 3000
 
 # Or with Docker
-docker run -p 3000:3000 ghcr.io/paolovella/sentinel:latest
+docker run -p 3000:3000 ghcr.io/paolovella/vellaveto:latest
 
 # Install Python SDK
-pip install sentinel-sdk[all]
+pip install vellaveto-sdk[all]
 ```
 
 ---
 
 ## Anthropic SDK (Claude Tool Use)
 
-Sentinel evaluates every tool call before your code executes it.
+Vellaveto evaluates every tool call before your code executes it.
 
 ```python
 import anthropic
-from sentinel import SentinelClient, PolicyDenied, ParameterRedactor
+from vellaveto import VellavetoClient, PolicyDenied, ParameterRedactor
 
 # Initialize clients
-sentinel = SentinelClient(
+vellaveto = VellavetoClient(
     url="http://localhost:3000",
-    redactor=ParameterRedactor(),  # strip secrets before sending to Sentinel
+    redactor=ParameterRedactor(),  # strip secrets before sending to Vellaveto
 )
 anthropic_client = anthropic.Anthropic()
 
@@ -60,13 +60,13 @@ tools = [
 
 
 def execute_tool(name: str, input: dict) -> str:
-    """Execute a tool after Sentinel approval."""
+    """Execute a tool after Vellaveto approval."""
     # Extract targets for richer policy evaluation
     target_paths = [input[k] for k in ("path", "file") if k in input and isinstance(input[k], str)]
     target_domains = [input[k] for k in ("url", "host") if k in input and isinstance(input[k], str)]
 
-    # Evaluate with Sentinel — raises PolicyDenied if blocked
-    sentinel.evaluate_or_raise(
+    # Evaluate with Vellaveto — raises PolicyDenied if blocked
+    vellaveto.evaluate_or_raise(
         tool=name,
         function=name,
         parameters=input,
@@ -131,10 +131,10 @@ Same pattern — evaluate each function call before execution.
 ```python
 import json
 from openai import OpenAI
-from sentinel import SentinelClient, PolicyDenied, ParameterRedactor
+from vellaveto import VellavetoClient, PolicyDenied, ParameterRedactor
 
 # Initialize clients
-sentinel = SentinelClient(
+vellaveto = VellavetoClient(
     url="http://localhost:3000",
     redactor=ParameterRedactor(),
 )
@@ -174,11 +174,11 @@ tools = [
 
 
 def execute_function(name: str, arguments: dict) -> str:
-    """Execute a function after Sentinel approval."""
+    """Execute a function after Vellaveto approval."""
     target_paths = [arguments[k] for k in ("path", "file") if k in arguments and isinstance(arguments[k], str)]
     target_domains = [arguments[k] for k in ("url", "host") if k in arguments and isinstance(arguments[k], str)]
 
-    sentinel.evaluate_or_raise(
+    vellaveto.evaluate_or_raise(
         tool=name,
         function=name,
         parameters=arguments,
@@ -241,13 +241,13 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain.tools import tool
 from langchain import hub
-from sentinel import SentinelClient
-from sentinel.langchain import SentinelCallbackHandler
+from vellaveto import VellavetoClient
+from vellaveto.langchain import VellavetoCallbackHandler
 
 # Initialize
-sentinel = SentinelClient(url="http://localhost:3000")
-handler = SentinelCallbackHandler(
-    client=sentinel,
+vellaveto = VellavetoClient(url="http://localhost:3000")
+handler = VellavetoCallbackHandler(
+    client=vellaveto,
     session_id="langchain-session-1",
     raise_on_deny=True,
 )
@@ -271,7 +271,7 @@ prompt = hub.pull("hwchase17/react")
 agent = create_react_agent(llm, [read_file, list_directory], prompt)
 executor = AgentExecutor(agent=agent, tools=[read_file, list_directory])
 
-# Run — all tool calls are automatically evaluated by Sentinel
+# Run — all tool calls are automatically evaluated by Vellaveto
 result = executor.invoke(
     {"input": "List the files in /tmp and read any .txt file"},
     config={"callbacks": [handler]},
@@ -283,22 +283,22 @@ print(result["output"])
 
 ## LangGraph (Graph Node)
 
-For LangGraph workflows, add a Sentinel evaluation node between planning and execution.
+For LangGraph workflows, add a Vellaveto evaluation node between planning and execution.
 
 ```python
 from typing import TypedDict, List, Optional, Dict, Any
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import BaseMessage, HumanMessage
-from sentinel import SentinelClient
-from sentinel.langgraph import create_sentinel_node, SentinelState
+from vellaveto import VellavetoClient
+from vellaveto.langgraph import create_vellaveto_node, VellavetoState
 
 # State schema
-class AgentState(SentinelState):
+class AgentState(VellavetoState):
     messages: List[BaseMessage]
 
 # Initialize
-sentinel = SentinelClient(url="http://localhost:3000")
-sentinel_node = create_sentinel_node(sentinel, on_deny="block")
+vellaveto = VellavetoClient(url="http://localhost:3000")
+vellaveto_node = create_vellaveto_node(vellaveto, on_deny="block")
 
 # Node functions
 def plan_node(state: dict) -> dict:
@@ -319,13 +319,13 @@ def tool_node(state: dict) -> dict:
 # Build graph
 graph = StateGraph(AgentState)
 graph.add_node("plan", plan_node)
-graph.add_node("sentinel", sentinel_node)
+graph.add_node("vellaveto", vellaveto_node)
 graph.add_node("tools", tool_node)
 
 graph.set_entry_point("plan")
-graph.add_edge("plan", "sentinel")
+graph.add_edge("plan", "vellaveto")
 graph.add_conditional_edges(
-    "sentinel",
+    "vellaveto",
     lambda s: "blocked" if s.get("tool_blocked") else "allowed",
     {"blocked": END, "allowed": "tools"},
 )
@@ -340,11 +340,11 @@ result = app.invoke({"messages": [HumanMessage(content="Read the data")]})
 
 ## MCP Server Proxy (stdio)
 
-For MCP-native tools, Sentinel runs as a transparent proxy between the client and the MCP server.
+For MCP-native tools, Vellaveto runs as a transparent proxy between the client and the MCP server.
 
 ```bash
 # Start as stdio proxy — sits between Claude Desktop and the MCP server
-sentinel-proxy \
+vellaveto-proxy \
   --config examples/presets/dev-laptop.toml \
   --upstream-command "npx -y @modelcontextprotocol/server-filesystem /home/user/projects"
 ```
@@ -355,7 +355,7 @@ In your `claude_desktop_config.json`:
 {
   "mcpServers": {
     "filesystem": {
-      "command": "sentinel-proxy",
+      "command": "vellaveto-proxy",
       "args": [
         "--config", "/path/to/examples/presets/dev-laptop.toml",
         "--upstream-command", "npx -y @modelcontextprotocol/server-filesystem /home/user/projects"
@@ -371,26 +371,26 @@ Every tool call from Claude Desktop is evaluated against your policies before re
 
 ## HTTP Reverse Proxy
 
-For HTTP-based MCP servers, Sentinel acts as a reverse proxy.
+For HTTP-based MCP servers, Vellaveto acts as a reverse proxy.
 
 ```bash
 # Proxy all requests to an upstream MCP server
-sentinel-http-proxy \
+vellaveto-http-proxy \
   --config examples/presets/rag-agent.toml \
   --listen 0.0.0.0:3000 \
   --upstream http://localhost:9000
 ```
 
-Your agent connects to `localhost:3000` instead of the upstream server directly. Sentinel inspects every request and response.
+Your agent connects to `localhost:3000` instead of the upstream server directly. Vellaveto inspects every request and response.
 
 ---
 
 ## Parameter Redaction
 
-By default, tool parameters are sent verbatim to Sentinel for policy evaluation. Enable client-side redaction to strip secrets before they leave your process:
+By default, tool parameters are sent verbatim to Vellaveto for policy evaluation. Enable client-side redaction to strip secrets before they leave your process:
 
 ```python
-from sentinel import SentinelClient, ParameterRedactor
+from vellaveto import VellavetoClient, ParameterRedactor
 
 # Keys-only mode (default): redacts values for known sensitive parameter names
 redactor = ParameterRedactor()
@@ -398,17 +398,17 @@ redactor = ParameterRedactor()
 # Values mode: also scans string values for secret patterns (sk-..., ghp_..., JWTs)
 redactor = ParameterRedactor(mode="values")
 
-# All mode: redacts every parameter value (sends only keys to Sentinel)
+# All mode: redacts every parameter value (sends only keys to Vellaveto)
 redactor = ParameterRedactor(mode="all")
 
 # Add custom sensitive keys
 redactor = ParameterRedactor(extra_keys={"internal_token", "vault_path"})
 
 # Use with client
-client = SentinelClient(url="http://localhost:3000", redactor=redactor)
+client = VellavetoClient(url="http://localhost:3000", redactor=redactor)
 ```
 
-Sentinel's server-side DLP scanning and audit redaction still apply independently of client-side redaction.
+Vellaveto's server-side DLP scanning and audit redaction still apply independently of client-side redaction.
 
 ---
 

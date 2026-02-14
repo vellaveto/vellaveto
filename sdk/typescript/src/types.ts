@@ -1,5 +1,5 @@
 /**
- * Sentinel SDK type definitions.
+ * Vellaveto SDK type definitions.
  *
  * Mirrors the Python SDK types for API parity.
  */
@@ -11,7 +11,7 @@ export enum Verdict {
   RequireApproval = "require_approval",
 }
 
-/** An action to be evaluated by Sentinel. */
+/** An action to be evaluated by Vellaveto. */
 export interface Action {
   tool: string;
   function?: string;

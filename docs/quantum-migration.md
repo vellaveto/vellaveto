@@ -1,10 +1,10 @@
 # Post-Quantum TLS Migration Runbook
 
-This runbook defines a staged rollout and rollback process for Sentinel TLS key exchange policy migration.
+This runbook defines a staged rollout and rollback process for Vellaveto TLS key exchange policy migration.
 
 ## Scope
 
-- `sentinel-server` TLS termination (`tls.mode = "tls"` or `"mtls"`)
+- `vellaveto-server` TLS termination (`tls.mode = "tls"` or `"mtls"`)
 - TLS key exchange policy in `TlsConfig`:
   - `classical_only`
   - `hybrid_preferred`
@@ -29,13 +29,13 @@ This runbook defines a staged rollout and rollback process for Sentinel TLS key 
 1. Validate configuration.
 
 ```bash
-cargo run -p sentinel-server -- check --config /etc/sentinel/policy.toml
+cargo run -p vellaveto-server -- check --config /etc/vellaveto/policy.toml
 ```
 
 2. Confirm startup logs show effective KEX policy behavior.
 
 ```bash
-RUST_LOG=info cargo run -p sentinel-server -- serve --config /etc/sentinel/policy.toml
+RUST_LOG=info cargo run -p vellaveto-server -- serve --config /etc/vellaveto/policy.toml
 ```
 
 3. Confirm audit entries carry TLS metadata for evaluate requests (when proxy headers are provided).
@@ -89,7 +89,7 @@ kex_policy = "hybrid_required_when_supported"
 
 Important:
 - If provider support is present, classical-only clients can fail handshake.
-- If provider has no PQ/hybrid groups, Sentinel falls back to classical groups and logs a warning.
+- If provider has no PQ/hybrid groups, Vellaveto falls back to classical groups and logs a warning.
 
 Exit criteria:
 - Client compatibility validated for all critical traffic paths.
@@ -101,7 +101,7 @@ Exit criteria:
 2. Monitor:
    - request success rate
    - handshake errors at edge proxy
-   - Sentinel logs for KEX policy warnings
+   - Vellaveto logs for KEX policy warnings
 3. Expand gradually (25% -> 50% -> 100%) only after each stage is stable.
 
 ## Forwarded TLS metadata header rules

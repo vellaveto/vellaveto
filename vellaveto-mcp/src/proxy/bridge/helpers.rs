@@ -1,0 +1,174 @@
+//! Helper methods for `ProxyBridge`.
+//!
+//! Agent identity extraction, flagged tool persistence/loading,
+//! and tool annotation extraction with rug-pull detection.
+
+use super::ProxyBridge;
+use super::ToolAnnotations;
+use vellaveto_audit::AuditLogger;
+use vellaveto_types::AgentFingerprint;
+use serde_json::{json, Value};
+use std::collections::{HashMap, HashSet};
+
+impl ProxyBridge {
+    /// Extract agent fingerprint from MCP message `_meta` field.
+    ///
+    /// MCP 2025-11-25 allows clients to include identity information in `_meta`.
+    /// This extracts fingerprint components if present.
+    pub(super) fn extract_fingerprint_from_meta(msg: &Value) -> AgentFingerprint {
+        let meta = msg
+            .get("_meta")
+            .or_else(|| msg.get("params").and_then(|p| p.get("_meta")));
+
+        AgentFingerprint {
+            jwt_sub: meta
+                .and_then(|m| m.get("agent_id"))
+                .or_else(|| meta.and_then(|m| m.get("agentId")))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            jwt_iss: meta
+                .and_then(|m| m.get("issuer"))
+                .or_else(|| meta.and_then(|m| m.get("iss")))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            client_id: meta
+                .and_then(|m| m.get("client_id"))
+                .or_else(|| meta.and_then(|m| m.get("clientId")))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            ip_hash: None, // Not available in stdio proxy
+        }
+    }
+
+    /// Extract claimed agent ID from MCP message.
+    pub(super) fn extract_agent_id(msg: &Value) -> Option<String> {
+        let meta = msg
+            .get("_meta")
+            .or_else(|| msg.get("params").and_then(|p| p.get("_meta")))?;
+        meta.get("agent_id")
+            .or_else(|| meta.get("agentId"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    }
+
+    /// Persist a flagged tool to the JSONL file.
+    ///
+    /// Appends a single line: `{"tool":"<name>","flagged_at":"<ISO8601>","reason":"<reason>"}`
+    /// Does nothing if `flagged_tools_path` is not configured.
+    pub(super) async fn persist_flagged_tool(&self, tool_name: &str, reason: &str) {
+        let path = match &self.flagged_tools_path {
+            Some(p) => p,
+            None => return,
+        };
+        let now = chrono::Utc::now().to_rfc3339();
+        let entry = json!({
+            "tool": tool_name,
+            "flagged_at": now,
+            "reason": reason,
+        });
+        let line = match serde_json::to_string(&entry) {
+            Ok(s) => format!("{}\n", s),
+            Err(e) => {
+                tracing::warn!("Failed to serialize flagged tool entry: {}", e);
+                return;
+            }
+        };
+        match tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .await
+        {
+            Ok(mut file) => {
+                use tokio::io::AsyncWriteExt;
+                if let Err(e) = file.write_all(line.as_bytes()).await {
+                    tracing::warn!("Failed to persist flagged tool '{}': {}", tool_name, e);
+                } else if let Err(e) = file.flush().await {
+                    tracing::warn!("Failed to flush flagged tool '{}': {}", tool_name, e);
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to open flagged tools file: {}", e);
+            }
+        }
+    }
+
+    /// Load previously flagged tools from the JSONL persistence file.
+    ///
+    /// Returns an empty set if the file does not exist or `flagged_tools_path` is not configured.
+    pub(super) async fn load_flagged_tools(&self) -> std::collections::HashSet<String> {
+        let path = match &self.flagged_tools_path {
+            Some(p) => p,
+            None => return std::collections::HashSet::new(),
+        };
+        let contents = match tokio::fs::read_to_string(path).await {
+            Ok(c) => c,
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!("Failed to read flagged tools file: {}", e);
+                }
+                return std::collections::HashSet::new();
+            }
+        };
+        let mut tools = std::collections::HashSet::new();
+        for line in contents.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            match serde_json::from_str::<Value>(line) {
+                Ok(entry) => {
+                    if let Some(tool) = entry.get("tool").and_then(|t| t.as_str()) {
+                        tools.insert(tool.to_string());
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Skipping malformed flagged-tools line: {}", e);
+                }
+            }
+        }
+        if !tools.is_empty() {
+            tracing::info!(
+                "Loaded {} previously flagged tools from {:?}",
+                tools.len(),
+                path
+            );
+        }
+        tools
+    }
+
+    /// Extract tool annotations from a `tools/list` response.
+    ///
+    /// Parses the response result, extracts annotations per tool, and detects
+    /// rug-pull attacks (tool definitions changing between calls).
+    ///
+    /// When rug-pull is detected (annotation changes or new tools added after
+    /// the initial `tools/list`), affected tool names are inserted into
+    /// `flagged_tools` so the proxy can block subsequent calls to them.
+    pub(super) async fn extract_tool_annotations(
+        response: &Value,
+        known: &mut HashMap<String, ToolAnnotations>,
+        flagged_tools: &mut std::collections::HashSet<String>,
+        audit: &AuditLogger,
+        known_tools: &HashSet<String>,
+    ) {
+        let is_first_list = known.is_empty();
+        let result = crate::rug_pull::detect_rug_pull_and_squatting(
+            response,
+            known,
+            is_first_list,
+            known_tools,
+        );
+
+        // Flag detected tools for blocking
+        for name in result.flagged_tool_names() {
+            flagged_tools.insert(name.to_string());
+        }
+
+        // Audit any detected events
+        crate::rug_pull::audit_rug_pull_events(&result, audit, "proxy").await;
+
+        // Update known annotations from detection result
+        *known = result.updated_known;
+    }
+}

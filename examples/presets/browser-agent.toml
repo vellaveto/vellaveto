@@ -1,11 +1,11 @@
-# Sentinel Preset: Browser Automation Agent
+# Vellaveto Preset: Browser Automation Agent
 #
 # For AI agents that automate web browsers (Playwright, Puppeteer,
 # Selenium). Prevents navigation to malicious sites, blocks credential
 # harvesting, and restricts file downloads.
 #
 # Usage:
-#   sentinel serve --config examples/presets/browser-agent.toml --port 3000
+#   vellaveto serve --config examples/presets/browser-agent.toml --port 3000
 
 # --- Block credential file access ---
 [[policies]]

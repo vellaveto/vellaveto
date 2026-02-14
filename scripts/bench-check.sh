@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Benchmark regression check for Sentinel CI.
+# Benchmark regression check for Vellaveto CI.
 # Runs all workspace benchmarks and checks for performance regressions.
 #
 # Usage:

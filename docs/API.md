@@ -1,6 +1,6 @@
-# Sentinel API Reference
+# Vellaveto API Reference
 
-This document provides a complete reference for the Sentinel HTTP API.
+This document provides a complete reference for the Vellaveto HTTP API.
 
 ## Table of Contents
 
@@ -69,7 +69,7 @@ Authorization: Bearer <api-key>
 Example:
 
 ```bash
-curl -H "Authorization: Bearer $SENTINEL_API_KEY" \
+curl -H "Authorization: Bearer $VELLAVETO_API_KEY" \
   http://localhost:3000/api/policies
 ```
 
@@ -160,10 +160,10 @@ Prometheus metrics in text exposition format.
 HTTP/1.1 200 OK
 Content-Type: text/plain; version=0.0.4
 
-# HELP sentinel_evaluations_total Total number of policy evaluations
-# TYPE sentinel_evaluations_total counter
-sentinel_evaluations_total{verdict="allow"} 1234
-sentinel_evaluations_total{verdict="deny"} 56
+# HELP vellaveto_evaluations_total Total number of policy evaluations
+# TYPE vellaveto_evaluations_total counter
+vellaveto_evaluations_total{verdict="allow"} 1234
+vellaveto_evaluations_total{verdict="deny"} 56
 ...
 ```
 
@@ -638,7 +638,7 @@ Content-Type: application/x-ndjson
 ```
 Content-Type: text/plain
 
-CEF:0|Sentinel|MCP-Firewall|1.0|100|Policy Evaluation|5|...
+CEF:0|Vellaveto|MCP-Firewall|1.0|100|Policy Evaluation|5|...
 ```
 
 ---

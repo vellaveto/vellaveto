@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thank you for suggesting an improvement to Sentinel.
+        Thank you for suggesting an improvement to Vellaveto.
 
   - type: textarea
     id: problem
@@ -34,13 +34,13 @@ body:
     attributes:
       label: Component
       options:
-        - Policy engine (sentinel-engine)
-        - Types (sentinel-types)
-        - Configuration (sentinel-config)
-        - MCP handling (sentinel-mcp)
-        - Audit logging (sentinel-audit)
-        - HTTP proxy (sentinel-http-proxy)
-        - Server API (sentinel-server)
+        - Policy engine (vellaveto-engine)
+        - Types (vellaveto-types)
+        - Configuration (vellaveto-config)
+        - MCP handling (vellaveto-mcp)
+        - Audit logging (vellaveto-audit)
+        - HTTP proxy (vellaveto-http-proxy)
+        - Server API (vellaveto-server)
         - Python SDK
         - Documentation
         - CI/CD

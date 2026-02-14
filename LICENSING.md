@@ -1,13 +1,13 @@
-# Sentinel Licensing
+# Vellaveto Licensing
 
 ## Dual License
 
-Sentinel is available under two licenses:
+Vellaveto is available under two licenses:
 
 ### 1. GNU Affero General Public License v3.0 (AGPL-3.0)
 
-The default open-source license. You may use, modify, and distribute Sentinel
-under the terms of the [AGPL-3.0](LICENSE). If you modify Sentinel and make it
+The default open-source license. You may use, modify, and distribute Vellaveto
+under the terms of the [AGPL-3.0](LICENSE). If you modify Vellaveto and make it
 available over a network (e.g., as a hosted service), you must make the complete
 source code of your modified version available to users of that service under
 the same license.
@@ -17,26 +17,26 @@ Full text: [LICENSE](LICENSE)
 ### 2. Commercial License
 
 For organizations that cannot comply with the AGPL-3.0 — for example, if you
-want to embed Sentinel in proprietary software or offer it as a managed service
+want to embed Vellaveto in proprietary software or offer it as a managed service
 without open-sourcing your modifications — a commercial license is available.
 
 Contact: **paolovella1993@gmail.com**
 
 The commercial license removes all copyleft obligations and includes:
-- Permission to use Sentinel in proprietary products and services
+- Permission to use Vellaveto in proprietary products and services
 - Permission to modify without source disclosure requirements
 - Priority support and security advisory access
 
 ## Why AGPL-3.0?
 
-Sentinel is security infrastructure for AI agents. The AGPL ensures that:
+Vellaveto is security infrastructure for AI agents. The AGPL ensures that:
 
 1. **Improvements flow back.** Security fixes and hardening contributed by the
    community benefit everyone.
-2. **Transparency is preserved.** Users of a Sentinel-protected service can
+2. **Transparency is preserved.** Users of a Vellaveto-protected service can
    verify the security proxy they depend on.
 3. **The project is sustainable.** Organizations that build commercial products
-   on Sentinel contribute either code (via AGPL) or funding (via commercial license).
+   on Vellaveto contribute either code (via AGPL) or funding (via commercial license).
 
 ## Contributing
 
@@ -62,7 +62,7 @@ permission from the copyright holder.
 
 ## Third-Party Licenses
 
-Sentinel depends on open-source libraries, each under their own licenses.
+Vellaveto depends on open-source libraries, each under their own licenses.
 Run `cargo license` for a complete list. All dependencies are compatible
 with AGPL-3.0 distribution.
 

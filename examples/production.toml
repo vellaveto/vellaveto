@@ -1,6 +1,6 @@
-# Sentinel Production Configuration
+# Vellaveto Production Configuration
 #
-# A realistic enterprise policy set for deploying Sentinel in front of
+# A realistic enterprise policy set for deploying Vellaveto in front of
 # AI agent tool calls. This configuration covers:
 #
 #   - Credential and secret file protection
@@ -16,8 +16,8 @@
 #   - Semantic injection detection (P4.3)
 #
 # Usage:
-#   export SENTINEL_API_KEY=$(openssl rand -hex 32)
-#   cargo run -p sentinel-server -- serve --config examples/production.toml
+#   export VELLAVETO_API_KEY=$(openssl rand -hex 32)
+#   cargo run -p vellaveto-server -- serve --config examples/production.toml
 
 # ====================================================================
 # POLICY 1: Block access to credential and secret files (P300)
@@ -211,7 +211,7 @@ extra_patterns = [
 # ====================================================================
 # RATE LIMITING
 # ====================================================================
-# Protects the Sentinel API from abuse and ensures fair resource
+# Protects the Vellaveto API from abuse and ensures fair resource
 # allocation across multiple agents.
 
 [rate_limit]
@@ -263,14 +263,14 @@ validate_paths_on_load = true
 # TOOL MANIFEST PINNING
 # ====================================================================
 # Detects tool rug-pull attacks by pinning expected tool schemas.
-# On first run, Sentinel creates a manifest from the tools/list
+# On first run, Vellaveto creates a manifest from the tools/list
 # response. On subsequent runs, schema changes are detected.
 
 [manifest]
 enabled = true
 enforcement = "Warn"
 require_signature = false
-# manifest_path = "/etc/sentinel/manifest.json"
+# manifest_path = "/etc/vellaveto/manifest.json"
 # trusted_keys = ["hex-encoded-ed25519-public-key"]
 
 # ====================================================================
@@ -324,13 +324,13 @@ extra_templates = [
 # CLUSTERING (P3.4)
 # ====================================================================
 # Enables sharing approval state and rate limits across multiple
-# Sentinel instances via Redis. When disabled (default), all state
+# Vellaveto instances via Redis. When disabled (default), all state
 # is local to a single process. When enabled, all instances sharing
 # the same Redis endpoint see the same approvals and enforce global
 # rate limits.
 #
 # Fail-closed: if Redis is configured but unreachable, all approval
-# operations fail (producing Deny verdicts). Sentinel never silently
+# operations fail (producing Deny verdicts). Vellaveto never silently
 # falls back to local state.
 #
 # Requires: cargo build --features redis-backend
@@ -340,4 +340,4 @@ enabled = false
 backend = "local"                # "local" or "redis"
 # redis_url = "redis://localhost:6379"
 # redis_pool_size = 8           # Connection pool size (1..128)
-# key_prefix = "sentinel:"      # Redis key namespace
+# key_prefix = "vellaveto:"      # Redis key namespace

@@ -19,7 +19,7 @@ fuzz_target!(|data: &[u8]| {
                 .unwrap_or("fuzz_tool");
 
             // Create registry and test
-            let registry = sentinel_mcp::output_validation::OutputSchemaRegistry::new();
+            let registry = vellaveto_mcp::output_validation::OutputSchemaRegistry::new();
 
             // Register schema
             registry.register(tool, schema);
@@ -32,7 +32,7 @@ fuzz_target!(|data: &[u8]| {
         }
 
         // Also test register_from_tools_list with arbitrary JSON
-        let registry = sentinel_mcp::output_validation::OutputSchemaRegistry::new();
+        let registry = vellaveto_mcp::output_validation::OutputSchemaRegistry::new();
         registry.register_from_tools_list(&value);
     }
 });

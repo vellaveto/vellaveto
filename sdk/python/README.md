@@ -1,21 +1,21 @@
-# Sentinel Python SDK
+# Vellaveto Python SDK
 
-Python SDK for the [Sentinel MCP Firewall](https://github.com/paolovella/sentinel) - AI agent security policy enforcement.
+Python SDK for the [Vellaveto MCP Firewall](https://github.com/paolovella/vellaveto) - AI agent security policy enforcement.
 
 ## Installation
 
 ```bash
 # Basic installation
-pip install sentinel-sdk
+pip install vellaveto-sdk
 
 # With LangChain support
-pip install sentinel-sdk[langchain]
+pip install vellaveto-sdk[langchain]
 
 # With LangGraph support
-pip install sentinel-sdk[langgraph]
+pip install vellaveto-sdk[langgraph]
 
 # Full installation
-pip install sentinel-sdk[all]
+pip install vellaveto-sdk[all]
 ```
 
 ## Quick Start
@@ -23,9 +23,9 @@ pip install sentinel-sdk[all]
 ### Direct API Usage
 
 ```python
-from sentinel import SentinelClient, Verdict
+from vellaveto import VellavetoClient, Verdict
 
-client = SentinelClient(url="http://localhost:3000", api_key="your-key")
+client = VellavetoClient(url="http://localhost:3000", api_key="your-key")
 
 # Evaluate a tool call
 result = client.evaluate(
@@ -46,9 +46,9 @@ elif result.verdict == Verdict.REQUIRE_APPROVAL:
 ### With Exception Handling
 
 ```python
-from sentinel import SentinelClient, PolicyDenied, ApprovalRequired
+from vellaveto import VellavetoClient, PolicyDenied, ApprovalRequired
 
-client = SentinelClient(url="http://localhost:3000")
+client = VellavetoClient(url="http://localhost:3000")
 
 try:
     client.evaluate_or_raise(
@@ -66,9 +66,9 @@ except ApprovalRequired as e:
 ### Async Usage
 
 ```python
-from sentinel import AsyncSentinelClient
+from vellaveto import AsyncVellavetoClient
 
-async with AsyncSentinelClient(url="http://localhost:3000") as client:
+async with AsyncVellavetoClient(url="http://localhost:3000") as client:
     result = await client.evaluate(
         tool="bash",
         function="execute",
@@ -80,16 +80,16 @@ async with AsyncSentinelClient(url="http://localhost:3000") as client:
 
 ### Callback Handler
 
-The `SentinelCallbackHandler` automatically intercepts and evaluates all tool calls:
+The `VellavetoCallbackHandler` automatically intercepts and evaluates all tool calls:
 
 ```python
 from langchain.agents import create_react_agent
 from langchain_openai import ChatOpenAI
-from sentinel import SentinelClient
-from sentinel.langchain import SentinelCallbackHandler
+from vellaveto import VellavetoClient
+from vellaveto.langchain import VellavetoCallbackHandler
 
-client = SentinelClient(url="http://localhost:3000")
-handler = SentinelCallbackHandler(
+client = VellavetoClient(url="http://localhost:3000")
+handler = VellavetoCallbackHandler(
     client=client,
     session_id="my-session",
     raise_on_deny=True,
@@ -98,7 +98,7 @@ handler = SentinelCallbackHandler(
 llm = ChatOpenAI()
 agent = create_react_agent(llm, tools, callbacks=[handler])
 
-# All tool calls will be evaluated by Sentinel
+# All tool calls will be evaluated by Vellaveto
 result = agent.invoke({"input": "Read the file /etc/passwd"})
 ```
 
@@ -108,11 +108,11 @@ Guard individual tools with the `@guard` decorator:
 
 ```python
 from langchain.tools import tool
-from sentinel import SentinelClient
-from sentinel.langchain import SentinelToolGuard
+from vellaveto import VellavetoClient
+from vellaveto.langchain import VellavetoToolGuard
 
-client = SentinelClient(url="http://localhost:3000")
-guard = SentinelToolGuard(client)
+client = VellavetoClient(url="http://localhost:3000")
+guard = VellavetoToolGuard(client)
 
 @tool
 @guard("filesystem", "read_file")
@@ -126,40 +126,40 @@ def read_file(path: str) -> str:
 
 ```python
 from langchain_community.agent_toolkits import FileManagementToolkit
-from sentinel import SentinelClient
-from sentinel.langchain import create_guarded_toolkit
+from vellaveto import VellavetoClient
+from vellaveto.langchain import create_guarded_toolkit
 
-client = SentinelClient(url="http://localhost:3000")
+client = VellavetoClient(url="http://localhost:3000")
 toolkit = FileManagementToolkit()
 guarded_tools = create_guarded_toolkit(client, toolkit)
 ```
 
 ## LangGraph Integration
 
-### Sentinel Node
+### Vellaveto Node
 
-Add a sentinel evaluation node to your graph:
+Add a vellaveto evaluation node to your graph:
 
 ```python
 from langgraph.graph import StateGraph, END
-from sentinel import SentinelClient
-from sentinel.langgraph import create_sentinel_node, SentinelState
+from vellaveto import VellavetoClient
+from vellaveto.langgraph import create_vellaveto_node, VellavetoState
 
-client = SentinelClient(url="http://localhost:3000")
-sentinel_node = create_sentinel_node(client, on_deny="block")
+client = VellavetoClient(url="http://localhost:3000")
+vellaveto_node = create_vellaveto_node(client, on_deny="block")
 
-class MyState(SentinelState):
+class MyState(VellavetoState):
     messages: list
     # ... your fields
 
 graph = StateGraph(MyState)
 graph.add_node("plan", plan_node)
-graph.add_node("sentinel", sentinel_node)
+graph.add_node("vellaveto", vellaveto_node)
 graph.add_node("tools", tool_node)
 
-graph.add_edge("plan", "sentinel")
+graph.add_edge("plan", "vellaveto")
 graph.add_conditional_edges(
-    "sentinel",
+    "vellaveto",
     lambda s: "blocked" if s.get("tool_blocked") else "allowed",
     {"blocked": END, "allowed": "tools"},
 )
@@ -171,11 +171,11 @@ Combine tool execution with policy evaluation:
 
 ```python
 from langgraph.graph import StateGraph
-from sentinel import SentinelClient
-from sentinel.langgraph import create_sentinel_tool_node
+from vellaveto import VellavetoClient
+from vellaveto.langgraph import create_vellaveto_tool_node
 
-client = SentinelClient(url="http://localhost:3000")
-tool_node = create_sentinel_tool_node(client, [read_file, write_file])
+client = VellavetoClient(url="http://localhost:3000")
+tool_node = create_vellaveto_tool_node(client, [read_file, write_file])
 
 graph = StateGraph(MyState)
 graph.add_node("tools", tool_node)  # Policy evaluation + execution
@@ -183,10 +183,10 @@ graph.add_node("tools", tool_node)  # Policy evaluation + execution
 
 ## Parameter Redaction
 
-Strip sensitive parameter values before they transit the network to Sentinel:
+Strip sensitive parameter values before they transit the network to Vellaveto:
 
 ```python
-from sentinel import SentinelClient, ParameterRedactor
+from vellaveto import VellavetoClient, ParameterRedactor
 
 # Keys-only (default): redacts values for known sensitive parameter names
 redactor = ParameterRedactor()
@@ -194,13 +194,13 @@ redactor = ParameterRedactor()
 # Values: also scans string values for secret patterns (sk-..., ghp_..., JWTs)
 redactor = ParameterRedactor(mode="values")
 
-# All: redacts every parameter value (sends only keys to Sentinel)
+# All: redacts every parameter value (sends only keys to Vellaveto)
 redactor = ParameterRedactor(mode="all")
 
 # Custom sensitive keys (added to defaults)
 redactor = ParameterRedactor(extra_keys={"internal_token", "vault_path"})
 
-client = SentinelClient(url="http://localhost:3000", redactor=redactor)
+client = VellavetoClient(url="http://localhost:3000", redactor=redactor)
 
 # api_key value is replaced with "[REDACTED]" before sending
 client.evaluate(
@@ -215,8 +215,8 @@ client.evaluate(
 ### Client Options
 
 ```python
-client = SentinelClient(
-    url="http://localhost:3000",  # Sentinel server URL
+client = VellavetoClient(
+    url="http://localhost:3000",  # Vellaveto server URL
     api_key="your-api-key",       # API key for authentication
     timeout=30.0,                  # Request timeout in seconds
     verify_ssl=True,               # Verify SSL certificates
@@ -229,7 +229,7 @@ client = SentinelClient(
 Provide context for stateful policy evaluation:
 
 ```python
-from sentinel.types import EvaluationContext
+from vellaveto.types import EvaluationContext
 
 context = EvaluationContext(
     session_id="user-session-123",
@@ -249,7 +249,7 @@ result = client.evaluate(
 
 ## API Reference
 
-### SentinelClient
+### VellavetoClient
 
 | Method | Description |
 |--------|-------------|
@@ -274,7 +274,7 @@ result = client.evaluate(
 
 | Exception | Description |
 |-----------|-------------|
-| `SentinelError` | Base exception |
+| `VellavetoError` | Base exception |
 | `PolicyDenied` | Action denied by policy |
 | `ApprovalRequired` | Action requires human approval |
 | `ConnectionError` | Failed to connect to server |
@@ -289,10 +289,10 @@ pip install -e ".[dev]"
 pytest
 
 # Type checking
-mypy sentinel
+mypy vellaveto
 
 # Linting
-ruff check sentinel
+ruff check vellaveto
 ```
 
 ## License

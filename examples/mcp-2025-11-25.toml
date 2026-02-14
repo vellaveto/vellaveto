@@ -31,7 +31,7 @@ require_self_cancel = true          # Only creator can cancel
 enabled = true
 require_resource = false            # Don't require resource indicator initially
 allowed_resources = [
-    "urn:sentinel:*",               # Sentinel internal resources
+    "urn:vellaveto:*",               # Vellaveto internal resources
     "https://api.example.com/*",    # Example API endpoint
 ]
 

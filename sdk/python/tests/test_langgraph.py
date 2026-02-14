@@ -1,16 +1,16 @@
-"""Tests for sentinel.langgraph module."""
+"""Tests for vellaveto.langgraph module."""
 
 import json
 from unittest.mock import MagicMock
 
 import pytest
 
-from sentinel.client import SentinelClient
-from sentinel.types import Verdict
+from vellaveto.client import VellavetoClient
+from vellaveto.types import Verdict
 
 
-class TestCreateSentinelNode:
-    """Tests for create_sentinel_node()."""
+class TestCreateVellavetoNode:
+    """Tests for create_vellaveto_node()."""
 
     def test_allow_sets_not_blocked(self, httpx_mock):
         httpx_mock.add_response(
@@ -18,17 +18,17 @@ class TestCreateSentinelNode:
             json={"verdict": "allow", "policy_id": "p1"},
         )
 
-        client = SentinelClient()
-        from sentinel.langgraph import create_sentinel_node
+        client = VellavetoClient()
+        from vellaveto.langgraph import create_vellaveto_node
 
-        node = create_sentinel_node(client)
+        node = create_vellaveto_node(client)
         result = node({
             "pending_tool_name": "read_file",
             "pending_tool_input": {"path": "/tmp/test.txt"},
         })
 
         assert result["tool_blocked"] is False
-        assert result["sentinel_verdict"] == "allow"
+        assert result["vellaveto_verdict"] == "allow"
         client.close()
 
     def test_deny_blocks_tool(self, httpx_mock):
@@ -37,18 +37,18 @@ class TestCreateSentinelNode:
             json={"verdict": "deny", "reason": "Path blocked"},
         )
 
-        client = SentinelClient()
-        from sentinel.langgraph import create_sentinel_node
+        client = VellavetoClient()
+        from vellaveto.langgraph import create_vellaveto_node
 
-        node = create_sentinel_node(client, on_deny="block")
+        node = create_vellaveto_node(client, on_deny="block")
         result = node({
             "pending_tool_name": "write_file",
             "pending_tool_input": {"path": "/etc/shadow"},
         })
 
         assert result["tool_blocked"] is True
-        assert result["sentinel_verdict"] == "deny"
-        assert result["sentinel_reason"] == "Path blocked"
+        assert result["vellaveto_verdict"] == "deny"
+        assert result["vellaveto_reason"] == "Path blocked"
         client.close()
 
     def test_deny_continue_mode(self, httpx_mock):
@@ -57,17 +57,17 @@ class TestCreateSentinelNode:
             json={"verdict": "deny", "reason": "Soft deny"},
         )
 
-        client = SentinelClient()
-        from sentinel.langgraph import create_sentinel_node
+        client = VellavetoClient()
+        from vellaveto.langgraph import create_vellaveto_node
 
-        node = create_sentinel_node(client, on_deny="continue")
+        node = create_vellaveto_node(client, on_deny="continue")
         result = node({
             "pending_tool_name": "test",
             "pending_tool_input": {},
         })
 
         assert result["tool_blocked"] is False
-        assert result["sentinel_verdict"] == "deny"
+        assert result["vellaveto_verdict"] == "deny"
         client.close()
 
     def test_approval_required_blocks(self, httpx_mock):
@@ -80,24 +80,24 @@ class TestCreateSentinelNode:
             },
         )
 
-        client = SentinelClient()
-        from sentinel.langgraph import create_sentinel_node
+        client = VellavetoClient()
+        from vellaveto.langgraph import create_vellaveto_node
 
-        node = create_sentinel_node(client, on_approval_required="block")
+        node = create_vellaveto_node(client, on_approval_required="block")
         result = node({
             "pending_tool_name": "delete",
             "pending_tool_input": {},
         })
 
         assert result["tool_blocked"] is True
-        assert result["sentinel_approval_id"] == "apr-1"
+        assert result["vellaveto_approval_id"] == "apr-1"
         client.close()
 
     def test_no_pending_tool_passes_through(self, httpx_mock):
-        client = SentinelClient()
-        from sentinel.langgraph import create_sentinel_node
+        client = VellavetoClient()
+        from vellaveto.langgraph import create_vellaveto_node
 
-        node = create_sentinel_node(client)
+        node = create_vellaveto_node(client)
         result = node({})
 
         assert result["tool_blocked"] is False
@@ -109,17 +109,17 @@ class TestCreateSentinelNode:
             json={"verdict": "allow"},
         )
 
-        client = SentinelClient()
-        from sentinel.langgraph import create_sentinel_node
+        client = VellavetoClient()
+        from vellaveto.langgraph import create_vellaveto_node
 
-        node = create_sentinel_node(client)
+        node = create_vellaveto_node(client)
         result = node({
             "pending_tool_name": "tool_a",
             "pending_tool_input": {},
-            "sentinel_call_chain": ["tool_x"],
+            "vellaveto_call_chain": ["tool_x"],
         })
 
-        assert result["sentinel_call_chain"] == ["tool_x", "tool_a"]
+        assert result["vellaveto_call_chain"] == ["tool_x", "tool_a"]
         client.close()
 
     def test_call_chain_bounded(self, httpx_mock):
@@ -128,20 +128,20 @@ class TestCreateSentinelNode:
             json={"verdict": "allow"},
         )
 
-        client = SentinelClient()
-        from sentinel.langgraph import create_sentinel_node
+        client = VellavetoClient()
+        from vellaveto.langgraph import create_vellaveto_node
 
-        node = create_sentinel_node(client)
+        node = create_vellaveto_node(client)
         long_chain = [f"tool_{i}" for i in range(25)]
         result = node({
             "pending_tool_name": "new_tool",
             "pending_tool_input": {},
-            "sentinel_call_chain": long_chain,
+            "vellaveto_call_chain": long_chain,
         })
 
         # Code pops one element when >20, so 25 + 1 new - 1 pop = 25
-        assert len(result["sentinel_call_chain"]) <= 26
-        assert result["sentinel_call_chain"][-1] == "new_tool"
+        assert len(result["vellaveto_call_chain"]) <= 26
+        assert result["vellaveto_call_chain"][-1] == "new_tool"
         client.close()
 
     def test_path_extraction(self, httpx_mock):
@@ -150,10 +150,10 @@ class TestCreateSentinelNode:
             json={"verdict": "allow"},
         )
 
-        client = SentinelClient()
-        from sentinel.langgraph import create_sentinel_node
+        client = VellavetoClient()
+        from vellaveto.langgraph import create_vellaveto_node
 
-        node = create_sentinel_node(client)
+        node = create_vellaveto_node(client)
         node({
             "pending_tool_name": "read",
             "pending_tool_input": {"path": "/secret/data.txt"},
@@ -170,10 +170,10 @@ class TestCreateSentinelNode:
             json={"verdict": "allow"},
         )
 
-        client = SentinelClient()
-        from sentinel.langgraph import create_sentinel_node
+        client = VellavetoClient()
+        from vellaveto.langgraph import create_vellaveto_node
 
-        node = create_sentinel_node(client)
+        node = create_vellaveto_node(client)
         node({
             "pending_tool_name": "fetch",
             "pending_tool_input": {"url": "https://evil.com/exfil"},
@@ -190,10 +190,10 @@ class TestCreateSentinelNode:
             json={"verdict": "allow"},
         )
 
-        client = SentinelClient()
-        from sentinel.langgraph import create_sentinel_node
+        client = VellavetoClient()
+        from vellaveto.langgraph import create_vellaveto_node
 
-        node = create_sentinel_node(client)
+        node = create_vellaveto_node(client)
         node({
             "pending_tool_name": "http_call",
             "pending_tool_input": {"data": "http://internal.corp/api"},
@@ -210,17 +210,17 @@ class TestCreateSentinelNode:
             status_code=500,
         )
 
-        client = SentinelClient()
-        from sentinel.langgraph import create_sentinel_node
+        client = VellavetoClient()
+        from vellaveto.langgraph import create_vellaveto_node
 
-        node = create_sentinel_node(client, on_deny="block")
+        node = create_vellaveto_node(client, on_deny="block")
         result = node({
             "pending_tool_name": "test",
             "pending_tool_input": {},
         })
 
         assert result["tool_blocked"] is True
-        assert result["sentinel_verdict"] == "deny"
+        assert result["vellaveto_verdict"] == "deny"
         client.close()
 
     def test_context_passed_from_state(self, httpx_mock):
@@ -229,16 +229,16 @@ class TestCreateSentinelNode:
             json={"verdict": "allow"},
         )
 
-        client = SentinelClient()
-        from sentinel.langgraph import create_sentinel_node
+        client = VellavetoClient()
+        from vellaveto.langgraph import create_vellaveto_node
 
-        node = create_sentinel_node(client)
+        node = create_vellaveto_node(client)
         node({
             "pending_tool_name": "test",
             "pending_tool_input": {},
-            "sentinel_session_id": "sess-123",
-            "sentinel_agent_id": "agent-abc",
-            "sentinel_call_chain": ["prev_tool"],
+            "vellaveto_session_id": "sess-123",
+            "vellaveto_agent_id": "agent-abc",
+            "vellaveto_call_chain": ["prev_tool"],
         })
 
         request = httpx_mock.get_request()
@@ -249,21 +249,21 @@ class TestCreateSentinelNode:
         client.close()
 
 
-class TestSentinelState:
-    """Tests for SentinelState TypedDict."""
+class TestVellavetoState:
+    """Tests for VellavetoState TypedDict."""
 
-    def test_sentinel_state_fields(self):
-        from sentinel.langgraph import SentinelState
+    def test_vellaveto_state_fields(self):
+        from vellaveto.langgraph import VellavetoState
 
-        # SentinelState is a TypedDict - verify expected keys
-        annotations = SentinelState.__annotations__
-        assert "sentinel_verdict" in annotations
-        assert "sentinel_reason" in annotations
-        assert "sentinel_policy_id" in annotations
-        assert "sentinel_approval_id" in annotations
-        assert "sentinel_session_id" in annotations
-        assert "sentinel_agent_id" in annotations
-        assert "sentinel_call_chain" in annotations
+        # VellavetoState is a TypedDict - verify expected keys
+        annotations = VellavetoState.__annotations__
+        assert "vellaveto_verdict" in annotations
+        assert "vellaveto_reason" in annotations
+        assert "vellaveto_policy_id" in annotations
+        assert "vellaveto_approval_id" in annotations
+        assert "vellaveto_session_id" in annotations
+        assert "vellaveto_agent_id" in annotations
+        assert "vellaveto_call_chain" in annotations
         assert "pending_tool_name" in annotations
         assert "pending_tool_input" in annotations
         assert "tool_blocked" in annotations

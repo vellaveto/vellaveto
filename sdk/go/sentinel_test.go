@@ -1,4 +1,4 @@
-package sentinel
+package vellaveto
 
 import (
 	"context"
@@ -415,9 +415,9 @@ func TestHTTPError(t *testing.T) {
 	if err == nil {
 		t.Fatal("Health() should return error for 500")
 	}
-	sentErr, ok := err.(*SentinelError)
+	sentErr, ok := err.(*VellavetoError)
 	if !ok {
-		t.Fatalf("error type = %T, want *SentinelError", err)
+		t.Fatalf("error type = %T, want *VellavetoError", err)
 	}
 	if sentErr.StatusCode != 500 {
 		t.Errorf("StatusCode = %d, want 500", sentErr.StatusCode)
@@ -433,9 +433,9 @@ func TestUnauthorizedError(t *testing.T) {
 	if err == nil {
 		t.Fatal("Evaluate() should return error for 401")
 	}
-	sentErr, ok := err.(*SentinelError)
+	sentErr, ok := err.(*VellavetoError)
 	if !ok {
-		t.Fatalf("error type = %T, want *SentinelError", err)
+		t.Fatalf("error type = %T, want *VellavetoError", err)
 	}
 	if sentErr.StatusCode != 401 {
 		t.Errorf("StatusCode = %d, want 401", sentErr.StatusCode)
@@ -527,17 +527,17 @@ func TestParseVerdict(t *testing.T) {
 }
 
 func TestErrorMessages(t *testing.T) {
-	t.Run("SentinelError with status", func(t *testing.T) {
-		e := &SentinelError{Message: "not found", StatusCode: 404}
-		want := "sentinel: not found (HTTP 404)"
+	t.Run("VellavetoError with status", func(t *testing.T) {
+		e := &VellavetoError{Message: "not found", StatusCode: 404}
+		want := "vellaveto: not found (HTTP 404)"
 		if e.Error() != want {
 			t.Errorf("Error() = %q, want %q", e.Error(), want)
 		}
 	})
 
-	t.Run("SentinelError without status", func(t *testing.T) {
-		e := &SentinelError{Message: "connection failed"}
-		want := "sentinel: connection failed"
+	t.Run("VellavetoError without status", func(t *testing.T) {
+		e := &VellavetoError{Message: "connection failed"}
+		want := "vellaveto: connection failed"
 		if e.Error() != want {
 			t.Errorf("Error() = %q, want %q", e.Error(), want)
 		}
@@ -545,7 +545,7 @@ func TestErrorMessages(t *testing.T) {
 
 	t.Run("PolicyDeniedError with policy", func(t *testing.T) {
 		e := &PolicyDeniedError{Reason: "blocked", PolicyID: "p1"}
-		want := "sentinel: policy denied: blocked (policy: p1)"
+		want := "vellaveto: policy denied: blocked (policy: p1)"
 		if e.Error() != want {
 			t.Errorf("Error() = %q, want %q", e.Error(), want)
 		}
@@ -553,7 +553,7 @@ func TestErrorMessages(t *testing.T) {
 
 	t.Run("PolicyDeniedError without policy", func(t *testing.T) {
 		e := &PolicyDeniedError{Reason: "blocked"}
-		want := "sentinel: policy denied: blocked"
+		want := "vellaveto: policy denied: blocked"
 		if e.Error() != want {
 			t.Errorf("Error() = %q, want %q", e.Error(), want)
 		}
@@ -561,7 +561,7 @@ func TestErrorMessages(t *testing.T) {
 
 	t.Run("ApprovalRequiredError with id", func(t *testing.T) {
 		e := &ApprovalRequiredError{Reason: "review", ApprovalID: "a1"}
-		want := "sentinel: approval required: review (approval: a1)"
+		want := "vellaveto: approval required: review (approval: a1)"
 		if e.Error() != want {
 			t.Errorf("Error() = %q, want %q", e.Error(), want)
 		}
@@ -569,7 +569,7 @@ func TestErrorMessages(t *testing.T) {
 
 	t.Run("ApprovalRequiredError without id", func(t *testing.T) {
 		e := &ApprovalRequiredError{Reason: "review"}
-		want := "sentinel: approval required: review"
+		want := "vellaveto: approval required: review"
 		if e.Error() != want {
 			t.Errorf("Error() = %q, want %q", e.Error(), want)
 		}

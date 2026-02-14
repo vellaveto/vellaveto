@@ -1,6 +1,6 @@
-# CLAUDE.md — Sentinel Project Instructions
+# CLAUDE.md — Vellaveto Project Instructions
 
-> **Project:** Sentinel — MCP Tool Firewall
+> **Project:** Vellaveto — MCP Tool Firewall
 > **State:** v3.0.0 stable (Phases 1–23 complete, 38 audit rounds — all phases done)
 > **Version:** 3.0.0
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
@@ -13,7 +13,7 @@
 
 ## Mission
 
-Sentinel is a runtime security engine for AI agent tool calls. It intercepts MCP (Model Context Protocol) and function-calling requests, enforces security policies on paths/domains/actions, and maintains a tamper-evident audit trail.
+Vellaveto is a runtime security engine for AI agent tool calls. It intercepts MCP (Model Context Protocol) and function-calling requests, enforces security policies on paths/domains/actions, and maintains a tamper-evident audit trail.
 
 **Non-negotiable properties:**
 - **Fast:** <5ms P99 evaluation latency, <50MB memory baseline
@@ -41,24 +41,24 @@ cargo clippy --workspace
 ### Crate Dependency Graph (NEVER VIOLATE)
 
 ```
-sentinel-types          (leaf — no internal deps)
+vellaveto-types          (leaf — no internal deps)
        |
-sentinel-canonical      (types only)
-sentinel-config         (types only)
+vellaveto-canonical      (types only)
+vellaveto-config         (types only)
        |
-sentinel-engine         (types, ipnet)
+vellaveto-engine         (types, ipnet)
        |
-sentinel-audit          (types, engine)
-sentinel-approval       (types)
+vellaveto-audit          (types, engine)
+vellaveto-approval       (types)
        |
-sentinel-mcp            (types, engine, audit, approval, config)
+vellaveto-mcp            (types, engine, audit, approval, config)
        |
-sentinel-cluster        (types, config, approval)
+vellaveto-cluster        (types, config, approval)
        |
-sentinel-server         (all above)
-sentinel-http-proxy     (all above)
-sentinel-proxy          (all above, stdio mode)
-sentinel-integration    (all above, test only)
+vellaveto-server         (all above)
+vellaveto-http-proxy     (all above)
+vellaveto-proxy          (all above, stdio mode)
+vellaveto-integration    (all above, test only)
 ```
 
 Lower crates MUST NOT depend on higher crates.
@@ -77,51 +77,51 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 | What | Where |
 |------|-------|
-| **sentinel-types** (leaf crate) | |
-| Core types: Action, Verdict, Policy, PathRules, NetworkRules | `sentinel-types/src/core.rs` |
-| Identity: AgentIdentity, CallChainEntry, EvaluationContext | `sentinel-types/src/identity.rs` |
-| ETDI: signatures, attestation, version pinning | `sentinel-types/src/etdi.rs` |
-| Threat: auth levels, circuit breakers, fingerprints, trust | `sentinel-types/src/threat.rs` |
-| Advanced: ABAC, capability, compliance, extension, gateway, transport, verification, NHI, MINJA, DID:PLC, task | `sentinel-types/src/*.rs` |
-| Tests (~137) | `sentinel-types/src/tests.rs` |
-| **sentinel-engine** | |
-| Policy evaluation | `sentinel-engine/src/lib.rs` |
-| ABAC engine + Cedar-style evaluation | `sentinel-engine/src/abac.rs` |
-| Least-agency tracker | `sentinel-engine/src/least_agency.rs` |
-| **sentinel-audit** | |
-| Module root + AuditLogger + rotation + verification | `sentinel-audit/src/lib.rs` |
-| Redaction, checkpoints, Merkle proofs, events | `sentinel-audit/src/*.rs` |
-| Compliance registries: EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, gap analysis | `sentinel-audit/src/{eu_ai_act,soc2,cosai,adversa_top25,iso42001,gap_analysis}.rs` |
-| OTLP exporter, archive | `sentinel-audit/src/observability/otlp.rs`, `sentinel-audit/src/archive.rs` |
-| Tests (~214) | `sentinel-audit/src/tests.rs` |
-| **sentinel-config** | |
-| Module root + PolicyConfig + validation | `sentinel-config/src/lib.rs`, `sentinel-config/src/config_validate.rs` |
-| Detection, enterprise, ETDI, MCP protocol, threat detection | `sentinel-config/src/*.rs` |
-| Advanced: ABAC, compliance, extension, FIPS, gateway, gRPC, transport | `sentinel-config/src/*.rs` |
-| Tests (~164) | `sentinel-config/src/tests.rs` |
-| **sentinel-mcp** | |
-| MCP handling | `sentinel-mcp/src/lib.rs` |
-| Proxy bridge (struct, builder, evaluation, relay, tests) | `sentinel-mcp/src/proxy/bridge/*.rs` |
-| DLP / inspection + multimodal injection | `sentinel-mcp/src/inspection.rs`, `sentinel-mcp/src/inspection/multimodal.rs` |
-| Capability tokens, accountability, DID:PLC | `sentinel-mcp/src/{capability_token,accountability,did_plc}.rs` |
-| Red team, FIPS, Rekor, session guard | `sentinel-mcp/src/{red_team,fips,rekor,session_guard}.rs` |
-| Semantic guardrails | `sentinel-mcp/src/semantic_guardrails/` |
-| A2A protocol security | `sentinel-mcp/src/a2a/` |
-| Extension registry | `sentinel-mcp/src/extension_registry.rs` |
-| **sentinel-http-proxy** | |
-| HTTP proxy: handlers, auth, origin, upstream, inspection | `sentinel-http-proxy/src/proxy/*.rs` |
-| WebSocket reverse proxy | `sentinel-http-proxy/src/proxy/websocket/mod.rs` |
-| gRPC reverse proxy (feature-gated) | `sentinel-http-proxy/src/proxy/grpc/*.rs` |
-| Gateway router + health checker | `sentinel-http-proxy/src/proxy/gateway.rs` |
-| Transport discovery + fallback | `sentinel-http-proxy/src/proxy/{discovery,fallback}.rs` |
-| **sentinel-server** | |
-| HTTP API server + routes | `sentinel-server/src/main.rs`, `sentinel-server/src/routes.rs` |
-| Compliance + simulator API endpoints | `sentinel-server/src/routes/{compliance,simulator}.rs` |
-| Dashboard | `sentinel-server/src/dashboard.rs` |
+| **vellaveto-types** (leaf crate) | |
+| Core types: Action, Verdict, Policy, PathRules, NetworkRules | `vellaveto-types/src/core.rs` |
+| Identity: AgentIdentity, CallChainEntry, EvaluationContext | `vellaveto-types/src/identity.rs` |
+| ETDI: signatures, attestation, version pinning | `vellaveto-types/src/etdi.rs` |
+| Threat: auth levels, circuit breakers, fingerprints, trust | `vellaveto-types/src/threat.rs` |
+| Advanced: ABAC, capability, compliance, extension, gateway, transport, verification, NHI, MINJA, DID:PLC, task | `vellaveto-types/src/*.rs` |
+| Tests (~137) | `vellaveto-types/src/tests.rs` |
+| **vellaveto-engine** | |
+| Policy evaluation | `vellaveto-engine/src/lib.rs` |
+| ABAC engine + Cedar-style evaluation | `vellaveto-engine/src/abac.rs` |
+| Least-agency tracker | `vellaveto-engine/src/least_agency.rs` |
+| **vellaveto-audit** | |
+| Module root + AuditLogger + rotation + verification | `vellaveto-audit/src/lib.rs` |
+| Redaction, checkpoints, Merkle proofs, events | `vellaveto-audit/src/*.rs` |
+| Compliance registries: EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, gap analysis | `vellaveto-audit/src/{eu_ai_act,soc2,cosai,adversa_top25,iso42001,gap_analysis}.rs` |
+| OTLP exporter, archive | `vellaveto-audit/src/observability/otlp.rs`, `vellaveto-audit/src/archive.rs` |
+| Tests (~214) | `vellaveto-audit/src/tests.rs` |
+| **vellaveto-config** | |
+| Module root + PolicyConfig + validation | `vellaveto-config/src/lib.rs`, `vellaveto-config/src/config_validate.rs` |
+| Detection, enterprise, ETDI, MCP protocol, threat detection | `vellaveto-config/src/*.rs` |
+| Advanced: ABAC, compliance, extension, FIPS, gateway, gRPC, transport | `vellaveto-config/src/*.rs` |
+| Tests (~164) | `vellaveto-config/src/tests.rs` |
+| **vellaveto-mcp** | |
+| MCP handling | `vellaveto-mcp/src/lib.rs` |
+| Proxy bridge (struct, builder, evaluation, relay, tests) | `vellaveto-mcp/src/proxy/bridge/*.rs` |
+| DLP / inspection + multimodal injection | `vellaveto-mcp/src/inspection.rs`, `vellaveto-mcp/src/inspection/multimodal.rs` |
+| Capability tokens, accountability, DID:PLC | `vellaveto-mcp/src/{capability_token,accountability,did_plc}.rs` |
+| Red team, FIPS, Rekor, session guard | `vellaveto-mcp/src/{red_team,fips,rekor,session_guard}.rs` |
+| Semantic guardrails | `vellaveto-mcp/src/semantic_guardrails/` |
+| A2A protocol security | `vellaveto-mcp/src/a2a/` |
+| Extension registry | `vellaveto-mcp/src/extension_registry.rs` |
+| **vellaveto-http-proxy** | |
+| HTTP proxy: handlers, auth, origin, upstream, inspection | `vellaveto-http-proxy/src/proxy/*.rs` |
+| WebSocket reverse proxy | `vellaveto-http-proxy/src/proxy/websocket/mod.rs` |
+| gRPC reverse proxy (feature-gated) | `vellaveto-http-proxy/src/proxy/grpc/*.rs` |
+| Gateway router + health checker | `vellaveto-http-proxy/src/proxy/gateway.rs` |
+| Transport discovery + fallback | `vellaveto-http-proxy/src/proxy/{discovery,fallback}.rs` |
+| **vellaveto-server** | |
+| HTTP API server + routes | `vellaveto-server/src/main.rs`, `vellaveto-server/src/routes.rs` |
+| Compliance + simulator API endpoints | `vellaveto-server/src/routes/{compliance,simulator}.rs` |
+| Dashboard | `vellaveto-server/src/dashboard.rs` |
 | **Other** | |
-| Stdio proxy | `sentinel-proxy/src/main.rs` |
-| Cluster backend | `sentinel-cluster/src/lib.rs` |
-| Integration tests (~110 files) | `sentinel-integration/tests/` |
+| Stdio proxy | `vellaveto-proxy/src/main.rs` |
+| Cluster backend | `vellaveto-cluster/src/lib.rs` |
+| Integration tests (~110 files) | `vellaveto-integration/tests/` |
 | Proto: MCP gRPC schema | `proto/mcp/v1/mcp.proto` |
 | GitHub Action: policy-check | `.github/actions/policy-check/action.yml` |
 | **SDKs** | |
@@ -213,10 +213,10 @@ cargo test --lib --workspace
 cargo test --workspace
 
 # Specific crate
-cargo test -p sentinel-engine
+cargo test -p vellaveto-engine
 
 # With output
-cargo test -p sentinel-engine -- --nocapture
+cargo test -p vellaveto-engine -- --nocapture
 
 # Coverage (requires cargo-llvm-cov)
 cargo llvm-cov --workspace --html

@@ -1,13 +1,13 @@
-"""Tests for sentinel.redaction module."""
+"""Tests for vellaveto.redaction module."""
 
 import json
 
 import pytest
 import httpx
 
-from sentinel.redaction import ParameterRedactor, DEFAULT_SENSITIVE_KEYS, REDACTED_PLACEHOLDER
-from sentinel.client import SentinelClient, AsyncSentinelClient
-from sentinel.types import Verdict
+from vellaveto.redaction import ParameterRedactor, DEFAULT_SENSITIVE_KEYS, REDACTED_PLACEHOLDER
+from vellaveto.client import VellavetoClient, AsyncVellavetoClient
+from vellaveto.types import Verdict
 
 
 class TestParameterRedactorInit:
@@ -284,16 +284,16 @@ class TestRedactorOriginalUnchanged:
 
 
 class TestClientRedactorIntegration:
-    """Tests for SentinelClient + ParameterRedactor integration."""
+    """Tests for VellavetoClient + ParameterRedactor integration."""
 
     def test_client_accepts_redactor(self):
         r = ParameterRedactor()
-        client = SentinelClient(redactor=r)
+        client = VellavetoClient(redactor=r)
         assert client.redactor is r
         client.close()
 
     def test_client_default_no_redactor(self):
-        client = SentinelClient()
+        client = VellavetoClient()
         assert client.redactor is None
         client.close()
 
@@ -304,7 +304,7 @@ class TestClientRedactorIntegration:
         )
 
         r = ParameterRedactor()
-        client = SentinelClient(redactor=r)
+        client = VellavetoClient(redactor=r)
         client.evaluate(
             tool="http",
             function="fetch",
@@ -324,7 +324,7 @@ class TestClientRedactorIntegration:
             json={"verdict": "allow"},
         )
 
-        client = SentinelClient()  # no redactor
+        client = VellavetoClient()  # no redactor
         client.evaluate(
             tool="http",
             function="fetch",
@@ -343,7 +343,7 @@ class TestClientRedactorIntegration:
         )
 
         r = ParameterRedactor(mode="all")
-        client = SentinelClient(redactor=r)
+        client = VellavetoClient(redactor=r)
         client.evaluate(
             tool="filesystem",
             function="read_file",
@@ -358,7 +358,7 @@ class TestClientRedactorIntegration:
 
 
 class TestAsyncClientRedactorIntegration:
-    """Tests for AsyncSentinelClient + ParameterRedactor integration."""
+    """Tests for AsyncVellavetoClient + ParameterRedactor integration."""
 
     @pytest.mark.asyncio
     async def test_async_evaluate_redacts_parameters(self, httpx_mock):
@@ -368,7 +368,7 @@ class TestAsyncClientRedactorIntegration:
         )
 
         r = ParameterRedactor()
-        async with AsyncSentinelClient(redactor=r) as client:
+        async with AsyncVellavetoClient(redactor=r) as client:
             await client.evaluate(
                 tool="http",
                 function="fetch",
@@ -387,7 +387,7 @@ class TestAsyncClientRedactorIntegration:
             json={"verdict": "allow"},
         )
 
-        async with AsyncSentinelClient() as client:
+        async with AsyncVellavetoClient() as client:
             await client.evaluate(
                 tool="http",
                 function="fetch",
@@ -406,7 +406,7 @@ class TestAsyncClientRedactorIntegration:
         )
 
         r = ParameterRedactor(mode="values")
-        async with AsyncSentinelClient(redactor=r) as client:
+        async with AsyncVellavetoClient(redactor=r) as client:
             await client.evaluate(
                 tool="test",
                 parameters={"data": "sk-abcdefghijklmnopqrstuvwxyz1234"},
@@ -424,7 +424,7 @@ class TestAsyncClientRedactorIntegration:
         )
 
         r = ParameterRedactor(mode="all")
-        async with AsyncSentinelClient(redactor=r) as client:
+        async with AsyncVellavetoClient(redactor=r) as client:
             await client.evaluate(
                 tool="test",
                 parameters={"path": "/tmp/x", "query": "SELECT 1"},

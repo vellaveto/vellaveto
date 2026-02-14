@@ -1,46 +1,46 @@
-"""Tests for sentinel.client module."""
+"""Tests for vellaveto.client module."""
 
 import json
 
 import pytest
 import httpx
 
-from sentinel.client import (
+from vellaveto.client import (
     ApprovalRequired,
-    AsyncSentinelClient,
+    AsyncVellavetoClient,
     ConnectionError,
     PolicyDenied,
-    SentinelClient,
-    SentinelError,
+    VellavetoClient,
+    VellavetoError,
 )
-from sentinel.types import EvaluationContext, Verdict
+from vellaveto.types import EvaluationContext, Verdict
 
 
-class TestSentinelClientInit:
-    """Tests for SentinelClient initialization."""
+class TestVellavetoClientInit:
+    """Tests for VellavetoClient initialization."""
 
     def test_default_url(self):
-        client = SentinelClient()
+        client = VellavetoClient()
         assert client.url == "http://localhost:3000"
         client.close()
 
     def test_custom_url_trailing_slash(self):
-        client = SentinelClient(url="http://example.com:9090/")
+        client = VellavetoClient(url="http://example.com:9090/")
         assert client.url == "http://example.com:9090"
         client.close()
 
     def test_api_key(self):
-        client = SentinelClient(api_key="test-key-123")
+        client = VellavetoClient(api_key="test-key-123")
         assert client.api_key == "test-key-123"
         client.close()
 
     def test_custom_timeout(self):
-        client = SentinelClient(timeout=5.0)
+        client = VellavetoClient(timeout=5.0)
         assert client.timeout == 5.0
         client.close()
 
     def test_headers_without_api_key(self):
-        client = SentinelClient()
+        client = VellavetoClient()
         headers = client._headers()
         assert "Authorization" not in headers
         assert headers["Content-Type"] == "application/json"
@@ -48,14 +48,14 @@ class TestSentinelClientInit:
         client.close()
 
     def test_headers_with_api_key(self):
-        client = SentinelClient(api_key="my-key")
+        client = VellavetoClient(api_key="my-key")
         headers = client._headers()
         assert headers["Authorization"] == "Bearer my-key"
         client.close()
 
 
-class TestSentinelClientEvaluate:
-    """Tests for SentinelClient.evaluate() with mocked HTTP."""
+class TestVellavetoClientEvaluate:
+    """Tests for VellavetoClient.evaluate() with mocked HTTP."""
 
     def test_evaluate_allow(self, httpx_mock):
         httpx_mock.add_response(
@@ -63,7 +63,7 @@ class TestSentinelClientEvaluate:
             json={"verdict": "allow", "policy_id": "p1", "policy_name": "test-policy"},
         )
 
-        client = SentinelClient()
+        client = VellavetoClient()
         result = client.evaluate(tool="filesystem", function="read_file")
         assert result.verdict == Verdict.ALLOW
         assert result.policy_id == "p1"
@@ -75,7 +75,7 @@ class TestSentinelClientEvaluate:
             json={"verdict": "deny", "reason": "Path blocked by policy"},
         )
 
-        client = SentinelClient()
+        client = VellavetoClient()
         result = client.evaluate(
             tool="filesystem",
             function="write_file",
@@ -96,7 +96,7 @@ class TestSentinelClientEvaluate:
             },
         )
 
-        client = SentinelClient()
+        client = VellavetoClient()
         result = client.evaluate(tool="database", function="drop_table")
         assert result.verdict == Verdict.REQUIRE_APPROVAL
         assert result.approval_id == "apr-456"
@@ -108,7 +108,7 @@ class TestSentinelClientEvaluate:
             json={"verdict": "allow"},
         )
 
-        client = SentinelClient()
+        client = VellavetoClient()
         ctx = EvaluationContext(
             session_id="sess-1",
             agent_id="agent-1",
@@ -133,7 +133,7 @@ class TestSentinelClientEvaluate:
             },
         )
 
-        client = SentinelClient()
+        client = VellavetoClient()
         result = client.evaluate(tool="test", trace=True)
         assert result.trace is not None
 
@@ -147,7 +147,7 @@ class TestSentinelClientEvaluate:
             json={"verdict": "allow"},
         )
 
-        client = SentinelClient()
+        client = VellavetoClient()
         client.evaluate(
             tool="filesystem",
             function="read_file",
@@ -166,8 +166,8 @@ class TestSentinelClientEvaluate:
         client.close()
 
 
-class TestSentinelClientEvaluateOrRaise:
-    """Tests for SentinelClient.evaluate_or_raise()."""
+class TestVellavetoClientEvaluateOrRaise:
+    """Tests for VellavetoClient.evaluate_or_raise()."""
 
     def test_evaluate_or_raise_allow(self, httpx_mock):
         httpx_mock.add_response(
@@ -175,7 +175,7 @@ class TestSentinelClientEvaluateOrRaise:
             json={"verdict": "allow"},
         )
 
-        client = SentinelClient()
+        client = VellavetoClient()
         result = client.evaluate_or_raise(tool="filesystem", function="read_file")
         assert result.verdict == Verdict.ALLOW
         client.close()
@@ -186,7 +186,7 @@ class TestSentinelClientEvaluateOrRaise:
             json={"verdict": "deny", "reason": "Blocked", "policy_id": "p1"},
         )
 
-        client = SentinelClient()
+        client = VellavetoClient()
         with pytest.raises(PolicyDenied) as exc_info:
             client.evaluate_or_raise(tool="filesystem", function="write_file")
 
@@ -205,7 +205,7 @@ class TestSentinelClientEvaluateOrRaise:
             },
         )
 
-        client = SentinelClient()
+        client = VellavetoClient()
         with pytest.raises(ApprovalRequired) as exc_info:
             client.evaluate_or_raise(tool="database", function="delete")
 
@@ -215,8 +215,8 @@ class TestSentinelClientEvaluateOrRaise:
         client.close()
 
 
-class TestSentinelClientEndpoints:
-    """Tests for other SentinelClient API methods."""
+class TestVellavetoClientEndpoints:
+    """Tests for other VellavetoClient API methods."""
 
     def test_health(self, httpx_mock):
         httpx_mock.add_response(
@@ -224,7 +224,7 @@ class TestSentinelClientEndpoints:
             json={"status": "ok", "version": "2.2.1"},
         )
 
-        client = SentinelClient()
+        client = VellavetoClient()
         result = client.health()
         assert result["status"] == "ok"
         client.close()
@@ -235,7 +235,7 @@ class TestSentinelClientEndpoints:
             json=[{"id": "p1", "name": "test"}],
         )
 
-        client = SentinelClient()
+        client = VellavetoClient()
         result = client.list_policies()
         assert len(result) == 1
         assert result[0]["id"] == "p1"
@@ -247,7 +247,7 @@ class TestSentinelClientEndpoints:
             json={"reloaded": True, "policy_count": 5},
         )
 
-        client = SentinelClient()
+        client = VellavetoClient()
         result = client.reload_policies()
         assert result["reloaded"] is True
         client.close()
@@ -258,7 +258,7 @@ class TestSentinelClientEndpoints:
             json=[{"id": "apr-1", "tool": "database", "status": "pending"}],
         )
 
-        client = SentinelClient()
+        client = VellavetoClient()
         result = client.get_pending_approvals()
         assert len(result) == 1
         assert result[0]["id"] == "apr-1"
@@ -270,7 +270,7 @@ class TestSentinelClientEndpoints:
             json={"resolved": True},
         )
 
-        client = SentinelClient()
+        client = VellavetoClient()
         result = client.resolve_approval("apr-1", approved=True, reason="Verified")
         assert result["resolved"] is True
 
@@ -281,17 +281,17 @@ class TestSentinelClientEndpoints:
         client.close()
 
 
-class TestSentinelClientErrors:
-    """Tests for error handling in SentinelClient."""
+class TestVellavetoClientErrors:
+    """Tests for error handling in VellavetoClient."""
 
-    def test_http_error_raises_sentinel_error(self, httpx_mock):
+    def test_http_error_raises_vellaveto_error(self, httpx_mock):
         httpx_mock.add_response(
             url="http://localhost:3000/api/evaluate",
             status_code=500,
         )
 
-        client = SentinelClient()
-        with pytest.raises(SentinelError):
+        client = VellavetoClient()
+        with pytest.raises(VellavetoError):
             client.evaluate(tool="test")
         client.close()
 
@@ -301,8 +301,8 @@ class TestSentinelClientErrors:
             url="http://localhost:3000/api/evaluate",
         )
 
-        client = SentinelClient()
-        with pytest.raises(SentinelError):
+        client = VellavetoClient()
+        with pytest.raises(VellavetoError):
             client.evaluate(tool="test")
         client.close()
 
@@ -310,18 +310,18 @@ class TestSentinelClientErrors:
 class TestExceptionHierarchy:
     """Tests for exception class hierarchy."""
 
-    def test_policy_denied_is_sentinel_error(self):
+    def test_policy_denied_is_vellaveto_error(self):
         err = PolicyDenied("test reason", "p1")
-        assert isinstance(err, SentinelError)
+        assert isinstance(err, VellavetoError)
         assert isinstance(err, Exception)
 
-    def test_approval_required_is_sentinel_error(self):
+    def test_approval_required_is_vellaveto_error(self):
         err = ApprovalRequired("test reason", "apr-1")
-        assert isinstance(err, SentinelError)
+        assert isinstance(err, VellavetoError)
 
-    def test_connection_error_is_sentinel_error(self):
+    def test_connection_error_is_vellaveto_error(self):
         err = ConnectionError("failed")
-        assert isinstance(err, SentinelError)
+        assert isinstance(err, VellavetoError)
 
     def test_policy_denied_attributes(self):
         err = PolicyDenied("blocked by rule", "policy-123")
@@ -334,8 +334,8 @@ class TestExceptionHierarchy:
         assert err.approval_id == "apr-456"
 
 
-class TestAsyncSentinelClient:
-    """Tests for AsyncSentinelClient."""
+class TestAsyncVellavetoClient:
+    """Tests for AsyncVellavetoClient."""
 
     @pytest.mark.asyncio
     async def test_async_evaluate_allow(self, httpx_mock):
@@ -344,7 +344,7 @@ class TestAsyncSentinelClient:
             json={"verdict": "allow", "policy_id": "p1"},
         )
 
-        async with AsyncSentinelClient() as client:
+        async with AsyncVellavetoClient() as client:
             result = await client.evaluate(tool="filesystem", function="read_file")
             assert result.verdict == Verdict.ALLOW
 
@@ -355,7 +355,7 @@ class TestAsyncSentinelClient:
             json={"verdict": "deny", "reason": "Blocked"},
         )
 
-        async with AsyncSentinelClient() as client:
+        async with AsyncVellavetoClient() as client:
             result = await client.evaluate(tool="test")
             assert result.verdict == Verdict.DENY
             assert result.reason == "Blocked"
@@ -367,7 +367,7 @@ class TestAsyncSentinelClient:
             json={"verdict": "deny", "reason": "No"},
         )
 
-        async with AsyncSentinelClient() as client:
+        async with AsyncVellavetoClient() as client:
             with pytest.raises(PolicyDenied):
                 await client.evaluate_or_raise(tool="test")
 
@@ -382,7 +382,7 @@ class TestAsyncSentinelClient:
             },
         )
 
-        async with AsyncSentinelClient() as client:
+        async with AsyncVellavetoClient() as client:
             with pytest.raises(ApprovalRequired):
                 await client.evaluate_or_raise(tool="test")
 
@@ -393,7 +393,7 @@ class TestAsyncSentinelClient:
             json={"status": "ok"},
         )
 
-        async with AsyncSentinelClient() as client:
+        async with AsyncVellavetoClient() as client:
             result = await client.health()
             assert result["status"] == "ok"
 
@@ -404,20 +404,20 @@ class TestAsyncSentinelClient:
             json=[{"id": "p1"}],
         )
 
-        async with AsyncSentinelClient() as client:
+        async with AsyncVellavetoClient() as client:
             result = await client.list_policies()
             assert len(result) == 1
 
     @pytest.mark.asyncio
     async def test_async_not_initialized_raises(self):
-        client = AsyncSentinelClient()
-        with pytest.raises(SentinelError, match="not initialized"):
+        client = AsyncVellavetoClient()
+        with pytest.raises(VellavetoError, match="not initialized"):
             await client.evaluate(tool="test")
 
     def test_async_requires_httpx(self, monkeypatch):
-        """AsyncSentinelClient requires httpx."""
-        import sentinel.client as client_mod
+        """AsyncVellavetoClient requires httpx."""
+        import vellaveto.client as client_mod
 
         monkeypatch.setattr(client_mod, "HAS_HTTPX", False)
         with pytest.raises(ImportError, match="httpx"):
-            AsyncSentinelClient()
+            AsyncVellavetoClient()

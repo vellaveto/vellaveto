@@ -1,4 +1,4 @@
-package sentinel
+package vellaveto
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 
 const defaultTimeout = 5 * time.Second
 
-// Client is the Sentinel API client.
+// Client is the Vellaveto API client.
 type Client struct {
 	baseURL    string
 	apiKey     string
@@ -48,7 +48,7 @@ func WithHeaders(h map[string]string) Option {
 	}
 }
 
-// NewClient creates a new Sentinel API client.
+// NewClient creates a new Vellaveto API client.
 func NewClient(baseURL string, opts ...Option) *Client {
 	c := &Client{
 		baseURL:    strings.TrimRight(baseURL, "/"),
@@ -67,14 +67,14 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}) 
 	if body != nil {
 		data, err := json.Marshal(body)
 		if err != nil {
-			return nil, 0, fmt.Errorf("sentinel: marshal request: %w", err)
+			return nil, 0, fmt.Errorf("vellaveto: marshal request: %w", err)
 		}
 		reqBody = bytes.NewReader(data)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reqBody)
 	if err != nil {
-		return nil, 0, fmt.Errorf("sentinel: create request: %w", err)
+		return nil, 0, fmt.Errorf("vellaveto: create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -87,13 +87,13 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}) 
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("sentinel: request failed: %w", err)
+		return nil, 0, fmt.Errorf("vellaveto: request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, resp.StatusCode, fmt.Errorf("sentinel: read response: %w", err)
+		return nil, resp.StatusCode, fmt.Errorf("vellaveto: read response: %w", err)
 	}
 
 	return respBody, resp.StatusCode, nil
@@ -106,20 +106,20 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body interface
 		return err
 	}
 	if status < 200 || status >= 300 {
-		return &SentinelError{
+		return &VellavetoError{
 			Message:    fmt.Sprintf("unexpected status: %s", string(respBody)),
 			StatusCode: status,
 		}
 	}
 	if dst != nil {
 		if err := json.Unmarshal(respBody, dst); err != nil {
-			return fmt.Errorf("sentinel: decode response: %w", err)
+			return fmt.Errorf("vellaveto: decode response: %w", err)
 		}
 	}
 	return nil
 }
 
-// Health checks the Sentinel server health.
+// Health checks the Vellaveto server health.
 func (c *Client) Health(ctx context.Context) (*HealthResponse, error) {
 	var resp HealthResponse
 	if err := c.doJSON(ctx, http.MethodGet, "/health", nil, &resp); err != nil {
@@ -177,7 +177,7 @@ func (c *Client) Evaluate(ctx context.Context, action Action, evalCtx *Evaluatio
 		return nil, err
 	}
 	if status < 200 || status >= 300 {
-		return nil, &SentinelError{
+		return nil, &VellavetoError{
 			Message:    fmt.Sprintf("unexpected status: %s", string(respBody)),
 			StatusCode: status,
 		}
@@ -185,7 +185,7 @@ func (c *Client) Evaluate(ctx context.Context, action Action, evalCtx *Evaluatio
 
 	var raw evaluateRaw
 	if err := json.Unmarshal(respBody, &raw); err != nil {
-		return nil, fmt.Errorf("sentinel: decode response: %w", err)
+		return nil, fmt.Errorf("vellaveto: decode response: %w", err)
 	}
 
 	verdict, objReason := parseVerdictField(raw.Verdict)

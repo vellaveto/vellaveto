@@ -1,6 +1,6 @@
-# Sentinel Benchmarks
+# Vellaveto Benchmarks
 
-Sentinel ships with Criterion benchmarks to validate performance targets and detect regressions. This document describes how to reproduce them and what results to expect.
+Vellaveto ships with Criterion benchmarks to validate performance targets and detect regressions. This document describes how to reproduce them and what results to expect.
 
 ---
 
@@ -41,13 +41,13 @@ This runs all Criterion benchmarks across the workspace. Results are saved to `t
 
 ```bash
 # Policy evaluation (the critical path)
-cargo bench -p sentinel-engine
+cargo bench -p vellaveto-engine
 
 # DLP scanning + injection detection
-cargo bench -p sentinel-mcp
+cargo bench -p vellaveto-mcp
 
 # Audit logging
-cargo bench -p sentinel-audit
+cargo bench -p vellaveto-audit
 ```
 
 ### Comparing Against Baseline
@@ -68,7 +68,7 @@ HTML reports are generated at `target/criterion/report/index.html`.
 
 ## Benchmark Harnesses
 
-### `sentinel-engine/benches/evaluation.rs`
+### `vellaveto-engine/benches/evaluation.rs`
 
 Tests the core policy evaluation hot path:
 
@@ -82,7 +82,7 @@ Tests the core policy evaluation hot path:
 | `evaluate_network_rules` | Domain allowlist/blocklist evaluation |
 | `evaluate_with_context` | Full evaluation context (agent ID, call chain, etc.) |
 
-### `sentinel-mcp/benches/inspection.rs`
+### `vellaveto-mcp/benches/inspection.rs`
 
 Tests DLP scanning and injection detection:
 
@@ -94,7 +94,7 @@ Tests DLP scanning and injection detection:
 | `injection_scan_clean` | Clean parameters (no injection) |
 | `injection_scan_attack` | Parameters with injection patterns |
 
-### `sentinel-mcp/benches/semantic.rs`
+### `vellaveto-mcp/benches/semantic.rs`
 
 Tests semantic similarity detection:
 
@@ -103,7 +103,7 @@ Tests semantic similarity detection:
 | `semantic_similarity_clean` | Non-suspicious tool descriptions |
 | `semantic_similarity_attack` | Descriptions mimicking known tools |
 
-### `sentinel-mcp/benches/rug_pull.rs`
+### `vellaveto-mcp/benches/rug_pull.rs`
 
 Tests tool squatting detection:
 
@@ -112,7 +112,7 @@ Tests tool squatting detection:
 | `levenshtein_check` | Levenshtein distance computation |
 | `homoglyph_detection` | Unicode homoglyph normalization |
 
-### `sentinel-audit/benches/audit.rs`
+### `vellaveto-audit/benches/audit.rs`
 
 Tests audit log performance:
 
@@ -121,7 +121,7 @@ Tests audit log performance:
 | `log_entry` | Single audit entry write (JSON serialize + hash chain) |
 | `log_entry_with_redaction` | Entry write with PII/secret redaction |
 
-### `sentinel-http-proxy/benches/http_proxy.rs`
+### `vellaveto-http-proxy/benches/http_proxy.rs`
 
 Tests the HTTP reverse proxy hot path (35 benchmarks across 5 groups):
 

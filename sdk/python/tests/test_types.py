@@ -1,7 +1,7 @@
-"""Tests for sentinel.types module."""
+"""Tests for vellaveto.types module."""
 
 import pytest
-from sentinel.types import (
+from vellaveto.types import (
     Action,
     DlpFinding,
     EvaluationContext,

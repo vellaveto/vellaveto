@@ -1,6 +1,6 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use sentinel_mcp::schema_poisoning::{ObservationResult, SchemaLineageTracker};
+use vellaveto_mcp::schema_poisoning::{ObservationResult, SchemaLineageTracker};
 use serde_json::Value;
 
 // Fuzz the SchemaLineageTracker operations.

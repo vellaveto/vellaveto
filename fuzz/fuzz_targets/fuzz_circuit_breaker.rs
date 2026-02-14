@@ -1,7 +1,7 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use sentinel_engine::circuit_breaker::CircuitBreakerManager;
-use sentinel_types::CircuitState;
+use vellaveto_engine::circuit_breaker::CircuitBreakerManager;
+use vellaveto_types::CircuitState;
 
 // Fuzz the CircuitBreakerManager operations.
 // Tests that recording successes/failures and state transitions

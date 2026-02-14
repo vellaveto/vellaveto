@@ -1,6 +1,6 @@
-# Sentinel Deployment Guide
+# Vellaveto Deployment Guide
 
-This guide covers deploying Sentinel in production environments using Docker, Kubernetes (Helm), or bare metal installations.
+This guide covers deploying Vellaveto in production environments using Docker, Kubernetes (Helm), or bare metal installations.
 
 ## Table of Contents
 
@@ -35,7 +35,7 @@ This guide covers deploying Sentinel in production environments using Docker, Ku
 | Recommended | 2 cores | 128 MB | 1 GB |
 | High-traffic | 4+ cores | 256 MB | 10 GB |
 
-Sentinel is designed for low resource usage: <5ms P99 evaluation latency and <50MB memory baseline.
+Vellaveto is designed for low resource usage: <5ms P99 evaluation latency and <50MB memory baseline.
 
 ### Software Requirements
 
@@ -47,11 +47,11 @@ Sentinel is designed for low resource usage: <5ms P99 evaluation latency and <50
 
 ## Quick Start
 
-The fastest way to get Sentinel running:
+The fastest way to get Vellaveto running:
 
 ```bash
 # Using Docker
-docker run -p 3000:3000 ghcr.io/paolovella/sentinel:latest
+docker run -p 3000:3000 ghcr.io/paolovella/vellaveto:latest
 
 # Test the health endpoint
 curl http://localhost:3000/health
@@ -67,39 +67,39 @@ curl http://localhost:3000/health
 
 ```bash
 # Pull the latest image
-docker pull ghcr.io/paolovella/sentinel:latest
+docker pull ghcr.io/paolovella/vellaveto:latest
 
 # Run with default configuration
 docker run -d \
-  --name sentinel \
+  --name vellaveto \
   -p 3000:3000 \
-  ghcr.io/paolovella/sentinel:latest
+  ghcr.io/paolovella/vellaveto:latest
 
 # Run with custom configuration
 docker run -d \
-  --name sentinel \
+  --name vellaveto \
   -p 3000:3000 \
-  -v /path/to/config.toml:/etc/sentinel/config.toml:ro \
-  -v /path/to/policies:/etc/sentinel/policies:ro \
-  -v sentinel-data:/var/lib/sentinel \
-  ghcr.io/paolovella/sentinel:latest
+  -v /path/to/config.toml:/etc/vellaveto/config.toml:ro \
+  -v /path/to/policies:/etc/vellaveto/policies:ro \
+  -v vellaveto-data:/var/lib/vellaveto \
+  ghcr.io/paolovella/vellaveto:latest
 ```
 
 #### Build from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/paolovella/sentinel.git
-cd sentinel
+git clone https://github.com/paolovella/vellaveto.git
+cd vellaveto
 
 # Build the Docker image
-docker build -t sentinel:local .
+docker build -t vellaveto:local .
 
 # Run your local build
 docker run -d \
-  --name sentinel \
+  --name vellaveto \
   -p 3000:3000 \
-  sentinel:local
+  vellaveto:local
 ```
 
 ### Docker Compose
@@ -110,19 +110,19 @@ Create a `docker-compose.yml`:
 version: "3.8"
 
 services:
-  sentinel:
-    image: ghcr.io/paolovella/sentinel:latest
-    container_name: sentinel
+  vellaveto:
+    image: ghcr.io/paolovella/vellaveto:latest
+    container_name: vellaveto
     ports:
       - "3000:3000"
     volumes:
-      - ./config.toml:/etc/sentinel/config.toml:ro
-      - ./policies:/etc/sentinel/policies:ro
-      - sentinel-data:/var/lib/sentinel
-      - sentinel-logs:/var/log/sentinel
+      - ./config.toml:/etc/vellaveto/config.toml:ro
+      - ./policies:/etc/vellaveto/policies:ro
+      - vellaveto-data:/var/lib/vellaveto
+      - vellaveto-logs:/var/log/vellaveto
     environment:
       - RUST_LOG=info
-      - SENTINEL_STRICT_MODE=true
+      - VELLAVETO_STRICT_MODE=true
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/health"]
       interval: 30s
@@ -137,8 +137,8 @@ services:
       - /tmp
 
 volumes:
-  sentinel-data:
-  sentinel-logs:
+  vellaveto-data:
+  vellaveto-logs:
 ```
 
 With Redis for clustering:
@@ -147,16 +147,16 @@ With Redis for clustering:
 version: "3.8"
 
 services:
-  sentinel:
-    image: ghcr.io/paolovella/sentinel:latest
+  vellaveto:
+    image: ghcr.io/paolovella/vellaveto:latest
     ports:
       - "3000:3000"
     volumes:
-      - ./config.toml:/etc/sentinel/config.toml:ro
+      - ./config.toml:/etc/vellaveto/config.toml:ro
     environment:
       - RUST_LOG=info
-      - SENTINEL_CLUSTER_ENABLED=true
-      - SENTINEL_REDIS_URL=redis://redis:6379
+      - VELLAVETO_CLUSTER_ENABLED=true
+      - VELLAVETO_REDIS_URL=redis://redis:6379
     depends_on:
       - redis
     restart: unless-stopped
@@ -180,17 +180,17 @@ volumes:
 
 ```bash
 # Add the Helm repository (if published)
-# helm repo add sentinel https://charts.sentinel.dev
+# helm repo add vellaveto https://charts.vellaveto.dev
 # helm repo update
 
 # Or install from local chart
-helm install sentinel ./helm/sentinel \
-  --namespace sentinel \
+helm install vellaveto ./helm/vellaveto \
+  --namespace vellaveto \
   --create-namespace
 
 # Check deployment status
-kubectl -n sentinel get pods
-kubectl -n sentinel get svc
+kubectl -n vellaveto get pods
+kubectl -n vellaveto get svc
 ```
 
 ### Custom Values
@@ -198,12 +198,12 @@ kubectl -n sentinel get svc
 Create a `values-production.yaml`:
 
 ```yaml
-# Production values for Sentinel
+# Production values for Vellaveto
 
 replicaCount: 3
 
 image:
-  repository: ghcr.io/paolovella/sentinel
+  repository: ghcr.io/paolovella/vellaveto
   tag: "1.0.0"
   pullPolicy: IfNotPresent
 
@@ -232,17 +232,17 @@ ingress:
     nginx.ingress.kubernetes.io/rate-limit: "100"
     nginx.ingress.kubernetes.io/rate-limit-window: "1s"
   hosts:
-    - host: sentinel.example.com
+    - host: vellaveto.example.com
       paths:
         - path: /
           pathType: Prefix
   tls:
-    - secretName: sentinel-tls
+    - secretName: vellaveto-tls
       hosts:
-        - sentinel.example.com
+        - vellaveto.example.com
 
-# Sentinel configuration
-sentinel:
+# Vellaveto configuration
+vellaveto:
   logLevel: info
   strictMode: true
 
@@ -279,15 +279,15 @@ affinity:
         podAffinityTerm:
           labelSelector:
             matchLabels:
-              app.kubernetes.io/name: sentinel
+              app.kubernetes.io/name: vellaveto
           topologyKey: kubernetes.io/hostname
 ```
 
 Deploy with custom values:
 
 ```bash
-helm upgrade --install sentinel ./helm/sentinel \
-  --namespace sentinel \
+helm upgrade --install vellaveto ./helm/vellaveto \
+  --namespace vellaveto \
   --create-namespace \
   -f values-production.yaml
 ```
@@ -301,7 +301,7 @@ For HA deployments, enable clustering with Redis:
 
 replicaCount: 3
 
-sentinel:
+vellaveto:
   cluster:
     enabled: true
     backend: redis
@@ -317,7 +317,7 @@ Deploy Redis first (example using Bitnami):
 ```bash
 helm repo add bitnami https://charts.bitnami.com/bitnami
 helm install redis bitnami/redis \
-  --namespace sentinel \
+  --namespace vellaveto \
   --set auth.enabled=false \
   --set architecture=standalone
 ```
@@ -334,58 +334,58 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 
 # Clone and build
-git clone https://github.com/paolovella/sentinel.git
-cd sentinel
+git clone https://github.com/paolovella/vellaveto.git
+cd vellaveto
 
 # Build release binaries
 cargo build --release
 
 # Binaries are in target/release/
-ls -la target/release/sentinel
-ls -la target/release/sentinel-http-proxy
+ls -la target/release/vellaveto
+ls -la target/release/vellaveto-http-proxy
 
 # Install to system
-sudo cp target/release/sentinel /usr/local/bin/
-sudo cp target/release/sentinel-http-proxy /usr/local/bin/
+sudo cp target/release/vellaveto /usr/local/bin/
+sudo cp target/release/vellaveto-http-proxy /usr/local/bin/
 
 # Verify installation
-sentinel --version
+vellaveto --version
 ```
 
 ### Directory Structure
 
 ```bash
 # Create directories
-sudo mkdir -p /etc/sentinel
-sudo mkdir -p /var/lib/sentinel
-sudo mkdir -p /var/log/sentinel
+sudo mkdir -p /etc/vellaveto
+sudo mkdir -p /var/lib/vellaveto
+sudo mkdir -p /var/log/vellaveto
 
-# Create sentinel user
-sudo useradd -r -s /sbin/nologin sentinel
-sudo chown -R sentinel:sentinel /var/lib/sentinel /var/log/sentinel
+# Create vellaveto user
+sudo useradd -r -s /sbin/nologin vellaveto
+sudo chown -R vellaveto:vellaveto /var/lib/vellaveto /var/log/vellaveto
 
 # Copy configuration
-sudo cp examples/production.toml /etc/sentinel/config.toml
-sudo chmod 640 /etc/sentinel/config.toml
+sudo cp examples/production.toml /etc/vellaveto/config.toml
+sudo chmod 640 /etc/vellaveto/config.toml
 ```
 
 ### Systemd Service
 
-Create `/etc/systemd/system/sentinel.service`:
+Create `/etc/systemd/system/vellaveto.service`:
 
 ```ini
 [Unit]
-Description=Sentinel MCP Tool Firewall
-Documentation=https://github.com/paolovella/sentinel
+Description=Vellaveto MCP Tool Firewall
+Documentation=https://github.com/paolovella/vellaveto
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=sentinel
-Group=sentinel
-ExecStart=/usr/local/bin/sentinel serve \
-    --config /etc/sentinel/config.toml \
+User=vellaveto
+Group=vellaveto
+ExecStart=/usr/local/bin/vellaveto serve \
+    --config /etc/vellaveto/config.toml \
     --bind 0.0.0.0:3000
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
@@ -395,7 +395,7 @@ RestartSec=5
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/sentinel /var/log/sentinel
+ReadWritePaths=/var/lib/vellaveto /var/log/vellaveto
 PrivateTmp=true
 PrivateDevices=true
 ProtectKernelTunables=true
@@ -413,7 +413,7 @@ CPUQuota=200%
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=sentinel
+SyslogIdentifier=vellaveto
 
 [Install]
 WantedBy=multi-user.target
@@ -426,36 +426,36 @@ Enable and start:
 sudo systemctl daemon-reload
 
 # Enable on boot
-sudo systemctl enable sentinel
+sudo systemctl enable vellaveto
 
 # Start the service
-sudo systemctl start sentinel
+sudo systemctl start vellaveto
 
 # Check status
-sudo systemctl status sentinel
+sudo systemctl status vellaveto
 
 # View logs
-sudo journalctl -u sentinel -f
+sudo journalctl -u vellaveto -f
 ```
 
 ### HTTP Proxy Mode (Systemd)
 
-Create `/etc/systemd/system/sentinel-http-proxy.service`:
+Create `/etc/systemd/system/vellaveto-http-proxy.service`:
 
 ```ini
 [Unit]
-Description=Sentinel HTTP Proxy
-Documentation=https://github.com/paolovella/sentinel
-After=network-online.target sentinel.service
+Description=Vellaveto HTTP Proxy
+Documentation=https://github.com/paolovella/vellaveto
+After=network-online.target vellaveto.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=sentinel
-Group=sentinel
-ExecStart=/usr/local/bin/sentinel-http-proxy \
+User=vellaveto
+Group=vellaveto
+ExecStart=/usr/local/bin/vellaveto-http-proxy \
     --listen 0.0.0.0:3000 \
-    --sentinel http://localhost:3000 \
+    --vellaveto http://localhost:3000 \
     --upstream http://localhost:9000
 Restart=on-failure
 RestartSec=5
@@ -479,12 +479,12 @@ WantedBy=multi-user.target
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `RUST_LOG` | Log level (trace, debug, info, warn, error) | `info` |
-| `SENTINEL_STRICT_MODE` | Deny unknown tools by default | `false` |
-| `SENTINEL_CONFIG` | Path to config file | `/etc/sentinel/config.toml` |
-| `SENTINEL_BIND` | Listen address | `0.0.0.0:3000` |
-| `SENTINEL_API_KEY` | API key for admin endpoints | (none) |
-| `SENTINEL_CLUSTER_ENABLED` | Enable distributed clustering | `false` |
-| `SENTINEL_REDIS_URL` | Redis URL for clustering | (none) |
+| `VELLAVETO_STRICT_MODE` | Deny unknown tools by default | `false` |
+| `VELLAVETO_CONFIG` | Path to config file | `/etc/vellaveto/config.toml` |
+| `VELLAVETO_BIND` | Listen address | `0.0.0.0:3000` |
+| `VELLAVETO_API_KEY` | API key for admin endpoints | (none) |
+| `VELLAVETO_CLUSTER_ENABLED` | Enable distributed clustering | `false` |
+| `VELLAVETO_REDIS_URL` | Redis URL for clustering | (none) |
 
 ### Policy Configuration
 
@@ -508,7 +508,7 @@ parameter_constraints = [
 
 # Or load from directory
 [policies]
-directory = "/etc/sentinel/policies.d"
+directory = "/etc/vellaveto/policies.d"
 watch = true  # Hot reload on changes
 ```
 
@@ -528,21 +528,21 @@ watch = true  # Hot reload on changes
 
 ```bash
 #!/bin/bash
-# /usr/local/bin/sentinel-healthcheck.sh
+# /usr/local/bin/vellaveto-healthcheck.sh
 
 set -e
 
-SENTINEL_URL="${SENTINEL_URL:-http://localhost:3000}"
+VELLAVETO_URL="${VELLAVETO_URL:-http://localhost:3000}"
 
 # Check health endpoint
-response=$(curl -s -o /dev/null -w "%{http_code}" "${SENTINEL_URL}/health")
+response=$(curl -s -o /dev/null -w "%{http_code}" "${VELLAVETO_URL}/health")
 
 if [ "$response" != "200" ]; then
     echo "Health check failed: HTTP $response"
     exit 1
 fi
 
-echo "Sentinel is healthy"
+echo "Vellaveto is healthy"
 exit 0
 ```
 
@@ -550,32 +550,32 @@ exit 0
 
 ## TLS/HTTPS
 
-Sentinel itself serves plain HTTP. For TLS termination, use a reverse proxy:
+Vellaveto itself serves plain HTTP. For TLS termination, use a reverse proxy:
 
-For staged post-quantum TLS policy rollout when Sentinel terminates TLS directly, see `./quantum-migration.md`.
+For staged post-quantum TLS policy rollout when Vellaveto terminates TLS directly, see `./quantum-migration.md`.
 
 ### With Nginx
 
 ```nginx
-# /etc/nginx/conf.d/sentinel.conf
+# /etc/nginx/conf.d/vellaveto.conf
 
-upstream sentinel {
+upstream vellaveto {
     server 127.0.0.1:3000;
     keepalive 32;
 }
 
 server {
     listen 443 ssl http2;
-    server_name sentinel.example.com;
+    server_name vellaveto.example.com;
 
-    ssl_certificate /etc/ssl/certs/sentinel.crt;
-    ssl_certificate_key /etc/ssl/private/sentinel.key;
+    ssl_certificate /etc/ssl/certs/vellaveto.crt;
+    ssl_certificate_key /etc/ssl/private/vellaveto.key;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;
     ssl_prefer_server_ciphers off;
 
     location / {
-        proxy_pass http://sentinel;
+        proxy_pass http://vellaveto;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -592,7 +592,7 @@ server {
 ```caddyfile
 # Caddyfile
 
-sentinel.example.com {
+vellaveto.example.com {
     reverse_proxy localhost:3000 {
         health_uri /health
         health_interval 30s
@@ -607,7 +607,7 @@ sentinel.example.com {
 Before going to production, verify:
 
 ### Security
-- [ ] API key configured for admin endpoints (`SENTINEL_API_KEY`)
+- [ ] API key configured for admin endpoints (`VELLAVETO_API_KEY`)
 - [ ] Running as non-root user
 - [ ] TLS termination configured
 - [ ] Audit logging enabled with appropriate redaction
@@ -642,31 +642,31 @@ Before going to production, verify:
 #!/bin/bash
 # pre-flight-check.sh
 
-echo "=== Sentinel Pre-flight Check ==="
+echo "=== Vellaveto Pre-flight Check ==="
 
 # Check binary
-if ! command -v sentinel &> /dev/null; then
-    echo "[FAIL] sentinel binary not found"
+if ! command -v vellaveto &> /dev/null; then
+    echo "[FAIL] vellaveto binary not found"
     exit 1
 fi
-echo "[OK] sentinel binary installed"
+echo "[OK] vellaveto binary installed"
 
 # Check config
-if [ ! -f /etc/sentinel/config.toml ]; then
+if [ ! -f /etc/vellaveto/config.toml ]; then
     echo "[FAIL] Config file not found"
     exit 1
 fi
 echo "[OK] Config file exists"
 
 # Validate config
-if ! sentinel validate --config /etc/sentinel/config.toml; then
+if ! vellaveto validate --config /etc/vellaveto/config.toml; then
     echo "[FAIL] Config validation failed"
     exit 1
 fi
 echo "[OK] Config is valid"
 
 # Check directories
-for dir in /var/lib/sentinel /var/log/sentinel; do
+for dir in /var/lib/vellaveto /var/log/vellaveto; do
     if [ ! -d "$dir" ]; then
         echo "[FAIL] Directory $dir not found"
         exit 1
@@ -679,8 +679,8 @@ done
 echo "[OK] Data directories exist and are writable"
 
 # Check API key
-if [ -z "$SENTINEL_API_KEY" ]; then
-    echo "[WARN] SENTINEL_API_KEY not set - admin endpoints unprotected"
+if [ -z "$VELLAVETO_API_KEY" ]; then
+    echo "[WARN] VELLAVETO_API_KEY not set - admin endpoints unprotected"
 else
     echo "[OK] API key configured"
 fi

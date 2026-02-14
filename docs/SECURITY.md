@@ -1,6 +1,6 @@
-# Sentinel Security Hardening Guide
+# Vellaveto Security Hardening Guide
 
-This guide covers security best practices and hardening configurations for production Sentinel deployments.
+This guide covers security best practices and hardening configurations for production Vellaveto deployments.
 
 ## Table of Contents
 
@@ -40,11 +40,11 @@ This guide covers security best practices and hardening configurations for produ
 
 ## Security Principles
 
-Sentinel follows these security principles:
+Vellaveto follows these security principles:
 
 1. **Fail-Closed**: Errors, missing policies, and unresolved context produce `Deny`, never `Allow`.
 2. **Defense in Depth**: Multiple layers of security controls.
-3. **Least Privilege**: Minimal permissions for the Sentinel process.
+3. **Least Privilege**: Minimal permissions for the Vellaveto process.
 4. **Observability**: All decisions logged, all failures diagnosed.
 5. **Zero Trust**: Validate every request, authenticate every caller.
 
@@ -58,18 +58,18 @@ For simple deployments, use API key authentication for admin endpoints.
 
 ```bash
 # Generate a secure API key
-export SENTINEL_API_KEY=$(openssl rand -hex 32)
+export VELLAVETO_API_KEY=$(openssl rand -hex 32)
 
 # Store securely
-echo "SENTINEL_API_KEY=$SENTINEL_API_KEY" >> /etc/sentinel/env
-chmod 600 /etc/sentinel/env
+echo "VELLAVETO_API_KEY=$VELLAVETO_API_KEY" >> /etc/vellaveto/env
+chmod 600 /etc/vellaveto/env
 ```
 
 Configure in systemd:
 
 ```ini
 [Service]
-EnvironmentFile=/etc/sentinel/env
+EnvironmentFile=/etc/vellaveto/env
 ```
 
 Test authentication:
@@ -80,7 +80,7 @@ curl localhost:3000/api/policies
 # Response: 401 Unauthorized
 
 # With key - should succeed
-curl -H "Authorization: Bearer $SENTINEL_API_KEY" localhost:3000/api/policies
+curl -H "Authorization: Bearer $VELLAVETO_API_KEY" localhost:3000/api/policies
 ```
 
 ### OAuth 2.1 / JWT
@@ -96,14 +96,14 @@ provider = "oauth2"
 
 [auth.oauth2]
 issuer = "https://auth.example.com"
-audience = "sentinel-api"
+audience = "vellaveto-api"
 jwks_url = "https://auth.example.com/.well-known/jwks.json"
 
 # Required scopes for different operations
 [auth.oauth2.scopes]
-evaluate = ["sentinel:evaluate"]
-admin = ["sentinel:admin"]
-read = ["sentinel:read"]
+evaluate = ["vellaveto:evaluate"]
+admin = ["vellaveto:admin"]
+read = ["vellaveto:read"]
 ```
 
 JWT token requirements:
@@ -137,7 +137,7 @@ permissions = ["evaluate", "read_audit", "manage_approvals", "manage_policies", 
 # Map JWT claims to roles
 [rbac.claim_mapping]
 claim = "roles"  # JWT claim containing roles
-mapping = { "sentinel-evaluator" = "evaluator", "sentinel-operator" = "operator", "sentinel-admin" = "admin" }
+mapping = { "vellaveto-evaluator" = "evaluator", "vellaveto-operator" = "operator", "vellaveto-admin" = "admin" }
 ```
 
 ---
@@ -146,11 +146,11 @@ mapping = { "sentinel-evaluator" = "evaluator", "sentinel-operator" = "operator"
 
 ### TLS Configuration
 
-Always terminate TLS in front of Sentinel. Use a reverse proxy with strong TLS settings.
+Always terminate TLS in front of Vellaveto. Use a reverse proxy with strong TLS settings.
 
-#### Sentinel TLS policy controls
+#### Vellaveto TLS policy controls
 
-When Sentinel terminates TLS directly, configure TLS 1.3 and an explicit key exchange policy:
+When Vellaveto terminates TLS directly, configure TLS 1.3 and an explicit key exchange policy:
 
 ```toml
 [tls]
@@ -169,11 +169,11 @@ For staged rollout and rollback guidance, see `./quantum-migration.md`.
 #### Nginx Configuration
 
 ```nginx
-# /etc/nginx/conf.d/sentinel.conf
+# /etc/nginx/conf.d/vellaveto.conf
 
 server {
     listen 443 ssl http2;
-    server_name sentinel.example.com;
+    server_name vellaveto.example.com;
 
     # TLS 1.2 and 1.3 only
     ssl_protocols TLSv1.2 TLSv1.3;
@@ -201,20 +201,20 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
 
         # Rate limiting
-        limit_req zone=sentinel burst=50 nodelay;
+        limit_req zone=vellaveto burst=50 nodelay;
     }
 }
 
 # Rate limit zone
-limit_req_zone $binary_remote_addr zone=sentinel:10m rate=100r/s;
+limit_req_zone $binary_remote_addr zone=vellaveto:10m rate=100r/s;
 ```
 
 ### Firewall Rules
 
-Restrict network access to Sentinel:
+Restrict network access to Vellaveto:
 
 ```bash
-# Allow only internal network to access Sentinel
+# Allow only internal network to access Vellaveto
 sudo ufw allow from 10.0.0.0/8 to any port 3000
 
 # Allow only specific IPs for admin endpoints
@@ -230,11 +230,11 @@ For Kubernetes:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: sentinel-network-policy
+  name: vellaveto-network-policy
 spec:
   podSelector:
     matchLabels:
-      app: sentinel
+      app: vellaveto
   policyTypes:
     - Ingress
   ingress:
@@ -291,10 +291,10 @@ Enable strict mode to deny unknown tools by default:
 
 ```bash
 # Environment variable
-export SENTINEL_STRICT_MODE=true
+export VELLAVETO_STRICT_MODE=true
 
 # Or in config.toml
-[sentinel]
+[vellaveto]
 strict_mode = true
 ```
 
@@ -520,13 +520,13 @@ enforcement = "Block"  # "Warn" or "Block"
 require_signature = false
 
 # Path to store manifest
-manifest_path = "/etc/sentinel/manifest.json"
+manifest_path = "/etc/vellaveto/manifest.json"
 
 # For signed manifests (optional)
 # trusted_keys = ["hex-encoded-ed25519-public-key"]
 ```
 
-On first run, Sentinel captures tool schemas. On subsequent runs, any schema changes trigger alerts or blocks.
+On first run, Vellaveto captures tool schemas. On subsequent runs, any schema changes trigger alerts or blocks.
 
 ### Behavioral Anomaly Detection
 
@@ -570,7 +570,7 @@ Configure comprehensive audit logging:
 
 [audit]
 enabled = true
-path = "/var/lib/sentinel/audit.log"
+path = "/var/lib/vellaveto/audit.log"
 
 # Log every decision, not just denials
 log_allows = true
@@ -629,10 +629,10 @@ Verify audit log integrity:
 
 ```bash
 # Verify hash chain
-sentinel audit verify --path /var/lib/sentinel/audit.log
+vellaveto audit verify --path /var/lib/vellaveto/audit.log
 
 # Verify with checkpoint signatures
-sentinel audit verify --path /var/lib/sentinel/audit.log --verify-signatures
+vellaveto audit verify --path /var/lib/vellaveto/audit.log --verify-signatures
 
 # Output:
 # Verified 15,234 entries
@@ -654,14 +654,14 @@ enabled = true
 enabled = true
 hec_url = "https://splunk.example.com:8088/services/collector"
 hec_token_env = "SPLUNK_HEC_TOKEN"  # Read from environment
-source = "sentinel"
-sourcetype = "sentinel:audit"
+source = "vellaveto"
+sourcetype = "vellaveto:audit"
 
 # Elasticsearch
 [audit.export.elasticsearch]
 enabled = true
 url = "https://elastic.example.com:9200"
-index = "sentinel-audit"
+index = "vellaveto-audit"
 api_key_env = "ELASTIC_API_KEY"
 
 # Webhook (generic)
@@ -688,8 +688,8 @@ FROM rust:1.82-alpine AS builder
 FROM alpine:3.21
 
 # 2. Non-root user
-RUN addgroup -S sentinel && adduser -S sentinel -G sentinel
-USER sentinel
+RUN addgroup -S vellaveto && adduser -S vellaveto -G vellaveto
+USER vellaveto
 
 # 3. Read-only filesystem (where possible)
 # 4. No shell in final image (use alpine for debugging only)
@@ -699,14 +699,14 @@ Runtime security options:
 
 ```bash
 docker run -d \
-  --name sentinel \
+  --name vellaveto \
   --read-only \
   --tmpfs /tmp:noexec,nosuid,nodev \
   --cap-drop ALL \
   --security-opt no-new-privileges:true \
   --security-opt seccomp=./seccomp.json \
   -p 3000:3000 \
-  sentinel:latest
+  vellaveto:latest
 ```
 
 For Kubernetes:
@@ -735,19 +735,19 @@ podSecurityContext:
 The provided systemd service includes comprehensive hardening:
 
 ```ini
-# /etc/systemd/system/sentinel.service
+# /etc/systemd/system/vellaveto.service
 
 [Service]
 # Run as dedicated user
-User=sentinel
-Group=sentinel
+User=vellaveto
+Group=vellaveto
 
 # Filesystem isolation
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
-ReadWritePaths=/var/lib/sentinel /var/log/sentinel
+ReadWritePaths=/var/lib/vellaveto /var/log/vellaveto
 
 # Kernel protection
 ProtectKernelTunables=true
@@ -832,25 +832,25 @@ Always verify binaries before deployment:
 
 ```bash
 # Download binary and signature
-wget https://github.com/paolovella/sentinel/releases/download/v1.0.0/sentinel-linux-amd64
-wget https://github.com/paolovella/sentinel/releases/download/v1.0.0/sentinel-linux-amd64.sha256
-wget https://github.com/paolovella/sentinel/releases/download/v1.0.0/sentinel-linux-amd64.sig
+wget https://github.com/paolovella/vellaveto/releases/download/v1.0.0/vellaveto-linux-amd64
+wget https://github.com/paolovella/vellaveto/releases/download/v1.0.0/vellaveto-linux-amd64.sha256
+wget https://github.com/paolovella/vellaveto/releases/download/v1.0.0/vellaveto-linux-amd64.sig
 
 # Verify checksum
-sha256sum -c sentinel-linux-amd64.sha256
+sha256sum -c vellaveto-linux-amd64.sha256
 
 # Verify signature (if GPG signed)
-gpg --verify sentinel-linux-amd64.sig sentinel-linux-amd64
+gpg --verify vellaveto-linux-amd64.sig vellaveto-linux-amd64
 ```
 
 For container images:
 
 ```bash
 # Use image digest, not tag
-docker pull ghcr.io/paolovella/sentinel@sha256:abc123...
+docker pull ghcr.io/paolovella/vellaveto@sha256:abc123...
 
 # Verify with cosign (if signed)
-cosign verify ghcr.io/paolovella/sentinel:latest
+cosign verify ghcr.io/paolovella/vellaveto:latest
 ```
 
 ### MCP Server Pinning
@@ -891,8 +891,8 @@ This section captures externally researched controls and current implementation 
   DPoP proof validation is integrated into request authorization path (not only NHI subsystem),
   with explicit failure/replay audit events and dedicated proxy counters.
 - **RwLock poisoning fail-closed hardening:**
-  All `unwrap_or_else(|e| e.into_inner())` patterns on RwLock operations across 12 `sentinel-mcp` modules
-  and `sentinel-server/src/opa.rs` replaced with explicit `match` blocks. Each logs `tracing::error!`
+  All `unwrap_or_else(|e| e.into_inner())` patterns on RwLock operations across 12 `vellaveto-mcp` modules
+  and `vellaveto-server/src/opa.rs` replaced with explicit `match` blocks. Each logs `tracing::error!`
   with the exact method name and returns a fail-closed default (Deny, empty set, None, or error).
   Zero silent lock recovery — all poisoned lock states are now observable and fail-closed.
 - **Constant-time key comparison:**
@@ -945,7 +945,7 @@ Status details and rollout progress are tracked in:
 
 ### Verification Tiers
 
-Sentinel supports ordered identity verification tiers for policy enforcement:
+Vellaveto supports ordered identity verification tiers for policy enforcement:
 
 | Tier | Description |
 |------|-------------|
@@ -972,7 +972,7 @@ When `min_verification_tier` is set, actions without a verification tier in the 
 
 ### DID:PLC Identifiers
 
-Sentinel generates deterministic decentralized identifiers (DID:PLC) for agent identity binding:
+Vellaveto generates deterministic decentralized identifiers (DID:PLC) for agent identity binding:
 
 - SHA-256 hash of canonicalized genesis operations
 - Base32 encoding for URL-safe identifier representation
@@ -988,7 +988,7 @@ Ed25519-signed accountability attestations provide non-repudiation:
 
 ### A2A Protocol Security
 
-When using the A2A (Agent-to-Agent) protocol, Sentinel provides:
+When using the A2A (Agent-to-Agent) protocol, Vellaveto provides:
 
 - **Message classification** — Parses and classifies A2A JSON-RPC messages by method type
 - **Batch rejection** — JSON-RPC batch requests rejected to prevent TOCTOU attacks

@@ -1,0 +1,820 @@
+//! Upstream forwarding: canonicalization, JSON-RPC error building,
+//! and the main `forward_to_upstream` relay function.
+
+use axum::{
+    body::Body,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    Json,
+};
+use bytes::Bytes;
+use vellaveto_mcp::inspection::{
+    inspect_for_injection, scan_response_for_secrets, scan_tool_descriptions,
+    scan_tool_descriptions_with_scanner,
+};
+use vellaveto_types::{Action, Verdict};
+use serde_json::{json, Value};
+
+use super::call_chain::take_tracked_tool_call;
+use super::helpers::{
+    extract_annotations_from_response, read_bounded_response, verify_manifest_from_response,
+};
+use super::inspection::{
+    check_sse_for_rug_pull_and_manifest, extract_text_from_result, register_schemas_from_sse,
+    scan_sse_events_for_dlp, scan_sse_events_for_injection, scan_sse_events_for_output_schema,
+};
+use vellaveto_mcp::output_validation::ValidationResult;
+
+use super::{ProxyState, MCP_PROTOCOL_VERSION, MCP_PROTOCOL_VERSION_HEADER, MCP_SESSION_ID};
+use crate::proxy_metrics::record_dlp_finding;
+
+/// If canonicalize mode is enabled, re-serialize the parsed JSON to canonical
+/// form before forwarding. This ensures upstream sees exactly what was evaluated,
+/// closing the TOCTOU gap.
+///
+/// SECURITY (R17-CANON-1): Returns `None` when canonicalization is enabled but
+/// re-serialization fails, instead of falling back to original bytes.
+/// Forwarding un-canonicalized bytes would reopen the TOCTOU gap that
+/// canonicalization is designed to close.
+pub(super) fn canonicalize_body(
+    state: &ProxyState,
+    parsed: &Value,
+    original: Bytes,
+) -> Option<Bytes> {
+    if state.canonicalize {
+        match serde_json::to_vec(parsed) {
+            Ok(canonical) => Some(Bytes::from(canonical)),
+            Err(e) => {
+                tracing::error!(
+                    "SECURITY: Canonicalization failed, rejecting request (fail-closed): {}",
+                    e
+                );
+                None
+            }
+        }
+    } else {
+        Some(original)
+    }
+}
+
+/// Build a JSON-RPC error response (fail-closed helper).
+pub(super) fn make_jsonrpc_error(id: Option<&Value>, code: i64, message: &str) -> Response {
+    let error_response = json!({
+        "jsonrpc": "2.0",
+        "id": id.cloned().unwrap_or(Value::Null),
+        "error": {
+            "code": code,
+            "message": message,
+        }
+    });
+    (StatusCode::OK, Json(error_response)).into_response()
+}
+
+/// Forward a request to the upstream MCP server.
+///
+/// If OAuth pass-through is enabled, the original Authorization header is
+/// forwarded to upstream.
+pub(super) async fn forward_to_upstream(
+    state: &ProxyState,
+    session_id: &str,
+    body: Bytes,
+    auth_header: Option<&str>,
+) -> Response {
+    forward_to_upstream_url(state, &state.upstream_url, session_id, body, auth_header).await
+}
+
+/// Forward a request to a specific upstream URL.
+///
+/// This is the core forwarding function. `forward_to_upstream()` delegates here
+/// with `state.upstream_url`. Gateway mode calls this directly with the
+/// routed backend URL.
+pub(super) async fn forward_to_upstream_url(
+    state: &ProxyState,
+    upstream_url: &str,
+    session_id: &str,
+    body: Bytes,
+    auth_header: Option<&str>,
+) -> Response {
+    let mut request_builder = state
+        .http_client
+        .post(upstream_url)
+        .header("content-type", "application/json")
+        .header(MCP_SESSION_ID, session_id)
+        .header(MCP_PROTOCOL_VERSION_HEADER, MCP_PROTOCOL_VERSION);
+
+    // Forward Authorization header in OAuth pass-through mode
+    if let Some(auth) = auth_header {
+        request_builder = request_builder.header("authorization", auth);
+    }
+
+    let result = request_builder.body(body).send().await;
+
+    match result {
+        Ok(upstream_resp) => {
+            let status = upstream_resp.status();
+
+            // SECURITY (R11-RESP-3): Validate upstream status code before forwarding.
+            // A malicious upstream could return 3xx redirects (SSRF), 401/407 (credential
+            // harvesting), or 1xx (protocol confusion). Only allow 200-299 and 4xx-5xx.
+            let status =
+                if status.is_redirection() || status.as_u16() < 200 || status.as_u16() == 407 {
+                    tracing::warn!(
+                        "SECURITY: Upstream returned suspicious status {} — mapping to 502",
+                        status
+                    );
+                    StatusCode::BAD_GATEWAY
+                } else {
+                    status
+                };
+
+            let headers = upstream_resp.headers().clone();
+            // SECURITY (R33-PROXY-2): Non-UTF-8 Content-Type header previously
+            // fell through to empty string, bypassing all scanning branches.
+            // Now we reject non-UTF-8 Content-Type as suspicious — a legitimate
+            // MCP server should never send non-UTF-8 content types.
+            let content_type_result = headers.get("content-type").map(|v| v.to_str());
+            if let Some(Err(_)) = content_type_result {
+                tracing::warn!(
+                    "Upstream returned non-UTF-8 Content-Type header — blocking response"
+                );
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    "Upstream returned invalid Content-Type header",
+                )
+                    .into_response();
+            }
+            let content_type = content_type_result.and_then(|r| r.ok()).unwrap_or("");
+
+            // Check if upstream is returning SSE
+            if content_type.starts_with("text/event-stream") {
+                // C-15 Exploit #6 fix: Buffer SSE response and scan each event's
+                // data payload for injection patterns before forwarding.
+                // Bounded read prevents OOM from infinite SSE streams.
+                match read_bounded_response(upstream_resp, state.limits.max_response_body_bytes)
+                    .await
+                {
+                    Ok(sse_bytes) => {
+                        // SECURITY: Check for injection in SSE events. When
+                        // injection_blocking is enabled, block the entire stream.
+                        let injection_found = if !state.injection_disabled {
+                            scan_sse_events_for_injection(&sse_bytes, session_id, state).await
+                        } else {
+                            false
+                        };
+
+                        if injection_found && state.injection_blocking {
+                            return (
+                                StatusCode::OK,
+                                Json(json!({
+                                    "jsonrpc": "2.0",
+                                    "error": {
+                                        "code": -32001,
+                                        "message": "SSE response blocked: prompt injection detected",
+                                    },
+                                })),
+                            )
+                                .into_response();
+                        }
+
+                        // DLP + OutputSchemaRegistry scanning for SSE events.
+                        // SECURITY (R32-PROXY-2): Track dlp_found outside the
+                        // if-block so it can be passed to check_sse_for_rug_pull_and_manifest.
+                        let mut dlp_found = false;
+                        if state.response_dlp_enabled {
+                            dlp_found =
+                                scan_sse_events_for_dlp(&sse_bytes, session_id, state).await;
+                            // SECURITY (R18-DLP-BLOCK): Block SSE stream if secrets detected
+                            // and response_dlp_blocking is enabled.
+                            if dlp_found && state.response_dlp_blocking {
+                                return (
+                                    StatusCode::OK,
+                                    Json(json!({
+                                        "jsonrpc": "2.0",
+                                        "error": {
+                                            "code": -32002,
+                                            "message": "SSE response blocked: secrets detected by DLP",
+                                        },
+                                    })),
+                                )
+                                    .into_response();
+                            }
+                        }
+                        // Register output schemas from SSE tools/list responses.
+                        register_schemas_from_sse(&sse_bytes, state);
+
+                        // Validate structuredContent in SSE responses against registered output schemas.
+                        let schema_violation_found =
+                            scan_sse_events_for_output_schema(&sse_bytes, session_id, state).await;
+
+                        // SECURITY (R18-SSE-RUG): Rug-pull detection and manifest
+                        // verification for SSE responses. Without this, a server
+                        // returning tools/list via SSE would bypass both checks.
+                        // SECURITY (R27-PROXY-1, R32-PROXY-2): Pass taint flags so
+                        // record_response is skipped for suspicious SSE events.
+                        check_sse_for_rug_pull_and_manifest(
+                            &sse_bytes,
+                            session_id,
+                            state,
+                            injection_found,
+                            dlp_found,
+                            schema_violation_found,
+                        )
+                        .await;
+
+                        if schema_violation_found {
+                            return (
+                                StatusCode::OK,
+                                Json(json!({
+                                    "jsonrpc": "2.0",
+                                    "error": {
+                                        "code": -32001,
+                                        "message": "SSE response blocked: output schema validation failed",
+                                    },
+                                })),
+                            )
+                                .into_response();
+                        }
+
+                        // SECURITY (R12-RESP-10): Do NOT copy Mcp-Session-Id from upstream.
+                        // The proxy is the session authority. Forwarding the upstream's
+                        // session ID would override proxy-managed session tracking,
+                        // breaking rug-pull detection, rate limiting, and manifest verification.
+                        // The caller's attach_session_header() sets the correct proxy session ID.
+                        Response::builder()
+                            .status(status)
+                            .header("content-type", "text/event-stream")
+                            .header("cache-control", "no-cache")
+                            .body(Body::from(sse_bytes))
+                            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to read SSE response body: {}", e);
+                        (
+                            StatusCode::BAD_GATEWAY,
+                            Json(json!({
+                                "jsonrpc": "2.0",
+                                "error": {
+                                    "code": -32000,
+                                    "message": "Upstream server error"
+                                },
+                                "id": null
+                            })),
+                        )
+                            .into_response()
+                    }
+                }
+            } else {
+                // SECURITY (R12-RESP-2): Validate content type. MCP Streamable HTTP
+                // only defines application/json and text/event-stream. Unexpected
+                // content types could bypass all scanning (injection, DLP, schema).
+                if !content_type.is_empty()
+                    && !content_type.starts_with("application/json")
+                    && !content_type.starts_with("text/json")
+                {
+                    tracing::warn!(
+                        "SECURITY: Upstream returned unexpected content-type '{}' — \
+                         blocking to prevent scan bypass",
+                        content_type
+                    );
+                    return (
+                        StatusCode::BAD_GATEWAY,
+                        Json(json!({
+                            "jsonrpc": "2.0",
+                            "error": {
+                                "code": -32000,
+                                "message": "Upstream returned unexpected content type"
+                            },
+                            "id": null
+                        })),
+                    )
+                        .into_response();
+                }
+
+                // JSON response — read body, inspect, and forward
+                // Bounded read prevents OOM from oversized responses.
+                match read_bounded_response(upstream_resp, state.limits.max_response_body_bytes)
+                    .await
+                {
+                    Ok(body_bytes) => {
+                        // Try to parse and inspect the response
+                        // Track whether injection blocking should prevent forwarding.
+                        let mut blocked_by_injection: Option<String> = None;
+                        // SECURITY (R36-PROXY-1): Track detection state separately from
+                        // blocking state. In log-only mode, blocked_by_injection remains
+                        // None but injection_detected is true, preventing tainted responses
+                        // from being fingerprinted by the memory tracker.
+                        let mut injection_detected = false;
+                        if let Ok(response_json) = serde_json::from_slice::<Value>(&body_bytes) {
+                            // Consume tracked tool context for this response id (if any).
+                            // This closes a bypass where upstream omits result._meta.tool,
+                            // causing structuredContent validation to run as "unknown".
+                            let tracked_tool_name = take_tracked_tool_call(
+                                &state.sessions,
+                                session_id,
+                                response_json.get("id"),
+                            );
+
+                            // Inspect for injection patterns in tool results
+                            if let Some(result) = response_json.get("result") {
+                                let text_to_inspect = extract_text_from_result(result);
+                                if !text_to_inspect.is_empty() && !state.injection_disabled {
+                                    let matches: Vec<String> =
+                                        if let Some(ref scanner) = state.injection_scanner {
+                                            scanner
+                                                .inspect(&text_to_inspect)
+                                                .into_iter()
+                                                .map(|s| s.to_string())
+                                                .collect()
+                                        } else {
+                                            inspect_for_injection(&text_to_inspect)
+                                                .into_iter()
+                                                .map(|s| s.to_string())
+                                                .collect()
+                                        };
+                                    if !matches.is_empty() {
+                                        injection_detected = true;
+                                        tracing::warn!(
+                                            "SECURITY: Potential prompt injection in upstream response! \
+                                             Session: {}, Patterns: {:?}",
+                                            session_id,
+                                            matches
+                                        );
+                                        // SECURITY: When injection_blocking is true, block the
+                                        // response instead of just logging.
+                                        let verdict = if state.injection_blocking {
+                                            // SECURITY (R12-RESP-9): Log detailed patterns to audit
+                                            // but return generic message to client to prevent
+                                            // pattern oracle attacks.
+                                            let audit_reason = format!(
+                                                "Response blocked: prompt injection detected ({})",
+                                                matches.join(", ")
+                                            );
+                                            blocked_by_injection = Some(
+                                                "Response blocked: security policy violation"
+                                                    .to_string(),
+                                            );
+                                            Verdict::Deny {
+                                                reason: audit_reason,
+                                            }
+                                        } else {
+                                            Verdict::Allow
+                                        };
+                                        let action = Action::new(
+                                            "vellaveto",
+                                            "response_inspection",
+                                            json!({
+                                                "matched_patterns": matches,
+                                                "session": session_id,
+                                                "blocking": state.injection_blocking,
+                                            }),
+                                        );
+                                        if let Err(e) = state
+                                            .audit
+                                            .log_entry(
+                                                &action,
+                                                &verdict,
+                                                json!({
+                                                    "source": "http_proxy",
+                                                    "event": "prompt_injection_detected",
+                                                }),
+                                            )
+                                            .await
+                                        {
+                                            tracing::warn!(
+                                                "Failed to audit injection detection: {}",
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
+
+                                // Extract tool annotations from tools/list responses
+                                extract_annotations_from_response(
+                                    &response_json,
+                                    session_id,
+                                    &state.sessions,
+                                    &state.audit,
+                                    &state.known_tools,
+                                )
+                                .await;
+
+                                // P2: Scan tool descriptions for embedded injection
+                                if !state.injection_disabled {
+                                    let desc_findings = if let Some(ref scanner) =
+                                        state.injection_scanner
+                                    {
+                                        scan_tool_descriptions_with_scanner(&response_json, scanner)
+                                    } else {
+                                        scan_tool_descriptions(&response_json)
+                                    };
+                                    for finding in &desc_findings {
+                                        injection_detected = true;
+                                        tracing::warn!(
+                                            "SECURITY: Injection in tool '{}' description! Session: {}, Patterns: {:?}",
+                                            finding.tool_name, session_id, finding.matched_patterns
+                                        );
+                                        let reason = format!(
+                                            "Tool '{}' description contains injection: {:?}",
+                                            finding.tool_name, finding.matched_patterns
+                                        );
+                                        // SECURITY: Block when injection_blocking is enabled.
+                                        if state.injection_blocking
+                                            && blocked_by_injection.is_none()
+                                        {
+                                            blocked_by_injection = Some(reason.clone());
+                                        }
+                                        let action = Action::new(
+                                            "vellaveto",
+                                            "tool_description_injection",
+                                            json!({
+                                                "tool": finding.tool_name,
+                                                "matched_patterns": finding.matched_patterns,
+                                                "session": session_id,
+                                                "blocking": state.injection_blocking,
+                                            }),
+                                        );
+                                        if let Err(e) = state.audit.log_entry(
+                                            &action,
+                                            &Verdict::Deny { reason },
+                                            json!({"source": "http_proxy", "event": "tool_description_injection"}),
+                                        ).await {
+                                            tracing::warn!("Failed to audit tool description injection: {}", e);
+                                        }
+                                    }
+                                }
+
+                                // Phase 5: Verify tool manifest if configured
+                                if let Some(ref manifest_cfg) = state.manifest_config {
+                                    verify_manifest_from_response(
+                                        &response_json,
+                                        session_id,
+                                        &state.sessions,
+                                        manifest_cfg,
+                                        &state.audit,
+                                    )
+                                    .await;
+                                }
+
+                                // Extract protocol version from initialize responses
+                                if let Some(ver) = response_json
+                                    .get("result")
+                                    .and_then(|r| r.get("protocolVersion"))
+                                    .and_then(|v| v.as_str())
+                                {
+                                    if let Some(mut session) = state.sessions.get_mut(session_id) {
+                                        session.protocol_version = Some(ver.to_string());
+                                        tracing::info!(
+                                            "Session {}: negotiated protocol version {}",
+                                            session_id,
+                                            ver
+                                        );
+                                    }
+                                }
+
+                                // MCP 2025-06-18: Register output schemas from tools/list
+                                state
+                                    .output_schema_registry
+                                    .register_from_tools_list(&response_json);
+
+                                // MCP 2025-06-18: Validate structuredContent against registered schemas
+                                if let Some(structured) = result.get("structuredContent") {
+                                    let meta_tool_name = result
+                                        .get("_meta")
+                                        .and_then(|m| m.get("tool"))
+                                        .and_then(|t| t.as_str());
+                                    let tool_name = match (
+                                        meta_tool_name,
+                                        tracked_tool_name.as_deref(),
+                                    ) {
+                                        (Some(meta), Some(tracked))
+                                            if !meta.eq_ignore_ascii_case(tracked) =>
+                                        {
+                                            tracing::warn!(
+                                                "SECURITY: structuredContent tool mismatch (meta='{}', tracked='{}'); using tracked tool name",
+                                                meta,
+                                                tracked
+                                            );
+                                            tracked
+                                        }
+                                        (Some(meta), _) => meta,
+                                        (None, Some(tracked)) => tracked,
+                                        (None, None) => "unknown",
+                                    };
+                                    match state
+                                        .output_schema_registry
+                                        .validate(tool_name, structured)
+                                    {
+                                        ValidationResult::Invalid { violations } => {
+                                            injection_detected = true;
+                                            tracing::warn!(
+                                                "SECURITY: structuredContent validation failed for tool '{}': {:?}",
+                                                tool_name, violations
+                                            );
+                                            let action = Action::new(
+                                                "vellaveto",
+                                                "output_schema_violation",
+                                                json!({
+                                                    "tool": tool_name,
+                                                    "violations": violations,
+                                                    "session": session_id,
+                                                }),
+                                            );
+                                            if let Err(e) = state.audit.log_entry(
+                                                &action,
+                                                &Verdict::Deny {
+                                                    reason: format!(
+                                                        "structuredContent validation failed: {:?}",
+                                                        violations
+                                                    ),
+                                                },
+                                                json!({"source": "http_proxy", "event": "output_schema_violation"}),
+                                            ).await {
+                                                tracing::warn!("Failed to audit output schema violation: {}", e);
+                                            }
+                                            // SECURITY (R29-PROXY-2): Actually block the
+                                            // response — previously only logged Deny but
+                                            // forwarded the invalid structuredContent.
+                                            if blocked_by_injection.is_none() {
+                                                blocked_by_injection = Some(
+                                                    "Response blocked: output schema validation failed".to_string(),
+                                                );
+                                            }
+                                        }
+                                        ValidationResult::Valid => {
+                                            tracing::debug!(
+                                                "structuredContent validated for tool '{}'",
+                                                tool_name
+                                            );
+                                        }
+                                        ValidationResult::NoSchema => {
+                                            tracing::debug!(
+                                                "No output schema registered for tool '{}', skipping validation",
+                                                tool_name
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Scan error fields for injection — malicious MCP servers can
+                            // embed prompt injection in error messages relayed to the agent.
+                            if let Some(error) = response_json.get("error") {
+                                if !state.injection_disabled {
+                                    let mut error_text_parts: Vec<String> = Vec::new();
+                                    if let Some(msg) = error.get("message").and_then(|m| m.as_str())
+                                    {
+                                        error_text_parts.push(msg.to_string());
+                                    }
+                                    if let Some(data) = error.get("data") {
+                                        if let Some(data_str) = data.as_str() {
+                                            error_text_parts.push(data_str.to_string());
+                                        } else {
+                                            error_text_parts.push(data.to_string());
+                                        }
+                                    }
+                                    let error_text = error_text_parts.join("\n");
+                                    if !error_text.is_empty() {
+                                        let matches: Vec<String> =
+                                            if let Some(ref scanner) = state.injection_scanner {
+                                                scanner
+                                                    .inspect(&error_text)
+                                                    .into_iter()
+                                                    .map(|s| s.to_string())
+                                                    .collect()
+                                            } else {
+                                                inspect_for_injection(&error_text)
+                                                    .into_iter()
+                                                    .map(|s| s.to_string())
+                                                    .collect()
+                                            };
+                                        if !matches.is_empty() {
+                                            injection_detected = true;
+                                            tracing::warn!(
+                                                "SECURITY: Potential prompt injection in error response! \
+                                                 Session: {}, Patterns: {:?}",
+                                                session_id,
+                                                matches
+                                            );
+                                            // SECURITY: Block when injection_blocking is enabled.
+                                            let verdict = if state.injection_blocking {
+                                                // SECURITY (R12-RESP-9): Generic message to client.
+                                                let audit_reason = format!(
+                                                    "Error response blocked: prompt injection detected ({})",
+                                                    matches.join(", ")
+                                                );
+                                                if blocked_by_injection.is_none() {
+                                                    blocked_by_injection =
+                                                        Some("Response blocked: security policy violation".to_string());
+                                                }
+                                                Verdict::Deny {
+                                                    reason: audit_reason,
+                                                }
+                                            } else {
+                                                Verdict::Allow
+                                            };
+                                            let action = Action::new(
+                                                "vellaveto",
+                                                "error_response_inspection",
+                                                json!({
+                                                    "matched_patterns": matches,
+                                                    "session": session_id,
+                                                    "blocking": state.injection_blocking,
+                                                }),
+                                            );
+                                            if let Err(e) = state
+                                                .audit
+                                                .log_entry(
+                                                    &action,
+                                                    &verdict,
+                                                    json!({
+                                                        "source": "http_proxy",
+                                                        "event": "prompt_injection_in_error",
+                                                    }),
+                                                )
+                                                .await
+                                            {
+                                                tracing::warn!(
+                                                    "Failed to audit error injection detection: {}",
+                                                    e
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // NOTE: record_response moved AFTER injection/DLP blocking checks
+                            // (R26-MCP-1) to avoid recording fingerprints from blocked responses.
+                        }
+
+                        // DLP response scanning: detect secrets in tool responses.
+                        let mut blocked_by_dlp: Option<String> = None;
+                        // SECURITY (R36-PROXY-1): Track DLP detection separately from
+                        // blocking. Even in log-only mode, tainted responses must not
+                        // be fingerprinted by the memory tracker.
+                        let mut dlp_detected = false;
+                        if state.response_dlp_enabled {
+                            if let Ok(response_json) = serde_json::from_slice::<Value>(&body_bytes)
+                            {
+                                let dlp_findings = scan_response_for_secrets(&response_json);
+                                if !dlp_findings.is_empty() {
+                                    // IMPROVEMENT_PLAN 1.1: Record DLP metrics
+                                    for finding in &dlp_findings {
+                                        record_dlp_finding(&finding.pattern_name);
+                                    }
+                                    dlp_detected = true;
+                                    let patterns: Vec<String> = dlp_findings
+                                        .iter()
+                                        .map(|f| format!("{}:{}", f.pattern_name, f.location))
+                                        .collect();
+                                    tracing::warn!(
+                                        "SECURITY: Secrets detected in tool response! \
+                                         Session: {}, Findings: {:?}, Blocking: {}",
+                                        session_id,
+                                        patterns,
+                                        state.response_dlp_blocking,
+                                    );
+
+                                    // SECURITY (R18-DLP-BLOCK): When blocking is enabled,
+                                    // record the reason so we can return an error instead
+                                    // of forwarding the secret-containing response.
+                                    if state.response_dlp_blocking {
+                                        blocked_by_dlp = Some(format!(
+                                            "Response blocked: secrets detected ({:?})",
+                                            patterns
+                                        ));
+                                    }
+
+                                    let verdict = if state.response_dlp_blocking {
+                                        Verdict::Deny {
+                                            reason: format!("Response DLP blocked: {:?}", patterns),
+                                        }
+                                    } else {
+                                        Verdict::Allow
+                                    };
+                                    let action = Action::new(
+                                        "vellaveto",
+                                        "response_dlp_scan",
+                                        json!({
+                                            "findings": patterns,
+                                            "session": session_id,
+                                            "finding_count": dlp_findings.len(),
+                                        }),
+                                    );
+                                    if let Err(e) = state
+                                        .audit
+                                        .log_entry(
+                                            &action,
+                                            &verdict,
+                                            json!({
+                                                "source": "http_proxy",
+                                                "event": "response_dlp_alert",
+                                                "blocked": state.response_dlp_blocking,
+                                                "dlp_detail": format!(
+                                                    "Secrets detected in response: {:?}",
+                                                    patterns
+                                                ),
+                                            }),
+                                        )
+                                        .await
+                                    {
+                                        tracing::warn!(
+                                            "Failed to audit response DLP finding: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                        }
+
+                        // SECURITY: If injection_blocking is enabled and injection was
+                        // detected, return a sanitized error instead of the unsafe response.
+                        if let Some(reason) = blocked_by_injection {
+                            return (
+                                StatusCode::OK,
+                                Json(json!({
+                                    "jsonrpc": "2.0",
+                                    "error": {
+                                        "code": -32001,
+                                        "message": reason,
+                                    },
+                                })),
+                            )
+                                .into_response();
+                        }
+
+                        // SECURITY (R18-DLP-BLOCK): If response DLP blocking is enabled
+                        // and secrets were detected, return a sanitized error.
+                        if let Some(reason) = blocked_by_dlp {
+                            return (
+                                StatusCode::OK,
+                                Json(json!({
+                                    "jsonrpc": "2.0",
+                                    "error": {
+                                        "code": -32002,
+                                        "message": reason,
+                                    },
+                                })),
+                            )
+                                .into_response();
+                        }
+
+                        // OWASP ASI06 (R26-MCP-1, R36-PROXY-1): Record response fingerprints
+                        // for memory poisoning detection ONLY if injection and DLP scanning
+                        // found no issues. This uses detection flags (not blocking flags)
+                        // so that log-only mode also prevents tainted fingerprinting.
+                        // Previously, log-only mode left blocked_by_injection/blocked_by_dlp
+                        // as None, allowing tainted responses to be fingerprinted.
+                        if !injection_detected && !dlp_detected {
+                            if let Ok(response_json) = serde_json::from_slice::<Value>(&body_bytes)
+                            {
+                                if let Some(mut session) = state.sessions.get_mut(session_id) {
+                                    session.memory_tracker.record_response(&response_json);
+                                }
+                            }
+                        }
+
+                        // Forward the raw bytes (no injection/DLP blocking triggered)
+                        // SECURITY (R12-RESP-10): Do NOT copy Mcp-Session-Id from upstream.
+                        // The proxy is the session authority — see SSE path comment above.
+                        Response::builder()
+                            .status(status)
+                            .header("content-type", "application/json")
+                            .body(Body::from(body_bytes))
+                            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to read upstream response body: {}", e);
+                        (
+                            StatusCode::BAD_GATEWAY,
+                            Json(json!({
+                                "jsonrpc": "2.0",
+                                "error": {
+                                    "code": -32000,
+                                    "message": "Upstream server error"
+                                },
+                                "id": null
+                            })),
+                        )
+                            .into_response()
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("Failed to connect to upstream: {}", e);
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32000,
+                        "message": "Upstream server unavailable"
+                    },
+                    "id": null
+                })),
+            )
+                .into_response()
+        }
+    }
+}

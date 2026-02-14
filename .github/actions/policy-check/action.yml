@@ -1,5 +1,5 @@
-name: 'Sentinel Policy Check'
-description: 'Validate Sentinel policy configuration files in CI'
+name: 'Vellaveto Policy Check'
+description: 'Validate Vellaveto policy configuration files in CI'
 inputs:
   config:
     description: 'Path to policy config file'
@@ -9,7 +9,7 @@ inputs:
     required: false
     default: 'false'
   version:
-    description: 'Sentinel version to use (default: latest)'
+    description: 'Vellaveto version to use (default: latest)'
     required: false
     default: 'latest'
   format:
@@ -19,19 +19,19 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Download Sentinel binary
+    - name: Download Vellaveto binary
       shell: bash
       run: |
         VERSION="${{ inputs.version }}"
         if [ "$VERSION" = "latest" ]; then
-          VERSION=$(curl -s https://api.github.com/repos/paolovella/sentinel/releases/latest | grep tag_name | cut -d '"' -f 4)
+          VERSION=$(curl -s https://api.github.com/repos/paolovella/vellaveto/releases/latest | grep tag_name | cut -d '"' -f 4)
         fi
-        ARCHIVE="sentinel-${VERSION}-x86_64-linux-musl.tar.gz"
-        URL="https://github.com/paolovella/sentinel/releases/download/${VERSION}/${ARCHIVE}"
-        echo "Downloading Sentinel ${VERSION}..."
-        curl -sL "${URL}" -o sentinel.tar.gz
-        tar xzf sentinel.tar.gz
-        chmod +x sentinel
+        ARCHIVE="vellaveto-${VERSION}-x86_64-linux-musl.tar.gz"
+        URL="https://github.com/paolovella/vellaveto/releases/download/${VERSION}/${ARCHIVE}"
+        echo "Downloading Vellaveto ${VERSION}..."
+        curl -sL "${URL}" -o vellaveto.tar.gz
+        tar xzf vellaveto.tar.gz
+        chmod +x vellaveto
     - name: Run policy check
       shell: bash
       run: |
@@ -40,4 +40,4 @@ runs:
           ARGS="$ARGS --strict"
         fi
         ARGS="$ARGS --format ${{ inputs.format }}"
-        ./sentinel check $ARGS
+        ./vellaveto check $ARGS

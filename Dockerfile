@@ -1,9 +1,9 @@
-# Sentinel Multi-Stage Dockerfile
+# Vellaveto Multi-Stage Dockerfile
 # Builds optimized production binaries for the MCP firewall
 #
 # Usage:
-#   docker build -t sentinel:latest .
-#   docker run -p 3000:3000 sentinel:latest serve --config /etc/sentinel/config.toml
+#   docker build -t vellaveto:latest .
+#   docker run -p 3000:3000 vellaveto:latest serve --config /etc/vellaveto/config.toml
 
 # Build stage: Compile Rust binaries with musl for static linking
 FROM rust:1.93-alpine AS builder
@@ -16,96 +16,96 @@ WORKDIR /build
 
 # Copy workspace manifests first for layer caching
 COPY Cargo.toml Cargo.lock ./
-COPY sentinel-types/Cargo.toml sentinel-types/
-COPY sentinel-engine/Cargo.toml sentinel-engine/
-COPY sentinel-audit/Cargo.toml sentinel-audit/
-COPY sentinel-config/Cargo.toml sentinel-config/
-COPY sentinel-canonical/Cargo.toml sentinel-canonical/
-COPY sentinel-mcp/Cargo.toml sentinel-mcp/
-COPY sentinel-approval/Cargo.toml sentinel-approval/
-COPY sentinel-cluster/Cargo.toml sentinel-cluster/
-COPY sentinel-server/Cargo.toml sentinel-server/
-COPY sentinel-http-proxy/Cargo.toml sentinel-http-proxy/
-COPY sentinel-proxy/Cargo.toml sentinel-proxy/
-COPY sentinel-integration/Cargo.toml sentinel-integration/
+COPY vellaveto-types/Cargo.toml vellaveto-types/
+COPY vellaveto-engine/Cargo.toml vellaveto-engine/
+COPY vellaveto-audit/Cargo.toml vellaveto-audit/
+COPY vellaveto-config/Cargo.toml vellaveto-config/
+COPY vellaveto-canonical/Cargo.toml vellaveto-canonical/
+COPY vellaveto-mcp/Cargo.toml vellaveto-mcp/
+COPY vellaveto-approval/Cargo.toml vellaveto-approval/
+COPY vellaveto-cluster/Cargo.toml vellaveto-cluster/
+COPY vellaveto-server/Cargo.toml vellaveto-server/
+COPY vellaveto-http-proxy/Cargo.toml vellaveto-http-proxy/
+COPY vellaveto-proxy/Cargo.toml vellaveto-proxy/
+COPY vellaveto-integration/Cargo.toml vellaveto-integration/
 
 # Create dummy src files for dependency caching
-RUN mkdir -p sentinel-types/src sentinel-engine/src sentinel-audit/src \
-    sentinel-config/src sentinel-canonical/src sentinel-mcp/src \
-    sentinel-approval/src sentinel-cluster/src sentinel-server/src \
-    sentinel-http-proxy/src sentinel-proxy/src sentinel-integration/src \
-    && echo "pub fn dummy() {}" > sentinel-types/src/lib.rs \
-    && echo "pub fn dummy() {}" > sentinel-engine/src/lib.rs \
-    && echo "pub fn dummy() {}" > sentinel-audit/src/lib.rs \
-    && echo "pub fn dummy() {}" > sentinel-config/src/lib.rs \
-    && echo "pub fn dummy() {}" > sentinel-canonical/src/lib.rs \
-    && echo "pub fn dummy() {}" > sentinel-mcp/src/lib.rs \
-    && echo "pub fn dummy() {}" > sentinel-approval/src/lib.rs \
-    && echo "pub fn dummy() {}" > sentinel-cluster/src/lib.rs \
-    && echo "fn main() {}" > sentinel-server/src/main.rs \
-    && echo "fn main() {}" > sentinel-http-proxy/src/main.rs \
-    && echo "fn main() {}" > sentinel-proxy/src/main.rs \
-    && echo "" > sentinel-integration/src/lib.rs
+RUN mkdir -p vellaveto-types/src vellaveto-engine/src vellaveto-audit/src \
+    vellaveto-config/src vellaveto-canonical/src vellaveto-mcp/src \
+    vellaveto-approval/src vellaveto-cluster/src vellaveto-server/src \
+    vellaveto-http-proxy/src vellaveto-proxy/src vellaveto-integration/src \
+    && echo "pub fn dummy() {}" > vellaveto-types/src/lib.rs \
+    && echo "pub fn dummy() {}" > vellaveto-engine/src/lib.rs \
+    && echo "pub fn dummy() {}" > vellaveto-audit/src/lib.rs \
+    && echo "pub fn dummy() {}" > vellaveto-config/src/lib.rs \
+    && echo "pub fn dummy() {}" > vellaveto-canonical/src/lib.rs \
+    && echo "pub fn dummy() {}" > vellaveto-mcp/src/lib.rs \
+    && echo "pub fn dummy() {}" > vellaveto-approval/src/lib.rs \
+    && echo "pub fn dummy() {}" > vellaveto-cluster/src/lib.rs \
+    && echo "fn main() {}" > vellaveto-server/src/main.rs \
+    && echo "fn main() {}" > vellaveto-http-proxy/src/main.rs \
+    && echo "fn main() {}" > vellaveto-proxy/src/main.rs \
+    && echo "" > vellaveto-integration/src/lib.rs
 
 # Build dependencies only (for layer caching)
 RUN cargo build --release --target x86_64-unknown-linux-musl \
-    --bin sentinel --bin sentinel-http-proxy || true
+    --bin vellaveto --bin vellaveto-http-proxy || true
 
 # Copy actual source code
-COPY sentinel-types/src sentinel-types/src/
-COPY sentinel-engine/src sentinel-engine/src/
-COPY sentinel-engine/benches sentinel-engine/benches/
-COPY sentinel-audit/src sentinel-audit/src/
-COPY sentinel-audit/benches sentinel-audit/benches/
-COPY sentinel-config/src sentinel-config/src/
-COPY sentinel-canonical/src sentinel-canonical/src/
-COPY sentinel-mcp/src sentinel-mcp/src/
-COPY sentinel-mcp/benches sentinel-mcp/benches/
-COPY sentinel-approval/src sentinel-approval/src/
-COPY sentinel-cluster/src sentinel-cluster/src/
-COPY sentinel-server/src sentinel-server/src/
-COPY sentinel-http-proxy/src sentinel-http-proxy/src/
-COPY sentinel-proxy/src sentinel-proxy/src/
+COPY vellaveto-types/src vellaveto-types/src/
+COPY vellaveto-engine/src vellaveto-engine/src/
+COPY vellaveto-engine/benches vellaveto-engine/benches/
+COPY vellaveto-audit/src vellaveto-audit/src/
+COPY vellaveto-audit/benches vellaveto-audit/benches/
+COPY vellaveto-config/src vellaveto-config/src/
+COPY vellaveto-canonical/src vellaveto-canonical/src/
+COPY vellaveto-mcp/src vellaveto-mcp/src/
+COPY vellaveto-mcp/benches vellaveto-mcp/benches/
+COPY vellaveto-approval/src vellaveto-approval/src/
+COPY vellaveto-cluster/src vellaveto-cluster/src/
+COPY vellaveto-server/src vellaveto-server/src/
+COPY vellaveto-http-proxy/src vellaveto-http-proxy/src/
+COPY vellaveto-proxy/src vellaveto-proxy/src/
 
 # Touch source files to invalidate cache
 RUN find . -name "*.rs" -exec touch {} \;
 
 # Build release binaries
 RUN cargo build --release --target x86_64-unknown-linux-musl \
-    --bin sentinel --bin sentinel-http-proxy
+    --bin vellaveto --bin vellaveto-http-proxy
 
 # Verify binaries exist and are executable (musl target guarantees static linking)
-RUN test -x /build/target/x86_64-unknown-linux-musl/release/sentinel \
-    && test -x /build/target/x86_64-unknown-linux-musl/release/sentinel-http-proxy
+RUN test -x /build/target/x86_64-unknown-linux-musl/release/vellaveto \
+    && test -x /build/target/x86_64-unknown-linux-musl/release/vellaveto-http-proxy
 
 # Runtime stage: Minimal Alpine image
 FROM alpine:3.21
 
-LABEL org.opencontainers.image.title="Sentinel" \
+LABEL org.opencontainers.image.title="Vellaveto" \
       org.opencontainers.image.description="Runtime security engine for AI agent tool calls" \
-      org.opencontainers.image.source="https://github.com/paolovella/sentinel" \
+      org.opencontainers.image.source="https://github.com/paolovella/vellaveto" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.vendor="Paolo Vella"
 
 # Security: Run as non-root user
-RUN addgroup -S sentinel && adduser -S sentinel -G sentinel
+RUN addgroup -S vellaveto && adduser -S vellaveto -G vellaveto
 
 # Install runtime dependencies (CA certs for HTTPS)
 RUN apk add --no-cache ca-certificates tzdata
 
 # Create config and data directories
-RUN mkdir -p /etc/sentinel /var/lib/sentinel /var/log/sentinel \
-    && chown -R sentinel:sentinel /var/lib/sentinel /var/log/sentinel
+RUN mkdir -p /etc/vellaveto /var/lib/vellaveto /var/log/vellaveto \
+    && chown -R vellaveto:vellaveto /var/lib/vellaveto /var/log/vellaveto
 
 # Copy binaries from builder
-COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/sentinel /usr/local/bin/
-COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/sentinel-http-proxy /usr/local/bin/
+COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/vellaveto /usr/local/bin/
+COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/vellaveto-http-proxy /usr/local/bin/
 
 # Copy example configs
-COPY examples/*.toml /etc/sentinel/examples/
+COPY examples/*.toml /etc/vellaveto/examples/
 
 # Switch to non-root user
-USER sentinel
+USER vellaveto
 
 # Default port for HTTP API server
 EXPOSE 3000
@@ -115,5 +115,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
 
 # Default command: run the API server
-ENTRYPOINT ["sentinel"]
-CMD ["serve", "--config", "/etc/sentinel/config.toml"]
+ENTRYPOINT ["vellaveto"]
+CMD ["serve", "--config", "/etc/vellaveto/config.toml"]

@@ -1,0 +1,82 @@
+[package]
+name = "vellaveto-mcp"
+version = "3.0.0"
+description = "MCP protocol security: DLP, injection detection, tool registry, and guardrails"
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+semantic-detection = []
+semantic-guardrails = ["lru", "async-trait"]
+llm-cloud = ["semantic-guardrails", "reqwest"]
+llm-local-gguf = ["semantic-guardrails"]
+llm-local-onnx = ["semantic-guardrails"]
+semantic-guardrails-full = ["semantic-guardrails", "llm-cloud", "llm-local-gguf", "llm-local-onnx"]
+rag-defense = []
+a2a = []
+multimodal = ["image"]
+fips = ["p256"]
+
+[dependencies]
+vellaveto-types = { path = "../vellaveto-types" }
+vellaveto-engine = { path = "../vellaveto-engine" }
+vellaveto-audit = { path = "../vellaveto-audit" }
+vellaveto-approval = { path = "../vellaveto-approval" }
+vellaveto-config = { path = "../vellaveto-config" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+unicode-normalization = "0.1"
+aho-corasick = "1.1"
+sha2 = "0.10"
+hmac = "0.12"
+serde_json_canonicalizer = "0.3"
+hex = "0.4"
+regex = "1"
+chrono = { workspace = true }
+base64 = "0.22"
+percent-encoding = "2.3"
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+subtle = "2"
+chacha20poly1305 = "0.10"
+rand = "0.8"
+getrandom = "0.2"
+semver = "1.0"
+
+# Semantic guardrails dependencies
+# SECURITY: lru >= 0.16.3 required to fix RUSTSEC-2026-0002 (Stacked Borrows violation)
+lru = { version = "0.16", optional = true }
+async-trait = { workspace = true, optional = true }
+
+# Cloud LLM backends
+reqwest = { workspace = true, optional = true }
+
+# Multimodal content scanning — metadata extraction uses flate2 (no image crate needed)
+image = { version = "0.25", optional = true, default-features = false, features = ["png", "jpeg", "gif", "bmp", "tiff", "webp"] }
+flate2 = "1.1"
+
+# FIPS 140-3 compliance mode (Phase 23.3)
+p256 = { version = "0.13", features = ["ecdsa"], optional = true }
+
+[dev-dependencies]
+proptest = "1.4"
+tempfile = "3.0"
+criterion = { version = "0.8", features = ["html_reports"] }
+
+[[bench]]
+name = "inspection"
+harness = false
+
+[[bench]]
+name = "semantic"
+harness = false
+required-features = ["semantic-detection"]
+
+[[bench]]
+name = "rug_pull"
+harness = false

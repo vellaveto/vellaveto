@@ -1,6 +1,6 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use sentinel_mcp::semantic_detection::{SemanticConfig, SemanticScanner};
+use vellaveto_mcp::semantic_detection::{SemanticConfig, SemanticScanner};
 
 // Create scanner once (static initialization would be ideal but libfuzzer doesn't support it well)
 fn get_scanner() -> SemanticScanner {

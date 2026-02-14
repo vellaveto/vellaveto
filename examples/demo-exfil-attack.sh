@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sentinel Demo — Credential Exfiltration Attack Simulation
+# Vellaveto Demo — Credential Exfiltration Attack Simulation
 #
 # This script simulates an AI agent attempting to:
 #   1. Read AWS credentials from disk
@@ -8,20 +8,20 @@
 #   4. Execute a safe operation (should be allowed)
 #
 # Prerequisites:
-#   export SENTINEL_API_KEY=demo-key-12345
-#   cargo run -p sentinel-server -- serve --config examples/credential-exfil-demo.toml
+#   export VELLAVETO_API_KEY=demo-key-12345
+#   cargo run -p vellaveto-server -- serve --config examples/credential-exfil-demo.toml
 #
 # The server must be running on http://127.0.0.1:8080
 
 set -euo pipefail
 
 API="http://127.0.0.1:8080"
-KEY="${SENTINEL_API_KEY:-demo-key-12345}"
+KEY="${VELLAVETO_API_KEY:-demo-key-12345}"
 AUTH="Authorization: Bearer $KEY"
 CT="Content-Type: application/json"
 
 echo "============================================"
-echo "  Sentinel Demo: Credential Exfiltration"
+echo "  Vellaveto Demo: Credential Exfiltration"
 echo "============================================"
 echo ""
 
@@ -37,7 +37,7 @@ echo "  Response: $RESULT"
 echo ""
 VERDICT=$(echo "$RESULT" | grep -o '"Deny"' || echo "$RESULT" | grep -o '"Allow"' || echo "unknown")
 if echo "$RESULT" | grep -q '"Deny"'; then
-  echo "  >> BLOCKED -- Sentinel denied credential file access"
+  echo "  >> BLOCKED -- Vellaveto denied credential file access"
 else
   echo "  >> ALLOWED -- This should not happen!"
 fi
@@ -51,7 +51,7 @@ RESULT=$(curl -s -X POST "$API/api/evaluate" \
 echo "  Response: $RESULT"
 echo ""
 if echo "$RESULT" | grep -q '"Deny"'; then
-  echo "  >> BLOCKED -- Sentinel denied SSH key access"
+  echo "  >> BLOCKED -- Vellaveto denied SSH key access"
 else
   echo "  >> ALLOWED -- This should not happen!"
 fi
@@ -65,7 +65,7 @@ RESULT=$(curl -s -X POST "$API/api/evaluate" \
 echo "  Response: $RESULT"
 echo ""
 if echo "$RESULT" | grep -q '"Deny"'; then
-  echo "  >> BLOCKED -- Sentinel denied exfiltration to ngrok"
+  echo "  >> BLOCKED -- Vellaveto denied exfiltration to ngrok"
 else
   echo "  >> ALLOWED -- This should not happen!"
 fi
@@ -79,7 +79,7 @@ RESULT=$(curl -s -X POST "$API/api/evaluate" \
 echo "  Response: $RESULT"
 echo ""
 if echo "$RESULT" | grep -q '"Deny"'; then
-  echo "  >> BLOCKED -- Sentinel denied untrusted domain access"
+  echo "  >> BLOCKED -- Vellaveto denied untrusted domain access"
 else
   echo "  >> ALLOWED -- This should not happen!"
 fi
@@ -93,7 +93,7 @@ RESULT=$(curl -s -X POST "$API/api/evaluate" \
 echo "  Response: $RESULT"
 echo ""
 if echo "$RESULT" | grep -q '"Deny"'; then
-  echo "  >> BLOCKED -- Sentinel caught path traversal"
+  echo "  >> BLOCKED -- Vellaveto caught path traversal"
 else
   echo "  >> ALLOWED -- This should not happen!"
 fi
@@ -153,4 +153,4 @@ echo "  2 safe operations ALLOWED"
 echo "  1 dangerous command QUEUED for approval"
 echo ""
 echo "Check the audit log for full decision trail:"
-echo "  cat /tmp/sentinel-audit.jsonl"
+echo "  cat /tmp/vellaveto-audit.jsonl"

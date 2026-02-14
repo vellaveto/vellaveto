@@ -10,7 +10,7 @@ fuzz_target!(|data: &[u8]| {
     // Test with valid UTF-8 strings
     if let Ok(s) = std::str::from_utf8(data) {
         // Test the InjectionScanner with custom patterns
-        if let Some(scanner) = sentinel_mcp::inspection::InjectionScanner::new(&[s]) {
+        if let Some(scanner) = vellaveto_mcp::inspection::InjectionScanner::new(&[s]) {
             let _ = scanner.inspect(s);
 
             // Test response scanning
@@ -33,14 +33,14 @@ fuzz_target!(|data: &[u8]| {
         }
 
         // Test with default patterns
-        let _ = sentinel_mcp::inspection::scan_response_for_injection(&serde_json::json!({
+        let _ = vellaveto_mcp::inspection::scan_response_for_injection(&serde_json::json!({
             "result": { "content": [{ "type": "text", "text": s }] }
         }));
     }
 
     // Test with arbitrary JSON for response scanning
     if let Ok(value) = serde_json::from_slice::<serde_json::Value>(data) {
-        let _ = sentinel_mcp::inspection::scan_response_for_injection(&value);
-        let _ = sentinel_mcp::inspection::scan_notification_for_injection(&value);
+        let _ = vellaveto_mcp::inspection::scan_response_for_injection(&value);
+        let _ = vellaveto_mcp::inspection::scan_notification_for_injection(&value);
     }
 });

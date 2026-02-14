@@ -5,8 +5,8 @@
 //! inputs without panicking.
 
 use libfuzzer_sys::fuzz_target;
-use sentinel_config::AllowedSignersConfig;
-use sentinel_types::{SignatureAlgorithm, ToolSignature};
+use vellaveto_config::AllowedSignersConfig;
+use vellaveto_types::{SignatureAlgorithm, ToolSignature};
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(s) = std::str::from_utf8(data) {
@@ -35,7 +35,7 @@ fuzz_target!(|data: &[u8]| {
         let tool_name = parts.get(8).unwrap_or(&"fuzz_tool");
 
         // Test signature verification with default config (should not panic even with invalid data)
-        let verifier = sentinel_mcp::etdi::ToolSignatureVerifier::new(AllowedSignersConfig::default());
+        let verifier = vellaveto_mcp::etdi::ToolSignatureVerifier::new(AllowedSignersConfig::default());
         let _ = verifier.verify_tool_signature(tool_name, &schema, &signature);
 
         // Test with custom allowed signers
@@ -44,7 +44,7 @@ fuzz_target!(|data: &[u8]| {
             fingerprints: trusted.clone(),
             spiffe_ids: trusted,
         };
-        let verifier = sentinel_mcp::etdi::ToolSignatureVerifier::new(allowed);
+        let verifier = vellaveto_mcp::etdi::ToolSignatureVerifier::new(allowed);
         let _ = verifier.verify_tool_signature(tool_name, &schema, &signature);
     }
 });

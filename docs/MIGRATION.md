@@ -1,6 +1,6 @@
-# Migration Guide: Sentinel v1.x to v2.0
+# Migration Guide: Vellaveto v1.x to v2.0
 
-This guide covers upgrading from Sentinel v1.x to v2.0, including breaking changes, new features, and step-by-step instructions.
+This guide covers upgrading from Vellaveto v1.x to v2.0, including breaking changes, new features, and step-by-step instructions.
 
 ## Table of Contents
 
@@ -16,7 +16,7 @@ This guide covers upgrading from Sentinel v1.x to v2.0, including breaking chang
 
 ## Overview
 
-Sentinel v2.0 is a major release that adds significant new capabilities while maintaining backward compatibility for core functionality.
+Vellaveto v2.0 is a major release that adds significant new capabilities while maintaining backward compatibility for core functionality.
 
 **Upgrade Path:** v1.x → v2.0 (direct upgrade supported)
 
@@ -30,7 +30,7 @@ Sentinel v2.0 is a major release that adds significant new capabilities while ma
 
 ### None for Core Functionality
 
-Sentinel v2.0 maintains full backward compatibility for:
+Vellaveto v2.0 maintains full backward compatibility for:
 - Policy file format (TOML/JSON)
 - `/api/evaluate` endpoint request/response format
 - Policy evaluation semantics
@@ -43,7 +43,7 @@ The following features are deprecated and will be removed in v3.0:
 | Feature | Deprecated | Alternative |
 |---------|------------|-------------|
 | `--log-level` CLI flag | v2.0 | Use `RUST_LOG` environment variable |
-| `api_key` in config file | v2.0 | Use `SENTINEL_API_KEY` environment variable |
+| `api_key` in config file | v2.0 | Use `VELLAVETO_API_KEY` environment variable |
 
 ### Changed Defaults
 
@@ -103,7 +103,7 @@ admin = 0     # Disabled
 ### Phase 6: Observability
 
 - **Execution Graphs:** Visual call chain analysis
-- **Policy Validation CLI:** `sentinel check` enhancements
+- **Policy Validation CLI:** `vellaveto check` enhancements
 - **Attack Simulation:** Red-teaming framework
 
 ---
@@ -114,7 +114,7 @@ admin = 0     # Disabled
 
 - [ ] Backup current configuration
 - [ ] Backup audit logs
-- [ ] Note current version: `sentinel --version`
+- [ ] Note current version: `vellaveto --version`
 - [ ] Review breaking changes above
 - [ ] Test upgrade in staging environment
 
@@ -122,20 +122,20 @@ admin = 0     # Disabled
 
 ```bash
 # 1. Stop current container
-docker stop sentinel
+docker stop vellaveto
 
 # 2. Backup configuration
-docker cp sentinel:/etc/sentinel/config.toml ./config-backup.toml
+docker cp vellaveto:/etc/vellaveto/config.toml ./config-backup.toml
 
 # 3. Pull new image
-docker pull ghcr.io/paolovella/sentinel:2.0.0
+docker pull ghcr.io/paolovella/vellaveto:2.0.0
 
 # 4. Start with new image
-docker run -d --name sentinel-v2 \
+docker run -d --name vellaveto-v2 \
   -p 3000:3000 \
-  -v /path/to/config.toml:/etc/sentinel/config.toml:ro \
-  -v /path/to/audit:/var/log/sentinel \
-  ghcr.io/paolovella/sentinel:2.0.0
+  -v /path/to/config.toml:/etc/vellaveto/config.toml:ro \
+  -v /path/to/audit:/var/log/vellaveto \
+  ghcr.io/paolovella/vellaveto:2.0.0
 
 # 5. Verify health
 curl http://localhost:3000/health
@@ -147,67 +147,67 @@ curl -X POST http://localhost:3000/api/evaluate \
   -d '{"tool":"test","function":"ping"}'
 
 # 7. Remove old container (after verification)
-docker rm sentinel
-docker rename sentinel-v2 sentinel
+docker rm vellaveto
+docker rename vellaveto-v2 vellaveto
 ```
 
 ### Kubernetes/Helm Upgrade
 
 ```bash
 # 1. Backup current values
-helm get values sentinel -n sentinel > values-backup.yaml
+helm get values vellaveto -n vellaveto > values-backup.yaml
 
 # 2. Update Helm repository
 helm repo update
 
 # 3. Review changes
-helm diff upgrade sentinel ./helm/sentinel \
-  -n sentinel \
+helm diff upgrade vellaveto ./helm/vellaveto \
+  -n vellaveto \
   -f values.yaml
 
 # 4. Perform upgrade
-helm upgrade sentinel ./helm/sentinel \
-  -n sentinel \
+helm upgrade vellaveto ./helm/vellaveto \
+  -n vellaveto \
   -f values.yaml \
   --set image.tag=2.0.0
 
 # 5. Monitor rollout
-kubectl rollout status deployment/sentinel -n sentinel
+kubectl rollout status deployment/vellaveto -n vellaveto
 
 # 6. Verify pods
-kubectl get pods -n sentinel
+kubectl get pods -n vellaveto
 ```
 
 ### Binary Upgrade
 
 ```bash
 # 1. Stop service
-sudo systemctl stop sentinel
+sudo systemctl stop vellaveto
 
 # 2. Backup binary
-sudo cp /usr/local/bin/sentinel /usr/local/bin/sentinel.v1.backup
+sudo cp /usr/local/bin/vellaveto /usr/local/bin/vellaveto.v1.backup
 
 # 3. Download new binary
-curl -L https://github.com/paolovella/sentinel/releases/download/v2.0.0/sentinel-linux-amd64 \
-  -o /tmp/sentinel
+curl -L https://github.com/paolovella/vellaveto/releases/download/v2.0.0/vellaveto-linux-amd64 \
+  -o /tmp/vellaveto
 
 # 4. Verify checksum
-sha256sum /tmp/sentinel
+sha256sum /tmp/vellaveto
 # Compare with published checksum
 
 # 5. Install
-sudo mv /tmp/sentinel /usr/local/bin/sentinel
-sudo chmod +x /usr/local/bin/sentinel
+sudo mv /tmp/vellaveto /usr/local/bin/vellaveto
+sudo chmod +x /usr/local/bin/vellaveto
 
 # 6. Verify version
-sentinel --version
-# Expected: sentinel 2.0.0
+vellaveto --version
+# Expected: vellaveto 2.0.0
 
 # 7. Start service
-sudo systemctl start sentinel
+sudo systemctl start vellaveto
 
 # 8. Check status
-sudo systemctl status sentinel
+sudo systemctl status vellaveto
 ```
 
 ---
@@ -270,17 +270,17 @@ require_message_signing = false
 
 [tls]
 enabled = false
-cert_path = "/etc/sentinel/tls/server.crt"
-key_path = "/etc/sentinel/tls/server.key"
+cert_path = "/etc/vellaveto/tls/server.crt"
+key_path = "/etc/vellaveto/tls/server.key"
 
 [mtls]
 enabled = false
-client_ca_path = "/etc/sentinel/tls/ca.crt"
+client_ca_path = "/etc/vellaveto/tls/ca.crt"
 
 [opa]
 enabled = false
 endpoint = "http://localhost:8181"
-decision_path = "/v1/data/sentinel/allow"
+decision_path = "/v1/data/vellaveto/allow"
 
 [threat_intel]
 enabled = false
@@ -386,13 +386,13 @@ New CLI commands and options:
 
 ```bash
 # New: Policy validation with enhanced checks
-sentinel check --config config.toml --strict --format json
+vellaveto check --config config.toml --strict --format json
 
 # New: Attack simulation
-sentinel simulate --scenario prompt-injection --config config.toml
+vellaveto simulate --scenario prompt-injection --config config.toml
 
 # Enhanced: Evaluate with context
-sentinel evaluate --tool bash --function execute \
+vellaveto evaluate --tool bash --function execute \
   --params '{"command":"ls"}' \
   --context '{"agent_id":"agent-1"}' \
   --config config.toml
@@ -408,36 +408,36 @@ If issues occur after upgrade:
 
 ```bash
 # Stop v2.0 container
-docker stop sentinel
+docker stop vellaveto
 
 # Start v1.x container
-docker run -d --name sentinel \
+docker run -d --name vellaveto \
   -p 3000:3000 \
-  -v /path/to/config-backup.toml:/etc/sentinel/config.toml:ro \
-  ghcr.io/paolovella/sentinel:1.0.0
+  -v /path/to/config-backup.toml:/etc/vellaveto/config.toml:ro \
+  ghcr.io/paolovella/vellaveto:1.0.0
 ```
 
 ### Kubernetes Rollback
 
 ```bash
 # Rollback to previous revision
-helm rollback sentinel -n sentinel
+helm rollback vellaveto -n vellaveto
 
 # Or specify revision
-helm rollback sentinel 1 -n sentinel
+helm rollback vellaveto 1 -n vellaveto
 ```
 
 ### Binary Rollback
 
 ```bash
 # Stop service
-sudo systemctl stop sentinel
+sudo systemctl stop vellaveto
 
 # Restore backup
-sudo mv /usr/local/bin/sentinel.v1.backup /usr/local/bin/sentinel
+sudo mv /usr/local/bin/vellaveto.v1.backup /usr/local/bin/vellaveto
 
 # Start service
-sudo systemctl start sentinel
+sudo systemctl start vellaveto
 ```
 
 ---
@@ -448,15 +448,15 @@ Run these checks after upgrading:
 
 ```bash
 # 1. Version check
-sentinel --version
-# Expected: sentinel 2.0.0
+vellaveto --version
+# Expected: vellaveto 2.0.0
 
 # 2. Health check
 curl http://localhost:3000/health
 # Expected: {"status":"healthy"}
 
 # 3. Policy validation
-sentinel check --config /etc/sentinel/config.toml
+vellaveto check --config /etc/vellaveto/config.toml
 
 # 4. Test evaluation
 curl -X POST http://localhost:3000/api/evaluate \
@@ -480,7 +480,7 @@ curl http://localhost:3000/metrics \
 If you encounter issues during migration:
 
 1. Check the [troubleshooting guide](./OPERATIONS.md#troubleshooting)
-2. Search [GitHub Issues](https://github.com/paolovella/sentinel/issues)
+2. Search [GitHub Issues](https://github.com/paolovella/vellaveto/issues)
 3. Open a new issue with:
    - Source version
    - Target version

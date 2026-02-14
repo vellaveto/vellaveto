@@ -38,8 +38,8 @@ jobs:
         env:
           RUSTDOCFLAGS: --cfg docsrs
 
-      - name: Add redirect to sentinel_types
-        run: echo '<meta http-equiv="refresh" content="0;url=sentinel_types/index.html">' > target/doc/index.html
+      - name: Add redirect to vellaveto_types
+        run: echo '<meta http-equiv="refresh" content="0;url=vellaveto_types/index.html">' > target/doc/index.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
@@ -51,7 +51,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     # Requires GitHub Pages to be enabled: Settings > Pages > Source: GitHub Actions
-    if: github.repository == 'paolovella/sentinel'
+    if: github.repository == 'paolovella/vellaveto'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

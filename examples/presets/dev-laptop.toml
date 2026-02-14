@@ -1,4 +1,4 @@
-# Sentinel Preset: Developer Laptop Agent
+# Vellaveto Preset: Developer Laptop Agent
 #
 # For AI coding assistants (Cursor, Windsurf, Claude Code, Copilot)
 # running on a developer's machine. Protects credential files and
@@ -6,7 +6,7 @@
 # file operations within project directories.
 #
 # Usage:
-#   sentinel serve --config examples/presets/dev-laptop.toml --port 3000
+#   vellaveto serve --config examples/presets/dev-laptop.toml --port 3000
 
 # --- Block credential and secret files ---
 [[policies]]

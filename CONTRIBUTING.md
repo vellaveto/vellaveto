@@ -1,17 +1,17 @@
-# Contributing to Sentinel
+# Contributing to Vellaveto
 
-Thank you for your interest in contributing to Sentinel.
+Thank you for your interest in contributing to Vellaveto.
 
 ## License
 
-Sentinel is dual-licensed under [AGPL-3.0](LICENSE) and a commercial license.
+Vellaveto is dual-licensed under [AGPL-3.0](LICENSE) and a commercial license.
 By submitting a contribution, you agree to the terms in [LICENSING.md](LICENSING.md).
 
 ## Getting Started
 
 ```bash
-git clone https://github.com/paolovella/sentinel.git
-cd sentinel
+git clone https://github.com/paolovella/vellaveto.git
+cd vellaveto
 cargo check --workspace
 cargo test --workspace
 cargo clippy --workspace
@@ -56,7 +56,7 @@ All three must pass before submitting changes.
 For maintainers cutting a new release:
 
 1. **Version bump** — Update all `Cargo.toml` versions (workspace + 12 crates)
-2. **Helm chart** — Update `helm/sentinel/Chart.yaml` version + appVersion
+2. **Helm chart** — Update `helm/vellaveto/Chart.yaml` version + appVersion
 3. **Python SDK** — Update `sdk/python/pyproject.toml` version
 4. **CHANGELOG** — Move `[Unreleased]` items to new version section
 5. **Commit** — `chore: release vX.Y.Z`

@@ -5,8 +5,8 @@
 //! and action evaluations without panicking.
 
 use libfuzzer_sys::fuzz_target;
-use sentinel_engine::PolicyEngine;
-use sentinel_types::{Action, Policy, PolicyType, PathRules, NetworkRules};
+use vellaveto_engine::PolicyEngine;
+use vellaveto_types::{Action, Policy, PolicyType, PathRules, NetworkRules};
 
 fuzz_target!(|data: &[u8]| {
     // Try to interpret data as policy configuration

@@ -45,22 +45,22 @@ jobs:
 
       - name: Strip binaries
         run: |
-          strip target/x86_64-unknown-linux-musl/release/sentinel
-          strip target/x86_64-unknown-linux-musl/release/sentinel-http-proxy
-          strip target/x86_64-unknown-linux-musl/release/sentinel-proxy
+          strip target/x86_64-unknown-linux-musl/release/vellaveto
+          strip target/x86_64-unknown-linux-musl/release/vellaveto-http-proxy
+          strip target/x86_64-unknown-linux-musl/release/vellaveto-proxy
 
       - name: Create release archive
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p release
-          for bin in sentinel sentinel-http-proxy sentinel-proxy; do
+          for bin in vellaveto vellaveto-http-proxy vellaveto-proxy; do
             cp "target/x86_64-unknown-linux-musl/release/$bin" "release/"
           done
           cp LICENSE LICENSING.md NOTICE README.md CHANGELOG.md release/
           cp -r examples/ release/examples/
-          tar czf "sentinel-${VERSION}-x86_64-linux-musl.tar.gz" -C release .
-          sha256sum "sentinel-${VERSION}-x86_64-linux-musl.tar.gz" > checksums-sha256.txt
-          for bin in release/sentinel release/sentinel-http-proxy release/sentinel-proxy; do
+          tar czf "vellaveto-${VERSION}-x86_64-linux-musl.tar.gz" -C release .
+          sha256sum "vellaveto-${VERSION}-x86_64-linux-musl.tar.gz" > checksums-sha256.txt
+          for bin in release/vellaveto release/vellaveto-http-proxy release/vellaveto-proxy; do
             sha256sum "$bin" >> checksums-sha256.txt
           done
 
@@ -75,9 +75,9 @@ jobs:
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: |
-            release/sentinel
-            release/sentinel-http-proxy
-            release/sentinel-proxy
+            release/vellaveto
+            release/vellaveto-http-proxy
+            release/vellaveto-proxy
 
       - name: Extract changelog for this version
         id: changelog
@@ -94,7 +94,7 @@ jobs:
         with:
           body_path: release-notes.md
           files: |
-            sentinel-*-x86_64-linux-musl.tar.gz
+            vellaveto-*-x86_64-linux-musl.tar.gz
             checksums-sha256.txt
             sbom.cdx.json
           fail_on_unmatched_files: true

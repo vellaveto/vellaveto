@@ -1,6 +1,6 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use sentinel_types::{IpRules, NetworkRules, Policy, PolicyType};
+use vellaveto_types::{IpRules, NetworkRules, Policy, PolicyType};
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(s) = std::str::from_utf8(data) {
@@ -22,6 +22,6 @@ fuzz_target!(|data: &[u8]| {
             }),
         };
         // Must not panic — validation errors are expected
-        let _ = sentinel_engine::PolicyEngine::with_policies(false, &[policy]);
+        let _ = vellaveto_engine::PolicyEngine::with_policies(false, &[policy]);
     }
 });

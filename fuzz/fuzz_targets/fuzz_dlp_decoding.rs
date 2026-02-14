@@ -11,7 +11,7 @@ fuzz_target!(|data: &[u8]| {
     if let Ok(s) = std::str::from_utf8(data) {
         // Test the public API
         let params = serde_json::json!({ "data": s });
-        let _ = sentinel_mcp::inspection::scan_parameters_for_secrets(&params);
+        let _ = vellaveto_mcp::inspection::scan_parameters_for_secrets(&params);
 
         // Test nested structures
         let nested = serde_json::json!({
@@ -20,13 +20,13 @@ fuzz_target!(|data: &[u8]| {
                 "array": [s, s]
             }
         });
-        let _ = sentinel_mcp::inspection::scan_parameters_for_secrets(&nested);
+        let _ = vellaveto_mcp::inspection::scan_parameters_for_secrets(&nested);
     }
 
     // Also test with arbitrary JSON
     if let Ok(value) = serde_json::from_slice::<serde_json::Value>(data) {
-        let _ = sentinel_mcp::inspection::scan_parameters_for_secrets(&value);
-        let _ = sentinel_mcp::inspection::scan_response_for_secrets(&value);
-        let _ = sentinel_mcp::inspection::scan_notification_for_secrets(&value);
+        let _ = vellaveto_mcp::inspection::scan_parameters_for_secrets(&value);
+        let _ = vellaveto_mcp::inspection::scan_response_for_secrets(&value);
+        let _ = vellaveto_mcp::inspection::scan_notification_for_secrets(&value);
     }
 });

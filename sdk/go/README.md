@@ -1,13 +1,13 @@
-# Sentinel Go SDK
+# Vellaveto Go SDK
 
-Go client for the [Sentinel](https://github.com/paolovella/sentinel) MCP Tool Firewall API.
+Go client for the [Vellaveto](https://github.com/paolovella/vellaveto) MCP Tool Firewall API.
 
 **Zero dependencies** — uses only the Go standard library.
 
 ## Installation
 
 ```bash
-go get github.com/paolovella/sentinel/sdk/go
+go get github.com/paolovella/vellaveto/sdk/go
 ```
 
 ## Quick Start
@@ -20,12 +20,12 @@ import (
     "fmt"
     "log"
 
-    sentinel "github.com/paolovella/sentinel/sdk/go"
+    vellaveto "github.com/paolovella/vellaveto/sdk/go"
 )
 
 func main() {
-    client := sentinel.NewClient("http://localhost:3000",
-        sentinel.WithAPIKey("your-api-key"),
+    client := vellaveto.NewClient("http://localhost:3000",
+        vellaveto.WithAPIKey("your-api-key"),
     )
 
     // Check health
@@ -36,7 +36,7 @@ func main() {
     fmt.Printf("Server status: %s\n", health.Status)
 
     // Evaluate an action
-    result, err := client.Evaluate(context.Background(), sentinel.Action{
+    result, err := client.Evaluate(context.Background(), vellaveto.Action{
         Tool:          "read_file",
         TargetPaths:   []string{"/data/report.csv"},
     }, nil, false)
@@ -46,16 +46,16 @@ func main() {
     fmt.Printf("Verdict: %s\n", result.Verdict)
 
     // Or use EvaluateOrError for typed errors
-    err = client.EvaluateOrError(context.Background(), sentinel.Action{
+    err = client.EvaluateOrError(context.Background(), vellaveto.Action{
         Tool:          "exec_command",
         Function:      "shell",
         Parameters:    map[string]interface{}{"cmd": "ls"},
     }, nil)
     if err != nil {
         switch e := err.(type) {
-        case *sentinel.PolicyDeniedError:
+        case *vellaveto.PolicyDeniedError:
             fmt.Printf("Denied: %s (policy: %s)\n", e.Reason, e.PolicyID)
-        case *sentinel.ApprovalRequiredError:
+        case *vellaveto.ApprovalRequiredError:
             fmt.Printf("Needs approval: %s (id: %s)\n", e.Reason, e.ApprovalID)
         default:
             log.Fatal(err)
@@ -84,11 +84,11 @@ func main() {
 ## Client Options
 
 ```go
-client := sentinel.NewClient("http://localhost:3000",
-    sentinel.WithAPIKey("key"),              // Bearer token auth
-    sentinel.WithTimeout(10 * time.Second),  // Request timeout (default 5s)
-    sentinel.WithHTTPClient(customClient),   // Custom http.Client
-    sentinel.WithHeaders(map[string]string{  // Extra headers
+client := vellaveto.NewClient("http://localhost:3000",
+    vellaveto.WithAPIKey("key"),              // Bearer token auth
+    vellaveto.WithTimeout(10 * time.Second),  // Request timeout (default 5s)
+    vellaveto.WithHTTPClient(customClient),   // Custom http.Client
+    vellaveto.WithHeaders(map[string]string{  // Extra headers
         "X-Tenant-ID": "acme",
     }),
 )

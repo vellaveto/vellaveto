@@ -2,23 +2,23 @@
 resolver = "2"
 exclude = ["fuzz"]
 members = [
-    "sentinel-types",
-    "sentinel-engine",
-    "sentinel-audit",
-    "sentinel-mcp",
-    "sentinel-canonical",
-    "sentinel-config",
-    "sentinel-cluster",
-    "sentinel-integration",
-    "sentinel-server",
-    "sentinel-approval",
-    "sentinel-proxy",
-    "sentinel-http-proxy",
+    "vellaveto-types",
+    "vellaveto-engine",
+    "vellaveto-audit",
+    "vellaveto-mcp",
+    "vellaveto-canonical",
+    "vellaveto-config",
+    "vellaveto-cluster",
+    "vellaveto-integration",
+    "vellaveto-server",
+    "vellaveto-approval",
+    "vellaveto-proxy",
+    "vellaveto-http-proxy",
 ]
 
 [workspace.package]
 license = "AGPL-3.0-only"
-repository = "https://github.com/paolovella/sentinel"
+repository = "https://github.com/paolovella/vellaveto"
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }

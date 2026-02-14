@@ -1,0 +1,14 @@
+[package]
+name = "vellaveto-types"
+version = "3.0.0"
+description = "Core type definitions for Vellaveto policy engine"
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+proptest = "1.4"

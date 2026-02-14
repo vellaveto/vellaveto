@@ -1,6 +1,6 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use sentinel_types::{TaskStatus, TrackedTask};
+use vellaveto_types::{TaskStatus, TrackedTask};
 
 // Fuzz the TaskStateManager operations with arbitrary task data.
 // Tests that task registration, status updates, and cancellation
@@ -35,6 +35,6 @@ fuzz_target!(|data: &[u8]| {
 
     // Also fuzz capability parsing
     if let Ok(s) = std::str::from_utf8(data) {
-        let _ = sentinel_mcp::capability::parse_capabilities(s);
+        let _ = vellaveto_mcp::capability::parse_capabilities(s);
     }
 });

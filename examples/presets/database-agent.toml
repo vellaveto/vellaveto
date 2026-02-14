@@ -1,11 +1,11 @@
-# Sentinel Preset: Database Agent
+# Vellaveto Preset: Database Agent
 #
 # For AI agents that interact with databases (PostgreSQL, MySQL, MongoDB,
 # etc.). Prevents destructive DDL operations, restricts network access to
 # database hosts, and scans queries for injection patterns.
 #
 # Usage:
-#   sentinel serve --config examples/presets/database-agent.toml --port 3000
+#   vellaveto serve --config examples/presets/database-agent.toml --port 3000
 
 # --- Block credential file access ---
 [[policies]]

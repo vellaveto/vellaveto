@@ -1,6 +1,6 @@
-# Sentinel Security Model
+# Vellaveto Security Model
 
-This document defines Sentinel's trust boundaries, data flows, storage guarantees, and residual risks. It is intended for security teams evaluating Sentinel for production deployment.
+This document defines Vellaveto's trust boundaries, data flows, storage guarantees, and residual risks. It is intended for security teams evaluating Vellaveto for production deployment.
 
 ---
 
@@ -8,7 +8,7 @@ This document defines Sentinel's trust boundaries, data flows, storage guarantee
 
 ```
                  +------------------+
-  Agent/LLM ---->|  Sentinel Proxy  |----> MCP Tool Server
+  Agent/LLM ---->|  Vellaveto Proxy  |----> MCP Tool Server
                  |  (trust boundary)|
                  +------------------+
                     |            |
@@ -16,11 +16,11 @@ This document defines Sentinel's trust boundaries, data flows, storage guarantee
               (in-memory)     (on-disk)
 ```
 
-**Sentinel sits between the AI agent and the tool server.** Every tool call crosses the trust boundary twice: once on the request path (where policy is evaluated) and once on the response path (where output is inspected).
+**Vellaveto sits between the AI agent and the tool server.** Every tool call crosses the trust boundary twice: once on the request path (where policy is evaluated) and once on the response path (where output is inspected).
 
 ---
 
-## Data That Enters Sentinel
+## Data That Enters Vellaveto
 
 | Data | Source | Purpose |
 |------|--------|---------|
@@ -59,13 +59,13 @@ Pending human approvals store the full `Action` (including unredacted parameters
 
 ### Policy Configuration (disk, operator-managed)
 
-Sentinel reads policies from TOML files. It does not write or modify policy files. Hot-reload is supported via filesystem watcher or API endpoint.
+Vellaveto reads policies from TOML files. It does not write or modify policy files. Hot-reload is supported via filesystem watcher or API endpoint.
 
 ---
 
 ## Data That Is Redacted
 
-Sentinel applies multi-layer redaction before writing audit logs:
+Vellaveto applies multi-layer redaction before writing audit logs:
 
 **Sensitive key names** (always redacted): `password`, `secret`, `token`, `api_key`, `authorization`, `credentials`, `private_key`, `client_secret`, `session_token`, `refresh_token`
 
@@ -116,9 +116,9 @@ These are explicitly out of scope or represent residual risks:
 
 ### Out of Scope
 
-1. **LLM-internal threats** — Model weight manipulation, training data poisoning, and in-model jailbreaks operate below Sentinel's interception layer. Sentinel evaluates the *output* of the LLM's decision, not the decision process itself.
+1. **LLM-internal threats** — Model weight manipulation, training data poisoning, and in-model jailbreaks operate below Vellaveto's interception layer. Vellaveto evaluates the *output* of the LLM's decision, not the decision process itself.
 
-2. **Credential provisioning** — How agents obtain credentials is outside Sentinel's scope. Sentinel blocks suspicious *use* of credentials but does not manage credential lifecycle.
+2. **Credential provisioning** — How agents obtain credentials is outside Vellaveto's scope. Vellaveto blocks suspicious *use* of credentials but does not manage credential lifecycle.
 
 3. **Physical/side-channel attacks** — Memory dumps, timing attacks, and electromagnetic emanations require OS-level and hardware-level mitigations.
 
@@ -140,7 +140,7 @@ These are explicitly out of scope or represent residual risks:
 
 ## Default Security Posture
 
-Sentinel is **fail-closed by design**:
+Vellaveto is **fail-closed by design**:
 
 - Missing policies produce `Deny`
 - Policy evaluation errors produce `Deny`
@@ -157,7 +157,7 @@ No `unwrap()` or `expect()` calls exist in library code. All error paths are obs
 
 See [HARDENING.md](HARDENING.md) for detailed deployment guidance. Key points:
 
-- Set `SENTINEL_API_KEY` for all mutating endpoints
+- Set `VELLAVETO_API_KEY` for all mutating endpoints
 - Enable Ed25519 audit checkpoints in production
 - Use OAuth 2.1 / JWT for agent authentication
 - Run behind TLS termination (nginx, Caddy, cloud LB)

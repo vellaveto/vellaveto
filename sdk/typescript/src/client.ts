@@ -1,5 +1,5 @@
 /**
- * Sentinel HTTP client for TypeScript.
+ * Vellaveto HTTP client for TypeScript.
  *
  * Uses native fetch() (Node 18+). Zero runtime dependencies.
  */
@@ -19,9 +19,9 @@ import {
   Verdict,
 } from "./types";
 
-/** Configuration for the Sentinel client. */
-export interface SentinelClientOptions {
-  /** Base URL of the Sentinel server (e.g., "http://localhost:3000"). */
+/** Configuration for the Vellaveto client. */
+export interface VellavetoClientOptions {
+  /** Base URL of the Vellaveto server (e.g., "http://localhost:3000"). */
   baseUrl: string;
   /** API key for authentication. */
   apiKey?: string;
@@ -31,19 +31,19 @@ export interface SentinelClientOptions {
   headers?: Record<string, string>;
 }
 
-/** Error thrown by the Sentinel client. */
-export class SentinelError extends Error {
+/** Error thrown by the Vellaveto client. */
+export class VellavetoError extends Error {
   public readonly statusCode?: number;
 
   constructor(message: string, statusCode?: number) {
     super(message);
-    this.name = "SentinelError";
+    this.name = "VellavetoError";
     this.statusCode = statusCode;
   }
 }
 
 /** Error thrown when a policy denies an action. */
-export class PolicyDenied extends SentinelError {
+export class PolicyDenied extends VellavetoError {
   public readonly reason: string;
 
   constructor(reason: string) {
@@ -54,7 +54,7 @@ export class PolicyDenied extends SentinelError {
 }
 
 /** Error thrown when an action requires approval. */
-export class ApprovalRequired extends SentinelError {
+export class ApprovalRequired extends VellavetoError {
   public readonly reason: string;
   public readonly approvalId: string;
 
@@ -67,11 +67,11 @@ export class ApprovalRequired extends SentinelError {
 }
 
 /**
- * Sentinel API client.
+ * Vellaveto API client.
  *
  * @example
  * ```typescript
- * const client = new SentinelClient({ baseUrl: "http://localhost:3000", apiKey: "my-key" });
+ * const client = new VellavetoClient({ baseUrl: "http://localhost:3000", apiKey: "my-key" });
  *
  * const result = await client.evaluate({
  *   tool: "filesystem",
@@ -84,13 +84,13 @@ export class ApprovalRequired extends SentinelError {
  * }
  * ```
  */
-export class SentinelClient {
+export class VellavetoClient {
   private readonly baseUrl: string;
   private readonly apiKey?: string;
   private readonly timeout: number;
   private readonly extraHeaders: Record<string, string>;
 
-  constructor(options: SentinelClientOptions) {
+  constructor(options: VellavetoClientOptions) {
     // Strip trailing slash
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.apiKey = options.apiKey;
@@ -138,16 +138,16 @@ export class SentinelClient {
         } catch {
           errorMsg = response.statusText;
         }
-        throw new SentinelError(errorMsg, response.status);
+        throw new VellavetoError(errorMsg, response.status);
       }
 
       return (await response.json()) as T;
     } catch (error) {
-      if (error instanceof SentinelError) throw error;
+      if (error instanceof VellavetoError) throw error;
       if (error instanceof Error && error.name === "AbortError") {
-        throw new SentinelError(`Request timed out after ${this.timeout}ms`);
+        throw new VellavetoError(`Request timed out after ${this.timeout}ms`);
       }
-      throw new SentinelError(
+      throw new VellavetoError(
         `Network error: ${error instanceof Error ? error.message : String(error)}`
       );
     } finally {

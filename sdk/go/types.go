@@ -1,5 +1,5 @@
-// Package sentinel provides a Go client for the Sentinel MCP Tool Firewall API.
-package sentinel
+// Package vellaveto provides a Go client for the Vellaveto MCP Tool Firewall API.
+package vellaveto
 
 // Verdict represents a policy evaluation outcome.
 type Verdict string

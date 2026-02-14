@@ -1,6 +1,6 @@
 import {
-  SentinelClient,
-  SentinelError,
+  VellavetoClient,
+  VellavetoError,
   Verdict,
   Action,
   EvaluationResult,
@@ -34,12 +34,12 @@ function jsonResponse(body: unknown, status = 200): Response {
   } as Response;
 }
 
-describe("SentinelClient", () => {
-  let client: SentinelClient;
+describe("VellavetoClient", () => {
+  let client: VellavetoClient;
 
   beforeEach(() => {
     mockFetch.mockReset();
-    client = new SentinelClient({
+    client = new VellavetoClient({
       baseUrl: "http://localhost:3000",
       apiKey: "test-key",
       timeout: 1000,
@@ -108,7 +108,7 @@ describe("SentinelClient", () => {
   });
 
   test("no api key when not configured", async () => {
-    const noKeyClient = new SentinelClient({
+    const noKeyClient = new VellavetoClient({
       baseUrl: "http://localhost:3000",
     });
     mockFetch.mockResolvedValueOnce(jsonResponse({ status: "ok" }));
@@ -212,15 +212,15 @@ describe("SentinelClient", () => {
 
   // ── Error handling ─────────────────────────────
 
-  test("401 throws SentinelError", async () => {
+  test("401 throws VellavetoError", async () => {
     mockFetch.mockResolvedValueOnce(
       jsonResponse({ error: "Unauthorized" }, 401)
     );
-    await expect(client.health()).rejects.toThrow(SentinelError);
+    await expect(client.health()).rejects.toThrow(VellavetoError);
     await expect(client.health()).rejects.toThrow(); // fetch is already consumed so need separate mock
   });
 
-  test("500 throws SentinelError with message", async () => {
+  test("500 throws VellavetoError with message", async () => {
     mockFetch.mockResolvedValueOnce(
       jsonResponse({ error: "Internal error" }, 500)
     );
@@ -228,20 +228,20 @@ describe("SentinelClient", () => {
       await client.health();
       fail("should have thrown");
     } catch (e) {
-      expect(e).toBeInstanceOf(SentinelError);
-      expect((e as SentinelError).statusCode).toBe(500);
+      expect(e).toBeInstanceOf(VellavetoError);
+      expect((e as VellavetoError).statusCode).toBe(500);
     }
   });
 
-  test("network error throws SentinelError", async () => {
+  test("network error throws VellavetoError", async () => {
     mockFetch.mockRejectedValueOnce(new Error("Connection refused"));
-    await expect(client.health()).rejects.toThrow(SentinelError);
+    await expect(client.health()).rejects.toThrow(VellavetoError);
   });
 
   // ── Trailing slash removal ─────────────────────
 
   test("trailing slash removed from baseUrl", async () => {
-    const slashClient = new SentinelClient({
+    const slashClient = new VellavetoClient({
       baseUrl: "http://localhost:3000/",
     });
     mockFetch.mockResolvedValueOnce(jsonResponse({ status: "ok" }));

@@ -1,11 +1,11 @@
-# Sentinel Preset: CI/CD Agent
+# Vellaveto Preset: CI/CD Agent
 #
 # For AI agents running in CI/CD pipelines (GitHub Actions, GitLab CI,
 # Jenkins). Strict network controls, no interactive approval (auto-deny),
 # and tight path restrictions to prevent supply chain attacks.
 #
 # Usage:
-#   sentinel serve --config examples/presets/ci-agent.toml --port 3000
+#   vellaveto serve --config examples/presets/ci-agent.toml --port 3000
 
 # --- Block all credential paths ---
 [[policies]]

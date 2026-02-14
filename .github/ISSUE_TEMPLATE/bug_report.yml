@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report a bug in Sentinel
+description: Report a bug in Vellaveto
 labels: ["bug", "triage"]
 body:
   - type: markdown
@@ -10,8 +10,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: Sentinel Version
-      description: Output of `sentinel --version` or crate version
+      label: Vellaveto Version
+      description: Output of `vellaveto --version` or crate version
       placeholder: "3.0.0"
     validations:
       required: true
@@ -21,9 +21,9 @@ body:
     attributes:
       label: Deployment Mode
       options:
-        - HTTP API server (sentinel-server)
-        - HTTP reverse proxy (sentinel-http-proxy)
-        - Stdio proxy (sentinel-proxy)
+        - HTTP API server (vellaveto-server)
+        - HTTP reverse proxy (vellaveto-http-proxy)
+        - Stdio proxy (vellaveto-proxy)
         - Python SDK
         - Library (embedded crate)
     validations:

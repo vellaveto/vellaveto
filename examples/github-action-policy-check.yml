@@ -1,4 +1,4 @@
-# Example: Sentinel policy validation in CI
+# Example: Vellaveto policy validation in CI
 # Copy this to .github/workflows/policy-check.yml in your repository
 name: Policy Validation
 on: [pull_request]
@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: paolovella/sentinel/.github/actions/policy-check@main
+      - uses: paolovella/vellaveto/.github/actions/policy-check@main
         with:
-          config: sentinel-config.toml
+          config: vellaveto-config.toml
           strict: 'true'

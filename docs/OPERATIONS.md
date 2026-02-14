@@ -1,6 +1,6 @@
-# Sentinel Operations Runbook
+# Vellaveto Operations Runbook
 
-This runbook covers day-to-day operations, monitoring, troubleshooting, and maintenance procedures for Sentinel deployments.
+This runbook covers day-to-day operations, monitoring, troubleshooting, and maintenance procedures for Vellaveto deployments.
 
 ## Table of Contents
 
@@ -35,68 +35,68 @@ This runbook covers day-to-day operations, monitoring, troubleshooting, and main
 
 ### Prometheus Metrics
 
-Sentinel exposes Prometheus metrics at the `/metrics` endpoint. All metrics use the `sentinel_` prefix.
+Vellaveto exposes Prometheus metrics at the `/metrics` endpoint. All metrics use the `vellaveto_` prefix.
 
 #### Core Metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `sentinel_evaluations_total` | counter | Total policy evaluations (labels: verdict, tool, tenant_id) |
-| `sentinel_evaluation_duration_seconds` | histogram | Policy evaluation latency |
-| `sentinel_policies_loaded` | gauge | Number of loaded policies |
-| `sentinel_uptime_seconds` | gauge | Server uptime |
+| `vellaveto_evaluations_total` | counter | Total policy evaluations (labels: verdict, tool, tenant_id) |
+| `vellaveto_evaluation_duration_seconds` | histogram | Policy evaluation latency |
+| `vellaveto_policies_loaded` | gauge | Number of loaded policies |
+| `vellaveto_uptime_seconds` | gauge | Server uptime |
 
 #### Security Metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `sentinel_dlp_findings_total` | counter | DLP findings detected (label: pattern_type) |
-| `sentinel_injection_detections_total` | counter | Injection attempts (label: injection_type) |
-| `sentinel_rug_pull_detections_total` | counter | Tool rug-pull attacks detected |
-| `sentinel_squatting_detections_total` | counter | Tool squatting attempts |
-| `sentinel_anomaly_detections_total` | counter | Behavioral anomalies detected |
+| `vellaveto_dlp_findings_total` | counter | DLP findings detected (label: pattern_type) |
+| `vellaveto_injection_detections_total` | counter | Injection attempts (label: injection_type) |
+| `vellaveto_rug_pull_detections_total` | counter | Tool rug-pull attacks detected |
+| `vellaveto_squatting_detections_total` | counter | Tool squatting attempts |
+| `vellaveto_anomaly_detections_total` | counter | Behavioral anomalies detected |
 
 #### Session & Auth Metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `sentinel_active_sessions` | gauge | Currently active sessions |
-| `sentinel_auth_failures_total` | counter | Authentication failures (label: reason) |
-| `sentinel_rate_limit_rejections_total` | counter | Rate limit rejections |
+| `vellaveto_active_sessions` | gauge | Currently active sessions |
+| `vellaveto_auth_failures_total` | counter | Authentication failures (label: reason) |
+| `vellaveto_rate_limit_rejections_total` | counter | Rate limit rejections |
 
 #### Audit Metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `sentinel_audit_entries_total` | counter | Audit log entries written |
-| `sentinel_audit_checkpoint_total` | counter | Audit checkpoints created |
-| `sentinel_audit_rotation_total` | counter | Audit log rotations |
+| `vellaveto_audit_entries_total` | counter | Audit log entries written |
+| `vellaveto_audit_checkpoint_total` | counter | Audit checkpoints created |
+| `vellaveto_audit_rotation_total` | counter | Audit log rotations |
 
 #### Network Metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `sentinel_dns_resolutions_total` | counter | DNS resolutions (label: status) |
-| `sentinel_dns_resolution_duration_seconds` | histogram | DNS resolution latency |
-| `sentinel_blocked_ips_total` | counter | Blocked IP addresses |
+| `vellaveto_dns_resolutions_total` | counter | DNS resolutions (label: status) |
+| `vellaveto_dns_resolution_duration_seconds` | histogram | DNS resolution latency |
+| `vellaveto_blocked_ips_total` | counter | Blocked IP addresses |
 
 #### Observability Exporter Metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `sentinel_exporter_events_total` | counter | Events sent to observability exporters (label: backend) |
-| `sentinel_exporter_errors_total` | counter | Exporter delivery errors (label: backend) |
-| `sentinel_exporter_latency_seconds` | histogram | Exporter delivery latency (label: backend) |
+| `vellaveto_exporter_events_total` | counter | Events sent to observability exporters (label: backend) |
+| `vellaveto_exporter_errors_total` | counter | Exporter delivery errors (label: backend) |
+| `vellaveto_exporter_latency_seconds` | histogram | Exporter delivery latency (label: backend) |
 
 #### Cluster Metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `sentinel_cluster_backend_latency_seconds` | histogram | Cluster backend latency (label: operation) |
+| `vellaveto_cluster_backend_latency_seconds` | histogram | Cluster backend latency (label: operation) |
 
 ### AI Observability Exporters
 
-Sentinel can stream `SecuritySpan` events to AI observability platforms in real time:
+Vellaveto can stream `SecuritySpan` events to AI observability platforms in real time:
 
 | Backend | Description | Configuration Key |
 |---------|-------------|-------------------|
@@ -142,26 +142,26 @@ Each exporter receives `SecuritySpan` events containing:
 
 ```promql
 # P99 evaluation latency (should be <5ms)
-histogram_quantile(0.99, rate(sentinel_evaluation_duration_seconds_bucket[5m]))
+histogram_quantile(0.99, rate(vellaveto_evaluation_duration_seconds_bucket[5m]))
 
 # Evaluation throughput
-rate(sentinel_evaluations_total[5m])
+rate(vellaveto_evaluations_total[5m])
 
 # Error rate (deny due to errors, not policy)
-rate(sentinel_evaluations_total{verdict="error"}[5m]) / rate(sentinel_evaluations_total[5m])
+rate(vellaveto_evaluations_total{verdict="error"}[5m]) / rate(vellaveto_evaluations_total[5m])
 ```
 
 #### Security SLIs
 
 ```promql
 # Injection detection rate
-rate(sentinel_injection_detections_total[5m])
+rate(vellaveto_injection_detections_total[5m])
 
 # DLP finding rate
-rate(sentinel_dlp_findings_total[5m])
+rate(vellaveto_dlp_findings_total[5m])
 
 # Anomaly detection rate
-rate(sentinel_anomaly_detections_total[5m])
+rate(vellaveto_anomaly_detections_total[5m])
 ```
 
 ### Alerting Rules
@@ -172,41 +172,41 @@ Example Prometheus alerting rules:
 # prometheus-rules.yaml
 
 groups:
-  - name: sentinel
+  - name: vellaveto
     rules:
       # Service health
-      - alert: SentinelDown
-        expr: up{job="sentinel"} == 0
+      - alert: VellavetoDown
+        expr: up{job="vellaveto"} == 0
         for: 1m
         labels:
           severity: critical
         annotations:
-          summary: "Sentinel is down"
-          description: "Sentinel instance {{ $labels.instance }} has been down for more than 1 minute."
+          summary: "Vellaveto is down"
+          description: "Vellaveto instance {{ $labels.instance }} has been down for more than 1 minute."
 
       # High latency
-      - alert: SentinelHighLatency
-        expr: histogram_quantile(0.99, rate(sentinel_evaluation_duration_seconds_bucket[5m])) > 0.010
+      - alert: VellavetoHighLatency
+        expr: histogram_quantile(0.99, rate(vellaveto_evaluation_duration_seconds_bucket[5m])) > 0.010
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Sentinel P99 latency is high"
+          summary: "Vellaveto P99 latency is high"
           description: "P99 evaluation latency is {{ $value | humanizeDuration }} (threshold: 10ms)"
 
       # High error rate
-      - alert: SentinelHighErrorRate
-        expr: rate(sentinel_evaluations_total{verdict="error"}[5m]) / rate(sentinel_evaluations_total[5m]) > 0.01
+      - alert: VellavetoHighErrorRate
+        expr: rate(vellaveto_evaluations_total{verdict="error"}[5m]) / rate(vellaveto_evaluations_total[5m]) > 0.01
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Sentinel error rate is high"
+          summary: "Vellaveto error rate is high"
           description: "Error rate is {{ $value | humanizePercentage }} (threshold: 1%)"
 
       # Security: High injection rate
-      - alert: SentinelHighInjectionRate
-        expr: rate(sentinel_injection_detections_total[5m]) > 10
+      - alert: VellavetoHighInjectionRate
+        expr: rate(vellaveto_injection_detections_total[5m]) > 10
         for: 2m
         labels:
           severity: warning
@@ -215,8 +215,8 @@ groups:
           description: "Detecting {{ $value }} injections per second. Possible attack in progress."
 
       # Security: Rug-pull detected
-      - alert: SentinelRugPullDetected
-        expr: increase(sentinel_rug_pull_detections_total[5m]) > 0
+      - alert: VellavetoRugPullDetected
+        expr: increase(vellaveto_rug_pull_detections_total[5m]) > 0
         labels:
           severity: critical
         annotations:
@@ -224,8 +224,8 @@ groups:
           description: "A tool schema change (rug-pull attack) was detected. Review immediately."
 
       # Security: Anomaly spike
-      - alert: SentinelAnomalySpike
-        expr: increase(sentinel_anomaly_detections_total[5m]) > 5
+      - alert: VellavetoAnomalySpike
+        expr: increase(vellaveto_anomaly_detections_total[5m]) > 5
         for: 2m
         labels:
           severity: warning
@@ -234,8 +234,8 @@ groups:
           description: "{{ $value }} anomalies detected in 5 minutes. Investigate agent behavior."
 
       # Rate limiting active
-      - alert: SentinelRateLimiting
-        expr: rate(sentinel_rate_limit_rejections_total[5m]) > 10
+      - alert: VellavetoRateLimiting
+        expr: rate(vellaveto_rate_limit_rejections_total[5m]) > 10
         for: 2m
         labels:
           severity: warning
@@ -244,8 +244,8 @@ groups:
           description: "Rate limiting {{ $value }} requests/second. Possible abuse or misconfiguration."
 
       # Auth failures
-      - alert: SentinelAuthFailures
-        expr: rate(sentinel_auth_failures_total[5m]) > 5
+      - alert: VellavetoAuthFailures
+        expr: rate(vellaveto_auth_failures_total[5m]) > 5
         for: 2m
         labels:
           severity: warning
@@ -254,8 +254,8 @@ groups:
           description: "{{ $value }} auth failures/second. Possible credential stuffing attack."
 
       # Cluster backend latency
-      - alert: SentinelClusterLatency
-        expr: histogram_quantile(0.99, rate(sentinel_cluster_backend_latency_seconds_bucket[5m])) > 0.100
+      - alert: VellavetoClusterLatency
+        expr: histogram_quantile(0.99, rate(vellaveto_cluster_backend_latency_seconds_bucket[5m])) > 0.100
         for: 5m
         labels:
           severity: warning
@@ -295,13 +295,13 @@ Key panels:
 
 ```bash
 # Check service status
-sudo systemctl status sentinel
+sudo systemctl status vellaveto
 
 # View startup logs
-sudo journalctl -u sentinel -n 50 --no-pager
+sudo journalctl -u vellaveto -n 50 --no-pager
 
 # Validate configuration
-sentinel validate --config /etc/sentinel/config.toml
+vellaveto validate --config /etc/vellaveto/config.toml
 
 # Check for port conflicts
 sudo lsof -i :3000
@@ -312,22 +312,22 @@ sudo lsof -i :3000
 | Error | Cause | Solution |
 |-------|-------|----------|
 | `Address already in use` | Port 3000 is taken | Change port or stop conflicting service |
-| `TOML parse error` | Invalid config syntax | Run `sentinel validate` to find the issue |
+| `TOML parse error` | Invalid config syntax | Run `vellaveto validate` to find the issue |
 | `Policy compilation error` | Invalid regex/glob | Check policy patterns in config |
-| `Permission denied` | Wrong file permissions | Ensure sentinel user can read config |
+| `Permission denied` | Wrong file permissions | Ensure vellaveto user can read config |
 
 #### Resolution
 
 ```bash
 # Fix permissions
-sudo chown sentinel:sentinel /etc/sentinel/config.toml
-sudo chmod 640 /etc/sentinel/config.toml
+sudo chown vellaveto:vellaveto /etc/vellaveto/config.toml
+sudo chmod 640 /etc/vellaveto/config.toml
 
 # Change port (in config.toml or command line)
 # bind = "0.0.0.0:3001"
 
 # Restart after fixing
-sudo systemctl restart sentinel
+sudo systemctl restart vellaveto
 ```
 
 ### High Latency
@@ -341,13 +341,13 @@ sudo systemctl restart sentinel
 
 ```bash
 # Check current latency
-curl -s localhost:3000/metrics | grep sentinel_evaluation_duration
+curl -s localhost:3000/metrics | grep vellaveto_evaluation_duration
 
 # Check CPU and memory
-top -p $(pgrep sentinel)
+top -p $(pgrep vellaveto)
 
 # Check for policy complexity
-sentinel stats --config /etc/sentinel/config.toml
+vellaveto stats --config /etc/vellaveto/config.toml
 ```
 
 #### Common Causes
@@ -363,7 +363,7 @@ sentinel stats --config /etc/sentinel/config.toml
 
 ```bash
 # Profile policy evaluation (if built with profiling)
-SENTINEL_PROFILE=1 sentinel serve --config /etc/sentinel/config.toml
+VELLAVETO_PROFILE=1 vellaveto serve --config /etc/vellaveto/config.toml
 
 # Optimize Redis (if using clustering)
 # Reduce key TTL, use pipelining, check network
@@ -377,16 +377,16 @@ sudo systemctl enable --now systemd-resolved
 #### Symptoms
 - Many legitimate requests being denied
 - Users reporting access issues
-- High `sentinel_evaluations_total{verdict="deny"}`
+- High `vellaveto_evaluations_total{verdict="deny"}`
 
 #### Diagnosis
 
 ```bash
 # Check recent denials in audit log
-grep '"verdict":"deny"' /var/lib/sentinel/audit.log | tail -20
+grep '"verdict":"deny"' /var/lib/vellaveto/audit.log | tail -20
 
 # Check which policies are matching
-curl -s localhost:3000/metrics | grep sentinel_policy_matches_total
+curl -s localhost:3000/metrics | grep vellaveto_policy_matches_total
 
 # Test a specific action
 curl -X POST localhost:3000/api/evaluate \
@@ -417,7 +417,7 @@ curl -X POST localhost:3000/api/evaluate \
 curl -X POST localhost:3000/api/policies/reload
 
 # Or restart
-sudo systemctl restart sentinel
+sudo systemctl restart vellaveto
 ```
 
 ### Audit Log Issues
@@ -431,16 +431,16 @@ sudo systemctl restart sentinel
 
 ```bash
 # Check log file size
-ls -lh /var/lib/sentinel/audit.log
+ls -lh /var/lib/vellaveto/audit.log
 
 # Verify log integrity
-sentinel audit verify --path /var/lib/sentinel/audit.log
+vellaveto audit verify --path /var/lib/vellaveto/audit.log
 
 # Check disk space
-df -h /var/lib/sentinel
+df -h /var/lib/vellaveto
 
 # Check recent entries
-tail -10 /var/lib/sentinel/audit.log
+tail -10 /var/lib/vellaveto/audit.log
 ```
 
 #### Common Causes
@@ -456,13 +456,13 @@ tail -10 /var/lib/sentinel/audit.log
 
 ```bash
 # Manual rotation
-cd /var/lib/sentinel
+cd /var/lib/vellaveto
 mv audit.log audit.log.$(date +%Y%m%d)
-sudo systemctl restart sentinel
+sudo systemctl restart vellaveto
 
 # Configure logrotate
-cat > /etc/logrotate.d/sentinel << 'EOF'
-/var/lib/sentinel/audit.log {
+cat > /etc/logrotate.d/vellaveto << 'EOF'
+/var/lib/vellaveto/audit.log {
     daily
     rotate 30
     compress
@@ -474,7 +474,7 @@ cat > /etc/logrotate.d/sentinel << 'EOF'
 EOF
 
 # Clean old logs
-find /var/lib/sentinel -name "audit.log.*" -mtime +30 -delete
+find /var/lib/vellaveto -name "audit.log.*" -mtime +30 -delete
 ```
 
 ### Clustering Issues
@@ -491,13 +491,13 @@ find /var/lib/sentinel -name "audit.log.*" -mtime +30 -delete
 redis-cli -h redis-host -p 6379 PING
 
 # Check cluster backend latency
-curl -s localhost:3000/metrics | grep sentinel_cluster_backend
+curl -s localhost:3000/metrics | grep vellaveto_cluster_backend
 
 # Check Redis memory
 redis-cli -h redis-host INFO memory
 
-# List Sentinel keys in Redis
-redis-cli -h redis-host KEYS "sentinel:*"
+# List Vellaveto keys in Redis
+redis-cli -h redis-host KEYS "vellaveto:*"
 ```
 
 #### Common Causes
@@ -519,8 +519,8 @@ redis-cli -h redis-host -p 6379 PING
 redis-cli -h redis-host CONFIG GET maxmemory
 redis-cli -h redis-host CONFIG SET maxmemory 256mb
 
-# Clear stale Sentinel keys (use with caution)
-redis-cli -h redis-host KEYS "sentinel:*" | xargs redis-cli -h redis-host DEL
+# Clear stale Vellaveto keys (use with caution)
+redis-cli -h redis-host KEYS "vellaveto:*" | xargs redis-cli -h redis-host DEL
 ```
 
 ---
@@ -533,23 +533,23 @@ redis-cli -h redis-host KEYS "sentinel:*" | xargs redis-cli -h redis-host DEL
 
 ```bash
 # Edit policies
-sudo vim /etc/sentinel/config.toml
+sudo vim /etc/vellaveto/config.toml
 
 # Trigger hot reload
 curl -X POST localhost:3000/api/policies/reload
 
 # Verify new policy count
-curl -s localhost:3000/metrics | grep sentinel_policies_loaded
+curl -s localhost:3000/metrics | grep vellaveto_policies_loaded
 ```
 
 #### Full Restart (If Hot Reload Fails)
 
 ```bash
 # Validate first
-sentinel validate --config /etc/sentinel/config.toml
+vellaveto validate --config /etc/vellaveto/config.toml
 
 # Restart
-sudo systemctl restart sentinel
+sudo systemctl restart vellaveto
 
 # Verify health
 curl localhost:3000/health
@@ -560,9 +560,9 @@ curl localhost:3000/health
 Configure automatic rotation:
 
 ```bash
-# /etc/logrotate.d/sentinel
+# /etc/logrotate.d/vellaveto
 
-/var/lib/sentinel/audit.log {
+/var/lib/vellaveto/audit.log {
     daily
     rotate 90
     compress
@@ -571,12 +571,12 @@ Configure automatic rotation:
     notifempty
     copytruncate
     postrotate
-        # Signal Sentinel to reopen log file (if supported)
-        systemctl kill -s HUP sentinel || true
+        # Signal Vellaveto to reopen log file (if supported)
+        systemctl kill -s HUP vellaveto || true
     endscript
 }
 
-/var/log/sentinel/*.log {
+/var/log/vellaveto/*.log {
     daily
     rotate 14
     compress
@@ -593,30 +593,30 @@ Configure automatic rotation:
 
 | Item | Location | Frequency |
 |------|----------|-----------|
-| Configuration | `/etc/sentinel/` | On change |
-| Audit logs | `/var/lib/sentinel/audit.log*` | Daily |
-| Manifest (if pinning) | `/etc/sentinel/manifest.json` | On change |
-| Approval state | Redis or `/var/lib/sentinel/approvals/` | Hourly |
+| Configuration | `/etc/vellaveto/` | On change |
+| Audit logs | `/var/lib/vellaveto/audit.log*` | Daily |
+| Manifest (if pinning) | `/etc/vellaveto/manifest.json` | On change |
+| Approval state | Redis or `/var/lib/vellaveto/approvals/` | Hourly |
 
 #### Backup Script
 
 ```bash
 #!/bin/bash
-# /usr/local/bin/sentinel-backup.sh
+# /usr/local/bin/vellaveto-backup.sh
 
-BACKUP_DIR="/backup/sentinel/$(date +%Y%m%d)"
+BACKUP_DIR="/backup/vellaveto/$(date +%Y%m%d)"
 mkdir -p "$BACKUP_DIR"
 
 # Config
-cp -r /etc/sentinel "$BACKUP_DIR/config"
+cp -r /etc/vellaveto "$BACKUP_DIR/config"
 
 # Audit logs (compress recent)
-cp /var/lib/sentinel/audit.log "$BACKUP_DIR/"
+cp /var/lib/vellaveto/audit.log "$BACKUP_DIR/"
 gzip "$BACKUP_DIR/audit.log"
 
 # Approval state
-if [ -d /var/lib/sentinel/approvals ]; then
-    cp -r /var/lib/sentinel/approvals "$BACKUP_DIR/"
+if [ -d /var/lib/vellaveto/approvals ]; then
+    cp -r /var/lib/vellaveto/approvals "$BACKUP_DIR/"
 fi
 
 # Checksum
@@ -639,26 +639,26 @@ echo "Backup completed: $BACKUP_DIR"
 
 ```bash
 # 1. Back up
-/usr/local/bin/sentinel-backup.sh
+/usr/local/bin/vellaveto-backup.sh
 
 # 2. Download new version
-wget https://github.com/paolovella/sentinel/releases/download/v1.1.0/sentinel-linux-amd64
+wget https://github.com/paolovella/vellaveto/releases/download/v1.1.0/vellaveto-linux-amd64
 
 # 3. Verify checksum
-sha256sum -c sentinel-linux-amd64.sha256
+sha256sum -c vellaveto-linux-amd64.sha256
 
 # 4. Stop service
-sudo systemctl stop sentinel
+sudo systemctl stop vellaveto
 
 # 5. Replace binary
-sudo mv sentinel-linux-amd64 /usr/local/bin/sentinel
-sudo chmod +x /usr/local/bin/sentinel
+sudo mv vellaveto-linux-amd64 /usr/local/bin/vellaveto
+sudo chmod +x /usr/local/bin/vellaveto
 
 # 6. Validate config with new version
-sentinel validate --config /etc/sentinel/config.toml
+vellaveto validate --config /etc/vellaveto/config.toml
 
 # 7. Start service
-sudo systemctl start sentinel
+sudo systemctl start vellaveto
 
 # 8. Verify health
 curl localhost:3000/health
@@ -669,16 +669,16 @@ curl -s localhost:3000/metrics | head -20
 
 ```bash
 # Stop service
-sudo systemctl stop sentinel
+sudo systemctl stop vellaveto
 
 # Restore previous binary
-sudo cp /backup/sentinel/sentinel.bak /usr/local/bin/sentinel
+sudo cp /backup/vellaveto/vellaveto.bak /usr/local/bin/vellaveto
 
 # Restore config if changed
-sudo cp -r /backup/sentinel/config/* /etc/sentinel/
+sudo cp -r /backup/vellaveto/config/* /etc/vellaveto/
 
 # Start service
-sudo systemctl start sentinel
+sudo systemctl start vellaveto
 ```
 
 ---
@@ -698,23 +698,23 @@ curl localhost:3000/ready
 curl localhost:3000/metrics
 
 # Service status
-sudo systemctl status sentinel
+sudo systemctl status vellaveto
 ```
 
 ### Viewing Recent Decisions
 
 ```bash
 # Last 10 decisions
-tail -10 /var/lib/sentinel/audit.log | jq .
+tail -10 /var/lib/vellaveto/audit.log | jq .
 
 # Filter by verdict
-grep '"verdict":"deny"' /var/lib/sentinel/audit.log | tail -5 | jq .
+grep '"verdict":"deny"' /var/lib/vellaveto/audit.log | tail -5 | jq .
 
 # Filter by tool
-grep '"tool":"bash"' /var/lib/sentinel/audit.log | tail -5 | jq .
+grep '"tool":"bash"' /var/lib/vellaveto/audit.log | tail -5 | jq .
 
 # Count decisions by verdict (last 1000 entries)
-tail -1000 /var/lib/sentinel/audit.log | jq -r '.verdict' | sort | uniq -c
+tail -1000 /var/lib/vellaveto/audit.log | jq -r '.verdict' | sort | uniq -c
 ```
 
 ### Managing Approvals
@@ -753,7 +753,7 @@ curl "localhost:3000/api/audit/export?format=jsonl&redact=high" > audit-redacted
 
 ### Service Degradation
 
-If Sentinel is degrading but not completely down:
+If Vellaveto is degrading but not completely down:
 
 1. **Assess impact**
    ```bash
@@ -762,7 +762,7 @@ If Sentinel is degrading but not completely down:
 
 2. **Check resource usage**
    ```bash
-   top -p $(pgrep sentinel)
+   top -p $(pgrep vellaveto)
    ```
 
 3. **Enable bypass mode (if critical)**
@@ -788,7 +788,7 @@ If Sentinel is degrading but not completely down:
 
 ### Security Incident Response
 
-If Sentinel detects a potential attack:
+If Vellaveto detects a potential attack:
 
 1. **Assess the alert**
    ```bash
@@ -796,13 +796,13 @@ If Sentinel detects a potential attack:
    curl -s localhost:3000/metrics | grep -E "(injection|rug_pull|squatting|anomaly)"
 
    # Review audit log for details
-   grep -E "(injection_detected|rug_pull|squatting)" /var/lib/sentinel/audit.log | tail -20 | jq .
+   grep -E "(injection_detected|rug_pull|squatting)" /var/lib/vellaveto/audit.log | tail -20 | jq .
    ```
 
 2. **Identify affected agents/tools**
    ```bash
    # Extract agent IDs from suspicious events
-   grep '"injection_detected":true' /var/lib/sentinel/audit.log | jq -r '.agent_id' | sort -u
+   grep '"injection_detected":true' /var/lib/vellaveto/audit.log | jq -r '.agent_id' | sort -u
    ```
 
 3. **Isolate if necessary**
@@ -825,10 +825,10 @@ If Sentinel detects a potential attack:
 4. **Preserve evidence**
    ```bash
    # Copy current audit log
-   cp /var/lib/sentinel/audit.log /backup/incident-$(date +%Y%m%d%H%M%S).log
+   cp /var/lib/vellaveto/audit.log /backup/incident-$(date +%Y%m%d%H%M%S).log
 
    # Export recent entries
-   tail -10000 /var/lib/sentinel/audit.log > /backup/incident-recent.jsonl
+   tail -10000 /var/lib/vellaveto/audit.log > /backup/incident-recent.jsonl
    ```
 
 5. **Notify security team** with relevant logs and metrics

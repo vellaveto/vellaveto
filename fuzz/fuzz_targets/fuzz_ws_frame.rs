@@ -21,22 +21,22 @@ fuzz_target!(|data: &[u8]| {
     };
 
     // Step 3: Classify the message (must not panic)
-    let classified = sentinel_mcp::extractor::classify_message(&value);
+    let classified = vellaveto_mcp::extractor::classify_message(&value);
 
     // Step 4: If it's a tool call, extract the action (must not panic)
-    if let sentinel_mcp::extractor::MessageType::ToolCall {
+    if let vellaveto_mcp::extractor::MessageType::ToolCall {
         tool_name,
         arguments,
         ..
     } = classified
     {
-        let _ = sentinel_mcp::extractor::extract_action(&tool_name, &arguments);
+        let _ = vellaveto_mcp::extractor::extract_action(&tool_name, &arguments);
     }
 
     // Step 5: If it's a resource read, extract resource action (must not panic)
-    if let sentinel_mcp::extractor::MessageType::ResourceRead { uri, .. } =
-        sentinel_mcp::extractor::classify_message(&value)
+    if let vellaveto_mcp::extractor::MessageType::ResourceRead { uri, .. } =
+        vellaveto_mcp::extractor::classify_message(&value)
     {
-        let _ = sentinel_mcp::extractor::extract_resource_action(&uri);
+        let _ = vellaveto_mcp::extractor::extract_resource_action(&uri);
     }
 });

@@ -1,0 +1,15 @@
+[package]
+name = "vellaveto-canonical"
+version = "3.0.0"
+description = "Canonical security policy presets for common scenarios"
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+vellaveto-types = { path = "../vellaveto-types" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+proptest = "1.4"
