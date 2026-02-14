@@ -7,7 +7,7 @@
 > **Tests:** 4,812 Rust tests + 130 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 22
 > **CI workflows:** 11
-> **Updated:** 2026-02-14
+> **Updated:** 2026-02-15
 
 ---
 
