@@ -3130,6 +3130,7 @@ dependencies = [
  "bytes",
  "chrono",
  "clap",
+ "criterion",
  "dashmap",
  "futures-util",
  "governor",
