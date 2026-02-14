@@ -735,7 +735,7 @@ mod tests {
         let coverage = registry.coverage_by_category();
         // All 9 categories should have some coverage
         assert_eq!(coverage.len(), 9);
-        for (_, cat_cov) in &coverage {
+        for cat_cov in coverage.values() {
             assert!(
                 cat_cov.covered_criteria > 0,
                 "Category {} should have at least one covered criterion",
@@ -748,7 +748,7 @@ mod tests {
     fn test_coverage_readiness_percent() {
         let registry = Soc2Registry::new();
         let coverage = registry.coverage_by_category();
-        for (_, cat_cov) in &coverage {
+        for cat_cov in coverage.values() {
             assert!(cat_cov.readiness_percent >= 0.0);
             assert!(cat_cov.readiness_percent <= 100.0);
         }

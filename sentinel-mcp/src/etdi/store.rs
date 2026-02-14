@@ -360,6 +360,7 @@ mod tests {
             signed_at: "2026-01-01T00:00:00Z".to_string(),
             expires_at: None,
             signer_spiffe_id: None,
+            rekor_entry: None,
         }
     }
 

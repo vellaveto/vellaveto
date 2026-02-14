@@ -729,6 +729,36 @@ impl PolicyEngine {
                         }
                     }
                 }
+
+                CompiledContextCondition::SessionStateRequired {
+                    allowed_states,
+                    deny_reason,
+                } => {
+                    // Session state guard enforcement (Phase 23.5).
+                    // SECURITY: Fail-closed when session_state is None.
+                    match &context.session_state {
+                        Some(state) => {
+                            let state_lower = state.to_ascii_lowercase();
+                            if !allowed_states.contains(&state_lower) {
+                                return Some(Verdict::Deny {
+                                    reason: format!(
+                                        "{} (session state '{}' not in allowed states: {:?})",
+                                        deny_reason, state, allowed_states
+                                    ),
+                                });
+                            }
+                        }
+                        None => {
+                            // Fail-closed: no session state in context
+                            return Some(Verdict::Deny {
+                                reason: format!(
+                                    "{} (no session state in context — fail-closed)",
+                                    deny_reason
+                                ),
+                            });
+                        }
+                    }
+                }
             }
         }
         None

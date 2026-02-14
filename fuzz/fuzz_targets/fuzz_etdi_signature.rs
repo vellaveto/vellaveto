@@ -22,6 +22,7 @@ fuzz_target!(|data: &[u8]| {
             signed_at: parts.get(4).unwrap_or(&"2026-01-01T00:00:00Z").to_string(),
             expires_at: parts.get(5).map(|s| s.to_string()),
             signer_spiffe_id: parts.get(6).map(|s| s.to_string()),
+            rekor_entry: None,
         };
 
         // Create a schema with fuzzed content

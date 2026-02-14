@@ -154,6 +154,9 @@ impl RekorVerifier {
     /// Walks the proof hashes from the leaf to the root, using RFC 6962
     /// domain separation (`0x01 || left || right`), and compares the
     /// computed root to the declared root hash.
+    ///
+    /// Uses canonical JSON (RFC 8785) for the leaf hash to ensure deterministic
+    /// hashing regardless of serialization key order (FIND-P23-K02).
     pub fn verify_inclusion_proof(&self, entry: &RekorEntry) -> Result<bool, RekorError> {
         let proof = entry
             .inclusion_proof
@@ -164,12 +167,39 @@ impl RekorVerifier {
             return Err(RekorError::InvalidProof("tree_size is 0".to_string()));
         }
 
-        // Compute leaf hash: SHA-256(0x00 || entry_body_canonical)
-        let body_json = serde_json::to_string(&entry.body)
+        // Validate proof length is consistent with tree_size (FIND-P23-K04).
+        // For a tree of size N, the inclusion proof should have at most ceil(log2(N)) hashes.
+        // An empty proof is only valid for tree_size == 1.
+        if proof.tree_size > 1 && proof.hashes.is_empty() {
+            return Err(RekorError::InvalidProof(
+                "Empty proof for tree_size > 1".to_string(),
+            ));
+        }
+        let max_proof_len = 64; // ceil(log2(u64::MAX)) = 64
+        if proof.hashes.len() > max_proof_len {
+            return Err(RekorError::InvalidProof(format!(
+                "Proof has {} hashes (max {})",
+                proof.hashes.len(),
+                max_proof_len
+            )));
+        }
+
+        // Validate log_index < tree_size
+        if proof.log_index >= proof.tree_size {
+            return Err(RekorError::InvalidProof(format!(
+                "log_index {} >= tree_size {}",
+                proof.log_index, proof.tree_size
+            )));
+        }
+
+        // Compute leaf hash using canonical JSON (RFC 8785) for deterministic hashing
+        let body_json = serde_json::to_value(&entry.body)
             .map_err(|e| RekorError::InvalidProof(format!("Failed to serialize body: {}", e)))?;
+        let canonical_bytes = serde_json_canonicalizer::to_vec(&body_json)
+            .map_err(|e| RekorError::InvalidProof(format!("Failed to canonicalize body: {}", e)))?;
         let mut leaf_hasher = Sha256::new();
         leaf_hasher.update([0x00]); // RFC 6962 leaf domain separator
-        leaf_hasher.update(body_json.as_bytes());
+        leaf_hasher.update(&canonical_bytes);
         let mut current = leaf_hasher.finalize().to_vec();
 
         // Walk the proof path
@@ -177,6 +207,13 @@ impl RekorVerifier {
         for hash_hex in &proof.hashes {
             let sibling = hex::decode(hash_hex)
                 .map_err(|e| RekorError::InvalidHash(format!("Bad hex in proof: {}", e)))?;
+
+            if sibling.len() != 32 {
+                return Err(RekorError::InvalidHash(format!(
+                    "Hash has {} bytes, expected 32",
+                    sibling.len()
+                )));
+            }
 
             // RFC 6962 interior node: SHA-256(0x01 || left || right)
             let mut hasher = Sha256::new();
@@ -303,21 +340,25 @@ mod tests {
         assert!(matches!(result, Err(RekorError::MissingProof)));
     }
 
+    /// Helper to compute the canonical leaf hash for a Rekor entry body.
+    fn compute_leaf_hash(body: &RekorBody) -> Vec<u8> {
+        let body_json = serde_json::to_value(body).unwrap();
+        let canonical_bytes = serde_json_canonicalizer::to_vec(&body_json).unwrap();
+        let mut leaf_hasher = Sha256::new();
+        leaf_hasher.update([0x00]);
+        leaf_hasher.update(&canonical_bytes);
+        leaf_hasher.finalize().to_vec()
+    }
+
     #[test]
     fn test_inclusion_proof_with_known_good_proof() {
         let verifier = RekorVerifier::new();
         let mut entry = make_test_entry("abc");
 
-        // Compute the leaf hash
-        let body_json = serde_json::to_string(&entry.body).unwrap();
-        let mut leaf_hasher = Sha256::new();
-        leaf_hasher.update([0x00]);
-        leaf_hasher.update(body_json.as_bytes());
-        let leaf = leaf_hasher.finalize().to_vec();
+        // Compute the leaf hash using canonical JSON
+        let leaf = compute_leaf_hash(&entry.body);
 
-        // Single-element tree: root = leaf hash
-        // But with proof convention, we need a sibling. Use empty proof.
-        // With 0 hashes in proof, the root should equal the leaf hash.
+        // Single-element tree: root = leaf hash (empty proof valid for tree_size=1)
         entry.inclusion_proof = Some(RekorInclusionProof {
             log_index: 0,
             root_hash: hex::encode(&leaf),
@@ -350,12 +391,8 @@ mod tests {
         let verifier = RekorVerifier::new();
         let mut entry = make_test_entry("tool_hash_123");
 
-        // Set up valid proof (single leaf)
-        let body_json = serde_json::to_string(&entry.body).unwrap();
-        let mut leaf_hasher = Sha256::new();
-        leaf_hasher.update([0x00]);
-        leaf_hasher.update(body_json.as_bytes());
-        let leaf = leaf_hasher.finalize().to_vec();
+        // Set up valid proof (single leaf) using canonical JSON
+        let leaf = compute_leaf_hash(&entry.body);
 
         entry.inclusion_proof = Some(RekorInclusionProof {
             log_index: 0,
@@ -376,12 +413,8 @@ mod tests {
         let verifier = RekorVerifier::new();
         let mut entry = make_test_entry("correct_hash");
 
-        // Valid proof
-        let body_json = serde_json::to_string(&entry.body).unwrap();
-        let mut leaf_hasher = Sha256::new();
-        leaf_hasher.update([0x00]);
-        leaf_hasher.update(body_json.as_bytes());
-        let leaf = leaf_hasher.finalize().to_vec();
+        // Valid proof using canonical JSON
+        let leaf = compute_leaf_hash(&entry.body);
 
         entry.inclusion_proof = Some(RekorInclusionProof {
             log_index: 0,
@@ -440,14 +473,10 @@ mod tests {
         let verifier = RekorVerifier::new();
         let mut entry = make_test_entry("abc");
 
-        // Compute leaf hash
-        let body_json = serde_json::to_string(&entry.body).unwrap();
-        let mut leaf_hasher = Sha256::new();
-        leaf_hasher.update([0x00]);
-        leaf_hasher.update(body_json.as_bytes());
-        let leaf = leaf_hasher.finalize().to_vec();
+        // Compute leaf hash using canonical JSON
+        let leaf = compute_leaf_hash(&entry.body);
 
-        // Create a sibling hash
+        // Create a sibling hash (32 bytes)
         let sibling = hex::encode(Sha256::digest(b"sibling"));
 
         // Compute root: SHA-256(0x01 || leaf || sibling) since log_index=0 (even)
@@ -465,5 +494,38 @@ mod tests {
         });
 
         assert!(verifier.verify_inclusion_proof(&entry).unwrap());
+    }
+
+    #[test]
+    fn test_empty_proof_rejected_for_large_tree() {
+        let verifier = RekorVerifier::new();
+        let mut entry = make_test_entry("abc");
+
+        // Empty proof with tree_size > 1 should be rejected (FIND-P23-K04)
+        entry.inclusion_proof = Some(RekorInclusionProof {
+            log_index: 0,
+            root_hash: "abc".to_string(),
+            tree_size: 100,
+            hashes: vec![],
+        });
+
+        let result = verifier.verify_inclusion_proof(&entry);
+        assert!(matches!(result, Err(RekorError::InvalidProof(_))));
+    }
+
+    #[test]
+    fn test_log_index_exceeds_tree_size() {
+        let verifier = RekorVerifier::new();
+        let mut entry = make_test_entry("abc");
+
+        entry.inclusion_proof = Some(RekorInclusionProof {
+            log_index: 10,
+            root_hash: "abc".to_string(),
+            tree_size: 5,
+            hashes: vec!["aa".repeat(32)],
+        });
+
+        let result = verifier.verify_inclusion_proof(&entry);
+        assert!(matches!(result, Err(RekorError::InvalidProof(_))));
     }
 }

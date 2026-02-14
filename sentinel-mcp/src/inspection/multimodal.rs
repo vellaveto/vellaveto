@@ -565,10 +565,12 @@ impl MultimodalScanner {
 
     /// Extract readable ASCII strings from EXIF data.
     ///
-    /// Simplified approach: scan for ASCII strings >= 8 chars. This catches
+    /// Simplified approach: scan for ASCII strings >= 4 chars. This catches
     /// UserComment, ImageDescription, XPComment, etc. without a full TIFF IFD
-    /// parser. Sufficient for injection detection.
+    /// parser. The low threshold ensures short injection keywords like "exec",
+    /// "eval", "sudo" are captured. Sufficient for injection detection.
     fn extract_exif_text(exif_data: &[u8]) -> Option<String> {
+        const MIN_STRING_LEN: usize = 4;
         let mut texts = Vec::new();
         let mut current = String::new();
 
@@ -576,13 +578,13 @@ impl MultimodalScanner {
             // Skip "Exif\0\0"
             if (0x20..0x7F).contains(&byte) {
                 current.push(byte as char);
-            } else if current.len() >= 8 {
+            } else if current.len() >= MIN_STRING_LEN {
                 texts.push(std::mem::take(&mut current));
             } else {
                 current.clear();
             }
         }
-        if current.len() >= 8 {
+        if current.len() >= MIN_STRING_LEN {
             texts.push(current);
         }
 
@@ -597,6 +599,9 @@ impl MultimodalScanner {
     ///
     /// Finds stream/endstream pairs, inflates FlateDecode streams, and
     /// extracts text from Tj/TJ operators. No full PDF parser needed.
+    ///
+    /// Works directly on raw bytes to avoid index mismatches from
+    /// `String::from_utf8_lossy` replacement character insertion.
     fn extract_text_from_pdf(
         &self,
         data: &[u8],
@@ -606,36 +611,45 @@ impl MultimodalScanner {
         }
 
         let mut texts = Vec::new();
-        let data_str = String::from_utf8_lossy(data);
         let mut search_from = 0;
         let max_streams = 100; // Bound iteration to prevent DoS
         let mut stream_count = 0;
+        let mut aggregate_text_len = 0usize;
+        const MAX_AGGREGATE_TEXT: usize = 1024 * 1024; // 1MB aggregate text limit
 
         while stream_count < max_streams {
-            let stream_keyword = match data_str[search_from..].find("stream") {
-                Some(pos) => search_from + pos,
+            // Find "stream" keyword in raw bytes, but skip occurrences inside "endstream"
+            let stream_pos = match Self::find_stream_keyword(data, search_from) {
+                Some(pos) => pos,
                 None => break,
             };
 
             // Determine content start (after "stream\r\n" or "stream\n")
-            let content_start = if data_str[stream_keyword..].starts_with("stream\r\n") {
-                stream_keyword + 8
-            } else if data_str[stream_keyword..].starts_with("stream\n") {
-                stream_keyword + 7
+            let after_keyword = stream_pos + 6; // len(b"stream")
+            let content_start = if after_keyword < data.len() && data[after_keyword] == b'\r' {
+                if after_keyword + 1 < data.len() && data[after_keyword + 1] == b'\n' {
+                    after_keyword + 2
+                } else {
+                    search_from = after_keyword;
+                    continue;
+                }
+            } else if after_keyword < data.len() && data[after_keyword] == b'\n' {
+                after_keyword + 1
             } else {
-                search_from = stream_keyword + 6;
+                search_from = after_keyword;
                 continue;
             };
 
-            let endstream_pos = match data_str[content_start..].find("endstream") {
-                Some(pos) => content_start + pos,
+            // Find "endstream" in raw bytes
+            let endstream_pos = match Self::find_bytes(data, b"endstream", content_start) {
+                Some(pos) => pos,
                 None => break,
             };
 
-            // Check for FlateDecode in the dictionary before this stream
-            let dict_start = stream_keyword.saturating_sub(256);
-            let dict_region = &data_str[dict_start..stream_keyword];
-            let is_flate = dict_region.contains("FlateDecode");
+            // Check for FlateDecode in the dictionary before this stream (max 256 bytes back)
+            let dict_start = stream_pos.saturating_sub(4096);
+            let is_flate = Self::find_bytes(data, b"FlateDecode", dict_start)
+                .is_some_and(|pos| pos < stream_pos);
 
             let stream_bytes = &data[content_start..endstream_pos];
 
@@ -649,12 +663,23 @@ impl MultimodalScanner {
                 let content_str = String::from_utf8_lossy(&content);
                 if let Some(text) = Self::extract_pdf_text_operators(&content_str) {
                     if !text.is_empty() {
+                        aggregate_text_len = aggregate_text_len.saturating_add(text.len());
+                        if aggregate_text_len > MAX_AGGREGATE_TEXT {
+                            // Truncate to stay within aggregate limit
+                            let remaining = MAX_AGGREGATE_TEXT.saturating_sub(
+                                aggregate_text_len.saturating_sub(text.len()),
+                            );
+                            if remaining > 0 {
+                                texts.push(text[..remaining.min(text.len())].to_string());
+                            }
+                            break; // Stop processing further streams
+                        }
                         texts.push(text);
                     }
                 }
             }
 
-            search_from = endstream_pos + 9;
+            search_from = endstream_pos + 9; // len(b"endstream")
             stream_count += 1;
         }
 
@@ -666,7 +691,34 @@ impl MultimodalScanner {
         }
     }
 
+    /// Find the next "stream" keyword in raw bytes that is NOT part of "endstream".
+    fn find_stream_keyword(data: &[u8], start: usize) -> Option<usize> {
+        let mut pos = start;
+        while let Some(offset) = Self::find_bytes(data, b"stream", pos) {
+            // Check this is not part of "endstream" (preceded by "end")
+            if offset >= 3 && &data[offset - 3..offset] == b"end" {
+                pos = offset + 6;
+                continue;
+            }
+            return Some(offset);
+        }
+        None
+    }
+
+    /// Find a byte pattern in data starting from `start`. Returns byte offset.
+    fn find_bytes(data: &[u8], pattern: &[u8], start: usize) -> Option<usize> {
+        if pattern.is_empty() || start + pattern.len() > data.len() {
+            return None;
+        }
+        data[start..]
+            .windows(pattern.len())
+            .position(|w| w == pattern)
+            .map(|p| start + p)
+    }
+
     /// Extract text from PDF text operators (Tj, TJ, ', ").
+    ///
+    /// Handles both literal strings `(...)` and hex strings `<...>`.
     fn extract_pdf_text_operators(content: &str) -> Option<String> {
         let mut texts = Vec::new();
         let bytes = content.as_bytes();
@@ -699,6 +751,35 @@ impl MultimodalScanner {
                     }
                     i += 1; // Skip closing paren
                 }
+            } else if bytes[i] == b'<' && i + 1 < bytes.len() && bytes[i + 1] != b'<' {
+                // Parse hex string <hex digits>
+                // Skip "<<" which is a dictionary delimiter, not a hex string
+                let start = i + 1;
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'>' {
+                    i += 1;
+                }
+                if i < bytes.len() {
+                    let hex_str = &content[start..i];
+                    // Decode hex pairs into bytes, ignoring whitespace
+                    let hex_clean: String = hex_str
+                        .chars()
+                        .filter(|c| c.is_ascii_hexdigit())
+                        .collect();
+                    if hex_clean.len() >= 2 {
+                        let decoded_bytes: Vec<u8> = (0..hex_clean.len() / 2)
+                            .filter_map(|j| {
+                                u8::from_str_radix(&hex_clean[j * 2..j * 2 + 2], 16).ok()
+                            })
+                            .collect();
+                        let text = String::from_utf8_lossy(&decoded_bytes);
+                        let trimmed = text.trim();
+                        if !trimmed.is_empty() && trimmed.chars().any(|c| c.is_alphabetic()) {
+                            texts.push(trimmed.to_string());
+                        }
+                    }
+                    i += 1; // Skip closing >
+                }
             } else {
                 i += 1;
             }
@@ -712,12 +793,21 @@ impl MultimodalScanner {
     }
 
     /// Scan extracted text for injection patterns.
+    ///
+    /// Normalizes whitespace before scanning so that payloads split across
+    /// multiple metadata chunks (joined with `\n`) are still detected.
     fn scan_text_for_injection(
         &self,
         text: &str,
         scanner: &InjectionScanner,
     ) -> Vec<MultimodalInjectionFinding> {
-        let matches = scanner.inspect(text);
+        // Collapse all whitespace (newlines, tabs, etc.) into single spaces
+        // so injection payloads split across chunks are caught.
+        let normalized: String = text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let matches = scanner.inspect(&normalized);
 
         matches
             .into_iter()
@@ -735,6 +825,28 @@ impl MultimodalScanner {
     /// LSB steganography makes the least-significant-bit distribution more
     /// uniform. A chi-squared test detecting suspiciously uniform LSBs
     /// indicates potential hidden data.
+    ///
+    /// # Limitations
+    ///
+    /// This is a **heuristic** detector with known limitations:
+    ///
+    /// - **Low-payload stego**: If only a small fraction of pixels carry hidden
+    ///   data, the overall LSB distribution may remain non-uniform enough to
+    ///   evade detection. The chi-squared test requires a statistically
+    ///   significant sample of modified pixels.
+    /// - **Adaptive stego**: Advanced techniques (e.g., F5, outguess) that
+    ///   preserve natural LSB statistics will evade this detector.
+    /// - **Non-LSB methods**: Steganography using DCT coefficients, palette
+    ///   manipulation, or other non-LSB channels is not detected.
+    /// - **False positives**: Synthetic images with naturally uniform pixel
+    ///   distributions (e.g., gradients, solid fills) may trigger alerts.
+    /// - **Compressed formats**: JPEG image data is DCT-compressed; the raw
+    ///   bytes after the SOS marker are entropy-coded, not raw pixel values.
+    ///   LSB analysis on JPEG entropy data has limited accuracy compared to
+    ///   uncompressed formats (PNG, BMP).
+    ///
+    /// For high-assurance environments, combine with content-type restrictions
+    /// and out-of-band image re-encoding to strip hidden payloads.
     fn detect_steganography(
         &self,
         data: &[u8],
@@ -792,6 +904,8 @@ impl MultimodalScanner {
 
     /// Get the image data region (skip headers) for statistical analysis.
     fn get_image_data_region(data: &[u8]) -> &[u8] {
+        const MAX_MARKER_ITERATIONS: usize = 500;
+
         if data.len() >= 8 && data.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
             // PNG: skip signature (8) + IHDR chunk (~25 bytes)
             let skip = 33.min(data.len());
@@ -799,7 +913,9 @@ impl MultimodalScanner {
         } else if data.len() >= 3 && data.starts_with(&[0xFF, 0xD8, 0xFF]) {
             // JPEG: find SOS marker — image data follows
             let mut offset = 2;
-            while offset + 2 <= data.len() {
+            let mut iterations = 0;
+            while offset + 2 <= data.len() && iterations < MAX_MARKER_ITERATIONS {
+                iterations += 1;
                 if data[offset] == 0xFF && data[offset + 1] == 0xDA {
                     if offset + 4 <= data.len() {
                         let sos_len =
@@ -841,12 +957,22 @@ impl MultimodalScanner {
 
     /// Inflate zlib-compressed data (used for PNG zTXt and PDF FlateDecode).
     ///
-    /// Limits decompressed output to 10MB to prevent zip bombs.
+    /// Limits decompressed output to 1MB to prevent zip bombs.
+    /// Returns an error if the output would exceed this limit, rather than
+    /// silently truncating (which could allow injection bypass).
     fn inflate(data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
+        const MAX_DECOMPRESS: u64 = 1024 * 1024; // 1MB per stream
         let decoder = flate2::read::ZlibDecoder::new(data);
+        let mut limited = decoder.take(MAX_DECOMPRESS + 1);
         let mut output = Vec::new();
-        // Limit decompressed size to prevent zip bombs
-        decoder.take(10 * 1024 * 1024).read_to_end(&mut output)?;
+        limited.read_to_end(&mut output)?;
+        // If we read more than the limit, reject — don't silently truncate
+        if output.len() as u64 > MAX_DECOMPRESS {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Decompressed stream exceeds 1MB limit (potential zip bomb)",
+            ));
+        }
         Ok(output)
     }
 }
@@ -1550,12 +1676,8 @@ mod tests {
         let mut data = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]; // PNG header
         data.extend_from_slice(&[0; 25]);
         // Add data with heavy bias toward even bytes (LSB=0)
-        for _ in 0..2000 {
-            data.push(0x42); // Even = LSB 0
-        }
-        for _ in 0..200 {
-            data.push(0x43); // Odd = LSB 1
-        }
+        data.extend(std::iter::repeat_n(0x42_u8, 2000)); // Even = LSB 0
+        data.extend(std::iter::repeat_n(0x43_u8, 200)); // Odd = LSB 1
 
         let config = MultimodalConfig {
             enabled: true,

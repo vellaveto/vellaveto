@@ -62,6 +62,9 @@ quality/
 # Security testing (Shannon pentest)
 security-testing/
 
+# Downloaded tools / archives
+*.zip
+
 # OS
 .DS_Store
 Thumbs.db

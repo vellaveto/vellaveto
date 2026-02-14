@@ -95,6 +95,7 @@ pub(super) fn build_evaluation_context(
             tenant_id: None,
             verification_tier: None,
             capability_token: None,
+            session_state: None,
         })
 }
 
@@ -445,6 +446,7 @@ pub(super) fn check_privilege_escalation(
             tenant_id: None,
             verification_tier: None,
             capability_token: None,
+            session_state: None,
         };
 
         // Evaluate the action with the upstream agent's identity

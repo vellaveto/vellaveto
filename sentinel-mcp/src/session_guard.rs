@@ -186,12 +186,17 @@ impl Default for SessionGuardConfig {
 // Session Context (internal)
 // ═══════════════════════════════════════════════════════════════════
 
+/// Maximum number of transitions stored per session to prevent unbounded growth.
+const MAX_TRANSITION_HISTORY: usize = 1000;
+
 struct SessionContext {
     state: SessionState,
     anomaly_count: u32,
     violation_count: u32,
     started_at: u64,
     last_action_at: u64,
+    /// Timestamp when the session entered the Locked state (for cooldown validation).
+    locked_at: Option<u64>,
     transition_history: Vec<(SessionState, SessionState, u64)>,
 }
 
@@ -203,6 +208,7 @@ impl SessionContext {
             violation_count: 0,
             started_at: now,
             last_action_at: now,
+            locked_at: None,
             transition_history: Vec::new(),
         }
     }
@@ -210,7 +216,13 @@ impl SessionContext {
     fn record_transition(&mut self, from: SessionState, to: SessionState, now: u64) {
         self.state = to;
         self.last_action_at = now;
-        self.transition_history.push((from, to, now));
+        if to == SessionState::Locked {
+            self.locked_at = Some(now);
+        }
+        // Bound history to prevent unbounded memory growth (FIND-P23-S13)
+        if self.transition_history.len() < MAX_TRANSITION_HISTORY {
+            self.transition_history.push((from, to, now));
+        }
     }
 }
 
@@ -264,14 +276,26 @@ impl SessionGuard {
 
         // Create session if it doesn't exist
         if !sessions.contains_key(session_id) {
-            // Enforce max_sessions — evict oldest if at capacity
+            // Enforce max_sessions — evict oldest if at capacity.
+            // SECURITY: Never evict Locked or Ended sessions — they carry
+            // security state that must be preserved (FIND-P23-S12).
             if sessions.len() >= self.config.max_sessions {
-                let oldest = sessions
+                let evictable = sessions
                     .iter()
+                    .filter(|(_, ctx)| {
+                        !matches!(ctx.state, SessionState::Locked | SessionState::Ended)
+                    })
                     .min_by_key(|(_, ctx)| ctx.last_action_at)
                     .map(|(k, _)| k.clone());
-                if let Some(key) = oldest {
+                if let Some(key) = evictable {
                     sessions.remove(&key);
+                } else {
+                    // All sessions are Locked/Ended — cannot evict safely.
+                    // Fail-closed: refuse to create new session.
+                    return Err(SessionGuardError::SessionNotFound(format!(
+                        "Session limit reached ({}) and no evictable sessions",
+                        self.config.max_sessions
+                    )));
                 }
             }
             sessions.insert(session_id.to_string(), SessionContext::new(now));
@@ -471,18 +495,45 @@ impl SessionGuard {
             ),
 
             // === Locked state ===
-            (SessionState::Locked, SessionEvent::CooldownElapsed) => (
-                SessionState::Suspicious,
-                TransitionAction::Warn {
-                    message: "Cooldown elapsed, session returning to Suspicious".to_string(),
-                },
-            ),
-            (SessionState::Locked, SessionEvent::AdminUnlock) => (
-                SessionState::Active,
-                TransitionAction::AuditEvent {
-                    event_type: "session_admin_unlocked".to_string(),
-                },
-            ),
+            (SessionState::Locked, SessionEvent::CooldownElapsed) => {
+                // Validate that the cooldown period has actually elapsed (FIND-P23-S09)
+                let cooldown_ok = ctx
+                    .locked_at
+                    .is_some_and(|locked| now.saturating_sub(locked) >= self.config.cooldown_secs);
+                if cooldown_ok {
+                    (
+                        SessionState::Suspicious,
+                        TransitionAction::Warn {
+                            message: "Cooldown elapsed, session returning to Suspicious"
+                                .to_string(),
+                        },
+                    )
+                } else {
+                    (
+                        SessionState::Locked,
+                        TransitionAction::DenyAll {
+                            reason: format!(
+                                "Cooldown period ({} secs) has not elapsed",
+                                self.config.cooldown_secs
+                            ),
+                        },
+                    )
+                }
+            }
+            // NOTE: AdminUnlock authorization is the caller's responsibility.
+            // The session guard state machine does not enforce admin auth —
+            // callers MUST verify admin credentials before sending this event.
+            (SessionState::Locked, SessionEvent::AdminUnlock) => {
+                // Reset counters on admin unlock to avoid immediate re-lock
+                ctx.anomaly_count = 0;
+                ctx.violation_count = 0;
+                (
+                    SessionState::Active,
+                    TransitionAction::AuditEvent {
+                        event_type: "session_admin_unlocked".to_string(),
+                    },
+                )
+            }
             (SessionState::Locked, SessionEvent::SessionEnd) => (
                 SessionState::Ended,
                 TransitionAction::AuditEvent {
@@ -511,24 +562,38 @@ impl SessionGuard {
     }
 
     /// Get the current state of a session.
+    ///
+    /// Fail-closed: if the lock is poisoned, returns `Locked` (deny-all)
+    /// rather than `Init` (allow-all). Unknown sessions return `Init`.
     pub fn get_state(&self, session_id: &str) -> SessionState {
-        self.sessions
-            .read()
-            .ok()
-            .and_then(|sessions| sessions.get(session_id).map(|ctx| ctx.state))
-            .unwrap_or(SessionState::Init)
+        match self.sessions.read() {
+            Ok(sessions) => sessions
+                .get(session_id)
+                .map(|ctx| ctx.state)
+                .unwrap_or(SessionState::Init),
+            Err(_poisoned) => {
+                // Fail-closed: lock poisoned → treat as locked
+                SessionState::Locked
+            }
+        }
     }
 
     /// Check if a session should deny all actions.
     /// Returns Some(reason) if the session is in a deny-all state, None otherwise.
+    ///
+    /// Fail-closed: if the lock is poisoned, returns a deny reason.
     pub fn should_deny(&self, session_id: &str) -> Option<String> {
-        self.sessions.read().ok().and_then(|sessions| {
-            sessions.get(session_id).and_then(|ctx| match ctx.state {
+        match self.sessions.read() {
+            Ok(sessions) => sessions.get(session_id).and_then(|ctx| match ctx.state {
                 SessionState::Locked => Some(format!("Session '{}' is locked", session_id)),
                 SessionState::Ended => Some(format!("Session '{}' has ended", session_id)),
                 _ => None,
-            })
-        })
+            }),
+            Err(_poisoned) => {
+                // Fail-closed: lock poisoned → deny
+                Some("Session guard lock poisoned — fail-closed deny".to_string())
+            }
+        }
     }
 
     /// Get a summary of a session's state and history.
@@ -767,29 +832,42 @@ mod tests {
 
     #[test]
     fn test_locked_cooldown_to_suspicious() {
-        let guard = guard_with_thresholds(1, 1);
+        let guard = SessionGuard::new(SessionGuardConfig {
+            suspicious_threshold: 1,
+            lock_threshold: 1,
+            cooldown_secs: 60, // 60 second cooldown
+            ..Default::default()
+        });
 
         guard
-            .process_event("s1", SessionEvent::FirstAction)
+            .process_event_at("s1", SessionEvent::FirstAction, 1000)
             .unwrap();
         guard
-            .process_event(
+            .process_event_at(
                 "s1",
                 SessionEvent::RepeatedViolation { count: 2 },
+                1001,
             )
             .unwrap();
         // Should be in Suspicious now; one more to lock it
         guard
-            .process_event(
+            .process_event_at(
                 "s1",
                 SessionEvent::RepeatedViolation { count: 1 },
+                1002,
             )
             .unwrap();
         assert_eq!(guard.get_state("s1"), SessionState::Locked);
 
-        // Cooldown
+        // Premature cooldown — should be rejected
         let result = guard
-            .process_event("s1", SessionEvent::CooldownElapsed)
+            .process_event_at("s1", SessionEvent::CooldownElapsed, 1010)
+            .unwrap();
+        assert_eq!(result.current, SessionState::Locked);
+
+        // Proper cooldown — after 60 seconds
+        let result = guard
+            .process_event_at("s1", SessionEvent::CooldownElapsed, 1062)
             .unwrap();
         assert_eq!(result.current, SessionState::Suspicious);
     }
@@ -1001,15 +1079,62 @@ mod tests {
             .process_event_at("s3", SessionEvent::FirstAction, 300)
             .unwrap();
 
-        // Adding a 4th should evict s1 (oldest last_action_at)
+        // Adding a 4th should evict s1 (oldest last_action_at among non-Locked/non-Ended)
         guard
             .process_event_at("s4", SessionEvent::FirstAction, 400)
             .unwrap();
 
+        // s1 was evicted — returns Init (unknown session)
         assert_eq!(guard.get_state("s1"), SessionState::Init);
         assert_eq!(guard.get_state("s2"), SessionState::Active);
         assert_eq!(guard.get_state("s3"), SessionState::Active);
         assert_eq!(guard.get_state("s4"), SessionState::Active);
+    }
+
+    #[test]
+    fn test_locked_sessions_not_evicted() {
+        let guard = SessionGuard::new(SessionGuardConfig {
+            max_sessions: 2,
+            suspicious_threshold: 1,
+            lock_threshold: 1,
+            ..Default::default()
+        });
+
+        // Create and lock s1
+        guard
+            .process_event_at("s1", SessionEvent::FirstAction, 100)
+            .unwrap();
+        guard
+            .process_event_at(
+                "s1",
+                SessionEvent::RepeatedViolation { count: 2 },
+                101,
+            )
+            .unwrap();
+        guard
+            .process_event_at(
+                "s1",
+                SessionEvent::RepeatedViolation { count: 1 },
+                102,
+            )
+            .unwrap();
+        assert_eq!(guard.get_state("s1"), SessionState::Locked);
+
+        // Create s2
+        guard
+            .process_event_at("s2", SessionEvent::FirstAction, 200)
+            .unwrap();
+
+        // Creating s3 should evict s2 (Active), NOT s1 (Locked)
+        guard
+            .process_event_at("s3", SessionEvent::FirstAction, 300)
+            .unwrap();
+
+        // s1 should still be Locked (not evicted)
+        assert_eq!(guard.get_state("s1"), SessionState::Locked);
+        // s2 was evicted
+        assert_eq!(guard.get_state("s2"), SessionState::Init);
+        assert_eq!(guard.get_state("s3"), SessionState::Active);
     }
 
     #[test]

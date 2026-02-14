@@ -312,6 +312,7 @@ impl ToolSigner {
             signed_at: now.to_rfc3339(),
             expires_at,
             signer_spiffe_id: self.signer_identity.clone(),
+            rekor_entry: None,
         }
     }
 }

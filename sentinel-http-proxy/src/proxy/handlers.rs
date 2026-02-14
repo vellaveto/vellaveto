@@ -709,6 +709,7 @@ pub async fn handle_mcp_post(
                     tenant_id: None,
                     verification_tier: None,
                     capability_token: None,
+                    session_state: None,
                 };
 
                 let result = if params.trace && state.trace_enabled {

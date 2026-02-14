@@ -23,6 +23,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added 25-entry research bibliography with links
 - Archived all v2.0–v2.2 completed phases (1–15) in collapsible appendix
 
+### Security
+
+#### Phase 23 Adversarial Hardening (Round 2 — Medium Findings)
+- **FIND-P23-005**: JPEG stego `get_image_data_region` loop now bounded to `MAX_MARKER_ITERATIONS=500` — prevents infinite loop on malformed JPEG with no SOS marker.
+- **FIND-P23-006**: PDF dictionary look-back window increased from 256 to 4096 bytes — correctly detects `/FlateDecode` in large PDF object dictionaries.
+- **FIND-P23-007**: `scan_text_for_injection` now normalizes whitespace before scanning — detects injection payloads split across multiple PNG tEXt chunks joined by newlines.
+- **FIND-P23-008**: EXIF ASCII string minimum lowered from 8 to 4 characters — catches short injection keywords like "exec", "eval", "sudo".
+- **FIND-P23-009**: PDF `extract_pdf_text_operators` now parses hex strings `<...>` in addition to literal strings `(...)` — `<<` dictionary delimiters correctly excluded.
+- **FIND-P23-010**: `detect_steganography` documented with comprehensive limitations section (adaptive stego, low-payload evasion, JPEG DCT, false positives, non-LSB methods).
+- **8 new integration tests** in `pentest_phase23_hardening.rs` (total 23).
+
 ### Added
 
 #### Phase 23: Research & Future (23.1–23.5)
@@ -32,7 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **FIPS 140-3 compliance mode (23.3)** — `FipsMode` with approved algorithm list (ECDSA P-256, SHA-256/384/512, AES-256-GCM, HMAC-SHA-256, RSA-PSS) and non-FIPS rejection list (Ed25519, ChaCha20-Poly1305, Blake2, Curve25519). Fail-closed for unknown algorithms. ECDSA P-256 sign/verify via `p256` crate, feature-gated behind `fips`. (`sentinel-mcp/src/fips.rs`). 12 tests.
 - **Sigstore/Rekor transparency log integration (23.4)** — `RekorEntry` types with full serde support. `RekorVerifier` with RFC 6962 domain-separated Merkle tree inclusion proof verification (leaf: `SHA-256(0x00||body)`, interior: `SHA-256(0x01||left||right)`). Offline tool hash matching and full `verify_entry()` combining proof + hash. (`sentinel-mcp/src/rekor.rs`). 12 tests.
 - **Stateful session reasoning guards (23.5)** — Formal state machine (Init→Active→Suspicious→Locked→Ended) with configurable `suspicious_threshold`, `lock_threshold`, `cooldown_secs`. `SessionGuard` integrates `WorkflowAlert` severity mapping and `GoalDriftAlert` similarity-to-severity conversion. Admin unlock, cooldown recovery, session eviction (max_sessions). (`sentinel-mcp/src/session_guard.rs`). 20 tests.
-- **71 new tests** across 5 files for Phase 23
+- **Cross-crate integration** — `FipsConfig` in sentinel-config with module + `PolicyConfig` field. `rekor_entry: Option<serde_json::Value>` on `ToolSignature` for Rekor provenance. `session_state: Option<String>` on `EvaluationContext` with builder support. `SessionStateRequired` compiled context condition with fail-closed evaluation and policy compilation.
+- **74 new tests** across Phase 23 (12 multimodal + 15 red team + 12 FIPS + 12 Rekor + 20 session guard + 3 fips config)
 
 #### Phase 22: Developer Experience (Backend Focus)
 - **Policy simulator API** — 4 new endpoints: `POST /api/simulator/evaluate` (single action with trace), `/batch` (up to 100 actions), `/validate` (config validation), `/diff` (policy diff). Supports inline TOML policy configs for sandbox evaluation. (`sentinel-server/src/routes/simulator.rs`). 9 tests.

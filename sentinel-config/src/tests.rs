@@ -1112,6 +1112,7 @@ fn test_validate_rejects_too_many_policies() {
         transport: TransportConfig::default(),
         gateway: GatewayConfig::default(),
         abac: AbacConfig::default(),
+        fips: Default::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {
@@ -2552,9 +2553,14 @@ fn test_extension_config_default() {
 
 #[test]
 fn test_extension_config_validation() {
-    let mut config = ExtensionConfig::default();
-    config.enabled = true;
-    config.default_resource_limits.max_concurrent_requests = 0;
+    let config = ExtensionConfig {
+        enabled: true,
+        default_resource_limits: sentinel_types::ExtensionResourceLimits {
+            max_concurrent_requests: 0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
     let err = config.validate().unwrap_err();
     assert!(err.contains("max_concurrent_requests"));
 }
@@ -2588,12 +2594,16 @@ fn test_transport_config_validation_conflict() {
 
 #[test]
 fn test_transport_config_validation_bounds() {
-    let mut config = TransportConfig::default();
-    config.max_fallback_retries = 11;
+    let config = TransportConfig {
+        max_fallback_retries: 11,
+        ..Default::default()
+    };
     assert!(config.validate().is_err());
 
-    config.max_fallback_retries = 1;
-    config.fallback_timeout_secs = 0;
+    let mut config = TransportConfig {
+        fallback_timeout_secs: 0,
+        ..Default::default()
+    };
     assert!(config.validate().is_err());
 
     config.fallback_timeout_secs = 121;
