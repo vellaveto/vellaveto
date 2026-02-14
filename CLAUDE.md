@@ -4,7 +4,7 @@
 > **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phase 17 complete, Phase 18 complete, 19.1–19.4 complete, 20.1–20.3 complete, 21.0–21.4 complete, Phases 22–23 remaining)
 > **Version:** 3.0.0-dev (crates at 2.2.1, targeting v3.0 release)
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 4,530+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 4,580+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 22
 > **CI workflows:** 11
 > **Updated:** 2026-02-14

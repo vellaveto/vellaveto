@@ -11,7 +11,7 @@
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-4%2C480%2B_passing-brightgreen.svg" alt="Tests: 4,500+ passing">
+    <img src="https://img.shields.io/badge/tests-4%2C580%2B_passing-brightgreen.svg" alt="Tests: 4,580+ passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <img src="https://img.shields.io/badge/security_audit-35_rounds%2C_390%2B_findings-informational.svg" alt="Security Audit: 35 rounds, 390+ findings">
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
@@ -140,6 +140,11 @@ Sentinel enforces security policies on every tool call before it reaches the too
 
 ### 🔐 Authentication & Access Control
 - **OAuth 2.1 / JWT** validation with JWKS and scope enforcement (RS256, ES256, EdDSA)
+- **ABAC engine** — Cedar-style attribute-based access control with permit/forbid policies, principal/action/resource matching, entity store with transitive group membership, and forbid-overrides evaluation
+- **Least-agency enforcement** — Per-session permission usage tracking with unused-permission detection and 4-tier narrowing recommendations
+- **Continuous authorization** — Risk-score-based per-request re-evaluation with configurable thresholds and progressive degradation
+- **Capability delegation tokens** — Ed25519-signed tokens with monotonic attenuation, depth budgets, and grant coverage matching
+- **Identity federation** — Cross-organization trust anchors with JWT claim-to-principal identity mapping
 - **CSRF protection** via Origin header validation on mutating endpoints
 - **Rate limiting** per-IP, per-principal, and per-endpoint with configurable burst
 - **Security headers** including HSTS, CSP, X-Frame-Options, and X-Permitted-Cross-Domain-Policies
