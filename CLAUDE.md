@@ -1,7 +1,7 @@
 # CLAUDE.md — Sentinel Project Instructions
 
 > **Project:** Sentinel — MCP Tool Firewall
-> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phases 17.1–17.2 complete, 19.1/19.4 partial, 19.3/21.0 complete, Phases 17.3–23 remaining)
+> **State:** v2.2.1 stable (Phases 1–15 complete, 35 audit rounds); v3.0 roadmap active (Phases 17.1–17.2 complete, 19.1–19.4 complete, 21.0 complete, Phases 17.3–18/20–23 remaining)
 > **Version:** 3.0.0-dev (crates at 2.2.1, targeting v3.0 release)
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
 > **Tests:** 4,477+ Rust tests + 130 Python SDK tests, zero warnings, zero `unwrap()` in library code
@@ -106,6 +106,8 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Audit: CoSAI 12-category threat coverage registry | `sentinel-audit/src/cosai.rs` |
 | Audit: Adversa AI TOP 25 coverage matrix | `sentinel-audit/src/adversa_top25.rs` |
 | Audit: Cross-framework gap analysis (6 frameworks) | `sentinel-audit/src/gap_analysis.rs` |
+| Audit: Immutable archive with gzip compression + retention | `sentinel-audit/src/archive.rs` |
+| Audit: OTLP exporter with GenAI semantic conventions | `sentinel-audit/src/observability/otlp.rs` |
 | Audit: tests (~214 unit tests) | `sentinel-audit/src/tests.rs` |
 | Config: module root + PolicyConfig + re-exports | `sentinel-config/src/lib.rs` |
 | Config: injection/DLP/rate-limit/audit | `sentinel-config/src/detection.rs` |
@@ -118,7 +120,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Config: memory security / NHI / DPoP | `sentinel-config/src/memory_nhi.rs` |
 | Config: semantic guardrails backends | `sentinel-config/src/semantic_guardrails_config.rs` |
 | Config: RAG defense / grounding | `sentinel-config/src/rag_defense_config.rs` |
-| Config: observability | `sentinel-config/src/observability.rs` |
+| Config: observability (incl. OtlpConfig) | `sentinel-config/src/observability.rs` |
 | Config: validation helpers | `sentinel-config/src/validation.rs` |
 | Config: PolicyRule struct + helpers | `sentinel-config/src/policy_rule.rs` |
 | Config: ToolRegistryConfig | `sentinel-config/src/tool_registry.rs` |
@@ -142,6 +144,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Output validation | `sentinel-mcp/src/output_validation.rs` |
 | Semantic guardrails | `sentinel-mcp/src/semantic_guardrails/` |
 | A2A protocol security | `sentinel-mcp/src/a2a/` |
+| EU AI Act Art 50 transparency marking + human oversight | `sentinel-mcp/src/transparency.rs` |
 | HTTP proxy: structs + constants | `sentinel-http-proxy/src/proxy/mod.rs` |
 | HTTP proxy: handler functions | `sentinel-http-proxy/src/proxy/handlers.rs` |
 | HTTP proxy: OAuth/API key/agent auth | `sentinel-http-proxy/src/proxy/auth.rs` |
@@ -307,6 +310,38 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - Gap analysis API endpoint — `GET /api/compliance/gap-analysis` (consolidated 6-framework report)
 - 100% CoSAI coverage (38/38 threats), 100% Adversa TOP 25 coverage (25/25)
 - 35 unit tests (14 CoSAI + 14 Adversa + 7 gap analysis)
+
+**Compliance Dashboard (Phase 19):**
+- Real-time compliance status section in admin dashboard (`sentinel-server/src/dashboard.rs`)
+- 4 metric cards: EU AI Act %, SOC 2 Readiness %, Framework Coverage %, Critical Gaps
+- 6-framework coverage table with color-coded thresholds (green >=90%, yellow >=70%, red <70%)
+- Data sourced from existing stateless registries (EU AI Act, SOC 2, gap analysis)
+
+**EU AI Act Article 50 Runtime Transparency (Phase 19):**
+- `mark_ai_mediated()` — injects `result._meta.sentinel_ai_mediated = true` into tool-call responses (`sentinel-mcp/src/transparency.rs`)
+- `requires_human_oversight()` — glob-based tool name matching against configurable patterns
+- ProxyBridge integration — transparency marking + human oversight audit events in relay loop
+- Builder methods: `with_transparency_marking(bool)`, `with_human_oversight_tools(Vec<String>)`
+- EU AI Act Art 50(1) status upgraded to Compliant in registry (`sentinel-audit/src/eu_ai_act.rs`)
+- 11 unit tests
+
+**Immutable Audit Log Archive (Phase 19):**
+- gzip compression of rotated log files via `flate2` (`sentinel-audit/src/archive.rs`)
+- Retention enforcement — deletes archives older than configured `retention_days`
+- `run_archive_maintenance()` — combines compression + retention in a single pass
+- Feature-gated behind `archive` — zero impact on default builds
+- `ArchiveConfig` (compress, retention_days) + `ArchiveReport` (compressed, deleted, errors)
+- 9 unit tests
+
+**OTLP Export with GenAI Semantic Conventions (Phase 19):**
+- `OtlpExporter` implementing `ObservabilityExporter` trait (`sentinel-audit/src/observability/otlp.rs`)
+- SecuritySpan → OTel span mapping with `gen_ai.system`, `gen_ai.operation.name`, `sentinel.*` attributes
+- `map_span_kind()` — Chain→Server, Tool/Guardrail/Policy/Approval→Internal, Llm→Client
+- `verdict_to_status()` — allow→Ok, deny→Error, other→Unset
+- ID/time parsing helpers: `parse_trace_id()`, `parse_span_id()`, `parse_time()`
+- `OtlpConfig` + `OtlpProtocol` in sentinel-config with validation (`sentinel-config/src/observability.rs`)
+- Feature-gated behind `otlp-exporter` — zero impact on default builds
+- 11 unit tests
 
 **Identity Verification Primitives:**
 - DID:PLC generation — SHA-256 + Base32 from canonicalized genesis operations (`sentinel-mcp/src/did_plc.rs`)

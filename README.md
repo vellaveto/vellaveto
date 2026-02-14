@@ -44,6 +44,12 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 
 ## Recent Updates (2026-02-14)
 
+- **Phase 19: Regulatory Compliance Complete** — All 9 exit criteria delivered:
+  - **Compliance dashboard** — Real-time status cards (EU AI Act %, SOC 2 %, Framework Coverage %, Critical Gaps) and 6-framework coverage table with color-coded thresholds in the admin dashboard.
+  - **EU AI Act Article 50 transparency** — `mark_ai_mediated()` injects `_meta.sentinel_ai_mediated` into tool responses. `requires_human_oversight()` triggers audit events for configured tool patterns via glob matching. Art 50(1) status upgraded to Compliant. 11 tests.
+  - **Immutable audit log archive** — gzip compression of rotated logs + retention enforcement (delete archives older than `retention_days`). Feature-gated behind `archive`. 9 tests.
+  - **OTLP export with GenAI semantic conventions** — `OtlpExporter` maps `SecuritySpan` to OpenTelemetry spans with `gen_ai.system`, `gen_ai.operation.name`, and `sentinel.*` attributes. Feature-gated behind `otlp-exporter`. 11 tests.
+  - **OtlpConfig** added to sentinel-config with endpoint/protocol/headers validation.
 - **Phase 19.3: CoSAI/Adversa Threat Coverage** — CoSAI 12-category registry (38 threats, 100% coverage), Adversa AI TOP 25 matrix (25/25, 100% coverage), cross-framework gap analysis across 6 frameworks (ATLAS, NIST RMF, ISO 27090, EU AI Act, CoSAI, Adversa TOP 25). New endpoints: `GET /api/compliance/threat-coverage`, `GET /api/compliance/gap-analysis`. 35 tests.
 - **Phase 19.1: EU AI Act Compliance Evidence** — Registry-based conformity assessment with 10 obligations (Art 5–50), 18 capability mappings, and `AiActRiskClass` enum. `GET /api/compliance/eu-ai-act/report` generates conformity assessment per Art 43. Read-time entry classification via `classify_entry_transparency()`. 11 tests.
 - **Phase 19.4: SOC 2 Evidence + Merkle Proofs** — SOC 2 registry with 22 criteria across CC1-CC9, ~30 capability mappings, and 5-level `ReadinessLevel` scoring. `GET /api/compliance/soc2/evidence` with category filter. Append-only Merkle tree with RFC 6962 domain separation, inclusion proof generation/verification, audit logger integration, checkpoint integration, crash recovery. 38 tests (14 SOC 2 + 24 Merkle).
@@ -213,7 +219,8 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Just-In-Time Access** — Session-based temporary elevated permissions with approval workflows, per-principal session limits, auto-revocation on security alerts, and permission/tool access checking
 
 ### 📊 Observability & Tooling
-- **AI Observability Exporters** — Langfuse, Arize Phoenix, Helicone, and Webhook backends with `SecuritySpan` tracing for streaming security events to observability platforms in real time
+- **AI Observability Exporters** — Langfuse, Arize Phoenix, Helicone, Webhook, and **OTLP** backends with `SecuritySpan` tracing for streaming security events to observability platforms in real time
+- **OTLP Export with GenAI Semantic Conventions** — Maps `SecuritySpan` to OpenTelemetry spans with `gen_ai.system`, `gen_ai.operation.name`, and `sentinel.*` attributes. Compatible with Jaeger, Grafana Tempo, Datadog, and any OTLP collector. Feature-gated behind `otlp-exporter`
 - **Execution Graphs** — Visual call chain tracking with DOT (Graphviz) and JSON export, color-coded verdicts, parent-child relationships, and graph statistics API
 - **Policy Validation CLI** — Enhanced `sentinel check` with strict mode, JSON/text output, best-practice and security checks, shadow policy detection, and wide pattern warnings
 - **Attack Simulation** — Automated red-teaming framework with 40+ OWASP ASI Top 10 attack payloads, multi-step sequences, schema mutations, and result summarization
@@ -829,6 +836,7 @@ Every policy decision is logged to a tamper-evident audit trail.
 - 📊 **SIEM integration** — export entries in CEF or JSON Lines format via API or configurable webhook
 - 🔁 **Duplicate entry detection** — detects replayed or duplicated audit entries
 - ✅ **Approval audit trail** — approve/deny decisions are logged with resolver identity, original tool, and approval ID
+- 📦 **Immutable archive** — gzip compression of rotated logs with configurable retention policies (feature-gated behind `archive`)
 
 ### Verification
 

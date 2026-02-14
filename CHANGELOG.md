@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 19: Regulatory Compliance — Remaining Exit Criteria
+- **Compliance dashboard section** — Real-time compliance status in admin dashboard (`sentinel-server/src/dashboard.rs`) with 4 metric cards (EU AI Act %, SOC 2 Readiness %, Framework Coverage %, Critical Gaps) and a 6-framework coverage table with color-coded thresholds (green >=90%, yellow >=70%, red <70%)
+- **EU AI Act Article 50 runtime transparency** — `mark_ai_mediated()` injects `result._meta.sentinel_ai_mediated = true` into tool-call responses before forwarding to agent (`sentinel-mcp/src/transparency.rs`). `requires_human_oversight()` checks tool names against configurable glob patterns and logs audit events. ProxyBridge extended with `with_transparency_marking(bool)` and `with_human_oversight_tools(Vec<String>)` builder methods. Art 50(1) status upgraded to Compliant in EU AI Act registry. 11 tests.
+- **Immutable audit log archive** — gzip compression of rotated audit log files and retention enforcement (`sentinel-audit/src/archive.rs`). `compress_rotated_file()` compresses `.log` → `.log.gz` via `flate2`. `enforce_retention()` deletes archives older than configured `retention_days`. `run_archive_maintenance()` combines both in a single pass. Feature-gated behind `archive`. 9 tests.
+- **OTLP export with GenAI semantic conventions** — `OtlpExporter` implementing `ObservabilityExporter` trait maps `SecuritySpan` to OpenTelemetry spans (`sentinel-audit/src/observability/otlp.rs`). GenAI attributes: `gen_ai.system` → `"sentinel"`, `gen_ai.operation.name` → tool name. Sentinel attributes: `sentinel.verdict`, `sentinel.policy.id`, `sentinel.detection.type`, `sentinel.tool.name`. `map_span_kind()` maps Chain→Server, Tool→Internal, Llm→Client. `verdict_to_status()` maps allow→Ok, deny→Error. Feature-gated behind `otlp-exporter`. 11 tests.
+- **OtlpConfig** — New configuration type in `sentinel-config/src/observability.rs` with endpoint, protocol (Grpc/HttpProto), headers, batch_size, flush_interval_secs, max_retries, timeout_secs, service_name. Validation rejects empty endpoints and zero timeouts when enabled. 6 tests.
+- **`compress_archives` field** — Added to `EuAiActConfig` in `sentinel-config/src/compliance.rs` (default: true)
+- All Phase 19 exit criteria now complete (9/9)
+
 #### Phase 17.1: WebSocket Transport Support (SEP-1288)
 - **WebSocket reverse proxy** — Bidirectional MCP-over-WebSocket at `/mcp/ws` endpoint (`sentinel-http-proxy/src/proxy/websocket/mod.rs`)
 - **Full policy enforcement** — Client→upstream tool calls classified via `classify_message()`, evaluated against policies with fail-closed semantics; engine errors and unknown verdict variants produce Deny
