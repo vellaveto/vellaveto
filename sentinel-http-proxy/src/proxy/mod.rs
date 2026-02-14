@@ -5,7 +5,7 @@
 //! forwards allowed requests to an upstream MCP server.
 
 mod auth;
-mod call_chain;
+pub mod call_chain;
 pub mod discovery;
 #[allow(dead_code)] // Wired into gateway health checker in future phases
 mod fallback;
@@ -15,7 +15,7 @@ pub mod grpc;
 mod handlers;
 mod helpers;
 mod inspection;
-mod origin;
+pub mod origin;
 #[cfg(test)]
 mod tests;
 mod upstream;
@@ -48,7 +48,7 @@ use crate::oauth::OAuthValidator;
 use crate::session::SessionStore;
 
 /// HMAC-SHA256 type alias for call chain signing (FIND-015).
-type HmacSha256 = Hmac<Sha256>;
+pub type HmacSha256 = Hmac<Sha256>;
 
 /// Query parameters for POST /mcp.
 #[derive(Debug, serde::Deserialize, Default)]
@@ -244,7 +244,7 @@ const MCP_TRANSPORT_PREFERENCE_HEADER: &str = "mcp-transport-preference";
 /// Contains a JSON-encoded array of CallChainEntry objects from previous hops.
 /// This header is added by Sentinel when forwarding requests downstream
 /// and read when receiving requests from upstream.
-const X_UPSTREAM_AGENTS: &str = "x-upstream-agents";
+pub const X_UPSTREAM_AGENTS: &str = "x-upstream-agents";
 
 /// OWASP ASI07: Header for cryptographically attested agent identity.
 /// Contains a signed JWT with claims identifying the agent (issuer, subject, custom claims).

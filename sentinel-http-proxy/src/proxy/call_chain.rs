@@ -13,22 +13,22 @@ use hmac::Mac;
 use axum::http::HeaderMap;
 
 /// Maximum entries in action_history per session (memory bound).
-pub(super) const MAX_ACTION_HISTORY: usize = 100;
+pub const MAX_ACTION_HISTORY: usize = 100;
 
 /// Maximum distinct tool names tracked in call_counts per session (FIND-045).
 /// Prevents unbounded HashMap growth from attacker-controlled tool names.
-pub(super) const MAX_CALL_COUNT_TOOLS: usize = 1024;
+pub const MAX_CALL_COUNT_TOOLS: usize = 1024;
 
 /// Maximum number of pending JSON-RPC tool call correlations per session.
 /// Bounds memory if responses are malformed or never returned.
-pub(super) const MAX_PENDING_TOOL_CALLS: usize = 256;
+pub const MAX_PENDING_TOOL_CALLS: usize = 256;
 
 /// Maximum canonicalized JSON-RPC id key length.
 /// Oversized ids are ignored for request/response correlation.
 const MAX_JSONRPC_ID_KEY_LEN: usize = 256;
 
 /// Build a stable key for JSON-RPC id values used in request/response correlation.
-pub(super) fn jsonrpc_id_key(id: &Value) -> Option<String> {
+pub fn jsonrpc_id_key(id: &Value) -> Option<String> {
     match id {
         Value::String(s) if s.len() <= MAX_JSONRPC_ID_KEY_LEN => Some(format!("s:{s}")),
         Value::Number(n) => {
@@ -44,7 +44,7 @@ pub(super) fn jsonrpc_id_key(id: &Value) -> Option<String> {
 }
 
 /// Track an outbound tool call so response handling can recover the originating tool.
-pub(super) fn track_pending_tool_call(
+pub fn track_pending_tool_call(
     sessions: &SessionStore,
     session_id: &str,
     request_id: &Value,
@@ -67,7 +67,7 @@ pub(super) fn track_pending_tool_call(
 }
 
 /// Resolve and consume the tracked tool name for a JSON-RPC response id.
-pub(super) fn take_tracked_tool_call(
+pub fn take_tracked_tool_call(
     sessions: &SessionStore,
     session_id: &str,
     response_id: Option<&Value>,
@@ -79,7 +79,7 @@ pub(super) fn take_tracked_tool_call(
 }
 
 /// Build an `EvaluationContext` from the current session state.
-pub(super) fn build_evaluation_context(
+pub fn build_evaluation_context(
     sessions: &SessionStore,
     session_id: &str,
 ) -> Option<EvaluationContext> {
@@ -100,7 +100,7 @@ pub(super) fn build_evaluation_context(
 }
 
 /// Build audit context JSON, optionally including OAuth subject and call chain.
-pub(super) fn build_audit_context(
+pub fn build_audit_context(
     session_id: &str,
     extra: Value,
     oauth_claims: &Option<OAuthClaims>,
@@ -125,7 +125,7 @@ pub(super) fn build_audit_context(
 }
 
 /// Build audit context JSON with call chain for multi-agent scenarios.
-pub(super) fn build_audit_context_with_chain(
+pub fn build_audit_context_with_chain(
     session_id: &str,
     extra: Value,
     oauth_claims: &Option<OAuthClaims>,
@@ -148,7 +148,7 @@ pub(super) fn build_audit_context_with_chain(
 /// Returns:
 /// - `Ok(())` when the header is absent (single-hop flow) or structurally valid.
 /// - `Err(...)` when the header is present but malformed/oversized.
-pub(super) fn validate_call_chain_header(
+pub fn validate_call_chain_header(
     headers: &HeaderMap,
     limits: &sentinel_config::LimitsConfig,
 ) -> Result<(), &'static str> {
@@ -184,7 +184,7 @@ pub(super) fn validate_call_chain_header(
 /// and the `agent_id` is prefixed with `[unverified]`. Entries with valid HMACs
 /// are marked as `verified = Some(true)`. When no key is provided, all entries
 /// pass through without verification (backward compatible).
-pub(super) fn extract_call_chain_from_headers(
+pub fn extract_call_chain_from_headers(
     headers: &HeaderMap,
     hmac_key: Option<&[u8; 32]>,
     limits: &sentinel_config::LimitsConfig,
@@ -287,7 +287,7 @@ pub(super) fn extract_call_chain_from_headers(
 /// The session stores only upstream entries (excluding this proxy's current hop)
 /// so policy checks can reason about delegated caller depth consistently across
 /// tool calls, task requests, and resource reads.
-pub(super) fn sync_session_call_chain_from_headers(
+pub fn sync_session_call_chain_from_headers(
     sessions: &SessionStore,
     session_id: &str,
     headers: &HeaderMap,
@@ -308,7 +308,7 @@ pub(super) fn sync_session_call_chain_from_headers(
 ///
 /// FIND-015: When an HMAC key is provided, the entry is signed with
 /// HMAC-SHA256 over its content (agent_id, tool, function, timestamp).
-pub(super) fn build_current_agent_entry(
+pub fn build_current_agent_entry(
     agent_id: Option<&str>,
     tool: &str,
     function: &str,
@@ -342,7 +342,7 @@ pub(super) fn build_current_agent_entry(
 /// could shift field boundaries and create HMAC collisions with the old format.
 /// Also strips both `[unverified] ` and `[stale] ` prefixes since both are
 /// added post-verification and would break round-trip signing.
-pub(super) fn call_chain_entry_signing_content(entry: &sentinel_types::CallChainEntry) -> Vec<u8> {
+pub fn call_chain_entry_signing_content(entry: &sentinel_types::CallChainEntry) -> Vec<u8> {
     // Strip any [unverified] or [stale] prefix that may have been added
     // during verification, so the content matches what was originally signed.
     let agent_id = entry
@@ -367,7 +367,7 @@ pub(super) fn call_chain_entry_signing_content(entry: &sentinel_types::CallChain
 
 /// FIND-015: Compute HMAC-SHA256 over data, returning lowercase hex string.
 /// Returns `Err` if the HMAC key is rejected (should not happen for 32-byte keys).
-pub(super) fn compute_call_chain_hmac(key: &[u8; 32], data: &[u8]) -> Result<String, ()> {
+pub fn compute_call_chain_hmac(key: &[u8; 32], data: &[u8]) -> Result<String, ()> {
     let mut mac = HmacSha256::new_from_slice(key).map_err(|_| ())?;
     mac.update(data);
     let result = mac.finalize();
@@ -376,7 +376,7 @@ pub(super) fn compute_call_chain_hmac(key: &[u8; 32], data: &[u8]) -> Result<Str
 
 /// FIND-015: Verify HMAC-SHA256 of data against expected hex string.
 /// Returns `Ok(true)` if valid, `Ok(false)` if invalid, `Err` on initialization failure.
-pub(super) fn verify_call_chain_hmac(
+pub fn verify_call_chain_hmac(
     key: &[u8; 32],
     data: &[u8],
     expected_hex: &str,
@@ -412,7 +412,7 @@ pub struct PrivilegeEscalationCheck {
 ///
 /// Returns a `PrivilegeEscalationCheck` indicating whether escalation was detected
 /// and which agent triggered it.
-pub(super) fn check_privilege_escalation(
+pub fn check_privilege_escalation(
     engine: &PolicyEngine,
     policies: &[Policy],
     action: &Action,

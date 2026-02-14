@@ -8,7 +8,7 @@ use axum::{
 use serde_json::json;
 use std::net::SocketAddr;
 
-pub(super) fn is_loopback_addr(addr: &SocketAddr) -> bool {
+pub fn is_loopback_addr(addr: &SocketAddr) -> bool {
     match addr {
         SocketAddr::V4(v4) => v4.ip().is_loopback(),
         SocketAddr::V6(v6) => v6.ip().is_loopback(),
@@ -23,7 +23,7 @@ const LOOPBACK_HOSTS: &[&str] = &["localhost", "127.0.0.1", "[::1]"];
 /// Given a port, returns origins like `http://localhost:<port>`,
 /// `http://127.0.0.1:<port>`, `http://[::1]:<port>` (and their `https://`
 /// equivalents).
-pub(super) fn build_loopback_origins(port: u16) -> Vec<String> {
+pub fn build_loopback_origins(port: u16) -> Vec<String> {
     let mut origins = Vec::with_capacity(LOOPBACK_HOSTS.len() * 2);
     for host in LOOPBACK_HOSTS {
         origins.push(format!("http://{}:{}", host, port));
@@ -51,7 +51,7 @@ pub(super) fn build_loopback_origins(port: u16) -> Vec<String> {
 /// SECURITY: Logs rejected origins at warn level. Does NOT log Cookie or
 /// Authorization headers to avoid credential leaks in logs.
 #[allow(clippy::result_large_err)]
-pub(super) fn validate_origin(
+pub fn validate_origin(
     headers: &HeaderMap,
     bind_addr: &SocketAddr,
     allowed_origins: &[String],
@@ -125,7 +125,7 @@ pub(super) fn validate_origin(
 }
 
 /// Build a 403 Forbidden response with a JSON-RPC error body for origin rejection.
-pub(super) fn make_origin_rejection_response(_origin: &str) -> Response {
+pub fn make_origin_rejection_response(_origin: &str) -> Response {
     (
         StatusCode::FORBIDDEN,
         Json(json!({
@@ -145,7 +145,7 @@ pub(super) fn make_origin_rejection_response(_origin: &str) -> Response {
 /// E.g., `"https://example.com"` -> `Some("example.com")`
 ///
 /// Returns `None` if the URL cannot be parsed.
-pub(super) fn extract_authority_from_origin(origin: &str) -> Option<String> {
+pub fn extract_authority_from_origin(origin: &str) -> Option<String> {
     // Origin format per RFC 6454: "scheme://host[:port]"
     // Defence-in-depth: strip path, query, fragment, and userinfo even though
     // a valid Origin header should never contain them.
