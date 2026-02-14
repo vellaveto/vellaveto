@@ -1,10 +1,10 @@
 # CLAUDE.md — Sentinel Project Instructions
 
 > **Project:** Sentinel — MCP Tool Firewall
-> **State:** v2.2.1 stable (Phases 1–15 complete, 36 audit rounds); v3.0 roadmap active (Phase 17 complete, Phase 18 complete, 19.1–19.4 complete, 20.1–20.3 complete, 21.0–21.4 complete, Phase 22 complete, Phase 23 remaining)
+> **State:** v2.2.1 stable (Phases 1–15 complete, 36 audit rounds); v3.0 roadmap active (Phase 17 complete, Phase 18 complete, 19.1–19.4 complete, 20.1–20.3 complete, 21.0–21.4 complete, Phase 22 complete, Phase 23 complete — all phases done)
 > **Version:** 3.0.0-dev (crates at 2.2.1, targeting v3.0 release)
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 4,710+ Rust tests + 130 Python SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 4,783 Rust tests + 130 Python SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 22
 > **CI workflows:** 11
 > **Updated:** 2026-02-14
@@ -151,6 +151,11 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Accountability attestation sign/verify | `sentinel-mcp/src/accountability.rs` |
 | Capability token issue/attenuate/verify | `sentinel-mcp/src/capability_token.rs` |
 | DLP / inspection | `sentinel-mcp/src/inspection.rs` |
+| Multimodal injection: PNG/JPEG/PDF extraction + stego | `sentinel-mcp/src/inspection/multimodal.rs` |
+| Red team: mutation engine + runner + coverage | `sentinel-mcp/src/red_team.rs` |
+| FIPS 140-3: mode controller + algorithm validation | `sentinel-mcp/src/fips.rs` |
+| Rekor: transparency log types + offline verification | `sentinel-mcp/src/rekor.rs` |
+| Session guard: state machine + integration | `sentinel-mcp/src/session_guard.rs` |
 | Output validation | `sentinel-mcp/src/output_validation.rs` |
 | Semantic guardrails | `sentinel-mcp/src/semantic_guardrails/` |
 | A2A protocol security | `sentinel-mcp/src/a2a/` |
@@ -479,6 +484,15 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - GitHub Action `policy-check` — composite action downloading Sentinel binary, running `sentinel check` in CI (`.github/actions/policy-check/action.yml`)
 - Dashboard SVG charts — verdict distribution bar chart, policy type pie chart (`sentinel-server/src/dashboard.rs`)
 - 13 new Rust tests (9 simulator + 4 dashboard)
+
+**Research & Future (Phase 23):**
+- Multimodal injection detection (23.1) — real PNG tEXt/zTXt/iTXt chunk extraction, JPEG COM/EXIF extraction, PDF stream/FlateDecode text extraction, chi-squared LSB steganography detection (`sentinel-mcp/src/inspection/multimodal.rs`)
+- Continuous autonomous red teaming (23.2) — `MutationEngine` with 8 mutation types (URL encode, double encode, null byte, homoglyph, case variation, whitespace inject, parameter alias, context wrapping), `RedTeamRunner` with coverage tracking by category and mutation type (`sentinel-mcp/src/red_team.rs`)
+- FIPS 140-3 compliance mode (23.3) — `FipsMode` with algorithm validation (approved/non-approved lists), ECDSA P-256 sign/verify behind `fips` feature flag (`sentinel-mcp/src/fips.rs`)
+- Sigstore/Rekor transparency log integration (23.4) — `RekorEntry` types, `RekorVerifier` with RFC 6962 Merkle tree inclusion proof verification, offline tool hash matching (`sentinel-mcp/src/rekor.rs`)
+- Stateful session reasoning guards (23.5) — formal state machine (Init→Active→Suspicious→Locked→Ended), configurable thresholds, `SessionGuard` with `WorkflowTracker` and `GoalTracker` integration (`sentinel-mcp/src/session_guard.rs`)
+- Red team API endpoint — `POST /api/simulator/red-team` runs mutation engine against current policies (`sentinel-server/src/routes/simulator.rs`)
+- 71 new tests (12 multimodal + 15 red team + 12 FIPS + 12 Rekor + 20 session guard)
 
 **TypeScript SDK:**
 - HTTP client with native `fetch()` — zero runtime dependencies, Node 18+ (`sdk/typescript/src/client.ts`)

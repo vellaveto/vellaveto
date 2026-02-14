@@ -376,6 +376,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/simulator/batch", post(super::simulator::simulate_batch))
         .route("/api/simulator/validate", post(super::simulator::simulate_validate))
         .route("/api/simulator/diff", post(super::simulator::simulate_diff))
+        .route("/api/simulator/red-team", post(super::simulator::simulate_red_team))
         // SECURITY (R38-SRV-1): /metrics inside auth — exposes policy count
         // and pending approval count, which are security-sensitive (see R26-SRV-6).
         // SECURITY (R38-SRV-2): /metrics inside rate_limit — prevents scraper DoS.

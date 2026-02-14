@@ -18,6 +18,7 @@ pub mod etdi;
 pub mod extension_registry;
 pub mod extensions;
 pub mod extractor;
+pub mod fips;
 pub mod framing;
 pub mod goal_tracking;
 pub mod inspection;
@@ -29,6 +30,8 @@ pub mod output_validation;
 pub mod proxy;
 #[cfg(feature = "rag-defense")]
 pub mod rag_defense;
+pub mod red_team;
+pub mod rekor;
 pub mod rug_pull;
 pub mod sampling_detector;
 pub mod schema_poisoning;
@@ -36,6 +39,7 @@ pub mod schema_poisoning;
 pub mod semantic_detection;
 #[cfg(feature = "semantic-guardrails")]
 pub mod semantic_guardrails;
+pub mod session_guard;
 pub mod shadow_agent;
 pub mod task_security;
 pub mod transparency;

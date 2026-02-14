@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 23: Research & Future (23.1–23.5)
+- **Multimodal injection detection (23.1)** — Pure-Rust PNG tEXt/zTXt/iTXt chunk extraction, JPEG COM/EXIF comment extraction, PDF stream/FlateDecode text extraction with Tj/TJ operator parsing, chi-squared LSB steganography detection. No `image`/`pdf`/OCR crates — uses `flate2` for decompression with 10MB zip bomb protection. (`sentinel-mcp/src/inspection/multimodal.rs`). 12 tests.
+- **Continuous autonomous red teaming (23.2)** — `MutationEngine` with 8 mutation types (URL encode, double encode, null byte inject, homoglyph replace, case variation, whitespace inject, parameter alias, context wrapping). `RedTeamRunner` evaluates mutated payloads against `PolicyEngine`, reports `BypassFinding` gaps. `CoverageReport` tracks by category and mutation type. (`sentinel-mcp/src/red_team.rs`). 15 tests.
+- **Red team API** — `POST /api/simulator/red-team` runs mutation engine against server's current policies, returns `RedTeamReport` with bypass findings and coverage gaps.
+- **FIPS 140-3 compliance mode (23.3)** — `FipsMode` with approved algorithm list (ECDSA P-256, SHA-256/384/512, AES-256-GCM, HMAC-SHA-256, RSA-PSS) and non-FIPS rejection list (Ed25519, ChaCha20-Poly1305, Blake2, Curve25519). Fail-closed for unknown algorithms. ECDSA P-256 sign/verify via `p256` crate, feature-gated behind `fips`. (`sentinel-mcp/src/fips.rs`). 12 tests.
+- **Sigstore/Rekor transparency log integration (23.4)** — `RekorEntry` types with full serde support. `RekorVerifier` with RFC 6962 domain-separated Merkle tree inclusion proof verification (leaf: `SHA-256(0x00||body)`, interior: `SHA-256(0x01||left||right)`). Offline tool hash matching and full `verify_entry()` combining proof + hash. (`sentinel-mcp/src/rekor.rs`). 12 tests.
+- **Stateful session reasoning guards (23.5)** — Formal state machine (Init→Active→Suspicious→Locked→Ended) with configurable `suspicious_threshold`, `lock_threshold`, `cooldown_secs`. `SessionGuard` integrates `WorkflowAlert` severity mapping and `GoalDriftAlert` similarity-to-severity conversion. Admin unlock, cooldown recovery, session eviction (max_sessions). (`sentinel-mcp/src/session_guard.rs`). 20 tests.
+- **71 new tests** across 5 files for Phase 23
+
 #### Phase 22: Developer Experience (Backend Focus)
 - **Policy simulator API** — 4 new endpoints: `POST /api/simulator/evaluate` (single action with trace), `/batch` (up to 100 actions), `/validate` (config validation), `/diff` (policy diff). Supports inline TOML policy configs for sandbox evaluation. (`sentinel-server/src/routes/simulator.rs`). 9 tests.
 - **CLI `simulate` subcommand** — Batch-evaluate actions from a JSON file against a policy config. Supports text table and JSON output formats.

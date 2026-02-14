@@ -446,6 +446,31 @@ pub async fn simulate_diff(
     }))
 }
 
+/// `POST /api/simulator/red-team` — Run autonomous red team against current policies.
+pub async fn simulate_red_team(
+    State(state): State<AppState>,
+) -> Result<Json<sentinel_mcp::red_team::RedTeamReport>, (StatusCode, Json<ErrorResponse>)> {
+    use sentinel_mcp::attack_sim::AttackSimulator;
+    use sentinel_mcp::red_team::RedTeamRunner;
+
+    let snap = state.policy_state.load();
+    let engine = PolicyEngine::with_policies(false, &snap.policies).map_err(|errors| {
+        let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Policy compilation failed: {}", msgs.join("; ")),
+            }),
+        )
+    })?;
+
+    let sim = AttackSimulator::new();
+    let runner = RedTeamRunner::new(engine);
+    let report = runner.run(sim.scenarios());
+
+    Ok(Json(report))
+}
+
 /// Compare two policies and return human-readable change descriptions.
 fn diff_policies(before: &Policy, after: &Policy) -> Vec<String> {
     let mut changes = Vec::new();

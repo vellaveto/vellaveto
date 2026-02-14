@@ -17,6 +17,7 @@ semantic-guardrails-full = ["semantic-guardrails", "llm-cloud", "llm-local-gguf"
 rag-defense = []
 a2a = []
 multimodal = ["image"]
+fips = ["p256"]
 
 [dependencies]
 sentinel-types = { path = "../sentinel-types" }
@@ -55,8 +56,12 @@ async-trait = { workspace = true, optional = true }
 # Cloud LLM backends
 reqwest = { workspace = true, optional = true }
 
-# Multimodal content scanning
+# Multimodal content scanning — metadata extraction uses flate2 (no image crate needed)
 image = { version = "0.25", optional = true, default-features = false, features = ["png", "jpeg", "gif", "bmp", "tiff", "webp"] }
+flate2 = "1.1"
+
+# FIPS 140-3 compliance mode (Phase 23.3)
+p256 = { version = "0.13", features = ["ecdsa"], optional = true }
 
 [dev-dependencies]
 proptest = "1.4"
