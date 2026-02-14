@@ -14,7 +14,7 @@
 
 use async_trait::async_trait;
 use deadpool_redis::{Config as PoolConfig, Pool, Runtime};
-use redis::AsyncCommands;
+use deadpool_redis::redis::AsyncCommands;
 use sentinel_approval::{ApprovalStatus, PendingApproval};
 use sentinel_types::Action;
 
@@ -494,7 +494,7 @@ impl ClusterBackend for RedisBackend {
 
         let request_id = format!("{}:{}", now_ms, uuid::Uuid::new_v4());
 
-        let result: i32 = redis::Script::new(RATE_LIMIT_SCRIPT)
+        let result: i32 = deadpool_redis::redis::Script::new(RATE_LIMIT_SCRIPT)
             .key(&redis_key)
             .arg(now_ms)
             .arg(window_ms)
@@ -511,7 +511,7 @@ impl ClusterBackend for RedisBackend {
 
     async fn health_check(&self) -> Result<(), ClusterError> {
         let mut conn = self.get_conn().await?;
-        let pong: String = redis::cmd("PING")
+        let pong: String = deadpool_redis::redis::cmd("PING")
             .query_async(&mut *conn)
             .await
             .map_err(|e| ClusterError::Connection(format!("Redis PING failed: {}", e)))?;

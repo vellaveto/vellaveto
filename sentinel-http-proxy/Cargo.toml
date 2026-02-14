@@ -8,7 +8,7 @@ description = "Sentinel MCP policy firewall — Streamable HTTP reverse proxy"
 
 [features]
 default = []
-grpc = ["tonic", "prost", "prost-types", "tonic-health", "tonic-build", "tokio-util", "tokio-stream"]
+grpc = ["tonic", "tonic-prost", "prost", "prost-types", "tonic-health", "tonic-build", "tonic-prost-build", "tokio-util", "tokio-stream"]
 
 [lib]
 name = "sentinel_http_proxy"
@@ -55,6 +55,7 @@ subtle = "2"
 governor = "0.10"
 base64 = "0.22"
 tonic = { workspace = true, optional = true }
+tonic-prost = { workspace = true, optional = true }
 prost = { workspace = true, optional = true }
 prost-types = { workspace = true, optional = true }
 tonic-health = { workspace = true, optional = true }
@@ -63,6 +64,7 @@ tokio-stream = { workspace = true, optional = true }
 
 [build-dependencies]
 tonic-build = { workspace = true, optional = true }
+tonic-prost-build = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = "3.0"

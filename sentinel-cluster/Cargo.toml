@@ -8,7 +8,7 @@ description = "Distributed state backend for Sentinel clustering (Redis or local
 
 [features]
 default = []
-redis-backend = ["redis", "deadpool-redis", "dep:sha2", "dep:unicode-normalization", "dep:uuid"]
+redis-backend = ["deadpool-redis", "dep:sha2", "dep:unicode-normalization", "dep:uuid"]
 
 [dependencies]
 sentinel-types = { path = "../sentinel-types" }
@@ -29,8 +29,8 @@ sha2 = { version = "0.10", optional = true }
 unicode-normalization = { version = "0.1", optional = true }
 
 # Redis dependencies — only compiled when redis-backend feature is enabled
-redis = { version = "1.0", features = ["tokio-comp", "connection-manager"], optional = true }
-deadpool-redis = { version = "0.22", optional = true }
+# Using deadpool-redis's re-exported redis types for version consistency
+deadpool-redis = { version = "0.22", features = ["script", "connection-manager"], optional = true }
 
 [dev-dependencies]
 tempfile = "3.0"
