@@ -11,7 +11,7 @@
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-4%2C353%2B_passing-brightgreen.svg" alt="Tests: 4,353+ passing">
+    <img src="https://img.shields.io/badge/tests-4%2C442%2B_passing-brightgreen.svg" alt="Tests: 4,353+ passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <img src="https://img.shields.io/badge/security_audit-35_rounds%2C_390%2B_findings-informational.svg" alt="Security Audit: 35 rounds, 390+ findings">
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
@@ -35,15 +35,18 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>3.0.0-dev (crates at 2.2.1)</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>4,353+ tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>4,442+ tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
 <tr><td>📄 <strong>License</strong></td><td>AGPL-3.0 (dual license available)</td></tr>
 </table>
 
-## Recent Updates (2026-02-13)
+## Recent Updates (2026-02-14)
 
+- **Phase 19.1: EU AI Act Compliance Evidence** — Registry-based conformity assessment with 10 obligations (Art 5–50), 18 capability mappings, and `AiActRiskClass` enum. `GET /api/compliance/eu-ai-act/report` generates conformity assessment per Art 43. Read-time entry classification via `classify_entry_transparency()`. 11 tests.
+- **Phase 19.4: SOC 2 Evidence + Merkle Proofs** — SOC 2 registry with 22 criteria across CC1-CC9, ~30 capability mappings, and 5-level `ReadinessLevel` scoring. `GET /api/compliance/soc2/evidence` with category filter. Append-only Merkle tree with RFC 6962 domain separation, inclusion proof generation/verification, audit logger integration, checkpoint integration, crash recovery. 38 tests (14 SOC 2 + 24 Merkle).
+- **Phase 21.0: Capability-Based Delegation Tokens** — Ed25519-signed `CapabilityToken` with monotonic attenuation (depth decrements, grants subset, expiry clamped). `RequireCapabilityToken` policy condition with fail-closed semantics. Grant coverage matching via glob patterns on tool/function/paths/domains. Structural validation (MAX_GRANTS=64, MAX_DEPTH=16). 31 tests.
 - **Phase 17.2: gRPC Transport (Google Proposal)** — Protocol Buffers-based MCP transport on separate port (50051) via tonic 0.13, feature-gated behind `grpc`. Full policy enforcement pipeline (classify → evaluate → audit → forward → DLP/injection scan), depth-bounded proto↔JSON conversion (MAX_DEPTH=64), constant-time auth interceptor, gRPC Health v1, bidirectional streaming with per-message evaluation, gRPC-to-HTTP fallback for existing HTTP MCP servers. 46 unit tests + `fuzz_grpc_proto` fuzz target. New CLI args: `--grpc`, `--grpc-port`, `--grpc-max-message-size`, `--upstream-grpc-url`.
 - **Phase 17.1: WebSocket Transport (SEP-1288)** — Bidirectional MCP-over-WebSocket reverse proxy at `/mcp/ws` with full policy enforcement, DLP/injection response scanning, TOCTOU-safe canonicalization, per-connection rate limiting, idle timeout, session binding, and fail-closed semantics. 29 unit tests + `fuzz_ws_frame` fuzz target. New CLI args: `--ws-max-message-size`, `--ws-idle-timeout`, `--ws-message-rate-limit`.
 - **Production-ready CI/CD** — 11 GitHub Actions workflows: CI, security audit, cargo-deny, dependency review, scorecard, provenance/SBOM, Docker publish (GHCR + Trivy), release automation (static binaries, checksums, SBOM, provenance), rustdoc Pages, PyPI publish (trusted OIDC), and crates.io publish (dependency-ordered).
@@ -123,7 +126,7 @@ Sentinel enforces security policies on every tool call before it reaches the too
 - **Prometheus metrics** at `/metrics` with evaluation latency histograms, verdict counters, and DLP finding counts
 - **Hot policy reload** via SIGHUP signal or filesystem watching with atomic swap and audit trail
 - **SIEM export** in CEF (Common Event Format) and JSON Lines for integration with Splunk, ArcSight, Elasticsearch, and Datadog
-- **Tamper-evident audit logging** with SHA-256 hash chains, Ed25519 signed checkpoints, and rotation chain continuity
+- **Tamper-evident audit logging** with SHA-256 hash chains, Merkle tree inclusion proofs, Ed25519 signed checkpoints, and rotation chain continuity
 - **Structured output validation** via OutputSchemaRegistry against declared `outputSchema`
 
 ### 🔐 Authentication & Access Control
@@ -743,6 +746,9 @@ Security defaults and guardrails:
 | `GET` | `/api/nhi/expiring` | Yes | Get identities expiring soon |
 | `POST` | `/api/nhi/dpop/nonce` | Yes | Generate DPoP nonce |
 | `GET` | `/api/nhi/stats` | Yes | Get NHI statistics |
+| `GET` | `/api/compliance/status` | Yes | Overall compliance posture (EU AI Act + SOC 2 + NIST + ISO) |
+| `GET` | `/api/compliance/eu-ai-act/report` | Yes | EU AI Act conformity assessment report (Art 43) |
+| `GET` | `/api/compliance/soc2/evidence` | Yes | SOC 2 evidence collection with optional `?category=CC1` filter |
 
 All endpoints except `/health`, `/metrics`, and `/api/metrics` require a `Bearer` token matching `SENTINEL_API_KEY`. Use `--allow-anonymous` to disable authentication for development.
 
@@ -813,8 +819,9 @@ Every policy decision is logged to a tamper-evident audit trail.
 
 - 📄 **JSONL format** — one JSON entry per line, streamable and easy to ingest
 - 🔗 **SHA-256 hash chain** — each entry includes the hash of the previous entry; any tampering breaks the chain
+- 🌲 **Merkle tree inclusion proofs** — append-only Merkle tree with RFC 6962 domain separation; generate and verify inclusion proofs for any audit entry without full log access
 - 🔄 **Rotation chain continuity** — when logs rotate, a rotation manifest links files together with tail hashes
-- ✍️ **Ed25519 signed checkpoints** — periodic cryptographic snapshots of chain state for independent verification
+- ✍️ **Ed25519 signed checkpoints** — periodic cryptographic snapshots of chain state with Merkle root for independent verification
 - 🙈 **Sensitive value redaction** — API keys, tokens, passwords, and secrets are automatically redacted before logging
 - 📊 **SIEM integration** — export entries in CEF or JSON Lines format via API or configurable webhook
 - 🔁 **Duplicate entry detection** — detects replayed or duplicated audit entries
@@ -903,7 +910,7 @@ Environment variables override values set in the config file.
 | 🤝 **Cross-agent security** | Agent trust graph, Ed25519 message signing, privilege escalation detection |
 | 🛡️ **CSRF protection** | Origin header validation on POST/DELETE endpoints |
 | ⏱️ **Constant-time auth** | API key comparison uses `subtle::ConstantTimeEq` |
-| 📋 **Tamper-evident audit** | SHA-256 hash chain + Ed25519 checkpoints + rotation manifests |
+| 📋 **Tamper-evident audit** | SHA-256 hash chain + Merkle tree inclusion proofs + Ed25519 checkpoints + rotation manifests |
 | 🌍 **DNS rebinding** | IP-level access control blocks private/reserved IPs and custom CIDR ranges |
 | 🔑 **OAuth 2.1** | JWT/JWKS validation, algorithm confusion prevention, scope enforcement |
 | 🚦 **Rate limiting** | Per-IP, per-principal, per-endpoint with burst support and capacity bounds |
@@ -911,6 +918,7 @@ Environment variables override values set in the config file.
 | 🔏 **ETDI tool signing** | Ed25519/ECDSA tool signatures with attestation chains and version pinning |
 | 🧠 **MINJA memory defense** | Taint propagation, provenance graphs, trust decay, quarantine, and namespace isolation |
 | 🤖 **NHI lifecycle** | Agent identity attestation, behavioral baselines, delegation chains, credential rotation, and DPoP |
+| 🎫 **Capability delegation** | Ed25519-signed capability tokens with monotonic attenuation, grant coverage matching, depth-limited delegation chains, fail-closed policy condition |
 | ⏱️ **Task security** | ChaCha20-Poly1305 encryption, HMAC resume tokens, SHA-256 hash chains, Ed25519 checkpoints, replay protection |
 
 ### 🔬 Security Audit
@@ -924,7 +932,7 @@ Sentinel has undergone 35 rounds of adversarial security audit covering 31+ atta
 | Total findings triaged | 390+ |
 | Findings fixed | 310+ |
 | Critical/HIGH findings fixed | 85+ |
-| Test count post-audit | 4,353+ |
+| Test count post-audit | 4,442+ |
 
 Key areas covered: tool poisoning, prompt injection, path traversal, SSRF/domain bypass, session fixation, JSON parsing, memory poisoning, elicitation social engineering, audit log tampering, OAuth/JWT validation, SIEM export injection, rug-pull detection, tool squatting, DLP bypass, SSE transport parity, config reload races, Unicode case-folding, IPv6 transition mechanisms, CEF/SIEM injection, and webhook SSRF.
 
@@ -934,6 +942,8 @@ Sentinel provides built-in compliance mapping and reporting for major AI securit
 
 | Standard | Module | Coverage |
 |----------|--------|----------|
+| **EU AI Act** | `sentinel-audit/src/eu_ai_act.rs` | 10 obligations (Art 5–50), 18 capability mappings, conformity assessment reports |
+| **SOC 2** | `sentinel-audit/src/soc2.rs` | 22 criteria across CC1-CC9, ~30 capability mappings, evidence reports |
 | **MITRE ATLAS** | `sentinel-audit/src/atlas.rs` | 14 techniques (AML.T0051-T0065), 30+ detection mappings |
 | **OWASP AIVSS** | `sentinel-audit/src/aivss.rs` | Full severity scoring with AI-specific multipliers |
 | **NIST AI RMF** | `sentinel-audit/src/nist_rmf.rs` | All 4 functions (Govern, Map, Measure, Manage) |
@@ -941,7 +951,23 @@ Sentinel provides built-in compliance mapping and reporting for major AI securit
 
 Generate compliance reports programmatically:
 ```rust
-use sentinel_audit::{atlas::AtlasRegistry, nist_rmf::NistRmfRegistry, iso27090::Iso27090Registry};
+use sentinel_audit::{
+    eu_ai_act::EuAiActRegistry, soc2::Soc2Registry,
+    atlas::AtlasRegistry, nist_rmf::NistRmfRegistry, iso27090::Iso27090Registry,
+};
+
+// EU AI Act conformity assessment
+let eu = EuAiActRegistry::new();
+let assessment = eu.generate_assessment(
+    sentinel_types::AiActRiskClass::HighRisk, "Acme Corp", "sentinel-v3",
+);
+
+// SOC 2 evidence report
+let soc2 = Soc2Registry::new();
+let report = soc2.generate_evidence_report(
+    "Acme Corp", "2026-01-01", "2026-12-31",
+    &[sentinel_types::TrustServicesCategory::CC1, sentinel_types::TrustServicesCategory::CC6],
+);
 
 // MITRE ATLAS coverage
 let atlas = AtlasRegistry::new();
