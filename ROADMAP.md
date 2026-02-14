@@ -307,7 +307,7 @@ Conformity assessment, transparency evidence generation, and runtime transparenc
 | Add automated decision explanation logging (Art. 50(2)) | 🔲 | Future: per-verdict explanations |
 | Implement human oversight notification triggers (Art. 14) | ✅ | `requires_human_oversight()` with glob-based tool matching + audit events in relay loop |
 | Implement data governance record keeping (Art. 10) | 🔲 | Future |
-| Create EU AI Act compliance dashboard section | ✅ | 4 metric cards + 6-framework table in `sentinel-server/src/dashboard.rs` |
+| Create EU AI Act compliance dashboard section | ✅ | 4 metric cards + 7-framework table in `sentinel-server/src/dashboard.rs` |
 
 **Configuration:**
 ```toml
@@ -368,7 +368,7 @@ Map all 12 CoSAI threat categories (~40 threats) to Sentinel controls and close 
 | CoSAI detection mappings (SentinelDetection → threats) | ✅ | Runtime + structural mitigations, 100% coverage |
 | CoSAI coverage report generation | ✅ | `CosaiRegistry::generate_coverage_report()` |
 | Adversa AI TOP 25 coverage matrix (25/25) | ✅ | `sentinel-audit/src/adversa_top25.rs` |
-| Cross-framework gap analysis (6 frameworks) | ✅ | `sentinel-audit/src/gap_analysis.rs` |
+| Cross-framework gap analysis (7 frameworks) | ✅ | `sentinel-audit/src/gap_analysis.rs` |
 | Threat coverage API endpoint | ✅ | `GET /api/compliance/threat-coverage` |
 | Gap analysis API endpoint | ✅ | `GET /api/compliance/gap-analysis` |
 | Unit tests | ✅ | 35 tests (14 CoSAI + 14 Adversa + 7 gap analysis) |
@@ -380,6 +380,7 @@ Map all 12 CoSAI threat categories (~40 threats) to Sentinel controls and close 
 - EU AI Act (Art 5–50)
 - CoSAI (12 categories, 38 threats)
 - Adversa AI TOP 25 (25 vulnerabilities)
+- ISO/IEC 42001 (AI Management System controls)
 
 **Completed:** 2026-02-14
 

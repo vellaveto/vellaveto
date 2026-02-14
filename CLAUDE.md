@@ -91,7 +91,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | **sentinel-audit** | |
 | Module root + AuditLogger + rotation + verification | `sentinel-audit/src/lib.rs` |
 | Redaction, checkpoints, Merkle proofs, events | `sentinel-audit/src/*.rs` |
-| Compliance registries: EU AI Act, SOC 2, CoSAI, Adversa, gap analysis | `sentinel-audit/src/{eu_ai_act,soc2,cosai,adversa_top25,gap_analysis}.rs` |
+| Compliance registries: EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, gap analysis | `sentinel-audit/src/{eu_ai_act,soc2,cosai,adversa_top25,iso42001,gap_analysis}.rs` |
 | OTLP exporter, archive | `sentinel-audit/src/observability/otlp.rs`, `sentinel-audit/src/archive.rs` |
 | Tests (~214) | `sentinel-audit/src/tests.rs` |
 | **sentinel-config** | |
@@ -141,7 +141,7 @@ All 23 phases implemented, tested, and hardened through 38 audit rounds. Details
 - **Auth & Transport:** OAuth 2.1/JWT/JWKS, CSRF, rate limiting, MCP 2025-06-18 compliance, 6 deployment modes (HTTP, stdio, HTTP proxy, WebSocket proxy, gRPC proxy, MCP gateway)
 - **Advanced Authorization (Phase 21):** ABAC with forbid-overrides, capability-based delegation tokens, least-agency tracking, identity federation, continuous authorization
 - **MCP Gateway (Phase 20):** Multi-backend routing, health state machine, session affinity, tool conflict detection
-- **Compliance (Phase 19):** EU AI Act registry + Art 50 transparency marking, SOC 2 evidence, CoSAI 38/38, Adversa TOP 25 25/25, 6-framework gap analysis, OTLP export, Merkle inclusion proofs
+- **Compliance (Phase 19):** EU AI Act registry + Art 50 transparency marking, SOC 2 evidence, CoSAI 38/38, Adversa TOP 25 25/25, 7-framework gap analysis, OTLP export, Merkle inclusion proofs
 - **MCP Ecosystem:** Tool registry with trust scoring, elicitation interception, sampling enforcement, semantic guardrails (LLM-based), A2A protocol security
 - **Transport (Phases 17–18):** WebSocket bidirectional proxy, gRPC reverse proxy (tonic), extension registry, transport discovery/negotiation/fallback
 - **Research (Phase 23):** Red team mutation engine, FIPS 140-3 mode, Rekor transparency log, stateful session guards

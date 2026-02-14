@@ -48,12 +48,12 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 - **HTTP Proxy Benchmarks** — 35 Criterion benchmarks for the production hot path (`sentinel-http-proxy/benches/http_proxy.rs`): origin validation (<440ns), HMAC signing/verification (<1.6µs), call chain parsing (<3.8µs), privilege escalation detection (<76ns), audit context building (<1.1µs).
 - **Phase 17 Complete** — All 6 exit criteria delivered. Phase 17.3 (Async Operations) adds TaskRequest policy enforcement across all 4 transports (HTTP, WebSocket, gRPC, stdio) with fail-closed semantics, `ProgressNotification` classification for `notifications/progress`. Phase 17.4 (Protocol Extensions) adds `ExtensionHandler` trait with lifecycle hooks, `ExtensionRegistry` with thread-safe registration and glob-based negotiation, `x-` prefix method routing through policy evaluation, and `AuditQueryExtension` example handling `x-sentinel-audit/stats`. 50+ new tests. New types: `ExtensionDescriptor`, `ExtensionResourceLimits`, `ExtensionConfig`.
 - **Phase 19: Regulatory Compliance Complete** — All 9 exit criteria delivered:
-  - **Compliance dashboard** — Real-time status cards (EU AI Act %, SOC 2 %, Framework Coverage %, Critical Gaps) and 6-framework coverage table with color-coded thresholds in the admin dashboard.
+  - **Compliance dashboard** — Real-time status cards (EU AI Act %, SOC 2 %, Framework Coverage %, Critical Gaps) and 7-framework coverage table with color-coded thresholds in the admin dashboard.
   - **EU AI Act Article 50 transparency** — `mark_ai_mediated()` injects `_meta.sentinel_ai_mediated` into tool responses. `requires_human_oversight()` triggers audit events for configured tool patterns via glob matching. Art 50(1) status upgraded to Compliant. 11 tests.
   - **Immutable audit log archive** — gzip compression of rotated logs + retention enforcement (delete archives older than `retention_days`). Feature-gated behind `archive`. 9 tests.
   - **OTLP export with GenAI semantic conventions** — `OtlpExporter` maps `SecuritySpan` to OpenTelemetry spans with `gen_ai.system`, `gen_ai.operation.name`, and `sentinel.*` attributes. Feature-gated behind `otlp-exporter`. 11 tests.
   - **OtlpConfig** added to sentinel-config with endpoint/protocol/headers validation.
-- **Phase 19.3: CoSAI/Adversa Threat Coverage** — CoSAI 12-category registry (38 threats, 100% coverage), Adversa AI TOP 25 matrix (25/25, 100% coverage), cross-framework gap analysis across 6 frameworks (ATLAS, NIST RMF, ISO 27090, EU AI Act, CoSAI, Adversa TOP 25). New endpoints: `GET /api/compliance/threat-coverage`, `GET /api/compliance/gap-analysis`. 35 tests.
+- **Phase 19.3: CoSAI/Adversa Threat Coverage** — CoSAI 12-category registry (38 threats, 100% coverage), Adversa AI TOP 25 matrix (25/25, 100% coverage), cross-framework gap analysis across 7 frameworks (ATLAS, NIST RMF, ISO 27090, EU AI Act, CoSAI, Adversa TOP 25, ISO 42001). New endpoints: `GET /api/compliance/threat-coverage`, `GET /api/compliance/gap-analysis`. 35 tests.
 - **Phase 19.1: EU AI Act Compliance Evidence** — Registry-based conformity assessment with 10 obligations (Art 5–50), 18 capability mappings, and `AiActRiskClass` enum. `GET /api/compliance/eu-ai-act/report` generates conformity assessment per Art 43. Read-time entry classification via `classify_entry_transparency()`. 11 tests.
 - **Phase 19.4: SOC 2 Evidence + Merkle Proofs** — SOC 2 registry with 22 criteria across CC1-CC9, ~30 capability mappings, and 5-level `ReadinessLevel` scoring. `GET /api/compliance/soc2/evidence` with category filter. Append-only Merkle tree with RFC 6962 domain separation, inclusion proof generation/verification, audit logger integration, checkpoint integration, crash recovery. 38 tests (14 SOC 2 + 24 Merkle).
 - **Phase 21: Advanced Authorization Complete** — Cedar-style ABAC engine with forbid-overrides evaluation, `AbacEngine` compiled policies + `EntityStore` with transitive group membership (bounded depth=16). `LeastAgencyTracker` for per-agent-session permission usage tracking with 4-tier recommendations (Optimal/ReviewGrants/NarrowScope/Critical). Identity federation via `FederationTrustAnchor` with JWT claim-to-principal mapping. Continuous authorization via `RiskScore`-based per-request deny. ABAC wired across HTTP/WebSocket/gRPC transports. Full backward compat when disabled. ~80 tests (31 Phase 21.0 + 49 Phase 21.1–21.4).
@@ -767,11 +767,12 @@ Security defaults and guardrails:
 | `GET` | `/api/nhi/expiring` | Yes | Get identities expiring soon |
 | `POST` | `/api/nhi/dpop/nonce` | Yes | Generate DPoP nonce |
 | `GET` | `/api/nhi/stats` | Yes | Get NHI statistics |
-| `GET` | `/api/compliance/status` | Yes | Overall compliance posture (EU AI Act + SOC 2 + NIST + ISO) |
+| `GET` | `/api/compliance/status` | Yes | Overall compliance posture (EU AI Act + SOC 2 + NIST + ISO + ISO 42001) |
 | `GET` | `/api/compliance/eu-ai-act/report` | Yes | EU AI Act conformity assessment report (Art 43) |
 | `GET` | `/api/compliance/soc2/evidence` | Yes | SOC 2 evidence collection with optional `?category=CC1` filter |
+| `GET` | `/api/compliance/iso42001/report` | Yes | ISO/IEC 42001 AI Management System evidence report |
 | `GET` | `/api/compliance/threat-coverage` | Yes | Threat coverage across ATLAS, CoSAI, and Adversa TOP 25 |
-| `GET` | `/api/compliance/gap-analysis` | Yes | Cross-framework gap analysis (6 frameworks) |
+| `GET` | `/api/compliance/gap-analysis` | Yes | Cross-framework gap analysis (7 frameworks) |
 
 All endpoints except `/health`, `/metrics`, and `/api/metrics` require a `Bearer` token matching `SENTINEL_API_KEY`. Use `--allow-anonymous` to disable authentication for development.
 
@@ -974,7 +975,8 @@ Sentinel provides built-in compliance mapping and reporting for major AI securit
 | **ISO/IEC 27090** | `sentinel-audit/src/iso27090.rs` | 5 control domains, readiness assessment |
 | **CoSAI** | `sentinel-audit/src/cosai.rs` | 12 threat categories, 38 threats, 100% coverage |
 | **Adversa AI TOP 25** | `sentinel-audit/src/adversa_top25.rs` | 25 ranked vulnerabilities, 100% coverage |
-| **Cross-Framework** | `sentinel-audit/src/gap_analysis.rs` | Unified gap analysis across all 6 frameworks |
+| **ISO/IEC 42001** | `sentinel-audit/src/iso42001.rs` | AI Management System controls, clause coverage, evidence reports |
+| **Cross-Framework** | `sentinel-audit/src/gap_analysis.rs` | Unified gap analysis across all 7 frameworks |
 
 Generate compliance reports programmatically:
 ```rust
@@ -982,6 +984,7 @@ use sentinel_audit::{
     eu_ai_act::EuAiActRegistry, soc2::Soc2Registry,
     atlas::AtlasRegistry, nist_rmf::NistRmfRegistry, iso27090::Iso27090Registry,
     cosai::CosaiRegistry, adversa_top25::AdversaTop25Registry,
+    iso42001::Iso42001Registry,
     gap_analysis::generate_gap_analysis,
 };
 
@@ -1010,7 +1013,11 @@ let cosai_report = cosai.generate_coverage_report();
 let adversa = AdversaTop25Registry::new();
 let adversa_report = adversa.generate_coverage_report();
 
-// Cross-framework gap analysis (all 6 frameworks)
+// ISO/IEC 42001 AI Management System
+let iso42001 = Iso42001Registry::new();
+let iso42001_report = iso42001.generate_evidence_report();
+
+// Cross-framework gap analysis (all 7 frameworks)
 let gap_report = generate_gap_analysis();
 println!("Overall coverage: {:.1}%", gap_report.overall_coverage_percent);
 ```
