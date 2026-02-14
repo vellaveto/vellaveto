@@ -62,6 +62,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New workspace dependencies**: `tonic = "0.13"`, `prost = "0.13"`, `prost-types = "0.13"`, `tonic-health = "0.13"`, `tonic-build = "0.13"`, `tokio-util = "0.7"`, `tokio-stream = "0.1"`
 - **Zero impact on non-grpc builds** — All code behind `#[cfg(feature = "grpc")]`
 
+#### Merkle Tree Inclusion Proofs (Phase 19.4)
+- **Append-only Merkle tree** — Incremental construction with O(log n) peak-based append and RFC 6962 domain separation (`sentinel-audit/src/merkle.rs`)
+- **Domain separation** — `hash_leaf(data) = SHA-256(0x00 || data)`, `hash_internal(l, r) = SHA-256(0x01 || l || r)` prevents second-preimage attacks
+- **Inclusion proof generation** — `generate_proof(index)` produces bottom-up sibling path for any leaf in the tree
+- **Static proof verification** — `verify_proof(leaf_hash, proof)` verifies without disk access, suitable for external auditors
+- **Audit logger integration** — `with_merkle_tree()` builder method; leaf hash appended automatically on each `log_entry()` call
+- **Checkpoint integration** — `merkle_root: Option<String>` in `Checkpoint` struct with backward-compatible `signing_content()` (old checkpoints still verify)
+- **Log rotation support** — `.merkle-leaves` file renamed alongside rotated log; tree reset for new segment
+- **Crash recovery** — `initialize()` rebuilds peaks from existing leaf file after restart
+- **24 unit tests** covering empty/single/multi-element trees, proof roundtrips, tampered leaf/sibling/root rejection, logger integration, rotation, crash recovery, domain separation, order dependence
+
+#### Capability-Based Delegation Tokens (Phase 21.0)
+- **CapabilityToken type** — Ed25519-signed tokens with delegation chain, depth budget, grants, and expiry (`sentinel-types/src/capability.rs`)
+- **CapabilityGrant** — Tool/function glob patterns with path and domain constraints and invocation limits
+- **Token issuance** — `issue_capability_token()` creates root tokens with Ed25519 signature over length-prefixed canonical content (`sentinel-mcp/src/capability_token.rs`)
+- **Monotonic attenuation** — `attenuate_capability_token()` enforces: depth decrements, grants must be subset of parent, expiry clamped to parent's expiry; escalation rejected
+- **Token verification** — `verify_capability_token()` validates signature, expiry, and holder match
+- **Grant coverage** — `check_grant_coverage()` matches token grants against `Action` tool/function/paths/domains with glob support
+- **RequireCapabilityToken policy condition** — Fail-closed evaluation in `sentinel-engine/src/context_check.rs`; missing token = Deny, invalid holder/issuer = Deny, insufficient depth = Deny
+- **Policy compilation** — `require_capability_token` condition compiled in `sentinel-engine/src/policy_compile.rs` with `required_issuers`, `min_remaining_depth`, and `deny_reason`
+- **EvaluationContext extended** — `capability_token: Option<CapabilityToken>` field added to `sentinel-types/src/identity.rs` with builder support
+- **Structural validation** — `validate_structure()` enforces MAX_GRANTS=64, MAX_DELEGATION_DEPTH=16, MAX_TOKEN_SIZE=65536, rejects empty fields
+- **31 unit tests** — 4 types tests (serde, validation), 5 engine tests (context condition), 22 mcp tests (sign/verify, attenuation, grant coverage, expiry, holder/issuer mismatch)
+- **No new dependencies** — Reuses ed25519-dalek, hex, serde already in workspace
+
+#### Compliance Evidence Generation (Phase 19.1 / 19.4)
+- **Shared compliance types** — `AiActRiskClass` (Minimal/Limited/HighRisk/Unacceptable) and `TrustServicesCategory` (CC1-CC9) in `sentinel-types/src/compliance.rs` (leaf crate, no dependency violations)
+- **ComplianceConfig** — `EuAiActConfig` and `Soc2Config` with validation (MAX_HUMAN_OVERSIGHT_TOOLS=500, MIN_RETENTION_DAYS=30, MAX_SOC2_CATEGORIES=9) (`sentinel-config/src/compliance.rs`)
+- **EU AI Act registry** — `EuAiActRegistry` with 10 obligations (Art 5, 6, 9, 12, 13, 14, 15, 43, 50(1), 50(2)) and 18 capability mappings across `TransparencyCapability` enum (`sentinel-audit/src/eu_ai_act.rs`)
+- **EU AI Act conformity assessment** — `generate_assessment(risk_class, deployer_name, system_id)` produces `ConformityAssessmentReport` with compliance percentage, applicable/compliant/partial articles
+- **EU AI Act entry classification** — `classify_entry_transparency()` classifies audit entries at read-time into transparency records
+- **SOC 2 registry** — `Soc2Registry` with 22 criteria across CC1-CC9 and ~30 capability mappings with `ReadinessLevel` (NotStarted through Optimizing, scored 0-5) (`sentinel-audit/src/soc2.rs`)
+- **SOC 2 evidence report** — `generate_evidence_report(org_name, period_start, period_end, tracked_categories)` produces `Soc2EvidenceReport` with overall readiness, scores, and gaps
+- **SOC 2 coverage analysis** — `coverage_by_category()` returns per-category coverage with readiness levels
+- **SOC 2 entry classification** — `classify_entry()` classifies audit entries at read-time into evidence records
+- **Compliance API endpoints** — Three new routes registered in `sentinel-server`:
+  - `GET /api/compliance/status` — Overall compliance posture (EU AI Act + SOC 2 + optional NIST RMF + ISO 27090)
+  - `GET /api/compliance/eu-ai-act/report` — Full conformity assessment report per Art 43
+  - `GET /api/compliance/soc2/evidence?category=CC1` — SOC 2 evidence collection with optional category filter
+- **PolicySnapshot extended** — `compliance_config` field for atomic policy reload with compliance configuration
+- **34 unit tests** — 9 config tests (defaults, validation, TOML parsing, serde roundtrip), 11 EU AI Act tests (registry, assessment, entry classification), 14 SOC 2 tests (registry, evidence report, coverage, entry classification, category filtering)
+- **No new dependencies** — Reuses serde, serde_json, sha2 already in workspace
+
 - Docker Compose for local deployment (`docker-compose.yml`)
 - Docker image build and publish workflow (GHCR + Trivy scanning)
 - GitHub release automation workflow (static binaries, checksums, SBOM, provenance)
