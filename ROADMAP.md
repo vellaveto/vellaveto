@@ -2,7 +2,7 @@
 
 > **Version:** 3.0.0 (Planning)
 > **Generated:** 2026-02-13
-> **Baseline:** v2.2.1 — 4,480+ Rust tests, 130 Python SDK tests, 35 audit rounds, 22 fuzz targets, 11 CI workflows
+> **Baseline:** v2.2.1 — 4,783 Rust tests, 130 Python SDK tests, 37 audit rounds, 22 fuzz targets, 11 CI workflows
 > **Scope:** 12 months (Q1–Q4 2026), quarterly milestones
 > **Status:** All v2.0–v2.2 phases (1–15) complete; Phase 17 complete (all 6 exit criteria); Phase 18 complete (all 4 exit criteria); Phase 19 complete (all 9 exit criteria); Phase 21.0 complete; v3.0 in progress
 

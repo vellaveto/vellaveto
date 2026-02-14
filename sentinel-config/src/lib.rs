@@ -26,6 +26,7 @@ pub mod abac;
 pub mod cluster;
 pub mod compliance;
 pub mod config_validate;
+pub mod fips;
 pub mod grpc_transport;
 pub mod limits;
 pub mod policy_rule;
@@ -103,6 +104,7 @@ pub use config_validate::{
     MAX_EXTRA_INJECTION_PATTERNS, MAX_KNOWN_TOOL_NAMES, MAX_POLICIES, MAX_TRUSTED_KEYS,
 };
 pub use extension::ExtensionConfig;
+pub use fips::FipsConfig;
 pub use gateway::{BackendConfig, GatewayConfig};
 pub use grpc_transport::GrpcTransportConfig;
 pub use limits::LimitsConfig;
@@ -415,6 +417,15 @@ pub struct PolicyConfig {
     /// continuous authorization.
     #[serde(default)]
     pub abac: AbacConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 23: RESEARCH & FUTURE
+    // ═══════════════════════════════════════════════════
+    /// FIPS 140-3 compliance mode configuration (Phase 23.3).
+    /// When enabled, restricts cryptographic operations to NIST-approved algorithms.
+    /// Requires the `fips` feature flag on `sentinel-mcp`.
+    #[serde(default)]
+    pub fips: FipsConfig,
 }
 
 impl PolicyConfig {

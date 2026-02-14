@@ -139,6 +139,11 @@ pub struct EvaluationContext {
     /// When `None`, policies requiring a capability token will deny (fail-closed).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capability_token: Option<CapabilityToken>,
+    /// Current session state from the SessionGuard state machine (Phase 23.5).
+    /// Used by `session_state_required` context condition.
+    /// When `None`, policies requiring a session state will deny (fail-closed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_state: Option<String>,
 }
 
 impl EvaluationContext {
@@ -161,6 +166,7 @@ impl EvaluationContext {
             || self.tenant_id.is_some()
             || self.verification_tier.is_some()
             || self.capability_token.is_some()
+            || self.session_state.is_some()
     }
 
     /// Returns the depth of the current call chain (number of agents in the chain).
@@ -208,6 +214,7 @@ pub struct EvaluationContextBuilder {
     tenant_id: Option<String>,
     verification_tier: Option<VerificationTier>,
     capability_token: Option<CapabilityToken>,
+    session_state: Option<String>,
 }
 
 impl EvaluationContextBuilder {
@@ -283,6 +290,12 @@ impl EvaluationContextBuilder {
         self
     }
 
+    /// Set the session state from the SessionGuard state machine.
+    pub fn session_state(mut self, state: impl Into<String>) -> Self {
+        self.session_state = Some(state.into());
+        self
+    }
+
     /// Build the [`EvaluationContext`].
     pub fn build(self) -> EvaluationContext {
         EvaluationContext {
@@ -295,6 +308,7 @@ impl EvaluationContextBuilder {
             tenant_id: self.tenant_id,
             verification_tier: self.verification_tier,
             capability_token: self.capability_token,
+            session_state: self.session_state,
         }
     }
 }

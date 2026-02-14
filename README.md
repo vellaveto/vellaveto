@@ -11,9 +11,9 @@
     <a href="https://github.com/paolovella/sentinel/actions/workflows/ci.yml"><img src="https://github.com/paolovella/sentinel/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/sentinel/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-4%2C580%2B_passing-brightgreen.svg" alt="Tests: 4,580+ passing">
+    <img src="https://img.shields.io/badge/tests-4%2C783_passing-brightgreen.svg" alt="Tests: 4,783 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
-    <img src="https://img.shields.io/badge/security_audit-35_rounds%2C_390%2B_findings-informational.svg" alt="Security Audit: 35 rounds, 390+ findings">
+    <img src="https://img.shields.io/badge/security_audit-37_rounds%2C_400%2B_findings-informational.svg" alt="Security Audit: 37 rounds, 400+ findings">
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
   </p>
@@ -69,6 +69,7 @@ Sentinel is a lightweight, high-performance firewall that sits between AI agents
 - **Phase 15: AI Observability Platform Integration** — Langfuse, Arize, Helicone, and Webhook exporters with `SecuritySpan` tracing.
 - **Identity Verification Primitives** — DID:PLC generation, ordered verification tiers with fail-closed enforcement, Ed25519-signed accountability attestations, `min_verification_tier` policy condition.
 - **Adversarial Audit Hardening (FIND-055–074)** — Agent card SSRF prevention, bounded JSON traversal, control character rejection, regex pattern length limits, observability exporter bounds, attestation validation, audit log permission warnings.
+- **Adversarial Pentest Round 3 (FIND-077–084)** — Circuit breaker case normalization, HalfOpen state transition fix, exponential backoff enforcement, behavioral absolute ceiling, cold-start EMA cap, deputy re-delegation scope intersection, capability grant path normalization, fullwidth digit NFKC normalization.
 - **RwLock Poisoning Hardening** — All lock acquisition patterns across 12 modules replaced with explicit match blocks and fail-closed defaults.
 - **22 fuzz targets** — Coverage for JSON-RPC framing, path normalization, domain extraction, CIDR parsing, DLP scanning, injection detection, agent card URL/parse, A2A classification, homoglyph normalization, attestation verification, WebSocket frame parsing, gRPC proto conversion.
 - See `CHANGELOG.md` for full release and patch details.

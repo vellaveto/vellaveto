@@ -1310,6 +1310,38 @@ impl PolicyEngine {
                 })
             }
 
+            "session_state_required" => {
+                // Parse allowed_states (required array of strings)
+                let allowed_states = obj
+                    .get("allowed_states")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_ascii_lowercase()))
+                            .collect::<Vec<String>>()
+                    })
+                    .unwrap_or_default();
+
+                if allowed_states.is_empty() {
+                    return Err(PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: "session_state_required must have at least one allowed_states entry"
+                            .to_string(),
+                    });
+                }
+
+                let deny_reason = format!(
+                    "Session state not in allowed states for policy '{}'",
+                    policy.name
+                );
+
+                Ok(CompiledContextCondition::SessionStateRequired {
+                    allowed_states,
+                    deny_reason,
+                })
+            }
+
             _ => Err(PolicyValidationError {
                 policy_id: policy.id.clone(),
                 policy_name: policy.name.clone(),

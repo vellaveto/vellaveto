@@ -1,7 +1,7 @@
 # CLAUDE.md — Sentinel Project Instructions
 
 > **Project:** Sentinel — MCP Tool Firewall
-> **State:** v2.2.1 stable (Phases 1–15 complete, 36 audit rounds); v3.0 roadmap active (Phase 17 complete, Phase 18 complete, 19.1–19.4 complete, 20.1–20.3 complete, 21.0–21.4 complete, Phase 22 complete, Phase 23 complete — all phases done)
+> **State:** v2.2.1 stable (Phases 1–15 complete, 37 audit rounds); v3.0 roadmap active (Phase 17 complete, Phase 18 complete, 19.1–19.4 complete, 20.1–20.3 complete, 21.0–21.4 complete, Phase 22 complete, Phase 23 complete — all phases done)
 > **Version:** 3.0.0-dev (crates at 2.2.1, targeting v3.0 release)
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
 > **Tests:** 4,783 Rust tests + 130 Python SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
@@ -460,6 +460,17 @@ The following are **implemented, tested, and hardened** through 18 rounds of adv
 - `pentest_delegation_identity_attacks.rs` (20): re-delegation scope overwrite, empty allowed_tools=grant-all, session collision, self-approval Cyrillic/fullwidth blocked, fail-closed identity/capability/chain depth
 - `pentest_injection_redaction_evasion.rs` (20): typo/multilingual/base64/split-field injection evasion, fullwidth digit SSN bypass (Rust `\d` ASCII-only), memory tracker eviction, Mathematical Bold/RTL detected
 - `pentest_capability_supply_chain.rs` (15): grant path traversal (glob without normalization), empty paths=no restriction, schema hash canonicalization, monotonic attenuation, combined rug-pull+injection defense-in-depth
+
+**Adversarial Pentest Round 3 — Fixes (FIND-077–084, 8 findings closed):**
+- FIND-077 (P1): Circuit breaker case-sensitivity bypass — tool names normalized to lowercase before all HashMap operations (`can_proceed`, `record_success`, `record_failure`, `get_state`, `get_stats`, `reset`)
+- FIND-078 (P1): Circuit breaker HalfOpen state never entered — `can_proceed()` now transitions Open→HalfOpen via double-check locking (read→write lock upgrade) when open duration expires, enforcing `half_open_max_requests` limit
+- FIND-079 (P1): Circuit breaker no exponential backoff — added `trip_count: u32` to `CircuitStats`, incremented on each HalfOpen→Open transition, `effective_open_duration = base * 2^trip_count` (max 32x), reset on recovery
+- FIND-080 (P2): Behavioral EMA gradual ramp evasion — added `absolute_ceiling: Option<u64>` to `BehavioralConfig`, produces `Critical` alert when tool call count exceeds ceiling regardless of EMA baseline
+- FIND-081 (P2): Behavioral cold-start baseline poisoning — added `max_initial_ema: Option<f64>` to `BehavioralConfig`, caps first observation's EMA to prevent attackers from establishing artificially high baselines
+- FIND-082 (P2): Deputy re-delegation scope overwrite — `register_delegation()` now intersects requested `allowed_tools` with parent's granted scope using `eq_ignore_ascii_case`, enforcing monotonic attenuation
+- FIND-083 (P2): Capability grant path traversal — added `normalize_path_for_grant()` that resolves `.`/`..` components before matching; null bytes and above-root traversal return `false` (fail-closed)
+- FIND-084 (P3): Fullwidth digit SSN bypass — added NFKC normalization (`unicode-normalization` crate) before PII regex matching in `redact_keys_and_patterns()`, converting fullwidth digits (U+FF10–FF19) to ASCII
+- Updated 8 pentest tests across 4 integration test files to verify all fixes
 
 **CI/CD & Publishing:**
 - 11 GitHub Actions workflows: CI, security-audit, cargo-deny, dependency-review, scorecard, provenance-sbom, docker-publish, release, docs, publish-pypi, publish-crates

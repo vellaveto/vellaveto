@@ -50,6 +50,10 @@ pub struct ToolSignature {
     /// SPIFFE ID of the signer for workload identity (optional).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signer_spiffe_id: Option<String>,
+    /// Optional Rekor transparency log entry for tool provenance (Phase 23.4).
+    /// Contains a serialized `RekorEntry` for offline inclusion proof verification.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rekor_entry: Option<serde_json::Value>,
 }
 
 impl ToolSignature {

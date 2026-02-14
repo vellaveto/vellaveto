@@ -379,6 +379,17 @@ pub enum CompiledContextCondition {
         min_remaining_depth: u8,
         deny_reason: String,
     },
+
+    /// Session state requirement (Phase 23.5).
+    ///
+    /// Only allows actions when the session is in one of the specified states.
+    /// Fail-closed: if no session_state is present in context, denies.
+    SessionStateRequired {
+        /// Allowed session states (e.g., ["active", "init"]).
+        /// State names are compared case-insensitively.
+        allowed_states: Vec<String>,
+        deny_reason: String,
+    },
 }
 
 /// Pre-parsed fields extracted from a policy's `conditions` JSON.

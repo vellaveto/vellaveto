@@ -247,6 +247,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - FIND-074 (P3): Audit logger now rejects ALL control characters (U+0000–U+009F) in tool/function names, not just \n, \r, and \0 — prevents log injection via tabs, backspaces, escape sequences
   - Updated 4 integration test files to match new control character rejection behavior
 
+- **Adversarial Pentest Round 3 Fixes (FIND-077–084)**:
+  - FIND-077 (P1): Circuit breaker case-sensitivity bypass — tool names normalized to lowercase before all HashMap operations, preventing evasion via case variation (`MyTool` vs `mytool`)
+  - FIND-078 (P1): Circuit breaker HalfOpen state never entered — `can_proceed()` now transitions Open→HalfOpen via double-check locking (read→write lock upgrade) when open duration expires, enforcing `half_open_max_requests` limit
+  - FIND-079 (P1): Circuit breaker no exponential backoff — added `trip_count: u32` to `CircuitStats` with `#[serde(default)]`, incremented on HalfOpen→Open transitions, `effective_open_duration = base * 2^trip_count` (max 32x), reset on full recovery
+  - FIND-080 (P2): Behavioral EMA gradual ramp evasion — added `absolute_ceiling: Option<u64>` to `BehavioralConfig`, produces `Critical` alert when tool call count exceeds ceiling regardless of EMA baseline
+  - FIND-081 (P2): Behavioral cold-start baseline poisoning — added `max_initial_ema: Option<f64>` to `BehavioralConfig`, caps first observation's EMA to prevent artificially high baselines
+  - FIND-082 (P2): Deputy re-delegation scope overwrite — `register_delegation()` now intersects requested `allowed_tools` with parent's granted scope, enforcing monotonic attenuation
+  - FIND-083 (P2): Capability grant path traversal — `normalize_path_for_grant()` resolves `.`/`..` components before matching; null bytes and above-root traversal fail-closed
+  - FIND-084 (P3): Fullwidth digit SSN bypass — NFKC normalization via `unicode-normalization` crate before PII regex matching converts fullwidth digits (U+FF10–FF19) to ASCII
+  - Updated 8 pentest tests across 4 integration test files to verify all fixes
+
 ### Testing
 
 - **Adversarial Audit Test Coverage (FIND-043–054)**:
