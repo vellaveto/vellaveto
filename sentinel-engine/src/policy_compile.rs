@@ -1246,10 +1246,7 @@ impl PolicyEngine {
                     });
                 }
 
-                let deny_reason = format!(
-                    "Capability token required for policy '{}'",
-                    policy.name
-                );
+                let deny_reason = format!("Capability token required for policy '{}'", policy.name);
 
                 Ok(CompiledContextCondition::RequireCapabilityToken {
                     required_issuers,
@@ -1326,8 +1323,9 @@ impl PolicyEngine {
                     return Err(PolicyValidationError {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
-                        reason: "session_state_required must have at least one allowed_states entry"
-                            .to_string(),
+                        reason:
+                            "session_state_required must have at least one allowed_states entry"
+                                .to_string(),
                     });
                 }
 

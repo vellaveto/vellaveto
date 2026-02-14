@@ -14,7 +14,7 @@
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use sentinel_types::{
-    CapabilityError, CapabilityGrant, CapabilityToken, CapabilityVerification, Action,
+    Action, CapabilityError, CapabilityGrant, CapabilityToken, CapabilityVerification,
     MAX_DELEGATION_DEPTH, MAX_GRANTS,
 };
 use sha2::{Digest, Sha256};
@@ -76,7 +76,13 @@ pub fn issue_capability_token(
 
     // Build canonical content and sign
     let canonical = build_canonical_content(
-        &token_id, None, issuer, holder, &grants, remaining_depth, &issued_at,
+        &token_id,
+        None,
+        issuer,
+        holder,
+        &grants,
+        remaining_depth,
+        &issued_at,
     )?;
     let signature_hex = sign_content(&signing_key, &canonical)?;
 
@@ -93,9 +99,9 @@ pub fn issue_capability_token(
         issuer_public_key: public_key_hex,
     };
 
-    token.validate_structure().map_err(|e| {
-        CapabilityError::SigningFailed(format!("token validation failed: {}", e))
-    })?;
+    token
+        .validate_structure()
+        .map_err(|e| CapabilityError::SigningFailed(format!("token validation failed: {}", e)))?;
 
     Ok(token)
 }
@@ -139,9 +145,10 @@ pub fn attenuate_capability_token(
 
     // Verify grants are a subset of parent's grants
     for new_grant in &new_grants {
-        let covered = parent.grants.iter().any(|parent_grant| {
-            grant_is_subset(new_grant, parent_grant)
-        });
+        let covered = parent
+            .grants
+            .iter()
+            .any(|parent_grant| grant_is_subset(new_grant, parent_grant));
         if !covered {
             return Err(CapabilityError::AttenuationViolation(format!(
                 "grant for tool '{}' function '{}' is not covered by parent token",
@@ -160,9 +167,7 @@ pub fn attenuate_capability_token(
 
     // Clamp expiry to parent's expiry
     let parent_expires = chrono::DateTime::parse_from_rfc3339(&parent.expires_at)
-        .map_err(|e| {
-            CapabilityError::SigningFailed(format!("invalid parent expires_at: {}", e))
-        })?;
+        .map_err(|e| CapabilityError::SigningFailed(format!("invalid parent expires_at: {}", e)))?;
     let requested_expires = now + chrono::Duration::seconds(ttl_secs as i64);
     let clamped_expires = if requested_expires > parent_expires {
         parent_expires.with_timezone(&chrono::Utc)
@@ -197,9 +202,9 @@ pub fn attenuate_capability_token(
         issuer_public_key: public_key_hex,
     };
 
-    token.validate_structure().map_err(|e| {
-        CapabilityError::SigningFailed(format!("token validation failed: {}", e))
-    })?;
+    token
+        .validate_structure()
+        .map_err(|e| CapabilityError::SigningFailed(format!("token validation failed: {}", e)))?;
 
     Ok(token)
 }
@@ -226,9 +231,8 @@ pub fn verify_capability_token(
     }
 
     // Check expiration
-    let expires = chrono::DateTime::parse_from_rfc3339(&token.expires_at).map_err(|e| {
-        CapabilityError::VerificationFailed(format!("invalid expires_at: {}", e))
-    })?;
+    let expires = chrono::DateTime::parse_from_rfc3339(&token.expires_at)
+        .map_err(|e| CapabilityError::VerificationFailed(format!("invalid expires_at: {}", e)))?;
     if *now >= expires {
         return Ok(CapabilityVerification {
             valid: false,
@@ -251,12 +255,10 @@ pub fn verify_capability_token(
 
     // Check public key match (constant-time)
     if let Some(expected_key) = expected_public_key_hex {
-        let expected_bytes = hex::decode(expected_key).map_err(|e| {
-            CapabilityError::InvalidKey(format!("invalid expected key hex: {}", e))
-        })?;
-        let actual_bytes = hex::decode(&token.issuer_public_key).map_err(|e| {
-            CapabilityError::InvalidKey(format!("invalid token key hex: {}", e))
-        })?;
+        let expected_bytes = hex::decode(expected_key)
+            .map_err(|e| CapabilityError::InvalidKey(format!("invalid expected key hex: {}", e)))?;
+        let actual_bytes = hex::decode(&token.issuer_public_key)
+            .map_err(|e| CapabilityError::InvalidKey(format!("invalid token key hex: {}", e)))?;
         if expected_bytes.ct_eq(&actual_bytes).into() {
             // Keys match
         } else {
@@ -268,9 +270,8 @@ pub fn verify_capability_token(
     }
 
     // Verify Ed25519 signature
-    let pub_key_bytes = hex::decode(&token.issuer_public_key).map_err(|e| {
-        CapabilityError::InvalidKey(format!("public key hex decode: {}", e))
-    })?;
+    let pub_key_bytes = hex::decode(&token.issuer_public_key)
+        .map_err(|e| CapabilityError::InvalidKey(format!("public key hex decode: {}", e)))?;
     if pub_key_bytes.len() != 32 {
         return Ok(CapabilityVerification {
             valid: false,
@@ -280,16 +281,15 @@ pub fn verify_capability_token(
             )),
         });
     }
-    let vk_arr: [u8; 32] = pub_key_bytes.as_slice().try_into().map_err(|_| {
-        CapabilityError::InvalidKey("public key conversion failed".to_string())
-    })?;
-    let verifying_key = VerifyingKey::from_bytes(&vk_arr).map_err(|e| {
-        CapabilityError::InvalidKey(format!("invalid public key: {}", e))
-    })?;
+    let vk_arr: [u8; 32] = pub_key_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| CapabilityError::InvalidKey("public key conversion failed".to_string()))?;
+    let verifying_key = VerifyingKey::from_bytes(&vk_arr)
+        .map_err(|e| CapabilityError::InvalidKey(format!("invalid public key: {}", e)))?;
 
-    let sig_bytes = hex::decode(&token.signature).map_err(|e| {
-        CapabilityError::VerificationFailed(format!("signature hex decode: {}", e))
-    })?;
+    let sig_bytes = hex::decode(&token.signature)
+        .map_err(|e| CapabilityError::VerificationFailed(format!("signature hex decode: {}", e)))?;
     if sig_bytes.len() != 64 {
         return Ok(CapabilityVerification {
             valid: false,
@@ -438,8 +438,7 @@ fn glob_match(pattern: &[u8], value: &[u8]) -> bool {
 
     while vi < value.len() {
         if pi < pattern.len()
-            && (pattern[pi] == b'?'
-                || pattern[pi].eq_ignore_ascii_case(&value[vi]))
+            && (pattern[pi] == b'?' || pattern[pi].eq_ignore_ascii_case(&value[vi]))
         {
             pi += 1;
             vi += 1;
@@ -519,9 +518,10 @@ fn parse_signing_key(hex_key: &str) -> Result<SigningKey, CapabilityError> {
             key_bytes.len()
         )));
     }
-    let arr: [u8; 32] = key_bytes.as_slice().try_into().map_err(|_| {
-        CapabilityError::InvalidKey("key conversion failed".to_string())
-    })?;
+    let arr: [u8; 32] = key_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| CapabilityError::InvalidKey("key conversion failed".to_string()))?;
     Ok(SigningKey::from_bytes(&arr))
 }
 
@@ -591,23 +591,28 @@ mod tests {
     #[test]
     fn test_issue_and_verify_roundtrip() {
         let key_hex = test_key_hex();
-        let token = issue_capability_token(
-            "issuer-1", "holder-1", test_grants(), 5, &key_hex, 3600,
-        ).unwrap();
+        let token =
+            issue_capability_token("issuer-1", "holder-1", test_grants(), 5, &key_hex, 3600)
+                .unwrap();
 
         let key = parse_signing_key(&key_hex).unwrap();
         let pub_key_hex = hex::encode(key.verifying_key().as_bytes());
         let now = chrono::Utc::now();
-        let result = verify_capability_token(&token, Some("holder-1"), Some(&pub_key_hex), &now).unwrap();
-        assert!(result.valid, "Token should verify: {:?}", result.failure_reason);
+        let result =
+            verify_capability_token(&token, Some("holder-1"), Some(&pub_key_hex), &now).unwrap();
+        assert!(
+            result.valid,
+            "Token should verify: {:?}",
+            result.failure_reason
+        );
     }
 
     #[test]
     fn test_tampered_signature_rejected() {
         let key_hex = test_key_hex();
-        let mut token = issue_capability_token(
-            "issuer-1", "holder-1", test_grants(), 5, &key_hex, 3600,
-        ).unwrap();
+        let mut token =
+            issue_capability_token("issuer-1", "holder-1", test_grants(), 5, &key_hex, 3600)
+                .unwrap();
         // Tamper with the signature
         token.signature = hex::encode([0xffu8; 64]);
         let now = chrono::Utc::now();
@@ -619,9 +624,9 @@ mod tests {
     #[test]
     fn test_tampered_content_rejected() {
         let key_hex = test_key_hex();
-        let mut token = issue_capability_token(
-            "issuer-1", "holder-1", test_grants(), 5, &key_hex, 3600,
-        ).unwrap();
+        let mut token =
+            issue_capability_token("issuer-1", "holder-1", test_grants(), 5, &key_hex, 3600)
+                .unwrap();
         token.holder = "attacker".to_string();
         let now = chrono::Utc::now();
         let result = verify_capability_token(&token, None, None, &now).unwrap();
@@ -632,8 +637,14 @@ mod tests {
     fn test_expired_token_rejected() {
         let key_hex = test_key_hex();
         let token = issue_capability_token(
-            "issuer-1", "holder-1", test_grants(), 5, &key_hex, 1, // 1 second TTL
-        ).unwrap();
+            "issuer-1",
+            "holder-1",
+            test_grants(),
+            5,
+            &key_hex,
+            1, // 1 second TTL
+        )
+        .unwrap();
         // Set "now" far in the future
         let future = chrono::Utc::now() + chrono::Duration::hours(1);
         let result = verify_capability_token(&token, None, None, &future).unwrap();
@@ -644,9 +655,9 @@ mod tests {
     #[test]
     fn test_holder_mismatch_rejected() {
         let key_hex = test_key_hex();
-        let token = issue_capability_token(
-            "issuer-1", "holder-1", test_grants(), 5, &key_hex, 3600,
-        ).unwrap();
+        let token =
+            issue_capability_token("issuer-1", "holder-1", test_grants(), 5, &key_hex, 3600)
+                .unwrap();
         let now = chrono::Utc::now();
         let result = verify_capability_token(&token, Some("wrong-holder"), None, &now).unwrap();
         assert!(!result.valid);
@@ -656,9 +667,9 @@ mod tests {
     #[test]
     fn test_wrong_key_rejected() {
         let key_hex = test_key_hex();
-        let token = issue_capability_token(
-            "issuer-1", "holder-1", test_grants(), 5, &key_hex, 3600,
-        ).unwrap();
+        let token =
+            issue_capability_token("issuer-1", "holder-1", test_grants(), 5, &key_hex, 3600)
+                .unwrap();
         let wrong_key = test_key_hex();
         let wrong_key_obj = parse_signing_key(&wrong_key).unwrap();
         let wrong_pub = hex::encode(wrong_key_obj.verifying_key().as_bytes());
@@ -671,11 +682,11 @@ mod tests {
     #[test]
     fn test_grant_coverage_exact_match() {
         let key_hex = test_key_hex();
-        let token = issue_capability_token(
-            "issuer", "holder", test_grants(), 5, &key_hex, 3600,
-        ).unwrap();
+        let token =
+            issue_capability_token("issuer", "holder", test_grants(), 5, &key_hex, 3600).unwrap();
         let action = Action::new(
-            "file_system".to_string(), "read_file".to_string(),
+            "file_system".to_string(),
+            "read_file".to_string(),
             serde_json::json!({"path": "/tmp/test.txt"}),
         );
         assert!(check_grant_coverage(&token, &action).is_some());
@@ -684,11 +695,11 @@ mod tests {
     #[test]
     fn test_grant_coverage_no_match() {
         let key_hex = test_key_hex();
-        let token = issue_capability_token(
-            "issuer", "holder", test_grants(), 5, &key_hex, 3600,
-        ).unwrap();
+        let token =
+            issue_capability_token("issuer", "holder", test_grants(), 5, &key_hex, 3600).unwrap();
         let action = Action::new(
-            "database".to_string(), "query".to_string(),
+            "database".to_string(),
+            "query".to_string(),
             serde_json::json!({}),
         );
         assert!(check_grant_coverage(&token, &action).is_none());
@@ -704,11 +715,10 @@ mod tests {
             allowed_domains: vec![],
             max_invocations: 0,
         }];
-        let token = issue_capability_token(
-            "issuer", "holder", grants, 5, &key_hex, 3600,
-        ).unwrap();
+        let token = issue_capability_token("issuer", "holder", grants, 5, &key_hex, 3600).unwrap();
         let action = Action::new(
-            "file_system".to_string(), "write_file".to_string(),
+            "file_system".to_string(),
+            "write_file".to_string(),
             serde_json::json!({}),
         );
         assert!(check_grant_coverage(&token, &action).is_some());
@@ -719,7 +729,8 @@ mod tests {
         let parent_key_hex = test_key_hex();
         let child_key_hex = test_key_hex();
         let parent = issue_capability_token(
-            "root", "agent-a",
+            "root",
+            "agent-a",
             vec![CapabilityGrant {
                 tool_pattern: "*".into(),
                 function_pattern: "*".into(),
@@ -727,12 +738,15 @@ mod tests {
                 allowed_domains: vec![],
                 max_invocations: 0,
             }],
-            5, &parent_key_hex, 3600,
-        ).unwrap();
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
 
-        let child = attenuate_capability_token(
-            &parent, "agent-b", test_grants(), &child_key_hex, 1800,
-        ).unwrap();
+        let child =
+            attenuate_capability_token(&parent, "agent-b", test_grants(), &child_key_hex, 1800)
+                .unwrap();
 
         assert_eq!(child.remaining_depth, 4);
         assert_eq!(child.issuer, "agent-a");
@@ -744,9 +758,9 @@ mod tests {
     fn test_attenuation_escalation_rejected() {
         let parent_key_hex = test_key_hex();
         let child_key_hex = test_key_hex();
-        let parent = issue_capability_token(
-            "root", "agent-a", test_grants(), 5, &parent_key_hex, 3600,
-        ).unwrap();
+        let parent =
+            issue_capability_token("root", "agent-a", test_grants(), 5, &parent_key_hex, 3600)
+                .unwrap();
 
         // Try to grant access to "database" which parent doesn't have
         let escalated_grants = vec![CapabilityGrant {
@@ -756,12 +770,11 @@ mod tests {
             allowed_domains: vec![],
             max_invocations: 0,
         }];
-        let result = attenuate_capability_token(
-            &parent, "agent-b", escalated_grants, &child_key_hex, 1800,
-        );
+        let result =
+            attenuate_capability_token(&parent, "agent-b", escalated_grants, &child_key_hex, 1800);
         assert!(result.is_err());
         match result.unwrap_err() {
-            CapabilityError::AttenuationViolation(_) => {},
+            CapabilityError::AttenuationViolation(_) => {}
             other => panic!("Expected AttenuationViolation, got: {:?}", other),
         }
     }
@@ -770,16 +783,15 @@ mod tests {
     fn test_attenuation_depth_zero_rejected() {
         let parent_key_hex = test_key_hex();
         let child_key_hex = test_key_hex();
-        let parent = issue_capability_token(
-            "root", "agent-a", test_grants(), 0, &parent_key_hex, 3600,
-        ).unwrap();
+        let parent =
+            issue_capability_token("root", "agent-a", test_grants(), 0, &parent_key_hex, 3600)
+                .unwrap();
 
-        let result = attenuate_capability_token(
-            &parent, "agent-b", test_grants(), &child_key_hex, 1800,
-        );
+        let result =
+            attenuate_capability_token(&parent, "agent-b", test_grants(), &child_key_hex, 1800);
         assert!(result.is_err());
         match result.unwrap_err() {
-            CapabilityError::AttenuationViolation(_) => {},
+            CapabilityError::AttenuationViolation(_) => {}
             other => panic!("Expected AttenuationViolation, got: {:?}", other),
         }
     }
@@ -789,12 +801,23 @@ mod tests {
         let parent_key_hex = test_key_hex();
         let child_key_hex = test_key_hex();
         let parent = issue_capability_token(
-            "root", "agent-a", test_grants(), 5, &parent_key_hex, 60, // 60 seconds
-        ).unwrap();
+            "root",
+            "agent-a",
+            test_grants(),
+            5,
+            &parent_key_hex,
+            60, // 60 seconds
+        )
+        .unwrap();
 
         let child = attenuate_capability_token(
-            &parent, "agent-b", test_grants(), &child_key_hex, 999999, // very long
-        ).unwrap();
+            &parent,
+            "agent-b",
+            test_grants(),
+            &child_key_hex,
+            999999, // very long
+        )
+        .unwrap();
 
         // Child's expiry should be clamped to parent's
         let parent_exp = chrono::DateTime::parse_from_rfc3339(&parent.expires_at).unwrap();
@@ -866,9 +889,9 @@ mod tests {
     #[test]
     fn test_serde_roundtrip() {
         let key_hex = test_key_hex();
-        let token = issue_capability_token(
-            "issuer-1", "holder-1", test_grants(), 5, &key_hex, 3600,
-        ).unwrap();
+        let token =
+            issue_capability_token("issuer-1", "holder-1", test_grants(), 5, &key_hex, 3600)
+                .unwrap();
         let json = serde_json::to_string(&token).unwrap();
         let deserialized: CapabilityToken = serde_json::from_str(&json).unwrap();
         assert_eq!(token, deserialized);
@@ -898,9 +921,7 @@ mod tests {
             allowed_domains: vec![],
             max_invocations: 0,
         }];
-        let token = issue_capability_token(
-            "issuer", "holder", grants, 5, &key_hex, 3600,
-        ).unwrap();
+        let token = issue_capability_token("issuer", "holder", grants, 5, &key_hex, 3600).unwrap();
 
         let mut action = Action::new("fs".to_string(), "read".to_string(), serde_json::json!({}));
         action.target_paths = vec!["/data/file.txt".into()];
@@ -922,9 +943,7 @@ mod tests {
             allowed_domains: vec!["*.example.com".into()],
             max_invocations: 0,
         }];
-        let token = issue_capability_token(
-            "issuer", "holder", grants, 5, &key_hex, 3600,
-        ).unwrap();
+        let token = issue_capability_token("issuer", "holder", grants, 5, &key_hex, 3600).unwrap();
 
         let mut action = Action::new("http".to_string(), "get".to_string(), serde_json::json!({}));
         action.target_domains = vec!["api.example.com".into()];
@@ -940,12 +959,10 @@ mod tests {
         // "issuerA" + "holderB" should produce different canonical content than
         // "issuer" + "AholderB" due to length prefixing
         let key_hex = test_key_hex();
-        let token1 = issue_capability_token(
-            "issuerA", "holderB", test_grants(), 5, &key_hex, 3600,
-        ).unwrap();
-        let token2 = issue_capability_token(
-            "issuer", "AholderB", test_grants(), 5, &key_hex, 3600,
-        ).unwrap();
+        let token1 =
+            issue_capability_token("issuerA", "holderB", test_grants(), 5, &key_hex, 3600).unwrap();
+        let token2 =
+            issue_capability_token("issuer", "AholderB", test_grants(), 5, &key_hex, 3600).unwrap();
         // Different tokens should have different signatures
         assert_ne!(token1.signature, token2.signature);
     }

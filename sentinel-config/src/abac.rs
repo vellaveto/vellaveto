@@ -167,10 +167,7 @@ impl AbacConfig {
                 ));
             }
             if !seen_ids.insert(&policy.id) {
-                return Err(format!(
-                    "abac.policies has duplicate id '{}'",
-                    policy.id
-                ));
+                return Err(format!("abac.policies has duplicate id '{}'", policy.id));
             }
             if policy.conditions.len() > MAX_CONDITIONS_PER_POLICY {
                 return Err(format!(

@@ -75,10 +75,7 @@ impl ExtensionRegistry {
     ///
     /// Validates the descriptor, checks allow/block patterns, registers method routes,
     /// and calls `on_load` on the handler.
-    pub fn register(
-        &self,
-        handler: Box<dyn ExtensionHandler>,
-    ) -> Result<(), ExtensionError> {
+    pub fn register(&self, handler: Box<dyn ExtensionHandler>) -> Result<(), ExtensionError> {
         let descriptor = handler.descriptor().clone();
         descriptor.validate()?;
 
@@ -234,12 +231,9 @@ impl ExtensionRegistry {
                 .method_routes
                 .read()
                 .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {}", e)))?;
-            routes
-                .get(method)
-                .cloned()
-                .ok_or_else(|| {
-                    ExtensionError::MethodNotFound(format!("No handler for method '{}'", method))
-                })?
+            routes.get(method).cloned().ok_or_else(|| {
+                ExtensionError::MethodNotFound(format!("No handler for method '{}'", method))
+            })?
         };
 
         let extensions = self
@@ -373,9 +367,7 @@ mod tests {
         let handler = TestHandler::new("x-test", vec!["x-test/hello".to_string()]);
         registry.register(Box::new(handler)).unwrap();
 
-        let result = registry
-            .route_method("x-test/hello", &json!({}))
-            .unwrap();
+        let result = registry.route_method("x-test/hello", &json!({})).unwrap();
         assert_eq!(result["handled"], "x-test/hello");
     }
 
@@ -399,10 +391,8 @@ mod tests {
             vec![],
             ExtensionResourceLimits::default(),
         );
-        let result = registry.negotiate(&[
-            "x-allowed-foo".to_string(),
-            "x-blocked-bar".to_string(),
-        ]);
+        let result =
+            registry.negotiate(&["x-allowed-foo".to_string(), "x-blocked-bar".to_string()]);
         assert_eq!(result.accepted, vec!["x-allowed-foo"]);
         assert_eq!(result.rejected.len(), 1);
         assert_eq!(result.rejected[0].0, "x-blocked-bar");

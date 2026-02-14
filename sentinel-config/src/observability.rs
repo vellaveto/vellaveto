@@ -625,7 +625,7 @@ impl ObservabilityConfig {
         if self.otlp.enabled {
             if self.otlp.endpoint.is_empty() {
                 return Err(
-                    "observability.otlp.endpoint must not be empty when enabled".to_string(),
+                    "observability.otlp.endpoint must not be empty when enabled".to_string()
                 );
             }
             // OTLP endpoint can be localhost (collector is typically co-located),

@@ -643,7 +643,11 @@ async fn main() -> Result<()> {
 
         // Transport discovery & negotiation (Phase 18)
         transport_config: policy_config.transport.clone(),
-        grpc_port: if args.grpc { Some(args.grpc_port) } else { None },
+        grpc_port: if args.grpc {
+            Some(args.grpc_port)
+        } else {
+            None
+        },
 
         // Phase 20: MCP Gateway Mode
         gateway: if policy_config.gateway.enabled {

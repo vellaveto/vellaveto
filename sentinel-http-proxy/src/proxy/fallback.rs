@@ -12,10 +12,7 @@ use std::fmt;
 #[derive(Debug)]
 pub enum FallbackError {
     /// All configured transports failed after retries.
-    AllFailed {
-        attempts: u32,
-        last_error: String,
-    },
+    AllFailed { attempts: u32, last_error: String },
     /// No fallback transports are configured.
     NoFallback,
 }

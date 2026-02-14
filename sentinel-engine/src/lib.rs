@@ -1,7 +1,6 @@
 pub mod abac;
 pub mod behavioral;
 pub mod circuit_breaker;
-pub mod least_agency;
 mod compiled;
 mod constraint_eval;
 mod context_check;
@@ -9,6 +8,7 @@ pub mod deputy;
 mod domain;
 mod error;
 mod ip;
+pub mod least_agency;
 mod legacy;
 mod matcher;
 mod path;

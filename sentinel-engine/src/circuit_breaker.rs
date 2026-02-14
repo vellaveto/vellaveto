@@ -208,8 +208,10 @@ impl CircuitBreakerManager {
                         // Now check HalfOpen limit
                         if stats_w.state == CircuitState::HalfOpen {
                             if stats_w.success_count < self.half_open_max_requests {
-                                metrics::histogram!("sentinel_circuit_breaker_check_duration_seconds")
-                                    .record(start.elapsed().as_secs_f64());
+                                metrics::histogram!(
+                                    "sentinel_circuit_breaker_check_duration_seconds"
+                                )
+                                .record(start.elapsed().as_secs_f64());
                                 return Ok(());
                             } else {
                                 let reason = format!(
@@ -221,8 +223,10 @@ impl CircuitBreakerManager {
                                     "reason" => "half_open_limit"
                                 )
                                 .increment(1);
-                                metrics::histogram!("sentinel_circuit_breaker_check_duration_seconds")
-                                    .record(start.elapsed().as_secs_f64());
+                                metrics::histogram!(
+                                    "sentinel_circuit_breaker_check_duration_seconds"
+                                )
+                                .record(start.elapsed().as_secs_f64());
                                 return Err(reason);
                             }
                         }
@@ -232,8 +236,7 @@ impl CircuitBreakerManager {
                         .record(start.elapsed().as_secs_f64());
                     return Ok(());
                 } else {
-                    let opens_in =
-                        (stats.last_state_change + eff_duration).saturating_sub(now);
+                    let opens_in = (stats.last_state_change + eff_duration).saturating_sub(now);
                     let failure_count = stats.failure_count;
                     let reason = format!(
                         "Circuit breaker open for tool '{tool}' (failures: {failure_count}, opens in {opens_in}s)"
@@ -295,16 +298,14 @@ impl CircuitBreakerManager {
         };
         let now = Self::now_or_zero();
 
-        let stats = circuits
-            .entry(tool_lower)
-            .or_insert_with(|| CircuitStats {
-                state: CircuitState::Closed,
-                failure_count: 0,
-                success_count: 0,
-                last_failure: None,
-                last_state_change: now,
-                trip_count: 0,
-            });
+        let stats = circuits.entry(tool_lower).or_insert_with(|| CircuitStats {
+            state: CircuitState::Closed,
+            failure_count: 0,
+            success_count: 0,
+            last_failure: None,
+            last_state_change: now,
+            trip_count: 0,
+        });
 
         match stats.state {
             CircuitState::Closed => {
@@ -379,16 +380,14 @@ impl CircuitBreakerManager {
         };
         let now = Self::now_or_zero();
 
-        let stats = circuits
-            .entry(tool_lower)
-            .or_insert_with(|| CircuitStats {
-                state: CircuitState::Closed,
-                failure_count: 0,
-                success_count: 0,
-                last_failure: None,
-                last_state_change: now,
-                trip_count: 0,
-            });
+        let stats = circuits.entry(tool_lower).or_insert_with(|| CircuitStats {
+            state: CircuitState::Closed,
+            failure_count: 0,
+            success_count: 0,
+            last_failure: None,
+            last_state_change: now,
+            trip_count: 0,
+        });
 
         stats.last_failure = Some(now);
 

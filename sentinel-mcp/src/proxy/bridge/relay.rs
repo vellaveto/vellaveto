@@ -1941,20 +1941,17 @@ impl ProxyBridge {
         }
 
         // Phase 19: Art 14 human oversight audit event
-        if let Some(tool_name) = msg
-            .get("id")
-            .and_then(|id| {
-                let id_str = match id {
-                    Value::String(s) => s.clone(),
-                    Value::Number(n) => n.to_string(),
-                    _ => return None,
-                };
-                state
-                    .pending_requests
-                    .get(&id_str)
-                    .map(|(_, name)| name.clone())
-            })
-        {
+        if let Some(tool_name) = msg.get("id").and_then(|id| {
+            let id_str = match id {
+                Value::String(s) => s.clone(),
+                Value::Number(n) => n.to_string(),
+                _ => return None,
+            };
+            state
+                .pending_requests
+                .get(&id_str)
+                .map(|(_, name)| name.clone())
+        }) {
             if crate::transparency::requires_human_oversight(
                 &tool_name,
                 &self.human_oversight_tools,

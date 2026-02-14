@@ -46,9 +46,9 @@ impl AuditLogger {
 
         // Initialize Merkle tree from existing leaf file (if enabled)
         if let Some(ref merkle) = self.merkle_tree {
-            let mut tree = merkle.lock().map_err(|e| {
-                AuditError::Validation(format!("Merkle tree lock poisoned: {}", e))
-            })?;
+            let mut tree = merkle
+                .lock()
+                .map_err(|e| AuditError::Validation(format!("Merkle tree lock poisoned: {}", e)))?;
             tree.initialize()?;
         }
 
@@ -143,8 +143,7 @@ impl AuditLogger {
                         .file_stem()
                         .unwrap_or_default()
                         .to_string_lossy();
-                    let rotated_parent =
-                        rotated_path.parent().unwrap_or(std::path::Path::new("."));
+                    let rotated_parent = rotated_path.parent().unwrap_or(std::path::Path::new("."));
                     rotated_parent.join(format!("{rotated_stem}.merkle-leaves"))
                 };
                 if let Err(e) = tokio::fs::rename(&leaf_path, &rotated_leaf_path).await {
@@ -154,9 +153,9 @@ impl AuditLogger {
                     );
                 }
             }
-            let mut tree = merkle.lock().map_err(|e| {
-                AuditError::Validation(format!("Merkle tree lock poisoned: {}", e))
-            })?;
+            let mut tree = merkle
+                .lock()
+                .map_err(|e| AuditError::Validation(format!("Merkle tree lock poisoned: {}", e)))?;
             tree.reset();
         }
 

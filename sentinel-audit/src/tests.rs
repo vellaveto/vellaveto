@@ -2867,7 +2867,11 @@ fn test_merkle_proof_roundtrip_single() {
     tree.append(leaf).unwrap();
     let proof = tree.generate_proof(0).unwrap();
     let result = merkle::MerkleTree::verify_proof(leaf, &proof).unwrap();
-    assert!(result.valid, "Proof should be valid: {:?}", result.failure_reason);
+    assert!(
+        result.valid,
+        "Proof should be valid: {:?}",
+        result.failure_reason
+    );
 }
 
 #[test]
@@ -2882,7 +2886,11 @@ fn test_merkle_proof_roundtrip_multiple() {
     for (i, leaf) in leaves.iter().enumerate() {
         let proof = tree.generate_proof(i as u64).unwrap();
         let result = merkle::MerkleTree::verify_proof(*leaf, &proof).unwrap();
-        assert!(result.valid, "Proof for leaf {} should be valid: {:?}", i, result.failure_reason);
+        assert!(
+            result.valid,
+            "Proof for leaf {} should be valid: {:?}",
+            i, result.failure_reason
+        );
     }
 }
 
@@ -3054,8 +3062,7 @@ fn test_merkle_domain_separation_non_commutative() {
 async fn test_merkle_logger_integration_entries_with_merkle() {
     let dir = tempfile::TempDir::new().unwrap();
     let log_path = dir.path().join("audit.jsonl");
-    let logger = AuditLogger::new_unredacted(log_path)
-        .with_merkle_tree();
+    let logger = AuditLogger::new_unredacted(log_path).with_merkle_tree();
 
     let action = test_action();
     logger
@@ -3063,7 +3070,13 @@ async fn test_merkle_logger_integration_entries_with_merkle() {
         .await
         .unwrap();
     logger
-        .log_entry(&action, &Verdict::Deny { reason: "test".into() }, json!({}))
+        .log_entry(
+            &action,
+            &Verdict::Deny {
+                reason: "test".into(),
+            },
+            json!({}),
+        )
         .await
         .unwrap();
 
@@ -3089,7 +3102,10 @@ async fn test_merkle_logger_checkpoint_includes_root() {
         .unwrap();
 
     let checkpoint = logger.create_checkpoint().await.unwrap();
-    assert!(checkpoint.merkle_root.is_some(), "Checkpoint should contain Merkle root");
+    assert!(
+        checkpoint.merkle_root.is_some(),
+        "Checkpoint should contain Merkle root"
+    );
     // Root should be a hex-encoded SHA-256
     let root = checkpoint.merkle_root.unwrap();
     assert_eq!(root.len(), 64, "Merkle root should be 64 hex chars");
@@ -3099,8 +3115,7 @@ async fn test_merkle_logger_checkpoint_includes_root() {
 async fn test_merkle_logger_proof_generation_and_verification() {
     let dir = tempfile::TempDir::new().unwrap();
     let log_path = dir.path().join("audit.jsonl");
-    let logger = AuditLogger::new_unredacted(log_path)
-        .with_merkle_tree();
+    let logger = AuditLogger::new_unredacted(log_path).with_merkle_tree();
 
     let action = test_action();
     for _ in 0..3 {
@@ -3119,7 +3134,11 @@ async fn test_merkle_logger_proof_generation_and_verification() {
         let proof = logger.generate_merkle_proof(i as u64).unwrap();
         let entry_hash = entry.entry_hash.as_ref().unwrap();
         let result = AuditLogger::verify_merkle_proof(entry_hash, &proof).unwrap();
-        assert!(result.valid, "Proof for entry {} should be valid: {:?}", i, result.failure_reason);
+        assert!(
+            result.valid,
+            "Proof for entry {} should be valid: {:?}",
+            i, result.failure_reason
+        );
     }
 }
 
@@ -3155,8 +3174,8 @@ async fn test_merkle_checkpoint_backward_compat() {
     let signing_key = AuditLogger::generate_signing_key();
 
     // Create a checkpoint WITHOUT merkle tree (old behavior)
-    let logger_no_merkle = AuditLogger::new_unredacted(log_path.clone())
-        .with_signing_key(signing_key.clone());
+    let logger_no_merkle =
+        AuditLogger::new_unredacted(log_path.clone()).with_signing_key(signing_key.clone());
     let action = test_action();
     logger_no_merkle
         .log_entry(&action, &Verdict::Allow, json!({}))

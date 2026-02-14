@@ -8382,7 +8382,11 @@ fn test_require_capability_token_missing_denied() {
     let v = engine
         .evaluate_action_with_context(&action, &[policy], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Missing token should deny: {:?}", v);
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Missing token should deny: {:?}",
+        v
+    );
 }
 
 #[test]
@@ -8417,7 +8421,11 @@ fn test_require_capability_token_present_allowed() {
     let v = engine
         .evaluate_action_with_context(&action, &[policy], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Allow), "Token present should allow: {:?}", v);
+    assert!(
+        matches!(v, Verdict::Allow),
+        "Token present should allow: {:?}",
+        v
+    );
 }
 
 #[test]
@@ -8452,7 +8460,11 @@ fn test_require_capability_token_holder_mismatch_denied() {
     let v = engine
         .evaluate_action_with_context(&action, &[policy], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Holder mismatch should deny: {:?}", v);
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Holder mismatch should deny: {:?}",
+        v
+    );
 }
 
 #[test]
@@ -8488,7 +8500,11 @@ fn test_require_capability_token_issuer_allowlist_denied() {
     let v = engine
         .evaluate_action_with_context(&action, &[policy], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Wrong issuer should deny: {:?}", v);
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Wrong issuer should deny: {:?}",
+        v
+    );
 }
 
 #[test]
@@ -8524,5 +8540,9 @@ fn test_require_capability_token_depth_insufficient() {
     let v = engine
         .evaluate_action_with_context(&action, &[policy], Some(&ctx))
         .unwrap();
-    assert!(matches!(v, Verdict::Deny { .. }), "Insufficient depth should deny: {:?}", v);
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Insufficient depth should deny: {:?}",
+        v
+    );
 }

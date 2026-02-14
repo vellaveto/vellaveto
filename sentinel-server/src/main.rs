@@ -1770,9 +1770,7 @@ async fn cmd_simulate(config: String, actions_path: String, format: String) -> R
             let (verdict_str, detail) = match verdict {
                 Verdict::Allow => ("ALLOW", String::new()),
                 Verdict::Deny { reason } => ("DENY ", format!(" ({})", reason)),
-                Verdict::RequireApproval { reason, .. } => {
-                    ("APPVL", format!(" ({})", reason))
-                }
+                Verdict::RequireApproval { reason, .. } => ("APPVL", format!(" ({})", reason)),
                 _ => ("???  ", String::new()),
             };
             let duration = trace
@@ -1780,12 +1778,7 @@ async fn cmd_simulate(config: String, actions_path: String, format: String) -> R
                 .map(|t| format!("{}μs", t.duration_us))
                 .unwrap_or_default();
             if let Some(err) = error {
-                println!(
-                    "Action {}: {:<30} → ERROR ({})",
-                    i + 1,
-                    tool_func,
-                    err
-                );
+                println!("Action {}: {:<30} → ERROR ({})", i + 1, tool_func, err);
             } else {
                 println!(
                     "Action {}: {:<30} → {} {}{}",

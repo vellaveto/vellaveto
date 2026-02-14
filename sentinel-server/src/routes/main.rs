@@ -43,12 +43,27 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/audit/report", get(super::audit::audit_report))
         .route("/api/audit/verify", get(super::audit::audit_verify))
         // Compliance evidence endpoints (Phase 19/21)
-        .route("/api/compliance/status", get(super::compliance::compliance_status))
-        .route("/api/compliance/eu-ai-act/report", get(super::compliance::eu_ai_act_report))
-        .route("/api/compliance/soc2/evidence", get(super::compliance::soc2_evidence))
+        .route(
+            "/api/compliance/status",
+            get(super::compliance::compliance_status),
+        )
+        .route(
+            "/api/compliance/eu-ai-act/report",
+            get(super::compliance::eu_ai_act_report),
+        )
+        .route(
+            "/api/compliance/soc2/evidence",
+            get(super::compliance::soc2_evidence),
+        )
         // Threat coverage and gap analysis endpoints (Phase 19.3)
-        .route("/api/compliance/threat-coverage", get(super::compliance::threat_coverage))
-        .route("/api/compliance/gap-analysis", get(super::compliance::gap_analysis))
+        .route(
+            "/api/compliance/threat-coverage",
+            get(super::compliance::threat_coverage),
+        )
+        .route(
+            "/api/compliance/gap-analysis",
+            get(super::compliance::gap_analysis),
+        )
         .route(
             "/api/audit/checkpoints",
             get(super::audit::list_checkpoints),
@@ -372,11 +387,23 @@ pub fn build_router(state: AppState) -> Router {
         // ═══════════════════════════════════════════════════════════════════
         // Phase 22: Policy Simulator
         // ═══════════════════════════════════════════════════════════════════
-        .route("/api/simulator/evaluate", post(super::simulator::simulate_evaluate))
-        .route("/api/simulator/batch", post(super::simulator::simulate_batch))
-        .route("/api/simulator/validate", post(super::simulator::simulate_validate))
+        .route(
+            "/api/simulator/evaluate",
+            post(super::simulator::simulate_evaluate),
+        )
+        .route(
+            "/api/simulator/batch",
+            post(super::simulator::simulate_batch),
+        )
+        .route(
+            "/api/simulator/validate",
+            post(super::simulator::simulate_validate),
+        )
         .route("/api/simulator/diff", post(super::simulator::simulate_diff))
-        .route("/api/simulator/red-team", post(super::simulator::simulate_red_team))
+        .route(
+            "/api/simulator/red-team",
+            post(super::simulator::simulate_red_team),
+        )
         // SECURITY (R38-SRV-1): /metrics inside auth — exposes policy count
         // and pending approval count, which are security-sensitive (see R26-SRV-6).
         // SECURITY (R38-SRV-2): /metrics inside rate_limit — prevents scraper DoS.

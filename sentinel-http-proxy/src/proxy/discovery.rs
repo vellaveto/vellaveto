@@ -108,9 +108,7 @@ pub struct TransportDiscoveryResponse {
 /// Returns a JSON discovery document describing available transports,
 /// SDK tier, and supported protocol versions. Returns 404 when
 /// `transport.discovery_enabled` is false.
-pub async fn handle_transport_discovery(
-    State(state): State<ProxyState>,
-) -> Response {
+pub async fn handle_transport_discovery(State(state): State<ProxyState>) -> Response {
     if !state.transport_config.discovery_enabled {
         return StatusCode::NOT_FOUND.into_response();
     }
@@ -143,14 +141,12 @@ pub async fn handle_transport_discovery(
 pub fn parse_transport_preference(header: &str) -> Vec<TransportProtocol> {
     header
         .split(',')
-        .filter_map(|s| {
-            match s.trim().to_lowercase().as_str() {
-                "grpc" => Some(TransportProtocol::Grpc),
-                "websocket" | "ws" => Some(TransportProtocol::WebSocket),
-                "http" | "sse" => Some(TransportProtocol::Http),
-                "stdio" => Some(TransportProtocol::Stdio),
-                _ => None,
-            }
+        .filter_map(|s| match s.trim().to_lowercase().as_str() {
+            "grpc" => Some(TransportProtocol::Grpc),
+            "websocket" | "ws" => Some(TransportProtocol::WebSocket),
+            "http" | "sse" => Some(TransportProtocol::Http),
+            "stdio" => Some(TransportProtocol::Stdio),
+            _ => None,
         })
         .collect()
 }
@@ -169,7 +165,10 @@ pub fn negotiate_transport(
         if restricted.contains(pref) {
             continue;
         }
-        if let Some(endpoint) = available.iter().find(|e| e.protocol == *pref && e.available) {
+        if let Some(endpoint) = available
+            .iter()
+            .find(|e| e.protocol == *pref && e.available)
+        {
             return Some(endpoint.clone());
         }
     }

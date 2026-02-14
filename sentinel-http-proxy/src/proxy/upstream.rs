@@ -95,7 +95,6 @@ pub(super) async fn forward_to_upstream_url(
     body: Bytes,
     auth_header: Option<&str>,
 ) -> Response {
-
     let mut request_builder = state
         .http_client
         .post(upstream_url)

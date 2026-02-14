@@ -234,177 +234,383 @@ impl Soc2Registry {
         use TrustServicesCategory::*;
 
         // CC1: Control Environment
-        self.add_criterion(CC1, 1, "Commitment to integrity and ethics",
-            "The entity demonstrates commitment to integrity and ethical values.");
-        self.add_criterion(CC1, 2, "Board oversight",
-            "The board of directors demonstrates independence and exercises oversight.");
-        self.add_criterion(CC1, 3, "Organizational structure",
-            "Management establishes structures, reporting lines, and authority.");
+        self.add_criterion(
+            CC1,
+            1,
+            "Commitment to integrity and ethics",
+            "The entity demonstrates commitment to integrity and ethical values.",
+        );
+        self.add_criterion(
+            CC1,
+            2,
+            "Board oversight",
+            "The board of directors demonstrates independence and exercises oversight.",
+        );
+        self.add_criterion(
+            CC1,
+            3,
+            "Organizational structure",
+            "Management establishes structures, reporting lines, and authority.",
+        );
 
         // CC2: Communication and Information
-        self.add_criterion(CC2, 1, "Internal communication",
-            "The entity obtains or generates and uses relevant, quality information.");
-        self.add_criterion(CC2, 2, "External communication",
-            "The entity internally communicates information necessary for internal controls.");
-        self.add_criterion(CC2, 3, "Security event communication",
-            "The entity communicates with external parties regarding security matters.");
+        self.add_criterion(
+            CC2,
+            1,
+            "Internal communication",
+            "The entity obtains or generates and uses relevant, quality information.",
+        );
+        self.add_criterion(
+            CC2,
+            2,
+            "External communication",
+            "The entity internally communicates information necessary for internal controls.",
+        );
+        self.add_criterion(
+            CC2,
+            3,
+            "Security event communication",
+            "The entity communicates with external parties regarding security matters.",
+        );
 
         // CC3: Risk Assessment
-        self.add_criterion(CC3, 1, "Risk identification",
-            "The entity specifies objectives to identify and assess risks.");
-        self.add_criterion(CC3, 2, "Fraud risk assessment",
-            "The entity identifies risks to the achievement of objectives across the entity.");
-        self.add_criterion(CC3, 3, "Change risk assessment",
-            "The entity considers potential for fraud in assessing risks.");
+        self.add_criterion(
+            CC3,
+            1,
+            "Risk identification",
+            "The entity specifies objectives to identify and assess risks.",
+        );
+        self.add_criterion(
+            CC3,
+            2,
+            "Fraud risk assessment",
+            "The entity identifies risks to the achievement of objectives across the entity.",
+        );
+        self.add_criterion(
+            CC3,
+            3,
+            "Change risk assessment",
+            "The entity considers potential for fraud in assessing risks.",
+        );
 
         // CC4: Monitoring Activities
-        self.add_criterion(CC4, 1, "Ongoing monitoring",
-            "The entity selects and develops monitoring activities.");
-        self.add_criterion(CC4, 2, "Deficiency remediation",
-            "The entity evaluates and communicates deficiencies in a timely manner.");
+        self.add_criterion(
+            CC4,
+            1,
+            "Ongoing monitoring",
+            "The entity selects and develops monitoring activities.",
+        );
+        self.add_criterion(
+            CC4,
+            2,
+            "Deficiency remediation",
+            "The entity evaluates and communicates deficiencies in a timely manner.",
+        );
 
         // CC5: Control Activities
-        self.add_criterion(CC5, 1, "Control selection and development",
-            "The entity selects and develops control activities.");
-        self.add_criterion(CC5, 2, "Technology controls",
-            "The entity deploys control activities through technology.");
-        self.add_criterion(CC5, 3, "Policy deployment",
-            "The entity deploys control activities through policies.");
+        self.add_criterion(
+            CC5,
+            1,
+            "Control selection and development",
+            "The entity selects and develops control activities.",
+        );
+        self.add_criterion(
+            CC5,
+            2,
+            "Technology controls",
+            "The entity deploys control activities through technology.",
+        );
+        self.add_criterion(
+            CC5,
+            3,
+            "Policy deployment",
+            "The entity deploys control activities through policies.",
+        );
 
         // CC6: Logical and Physical Access Controls
         self.add_criterion(CC6, 1, "Logical access security",
             "The entity implements logical access security software, infrastructure, and architecture.");
-        self.add_criterion(CC6, 2, "User authentication",
-            "The entity authenticates users before granting access.");
-        self.add_criterion(CC6, 3, "Access authorization",
-            "The entity authorizes, modifies, and removes access to data.");
+        self.add_criterion(
+            CC6,
+            2,
+            "User authentication",
+            "The entity authenticates users before granting access.",
+        );
+        self.add_criterion(
+            CC6,
+            3,
+            "Access authorization",
+            "The entity authorizes, modifies, and removes access to data.",
+        );
 
         // CC7: System Operations
-        self.add_criterion(CC7, 1, "Infrastructure monitoring",
-            "The entity detects and monitors configuration changes.");
-        self.add_criterion(CC7, 2, "Anomaly detection",
-            "The entity monitors system components for anomalies indicative of malicious acts.");
-        self.add_criterion(CC7, 3, "Incident response",
-            "The entity evaluates security events to determine incidents.");
+        self.add_criterion(
+            CC7,
+            1,
+            "Infrastructure monitoring",
+            "The entity detects and monitors configuration changes.",
+        );
+        self.add_criterion(
+            CC7,
+            2,
+            "Anomaly detection",
+            "The entity monitors system components for anomalies indicative of malicious acts.",
+        );
+        self.add_criterion(
+            CC7,
+            3,
+            "Incident response",
+            "The entity evaluates security events to determine incidents.",
+        );
 
         // CC8: Change Management
-        self.add_criterion(CC8, 1, "Change authorization",
-            "The entity authorizes, designs, develops, configures, and tests changes.");
+        self.add_criterion(
+            CC8,
+            1,
+            "Change authorization",
+            "The entity authorizes, designs, develops, configures, and tests changes.",
+        );
 
         // CC9: Risk Mitigation
-        self.add_criterion(CC9, 1, "Risk mitigation activities",
-            "The entity identifies, selects, and develops risk mitigation activities.");
-        self.add_criterion(CC9, 2, "Vendor risk management",
-            "The entity assesses and manages risks associated with vendors and business partners.");
+        self.add_criterion(
+            CC9,
+            1,
+            "Risk mitigation activities",
+            "The entity identifies, selects, and develops risk mitigation activities.",
+        );
+        self.add_criterion(
+            CC9,
+            2,
+            "Vendor risk management",
+            "The entity assesses and manages risks associated with vendors and business partners.",
+        );
     }
 
     fn populate_mappings(&mut self) {
         use ReadinessLevel::*;
 
         // CC1: Control Environment
-        self.add_mapping("CC1.1", Soc2Capability::PolicyEnforcement, Managed,
+        self.add_mapping(
+            "CC1.1",
+            Soc2Capability::PolicyEnforcement,
+            Managed,
             Some("Security policies enforced at runtime on all tool calls"),
-            vec![]);
-        self.add_mapping("CC1.1", Soc2Capability::FailClosedDesign, Optimizing,
-            Some("Fail-closed design: errors, missing policies, and unresolved context produce Deny"),
-            vec![]);
+            vec![],
+        );
+        self.add_mapping(
+            "CC1.1",
+            Soc2Capability::FailClosedDesign,
+            Optimizing,
+            Some(
+                "Fail-closed design: errors, missing policies, and unresolved context produce Deny",
+            ),
+            vec![],
+        );
 
         // CC2: Communication and Information
-        self.add_mapping("CC2.1", Soc2Capability::AuditLogging, Optimizing,
+        self.add_mapping(
+            "CC2.1",
+            Soc2Capability::AuditLogging,
+            Optimizing,
             Some("Tamper-evident SHA-256 hash chain audit log with every decision recorded"),
-            vec![]);
-        self.add_mapping("CC2.2", Soc2Capability::AuditLogExport, Managed,
+            vec![],
+        );
+        self.add_mapping(
+            "CC2.2",
+            Soc2Capability::AuditLogExport,
+            Managed,
             Some("CEF, JSON Lines, webhook, and syslog export for SIEM integration"),
-            vec![]);
-        self.add_mapping("CC2.3", Soc2Capability::MetricsCollection, Managed,
+            vec![],
+        );
+        self.add_mapping(
+            "CC2.3",
+            Soc2Capability::MetricsCollection,
+            Managed,
             Some("Prometheus metrics endpoint with evaluation histograms"),
-            vec![]);
+            vec![],
+        );
 
         // CC3: Risk Assessment
-        self.add_mapping("CC3.1", Soc2Capability::InjectionDetection, Optimizing,
+        self.add_mapping(
+            "CC3.1",
+            Soc2Capability::InjectionDetection,
+            Optimizing,
             Some("Aho-Corasick injection detection with Unicode NFKC normalization"),
-            vec![]);
-        self.add_mapping("CC3.1", Soc2Capability::DlpScanning, Managed,
+            vec![],
+        );
+        self.add_mapping(
+            "CC3.1",
+            Soc2Capability::DlpScanning,
+            Managed,
             Some("5-layer DLP scanning on requests and responses"),
-            vec![]);
-        self.add_mapping("CC3.2", Soc2Capability::RugPullDetection, Managed,
+            vec![],
+        );
+        self.add_mapping(
+            "CC3.2",
+            Soc2Capability::RugPullDetection,
+            Managed,
             Some("Rug-pull detection: annotation changes, schema mutations, persistent flagging"),
-            vec![]);
+            vec![],
+        );
 
         // CC4: Monitoring Activities
-        self.add_mapping("CC4.1", Soc2Capability::BehavioralAnomalyDetection, Managed,
+        self.add_mapping(
+            "CC4.1",
+            Soc2Capability::BehavioralAnomalyDetection,
+            Managed,
             Some("EMA-based behavioral anomaly detection for tool call frequency"),
-            vec![]);
-        self.add_mapping("CC4.1", Soc2Capability::CircuitBreaker, Managed,
+            vec![],
+        );
+        self.add_mapping(
+            "CC4.1",
+            Soc2Capability::CircuitBreaker,
+            Managed,
             Some("Circuit breaker with half-open recovery for cascading failure protection"),
-            vec![]);
-        self.add_mapping("CC4.2", Soc2Capability::HashChainVerification, Optimizing,
+            vec![],
+        );
+        self.add_mapping(
+            "CC4.2",
+            Soc2Capability::HashChainVerification,
+            Optimizing,
             Some("Cryptographic hash chain verification with gap and tamper detection"),
-            vec![]);
+            vec![],
+        );
 
         // CC5: Control Activities
-        self.add_mapping("CC5.1", Soc2Capability::PathRules, Optimizing,
+        self.add_mapping(
+            "CC5.1",
+            Soc2Capability::PathRules,
+            Optimizing,
             Some("Path rules with glob matching and traversal-safe normalization"),
-            vec![]);
-        self.add_mapping("CC5.1", Soc2Capability::NetworkRules, Optimizing,
+            vec![],
+        );
+        self.add_mapping(
+            "CC5.1",
+            Soc2Capability::NetworkRules,
+            Optimizing,
             Some("Network rules with domain validation and DNS rebinding protection"),
-            vec![]);
-        self.add_mapping("CC5.2", Soc2Capability::ParameterConstraints, Managed,
+            vec![],
+        );
+        self.add_mapping(
+            "CC5.2",
+            Soc2Capability::ParameterConstraints,
+            Managed,
             Some("Parameter constraint validation on tool call arguments"),
-            vec![]);
-        self.add_mapping("CC5.3", Soc2Capability::PolicyEnforcement, Optimizing,
+            vec![],
+        );
+        self.add_mapping(
+            "CC5.3",
+            Soc2Capability::PolicyEnforcement,
+            Optimizing,
             Some("Policy engine with glob, regex, domain matching, parameter constraints"),
-            vec![]);
+            vec![],
+        );
 
         // CC6: Logical and Physical Access Controls
-        self.add_mapping("CC6.1", Soc2Capability::OAuthAuthentication, Managed,
+        self.add_mapping(
+            "CC6.1",
+            Soc2Capability::OAuthAuthentication,
+            Managed,
             Some("OAuth 2.1 with JWKS support and scope enforcement"),
-            vec![]);
-        self.add_mapping("CC6.2", Soc2Capability::JwtValidation, Managed,
+            vec![],
+        );
+        self.add_mapping(
+            "CC6.2",
+            Soc2Capability::JwtValidation,
+            Managed,
             Some("JWT validation with JWKS and agent identity attestation"),
-            vec![]);
-        self.add_mapping("CC6.2", Soc2Capability::SessionManagement, Managed,
+            vec![],
+        );
+        self.add_mapping(
+            "CC6.2",
+            Soc2Capability::SessionManagement,
+            Managed,
             Some("Session management with CSRF protection"),
-            vec![]);
-        self.add_mapping("CC6.3", Soc2Capability::RateLimiting, Managed,
+            vec![],
+        );
+        self.add_mapping(
+            "CC6.3",
+            Soc2Capability::RateLimiting,
+            Managed,
             Some("Per-category rate limiting on all endpoints"),
-            vec![]);
+            vec![],
+        );
 
         // CC7: System Operations
-        self.add_mapping("CC7.1", Soc2Capability::PolicyHotReload, Managed,
+        self.add_mapping(
+            "CC7.1",
+            Soc2Capability::PolicyHotReload,
+            Managed,
             Some("Hot policy reload via filesystem watcher and API endpoint"),
-            vec![]);
-        self.add_mapping("CC7.2", Soc2Capability::BehavioralAnomalyDetection, Managed,
+            vec![],
+        );
+        self.add_mapping(
+            "CC7.2",
+            Soc2Capability::BehavioralAnomalyDetection,
+            Managed,
             Some("Behavioral anomaly detection identifies suspicious tool call patterns"),
-            vec![]);
-        self.add_mapping("CC7.3", Soc2Capability::HumanApproval, Managed,
+            vec![],
+        );
+        self.add_mapping(
+            "CC7.3",
+            Soc2Capability::HumanApproval,
+            Managed,
             Some("Human-in-the-loop approval workflow for incident response"),
-            vec![]);
-        self.add_mapping("CC7.3", Soc2Capability::KillSwitch, Managed,
+            vec![],
+        );
+        self.add_mapping(
+            "CC7.3",
+            Soc2Capability::KillSwitch,
+            Managed,
             Some("Circuit breaker kill switch for immediate system shutdown"),
-            vec![]);
+            vec![],
+        );
 
         // CC8: Change Management
-        self.add_mapping("CC8.1", Soc2Capability::SignedCheckpoints, Managed,
+        self.add_mapping(
+            "CC8.1",
+            Soc2Capability::SignedCheckpoints,
+            Managed,
             Some("Ed25519 signed checkpoints for audit trail integrity"),
-            vec![]);
-        self.add_mapping("CC8.1", Soc2Capability::MerkleInclusionProofs, Managed,
+            vec![],
+        );
+        self.add_mapping(
+            "CC8.1",
+            Soc2Capability::MerkleInclusionProofs,
+            Managed,
             Some("RFC 6962 Merkle tree inclusion proofs for individual entry verification"),
-            vec![]);
-        self.add_mapping("CC8.1", Soc2Capability::VersionPinning, Managed,
+            vec![],
+        );
+        self.add_mapping(
+            "CC8.1",
+            Soc2Capability::VersionPinning,
+            Managed,
             Some("ETDI version pinning for tool definition change tracking"),
-            vec![]);
+            vec![],
+        );
 
         // CC9: Risk Mitigation
-        self.add_mapping("CC9.1", Soc2Capability::OutputValidation, Managed,
+        self.add_mapping(
+            "CC9.1",
+            Soc2Capability::OutputValidation,
+            Managed,
             Some("Structured output schema validation registry"),
-            vec![]);
-        self.add_mapping("CC9.1", Soc2Capability::ToolSquattingDetection, Managed,
+            vec![],
+        );
+        self.add_mapping(
+            "CC9.1",
+            Soc2Capability::ToolSquattingDetection,
+            Managed,
             Some("Levenshtein + homoglyph tool squatting detection"),
-            vec![]);
-        self.add_mapping("CC9.2", Soc2Capability::SchemaPoisoningDetection, Managed,
+            vec![],
+        );
+        self.add_mapping(
+            "CC9.2",
+            Soc2Capability::SchemaPoisoningDetection,
+            Managed,
             Some("Schema poisoning detection for third-party tool mutations"),
-            vec![]);
+            vec![],
+        );
     }
 
     // ── Query Methods ────────────────────────────────────────────────────────
@@ -530,11 +736,7 @@ impl Soc2Registry {
         };
 
         // Collect all gaps
-        let gaps: Vec<String> = self
-            .mappings
-            .iter()
-            .flat_map(|m| m.gaps.clone())
-            .collect();
+        let gaps: Vec<String> = self.mappings.iter().flat_map(|m| m.gaps.clone()).collect();
 
         // Criterion-level evidence
         let mut criterion_evidence = Vec::new();
@@ -546,10 +748,8 @@ impl Soc2Registry {
             }
             let mappings = self.mappings_for_criterion(criterion_id);
             let capabilities: Vec<Soc2Capability> = mappings.iter().map(|m| m.capability).collect();
-            let evidence: Vec<String> = mappings
-                .iter()
-                .filter_map(|m| m.evidence.clone())
-                .collect();
+            let evidence: Vec<String> =
+                mappings.iter().filter_map(|m| m.evidence.clone()).collect();
             let best_readiness = mappings
                 .iter()
                 .map(|m| m.readiness)
@@ -757,9 +957,8 @@ mod tests {
     #[test]
     fn test_generate_evidence_report_all_categories() {
         let registry = Soc2Registry::new();
-        let report = registry.generate_evidence_report(
-            "Test Corp", "2026-01-01", "2026-12-31", &[],
-        );
+        let report =
+            registry.generate_evidence_report("Test Corp", "2026-01-01", "2026-12-31", &[]);
         assert!(!report.criterion_evidence.is_empty());
         assert!(report.overall_readiness > 0.0);
         assert_eq!(report.organization_name, "Test Corp");
@@ -769,12 +968,16 @@ mod tests {
     fn test_generate_evidence_report_filtered_categories() {
         let registry = Soc2Registry::new();
         let report = registry.generate_evidence_report(
-            "Test", "2026-01-01", "2026-12-31",
+            "Test",
+            "2026-01-01",
+            "2026-12-31",
             &[TrustServicesCategory::CC6],
         );
         // Should only include CC6 category coverage
         assert_eq!(report.category_coverage.len(), 1);
-        assert!(report.category_coverage.contains_key(&TrustServicesCategory::CC6));
+        assert!(report
+            .category_coverage
+            .contains_key(&TrustServicesCategory::CC6));
     }
 
     #[test]
@@ -790,10 +993,18 @@ mod tests {
         assert_eq!(ReadinessLevel::Optimizing.score(), 5);
     }
 
-    fn make_test_entry(tool: &str, function: &str, verdict: sentinel_types::Verdict) -> crate::AuditEntry {
+    fn make_test_entry(
+        tool: &str,
+        function: &str,
+        verdict: sentinel_types::Verdict,
+    ) -> crate::AuditEntry {
         crate::AuditEntry {
             id: "test-1".to_string(),
-            action: sentinel_types::Action::new(tool.to_string(), function.to_string(), serde_json::json!({})),
+            action: sentinel_types::Action::new(
+                tool.to_string(),
+                function.to_string(),
+                serde_json::json!({}),
+            ),
             verdict,
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             metadata: serde_json::json!({}),
@@ -812,7 +1023,13 @@ mod tests {
 
     #[test]
     fn test_classify_entry_deny_adds_cc5_cc3() {
-        let entry = make_test_entry("shell", "execute", sentinel_types::Verdict::Deny { reason: "blocked".into() });
+        let entry = make_test_entry(
+            "shell",
+            "execute",
+            sentinel_types::Verdict::Deny {
+                reason: "blocked".into(),
+            },
+        );
         let record = classify_entry(&entry);
         assert!(record.relevant_criteria.contains(&"CC3.1".to_string()));
         assert!(record.relevant_criteria.contains(&"CC5.1".to_string()));

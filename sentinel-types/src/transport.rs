@@ -10,9 +10,7 @@ use serde::{Deserialize, Serialize};
 /// The `Ord` implementation reflects the default priority ordering:
 /// gRPC > WebSocket > HTTP > stdio. Negotiation logic uses this ordering
 /// when no explicit client preference is provided.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(rename_all = "lowercase")]
 pub enum TransportProtocol {
     /// gRPC transport (highest throughput, bidirectional streaming).
@@ -41,9 +39,7 @@ pub struct TransportEndpoint {
 /// SDK maturity tier levels per MCP June 2026 draft.
 ///
 /// The `Ord` implementation provides `Core < Standard < Extended < Full`.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SdkTier {
     /// Minimal MCP implementation: tool calling + policy evaluation.

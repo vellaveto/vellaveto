@@ -1895,10 +1895,7 @@ fn test_transport_endpoint_serde_roundtrip() {
 fn test_sdk_capabilities_serde_roundtrip() {
     let caps = SdkCapabilities {
         tier: SdkTier::Extended,
-        capabilities: vec![
-            "policy-evaluation".to_string(),
-            "dlp-scanning".to_string(),
-        ],
+        capabilities: vec!["policy-evaluation".to_string(), "dlp-scanning".to_string()],
         supported_versions: vec!["2026-06".to_string()],
     };
     let json_str = serde_json::to_string(&caps).unwrap();
@@ -2018,9 +2015,16 @@ fn test_risk_score_defaults() {
 #[test]
 fn test_abac_op_all_variants() {
     let ops = vec![
-        AbacOp::Eq, AbacOp::Ne, AbacOp::In, AbacOp::NotIn,
-        AbacOp::Contains, AbacOp::StartsWith,
-        AbacOp::Gt, AbacOp::Lt, AbacOp::Gte, AbacOp::Lte,
+        AbacOp::Eq,
+        AbacOp::Ne,
+        AbacOp::In,
+        AbacOp::NotIn,
+        AbacOp::Contains,
+        AbacOp::StartsWith,
+        AbacOp::Gt,
+        AbacOp::Lt,
+        AbacOp::Gte,
+        AbacOp::Lte,
     ];
     for op in ops {
         let json_str = serde_json::to_string(&op).unwrap();

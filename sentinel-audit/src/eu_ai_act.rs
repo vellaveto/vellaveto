@@ -195,19 +195,22 @@ impl EuAiActRegistry {
         use sentinel_types::AiActRiskClass::*;
 
         self.add_obligation(
-            5, None,
+            5,
+            None,
             "Prohibited AI practices",
             "AI systems falling under Art 5 prohibited practices must not be deployed.",
             vec![Unacceptable],
         );
         self.add_obligation(
-            6, None,
+            6,
+            None,
             "Classification rules for high-risk AI",
             "AI systems meeting Art 6 criteria must comply with Chapter III requirements.",
             vec![HighRisk],
         );
         self.add_obligation(
-            9, None,
+            9,
+            None,
             "Risk management system",
             "Establish and maintain a risk management system throughout the AI system lifecycle.",
             vec![HighRisk],
@@ -225,13 +228,15 @@ impl EuAiActRegistry {
             vec![HighRisk, Limited],
         );
         self.add_obligation(
-            14, None,
+            14,
+            None,
             "Human oversight",
             "AI systems designed to allow effective human oversight during use.",
             vec![HighRisk],
         );
         self.add_obligation(
-            15, None,
+            15,
+            None,
             "Accuracy, robustness, and cybersecurity",
             "AI systems achieve appropriate levels of accuracy, robustness, and cybersecurity.",
             vec![HighRisk],
@@ -243,7 +248,8 @@ impl EuAiActRegistry {
             vec![HighRisk],
         );
         self.add_obligation(
-            50, Some(1),
+            50,
+            Some(1),
             "Transparency: AI interaction disclosure",
             "Persons interacting with AI must be informed they are interacting with an AI system.",
             vec![Limited, HighRisk],
@@ -436,10 +442,12 @@ impl EuAiActRegistry {
             } else {
                 // Overall status: Compliant if all are Compliant, Partial if any Partial,
                 // NotImplemented if none
-                let all_compliant = mappings.iter().all(|m| m.status == ComplianceStatus::Compliant);
-                let any_compliant = mappings
+                let all_compliant = mappings
                     .iter()
-                    .any(|m| m.status == ComplianceStatus::Compliant || m.status == ComplianceStatus::Partial);
+                    .all(|m| m.status == ComplianceStatus::Compliant);
+                let any_compliant = mappings.iter().any(|m| {
+                    m.status == ComplianceStatus::Compliant || m.status == ComplianceStatus::Partial
+                });
                 if all_compliant {
                     ComplianceStatus::Compliant
                 } else if any_compliant {
@@ -449,10 +457,8 @@ impl EuAiActRegistry {
                 }
             };
 
-            let evidence: Vec<String> = mappings
-                .iter()
-                .filter_map(|m| m.evidence.clone())
-                .collect();
+            let evidence: Vec<String> =
+                mappings.iter().filter_map(|m| m.evidence.clone()).collect();
 
             let capabilities: Vec<TransparencyCapability> =
                 mappings.iter().map(|m| m.capability).collect();
@@ -641,11 +647,8 @@ mod tests {
     #[test]
     fn test_generate_assessment_high_risk() {
         let registry = EuAiActRegistry::new();
-        let report = registry.generate_assessment(
-            AiActRiskClass::HighRisk,
-            "Test Corp",
-            "test-001",
-        );
+        let report =
+            registry.generate_assessment(AiActRiskClass::HighRisk, "Test Corp", "test-001");
         assert!(!report.assessments.is_empty());
         assert!(report.compliance_percentage > 0.0);
         assert_eq!(report.risk_class, AiActRiskClass::HighRisk);
@@ -655,17 +658,9 @@ mod tests {
     #[test]
     fn test_generate_assessment_minimal_risk() {
         let registry = EuAiActRegistry::new();
-        let report = registry.generate_assessment(
-            AiActRiskClass::Minimal,
-            "",
-            "",
-        );
+        let report = registry.generate_assessment(AiActRiskClass::Minimal, "", "");
         // Minimal risk — most articles are not applicable
-        let applicable = report
-            .assessments
-            .iter()
-            .filter(|a| a.applicable)
-            .count();
+        let applicable = report.assessments.iter().filter(|a| a.applicable).count();
         assert!(
             applicable < report.total_articles,
             "Minimal risk should have fewer applicable articles"
@@ -678,10 +673,18 @@ mod tests {
         assert_eq!(ComplianceStatus::NotApplicable.to_string(), "N/A");
     }
 
-    fn make_test_entry(tool: &str, function: &str, verdict: sentinel_types::Verdict) -> crate::AuditEntry {
+    fn make_test_entry(
+        tool: &str,
+        function: &str,
+        verdict: sentinel_types::Verdict,
+    ) -> crate::AuditEntry {
         crate::AuditEntry {
             id: "test-1".to_string(),
-            action: sentinel_types::Action::new(tool.to_string(), function.to_string(), serde_json::json!({})),
+            action: sentinel_types::Action::new(
+                tool.to_string(),
+                function.to_string(),
+                serde_json::json!({}),
+            ),
             verdict,
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             metadata: serde_json::json!({}),
@@ -700,7 +703,13 @@ mod tests {
 
     #[test]
     fn test_classify_entry_deny_adds_art9() {
-        let entry = make_test_entry("shell", "execute", sentinel_types::Verdict::Deny { reason: "blocked".into() });
+        let entry = make_test_entry(
+            "shell",
+            "execute",
+            sentinel_types::Verdict::Deny {
+                reason: "blocked".into(),
+            },
+        );
         let record = classify_entry_transparency(&entry);
         assert!(record.relevant_articles.contains(&"Art 9".to_string()));
         assert!(record.relevant_articles.contains(&"Art 12".to_string()));

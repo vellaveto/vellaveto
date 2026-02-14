@@ -42,11 +42,11 @@ pub mod semantic_guardrails;
 pub mod session_guard;
 pub mod shadow_agent;
 pub mod task_security;
-pub mod transparency;
 pub mod task_state;
 pub mod token_security;
 pub mod tool_namespace;
 pub mod tool_registry;
+pub mod transparency;
 pub mod workflow_tracker;
 
 use sentinel_engine::PolicyEngine;

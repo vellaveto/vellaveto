@@ -394,9 +394,12 @@ impl MultimodalScanner {
         while offset + 12 <= data.len() && chunk_count < MAX_CHUNKS {
             chunk_count += 1;
 
-            let chunk_len =
-                u32::from_be_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]])
-                    as usize;
+            let chunk_len = u32::from_be_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]) as usize;
             let chunk_type = &data[offset + 4..offset + 8];
             let chunk_data_start = offset + 8;
             let chunk_data_end = match chunk_data_start.checked_add(chunk_len) {
@@ -405,7 +408,10 @@ impl MultimodalScanner {
             };
 
             // Bounds check: need chunk_data + 4 bytes for CRC
-            if chunk_data_end.checked_add(4).is_none_or(|end| end > data.len()) {
+            if chunk_data_end
+                .checked_add(4)
+                .is_none_or(|end| end > data.len())
+            {
                 break; // Truncated chunk
             }
 
@@ -666,9 +672,8 @@ impl MultimodalScanner {
                         aggregate_text_len = aggregate_text_len.saturating_add(text.len());
                         if aggregate_text_len > MAX_AGGREGATE_TEXT {
                             // Truncate to stay within aggregate limit
-                            let remaining = MAX_AGGREGATE_TEXT.saturating_sub(
-                                aggregate_text_len.saturating_sub(text.len()),
-                            );
+                            let remaining = MAX_AGGREGATE_TEXT
+                                .saturating_sub(aggregate_text_len.saturating_sub(text.len()));
                             if remaining > 0 {
                                 texts.push(text[..remaining.min(text.len())].to_string());
                             }
@@ -762,10 +767,8 @@ impl MultimodalScanner {
                 if i < bytes.len() {
                     let hex_str = &content[start..i];
                     // Decode hex pairs into bytes, ignoring whitespace
-                    let hex_clean: String = hex_str
-                        .chars()
-                        .filter(|c| c.is_ascii_hexdigit())
-                        .collect();
+                    let hex_clean: String =
+                        hex_str.chars().filter(|c| c.is_ascii_hexdigit()).collect();
                     if hex_clean.len() >= 2 {
                         let decoded_bytes: Vec<u8> = (0..hex_clean.len() / 2)
                             .filter_map(|j| {
@@ -803,10 +806,7 @@ impl MultimodalScanner {
     ) -> Vec<MultimodalInjectionFinding> {
         // Collapse all whitespace (newlines, tabs, etc.) into single spaces
         // so injection payloads split across chunks are caught.
-        let normalized: String = text
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
+        let normalized: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
         let matches = scanner.inspect(&normalized);
 
         matches
@@ -1554,7 +1554,7 @@ mod tests {
 
         // Build minimal JPEG: SOI + COM + EOI
         let mut jpeg = vec![0xFF, 0xD8]; // SOI
-        // COM marker
+                                         // COM marker
         jpeg.push(0xFF);
         jpeg.push(0xFE);
         let seg_len = (comment.len() + 2) as u16;
@@ -1583,7 +1583,7 @@ mod tests {
     fn test_jpeg_exif_text_extraction() {
         // Build minimal JPEG with APP1/EXIF containing readable text
         let mut jpeg = vec![0xFF, 0xD8]; // SOI
-        // APP1 marker with EXIF data
+                                         // APP1 marker with EXIF data
         jpeg.push(0xFF);
         jpeg.push(0xE1);
         let mut exif_data = Vec::new();
@@ -1629,9 +1629,7 @@ mod tests {
         };
         let scanner = MultimodalScanner::new(config);
 
-        let result = scanner
-            .scan_content(pdf, Some(ContentType::Pdf))
-            .unwrap();
+        let result = scanner.scan_content(pdf, Some(ContentType::Pdf)).unwrap();
         assert!(result.extracted_text.is_some());
         let text = result.extracted_text.unwrap();
         assert!(text.contains("Hello World"));
@@ -1644,7 +1642,7 @@ mod tests {
         // Create data with perfectly uniform LSBs (alternating 0 and 1)
         // This simulates what LSB steganography looks like.
         let mut data = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]; // PNG header
-        // Add IHDR-like data to skip past header region
+                                                                             // Add IHDR-like data to skip past header region
         data.extend_from_slice(&[0; 25]);
         // Add 2000 bytes with perfectly alternating LSBs
         for i in 0..2000u32 {

@@ -61,9 +61,7 @@ pub async fn compress_rotated_file(path: &Path) -> Result<PathBuf, AuditError> {
     let gz_path_clone = gz_path.clone();
     let compressed = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, AuditError> {
         let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-        encoder
-            .write_all(&content)
-            .map_err(AuditError::Io)?;
+        encoder.write_all(&content).map_err(AuditError::Io)?;
         encoder.finish().map_err(AuditError::Io)
     })
     .await
@@ -105,9 +103,7 @@ pub async fn enforce_retention(
             Err(e) => return Err(AuditError::Io(e)),
         };
 
-        let modified = metadata
-            .modified()
-            .map_err(|e| AuditError::Io(e))?;
+        let modified = metadata.modified().map_err(|e| AuditError::Io(e))?;
 
         let modified_dt: chrono::DateTime<chrono::Utc> = modified.into();
 
@@ -145,11 +141,11 @@ pub async fn run_archive_maintenance(
             }
             match compress_rotated_file(&path).await {
                 Ok(gz_path) => report.compressed.push(gz_path),
-                Err(e) => report.errors.push(format!(
-                    "Failed to compress {}: {}",
-                    path.display(),
-                    e
-                )),
+                Err(e) => {
+                    report
+                        .errors
+                        .push(format!("Failed to compress {}: {}", path.display(), e))
+                }
             }
         }
     }
@@ -157,7 +153,9 @@ pub async fn run_archive_maintenance(
     // Phase 2: Enforce retention
     match enforce_retention(logger, config.retention_days).await {
         Ok(deleted) => report.deleted = deleted,
-        Err(e) => report.errors.push(format!("Retention enforcement failed: {}", e)),
+        Err(e) => report
+            .errors
+            .push(format!("Retention enforcement failed: {}", e)),
     }
 
     Ok(report)

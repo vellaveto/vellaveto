@@ -482,8 +482,8 @@ fn make_test_state_with_allow_all() -> ProxyState {
         network_rules: None,
     }];
 
-    let engine = PolicyEngine::with_policies(false, &policies)
-        .expect("Failed to compile test policies");
+    let engine =
+        PolicyEngine::with_policies(false, &policies).expect("Failed to compile test policies");
 
     let mut state = make_test_state();
     state.engine = Arc::new(engine);

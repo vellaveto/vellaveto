@@ -5,8 +5,7 @@
 
 use crate::matcher::PatternMatcher;
 use sentinel_types::{
-    AbacEffect, AbacOp, AbacPolicy, AbacEntity, Action, EvaluationContext,
-    RiskScore,
+    AbacEffect, AbacEntity, AbacOp, AbacPolicy, Action, EvaluationContext, RiskScore,
 };
 use std::collections::HashMap;
 
@@ -166,10 +165,7 @@ impl AbacEngine {
     ///
     /// Compiles all policies and builds the entity store. Returns an error
     /// if any policy pattern is invalid.
-    pub fn new(
-        policies: &[AbacPolicy],
-        entities: &[AbacEntity],
-    ) -> Result<Self, String> {
+    pub fn new(policies: &[AbacPolicy], entities: &[AbacEntity]) -> Result<Self, String> {
         let mut compiled = Vec::with_capacity(policies.len());
         for policy in policies {
             compiled.push(compile_policy(policy)?);
@@ -377,9 +373,7 @@ fn matches_principal(
             // Check group membership: maybe this principal is a member of the required type
             let entity_key = format!("{}::{}", ctx.principal_type, ctx.principal_id);
             let group_key = format!("{}::{}", required_type, ctx.principal_id);
-            if entity_key != group_key
-                && !entity_store.is_member_of(&entity_key, &group_key)
-            {
+            if entity_key != group_key && !entity_store.is_member_of(&entity_key, &group_key) {
                 return false;
             }
         }
@@ -429,9 +423,10 @@ fn matches_resource(resource: &CompiledResource, action: &Action) -> bool {
         if action.target_paths.is_empty() {
             return false;
         }
-        let any_path_matches = action.target_paths.iter().any(|path| {
-            resource.path_matchers.iter().any(|m| m.matches(path))
-        });
+        let any_path_matches = action
+            .target_paths
+            .iter()
+            .any(|path| resource.path_matchers.iter().any(|m| m.matches(path)));
         if !any_path_matches {
             return false;
         }
@@ -442,9 +437,10 @@ fn matches_resource(resource: &CompiledResource, action: &Action) -> bool {
         if action.target_domains.is_empty() {
             return false;
         }
-        let any_domain_matches = action.target_domains.iter().any(|domain| {
-            resource.domain_matchers.iter().any(|m| m.matches(domain))
-        });
+        let any_domain_matches = action
+            .target_domains
+            .iter()
+            .any(|domain| resource.domain_matchers.iter().any(|m| m.matches(domain)));
         if !any_domain_matches {
             return false;
         }
@@ -491,8 +487,7 @@ fn evaluate_single_condition(condition: &CompiledCondition, ctx: &AbacEvalContex
             }
         }
         AbacOp::Contains => {
-            if let (Some(haystack), Some(needle)) =
-                (field_value.as_str(), condition.value.as_str())
+            if let (Some(haystack), Some(needle)) = (field_value.as_str(), condition.value.as_str())
             {
                 haystack.contains(needle)
             } else {
@@ -500,9 +495,7 @@ fn evaluate_single_condition(condition: &CompiledCondition, ctx: &AbacEvalContex
             }
         }
         AbacOp::StartsWith => {
-            if let (Some(s), Some(prefix)) =
-                (field_value.as_str(), condition.value.as_str())
-            {
+            if let (Some(s), Some(prefix)) = (field_value.as_str(), condition.value.as_str()) {
                 s.starts_with(prefix)
             } else {
                 false
@@ -515,7 +508,11 @@ fn evaluate_single_condition(condition: &CompiledCondition, ctx: &AbacEvalContex
     }
 }
 
-fn compare_numbers(a: &serde_json::Value, b: &serde_json::Value, cmp: fn(f64, f64) -> bool) -> bool {
+fn compare_numbers(
+    a: &serde_json::Value,
+    b: &serde_json::Value,
+    cmp: fn(f64, f64) -> bool,
+) -> bool {
     match (a.as_f64(), b.as_f64()) {
         (Some(av), Some(bv)) => cmp(av, bv),
         _ => false,

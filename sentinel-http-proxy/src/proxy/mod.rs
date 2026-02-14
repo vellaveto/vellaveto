@@ -231,8 +231,7 @@ const MCP_PROTOCOL_VERSION: &str = "2025-11-25";
 /// Supported MCP protocol versions for incoming requests.
 /// The proxy accepts these versions for backwards compatibility.
 /// `2026-06` is a placeholder for the upcoming MCP June 2026 specification.
-const SUPPORTED_PROTOCOL_VERSIONS: &[&str] =
-    &["2026-06", "2025-11-25", "2025-06-18", "2025-03-26"];
+const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2026-06", "2025-11-25", "2025-06-18", "2025-03-26"];
 
 /// Header for client transport preference negotiation (MCP June 2026).
 /// Clients may send a comma-separated list of preferred transports.

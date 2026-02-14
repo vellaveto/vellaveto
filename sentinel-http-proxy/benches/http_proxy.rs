@@ -52,9 +52,7 @@ fn bench_origin(c: &mut Criterion) {
         })
     });
     group.bench_function("extract_authority_with_userinfo", |b| {
-        b.iter(|| {
-            origin::extract_authority_from_origin(black_box("http://user@example.com:8080"))
-        })
+        b.iter(|| origin::extract_authority_from_origin(black_box("http://user@example.com:8080")))
     });
 
     // validate_origin — full CSRF/DNS-rebinding check
@@ -298,12 +296,8 @@ fn bench_call_chain_parsing(c: &mut Criterion) {
 
     // extract_call_chain_from_headers — 1 entry, with HMAC verification
     let key: [u8; 32] = [0x42u8; 32];
-    let signed_entry = call_chain::build_current_agent_entry(
-        Some("agent-1"),
-        "read_file",
-        "read",
-        Some(&key),
-    );
+    let signed_entry =
+        call_chain::build_current_agent_entry(Some("agent-1"), "read_file", "read", Some(&key));
     let signed_str = serde_json::to_string(&vec![signed_entry]).unwrap();
     let mut signed_headers = HeaderMap::new();
     signed_headers.insert("x-upstream-agents", signed_str.parse().unwrap());
@@ -447,7 +441,9 @@ fn bench_privilege_escalation(c: &mut Criterion) {
 fn bench_audit_context(c: &mut Criterion) {
     let mut group = c.benchmark_group("audit_context");
 
-    use sentinel_http_proxy::proxy::call_chain::{build_audit_context, build_audit_context_with_chain};
+    use sentinel_http_proxy::proxy::call_chain::{
+        build_audit_context, build_audit_context_with_chain,
+    };
 
     // build_audit_context — minimal
     group.bench_function("build_minimal", |b| {

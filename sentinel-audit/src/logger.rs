@@ -160,10 +160,7 @@ impl AuditLogger {
             .file_stem()
             .unwrap_or_default()
             .to_string_lossy();
-        let parent = self
-            .log_path
-            .parent()
-            .unwrap_or(std::path::Path::new("."));
+        let parent = self.log_path.parent().unwrap_or(std::path::Path::new("."));
         parent.join(format!("{stem}.merkle-leaves"))
     }
 
@@ -456,9 +453,9 @@ impl AuditLogger {
                 leaf_arr.copy_from_slice(&leaf_bytes);
             }
             let leaf = crate::merkle::hash_leaf(&leaf_arr);
-            let mut tree = merkle.lock().map_err(|e| {
-                AuditError::Validation(format!("Merkle tree lock poisoned: {}", e))
-            })?;
+            let mut tree = merkle
+                .lock()
+                .map_err(|e| AuditError::Validation(format!("Merkle tree lock poisoned: {}", e)))?;
             tree.append(leaf)?;
         }
 

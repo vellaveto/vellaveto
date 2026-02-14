@@ -343,7 +343,11 @@ impl MerkleTree {
         let mut siblings = Vec::new();
         let mut idx = index;
         for level in &levels[..levels.len() - 1] {
-            let sibling_idx = if idx.is_multiple_of(2) { idx + 1 } else { idx - 1 };
+            let sibling_idx = if idx.is_multiple_of(2) {
+                idx + 1
+            } else {
+                idx - 1
+            };
             if sibling_idx < level.len() {
                 siblings.push(ProofStep {
                     hash: hex::encode(level[sibling_idx]),
@@ -385,9 +389,8 @@ impl MerkleTree {
 
         let mut current = leaf_hash;
         for step in &proof.siblings {
-            let sibling = hex::decode(&step.hash).map_err(|e| {
-                AuditError::Validation(format!("Invalid sibling hash hex: {}", e))
-            })?;
+            let sibling = hex::decode(&step.hash)
+                .map_err(|e| AuditError::Validation(format!("Invalid sibling hash hex: {}", e)))?;
             if sibling.len() != HASH_SIZE {
                 return Ok(MerkleVerification {
                     valid: false,

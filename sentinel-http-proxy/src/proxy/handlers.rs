@@ -826,13 +826,9 @@ pub async fn handle_mcp_post(
                     // If the PolicyEngine allowed the action, ABAC may still deny it
                     // based on principal/action/resource/condition constraints.
                     if let Some(ref abac) = state.abac_engine {
-                        let abac_eval_ctx =
-                            build_evaluation_context(&state.sessions, &session_id)
-                                .unwrap_or_default();
-                        let principal_id = abac_eval_ctx
-                            .agent_id
-                            .as_deref()
-                            .unwrap_or("anonymous");
+                        let abac_eval_ctx = build_evaluation_context(&state.sessions, &session_id)
+                            .unwrap_or_default();
+                        let principal_id = abac_eval_ctx.agent_id.as_deref().unwrap_or("anonymous");
                         let principal_type = abac_eval_ctx
                             .agent_identity
                             .as_ref()
@@ -851,10 +847,7 @@ pub async fn handle_mcp_post(
                         };
 
                         match abac.evaluate(&action, &abac_ctx) {
-                            sentinel_engine::abac::AbacDecision::Deny {
-                                policy_id,
-                                reason,
-                            } => {
+                            sentinel_engine::abac::AbacDecision::Deny { policy_id, reason } => {
                                 let verdict = Verdict::Deny {
                                     reason: reason.clone(),
                                 };
@@ -2134,10 +2127,11 @@ pub async fn handle_mcp_post(
             let action = extractor::extract_extension_action(extension_id, method, &params);
             let eval_ctx = build_evaluation_context(&state.sessions, &session_id);
 
-            let verdict = match state
-                .engine
-                .evaluate_action_with_context(&action, &state.policies, eval_ctx.as_ref())
-            {
+            let verdict = match state.engine.evaluate_action_with_context(
+                &action,
+                &state.policies,
+                eval_ctx.as_ref(),
+            ) {
                 Ok(v) => v,
                 Err(e) => {
                     tracing::error!(

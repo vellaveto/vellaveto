@@ -55,9 +55,9 @@ impl AuditLogger {
 
         // Read Merkle root if tree is enabled
         let merkle_root = if let Some(ref merkle) = self.merkle_tree {
-            let tree = merkle.lock().map_err(|e| {
-                AuditError::Validation(format!("Merkle tree lock poisoned: {}", e))
-            })?;
+            let tree = merkle
+                .lock()
+                .map_err(|e| AuditError::Validation(format!("Merkle tree lock poisoned: {}", e)))?;
             tree.root_hex()
         } else {
             None

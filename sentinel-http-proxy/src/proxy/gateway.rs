@@ -703,9 +703,7 @@ mod tests {
         affinities.insert("fs_read".to_string(), "a".to_string());
 
         // Should fall back to default since "a" is unhealthy
-        let decision = router
-            .route_with_affinity("fs_read", &affinities)
-            .unwrap();
+        let decision = router.route_with_affinity("fs_read", &affinities).unwrap();
         assert_eq!(decision.backend_id, "default");
     }
 
@@ -718,9 +716,7 @@ mod tests {
         let router = GatewayRouter::from_config(&config).unwrap();
 
         let affinities = HashMap::new();
-        let decision = router
-            .route_with_affinity("fs_read", &affinities)
-            .unwrap();
+        let decision = router.route_with_affinity("fs_read", &affinities).unwrap();
         assert_eq!(decision.backend_id, "fs");
     }
 

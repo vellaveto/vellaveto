@@ -190,23 +190,15 @@ impl MutationEngine {
     fn mutate_string(&self, s: &str, mutation: MutationType) -> String {
         match mutation {
             MutationType::UrlEncodePath => {
-                percent_encoding::utf8_percent_encode(
-                    s,
-                    percent_encoding::NON_ALPHANUMERIC,
-                )
-                .to_string()
+                percent_encoding::utf8_percent_encode(s, percent_encoding::NON_ALPHANUMERIC)
+                    .to_string()
             }
             MutationType::DoubleEncodePath => {
-                let first = percent_encoding::utf8_percent_encode(
-                    s,
-                    percent_encoding::NON_ALPHANUMERIC,
-                )
-                .to_string();
-                percent_encoding::utf8_percent_encode(
-                    &first,
-                    percent_encoding::NON_ALPHANUMERIC,
-                )
-                .to_string()
+                let first =
+                    percent_encoding::utf8_percent_encode(s, percent_encoding::NON_ALPHANUMERIC)
+                        .to_string();
+                percent_encoding::utf8_percent_encode(&first, percent_encoding::NON_ALPHANUMERIC)
+                    .to_string()
             }
             MutationType::NullByteInject => {
                 format!("{}\x00", s)
@@ -387,8 +379,7 @@ impl RedTeamRunner {
 
         // Generate mutated variants
         let mutated = self.mutation_engine.mutate_all(scenarios);
-        let all_scenarios: Vec<&AttackScenario> =
-            scenarios.iter().chain(mutated.iter()).collect();
+        let all_scenarios: Vec<&AttackScenario> = scenarios.iter().chain(mutated.iter()).collect();
 
         let mut total = 0usize;
         let mut blocked = 0usize;
@@ -617,7 +608,11 @@ mod tests {
         assert_eq!(variants.len(), 1);
         match &variants[0].content {
             AttackContent::ToolCall { tool, .. } => {
-                assert!(tool.contains('%'), "URL encoding should contain % (got: {})", tool);
+                assert!(
+                    tool.contains('%'),
+                    "URL encoding should contain % (got: {})",
+                    tool
+                );
             }
             _ => panic!("Expected ToolCall"),
         }

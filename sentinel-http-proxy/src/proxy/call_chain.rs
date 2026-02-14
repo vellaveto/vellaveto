@@ -378,11 +378,7 @@ pub fn compute_call_chain_hmac(key: &[u8; 32], data: &[u8]) -> Result<String, ()
 /// FIND-015: Verify HMAC-SHA256 of data against expected hex string.
 /// Returns `Ok(true)` if valid, `Ok(false)` if invalid, `Err` on initialization failure.
 #[allow(clippy::result_unit_err)]
-pub fn verify_call_chain_hmac(
-    key: &[u8; 32],
-    data: &[u8],
-    expected_hex: &str,
-) -> Result<bool, ()> {
+pub fn verify_call_chain_hmac(key: &[u8; 32], data: &[u8], expected_hex: &str) -> Result<bool, ()> {
     let expected_bytes = match hex::decode(expected_hex) {
         Ok(b) => b,
         Err(_) => return Ok(false),

@@ -165,8 +165,7 @@ impl AdversaTop25Registry {
     /// Generate the full coverage matrix.
     pub fn coverage_matrix(&self) -> Vec<CoverageMatrixRow> {
         // Build set of covered ranks from detection mappings
-        let mut covered_ranks: std::collections::HashSet<u8> =
-            std::collections::HashSet::new();
+        let mut covered_ranks: std::collections::HashSet<u8> = std::collections::HashSet::new();
         for ranks in self.detection_mappings.values() {
             for r in ranks {
                 covered_ranks.insert(*r);
@@ -314,8 +313,7 @@ impl AdversaTop25Registry {
         self.add_vulnerability(AdversaVulnerability {
             rank: 8,
             name: "Privilege Escalation via Delegation".to_string(),
-            description: "Exploiting delegation chains to gain elevated privileges."
-                .to_string(),
+            description: "Exploiting delegation chains to gain elevated privileges.".to_string(),
             severity: AdversaSeverity::High,
             sentinel_mitigations: vec![
                 "Capability token with monotonic attenuation".to_string(),
@@ -338,8 +336,7 @@ impl AdversaTop25Registry {
         self.add_vulnerability(AdversaVulnerability {
             rank: 10,
             name: "Unicode Injection Evasion".to_string(),
-            description: "Using Unicode tricks to bypass injection detection filters."
-                .to_string(),
+            description: "Using Unicode tricks to bypass injection detection filters.".to_string(),
             severity: AdversaSeverity::High,
             sentinel_mitigations: vec![
                 "NFKC normalization".to_string(),
@@ -363,8 +360,7 @@ impl AdversaTop25Registry {
         self.add_vulnerability(AdversaVulnerability {
             rank: 12,
             name: "DNS Rebinding".to_string(),
-            description: "Bypassing domain restrictions through DNS rebinding attacks."
-                .to_string(),
+            description: "Bypassing domain restrictions through DNS rebinding attacks.".to_string(),
             severity: AdversaSeverity::High,
             sentinel_mitigations: vec![
                 "IP rules with private range blocking".to_string(),
@@ -408,8 +404,7 @@ impl AdversaTop25Registry {
         self.add_vulnerability(AdversaVulnerability {
             rank: 16,
             name: "Rate Limit Exhaustion".to_string(),
-            description: "Flooding system to exhaust rate limits and deny service."
-                .to_string(),
+            description: "Flooding system to exhaust rate limits and deny service.".to_string(),
             severity: AdversaSeverity::Medium,
             sentinel_mitigations: vec![
                 "Per-session rate limiting".to_string(),
@@ -420,8 +415,7 @@ impl AdversaTop25Registry {
         self.add_vulnerability(AdversaVulnerability {
             rank: 17,
             name: "Context Flooding".to_string(),
-            description: "Overwhelming agent context window with irrelevant data."
-                .to_string(),
+            description: "Overwhelming agent context window with irrelevant data.".to_string(),
             severity: AdversaSeverity::Medium,
             sentinel_mitigations: vec!["Context flooding detection".to_string()],
         });
@@ -429,8 +423,7 @@ impl AdversaTop25Registry {
         self.add_vulnerability(AdversaVulnerability {
             rank: 18,
             name: "Cascading Failure Exploitation".to_string(),
-            description: "Triggering cascading failures across dependent services."
-                .to_string(),
+            description: "Triggering cascading failures across dependent services.".to_string(),
             severity: AdversaSeverity::Medium,
             sentinel_mitigations: vec![
                 "Circuit breaker pattern".to_string(),
@@ -441,8 +434,7 @@ impl AdversaTop25Registry {
         self.add_vulnerability(AdversaVulnerability {
             rank: 19,
             name: "Audit Log Tampering".to_string(),
-            description: "Modifying or deleting audit entries to cover attack traces."
-                .to_string(),
+            description: "Modifying or deleting audit entries to cover attack traces.".to_string(),
             severity: AdversaSeverity::Medium,
             sentinel_mitigations: vec![
                 "SHA-256 hash chain".to_string(),
@@ -454,11 +446,10 @@ impl AdversaTop25Registry {
         self.add_vulnerability(AdversaVulnerability {
             rank: 20,
             name: "Regex Denial of Service".to_string(),
-            description: "Crafted regex patterns causing catastrophic backtracking."
-                .to_string(),
+            description: "Crafted regex patterns causing catastrophic backtracking.".to_string(),
             severity: AdversaSeverity::Medium,
             sentinel_mitigations: vec![
-                "Regex pattern length validation (MAX_PATTERN_LEN=2048)".to_string(),
+                "Regex pattern length validation (MAX_PATTERN_LEN=2048)".to_string()
             ],
         });
 
@@ -480,9 +471,7 @@ impl AdversaTop25Registry {
             description: "Manipulating LLM sampling requests to extract data or alter behavior."
                 .to_string(),
             severity: AdversaSeverity::Medium,
-            sentinel_mitigations: vec![
-                "Sampling request policy enforcement".to_string(),
-            ],
+            sentinel_mitigations: vec!["Sampling request policy enforcement".to_string()],
         });
 
         self.add_vulnerability(AdversaVulnerability {
@@ -584,11 +573,7 @@ mod tests {
         let registry = AdversaTop25Registry::new();
         for rank in 1..=25 {
             let vuln = registry.get_vulnerability(rank);
-            assert!(
-                vuln.is_some(),
-                "Missing vulnerability at rank {}",
-                rank,
-            );
+            assert!(vuln.is_some(), "Missing vulnerability at rank {}", rank,);
         }
     }
 
@@ -623,8 +608,7 @@ mod tests {
     #[test]
     fn test_detection_to_vulnerability_mapping() {
         let registry = AdversaTop25Registry::new();
-        let vulns =
-            registry.get_vulnerabilities_for_detection(SentinelDetection::PromptInjection);
+        let vulns = registry.get_vulnerabilities_for_detection(SentinelDetection::PromptInjection);
         assert!(!vulns.is_empty());
         assert!(vulns.iter().any(|v| v.rank == 2));
     }

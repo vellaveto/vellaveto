@@ -711,9 +711,7 @@ impl PolicyEngine {
                                 return Some(Verdict::Deny {
                                     reason: format!(
                                         "{} (remaining depth {} below required {})",
-                                        deny_reason,
-                                        token.remaining_depth,
-                                        min_remaining_depth
+                                        deny_reason, token.remaining_depth, min_remaining_depth
                                     ),
                                 });
                             }

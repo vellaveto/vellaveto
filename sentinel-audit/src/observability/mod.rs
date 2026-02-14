@@ -32,10 +32,10 @@ pub mod arize;
 pub mod helicone;
 #[cfg(feature = "observability-exporters")]
 pub mod langfuse;
-#[cfg(feature = "observability-exporters")]
-pub mod webhook;
 #[cfg(feature = "otlp-exporter")]
 pub mod otlp;
+#[cfg(feature = "observability-exporters")]
+pub mod webhook;
 
 use async_trait::async_trait;
 use sentinel_types::Verdict;

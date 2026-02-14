@@ -216,9 +216,7 @@ pub fn classify_message(msg: &Value) -> MessageType {
                 .and_then(|p| p.get("progress"))
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0);
-            let total = params
-                .and_then(|p| p.get("total"))
-                .and_then(|v| v.as_f64());
+            let total = params.and_then(|p| p.get("total")).and_then(|v| v.as_f64());
             MessageType::ProgressNotification {
                 progress_token,
                 progress,
@@ -1457,7 +1455,8 @@ mod tests {
     #[test]
     fn test_extract_extension_action() {
         let params = json!({"query": "SELECT count(*)"});
-        let action = extract_extension_action("x-sentinel-audit", "x-sentinel-audit/query", &params);
+        let action =
+            extract_extension_action("x-sentinel-audit", "x-sentinel-audit/query", &params);
         assert_eq!(action.tool, "x-sentinel-audit");
         assert_eq!(action.function, "x-sentinel-audit/query");
         assert_eq!(action.parameters["query"], "SELECT count(*)");

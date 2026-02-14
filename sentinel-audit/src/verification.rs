@@ -210,9 +210,9 @@ impl AuditLogger {
         let merkle = self.merkle_tree.as_ref().ok_or_else(|| {
             AuditError::Validation("Merkle tree not enabled on this logger".to_string())
         })?;
-        let tree = merkle.lock().map_err(|e| {
-            AuditError::Validation(format!("Merkle tree lock poisoned: {}", e))
-        })?;
+        let tree = merkle
+            .lock()
+            .map_err(|e| AuditError::Validation(format!("Merkle tree lock poisoned: {}", e)))?;
         tree.generate_proof(index)
     }
 
@@ -225,9 +225,8 @@ impl AuditLogger {
         entry_hash: &str,
         proof: &crate::merkle::MerkleProof,
     ) -> Result<crate::merkle::MerkleVerification, AuditError> {
-        let hash_bytes = hex::decode(entry_hash).map_err(|e| {
-            AuditError::Validation(format!("Invalid entry hash hex: {}", e))
-        })?;
+        let hash_bytes = hex::decode(entry_hash)
+            .map_err(|e| AuditError::Validation(format!("Invalid entry hash hex: {}", e)))?;
         if hash_bytes.len() != 32 {
             return Err(AuditError::Validation(format!(
                 "Entry hash has wrong length: {} (expected 32)",

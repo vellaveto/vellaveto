@@ -353,7 +353,13 @@ impl SessionGuard {
             (SessionState::Active, SessionEvent::NormalAction) => {
                 (SessionState::Active, TransitionAction::None)
             }
-            (SessionState::Active, SessionEvent::AnomalyDetected { severity, description }) => {
+            (
+                SessionState::Active,
+                SessionEvent::AnomalyDetected {
+                    severity,
+                    description,
+                },
+            ) => {
                 ctx.anomaly_count += 1;
                 // Critical severity → immediate Suspicious
                 let immediate = matches!(severity, AnomalySeverity::Critical);
@@ -467,10 +473,7 @@ impl SessionGuard {
                     (
                         SessionState::Suspicious,
                         TransitionAction::Warn {
-                            message: format!(
-                                "Policy violation in suspicious session: {}",
-                                reason
-                            ),
+                            message: format!("Policy violation in suspicious session: {}", reason),
                         },
                     )
                 }
@@ -843,19 +846,11 @@ mod tests {
             .process_event_at("s1", SessionEvent::FirstAction, 1000)
             .unwrap();
         guard
-            .process_event_at(
-                "s1",
-                SessionEvent::RepeatedViolation { count: 2 },
-                1001,
-            )
+            .process_event_at("s1", SessionEvent::RepeatedViolation { count: 2 }, 1001)
             .unwrap();
         // Should be in Suspicious now; one more to lock it
         guard
-            .process_event_at(
-                "s1",
-                SessionEvent::RepeatedViolation { count: 1 },
-                1002,
-            )
+            .process_event_at("s1", SessionEvent::RepeatedViolation { count: 1 }, 1002)
             .unwrap();
         assert_eq!(guard.get_state("s1"), SessionState::Locked);
 
@@ -880,16 +875,10 @@ mod tests {
             .process_event("s1", SessionEvent::FirstAction)
             .unwrap();
         guard
-            .process_event(
-                "s1",
-                SessionEvent::RepeatedViolation { count: 2 },
-            )
+            .process_event("s1", SessionEvent::RepeatedViolation { count: 2 })
             .unwrap();
         guard
-            .process_event(
-                "s1",
-                SessionEvent::RepeatedViolation { count: 1 },
-            )
+            .process_event("s1", SessionEvent::RepeatedViolation { count: 1 })
             .unwrap();
         assert_eq!(guard.get_state("s1"), SessionState::Locked);
 
@@ -909,16 +898,10 @@ mod tests {
         assert!(guard.should_deny("s1").is_none());
 
         guard
-            .process_event(
-                "s1",
-                SessionEvent::RepeatedViolation { count: 2 },
-            )
+            .process_event("s1", SessionEvent::RepeatedViolation { count: 2 })
             .unwrap();
         guard
-            .process_event(
-                "s1",
-                SessionEvent::RepeatedViolation { count: 1 },
-            )
+            .process_event("s1", SessionEvent::RepeatedViolation { count: 1 })
             .unwrap();
         assert!(guard.should_deny("s1").is_some());
     }
@@ -937,27 +920,21 @@ mod tests {
         let guard = default_guard();
 
         // End from Init
-        let r = guard
-            .process_event("s1", SessionEvent::SessionEnd)
-            .unwrap();
+        let r = guard.process_event("s1", SessionEvent::SessionEnd).unwrap();
         assert_eq!(r.current, SessionState::Ended);
 
         // End from Active
         guard
             .process_event("s2", SessionEvent::FirstAction)
             .unwrap();
-        let r = guard
-            .process_event("s2", SessionEvent::SessionEnd)
-            .unwrap();
+        let r = guard.process_event("s2", SessionEvent::SessionEnd).unwrap();
         assert_eq!(r.current, SessionState::Ended);
     }
 
     #[test]
     fn test_ended_state_is_terminal() {
         let guard = default_guard();
-        guard
-            .process_event("s1", SessionEvent::SessionEnd)
-            .unwrap();
+        guard.process_event("s1", SessionEvent::SessionEnd).unwrap();
 
         let r = guard
             .process_event("s1", SessionEvent::FirstAction)
@@ -1105,18 +1082,10 @@ mod tests {
             .process_event_at("s1", SessionEvent::FirstAction, 100)
             .unwrap();
         guard
-            .process_event_at(
-                "s1",
-                SessionEvent::RepeatedViolation { count: 2 },
-                101,
-            )
+            .process_event_at("s1", SessionEvent::RepeatedViolation { count: 2 }, 101)
             .unwrap();
         guard
-            .process_event_at(
-                "s1",
-                SessionEvent::RepeatedViolation { count: 1 },
-                102,
-            )
+            .process_event_at("s1", SessionEvent::RepeatedViolation { count: 1 }, 102)
             .unwrap();
         assert_eq!(guard.get_state("s1"), SessionState::Locked);
 
@@ -1155,8 +1124,7 @@ mod tests {
         };
 
         let json = serde_json::to_string(&summary).expect("Should serialize");
-        let deserialized: SessionSummary =
-            serde_json::from_str(&json).expect("Should deserialize");
+        let deserialized: SessionSummary = serde_json::from_str(&json).expect("Should deserialize");
         assert_eq!(deserialized.state, SessionState::Active);
         assert_eq!(deserialized.anomaly_count, 2);
     }

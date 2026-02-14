@@ -240,8 +240,7 @@ pub fn generate_gap_analysis() -> GapAnalysisReport {
 
     if critical_gaps.is_empty() {
         recommendations.push(
-            "All frameworks at full coverage — maintain through continuous monitoring"
-                .to_string(),
+            "All frameworks at full coverage — maintain through continuous monitoring".to_string(),
         );
     } else {
         recommendations.push(format!(
@@ -252,8 +251,7 @@ pub fn generate_gap_analysis() -> GapAnalysisReport {
 
     if overall_coverage_percent >= 90.0 {
         recommendations.push(
-            "Overall coverage meets the 90% threshold for Phase 19 exit criteria"
-                .to_string(),
+            "Overall coverage meets the 90% threshold for Phase 19 exit criteria".to_string(),
         );
     }
 
@@ -304,11 +302,7 @@ mod tests {
     fn test_each_framework_has_items() {
         let report = generate_gap_analysis();
         for fw in &report.frameworks {
-            assert!(
-                fw.total_items > 0,
-                "Framework {} has no items",
-                fw.name,
-            );
+            assert!(fw.total_items > 0, "Framework {} has no items", fw.name,);
         }
     }
 

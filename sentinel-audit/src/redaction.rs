@@ -131,8 +131,7 @@ pub fn redact_keys_and_patterns(value: &serde_json::Value) -> serde_json::Value 
             // This converts fullwidth digits (U+FF10-FF19) to ASCII digits,
             // preventing bypass via Unicode digit variants.
             let normalized: String = s.nfkc().collect();
-            if PII_REGEXES.iter().any(|re| re.is_match(&normalized))
-            {
+            if PII_REGEXES.iter().any(|re| re.is_match(&normalized)) {
                 serde_json::Value::String(REDACTED.to_string())
             } else {
                 value.clone()

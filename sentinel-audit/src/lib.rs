@@ -28,14 +28,14 @@ pub mod archive;
 // ── Pre-existing submodules ──────────────────────────────────────────────────
 pub mod aivss;
 pub mod atlas;
+pub mod eu_ai_act;
 pub mod exec_graph;
 pub mod export;
-pub mod eu_ai_act;
 pub mod iso27090;
 pub mod nist_rmf;
-pub mod soc2;
 pub mod observability;
 pub mod pii;
+pub mod soc2;
 pub mod streaming;
 
 // ── Phase 19.3: CoSAI/Adversa threat coverage registries ────────────────────

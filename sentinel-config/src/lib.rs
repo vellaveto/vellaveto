@@ -95,10 +95,10 @@ pub use rag_defense_config::{
 // Re-exports from Phase 16.6 split submodules
 pub use a2a::A2aConfig;
 pub use abac::AbacConfig;
+pub use cluster::ClusterConfig;
 pub use compliance::{
     AiActRiskClass, ComplianceConfig, EuAiActConfig, Soc2Config, TrustServicesCategory,
 };
-pub use cluster::ClusterConfig;
 pub use config_validate::{
     MAX_ALLOWED_SERVERS, MAX_CUSTOM_PII_PATTERNS, MAX_DISABLED_INJECTION_PATTERNS,
     MAX_EXTRA_INJECTION_PATTERNS, MAX_KNOWN_TOOL_NAMES, MAX_POLICIES, MAX_TRUSTED_KEYS,

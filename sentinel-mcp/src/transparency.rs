@@ -37,9 +37,7 @@ pub fn requires_human_oversight(tool: &str, patterns: &[String]) -> bool {
 pub fn mark_ai_mediated(msg: &mut serde_json::Value) {
     if let Some(result) = msg.get_mut("result") {
         if let Some(obj) = result.as_object_mut() {
-            let meta = obj
-                .entry("_meta")
-                .or_insert_with(|| serde_json::json!({}));
+            let meta = obj.entry("_meta").or_insert_with(|| serde_json::json!({}));
             if let Some(meta_obj) = meta.as_object_mut() {
                 meta_obj.insert(
                     "sentinel_ai_mediated".to_string(),
@@ -163,7 +161,11 @@ mod tests {
 
     #[test]
     fn test_requires_human_oversight_multiple_patterns() {
-        let patterns = vec!["shell_*".to_string(), "exec_*".to_string(), "sudo".to_string()];
+        let patterns = vec![
+            "shell_*".to_string(),
+            "exec_*".to_string(),
+            "sudo".to_string(),
+        ];
         assert!(requires_human_oversight("shell_exec", &patterns));
         assert!(requires_human_oversight("exec_command", &patterns));
         assert!(requires_human_oversight("sudo", &patterns));

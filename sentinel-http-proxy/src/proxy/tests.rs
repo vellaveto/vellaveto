@@ -1845,8 +1845,5 @@ fn test_sdk_capabilities_tier() {
 
 #[test]
 fn test_transport_preference_header_constant() {
-    assert_eq!(
-        MCP_TRANSPORT_PREFERENCE_HEADER,
-        "mcp-transport-preference"
-    );
+    assert_eq!(MCP_TRANSPORT_PREFERENCE_HEADER, "mcp-transport-preference");
 }

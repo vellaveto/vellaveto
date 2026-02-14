@@ -247,7 +247,8 @@ impl InjectionScanner {
         let sanitized = sanitize_for_injection_scan(text);
         let lower = sanitized.to_lowercase();
 
-        let mut all_matches: Vec<&str> = self.automaton
+        let mut all_matches: Vec<&str> = self
+            .automaton
             .find_iter(&lower)
             .map(|m| self.patterns[m.pattern().as_usize()].as_str())
             .collect();

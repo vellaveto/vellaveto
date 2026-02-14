@@ -136,7 +136,8 @@ pub struct PolicyDiff {
 /// Try to parse a TOML config string, compile policies and engine.
 /// Returns (engine, policies) or an error string.
 fn compile_from_toml(toml_str: &str) -> Result<(PolicyEngine, Vec<Policy>), String> {
-    let config = PolicyConfig::from_toml(toml_str).map_err(|e| format!("TOML parse error: {}", e))?;
+    let config =
+        PolicyConfig::from_toml(toml_str).map_err(|e| format!("TOML parse error: {}", e))?;
     let mut policies = config.to_policies();
     PolicyEngine::sort_policies(&mut policies);
     let engine = PolicyEngine::with_policies(false, &policies).map_err(|errors| {
@@ -180,12 +181,8 @@ pub async fn simulate_evaluate(
 
     // Compile engine from inline config or use server's loaded policies
     let (engine, _policies) = if let Some(ref toml_str) = req.policy_config {
-        compile_from_toml(toml_str).map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse { error: e }),
-            )
-        })?
+        compile_from_toml(toml_str)
+            .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?
     } else {
         let snap = state.policy_state.load();
         (
@@ -255,12 +252,8 @@ pub async fn simulate_batch(
 
     // Compile engine once
     let engine = if let Some(ref toml_str) = req.policy_config {
-        let (engine, _) = compile_from_toml(toml_str).map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse { error: e }),
-            )
-        })?;
+        let (engine, _) = compile_from_toml(toml_str)
+            .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
         engine
     } else {
         let snap = state.policy_state.load();

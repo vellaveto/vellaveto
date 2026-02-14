@@ -10,8 +10,8 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
 
-use crate::AppState;
 use super::ErrorResponse;
+use crate::AppState;
 
 // ── Query Parameters ─────────────────────────────────────────────────────────
 
@@ -157,17 +157,15 @@ pub async fn eu_ai_act_report(
         &config.eu_ai_act.system_id,
     );
 
-    serde_json::to_value(&report)
-        .map(Json)
-        .map_err(|e| {
-            tracing::error!("Failed to serialize EU AI Act report: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "Failed to generate report".to_string(),
-                }),
-            )
-        })
+    serde_json::to_value(&report).map(Json).map_err(|e| {
+        tracing::error!("Failed to serialize EU AI Act report: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Failed to generate report".to_string(),
+            }),
+        )
+    })
 }
 
 /// `GET /api/compliance/soc2/evidence` — SOC 2 evidence collection.
@@ -211,10 +209,7 @@ pub async fn soc2_evidence(
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
-                    error: format!(
-                        "Invalid category '{}'. Valid: CC1-CC9",
-                        cat_filter
-                    ),
+                    error: format!("Invalid category '{}'. Valid: CC1-CC9", cat_filter),
                 }),
             ));
         }
@@ -230,17 +225,15 @@ pub async fn soc2_evidence(
         &tracked_categories,
     );
 
-    serde_json::to_value(&report)
-        .map(Json)
-        .map_err(|e| {
-            tracing::error!("Failed to serialize SOC 2 report: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "Failed to generate report".to_string(),
-                }),
-            )
-        })
+    serde_json::to_value(&report).map(Json).map_err(|e| {
+        tracing::error!("Failed to serialize SOC 2 report: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Failed to generate report".to_string(),
+            }),
+        )
+    })
 }
 
 /// `GET /api/compliance/threat-coverage` — Threat framework coverage.
@@ -248,8 +241,8 @@ pub async fn soc2_evidence(
 /// Returns coverage reports for MITRE ATLAS, CoSAI, and Adversa TOP 25
 /// threat/vulnerability frameworks.
 #[tracing::instrument(name = "sentinel.threat_coverage")]
-pub async fn threat_coverage(
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+pub async fn threat_coverage() -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)>
+{
     let atlas = sentinel_audit::atlas::AtlasRegistry::new();
     let atlas_report = atlas.generate_coverage_report();
 
@@ -287,19 +280,16 @@ pub async fn threat_coverage(
 /// Generates a consolidated gap analysis across all 6 security frameworks
 /// (ATLAS, NIST RMF, ISO 27090, EU AI Act, CoSAI, Adversa TOP 25).
 #[tracing::instrument(name = "sentinel.gap_analysis")]
-pub async fn gap_analysis(
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+pub async fn gap_analysis() -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let report = sentinel_audit::gap_analysis::generate_gap_analysis();
 
-    serde_json::to_value(&report)
-        .map(Json)
-        .map_err(|e| {
-            tracing::error!("Failed to serialize gap analysis report: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "Failed to generate gap analysis report".to_string(),
-                }),
-            )
-        })
+    serde_json::to_value(&report).map(Json).map_err(|e| {
+        tracing::error!("Failed to serialize gap analysis report: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Failed to generate gap analysis report".to_string(),
+            }),
+        )
+    })
 }

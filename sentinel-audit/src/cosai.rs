@@ -187,17 +187,10 @@ impl CosaiRegistry {
     }
 
     /// Get threats mapped to a specific Sentinel detection.
-    pub fn get_threats_for_detection(
-        &self,
-        detection: SentinelDetection,
-    ) -> Vec<&CosaiThreat> {
+    pub fn get_threats_for_detection(&self, detection: SentinelDetection) -> Vec<&CosaiThreat> {
         self.detection_mappings
             .get(&detection)
-            .map(|ids| {
-                ids.iter()
-                    .filter_map(|id| self.threats.get(id))
-                    .collect()
-            })
+            .map(|ids| ids.iter().filter_map(|id| self.threats.get(id)).collect())
             .unwrap_or_default()
     }
 
@@ -238,8 +231,7 @@ impl CosaiRegistry {
         ];
 
         // Collect threat IDs covered by detection mappings
-        let mut covered_set: std::collections::HashSet<&str> =
-            std::collections::HashSet::new();
+        let mut covered_set: std::collections::HashSet<&str> = std::collections::HashSet::new();
         for ids in self.detection_mappings.values() {
             for id in ids {
                 covered_set.insert(id.as_str());
@@ -386,8 +378,7 @@ impl CosaiRegistry {
             id: "COSAI-02.1".to_string(),
             category: CosaiCategory::PromptInjectionViaToolIO,
             name: "Direct Prompt Injection".to_string(),
-            description: "Malicious prompts embedded directly in tool call parameters."
-                .to_string(),
+            description: "Malicious prompts embedded directly in tool call parameters.".to_string(),
             mitigations: vec![
                 "Aho-Corasick injection detection".to_string(),
                 "Unicode NFKC normalization".to_string(),
@@ -422,8 +413,7 @@ impl CosaiRegistry {
             id: "COSAI-02.4".to_string(),
             category: CosaiCategory::PromptInjectionViaToolIO,
             name: "Delimiter Injection".to_string(),
-            description: "Injection of protocol delimiters to break message framing."
-                .to_string(),
+            description: "Injection of protocol delimiters to break message framing.".to_string(),
             mitigations: vec!["Delimiter injection detection".to_string()],
         });
 
@@ -491,8 +481,7 @@ impl CosaiRegistry {
             id: "COSAI-04.3".to_string(),
             category: CosaiCategory::PrivilegeEscalation,
             name: "Unauthorized Tool Access".to_string(),
-            description: "Agent accessing tools beyond its granted permissions."
-                .to_string(),
+            description: "Agent accessing tools beyond its granted permissions.".to_string(),
             mitigations: vec![
                 "Policy-based tool access control".to_string(),
                 "Capability grant coverage checks".to_string(),
@@ -527,8 +516,9 @@ impl CosaiRegistry {
             id: "COSAI-05.3".to_string(),
             category: CosaiCategory::CrossAgentAttacks,
             name: "Agent Card SSRF".to_string(),
-            description: "SSRF attacks via malicious A2A agent card URLs targeting internal services."
-                .to_string(),
+            description:
+                "SSRF attacks via malicious A2A agent card URLs targeting internal services."
+                    .to_string(),
             mitigations: vec![
                 "Agent card URL validation".to_string(),
                 "Private IP blocking".to_string(),
@@ -586,8 +576,7 @@ impl CosaiRegistry {
             id: "COSAI-07.2".to_string(),
             category: CosaiCategory::SupplyChainAttacks,
             name: "ETDI Version Rollback".to_string(),
-            description: "Rolling back tool versions to known-vulnerable states."
-                .to_string(),
+            description: "Rolling back tool versions to known-vulnerable states.".to_string(),
             mitigations: vec![
                 "ETDI version pinning".to_string(),
                 "Tool manifest signing".to_string(),
@@ -669,8 +658,7 @@ impl CosaiRegistry {
             id: "COSAI-09.3".to_string(),
             category: CosaiCategory::DenialOfService,
             name: "Cascading Failure".to_string(),
-            description: "Triggering cascading failures across dependent services."
-                .to_string(),
+            description: "Triggering cascading failures across dependent services.".to_string(),
             mitigations: vec![
                 "Circuit breaker pattern".to_string(),
                 "Workflow budget enforcement".to_string(),
@@ -705,8 +693,7 @@ impl CosaiRegistry {
             id: "COSAI-10.3".to_string(),
             category: CosaiCategory::AuditEvasion,
             name: "Sensitive Data in Logs".to_string(),
-            description: "Secrets or PII inadvertently included in audit log entries."
-                .to_string(),
+            description: "Secrets or PII inadvertently included in audit log entries.".to_string(),
             mitigations: vec![
                 "Sensitive key redaction".to_string(),
                 "PII scanning".to_string(),
@@ -733,16 +720,13 @@ impl CosaiRegistry {
             description: "Crafted regex patterns in policy rules that cause catastrophic \
                 backtracking."
                 .to_string(),
-            mitigations: vec![
-                "Regex pattern length validation (MAX_PATTERN_LEN=2048)".to_string(),
-            ],
+            mitigations: vec!["Regex pattern length validation (MAX_PATTERN_LEN=2048)".to_string()],
         });
         self.add_threat(CosaiThreat {
             id: "COSAI-11.3".to_string(),
             category: CosaiCategory::ConfigurationAttacks,
             name: "Hot Reload Poisoning".to_string(),
-            description: "Injecting malicious policies during hot policy reload."
-                .to_string(),
+            description: "Injecting malicious policies during hot policy reload.".to_string(),
             mitigations: vec![
                 "Policy validation on reload".to_string(),
                 "Atomic policy snapshot".to_string(),
@@ -792,52 +776,25 @@ impl CosaiRegistry {
     /// Populate mappings from Sentinel detections to CoSAI threats.
     fn populate_detection_mappings(&mut self) {
         // Tool Definition Manipulation
-        self.map_detection(
-            SentinelDetection::ToolAnnotationChange,
-            vec!["COSAI-01.1"],
-        );
+        self.map_detection(SentinelDetection::ToolAnnotationChange, vec!["COSAI-01.1"]);
         self.map_detection(SentinelDetection::SchemaPoisoning, vec!["COSAI-01.2"]);
         self.map_detection(SentinelDetection::ToolSquatting, vec!["COSAI-01.3"]);
-        self.map_detection(
-            SentinelDetection::ToolShadowing,
-            vec!["COSAI-01.4"],
-        );
+        self.map_detection(SentinelDetection::ToolShadowing, vec!["COSAI-01.4"]);
 
         // Prompt Injection via Tool I/O
-        self.map_detection(
-            SentinelDetection::PromptInjection,
-            vec!["COSAI-02.1"],
-        );
-        self.map_detection(
-            SentinelDetection::IndirectInjection,
-            vec!["COSAI-02.2"],
-        );
-        self.map_detection(
-            SentinelDetection::UnicodeManipulation,
-            vec!["COSAI-02.3"],
-        );
-        self.map_detection(
-            SentinelDetection::DelimiterInjection,
-            vec!["COSAI-02.4"],
-        );
+        self.map_detection(SentinelDetection::PromptInjection, vec!["COSAI-02.1"]);
+        self.map_detection(SentinelDetection::IndirectInjection, vec!["COSAI-02.2"]);
+        self.map_detection(SentinelDetection::UnicodeManipulation, vec!["COSAI-02.3"]);
+        self.map_detection(SentinelDetection::DelimiterInjection, vec!["COSAI-02.4"]);
 
         // Unauthorized Data Access
         self.map_detection(SentinelDetection::PathTraversal, vec!["COSAI-03.1"]);
-        self.map_detection(
-            SentinelDetection::SecretsInOutput,
-            vec!["COSAI-03.2"],
-        );
-        self.map_detection(
-            SentinelDetection::CovertChannel,
-            vec!["COSAI-03.2"],
-        );
+        self.map_detection(SentinelDetection::SecretsInOutput, vec!["COSAI-03.2"]);
+        self.map_detection(SentinelDetection::CovertChannel, vec!["COSAI-03.2"]);
         self.map_detection(SentinelDetection::DnsRebinding, vec!["COSAI-03.3"]);
 
         // Privilege Escalation
-        self.map_detection(
-            SentinelDetection::ConfusedDeputy,
-            vec!["COSAI-04.1"],
-        );
+        self.map_detection(SentinelDetection::ConfusedDeputy, vec!["COSAI-04.1"]);
         self.map_detection(
             SentinelDetection::UnauthorizedDelegation,
             vec!["COSAI-04.2"],
@@ -853,10 +810,7 @@ impl CosaiRegistry {
 
         // Cross-Agent Attacks
         self.map_detection(SentinelDetection::ShadowAgent, vec!["COSAI-05.1"]);
-        self.map_detection(
-            SentinelDetection::SecondOrderInjection,
-            vec!["COSAI-05.2"],
-        );
+        self.map_detection(SentinelDetection::SecondOrderInjection, vec!["COSAI-05.2"]);
 
         // Memory/Context Poisoning
         self.map_detection(SentinelDetection::DataLaundering, vec!["COSAI-06.1"]);
@@ -883,34 +837,19 @@ impl CosaiRegistry {
             SentinelDetection::CircuitBreakerTriggered,
             vec!["COSAI-09.3"],
         );
-        self.map_detection(
-            SentinelDetection::CascadingFailure,
-            vec!["COSAI-09.3"],
-        );
+        self.map_detection(SentinelDetection::CascadingFailure, vec!["COSAI-09.3"]);
         self.map_detection(
             SentinelDetection::WorkflowBudgetExceeded,
             vec!["COSAI-09.3"],
         );
 
         // Excessive Agency also maps to privilege escalation
-        self.map_detection(
-            SentinelDetection::ExcessiveAgency,
-            vec!["COSAI-04.3"],
-        );
+        self.map_detection(SentinelDetection::ExcessiveAgency, vec!["COSAI-04.3"]);
 
         // Glitch Token and Sampling Attack map to injection/transport
-        self.map_detection(
-            SentinelDetection::GlitchToken,
-            vec!["COSAI-02.3"],
-        );
-        self.map_detection(
-            SentinelDetection::SamplingAttack,
-            vec!["COSAI-08.2"],
-        );
-        self.map_detection(
-            SentinelDetection::Steganography,
-            vec!["COSAI-03.2"],
-        );
+        self.map_detection(SentinelDetection::GlitchToken, vec!["COSAI-02.3"]);
+        self.map_detection(SentinelDetection::SamplingAttack, vec!["COSAI-08.2"]);
+        self.map_detection(SentinelDetection::Steganography, vec!["COSAI-03.2"]);
     }
 }
 
@@ -951,11 +890,7 @@ mod tests {
 
         for cat in &categories {
             let threats = registry.get_threats_for_category(*cat);
-            assert!(
-                !threats.is_empty(),
-                "Category {} has no threats",
-                cat,
-            );
+            assert!(!threats.is_empty(), "Category {} has no threats", cat,);
         }
     }
 

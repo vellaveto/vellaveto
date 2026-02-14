@@ -887,8 +887,7 @@ fn test_task_request_classification_grpc() {
 
 #[test]
 fn test_task_request_action_extraction_grpc() {
-    let action =
-        sentinel_mcp::extractor::extract_task_action("tasks/cancel", Some("task-123"));
+    let action = sentinel_mcp::extractor::extract_task_action("tasks/cancel", Some("task-123"));
     assert_eq!(action.tool, "tasks");
     assert_eq!(action.function, "cancel");
     assert_eq!(action.parameters["task_id"], "task-123");
@@ -898,11 +897,8 @@ fn test_task_request_action_extraction_grpc() {
 fn test_task_request_fail_closed_no_policies_grpc() {
     // With no policies, task requests should be denied (fail-closed)
     let engine = sentinel_engine::PolicyEngine::new(false);
-    let action =
-        sentinel_mcp::extractor::extract_task_action("tasks/get", Some("task-abc"));
-    let verdict = engine
-        .evaluate_action(&action, &[])
-        .unwrap();
+    let action = sentinel_mcp::extractor::extract_task_action("tasks/get", Some("task-abc"));
+    let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(
         matches!(verdict, sentinel_types::Verdict::Deny { .. }),
         "Expected Deny with no policies, got: {:?}",
@@ -940,9 +936,7 @@ fn test_extension_method_fail_closed_no_policies_grpc() {
         "x-sentinel-audit/stats",
         &json!({}),
     );
-    let verdict = engine
-        .evaluate_action(&action, &[])
-        .unwrap();
+    let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(
         matches!(verdict, sentinel_types::Verdict::Deny { .. }),
         "Expected Deny with no policies, got: {:?}",

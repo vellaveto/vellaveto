@@ -389,7 +389,8 @@ async fn relay_client_to_upstream(
                             Verdict::Allow => {
                                 // Phase 21: ABAC refinement — only runs when ABAC engine is configured
                                 if let Some(ref abac) = state.abac_engine {
-                                    let principal_id = ctx.agent_id.as_deref().unwrap_or("anonymous");
+                                    let principal_id =
+                                        ctx.agent_id.as_deref().unwrap_or("anonymous");
                                     let principal_type = ctx
                                         .agent_identity
                                         .as_ref()
@@ -754,12 +755,14 @@ async fn relay_client_to_upstream(
                                     break;
                                 }
                             }
-                            Verdict::Deny { ref reason } | Verdict::RequireApproval { ref reason, .. } => {
-                                let deny_reason = if matches!(verdict, Verdict::RequireApproval { .. }) {
-                                    format!("Requires approval: {}", reason)
-                                } else {
-                                    reason.clone()
-                                };
+                            Verdict::Deny { ref reason }
+                            | Verdict::RequireApproval { ref reason, .. } => {
+                                let deny_reason =
+                                    if matches!(verdict, Verdict::RequireApproval { .. }) {
+                                        format!("Requires approval: {}", reason)
+                                    } else {
+                                        reason.clone()
+                                    };
                                 if let Err(e) = state
                                     .audit
                                     .log_entry(

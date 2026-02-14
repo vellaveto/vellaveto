@@ -251,7 +251,7 @@ fn hex_to_bytes_padded<const N: usize>(hex: &str, _len: usize) -> [u8; N] {
 mod tests {
     use super::*;
     use crate::observability::{
-        ActionSummary, SecurityDetection, DetectionType, SecuritySpan, VerdictSummary,
+        ActionSummary, DetectionType, SecurityDetection, SecuritySpan, VerdictSummary,
     };
 
     fn make_test_span() -> SecuritySpan {
@@ -321,18 +321,9 @@ mod tests {
     #[test]
     fn test_span_kind_mapping() {
         use opentelemetry::trace::SpanKind as OtelKind;
-        assert!(matches!(
-            map_span_kind(SpanKind::Chain),
-            OtelKind::Server
-        ));
-        assert!(matches!(
-            map_span_kind(SpanKind::Tool),
-            OtelKind::Internal
-        ));
-        assert!(matches!(
-            map_span_kind(SpanKind::Llm),
-            OtelKind::Client
-        ));
+        assert!(matches!(map_span_kind(SpanKind::Chain), OtelKind::Server));
+        assert!(matches!(map_span_kind(SpanKind::Tool), OtelKind::Internal));
+        assert!(matches!(map_span_kind(SpanKind::Llm), OtelKind::Client));
         assert!(matches!(
             map_span_kind(SpanKind::Policy),
             OtelKind::Internal
@@ -342,8 +333,16 @@ mod tests {
     #[test]
     fn test_detection_to_event() {
         let span = SecuritySpan::builder("trace-1", SpanKind::Tool)
-            .detection(SecurityDetection::new(DetectionType::Dlp, 8, "API key detected"))
-            .detection(SecurityDetection::new(DetectionType::Injection, 5, "SQL injection"))
+            .detection(SecurityDetection::new(
+                DetectionType::Dlp,
+                8,
+                "API key detected",
+            ))
+            .detection(SecurityDetection::new(
+                DetectionType::Injection,
+                5,
+                "SQL injection",
+            ))
             .verdict(VerdictSummary {
                 outcome: "deny".to_string(),
                 reason: Some("DLP finding".to_string()),

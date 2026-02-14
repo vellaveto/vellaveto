@@ -108,11 +108,7 @@ impl LeastAgencyTracker {
     }
 
     /// Generate a full least-agency compliance report.
-    pub fn generate_report(
-        &self,
-        agent_id: &str,
-        session_id: &str,
-    ) -> Option<LeastAgencyReport> {
+    pub fn generate_report(&self, agent_id: &str, session_id: &str) -> Option<LeastAgencyReport> {
         let key = Self::session_key(agent_id, session_id);
         let Ok(trackers) = self.trackers.read() else {
             return None;
@@ -154,11 +150,7 @@ impl LeastAgencyTracker {
     }
 
     /// Suggest policy IDs that could be revoked (unused permissions below threshold).
-    pub fn recommend_narrowing(
-        &self,
-        agent_id: &str,
-        session_id: &str,
-    ) -> Option<Vec<String>> {
+    pub fn recommend_narrowing(&self, agent_id: &str, session_id: &str) -> Option<Vec<String>> {
         let report = self.generate_report(agent_id, session_id)?;
         if report.usage_ratio < self.narrow_threshold {
             Some(report.unused_permissions)
@@ -175,11 +167,7 @@ mod tests {
     #[test]
     fn test_register_and_record_usage() {
         let tracker = LeastAgencyTracker::new(0.5);
-        tracker.register_grants(
-            "agent-1",
-            "sess-1",
-            &["p1".to_string(), "p2".to_string()],
-        );
+        tracker.register_grants("agent-1", "sess-1", &["p1".to_string(), "p2".to_string()]);
         tracker.record_usage("agent-1", "sess-1", "p1", "fs", "read");
         let unused = tracker.check_unused("agent-1", "sess-1");
         assert_eq!(unused, vec!["p2".to_string()]);
@@ -200,11 +188,7 @@ mod tests {
     #[test]
     fn test_report_generation_optimal() {
         let tracker = LeastAgencyTracker::new(0.5);
-        tracker.register_grants(
-            "agent-1",
-            "sess-1",
-            &["p1".to_string(), "p2".to_string()],
-        );
+        tracker.register_grants("agent-1", "sess-1", &["p1".to_string(), "p2".to_string()]);
         tracker.record_usage("agent-1", "sess-1", "p1", "fs", "read");
         tracker.record_usage("agent-1", "sess-1", "p2", "net", "fetch");
         let report = tracker.generate_report("agent-1", "sess-1").unwrap();
@@ -288,7 +272,12 @@ mod tests {
         tracker.register_grants(
             "agent-1",
             "sess-1",
-            &["p1".to_string(), "p2".to_string(), "p3".to_string(), "p4".to_string()],
+            &[
+                "p1".to_string(),
+                "p2".to_string(),
+                "p3".to_string(),
+                "p4".to_string(),
+            ],
         );
         tracker.record_usage("agent-1", "sess-1", "p1", "fs", "read");
         tracker.record_usage("agent-1", "sess-1", "p2", "net", "fetch");
