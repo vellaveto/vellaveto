@@ -1,10 +1,10 @@
 # CLAUDE.md — Sentinel Project Instructions
 
 > **Project:** Sentinel — MCP Tool Firewall
-> **State:** v2.2.1 stable (Phases 1–15 complete, 37 audit rounds); v3.0 roadmap active (Phase 17 complete, Phase 18 complete, 19.1–19.4 complete, 20.1–20.3 complete, 21.0–21.4 complete, Phase 22 complete, Phase 23 complete — all phases done)
+> **State:** v2.2.1 stable (Phases 1–23 complete, 37 audit rounds — all phases done)
 > **Version:** 3.0.0-dev (crates at 2.2.1, targeting v3.0 release)
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 4,786 Rust tests + 130 Python SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 4,804 Rust tests + 130 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 22
 > **CI workflows:** 11
 > **Updated:** 2026-02-14
@@ -77,450 +77,79 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 | What | Where |
 |------|-------|
-| Types: module root + re-exports | `sentinel-types/src/lib.rs` |
-| Types: MCP task types + secure task primitives | `sentinel-types/src/task.rs` |
-| Types: auth levels, circuit breakers, fingerprints, trust, validation | `sentinel-types/src/threat.rs` |
-| Types: Action, Verdict, Policy, PathRules, NetworkRules, trace | `sentinel-types/src/core.rs` |
-| Types: ETDI signatures, attestation, version pinning | `sentinel-types/src/etdi.rs` |
-| Types: AgentIdentity, CallChainEntry, EvaluationContext | `sentinel-types/src/identity.rs` |
-| Types: MINJA taint tracking, provenance, quarantine, namespaces | `sentinel-types/src/minja.rs` |
-| Types: NHI lifecycle, behavioral baselines, delegation, DPoP | `sentinel-types/src/nhi.rs` |
-| Types: DID:PLC identifiers, genesis operations, validation | `sentinel-types/src/did_plc.rs` |
-| Types: VerificationTier, AccountabilityAttestation | `sentinel-types/src/verification.rs` |
-| Types: CapabilityToken, CapabilityGrant, CapabilityVerification | `sentinel-types/src/capability.rs` |
-| Types: AiActRiskClass, TrustServicesCategory (shared compliance enums) | `sentinel-types/src/compliance.rs` |
-| Types: ExtensionDescriptor, ExtensionResourceLimits, ExtensionError | `sentinel-types/src/extension.rs` |
-| Types: TransportProtocol, SdkTier, TransportEndpoint, SdkCapabilities | `sentinel-types/src/transport.rs` |
-| Types: BackendHealth, UpstreamBackend, RoutingDecision, ToolConflict | `sentinel-types/src/gateway.rs` |
-| Types: AbacPolicy, AbacEntity, AbacEffect, RiskScore, FederationTrustAnchor | `sentinel-types/src/abac.rs` |
-| Types: tests (~137 unit tests) | `sentinel-types/src/tests.rs` |
+| **sentinel-types** (leaf crate) | |
+| Core types: Action, Verdict, Policy, PathRules, NetworkRules | `sentinel-types/src/core.rs` |
+| Identity: AgentIdentity, CallChainEntry, EvaluationContext | `sentinel-types/src/identity.rs` |
+| ETDI: signatures, attestation, version pinning | `sentinel-types/src/etdi.rs` |
+| Threat: auth levels, circuit breakers, fingerprints, trust | `sentinel-types/src/threat.rs` |
+| Advanced: ABAC, capability, compliance, extension, gateway, transport, verification, NHI, MINJA, DID:PLC, task | `sentinel-types/src/*.rs` |
+| Tests (~137) | `sentinel-types/src/tests.rs` |
+| **sentinel-engine** | |
 | Policy evaluation | `sentinel-engine/src/lib.rs` |
-| ABAC engine + entity store + Cedar-style evaluation | `sentinel-engine/src/abac.rs` |
-| Least-agency tracker (permission usage tracking) | `sentinel-engine/src/least_agency.rs` |
-| Audit: module root + re-exports | `sentinel-audit/src/lib.rs` |
-| Audit: types (AuditEntry, AuditError, etc.) | `sentinel-audit/src/types.rs` |
-| Audit: sensitive key/PII redaction | `sentinel-audit/src/redaction.rs` |
-| Audit: AuditLogger struct + log_entry | `sentinel-audit/src/logger.rs` |
-| Audit: log rotation + manifest | `sentinel-audit/src/rotation.rs` |
-| Audit: hash chain verification | `sentinel-audit/src/verification.rs` |
-| Audit: Ed25519 signed checkpoints | `sentinel-audit/src/checkpoints.rs` |
-| Audit: security event logging helpers | `sentinel-audit/src/events.rs` |
-| Audit: ETDI tool security logging | `sentinel-audit/src/etdi_audit.rs` |
-| Audit: Merkle tree inclusion proofs (RFC 6962) | `sentinel-audit/src/merkle.rs` |
-| Audit: EU AI Act conformity assessment registry | `sentinel-audit/src/eu_ai_act.rs` |
-| Audit: SOC 2 evidence generation registry | `sentinel-audit/src/soc2.rs` |
-| Audit: CoSAI 12-category threat coverage registry | `sentinel-audit/src/cosai.rs` |
-| Audit: Adversa AI TOP 25 coverage matrix | `sentinel-audit/src/adversa_top25.rs` |
-| Audit: Cross-framework gap analysis (6 frameworks) | `sentinel-audit/src/gap_analysis.rs` |
-| Audit: Immutable archive with gzip compression + retention | `sentinel-audit/src/archive.rs` |
-| Audit: OTLP exporter with GenAI semantic conventions | `sentinel-audit/src/observability/otlp.rs` |
-| Audit: tests (~214 unit tests) | `sentinel-audit/src/tests.rs` |
-| Config: module root + PolicyConfig + re-exports | `sentinel-config/src/lib.rs` |
-| Config: injection/DLP/rate-limit/audit | `sentinel-config/src/detection.rs` |
-| Config: supply chain verification | `sentinel-config/src/supply_chain.rs` |
-| Config: tool manifest signing | `sentinel-config/src/manifest.rs` |
-| Config: ETDI / version pinning | `sentinel-config/src/etdi.rs` |
-| Config: MCP protocol (elicitation, sampling) | `sentinel-config/src/mcp_protocol.rs` |
-| Config: threat detection (10 detectors) | `sentinel-config/src/threat_detection.rs` |
-| Config: TLS/OPA/SPIFFE/JIT/threat-intel | `sentinel-config/src/enterprise.rs` |
-| Config: memory security / NHI / DPoP | `sentinel-config/src/memory_nhi.rs` |
-| Config: semantic guardrails backends | `sentinel-config/src/semantic_guardrails_config.rs` |
-| Config: RAG defense / grounding | `sentinel-config/src/rag_defense_config.rs` |
-| Config: observability (incl. OtlpConfig) | `sentinel-config/src/observability.rs` |
-| Config: validation helpers | `sentinel-config/src/validation.rs` |
-| Config: PolicyRule struct + helpers | `sentinel-config/src/policy_rule.rs` |
-| Config: ToolRegistryConfig | `sentinel-config/src/tool_registry.rs` |
-| Config: ClusterConfig (Redis/local) | `sentinel-config/src/cluster.rs` |
-| Config: A2aConfig (Agent-to-Agent) | `sentinel-config/src/a2a.rs` |
-| Config: LimitsConfig + validate() | `sentinel-config/src/limits.rs` |
-| Config: ComplianceConfig (EU AI Act + SOC 2) | `sentinel-config/src/compliance.rs` |
-| Config: ExtensionConfig (allow/block/signatures/limits) | `sentinel-config/src/extension.rs` |
-| Config: TransportConfig (discovery/negotiation/fallback) | `sentinel-config/src/transport.rs` |
-| Config: GatewayConfig, BackendConfig (multi-backend routing) | `sentinel-config/src/gateway.rs` |
-| Config: AbacConfig, LeastAgencyConfig, FederationConfig, ContinuousAuthConfig | `sentinel-config/src/abac.rs` |
-| Config: FipsConfig (FIPS 140-3 mode toggle + signature algorithm) | `sentinel-config/src/fips.rs` |
-| Config: PolicyConfig::validate() + load_file() | `sentinel-config/src/config_validate.rs` |
-| Config: tests (~164 unit tests) | `sentinel-config/src/tests.rs` |
+| ABAC engine + Cedar-style evaluation | `sentinel-engine/src/abac.rs` |
+| Least-agency tracker | `sentinel-engine/src/least_agency.rs` |
+| **sentinel-audit** | |
+| Module root + AuditLogger + rotation + verification | `sentinel-audit/src/lib.rs` |
+| Redaction, checkpoints, Merkle proofs, events | `sentinel-audit/src/*.rs` |
+| Compliance registries: EU AI Act, SOC 2, CoSAI, Adversa, gap analysis | `sentinel-audit/src/{eu_ai_act,soc2,cosai,adversa_top25,gap_analysis}.rs` |
+| OTLP exporter, archive | `sentinel-audit/src/observability/otlp.rs`, `sentinel-audit/src/archive.rs` |
+| Tests (~214) | `sentinel-audit/src/tests.rs` |
+| **sentinel-config** | |
+| Module root + PolicyConfig + validation | `sentinel-config/src/lib.rs`, `sentinel-config/src/config_validate.rs` |
+| Detection, enterprise, ETDI, MCP protocol, threat detection | `sentinel-config/src/*.rs` |
+| Advanced: ABAC, compliance, extension, FIPS, gateway, gRPC, transport | `sentinel-config/src/*.rs` |
+| Tests (~164) | `sentinel-config/src/tests.rs` |
+| **sentinel-mcp** | |
 | MCP handling | `sentinel-mcp/src/lib.rs` |
-| Proxy bridge: struct + constructor | `sentinel-mcp/src/proxy/bridge/mod.rs` |
-| Proxy bridge: builder methods | `sentinel-mcp/src/proxy/bridge/builder.rs` |
-| Proxy bridge: policy evaluation | `sentinel-mcp/src/proxy/bridge/evaluation.rs` |
-| Proxy bridge: identity + flagged tools | `sentinel-mcp/src/proxy/bridge/helpers.rs` |
-| Proxy bridge: run() relay loop | `sentinel-mcp/src/proxy/bridge/relay.rs` |
-| Proxy bridge: tests | `sentinel-mcp/src/proxy/bridge/tests.rs` |
-| DID:PLC generation + Base32 encoding | `sentinel-mcp/src/did_plc.rs` |
-| Accountability attestation sign/verify | `sentinel-mcp/src/accountability.rs` |
-| Capability token issue/attenuate/verify | `sentinel-mcp/src/capability_token.rs` |
-| DLP / inspection | `sentinel-mcp/src/inspection.rs` |
-| Multimodal injection: PNG/JPEG/PDF extraction + stego | `sentinel-mcp/src/inspection/multimodal.rs` |
-| Red team: mutation engine + runner + coverage | `sentinel-mcp/src/red_team.rs` |
-| FIPS 140-3: mode controller + algorithm validation | `sentinel-mcp/src/fips.rs` |
-| Rekor: transparency log types + offline verification | `sentinel-mcp/src/rekor.rs` |
-| Session guard: state machine + integration | `sentinel-mcp/src/session_guard.rs` |
-| Output validation | `sentinel-mcp/src/output_validation.rs` |
+| Proxy bridge (struct, builder, evaluation, relay, tests) | `sentinel-mcp/src/proxy/bridge/*.rs` |
+| DLP / inspection + multimodal injection | `sentinel-mcp/src/inspection.rs`, `sentinel-mcp/src/inspection/multimodal.rs` |
+| Capability tokens, accountability, DID:PLC | `sentinel-mcp/src/{capability_token,accountability,did_plc}.rs` |
+| Red team, FIPS, Rekor, session guard | `sentinel-mcp/src/{red_team,fips,rekor,session_guard}.rs` |
 | Semantic guardrails | `sentinel-mcp/src/semantic_guardrails/` |
 | A2A protocol security | `sentinel-mcp/src/a2a/` |
-| EU AI Act Art 50 transparency marking + human oversight | `sentinel-mcp/src/transparency.rs` |
-| Extension registry + ExtensionHandler trait | `sentinel-mcp/src/extension_registry.rs` |
-| Extensions: audit query example | `sentinel-mcp/src/extensions/audit_query.rs` |
-| HTTP proxy: structs + constants | `sentinel-http-proxy/src/proxy/mod.rs` |
-| HTTP proxy: handler functions | `sentinel-http-proxy/src/proxy/handlers.rs` |
-| HTTP proxy: OAuth/API key/agent auth | `sentinel-http-proxy/src/proxy/auth.rs` |
-| HTTP proxy: origin/CSRF validation | `sentinel-http-proxy/src/proxy/origin.rs` |
-| HTTP proxy: call chain/escalation | `sentinel-http-proxy/src/proxy/call_chain.rs` |
-| HTTP proxy: upstream forwarding | `sentinel-http-proxy/src/proxy/upstream.rs` |
-| HTTP proxy: response inspection | `sentinel-http-proxy/src/proxy/inspection.rs` |
-| HTTP proxy: utility helpers | `sentinel-http-proxy/src/proxy/helpers.rs` |
-| HTTP proxy: tests | `sentinel-http-proxy/src/proxy/tests.rs` |
-| HTTP proxy: transport discovery + negotiation | `sentinel-http-proxy/src/proxy/discovery.rs` |
-| HTTP proxy: upstream transport fallback | `sentinel-http-proxy/src/proxy/fallback.rs` |
-| HTTP proxy: WebSocket handler + relay | `sentinel-http-proxy/src/proxy/websocket/mod.rs` |
-| HTTP proxy: WebSocket tests (~29 tests) | `sentinel-http-proxy/src/proxy/websocket/tests.rs` |
-| HTTP proxy: gRPC module root + GrpcConfig + server start | `sentinel-http-proxy/src/proxy/grpc/mod.rs` |
-| HTTP proxy: gRPC proto↔JSON conversion | `sentinel-http-proxy/src/proxy/grpc/convert.rs` |
-| HTTP proxy: gRPC auth interceptor + metadata extraction | `sentinel-http-proxy/src/proxy/grpc/interceptors.rs` |
-| HTTP proxy: gRPC McpService impl (unary + streaming) | `sentinel-http-proxy/src/proxy/grpc/service.rs` |
-| HTTP proxy: gRPC upstream forwarding (HTTP fallback) | `sentinel-http-proxy/src/proxy/grpc/upstream.rs` |
-| HTTP proxy: gRPC tests (~46 tests) | `sentinel-http-proxy/src/proxy/grpc/tests.rs` |
-| HTTP proxy: Gateway router, health checker, conflict detection | `sentinel-http-proxy/src/proxy/gateway.rs` |
-| Config: gRPC transport configuration | `sentinel-config/src/grpc_transport.rs` |
-| Proto: MCP JSON-RPC gRPC schema | `proto/mcp/v1/mcp.proto` |
+| Extension registry | `sentinel-mcp/src/extension_registry.rs` |
+| **sentinel-http-proxy** | |
+| HTTP proxy: handlers, auth, origin, upstream, inspection | `sentinel-http-proxy/src/proxy/*.rs` |
+| WebSocket reverse proxy | `sentinel-http-proxy/src/proxy/websocket/mod.rs` |
+| gRPC reverse proxy (feature-gated) | `sentinel-http-proxy/src/proxy/grpc/*.rs` |
+| Gateway router + health checker | `sentinel-http-proxy/src/proxy/gateway.rs` |
+| Transport discovery + fallback | `sentinel-http-proxy/src/proxy/{discovery,fallback}.rs` |
+| **sentinel-server** | |
+| HTTP API server + routes | `sentinel-server/src/main.rs`, `sentinel-server/src/routes.rs` |
+| Compliance + simulator API endpoints | `sentinel-server/src/routes/{compliance,simulator}.rs` |
+| Dashboard | `sentinel-server/src/dashboard.rs` |
+| **Other** | |
 | Stdio proxy | `sentinel-proxy/src/main.rs` |
-| HTTP API server | `sentinel-server/src/main.rs` |
-| Server routes | `sentinel-server/src/routes.rs` |
-| Server: compliance API endpoints (EU AI Act, SOC 2, threat coverage, gap analysis) | `sentinel-server/src/routes/compliance.rs` |
-| Server: simulator API endpoints (evaluate, batch, validate, diff) | `sentinel-server/src/routes/simulator.rs` |
-| Server: dashboard SVG charts (verdict sparkline, policy pie chart) | `sentinel-server/src/dashboard.rs` |
 | Cluster backend | `sentinel-cluster/src/lib.rs` |
-| Integration tests | `sentinel-integration/tests/` (~109 test files) |
-| Example configs | `examples/` |
+| Integration tests (~110 files) | `sentinel-integration/tests/` |
+| Proto: MCP gRPC schema | `proto/mcp/v1/mcp.proto` |
 | GitHub Action: policy-check | `.github/actions/policy-check/action.yml` |
-| TypeScript SDK: types + client + tests | `sdk/typescript/` |
+| **SDKs** | |
+| Python SDK: client, langchain, langgraph, redaction (130 tests) | `sdk/python/` |
+| TypeScript SDK: client + types (15 tests) | `sdk/typescript/` |
+| Go SDK: client + types + errors (28 tests) | `sdk/go/` |
 
 ---
 
 ## What's Done (DO NOT rebuild)
 
-The following are **implemented, tested, and hardened** through 18 rounds of adversarial audit:
+All 23 phases implemented, tested, and hardened through 37 audit rounds. Details in CHANGELOG.md.
 
-**Core Engine & Policies:**
-- Policy engine with glob, regex, domain matching, parameter constraints
-- Path rules (allowed/blocked globs, traversal-safe normalization)
-- Network rules (allowed/blocked domains, RFC 1035 validation)
-- DNS rebinding protection (IpRules: block_private, CIDR allow/blocklists)
-- Context-aware policies (time windows, per-session call limits, agent ID, action sequences)
-
-**Audit & Approvals:**
-- Tamper-evident audit logging (SHA-256 hash chain, Merkle tree inclusion proofs, Ed25519 checkpoints, rotation)
-- Human-in-the-loop approvals with deduplication and audit trail
-- Audit log export: CEF, JSON Lines, webhook, syslog (`sentinel-audit/src/export.rs`)
-
-**Security Detections:**
-- Injection detection (Aho-Corasick, Unicode NFKC normalization, configurable blocking)
-- Rug-pull detection (annotation changes, schema mutations, persistent flagging)
-- DLP scanning (requests + responses, 5-layer decode: raw/base64/percent/combos)
-- Structured output validation (OutputSchemaRegistry)
-- Tool squatting detection — Levenshtein + homoglyph (`sentinel-mcp/src/rug_pull.rs`)
-- Memory poisoning defense — cross-request data laundering detection (`sentinel-mcp/src/memory_tracking.rs`)
-- Semantic injection detection — n-gram TF-IDF similarity (`sentinel-mcp/src/semantic_detection.rs`)
-- Behavioral anomaly detection — EMA-based tool call frequency tracking (`sentinel-engine/src/behavioral.rs`)
-- Cross-request data flow tracking — session-level exfiltration chain detection (`sentinel-mcp/src/inspection.rs`)
-
-**Auth & Transport:**
-- OAuth 2.1 / JWT with JWKS and scope enforcement
-- Agent identity attestation via signed JWTs (`sentinel-server/src/routes.rs`)
-- CSRF, rate limiting, security headers, session management
-- MCP 2025-06-18 compliance (protocol version header, resource indicators, `_meta`)
-
-**Deployment & Operations:**
-- Six deployment modes: HTTP API, stdio proxy, HTTP reverse proxy, WebSocket reverse proxy, gRPC reverse proxy, MCP gateway
-- Canonical presets for common security scenarios
-- CI: `cargo audit`, `unwrap()` hygiene, clippy clean
-- Distributed clustering via `sentinel-cluster` crate (LocalBackend + RedisBackend with feature gate)
-- Prometheus metrics endpoint (`/metrics`) with evaluation histograms (`sentinel-server/src/metrics.rs`)
-- Hot policy reload via filesystem watcher and `/api/policies/reload` endpoint
-- Admin dashboard — server-rendered HTML (`sentinel-server/src/dashboard.rs`)
-- Multi-agent communication monitoring — privilege escalation detection (`sentinel-http-proxy/src/proxy/call_chain.rs`)
-
-**WebSocket Transport (Phase 17.1 — SEP-1288):**
-- Bidirectional MCP-over-WebSocket reverse proxy at `/mcp/ws` (`sentinel-http-proxy/src/proxy/websocket/mod.rs`)
-- Full policy enforcement on client→upstream tool calls with fail-closed semantics
-- DLP scanning + injection detection on upstream→client responses
-- TOCTOU-safe JSON canonicalization before forwarding
-- Per-connection rate limiting (sliding window), idle timeout, max message size enforcement
-- Session binding — each WebSocket connection bound to exactly one `SessionState`
-- Binary frame rejection (close 1003), unparseable message rejection (close 1008)
-- Upstream connection via `tokio-tungstenite` with http→ws / https→wss URL conversion
-- Metrics: `sentinel_ws_connections_total`, `sentinel_ws_messages_total`
-- CLI args: `--ws-max-message-size`, `--ws-idle-timeout`, `--ws-message-rate-limit`
-- 29 unit tests + `fuzz_ws_frame` fuzz target
-
-**gRPC Transport (Phase 17.2):**
-- gRPC reverse proxy on separate port (default 50051) via `tonic` (`sentinel-http-proxy/src/proxy/grpc/mod.rs`)
-- Full policy enforcement on unary and bidirectional streaming calls with fail-closed semantics
-- Proto↔JSON conversion layer with depth-bounded recursion (MAX_DEPTH=64) (`sentinel-http-proxy/src/proxy/grpc/convert.rs`)
-- NaN/Infinity float rejection, policy denials as JSON-RPC errors (not gRPC status codes)
-- Auth interceptor with constant-time SHA-256 API key validation (`sentinel-http-proxy/src/proxy/grpc/interceptors.rs`)
-- DLP scanning + injection detection on upstream responses
-- gRPC-to-HTTP upstream fallback — gRPC clients work with existing HTTP MCP servers
-- gRPC Health Checking v1 via `tonic-health`
-- Protobuf schema using `google.protobuf.Struct` for dynamic JSON fields (`proto/mcp/v1/mcp.proto`)
-- Feature-gated behind `grpc` — zero impact on non-grpc builds
-- Metrics: `sentinel_grpc_requests_total`, `sentinel_grpc_messages_total`
-- CLI args: `--grpc`, `--grpc-port`, `--grpc-max-message-size`, `--upstream-grpc-url`
-- Config type: `GrpcTransportConfig` (`sentinel-config/src/grpc_transport.rs`)
-- 46 unit tests + `fuzz_grpc_proto` fuzz target
-- Coordinated graceful shutdown with HTTP server via `CancellationToken`
-
-**Async Operations & Protocol Extensions (Phase 17.3/17.4):**
-- TaskRequest policy enforcement across all 4 transports (HTTP, WebSocket, gRPC, stdio) — extract action → evaluate → audit → forward/deny with fail-closed semantics
-- `ProgressNotification` message classification — `notifications/progress` identified for future per-transport handling
-- `ExtensionMethod` message classification — `x-` prefixed methods routed through policy evaluation
-- Extension types in leaf crate — `ExtensionDescriptor`, `ExtensionResourceLimits`, `ExtensionNegotiationResult`, `ExtensionError` (`sentinel-types/src/extension.rs`)
-- Extension configuration — `ExtensionConfig` with allow/block patterns, signature requirements, resource limits (`sentinel-config/src/extension.rs`)
-- Extension registry — `ExtensionHandler` trait with lifecycle hooks, `ExtensionRegistry` with thread-safe registration, glob-based negotiation, O(1) method dispatch (`sentinel-mcp/src/extension_registry.rs`)
-- Audit query example extension — `AuditQueryExtension` handling `x-sentinel-audit/stats` (`sentinel-mcp/src/extensions/audit_query.rs`)
-- `extract_extension_action()` — Converts extension method calls to `Action` for policy evaluation
-- `ProxyState.extension_registry` — Optional `Arc<ExtensionRegistry>` for extension method routing
-- 50+ new tests across all transport layers
-
-**MCP Ecosystem:**
-- Tool registry with trust scoring (`sentinel-mcp/src/tool_registry.rs`)
-- Elicitation interception — capability/schema/rate-limit validation (`sentinel-mcp/src/elicitation.rs`)
-- Sampling request policy enforcement — configurable model/content/tool-output rules (`sentinel-mcp/src/proxy/bridge/relay.rs`)
-
-**Semantic Guardrails (Phase 12):**
-- LLM-based policy evaluation with pluggable backends (`sentinel-mcp/src/semantic_guardrails/`)
-- Intent classification taxonomy — DataRead, DataWrite, SystemExecute, NetworkFetch, CredentialAccess, etc.
-- Natural language policies with glob-based tool/function matching (`sentinel-mcp/src/semantic_guardrails/nl_policy.rs`)
-- Intent chain tracking for suspicious pattern detection (`sentinel-mcp/src/semantic_guardrails/intent.rs`)
-- Jailbreak detection with configurable thresholds (`sentinel-mcp/src/semantic_guardrails/evaluator.rs`)
-- LRU + TTL evaluation caching (`sentinel-mcp/src/semantic_guardrails/cache.rs`)
-- Mock backend for testing (`sentinel-mcp/src/semantic_guardrails/backends/mock.rs`)
-- Feature flags: `semantic-guardrails`, `llm-cloud`, `llm-local-gguf`, `llm-local-onnx`
-
-**A2A Protocol Security (Phase 14):**
-- A2A message classification — message/send, message/stream, tasks/get, tasks/cancel, tasks/resubscribe (`sentinel-mcp/src/a2a/message.rs`)
-- Action extraction — Convert A2A messages to Sentinel Actions for policy evaluation (`sentinel-mcp/src/a2a/extractor.rs`)
-- Agent Card handling — Fetch, cache, and validate A2A Agent Cards with TTL expiration (`sentinel-mcp/src/a2a/agent_card.rs`)
-- A2A proxy service — HTTP proxy with policy evaluation and security integration (`sentinel-mcp/src/a2a/proxy.rs`)
-- Batch rejection — JSON-RPC batch requests rejected for TOCTOU attack prevention
-- Security integration — DLP scanning, injection detection, circuit breaker support
-- Feature flag: `a2a`
-
-**Merkle Tree Inclusion Proofs (Phase 19.4):**
-- Append-only Merkle tree with RFC 6962 domain separation — `hash_leaf(0x00||data)`, `hash_internal(0x01||l||r)` (`sentinel-audit/src/merkle.rs`)
-- Inclusion proof generation and static verification (no disk access for verification)
-- Audit logger integration via `with_merkle_tree()` builder — leaf hash appended on each `log_entry()`
-- Checkpoint integration — `merkle_root: Option<String>` in `Checkpoint` with backward-compatible `signing_content()`
-- Log rotation support — `.merkle-leaves` file renamed alongside rotated log, tree reset
-- Crash recovery — `initialize()` rebuilds peaks from existing leaf file
-- 24 unit tests
-
-**MCP June 2026 Spec Compliance (Phase 18):**
-- Transport types in leaf crate — `TransportProtocol` (Grpc/WebSocket/Http/Stdio with Ord), `TransportEndpoint`, `SdkTier` (Core/Standard/Extended/Full), `SdkCapabilities` (`sentinel-types/src/transport.rs`)
-- Transport configuration — `TransportConfig` with `discovery_enabled`, `upstream_priorities`, `restricted_transports`, `max_fallback_retries`, `fallback_timeout_secs` (`sentinel-config/src/transport.rs`)
-- Transport discovery endpoint — `GET /.well-known/mcp-transport` with JSON response (transports, SDK tier, versions). 404 when disabled. (`sentinel-http-proxy/src/proxy/discovery.rs`)
-- Protocol version `2026-06` placeholder — first entry in `SUPPORTED_PROTOCOL_VERSIONS`, backward compat with 2025-03-26/2025-06-18/2025-11-25
-- Transport preference negotiation — `parse_transport_preference()` (aliases: ws=websocket, sse=http), `negotiate_transport()` pure logic
-- SDK tier declaration — `SdkTier::Extended` with 12 capabilities, CI validation in `sdk_tier_ci.rs`
-- Upstream fallback foundation — `forward_with_fallback()` HTTP retry (`sentinel-http-proxy/src/proxy/fallback.rs`)
-- 25 new tests across types, config, proxy, and integration
-
-**Capability-Based Delegation Tokens (Phase 21.0):**
-- `CapabilityToken` with Ed25519 signature, delegation chain, depth budget, grants, expiry (`sentinel-types/src/capability.rs`)
-- `CapabilityGrant` — tool/function glob patterns, path/domain constraints, invocation limits
-- `issue_capability_token()`, `attenuate_capability_token()`, `verify_capability_token()` (`sentinel-mcp/src/capability_token.rs`)
-- Monotonic attenuation — depth decrements, grants subset of parent, expiry clamped to parent
-- `check_grant_coverage()` — matches grants against Action tool/function/paths/domains
-- `RequireCapabilityToken` policy condition with fail-closed semantics (`sentinel-engine/src/context_check.rs`)
-- Policy compilation for `require_capability_token` condition (`sentinel-engine/src/policy_compile.rs`)
-- `EvaluationContext` extended with `capability_token: Option<CapabilityToken>` (`sentinel-types/src/identity.rs`)
-- Structural validation: MAX_GRANTS=64, MAX_DELEGATION_DEPTH=16, MAX_TOKEN_SIZE=65536
-- 31 unit tests (4 types + 5 engine + 22 mcp)
-
-**Advanced Authorization (Phase 21.1–21.4):**
-- ABAC types in leaf crate — `AbacPolicy`, `AbacEntity`, `AbacEffect` (Permit/Forbid), `AbacOp` (10 comparison operators), `PrincipalConstraint`, `ActionConstraint`, `ResourceConstraint`, `AbacCondition`, `RiskScore`, `FederationTrustAnchor`, `IdentityMapping`, `PermissionUsage`, `LeastAgencyReport`, `AgencyRecommendation` (`sentinel-types/src/abac.rs`)
-- `AbacConfig` — `LeastAgencyConfig`, `FederationConfig`, `ContinuousAuthConfig` with validation (policy count bounds, entity count, duplicate IDs, threshold ranges) (`sentinel-config/src/abac.rs`)
-- `AbacEngine` — compiled ABAC policies with forbid-overrides evaluation, `EntityStore` with transitive group membership (bounded depth=16), conflict detection (`sentinel-engine/src/abac.rs`)
-- `AbacEvalContext` — combines `EvaluationContext` with resolved principal type/ID and risk score
-- `AbacDecision::Allow { policy_id }` / `Deny { policy_id, reason }` / `NoMatch` — two-phase evaluation (PolicyEngine first, ABAC refines Allow)
-- `LeastAgencyTracker` — per-agent-session permission usage tracking with `register_grants()`, `record_usage()`, `check_unused()`, `generate_report()`, `recommend_narrowing()` (`sentinel-engine/src/least_agency.rs`)
-- Identity federation — `FederationTrustAnchor` with `IdentityMapping` (external JWT claims → internal principal), configurable trust anchors with validation
-- Continuous authorization — `ContinuousAuthConfig` with `risk_threshold`, `degradation_threshold`, `reevaluation_interval_secs`; risk-score-based deny at handler level
-- ABAC wiring across all 3 proxy transports (HTTP handlers, WebSocket, gRPC) — after PolicyEngine Allow, ABAC refines; forbid-overrides produce Deny with audit
-- `ProxyState` extended with `abac_engine: Option<Arc<AbacEngine>>`, `least_agency: Option<Arc<LeastAgencyTracker>>`, `continuous_auth_config: Option<ContinuousAuthConfig>`
-- `SessionState` extended with `risk_score: Option<RiskScore>`, `abac_granted_policies: Vec<String>`
-- Full backward compatibility — when `abac.enabled = false` (default), behavior identical to pre-Phase 21
-- ~49 new tests (5 types + 6 config + 27 engine + 8 least-agency + 3 proxy wiring)
-
-**MCP Gateway Mode (Phase 20.1–20.3):**
-- Gateway types in leaf crate — `BackendHealth` (Healthy/Degraded/Unhealthy), `UpstreamBackend`, `RoutingDecision`, `ToolConflict` (`sentinel-types/src/gateway.rs`)
-- `GatewayConfig` — `BackendConfig` list, health check interval, unhealthy/healthy thresholds, validation (`sentinel-config/src/gateway.rs`)
-- `GatewayRouter` — longest-prefix-first tool routing, fail-closed when all backends unhealthy (`sentinel-http-proxy/src/proxy/gateway.rs`)
-- Health state machine — Healthy→Unhealthy after `unhealthy_threshold` failures, Unhealthy→Degraded→Healthy after successes
-- Session affinity — `route_with_affinity()` prefers previously-used backend if healthy
-- Tool conflict detection — `detect_conflicts()` finds tool names served by multiple backends
-- Health checker background task — periodic JSON-RPC `ping` with 5s timeout, updates metrics gauges
-- Handler wiring — ToolCall match arm routes via gateway, records success/failure from response status
-- `forward_to_upstream_url()` — extracted URL parameter from `forward_to_upstream()` for gateway routing
-- WebSocket gateway integration — default backend resolution for WS connections
-- gRPC gateway integration — default backend resolution for HTTP fallback forwarding
-- Session state extended with `backend_sessions` and `gateway_tools` HashMaps
-- `PolicyConfig.gateway` field with `#[serde(default)]` — zero-impact when disabled
-- Metrics: `sentinel_gateway_backends_total`, `sentinel_gateway_backends_healthy` gauges
-- 38 new tests (3 types + 5 config + 30 router)
-
-**Compliance Evidence Generation (Phase 19.1 / 19.4):**
-- Shared compliance enums in leaf crate — `AiActRiskClass`, `TrustServicesCategory` (`sentinel-types/src/compliance.rs`)
-- `ComplianceConfig` — `EuAiActConfig` + `Soc2Config` with validation (`sentinel-config/src/compliance.rs`)
-- EU AI Act registry — 10 obligations (Art 5–50), 18 capability mappings, conformity assessment reports (`sentinel-audit/src/eu_ai_act.rs`)
-- SOC 2 registry — 22 criteria across CC1-CC9, ~30 capability mappings, evidence reports with readiness levels (`sentinel-audit/src/soc2.rs`)
-- Read-time entry classification for both frameworks (not write-time)
-- Compliance API endpoints — `GET /api/compliance/status`, `GET /api/compliance/eu-ai-act/report`, `GET /api/compliance/soc2/evidence` (`sentinel-server/src/routes/compliance.rs`)
-- `PolicySnapshot` extended with `compliance_config` for atomic policy reload
-- 34 unit tests (9 config + 11 EU AI Act + 14 SOC 2)
-
-**CoSAI/Adversa Threat Coverage (Phase 19.3):**
-- CoSAI 12-category threat registry — 38 threats across all categories with `SentinelDetection` mappings and structural mitigations (`sentinel-audit/src/cosai.rs`)
-- Adversa AI TOP 25 coverage matrix — 25 ranked vulnerabilities with severity levels, detection mappings, and coverage matrix output (`sentinel-audit/src/adversa_top25.rs`)
-- Cross-framework gap analysis — unified report across 6 frameworks (ATLAS, NIST RMF, ISO 27090, EU AI Act, CoSAI, Adversa TOP 25) with weighted coverage and recommendations (`sentinel-audit/src/gap_analysis.rs`)
-- Threat coverage API endpoint — `GET /api/compliance/threat-coverage` (ATLAS + CoSAI + Adversa summaries)
-- Gap analysis API endpoint — `GET /api/compliance/gap-analysis` (consolidated 6-framework report)
-- 100% CoSAI coverage (38/38 threats), 100% Adversa TOP 25 coverage (25/25)
-- 35 unit tests (14 CoSAI + 14 Adversa + 7 gap analysis)
-
-**Compliance Dashboard (Phase 19):**
-- Real-time compliance status section in admin dashboard (`sentinel-server/src/dashboard.rs`)
-- 4 metric cards: EU AI Act %, SOC 2 Readiness %, Framework Coverage %, Critical Gaps
-- 6-framework coverage table with color-coded thresholds (green >=90%, yellow >=70%, red <70%)
-- Data sourced from existing stateless registries (EU AI Act, SOC 2, gap analysis)
-
-**EU AI Act Article 50 Runtime Transparency (Phase 19):**
-- `mark_ai_mediated()` — injects `result._meta.sentinel_ai_mediated = true` into tool-call responses (`sentinel-mcp/src/transparency.rs`)
-- `requires_human_oversight()` — glob-based tool name matching against configurable patterns
-- ProxyBridge integration — transparency marking + human oversight audit events in relay loop
-- Builder methods: `with_transparency_marking(bool)`, `with_human_oversight_tools(Vec<String>)`
-- EU AI Act Art 50(1) status upgraded to Compliant in registry (`sentinel-audit/src/eu_ai_act.rs`)
-- 11 unit tests
-
-**Immutable Audit Log Archive (Phase 19):**
-- gzip compression of rotated log files via `flate2` (`sentinel-audit/src/archive.rs`)
-- Retention enforcement — deletes archives older than configured `retention_days`
-- `run_archive_maintenance()` — combines compression + retention in a single pass
-- Feature-gated behind `archive` — zero impact on default builds
-- `ArchiveConfig` (compress, retention_days) + `ArchiveReport` (compressed, deleted, errors)
-- 9 unit tests
-
-**OTLP Export with GenAI Semantic Conventions (Phase 19):**
-- `OtlpExporter` implementing `ObservabilityExporter` trait (`sentinel-audit/src/observability/otlp.rs`)
-- SecuritySpan → OTel span mapping with `gen_ai.system`, `gen_ai.operation.name`, `sentinel.*` attributes
-- `map_span_kind()` — Chain→Server, Tool/Guardrail/Policy/Approval→Internal, Llm→Client
-- `verdict_to_status()` — allow→Ok, deny→Error, other→Unset
-- ID/time parsing helpers: `parse_trace_id()`, `parse_span_id()`, `parse_time()`
-- `OtlpConfig` + `OtlpProtocol` in sentinel-config with validation (`sentinel-config/src/observability.rs`)
-- Feature-gated behind `otlp-exporter` — zero impact on default builds
-- 11 unit tests
-
-**Identity Verification Primitives:**
-- DID:PLC generation — SHA-256 + Base32 from canonicalized genesis operations (`sentinel-mcp/src/did_plc.rs`)
-- Verification tiers — ordered enum (Unverified→FullyVerified) with fail-closed policy enforcement (`sentinel-types/src/verification.rs`)
-- Accountability attestation — Ed25519 signed, length-prefixed content (`sentinel-mcp/src/accountability.rs`)
-- Policy condition: `min_verification_tier` — fail-closed when tier missing (`sentinel-engine/src/context_check.rs`)
-- NHI integration — DID generation, tier management, attestation lifecycle (`sentinel-mcp/src/nhi.rs`)
-- Zero new dependencies — reuses sha2, ed25519-dalek, hex, serde_json_canonicalizer
-
-**Testing & Quality:**
-- Criterion benchmarks for policy evaluation, path normalization, domain matching, DLP scanning (`sentinel-engine/benches/`, `sentinel-mcp/benches/`)
-- Fuzz targets for JSON-RPC framing, path normalization, domain extraction, CIDR parsing, message classification, scan_params_for_targets, WebSocket frame parsing (`fuzz/fuzz_targets/`)
-
-**Adversarial Audit Coverage (FIND-043–074):**
-- 25 context condition tests covering all 10 condition types (MaxChainDepth, AgentIdentityMatch, AsyncTaskPolicy, ResourceIndicator, CapabilityRequired, StepUpAuth, CircuitBreaker, DeputyValidation, SchemaPoisoningCheck, ShadowAgentCheck)
-- Circuit breaker HalfOpen→Closed recovery + Open→HalfOpen auto-transition tests
-- 16 end-to-end OAuth JWT validation tests (sign → mock JWKS server → validate_token)
-- Domain homoglyph tests (Cyrillic, zero-width, fullwidth, mixed-script)
-- Windows path normalization tests (UNC, drive letters, mixed separators)
-- Audit rotation manifest tamper detection tests (deletion, reordering)
-- Memory tracker fingerprint evasion tests (case sensitivity, encoding, query params)
-- 13 semantic scanner Unicode evasion tests (fullwidth, Cyrillic, ZWSP, combining diacritics, RTL)
-- Agent card URL edge case tests (file://, internal IPs, path traversal, XSS)
-- Behavioral EMA edge case tests (epsilon guard, u64::MAX, overflow)
-- Output validation depth bomb tests (nested schemas at/beyond MAX_VALIDATION_DEPTH)
-- Elicitation rate limit boundary tests (u32::MAX, exact boundary)
-- FIND-055: Agent card SSRF prevention — URL scheme/host/private-IP validation with 9 tests
-- FIND-057: Bounded stack size in `collect_string_leaves()` to prevent DoS via wide JSON
-- FIND-063: Regex pattern length validation (MAX_PATTERN_LEN = 2048) before compilation
-- FIND-065: Audit log permission failures now logged as warnings instead of silently ignored
-- FIND-068: Accountability attestation rejects empty agent_id/statement/policy_hash
-- FIND-071: `ObservabilityExporterConfig` validation with MAX_BATCH_SIZE bound
-- FIND-074: All control characters (U+0000–U+009F) rejected in tool/function names
-- RwLock poisoning hardened across 10 modules (schema_poisoning, agent_trust, workflow_tracker, tool_namespace, sampling_detector, shadow_agent, token_security, output_security, agent_message, goal_tracking)
-
-**Adversarial Pentest Round 2 (75 tests across 4 files):**
-- `pentest_behavioral_circuit_evasion.rs` (20): EMA gradual ramp evasion (117x undetected), cold-start poisoning, agent ID rotation, circuit breaker case sensitivity, HalfOpen state bypass, no backoff
-- `pentest_delegation_identity_attacks.rs` (20): re-delegation scope overwrite, empty allowed_tools=grant-all, session collision, self-approval Cyrillic/fullwidth blocked, fail-closed identity/capability/chain depth
-- `pentest_injection_redaction_evasion.rs` (20): typo/multilingual/base64/split-field injection evasion, fullwidth digit SSN bypass (Rust `\d` ASCII-only), memory tracker eviction, Mathematical Bold/RTL detected
-- `pentest_capability_supply_chain.rs` (15): grant path traversal (glob without normalization), empty paths=no restriction, schema hash canonicalization, monotonic attenuation, combined rug-pull+injection defense-in-depth
-
-**Adversarial Pentest Round 3 — Fixes (FIND-077–084, 8 findings closed):**
-- FIND-077 (P1): Circuit breaker case-sensitivity bypass — tool names normalized to lowercase before all HashMap operations (`can_proceed`, `record_success`, `record_failure`, `get_state`, `get_stats`, `reset`)
-- FIND-078 (P1): Circuit breaker HalfOpen state never entered — `can_proceed()` now transitions Open→HalfOpen via double-check locking (read→write lock upgrade) when open duration expires, enforcing `half_open_max_requests` limit
-- FIND-079 (P1): Circuit breaker no exponential backoff — added `trip_count: u32` to `CircuitStats`, incremented on each HalfOpen→Open transition, `effective_open_duration = base * 2^trip_count` (max 32x), reset on recovery
-- FIND-080 (P2): Behavioral EMA gradual ramp evasion — added `absolute_ceiling: Option<u64>` to `BehavioralConfig`, produces `Critical` alert when tool call count exceeds ceiling regardless of EMA baseline
-- FIND-081 (P2): Behavioral cold-start baseline poisoning — added `max_initial_ema: Option<f64>` to `BehavioralConfig`, caps first observation's EMA to prevent attackers from establishing artificially high baselines
-- FIND-082 (P2): Deputy re-delegation scope overwrite — `register_delegation()` now intersects requested `allowed_tools` with parent's granted scope using `eq_ignore_ascii_case`, enforcing monotonic attenuation
-- FIND-083 (P2): Capability grant path traversal — added `normalize_path_for_grant()` that resolves `.`/`..` components before matching; null bytes and above-root traversal return `false` (fail-closed)
-- FIND-084 (P3): Fullwidth digit SSN bypass — added NFKC normalization (`unicode-normalization` crate) before PII regex matching in `redact_keys_and_patterns()`, converting fullwidth digits (U+FF10–FF19) to ASCII
-- Updated 8 pentest tests across 4 integration test files to verify all fixes
-
-**CI/CD & Publishing:**
-- 11 GitHub Actions workflows: CI, security-audit, cargo-deny, dependency-review, scorecard, provenance-sbom, docker-publish, release, docs, publish-pypi, publish-crates
-- Docker publish workflow with GHCR push and Trivy vulnerability scanning
-- Release automation: static musl binaries, SHA-256 checksums, CycloneDX SBOM, provenance attestation, GitHub Release
-- Rustdoc GitHub Pages deployment
-- PyPI publishing with trusted OIDC and Python 3.9–3.12 test matrix
-- crates.io publishing with dependency-ordered workspace crate publishing
-- Docker Compose for local deployment with hardened services
-- GitHub issue templates (bug report, feature request) and PR template
-
-**Python SDK:**
-- Sync and async HTTP clients with httpx/requests fallback (`sdk/python/sentinel/client.py`)
-- LangChain callback handler and tool guard decorator (`sdk/python/sentinel/langchain.py`)
-- LangGraph sentinel node and guarded tool node (`sdk/python/sentinel/langgraph.py`)
-- Client-side parameter redaction with 3 modes — keys_only, values, all (`sdk/python/sentinel/redaction.py`)
-- 130 pytest tests covering types, client, langchain, langgraph, and redaction (`sdk/python/tests/`)
-
-**Developer Experience (Phase 22):**
-- Policy simulator API — `POST /api/simulator/evaluate` (single with trace), `/batch` (up to 100 actions), `/validate` (config validation), `/diff` (policy diff) (`sentinel-server/src/routes/simulator.rs`)
-- CLI `simulate` subcommand — batch-evaluate actions from JSON file against policy config, text/JSON output
-- GitHub Action `policy-check` — composite action downloading Sentinel binary, running `sentinel check` in CI (`.github/actions/policy-check/action.yml`)
-- Dashboard SVG charts — verdict distribution bar chart, policy type pie chart (`sentinel-server/src/dashboard.rs`)
-- 13 new Rust tests (9 simulator + 4 dashboard)
-
-**Research & Future (Phase 23):**
-- Multimodal injection detection (23.1) — real PNG tEXt/zTXt/iTXt chunk extraction, JPEG COM/EXIF extraction, PDF stream/FlateDecode text extraction, chi-squared LSB steganography detection (`sentinel-mcp/src/inspection/multimodal.rs`)
-- Continuous autonomous red teaming (23.2) — `MutationEngine` with 8 mutation types (URL encode, double encode, null byte, homoglyph, case variation, whitespace inject, parameter alias, context wrapping), `RedTeamRunner` with coverage tracking by category and mutation type (`sentinel-mcp/src/red_team.rs`)
-- FIPS 140-3 compliance mode (23.3) — `FipsMode` with algorithm validation (approved/non-approved lists), ECDSA P-256 sign/verify behind `fips` feature flag (`sentinel-mcp/src/fips.rs`)
-- Sigstore/Rekor transparency log integration (23.4) — `RekorEntry` types, `RekorVerifier` with RFC 6962 Merkle tree inclusion proof verification, offline tool hash matching (`sentinel-mcp/src/rekor.rs`)
-- Stateful session reasoning guards (23.5) — formal state machine (Init→Active→Suspicious→Locked→Ended), configurable thresholds, `SessionGuard` with `WorkflowTracker` and `GoalTracker` integration (`sentinel-mcp/src/session_guard.rs`)
-- Red team API endpoint — `POST /api/simulator/red-team` runs mutation engine against current policies (`sentinel-server/src/routes/simulator.rs`)
-- `FipsConfig` in sentinel-config — FIPS mode toggle + signature algorithm selection (`sentinel-config/src/fips.rs`)
-- `rekor_entry: Option<serde_json::Value>` on `ToolSignature` — Rekor transparency log provenance (`sentinel-types/src/etdi.rs`)
-- `session_state: Option<String>` on `EvaluationContext` — session guard integration in policy evaluation (`sentinel-types/src/identity.rs`)
-- `SessionStateRequired` context condition — fail-closed session state enforcement in policy engine (`sentinel-engine/src/compiled.rs`, `sentinel-engine/src/policy_compile.rs`, `sentinel-engine/src/context_check.rs`)
-- 74 new tests (12 multimodal + 15 red team + 12 FIPS + 12 Rekor + 20 session guard + 3 fips config)
-
-**TypeScript SDK:**
-- HTTP client with native `fetch()` — zero runtime dependencies, Node 18+ (`sdk/typescript/src/client.ts`)
-- Full API coverage: `evaluate`, `health`, `listPolicies`, `reloadPolicies`, `simulate`, `batchEvaluate`, `validateConfig`, `diffConfigs`, `listPendingApprovals`, `approveApproval`, `denyApproval`
-- Type definitions mirroring Python SDK (`sdk/typescript/src/types.ts`)
-- 15 Jest tests covering all methods, error handling, auth headers (`sdk/typescript/tests/client.test.ts`)
-
-**Documentation:**
-- Framework quickstart guides: Anthropic, OpenAI, LangChain, LangGraph, MCP proxy (`docs/QUICKSTART.md`)
-- Security model: trust boundaries, data flows, storage, residual risks (`docs/SECURITY_MODEL.md`)
-- Reproducible benchmarks with methodology (`docs/BENCHMARKS.md`)
-- 5 curated policy presets: dev-laptop, CI/CD, RAG, database, browser agent (`examples/presets/`)
+- **Core Engine:** Policy evaluation with glob/regex/domain matching, path traversal protection, DNS rebinding defense, context-aware policies (time windows, call limits, agent ID, action sequences)
+- **Audit:** Tamper-evident logging (SHA-256 chain, Merkle proofs, Ed25519 checkpoints, rotation), export (CEF/JSONL/webhook/syslog), immutable archive with retention
+- **Security Detections:** Injection (Aho-Corasick + NFKC), rug-pull, DLP (5-layer decode), tool squatting (Levenshtein + homoglyph), memory poisoning, semantic injection (TF-IDF), behavioral anomaly (EMA), cross-request exfiltration tracking, multimodal injection (PNG/JPEG/PDF + stego)
+- **Auth & Transport:** OAuth 2.1/JWT/JWKS, CSRF, rate limiting, MCP 2025-06-18 compliance, 6 deployment modes (HTTP, stdio, HTTP proxy, WebSocket proxy, gRPC proxy, MCP gateway)
+- **Advanced Authorization (Phase 21):** ABAC with forbid-overrides, capability-based delegation tokens, least-agency tracking, identity federation, continuous authorization
+- **MCP Gateway (Phase 20):** Multi-backend routing, health state machine, session affinity, tool conflict detection
+- **Compliance (Phase 19):** EU AI Act registry + Art 50 transparency marking, SOC 2 evidence, CoSAI 38/38, Adversa TOP 25 25/25, 6-framework gap analysis, OTLP export, Merkle inclusion proofs
+- **MCP Ecosystem:** Tool registry with trust scoring, elicitation interception, sampling enforcement, semantic guardrails (LLM-based), A2A protocol security
+- **Transport (Phases 17–18):** WebSocket bidirectional proxy, gRPC reverse proxy (tonic), extension registry, transport discovery/negotiation/fallback
+- **Research (Phase 23):** Red team mutation engine, FIPS 140-3 mode, Rekor transparency log, stateful session guards
+- **Developer Experience (Phase 22):** Policy simulator API, CLI simulate, GitHub Action, dashboard SVG charts
+- **Adversarial Hardening:** 4 pentest rounds (FIND-043–084 + Phase 23 round), RwLock poisoning hardened, PDF byte-level parsing, session guard fail-closed, Rekor canonical JSON
+- **CI/CD:** 11 workflows, Docker/GHCR, release automation, SBOM, provenance attestation
+- **SDKs:** Python (sync+async, LangChain/LangGraph, 130 tests), TypeScript (fetch-based, 15 tests), Go (stdlib-only, 28 tests)
+- **Docs:** Quickstart guides, security model, benchmarks, 5 policy presets
 
 ---
 
@@ -625,67 +254,12 @@ Test naming: `test_<function>_<scenario>_<expected>`
 ## References
 
 - [MCP Specification 2025-06-18](https://modelcontextprotocol.io/specification/2025-06-18)
-- [MCP Security Best Practices](https://modelcontextprotocol.io/specification/draft/basic/security_best_practices)
 - [OWASP Top 10 for Agentic Applications 2026](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)
-- [OWASP Guide for Securely Using Third-Party MCP Servers](https://genai.owasp.org/resource/cheatsheet-a-practical-guide-for-securely-using-third-party-mcp-servers-1-0/)
 - [ETDI: Mitigating Tool Squatting and Rug Pull Attacks in MCP](https://arxiv.org/abs/2506.01333)
 - [Enterprise-Grade Security for MCP (arxiv)](https://arxiv.org/pdf/2504.08623)
-- [Microsoft: From Runtime Risk to Real-Time Defense](https://www.microsoft.com/en-us/security/blog/2026/01/23/runtime-risk-realtime-defense-securing-ai-agents/)
-- [Kaspersky: Agentic AI Security per OWASP ASI Top 10](https://www.kaspersky.com/blog/top-agentic-ai-risks-2026/55184/)
 
 ---
 
 ## Bottega Multi-Agent Protocol
 
-This project uses the [Bottega](https://github.com/paolovella/bottega) multi-agent orchestration system.
-
-### Agent Roles
-
-| Agent | Role | Worktree Branch |
-|-------|------|-----------------|
-| **Orchestrator** | Decomposes tasks, assigns work, approves merges | `work/orchestrator` |
-| **Adversarial** | Security scanning, architecture review, bug finding | `work/adversarial` |
-| **Gap-Hunter** | Finds test/reliability/observability/docs gaps | `work/gap-hunter` |
-| **Improvement-Scout** | Proposes prioritized, high-ROI improvements | `work/improvement-scout` |
-| **Worker-1 (Builder)** | Implements tasks, writes tests | `work/worker-1` |
-| **Worker-2 (Researcher)** | Researches then implements complex tasks | `work/worker-2` |
-| **Reviewer** | Reviews completed work, approves or requests changes | `work/reviewer` |
-
-### Coordination State
-
-All coordination state lives in `coordination/` (a symlink to shared storage):
-
-- **`kanban.json`** — Task board with optimistic concurrency control
-- **`events.jsonl`** — Append-only event log
-
-### Writing State
-
-**CRITICAL: Never open coordination files directly for writing.**
-
-```bash
-# Append to event log
-python3 scripts/lib/lock.py append coordination/events.jsonl '<json>'
-
-# Update kanban (optimistic locking)
-python3 scripts/lib/lock.py read-revision coordination/kanban.json
-python3 scripts/lib/lock.py revision-write coordination/kanban.json <rev> '<json>'
-```
-
-### Quality Gates (Rust)
-
-Before any merge:
-```bash
-cargo test --workspace           # All tests pass
-cargo clippy --workspace         # No warnings
-cargo fmt --check                # Properly formatted
-```
-
-### Task Lifecycle
-
-```
-todo → in_progress (worker claims) → review (worker submits)
-  → reviewed (reviewer approves) → quality gates → merge to main
-  → rebase all branches → done
-```
-
-See `.claude/rules/` for detailed communication, security, and architecture rules.
+This project uses [Bottega](https://github.com/paolovella/bottega) for multi-agent orchestration. See `.claude/rules/` for agent roles, communication protocols, coordination state management, and dangerous commands policy.
