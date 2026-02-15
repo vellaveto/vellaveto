@@ -2050,3 +2050,200 @@ fn test_abac_entity_with_parents() {
     assert_eq!(entity, deserialized);
     assert_eq!(deserialized.parents.len(), 1);
 }
+
+// ═══════════════════════════════════════════════════
+// PHASE 24: EU AI ACT FINAL COMPLIANCE TYPES TESTS
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_explanation_verbosity_default() {
+    let v = ExplanationVerbosity::default();
+    assert_eq!(v, ExplanationVerbosity::None);
+}
+
+#[test]
+fn test_explanation_verbosity_display() {
+    assert_eq!(ExplanationVerbosity::None.to_string(), "none");
+    assert_eq!(ExplanationVerbosity::Summary.to_string(), "summary");
+    assert_eq!(ExplanationVerbosity::Full.to_string(), "full");
+}
+
+#[test]
+fn test_explanation_verbosity_serde_roundtrip() {
+    for v in [
+        ExplanationVerbosity::None,
+        ExplanationVerbosity::Summary,
+        ExplanationVerbosity::Full,
+    ] {
+        let json_str = serde_json::to_string(&v).unwrap();
+        let deserialized: ExplanationVerbosity = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(v, deserialized);
+    }
+    // Verify rename_all = "snake_case"
+    assert_eq!(
+        serde_json::to_string(&ExplanationVerbosity::None).unwrap(),
+        r#""none""#
+    );
+}
+
+#[test]
+fn test_data_classification_display_and_serde() {
+    let all = vec![
+        DataClassification::Training,
+        DataClassification::Input,
+        DataClassification::Output,
+        DataClassification::Testing,
+        DataClassification::Operational,
+        DataClassification::Personal,
+        DataClassification::NonPersonal,
+    ];
+    for dc in all {
+        let json_str = serde_json::to_string(&dc).unwrap();
+        let deserialized: DataClassification = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(dc, deserialized);
+        assert!(!dc.to_string().is_empty());
+    }
+}
+
+#[test]
+fn test_processing_purpose_display_and_serde() {
+    let all = vec![
+        ProcessingPurpose::ToolExecution,
+        ProcessingPurpose::SecurityAudit,
+        ProcessingPurpose::ComplianceEvidence,
+        ProcessingPurpose::PolicyEvaluation,
+        ProcessingPurpose::ModelInference,
+    ];
+    for pp in all {
+        let json_str = serde_json::to_string(&pp).unwrap();
+        let deserialized: ProcessingPurpose = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(pp, deserialized);
+        assert!(!pp.to_string().is_empty());
+    }
+}
+
+#[test]
+fn test_data_governance_record_serde_roundtrip() {
+    let record = DataGovernanceRecord {
+        tool: "filesystem.*".to_string(),
+        classifications: vec![DataClassification::Input, DataClassification::Output],
+        purpose: ProcessingPurpose::ToolExecution,
+        provenance: Some("user-provided".to_string()),
+        retention_days: Some(365),
+    };
+    let json_str = serde_json::to_string(&record).unwrap();
+    let deserialized: DataGovernanceRecord = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(record, deserialized);
+}
+
+#[test]
+fn test_data_governance_record_optional_fields() {
+    let record = DataGovernanceRecord {
+        tool: "http.*".to_string(),
+        classifications: vec![DataClassification::Operational],
+        purpose: ProcessingPurpose::SecurityAudit,
+        provenance: None,
+        retention_days: None,
+    };
+    let json_str = serde_json::to_string(&record).unwrap();
+    // Optional fields should be skipped
+    assert!(!json_str.contains("provenance"));
+    assert!(!json_str.contains("retention_days"));
+}
+
+#[test]
+fn test_verdict_explanation_summary() {
+    let trace = EvaluationTrace {
+        action_summary: ActionSummary {
+            tool: "read_file".to_string(),
+            function: "execute".to_string(),
+            param_count: 1,
+            param_keys: vec!["path".to_string()],
+        },
+        policies_checked: 3,
+        policies_matched: 1,
+        matches: vec![PolicyMatch {
+            policy_id: "p1".to_string(),
+            policy_name: "Allow reads".to_string(),
+            policy_type: "Allow".to_string(),
+            priority: 100,
+            tool_matched: true,
+            constraint_results: vec![],
+            verdict_contribution: Some(Verdict::Allow),
+        }],
+        verdict: Verdict::Allow,
+        duration_us: 42,
+    };
+    let explanation = VerdictExplanation::summary(&trace);
+    assert_eq!(explanation.verdict, "Allow");
+    assert!(explanation.reason.is_none());
+    assert_eq!(explanation.policies_checked, 3);
+    assert_eq!(explanation.policies_matched, 1);
+    assert_eq!(explanation.duration_us, 42);
+    assert!(explanation.policy_details.is_none());
+}
+
+#[test]
+fn test_verdict_explanation_full_with_failed_constraints() {
+    let trace = EvaluationTrace {
+        action_summary: ActionSummary {
+            tool: "shell".to_string(),
+            function: "exec".to_string(),
+            param_count: 1,
+            param_keys: vec!["cmd".to_string()],
+        },
+        policies_checked: 2,
+        policies_matched: 1,
+        matches: vec![PolicyMatch {
+            policy_id: "deny-shell".to_string(),
+            policy_name: "Block shell".to_string(),
+            policy_type: "Deny".to_string(),
+            priority: 200,
+            tool_matched: true,
+            constraint_results: vec![ConstraintResult {
+                constraint_type: "tool_pattern".to_string(),
+                param: "tool".to_string(),
+                expected: "shell*".to_string(),
+                actual: "shell".to_string(),
+                passed: false,
+            }],
+            verdict_contribution: Some(Verdict::Deny {
+                reason: "blocked by policy".to_string(),
+            }),
+        }],
+        verdict: Verdict::Deny {
+            reason: "blocked by policy".to_string(),
+        },
+        duration_us: 55,
+    };
+    let explanation = VerdictExplanation::full(&trace);
+    assert_eq!(explanation.verdict, "Deny");
+    assert_eq!(explanation.reason, Some("blocked by policy".to_string()));
+    let details = explanation.policy_details.unwrap();
+    assert_eq!(details.len(), 1);
+    assert_eq!(details[0].policy_id, "deny-shell");
+    assert!(details[0].failed_constraints.is_some());
+    assert_eq!(details[0].failed_constraints.as_ref().unwrap().len(), 1);
+}
+
+#[test]
+fn test_verdict_explanation_serde_roundtrip() {
+    let explanation = VerdictExplanation {
+        verdict: "Allow".to_string(),
+        reason: None,
+        policies_checked: 5,
+        policies_matched: 2,
+        duration_us: 100,
+        policy_details: Some(vec![PolicyMatchDetail {
+            policy_id: "p1".to_string(),
+            policy_name: "Test".to_string(),
+            priority: 50,
+            verdict_contribution: Some("Allow".to_string()),
+            failed_constraints: None,
+        }]),
+    };
+    let json_str = serde_json::to_string(&explanation).unwrap();
+    let deserialized: VerdictExplanation = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(deserialized.policies_checked, 5);
+    assert!(deserialized.policy_details.is_some());
+}

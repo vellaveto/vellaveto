@@ -40,8 +40,8 @@ impl ProxyBridge {
     /// If `annotations` are provided (from a prior `tools/list` response),
     /// they are included in audit metadata for the decision.
     ///
-    /// When trace is enabled, returns `ProxyDecision` with trace data available
-    /// via `last_trace()`.
+    /// Returns `(ProxyDecision, Option<EvaluationTrace>)` so callers can
+    /// inject decision explanations into responses (Art 50(2)).
     pub fn evaluate_tool_call(
         &self,
         id: &Value,
@@ -49,11 +49,11 @@ impl ProxyBridge {
         arguments: &Value,
         annotations: Option<&ToolAnnotations>,
         context: Option<&EvaluationContext>,
-    ) -> ProxyDecision {
+    ) -> (ProxyDecision, Option<EvaluationTrace>) {
         let action = extract_action(tool_name, arguments);
 
         match self.evaluate_action_inner(&action, context) {
-            Ok((Verdict::Allow, _trace)) => {
+            Ok((Verdict::Allow, trace)) => {
                 // Log awareness when allowing destructive tools
                 if let Some(ann) = annotations {
                     if ann.destructive_hint && !ann.read_only_hint {
@@ -63,7 +63,7 @@ impl ProxyBridge {
                         );
                     }
                 }
-                if let Some(t) = _trace {
+                if let Some(ref t) = trace {
                     tracing::debug!(
                         "Trace: {} policies checked, {} matched, {}μs",
                         t.policies_checked,
@@ -71,10 +71,10 @@ impl ProxyBridge {
                         t.duration_us
                     );
                 }
-                ProxyDecision::Forward
+                (ProxyDecision::Forward, trace)
             }
-            Ok((Verdict::Deny { reason }, _trace)) => {
-                if let Some(t) = _trace {
+            Ok((Verdict::Deny { reason }, trace)) => {
+                if let Some(ref t) = trace {
                     tracing::debug!(
                         "Trace (deny): {} policies checked, {} matched, {}μs",
                         t.policies_checked,
@@ -83,10 +83,13 @@ impl ProxyBridge {
                     );
                 }
                 let response = make_denial_response(id, &reason);
-                ProxyDecision::Block(response, Verdict::Deny { reason })
+                (
+                    ProxyDecision::Block(response, Verdict::Deny { reason }),
+                    trace,
+                )
             }
-            Ok((Verdict::RequireApproval { reason }, _trace)) => {
-                if let Some(t) = _trace {
+            Ok((Verdict::RequireApproval { reason }, trace)) => {
+                if let Some(ref t) = trace {
                     tracing::debug!(
                         "Trace (approval): {} policies checked, {} matched, {}μs",
                         t.policies_checked,
@@ -95,17 +98,32 @@ impl ProxyBridge {
                     );
                 }
                 let response = make_approval_response(id, &reason);
-                ProxyDecision::Block(response, Verdict::RequireApproval { reason })
+                (
+                    ProxyDecision::Block(response, Verdict::RequireApproval { reason }),
+                    trace,
+                )
             }
             // Handle future Verdict variants - fail closed (deny)
-            Ok((_, _trace)) => {
+            Ok((_, trace)) => {
                 let reason = "Unknown verdict type - failing closed".to_string();
-                ProxyDecision::Block(make_denial_response(id, &reason), Verdict::Deny { reason })
+                (
+                    ProxyDecision::Block(
+                        make_denial_response(id, &reason),
+                        Verdict::Deny { reason },
+                    ),
+                    trace,
+                )
             }
             Err(e) => {
                 tracing::error!("Policy evaluation error for tool '{}': {}", tool_name, e);
                 let reason = "Policy evaluation failed".to_string();
-                ProxyDecision::Block(make_denial_response(id, &reason), Verdict::Deny { reason })
+                (
+                    ProxyDecision::Block(
+                        make_denial_response(id, &reason),
+                        Verdict::Deny { reason },
+                    ),
+                    None,
+                )
             }
         }
     }

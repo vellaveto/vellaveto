@@ -41,6 +41,7 @@ pub mod streaming;
 // ── Phase 19.3: CoSAI/Adversa threat coverage registries ────────────────────
 pub mod adversa_top25;
 pub mod cosai;
+pub mod data_governance;
 pub mod gap_analysis;
 pub mod iso42001;
 

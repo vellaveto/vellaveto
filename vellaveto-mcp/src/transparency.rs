@@ -48,6 +48,47 @@ pub fn mark_ai_mediated(msg: &mut serde_json::Value) {
     }
 }
 
+/// Inject a structured decision explanation into a JSON-RPC response.
+///
+/// Adds `result._meta.vellaveto_decision_explanation` when a trace is available
+/// and verbosity is not `None`. Same `result._meta` pattern as `mark_ai_mediated`.
+pub fn inject_decision_explanation(
+    msg: &mut serde_json::Value,
+    trace: Option<&vellaveto_types::EvaluationTrace>,
+    verbosity: vellaveto_types::ExplanationVerbosity,
+) {
+    use vellaveto_types::ExplanationVerbosity;
+
+    let trace = match trace {
+        Some(t) => t,
+        None => return,
+    };
+
+    if verbosity == ExplanationVerbosity::None {
+        return;
+    }
+
+    let explanation = match verbosity {
+        ExplanationVerbosity::Summary => vellaveto_types::VerdictExplanation::summary(trace),
+        ExplanationVerbosity::Full => vellaveto_types::VerdictExplanation::full(trace),
+        ExplanationVerbosity::None => return, // already handled above
+    };
+
+    if let Some(result) = msg.get_mut("result") {
+        if let Some(obj) = result.as_object_mut() {
+            let meta = obj.entry("_meta").or_insert_with(|| serde_json::json!({}));
+            if let Some(meta_obj) = meta.as_object_mut() {
+                if let Ok(explanation_value) = serde_json::to_value(&explanation) {
+                    meta_obj.insert(
+                        "vellaveto_decision_explanation".to_string(),
+                        explanation_value,
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Simple glob matching supporting `*` and `?`.
 fn glob_match(pattern: &str, text: &str) -> bool {
     let p: Vec<char> = pattern.chars().collect();
@@ -192,5 +233,152 @@ mod tests {
         assert!(glob_match("he*", "hello"));
         assert!(glob_match("*lo", "hello"));
         assert!(glob_match("h*o", "hello"));
+    }
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 24: Decision Explanation Injection Tests
+    // ═══════════════════════════════════════════════════
+
+    fn make_test_trace() -> vellaveto_types::EvaluationTrace {
+        vellaveto_types::EvaluationTrace {
+            action_summary: vellaveto_types::ActionSummary {
+                tool: "read_file".to_string(),
+                function: "execute".to_string(),
+                param_count: 1,
+                param_keys: vec!["path".to_string()],
+            },
+            policies_checked: 3,
+            policies_matched: 1,
+            matches: vec![vellaveto_types::PolicyMatch {
+                policy_id: "p1".to_string(),
+                policy_name: "Allow reads".to_string(),
+                policy_type: "Allow".to_string(),
+                priority: 100,
+                tool_matched: true,
+                constraint_results: vec![],
+                verdict_contribution: Some(vellaveto_types::Verdict::Allow),
+            }],
+            verdict: vellaveto_types::Verdict::Allow,
+            duration_us: 42,
+        }
+    }
+
+    #[test]
+    fn test_inject_decision_explanation_summary() {
+        let trace = make_test_trace();
+        let mut msg = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"content": "hello"}
+        });
+        inject_decision_explanation(
+            &mut msg,
+            Some(&trace),
+            vellaveto_types::ExplanationVerbosity::Summary,
+        );
+        let explanation = &msg["result"]["_meta"]["vellaveto_decision_explanation"];
+        assert_eq!(explanation["verdict"], "Allow");
+        assert_eq!(explanation["policies_checked"], 3);
+        assert!(explanation.get("policy_details").is_none());
+    }
+
+    #[test]
+    fn test_inject_decision_explanation_full() {
+        let trace = make_test_trace();
+        let mut msg = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"content": "data"}
+        });
+        inject_decision_explanation(
+            &mut msg,
+            Some(&trace),
+            vellaveto_types::ExplanationVerbosity::Full,
+        );
+        let explanation = &msg["result"]["_meta"]["vellaveto_decision_explanation"];
+        assert_eq!(explanation["verdict"], "Allow");
+        let details = explanation["policy_details"].as_array().unwrap();
+        assert_eq!(details.len(), 1);
+        assert_eq!(details[0]["policy_id"], "p1");
+    }
+
+    #[test]
+    fn test_inject_decision_explanation_none_verbosity() {
+        let trace = make_test_trace();
+        let mut msg = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"content": "data"}
+        });
+        let original = msg.clone();
+        inject_decision_explanation(
+            &mut msg,
+            Some(&trace),
+            vellaveto_types::ExplanationVerbosity::None,
+        );
+        assert_eq!(
+            msg, original,
+            "None verbosity should not modify the message"
+        );
+    }
+
+    #[test]
+    fn test_inject_decision_explanation_no_trace() {
+        let mut msg = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"content": "data"}
+        });
+        let original = msg.clone();
+        inject_decision_explanation(
+            &mut msg,
+            None,
+            vellaveto_types::ExplanationVerbosity::Summary,
+        );
+        assert_eq!(msg, original, "No trace should not modify the message");
+    }
+
+    #[test]
+    fn test_inject_decision_explanation_error_response_unchanged() {
+        let trace = make_test_trace();
+        let mut msg = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {"code": -32600, "message": "Invalid Request"}
+        });
+        let original = msg.clone();
+        inject_decision_explanation(
+            &mut msg,
+            Some(&trace),
+            vellaveto_types::ExplanationVerbosity::Full,
+        );
+        assert_eq!(msg, original, "Error responses should not be modified");
+    }
+
+    #[test]
+    fn test_inject_decision_explanation_preserves_existing_meta() {
+        let trace = make_test_trace();
+        let mut msg = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": "data",
+                "_meta": {"vellaveto_ai_mediated": true}
+            }
+        });
+        inject_decision_explanation(
+            &mut msg,
+            Some(&trace),
+            vellaveto_types::ExplanationVerbosity::Summary,
+        );
+        // Both keys should be present
+        assert_eq!(
+            msg["result"]["_meta"]["vellaveto_ai_mediated"],
+            serde_json::Value::Bool(true)
+        );
+        assert_eq!(
+            msg["result"]["_meta"]["vellaveto_decision_explanation"]["verdict"],
+            "Allow"
+        );
     }
 }

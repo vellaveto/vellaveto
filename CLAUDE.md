@@ -1,10 +1,10 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v3.0.0 stable (Phases 1–23 complete, 38 audit rounds — all phases done)
-> **Version:** 3.0.0
+> **State:** v4.0.0-dev (Phases 1–24 complete, 38 audit rounds)
+> **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 4,812 Rust tests + 130 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 4,857 Rust tests + 130 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 22
 > **CI workflows:** 11
 > **Updated:** 2026-02-15
@@ -83,7 +83,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | ETDI: signatures, attestation, version pinning | `vellaveto-types/src/etdi.rs` |
 | Threat: auth levels, circuit breakers, fingerprints, trust | `vellaveto-types/src/threat.rs` |
 | Advanced: ABAC, capability, compliance, extension, gateway, transport, verification, NHI, MINJA, DID:PLC, task | `vellaveto-types/src/*.rs` |
-| Tests (~137) | `vellaveto-types/src/tests.rs` |
+| Tests (~180) | `vellaveto-types/src/tests.rs` |
 | **vellaveto-engine** | |
 | Policy evaluation | `vellaveto-engine/src/lib.rs` |
 | ABAC engine + Cedar-style evaluation | `vellaveto-engine/src/abac.rs` |
@@ -92,13 +92,14 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Module root + AuditLogger + rotation + verification | `vellaveto-audit/src/lib.rs` |
 | Redaction, checkpoints, Merkle proofs, events | `vellaveto-audit/src/*.rs` |
 | Compliance registries: EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, gap analysis | `vellaveto-audit/src/{eu_ai_act,soc2,cosai,adversa_top25,iso42001,gap_analysis}.rs` |
+| Data governance registry (Art 10) | `vellaveto-audit/src/data_governance.rs` |
 | OTLP exporter, archive | `vellaveto-audit/src/observability/otlp.rs`, `vellaveto-audit/src/archive.rs` |
-| Tests (~214) | `vellaveto-audit/src/tests.rs` |
+| Tests (~404) | `vellaveto-audit/src/tests.rs` |
 | **vellaveto-config** | |
 | Module root + PolicyConfig + validation | `vellaveto-config/src/lib.rs`, `vellaveto-config/src/config_validate.rs` |
 | Detection, enterprise, ETDI, MCP protocol, threat detection | `vellaveto-config/src/*.rs` |
 | Advanced: ABAC, compliance, extension, FIPS, gateway, gRPC, transport | `vellaveto-config/src/*.rs` |
-| Tests (~164) | `vellaveto-config/src/tests.rs` |
+| Tests (~301) | `vellaveto-config/src/tests.rs` |
 | **vellaveto-mcp** | |
 | MCP handling | `vellaveto-mcp/src/lib.rs` |
 | Proxy bridge (struct, builder, evaluation, relay, tests) | `vellaveto-mcp/src/proxy/bridge/*.rs` |
@@ -107,6 +108,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Red team, FIPS, Rekor, session guard | `vellaveto-mcp/src/{red_team,fips,rekor,session_guard}.rs` |
 | Semantic guardrails | `vellaveto-mcp/src/semantic_guardrails/` |
 | A2A protocol security | `vellaveto-mcp/src/a2a/` |
+| Transparency marking + decision explanation | `vellaveto-mcp/src/transparency.rs` |
 | Extension registry | `vellaveto-mcp/src/extension_registry.rs` |
 | **vellaveto-http-proxy** | |
 | HTTP proxy: handlers, auth, origin, upstream, inspection | `vellaveto-http-proxy/src/proxy/*.rs` |
@@ -133,7 +135,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 ## What's Done (DO NOT rebuild)
 
-All 23 phases implemented, tested, and hardened through 38 audit rounds. Details in CHANGELOG.md.
+All 24 phases implemented, tested, and hardened through 38 audit rounds. Details in CHANGELOG.md.
 
 - **Core Engine:** Policy evaluation with glob/regex/domain matching, path traversal protection, DNS rebinding defense, context-aware policies (time windows, call limits, agent ID, action sequences)
 - **Audit:** Tamper-evident logging (SHA-256 chain, Merkle proofs, Ed25519 checkpoints, rotation), export (CEF/JSONL/webhook/syslog), immutable archive with retention
@@ -142,6 +144,7 @@ All 23 phases implemented, tested, and hardened through 38 audit rounds. Details
 - **Advanced Authorization (Phase 21):** ABAC with forbid-overrides, capability-based delegation tokens, least-agency tracking, identity federation, continuous authorization
 - **MCP Gateway (Phase 20):** Multi-backend routing, health state machine, session affinity, tool conflict detection
 - **Compliance (Phase 19):** EU AI Act registry + Art 50 transparency marking, SOC 2 evidence, CoSAI 38/38, Adversa TOP 25 25/25, 7-framework gap analysis, OTLP export, Merkle inclusion proofs
+- **EU AI Act Final Compliance (Phase 24):** Art 50(2) automated decision explanations (VerdictExplanation at configurable verbosity), Art 10 data governance registry (DataGovernanceRecord with classification/purpose/provenance/retention), decision explanation injection into `_meta`
 - **MCP Ecosystem:** Tool registry with trust scoring, elicitation interception, sampling enforcement, semantic guardrails (LLM-based), A2A protocol security
 - **Transport (Phases 17–18):** WebSocket bidirectional proxy, gRPC reverse proxy (tonic), extension registry, transport discovery/negotiation/fallback
 - **Research (Phase 23):** Red team mutation engine, FIPS 140-3 mode, Rekor transparency log, stateful session guards

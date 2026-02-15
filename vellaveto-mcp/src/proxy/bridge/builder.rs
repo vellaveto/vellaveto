@@ -240,4 +240,19 @@ impl ProxyBridge {
         self.human_oversight_tools = patterns;
         self
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 24: Art 50(2) Decision Explanation
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Set the decision explanation verbosity level for Art 50(2).
+    /// When not `None`, per-verdict structured explanations are injected
+    /// into `_meta.vellaveto_decision_explanation` in tool responses.
+    pub fn with_explanation_verbosity(
+        mut self,
+        verbosity: vellaveto_types::ExplanationVerbosity,
+    ) -> Self {
+        self.explanation_verbosity = verbosity;
+        self
+    }
 }

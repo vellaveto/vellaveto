@@ -5,7 +5,10 @@
 //! `vellaveto-types` so both config and audit crates can use them.
 
 use serde::{Deserialize, Serialize};
-pub use vellaveto_types::compliance::{AiActRiskClass, TrustServicesCategory};
+pub use vellaveto_types::compliance::{
+    AiActRiskClass, DataClassification, ExplanationVerbosity, ProcessingPurpose,
+    TrustServicesCategory,
+};
 
 // ── Validation Constants ──────────────────────────────────────────────────────
 
@@ -58,6 +61,10 @@ pub struct EuAiActConfig {
     /// Whether to compress rotated audit logs. Default: true.
     #[serde(default = "super::default_true")]
     pub compress_archives: bool,
+
+    /// Art 50(2) decision explanation verbosity. Default: None.
+    #[serde(default)]
+    pub explanation_verbosity: ExplanationVerbosity,
 }
 
 fn default_retention_days() -> u32 {
@@ -76,6 +83,7 @@ impl Default for EuAiActConfig {
             record_retention_days: default_retention_days(),
             conformity_assessment: false,
             compress_archives: true,
+            explanation_verbosity: ExplanationVerbosity::default(),
         }
     }
 }
@@ -106,6 +114,53 @@ pub struct Soc2Config {
     pub tracked_categories: Vec<TrustServicesCategory>,
 }
 
+// ── Data Governance Configuration (Art 10) ────────────────────────────────────
+
+/// Per-tool data governance mapping.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolDataMapping {
+    /// Tool name or glob pattern.
+    pub tool_pattern: String,
+    /// Data classifications for this tool.
+    pub classifications: Vec<DataClassification>,
+    /// Processing purpose.
+    pub purpose: ProcessingPurpose,
+    /// Data provenance description.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<String>,
+    /// Override retention period in days.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retention_days: Option<u32>,
+}
+
+/// Art 10 data governance configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataGovernanceConfig {
+    /// Enable data governance record keeping.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Per-tool data classification mappings.
+    #[serde(default)]
+    pub tool_mappings: Vec<ToolDataMapping>,
+    /// Default retention period in days. Default: 365.
+    #[serde(default = "default_governance_retention")]
+    pub default_retention_days: u32,
+}
+
+fn default_governance_retention() -> u32 {
+    365
+}
+
+impl Default for DataGovernanceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            tool_mappings: Vec::new(),
+            default_retention_days: default_governance_retention(),
+        }
+    }
+}
+
 // ── Top-Level Compliance Configuration ────────────────────────────────────────
 
 /// Top-level compliance evidence configuration.
@@ -118,6 +173,10 @@ pub struct ComplianceConfig {
     /// SOC 2 compliance configuration.
     #[serde(default)]
     pub soc2: Soc2Config,
+
+    /// Art 10 data governance configuration.
+    #[serde(default)]
+    pub data_governance: DataGovernanceConfig,
 }
 
 impl ComplianceConfig {
@@ -159,6 +218,12 @@ mod tests {
         assert_eq!(config.eu_ai_act.record_retention_days, 365);
         assert_eq!(config.eu_ai_act.risk_class, AiActRiskClass::Limited);
         assert!(config.eu_ai_act.compress_archives);
+        assert_eq!(
+            config.eu_ai_act.explanation_verbosity,
+            ExplanationVerbosity::None
+        );
+        assert!(!config.data_governance.enabled);
+        assert_eq!(config.data_governance.default_retention_days, 365);
     }
 
     #[test]
@@ -227,6 +292,7 @@ mod tests {
                 record_retention_days: 730,
                 conformity_assessment: true,
                 compress_archives: true,
+                explanation_verbosity: ExplanationVerbosity::Summary,
             },
             soc2: Soc2Config {
                 enabled: true,
@@ -235,11 +301,16 @@ mod tests {
                 period_end: "2026-12-31".into(),
                 tracked_categories: vec![TrustServicesCategory::CC1, TrustServicesCategory::CC6],
             },
+            data_governance: DataGovernanceConfig::default(),
         };
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: ComplianceConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.eu_ai_act.risk_class, AiActRiskClass::HighRisk);
         assert_eq!(deserialized.soc2.tracked_categories.len(), 2);
+        assert_eq!(
+            deserialized.eu_ai_act.explanation_verbosity,
+            ExplanationVerbosity::Summary
+        );
     }
 
     #[test]
@@ -257,5 +328,52 @@ enabled = false
         let config: ComplianceConfig = toml::from_str(toml_str).unwrap();
         assert!(config.eu_ai_act.enabled);
         assert_eq!(config.eu_ai_act.risk_class, AiActRiskClass::HighRisk);
+    }
+
+    #[test]
+    fn test_toml_parsing_with_explanation_verbosity() {
+        let toml_str = r#"
+[eu_ai_act]
+enabled = true
+explanation_verbosity = "full"
+
+[soc2]
+enabled = false
+"#;
+        let config: ComplianceConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(
+            config.eu_ai_act.explanation_verbosity,
+            ExplanationVerbosity::Full
+        );
+    }
+
+    #[test]
+    fn test_data_governance_config_serde() {
+        let config = DataGovernanceConfig {
+            enabled: true,
+            tool_mappings: vec![ToolDataMapping {
+                tool_pattern: "filesystem.*".to_string(),
+                classifications: vec![DataClassification::Input, DataClassification::Output],
+                purpose: ProcessingPurpose::ToolExecution,
+                provenance: Some("user-provided".to_string()),
+                retention_days: Some(730),
+            }],
+            default_retention_days: 365,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: DataGovernanceConfig = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.enabled);
+        assert_eq!(deserialized.tool_mappings.len(), 1);
+        assert_eq!(
+            deserialized.tool_mappings[0].purpose,
+            ProcessingPurpose::ToolExecution
+        );
+    }
+
+    #[test]
+    fn test_data_governance_default_retention() {
+        let config = DataGovernanceConfig::default();
+        assert_eq!(config.default_retention_days, 365);
+        assert!(config.tool_mappings.is_empty());
     }
 }

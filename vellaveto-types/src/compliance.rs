@@ -73,3 +73,109 @@ impl std::fmt::Display for TrustServicesCategory {
         }
     }
 }
+
+// ── Phase 24: Art 50(2) Explanation Verbosity ────────────────────────────────
+
+/// Controls the verbosity of per-verdict decision explanations (Art 50(2)).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExplanationVerbosity {
+    /// No explanation injected (default — backward compatible).
+    #[default]
+    None,
+    /// Summary: verdict, reason, counts, duration. No policy details.
+    Summary,
+    /// Full: includes per-policy match details and failed constraints.
+    Full,
+}
+
+impl std::fmt::Display for ExplanationVerbosity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => write!(f, "none"),
+            Self::Summary => write!(f, "summary"),
+            Self::Full => write!(f, "full"),
+        }
+    }
+}
+
+// ── Phase 24: Art 10 Data Governance Types ───────────────────────────────────
+
+/// Classification of data processed by a tool (Art 10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DataClassification {
+    /// Training data used to build or fine-tune models.
+    Training,
+    /// Input data provided to the AI system.
+    Input,
+    /// Output data produced by the AI system.
+    Output,
+    /// Testing or validation data.
+    Testing,
+    /// Operational/system data.
+    Operational,
+    /// Personal data (GDPR-relevant).
+    Personal,
+    /// Non-personal data.
+    NonPersonal,
+}
+
+impl std::fmt::Display for DataClassification {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Training => write!(f, "training"),
+            Self::Input => write!(f, "input"),
+            Self::Output => write!(f, "output"),
+            Self::Testing => write!(f, "testing"),
+            Self::Operational => write!(f, "operational"),
+            Self::Personal => write!(f, "personal"),
+            Self::NonPersonal => write!(f, "non_personal"),
+        }
+    }
+}
+
+/// Purpose of data processing by a tool (Art 10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProcessingPurpose {
+    /// Executing a tool call on behalf of an AI agent.
+    ToolExecution,
+    /// Recording security audit events.
+    SecurityAudit,
+    /// Generating compliance evidence.
+    ComplianceEvidence,
+    /// Evaluating policies against actions.
+    PolicyEvaluation,
+    /// Model inference or generation.
+    ModelInference,
+}
+
+impl std::fmt::Display for ProcessingPurpose {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ToolExecution => write!(f, "tool_execution"),
+            Self::SecurityAudit => write!(f, "security_audit"),
+            Self::ComplianceEvidence => write!(f, "compliance_evidence"),
+            Self::PolicyEvaluation => write!(f, "policy_evaluation"),
+            Self::ModelInference => write!(f, "model_inference"),
+        }
+    }
+}
+
+/// Data governance record for a tool (Art 10).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DataGovernanceRecord {
+    /// Tool name or pattern this record applies to.
+    pub tool: String,
+    /// Data classifications applicable to this tool.
+    pub classifications: Vec<DataClassification>,
+    /// Purpose of data processing.
+    pub purpose: ProcessingPurpose,
+    /// Data provenance description (e.g., "user-provided", "system-generated").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<String>,
+    /// Retention period in days.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retention_days: Option<u32>,
+}

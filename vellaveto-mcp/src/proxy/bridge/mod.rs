@@ -133,6 +133,12 @@ pub struct ProxyBridge {
     transparency_marking: bool,
     /// Tool patterns requiring human oversight (Art 14 glob patterns).
     human_oversight_tools: Vec<String>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 24: Art 50(2) Decision Explanations
+    // ═══════════════════════════════════════════════════════════════════
+    /// Verbosity level for per-verdict decision explanations.
+    explanation_verbosity: vellaveto_types::ExplanationVerbosity,
 }
 
 impl ProxyBridge {
@@ -175,6 +181,8 @@ impl ProxyBridge {
             // Phase 19: Transparency (default: disabled)
             transparency_marking: false,
             human_oversight_tools: Vec::new(),
+            // Phase 24: Art 50(2) explanations (default: disabled)
+            explanation_verbosity: vellaveto_types::ExplanationVerbosity::None,
         }
     }
 }

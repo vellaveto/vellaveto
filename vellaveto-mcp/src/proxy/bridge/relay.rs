@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 use tokio::io::BufReader;
 use tokio::process::{ChildStdin, ChildStdout};
 use vellaveto_config::ToolManifest;
-use vellaveto_types::{EvaluationContext, Verdict};
+use vellaveto_types::{EvaluationContext, EvaluationTrace, Verdict};
 
 /// SECURITY (R8-MCP-8): Maximum number of pending (in-flight) requests.
 /// Prevents OOM if an agent sends requests faster than the server responds.
@@ -51,14 +51,25 @@ struct IoWriters<'a> {
     child: &'a mut ChildStdin,
 }
 
+/// Tracks a pending (in-flight) request for timeout, circuit breaker,
+/// and decision explanation plumbing.
+struct PendingRequest {
+    /// When the request was sent to the child server.
+    sent_at: Instant,
+    /// Tool or method name.
+    tool_name: String,
+    /// Evaluation trace (when tracing enabled), for Art 50(2) explanation injection.
+    trace: Option<EvaluationTrace>,
+}
+
 /// Mutable session state for the relay loop.
 ///
 /// Groups all per-session mutable variables that are threaded through
 /// the handler methods during the bidirectional message relay.
 struct RelayState {
     /// Pending request IDs for timeout detection and circuit breaker recording.
-    /// Key: serialized JSON-RPC id, Value: (timestamp, tool_name).
-    pending_requests: HashMap<String, (Instant, String)>,
+    /// Key: serialized JSON-RPC id, Value: PendingRequest.
+    pending_requests: HashMap<String, PendingRequest>,
     /// Track tools/list request IDs so we can intercept responses.
     tools_list_request_ids: HashSet<String>,
     /// Known tool annotations for rug-pull detection.
@@ -124,12 +135,23 @@ impl RelayState {
     }
 
     /// Track a pending request for timeout detection.
-    fn track_pending_request(&mut self, id: &Value, tool_name: String) {
+    fn track_pending_request(
+        &mut self,
+        id: &Value,
+        tool_name: String,
+        trace: Option<EvaluationTrace>,
+    ) {
         if !id.is_null() {
             let id_key = id.to_string();
             if self.pending_requests.len() < MAX_PENDING_REQUESTS {
-                self.pending_requests
-                    .insert(id_key, (Instant::now(), tool_name));
+                self.pending_requests.insert(
+                    id_key,
+                    PendingRequest {
+                        sent_at: Instant::now(),
+                        tool_name,
+                        trace,
+                    },
+                );
             } else {
                 tracing::warn!(
                     "Pending request limit reached ({}), not tracking request",
@@ -655,14 +677,16 @@ impl ProxyBridge {
 
         let ann = state.known_tool_annotations.get(&tool_name);
         let eval_ctx = state.evaluation_context();
-        match self.evaluate_tool_call(&id, &tool_name, &arguments, ann, Some(&eval_ctx)) {
+        let (decision, eval_trace) =
+            self.evaluate_tool_call(&id, &tool_name, &arguments, ann, Some(&eval_ctx));
+        match decision {
             ProxyDecision::Forward => {
                 // Record tool call in registry on Allow
                 if let Some(ref registry) = self.tool_registry {
                     registry.record_call(&tool_name).await;
                 }
                 state.record_forwarded_action(&tool_name);
-                state.track_pending_request(&id, tool_name);
+                state.track_pending_request(&id, tool_name, eval_trace);
                 write_message(child_stdin, &msg)
                     .await
                     .map_err(ProxyError::Framing)?;
@@ -829,7 +853,7 @@ impl ProxyBridge {
             ProxyDecision::Forward => {
                 // SECURITY (R38-MCP-2): Update call_counts and action_history for ResourceRead.
                 state.record_forwarded_action("resources/read");
-                state.track_pending_request(&id, "resources/read".to_string());
+                state.track_pending_request(&id, "resources/read".to_string(), None);
                 write_message(child_stdin, &msg)
                     .await
                     .map_err(ProxyError::Framing)?;
@@ -1114,7 +1138,7 @@ impl ProxyBridge {
                 }
                 // SECURITY (R38-MCP-2): Update call_counts and action_history.
                 state.record_forwarded_action(&task_method);
-                state.track_pending_request(&id, task_method);
+                state.track_pending_request(&id, task_method, None);
                 write_message(child_stdin, &msg)
                     .await
                     .map_err(ProxyError::Framing)?;
@@ -1242,7 +1266,7 @@ impl ProxyBridge {
                     tracing::warn!("Audit log failed: {}", e);
                 }
                 state.record_forwarded_action(&method);
-                state.track_pending_request(&id, method);
+                state.track_pending_request(&id, method, None);
                 write_message(child_stdin, &msg)
                     .await
                     .map_err(ProxyError::Framing)?;
@@ -1360,9 +1384,14 @@ impl ProxyBridge {
                 let id_key = id.to_string();
                 let method = msg.get("method").and_then(|m| m.as_str());
                 let method_name = method.unwrap_or("unknown").to_string();
-                state
-                    .pending_requests
-                    .insert(id_key.clone(), (Instant::now(), method_name));
+                state.pending_requests.insert(
+                    id_key.clone(),
+                    PendingRequest {
+                        sent_at: Instant::now(),
+                        tool_name: method_name,
+                        trace: None,
+                    },
+                );
                 // SECURITY (R29-MCP-1): Normalize method before tracking.
                 let normalized_method = method.map(crate::extractor::normalize_method);
 
@@ -1569,17 +1598,19 @@ impl ProxyBridge {
 
         // Remove from pending requests on response
         let mut response_tool_name: Option<String> = None;
+        let mut response_trace: Option<EvaluationTrace> = None;
         if let Some(id) = msg.get("id") {
             if !id.is_null() {
                 let id_key = id.to_string();
                 // Phase 3.1: Circuit breaker recording on response
-                if let Some((_, tool_name)) = state.pending_requests.remove(&id_key) {
-                    response_tool_name = Some(tool_name.clone());
+                if let Some(pending) = state.pending_requests.remove(&id_key) {
+                    response_tool_name = Some(pending.tool_name.clone());
+                    response_trace = pending.trace;
                     if let Some(ref cb) = self.circuit_breaker {
                         if msg.get("error").is_some() {
-                            cb.record_failure(&tool_name);
+                            cb.record_failure(&pending.tool_name);
                         } else {
-                            cb.record_success(&tool_name);
+                            cb.record_success(&pending.tool_name);
                         }
                     }
                 }
@@ -1940,22 +1971,17 @@ impl ProxyBridge {
             crate::transparency::mark_ai_mediated(&mut msg);
         }
 
+        // Phase 24: Art 50(2) decision explanation injection
+        crate::transparency::inject_decision_explanation(
+            &mut msg,
+            response_trace.as_ref(),
+            self.explanation_verbosity,
+        );
+
         // Phase 19: Art 14 human oversight audit event
-        if let Some(tool_name) = msg.get("id").and_then(|id| {
-            let id_str = match id {
-                Value::String(s) => s.clone(),
-                Value::Number(n) => n.to_string(),
-                _ => return None,
-            };
-            state
-                .pending_requests
-                .get(&id_str)
-                .map(|(_, name)| name.clone())
-        }) {
-            if crate::transparency::requires_human_oversight(
-                &tool_name,
-                &self.human_oversight_tools,
-            ) {
+        if let Some(tool_name) = response_tool_name.as_deref() {
+            if crate::transparency::requires_human_oversight(tool_name, &self.human_oversight_tools)
+            {
                 let oversight_action = vellaveto_types::Action::new(
                     "vellaveto",
                     "human_oversight_triggered",
@@ -2189,9 +2215,9 @@ impl ProxyBridge {
             let pending_count = crash_ids.len();
             for id_key in &crash_ids {
                 // Phase 3.1: Circuit breaker - record crash as failure
-                if let Some((_, tool_name)) = state.pending_requests.remove(id_key) {
+                if let Some(pending) = state.pending_requests.remove(id_key) {
                     if let Some(ref cb) = self.circuit_breaker {
-                        cb.record_failure(&tool_name);
+                        cb.record_failure(&pending.tool_name);
                     }
                 }
                 let id: Value = serde_json::from_str(id_key).unwrap_or(Value::Null);
@@ -2233,15 +2259,15 @@ impl ProxyBridge {
         let timed_out: Vec<String> = state
             .pending_requests
             .iter()
-            .filter(|(_, (sent_at, _))| now.duration_since(*sent_at) > self.request_timeout)
+            .filter(|(_, req)| now.duration_since(req.sent_at) > self.request_timeout)
             .map(|(id_key, _)| id_key.clone())
             .collect();
 
         for id_key in timed_out {
             // Phase 3.1: Circuit breaker - record timeout as failure
-            if let Some((_, tool_name)) = state.pending_requests.remove(&id_key) {
+            if let Some(pending) = state.pending_requests.remove(&id_key) {
                 if let Some(ref cb) = self.circuit_breaker {
-                    cb.record_failure(&tool_name);
+                    cb.record_failure(&pending.tool_name);
                 }
             }
             let id: Value = serde_json::from_str(&id_key).unwrap_or(Value::Null);

@@ -69,6 +69,10 @@ pub fn build_router(state: AppState) -> Router {
             get(super::compliance::gap_analysis),
         )
         .route(
+            "/api/compliance/data-governance",
+            get(super::compliance::data_governance_summary),
+        )
+        .route(
             "/api/audit/checkpoints",
             get(super::audit::list_checkpoints),
         )

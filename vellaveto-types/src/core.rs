@@ -302,3 +302,115 @@ pub struct ConstraintResult {
     pub actual: String,
     pub passed: bool,
 }
+
+// ═══════════════════════════════════════════════════
+// VERDICT EXPLANATION (Phase 24 — Art 50(2))
+// ═══════════════════════════════════════════════════
+
+/// Structured decision explanation for Art 50(2) transparency.
+///
+/// Transforms an `EvaluationTrace` into a consumer-facing explanation
+/// at configurable verbosity levels.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerdictExplanation {
+    /// Final verdict string ("Allow", "Deny", "RequireApproval").
+    pub verdict: String,
+    /// Human-readable reason (from Deny/RequireApproval).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// Number of policies checked.
+    pub policies_checked: usize,
+    /// Number of policies that matched.
+    pub policies_matched: usize,
+    /// Evaluation duration in microseconds.
+    pub duration_us: u64,
+    /// Per-policy match details (only present at Full verbosity).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_details: Option<Vec<PolicyMatchDetail>>,
+}
+
+/// Per-policy match detail within a verdict explanation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyMatchDetail {
+    /// Policy identifier.
+    pub policy_id: String,
+    /// Policy display name.
+    pub policy_name: String,
+    /// Policy priority.
+    pub priority: i32,
+    /// How this policy contributed to the final verdict.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict_contribution: Option<String>,
+    /// Constraints that failed evaluation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed_constraints: Option<Vec<String>>,
+}
+
+impl VerdictExplanation {
+    /// Build a summary explanation (verdict + reason + counts, no policy details).
+    pub fn summary(trace: &EvaluationTrace) -> Self {
+        let (verdict_str, reason) = Self::extract_verdict_info(&trace.verdict);
+        Self {
+            verdict: verdict_str,
+            reason,
+            policies_checked: trace.policies_checked,
+            policies_matched: trace.policies_matched,
+            duration_us: trace.duration_us,
+            policy_details: None,
+        }
+    }
+
+    /// Build a full explanation including per-policy match details.
+    pub fn full(trace: &EvaluationTrace) -> Self {
+        let (verdict_str, reason) = Self::extract_verdict_info(&trace.verdict);
+        let details: Vec<PolicyMatchDetail> = trace
+            .matches
+            .iter()
+            .map(|m| {
+                let failed: Vec<String> = m
+                    .constraint_results
+                    .iter()
+                    .filter(|c| !c.passed)
+                    .map(|c| {
+                        format!(
+                            "{}: expected {} got {}",
+                            c.constraint_type, c.expected, c.actual
+                        )
+                    })
+                    .collect();
+                let contribution = m.verdict_contribution.as_ref().map(|v| format!("{:?}", v));
+                PolicyMatchDetail {
+                    policy_id: m.policy_id.clone(),
+                    policy_name: m.policy_name.clone(),
+                    priority: m.priority,
+                    verdict_contribution: contribution,
+                    failed_constraints: if failed.is_empty() {
+                        None
+                    } else {
+                        Some(failed)
+                    },
+                }
+            })
+            .collect();
+        Self {
+            verdict: verdict_str,
+            reason,
+            policies_checked: trace.policies_checked,
+            policies_matched: trace.policies_matched,
+            duration_us: trace.duration_us,
+            policy_details: Some(details),
+        }
+    }
+
+    #[allow(unreachable_patterns)] // Verdict is #[non_exhaustive]
+    fn extract_verdict_info(verdict: &Verdict) -> (String, Option<String>) {
+        match verdict {
+            Verdict::Allow => ("Allow".to_string(), None),
+            Verdict::Deny { reason } => ("Deny".to_string(), Some(reason.clone())),
+            Verdict::RequireApproval { reason } => {
+                ("RequireApproval".to_string(), Some(reason.clone()))
+            }
+            _ => ("Unknown".to_string(), None),
+        }
+    }
+}

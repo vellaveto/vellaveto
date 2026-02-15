@@ -323,3 +323,37 @@ pub async fn gap_analysis() -> Result<Json<serde_json::Value>, (StatusCode, Json
         )
     })
 }
+
+/// `GET /api/compliance/data-governance` — Art 10 data governance summary.
+///
+/// Returns tool data classification mappings, provenance, and retention records
+/// when data governance is enabled. Returns `{ "enabled": false }` otherwise.
+#[tracing::instrument(name = "vellaveto.data_governance", skip(state))]
+pub async fn data_governance_summary(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let snapshot = state.policy_state.load();
+    let config = &snapshot.compliance_config;
+
+    if !config.data_governance.enabled {
+        return Ok(Json(serde_json::json!({ "enabled": false })));
+    }
+
+    let registry = vellaveto_audit::data_governance::DataGovernanceRegistry::new();
+    let summary = registry.generate_summary();
+
+    serde_json::to_value(&summary)
+        .map(|mut v| {
+            v["enabled"] = serde_json::Value::Bool(true);
+            Json(v)
+        })
+        .map_err(|e| {
+            tracing::error!("Failed to serialize data governance summary: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Failed to generate data governance summary".to_string(),
+                }),
+            )
+        })
+}

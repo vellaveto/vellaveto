@@ -32,7 +32,7 @@ fn test_evaluate_allowed_tool_call() {
         network_rules: None,
     }];
     let bridge = test_bridge(policies);
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(1),
         "read_file",
         &json!({"path": "/tmp/test"}),
@@ -53,7 +53,7 @@ fn test_evaluate_denied_tool_call() {
         network_rules: None,
     }];
     let bridge = test_bridge(policies);
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(2),
         "bash",
         &json!({"command": "rm -rf /"}),
@@ -85,7 +85,8 @@ fn test_evaluate_no_matching_policy_denies() {
         network_rules: None,
     }];
     let bridge = test_bridge(policies);
-    let decision = bridge.evaluate_tool_call(&json!(3), "unknown_tool", &json!({}), None, None);
+    let (decision, _trace) =
+        bridge.evaluate_tool_call(&json!(3), "unknown_tool", &json!({}), None, None);
     assert!(matches!(decision, ProxyDecision::Block(_, _)));
 }
 
@@ -102,7 +103,8 @@ fn test_evaluate_require_approval() {
         network_rules: None,
     }];
     let bridge = test_bridge(policies);
-    let decision = bridge.evaluate_tool_call(&json!(4), "write_file", &json!({}), None, None);
+    let (decision, _trace) =
+        bridge.evaluate_tool_call(&json!(4), "write_file", &json!({}), None, None);
     match decision {
         ProxyDecision::Block(resp, verdict) => {
             assert_eq!(resp["error"]["code"], -32002);
@@ -139,7 +141,7 @@ fn test_evaluate_with_parameter_constraints() {
     let bridge = test_bridge(policies);
 
     // Should be blocked
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(5),
         "read_file",
         &json!({"path": "/etc/passwd"}),
@@ -149,7 +151,7 @@ fn test_evaluate_with_parameter_constraints() {
     assert!(matches!(decision, ProxyDecision::Block(_, _)));
 
     // Should be allowed
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(6),
         "read_file",
         &json!({"path": "/tmp/safe.txt"}),
@@ -162,7 +164,8 @@ fn test_evaluate_with_parameter_constraints() {
 #[test]
 fn test_evaluate_empty_policies_denies() {
     let bridge = test_bridge(vec![]);
-    let decision = bridge.evaluate_tool_call(&json!(7), "any_tool", &json!({}), None, None);
+    let (decision, _trace) =
+        bridge.evaluate_tool_call(&json!(7), "any_tool", &json!({}), None, None);
     assert!(matches!(decision, ProxyDecision::Block(_, _)));
 }
 
@@ -317,7 +320,7 @@ fn test_trace_enabled_allow() {
     }];
     let bridge = test_bridge_traced(policies);
     assert!(bridge.enable_trace);
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(1),
         "read_file",
         &json!({"path": "/tmp/test"}),
@@ -338,7 +341,7 @@ fn test_trace_enabled_deny() {
         network_rules: None,
     }];
     let bridge = test_bridge_traced(policies);
-    let decision =
+    let (decision, _trace) =
         bridge.evaluate_tool_call(&json!(2), "bash", &json!({"command": "ls"}), None, None);
     match decision {
         ProxyDecision::Block(resp, Verdict::Deny { .. }) => {
@@ -866,7 +869,7 @@ fn test_evaluate_tool_call_with_annotations() {
         open_world_hint: true,
         input_schema_hash: None,
     };
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(20),
         "delete_file",
         &json!({"path": "/tmp/test"}),
@@ -894,7 +897,7 @@ fn test_evaluate_tool_call_with_readonly_annotation() {
         open_world_hint: false,
         input_schema_hash: None,
     };
-    let decision = bridge.evaluate_tool_call(
+    let (decision, _trace) = bridge.evaluate_tool_call(
         &json!(21),
         "read_file",
         &json!({"path": "/tmp/safe"}),
