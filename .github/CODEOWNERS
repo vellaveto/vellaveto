@@ -7,7 +7,7 @@
 /Cargo.lock @paolovella
 
 # Security-critical auth / policy enforcement paths.
-/sentinel-http-proxy/src/oauth.rs @paolovella
-/sentinel-http-proxy/src/proxy.rs @paolovella
-/sentinel-server/src/opa.rs @paolovella
-/sentinel-server/src/rbac.rs @paolovella
+/vellaveto-http-proxy/src/oauth.rs @paolovella
+/vellaveto-http-proxy/src/proxy.rs @paolovella
+/vellaveto-server/src/opa.rs @paolovella
+/vellaveto-server/src/rbac.rs @paolovella
