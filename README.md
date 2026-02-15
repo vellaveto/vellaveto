@@ -7,11 +7,11 @@
     🔍 Intercept &middot; ⚖️ Evaluate &middot; 🚫 Enforce &middot; 📋 Audit
   </p>
   <p align="center">
-    <a href="https://github.com/paolovella/vellaveto/releases"><img src="https://img.shields.io/badge/version-3.0.0-blue.svg" alt="Version 3.0.0"></a>
+    <a href="https://github.com/paolovella/vellaveto/releases"><img src="https://img.shields.io/badge/version-4.0.0--dev-blue.svg" alt="Version 4.0.0-dev"></a>
     <a href="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/vellaveto/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-4%2C812_passing-brightgreen.svg" alt="Tests: 4,812 passing">
+    <img src="https://img.shields.io/badge/tests-4%2C857_passing-brightgreen.svg" alt="Tests: 4,857 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <img src="https://img.shields.io/badge/security_audit-38_rounds%2C_400%2B_findings-informational.svg" alt="Security Audit: 38 rounds, 400+ findings">
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
@@ -33,17 +33,21 @@
 Vellaveto is a lightweight, high-performance firewall that sits between AI agents and their tools. It intercepts [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) and function-calling requests, enforces security policies on paths, domains, and actions, and maintains a tamper-evident audit trail with cryptographic guarantees.
 
 <table>
-<tr><td>🏷️ <strong>Version</strong></td><td>3.0.0</td></tr>
+<tr><td>🏷️ <strong>Version</strong></td><td>4.0.0-dev</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>4,812+ tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>4,857+ tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
 <tr><td>📄 <strong>License</strong></td><td>AGPL-3.0 (dual license available)</td></tr>
 </table>
 
-## Recent Updates (2026-02-14)
+## Recent Updates (2026-02-15)
 
+- **Phase 24: EU AI Act Final Compliance** — Closes the two remaining EU AI Act gaps before the August 2, 2026 enforcement deadline:
+  - **Art 50(2) — Automated decision explanations**: `VerdictExplanation` transforms `EvaluationTrace` into consumer-facing explanations at configurable verbosity (`None`, `Summary`, `Full`). Injected into `_meta.vellaveto_decision_explanation` on JSON-RPC responses via the proxy bridge. New `ExplanationVerbosity` config field on `EuAiActConfig`.
+  - **Art 10 — Data governance record keeping**: `DataGovernanceRegistry` with tool-to-classification mappings (`DataClassification`: Training, Input, Output, Testing, Operational, Personal, NonPersonal), `ProcessingPurpose` tracking, provenance strings, and configurable retention. `GET /api/compliance/data-governance` endpoint. Default mappings for filesystem, database, HTTP, and vellaveto tool patterns.
+  - Both Art 50(2) and Art 10 now report `ComplianceStatus::Compliant`. 45 new tests.
 - **Go SDK** — Zero-dependency Go client (`sdk/go/`) with full API parity (12 methods), functional options, `context.Context` on all methods, fail-closed verdict parsing (unknown → Deny), 28 table-driven tests using `httptest`. Go 1.21+.
 - **HTTP Proxy Benchmarks** — 35 Criterion benchmarks for the production hot path (`vellaveto-http-proxy/benches/http_proxy.rs`): origin validation (<440ns), HMAC signing/verification (<1.6µs), call chain parsing (<3.8µs), privilege escalation detection (<76ns), audit context building (<1.1µs).
 - **Phase 17 Complete** — All 6 exit criteria delivered. Phase 17.3 (Async Operations) adds TaskRequest policy enforcement across all 4 transports (HTTP, WebSocket, gRPC, stdio) with fail-closed semantics, `ProgressNotification` classification for `notifications/progress`. Phase 17.4 (Protocol Extensions) adds `ExtensionHandler` trait with lifecycle hooks, `ExtensionRegistry` with thread-safe registration and glob-based negotiation, `x-` prefix method routing through policy evaluation, and `AuditQueryExtension` example handling `x-vellaveto-audit/stats`. 50+ new tests. New types: `ExtensionDescriptor`, `ExtensionResourceLimits`, `ExtensionConfig`.
@@ -243,12 +247,12 @@ Vellaveto enforces security policies on every tool call before it reaches the to
 
 ```bash
 # Pull the latest release
-docker pull ghcr.io/paolovella/vellaveto:3.0.0
+docker pull ghcr.io/paolovella/vellaveto:latest
 
 # Run with a policy config
 docker run -p 3000:3000 \
   -v /path/to/config.toml:/etc/vellaveto/config.toml:ro \
-  ghcr.io/paolovella/vellaveto:3.0.0
+  ghcr.io/paolovella/vellaveto:latest
 ```
 
 ### Kubernetes (Helm)
@@ -773,6 +777,7 @@ Security defaults and guardrails:
 | `GET` | `/api/compliance/iso42001/report` | Yes | ISO/IEC 42001 AI Management System evidence report |
 | `GET` | `/api/compliance/threat-coverage` | Yes | Threat coverage across ATLAS, CoSAI, and Adversa TOP 25 |
 | `GET` | `/api/compliance/gap-analysis` | Yes | Cross-framework gap analysis (7 frameworks) |
+| `GET` | `/api/compliance/data-governance` | Yes | Data governance registry (Art 10) with tool classifications |
 
 All endpoints except `/health`, `/metrics`, and `/api/metrics` require a `Bearer` token matching `VELLAVETO_API_KEY`. Use `--allow-anonymous` to disable authentication for development.
 
@@ -957,7 +962,7 @@ Vellaveto has undergone 37 rounds of adversarial security audit covering 31+ att
 | Total findings triaged | 400+ |
 | Findings fixed | 310+ |
 | Critical/HIGH findings fixed | 85+ |
-| Test count post-audit | 4,800+ |
+| Test count post-audit | 4,850+ |
 
 Key areas covered: tool poisoning, prompt injection, path traversal, SSRF/domain bypass, session fixation, JSON parsing, memory poisoning, elicitation social engineering, audit log tampering, OAuth/JWT validation, SIEM export injection, rug-pull detection, tool squatting, DLP bypass, SSE transport parity, config reload races, Unicode case-folding, IPv6 transition mechanisms, CEF/SIEM injection, and webhook SSRF.
 
@@ -967,7 +972,7 @@ Vellaveto provides built-in compliance mapping and reporting for major AI securi
 
 | Standard | Module | Coverage |
 |----------|--------|----------|
-| **EU AI Act** | `vellaveto-audit/src/eu_ai_act.rs` | 10 obligations (Art 5–50), 18 capability mappings, conformity assessment reports |
+| **EU AI Act** | `vellaveto-audit/src/eu_ai_act.rs` | 10 obligations (Art 5–50), 19 capability mappings, conformity assessment reports, Art 50(2) decision explanations, Art 10 data governance |
 | **SOC 2** | `vellaveto-audit/src/soc2.rs` | 22 criteria across CC1-CC9, ~30 capability mappings, evidence reports |
 | **MITRE ATLAS** | `vellaveto-audit/src/atlas.rs` | 14 techniques (AML.T0051-T0065), 30+ detection mappings |
 | **OWASP AIVSS** | `vellaveto-audit/src/aivss.rs` | Full severity scoring with AI-specific multipliers |
@@ -1065,7 +1070,7 @@ vellaveto-  vellaveto- vellaveto-
 server     proxy     http-proxy   HTTP API, stdio proxy, HTTP reverse proxy
 ```
 
-### Full Workspace Module Map (v3.0)
+### Full Workspace Module Map (v4.0)
 
 | Module | Type | Path | Responsibility | Verify |
 |--------|------|------|----------------|--------|
