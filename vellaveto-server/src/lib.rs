@@ -704,6 +704,15 @@ pub struct AppState {
 
     /// Server start time for uptime calculation.
     pub start_time: Instant,
+
+    /// SECURITY (FIND-P27-001): Cached discovered endpoint count.
+    /// Updated by a background task instead of live DNS lookup on every
+    /// /health and /api/deployment/info request. Prevents DNS amplification DoS.
+    pub cached_discovered_endpoints: Arc<AtomicU64>,
+
+    /// SECURITY (FIND-P27-004): Cached instance ID resolved once at startup.
+    /// Avoids repeated std::env::var("HOSTNAME") calls with global lock contention.
+    pub cached_instance_id: Arc<String>,
 }
 
 /// Error type for cluster-dispatched approval operations.

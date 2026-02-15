@@ -920,6 +920,8 @@ mod owasp_mcp07_auth {
             service_discovery: None,
             deployment_config: Default::default(),
             start_time: std::time::Instant::now(),
+            cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         };
         (state, tmp)
     }
@@ -1343,6 +1345,8 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
             service_discovery: None,
             deployment_config: Default::default(),
             start_time: std::time::Instant::now(),
+            cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         };
 
         let app = routes::build_router(state);
@@ -1617,6 +1621,8 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1727,6 +1733,8 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

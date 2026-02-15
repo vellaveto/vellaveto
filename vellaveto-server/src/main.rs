@@ -974,6 +974,13 @@ async fn cmd_serve(
         },
         deployment_config: policy_config.deployment.clone(),
         start_time: std::time::Instant::now(),
+
+        // SECURITY (FIND-P27-001): Cache discovered endpoint count to avoid DNS
+        // lookup on every /health request. Updated by background task below.
+        cached_discovered_endpoints: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+
+        // SECURITY (FIND-P27-004): Resolve instance ID once at startup.
+        cached_instance_id: Arc::new(policy_config.deployment.effective_instance_id()),
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -999,6 +1006,31 @@ async fn cmd_serve(
             }
         }
     });
+
+    // SECURITY (FIND-P27-001): Spawn background service discovery refresh.
+    // Caches endpoint count so /health and /api/deployment/info never call discover() directly.
+    if let Some(ref sd) = state.service_discovery {
+        let sd_clone = sd.clone();
+        let cached_count = state.cached_discovered_endpoints.clone();
+        let refresh_secs = state.deployment_config.service_discovery.refresh_interval_secs;
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_secs(refresh_secs));
+            loop {
+                interval.tick().await;
+                match sd_clone.discover().await {
+                    Ok(eps) => {
+                        cached_count.store(eps.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Service discovery refresh failed: {:?}", e);
+                        // SECURITY: fail-closed — set to 0 on error so we don't report stale data.
+                        cached_count.store(0, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+            }
+        });
+    }
 
     // Spawn periodic audit checkpoint task.
     // Creates a signed Ed25519 checkpoint every VELLAVETO_CHECKPOINT_INTERVAL seconds (default: 300).

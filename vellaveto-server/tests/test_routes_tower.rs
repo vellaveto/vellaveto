@@ -85,6 +85,8 @@ fn make_state() -> (AppState, TempDir) {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
     (state, tmp)
 }
@@ -142,6 +144,8 @@ fn make_empty_state() -> (AppState, TempDir) {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
     (state, tmp)
 }
@@ -1247,6 +1251,8 @@ priority = 1
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
     let app = routes::build_router(state.clone());
 
@@ -1369,6 +1375,8 @@ fn make_approval_state() -> (AppState, TempDir) {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
     (state, tmp)
 }
@@ -1852,6 +1860,8 @@ fn make_authed_state() -> (AppState, TempDir) {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
     (state, tmp)
 }
@@ -2359,6 +2369,8 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
     (state, tmp)
 }
@@ -3067,6 +3079,8 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
     (state, tmp)
 }

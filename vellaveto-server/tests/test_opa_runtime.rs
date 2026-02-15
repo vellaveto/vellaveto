@@ -97,6 +97,8 @@ fn test_state() -> (AppState, TempDir) {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
     (state, tmp)
 }

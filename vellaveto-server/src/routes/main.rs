@@ -889,15 +889,17 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
     };
 
     // Phase 27: Deployment status (only populated when leader election / discovery is configured)
+    // SECURITY (FIND-P27-001): Use cached values — never call discover() from /health.
     let leader_status = state.leader_election.as_ref().map(|le| le.current_status());
     let instance_id = if state.leader_election.is_some() || state.service_discovery.is_some() {
-        Some(state.deployment_config.effective_instance_id())
+        Some(state.cached_instance_id.as_ref().clone())
     } else {
         None
     };
-    let discovered_endpoints = match state.service_discovery.as_ref() {
-        Some(sd) => Some(sd.discover().await.map(|eps| eps.len()).unwrap_or(0)),
-        None => None,
+    let discovered_endpoints = if state.service_discovery.is_some() {
+        Some(state.cached_discovered_endpoints.load(std::sync::atomic::Ordering::Relaxed) as usize)
+    } else {
+        None
     };
 
     Json(HealthResponse {

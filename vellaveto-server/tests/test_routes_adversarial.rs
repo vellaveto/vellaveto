@@ -84,6 +84,8 @@ fn make_state() -> (AppState, TempDir) {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
     (state, tmp)
 }
@@ -141,6 +143,8 @@ fn make_empty_state() -> (AppState, TempDir) {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
     (state, tmp)
 }
@@ -582,6 +586,8 @@ priority = 1
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
     let policy_state = state.policy_state.clone();
     let app = routes::build_router(state);
@@ -706,6 +712,8 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
     let app = routes::build_router(state);
 
@@ -951,6 +959,8 @@ async fn test_find004_metrics_require_auth_true_blocks_unauthenticated() {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
     let app = routes::build_router(state);
 
@@ -1019,6 +1029,8 @@ async fn test_find004_metrics_require_auth_false_allows_unauthenticated() {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
     let app = routes::build_router(state);
 

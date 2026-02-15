@@ -162,6 +162,8 @@ fn test_state() -> (AppState, TempDir) {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
     (state, tmp)
 }
@@ -539,6 +541,8 @@ async fn health_not_rate_limited() {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
 
     // Rapid /health requests must all succeed despite strict rate limit
@@ -617,6 +621,8 @@ async fn rate_limit_429_includes_retry_after() {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -789,6 +795,8 @@ async fn per_ip_rate_limit_throttles_single_ip() {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -909,6 +917,8 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1002,6 +1012,8 @@ async fn per_ip_health_exempt_from_rate_limit() {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
 
     // Multiple health checks from same IP should all succeed
@@ -1087,6 +1099,8 @@ async fn per_ip_rate_limit_ipv6_addresses() {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1207,6 +1221,8 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1311,6 +1327,8 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1414,6 +1432,8 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1515,6 +1535,8 @@ async fn per_ip_rate_limit_429_response_body_format() {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1627,6 +1649,8 @@ async fn health_returns_degraded_when_cluster_unhealthy() {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
 
     let app = routes::build_router(state);

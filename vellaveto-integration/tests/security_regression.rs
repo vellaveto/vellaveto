@@ -406,6 +406,8 @@ mod server_auth {
             service_discovery: None,
             deployment_config: Default::default(),
             start_time: std::time::Instant::now(),
+            cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         };
         (state, tmp)
     }
@@ -557,6 +559,8 @@ mod server_auth {
             service_discovery: None,
             deployment_config: Default::default(),
             start_time: std::time::Instant::now(),
+            cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         };
         let app = routes::build_router(state);
 
@@ -1175,6 +1179,8 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
 
     let app = routes::build_router(state);
@@ -1292,6 +1298,8 @@ async fn finding_12_approval_creation_failure_denies_request() {
         service_discovery: None,
         deployment_config: Default::default(),
         start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
     };
 
     let app = routes::build_router(state);
