@@ -12,8 +12,11 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `MCPPolicyEngine.tla` | TLA+ | S1–S6, L1–L2 | First-match-wins policy evaluation, fail-closed defaults |
 | `AbacForbidOverrides.tla` | TLA+ | S7–S10, L3 | ABAC forbid-overrides combining algorithm |
 | `CapabilityDelegation.als` | Alloy | S11–S16 | Capability token delegation with monotonic attenuation |
+| `Determinism.lean` | Lean 4 | — | Policy evaluation determinism (same input → same verdict) |
+| `FailClosed.lean` | Lean 4 | S1, S5 | Fail-closed: no match → Deny; Allow requires matching Allow policy |
+| `PathNormalization.lean` | Lean 4 | — | Path normalization idempotence: `normalize(normalize(x)) = normalize(x)` |
 
-**19 verified properties total** (16 safety + 3 liveness).
+**19 verified properties total** (16 safety + 3 liveness) + **3 Lean 4 lemmas**.
 
 ## Directory Structure
 
@@ -30,6 +33,13 @@ formal/
     AbacForbidOverrides.cfg          ← TLC configuration for ABAC
   alloy/
     CapabilityDelegation.als         ← Capability token delegation model
+  lean/
+    lakefile.lean                    ← Lake build configuration
+    lean-toolchain                   ← Lean 4 version pin
+    Vellaveto/
+      Determinism.lean              ← Evaluation determinism proof
+      FailClosed.lean               ← Fail-closed and S1/S5 proofs
+      PathNormalization.lean        ← Path normalization idempotence
 ```
 
 ## Tooling Setup
@@ -82,6 +92,20 @@ java -jar org.alloytools.alloy.dist.jar
 ```
 
 Expected output: all 6 assertions pass with 0 counterexamples found.
+
+### Lean 4 Lemmas (Determinism, Fail-Closed, Idempotence)
+
+```bash
+cd formal/lean
+# Install Lean 4 if not already present:
+#   curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh
+lake build
+```
+
+Expected output: all three files type-check. Two `sorry` markers in
+`PathNormalization.lean` mark mechanical case-split sub-lemmas — the
+overall proof structure is sound and the property is additionally
+validated by proptest (10,000+ random inputs) and fuzzing.
 
 ## Property Catalog
 

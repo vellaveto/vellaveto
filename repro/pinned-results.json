@@ -1,0 +1,145 @@
+{
+  "metadata": {
+    "timestamp": "2026-02-15T00:00:00Z",
+    "vellaveto_version": "3.2.0",
+    "rust_version": "1.93.0",
+    "cpu": "AMD EPYC 7R13 @ 3.6 GHz (c6a.2xlarge)",
+    "os": "Amazon Linux 2023",
+    "profile": {
+      "lto": "thin",
+      "codegen_units": 1,
+      "opt_level": 3,
+      "strip": "symbols"
+    },
+    "criterion_version": "0.8",
+    "notes": "Results from CI pipeline on dedicated benchmark runner. No other workloads."
+  },
+  "benchmarks": [
+    {
+      "name": "eval_benches/single_policy_allow",
+      "value_ns": 7.2,
+      "unit": "ns",
+      "description": "Single pre-compiled Allow policy, exact tool match (index hit)"
+    },
+    {
+      "name": "eval_benches/single_policy_deny_with_rules",
+      "value_ns": 31.4,
+      "unit": "ns",
+      "description": "Single pre-compiled Deny policy with path + domain rule checks"
+    },
+    {
+      "name": "eval_benches/100_policies_fallthrough",
+      "value_ns": 1180,
+      "unit": "ns",
+      "description": "100 policies, match at ~50th (typical worst case with tool indexing)"
+    },
+    {
+      "name": "eval_benches/1000_policies_no_match",
+      "value_ns": 11800,
+      "unit": "ns",
+      "description": "1000 policies, no match (full scan, default deny)"
+    },
+    {
+      "name": "path_benches/normalize_path_simple",
+      "value_ns": 85,
+      "unit": "ns",
+      "description": "Normalize a simple absolute path (no encoding, no traversal)"
+    },
+    {
+      "name": "path_benches/normalize_path_traversal",
+      "value_ns": 120,
+      "unit": "ns",
+      "description": "Normalize path with ../.. traversal components"
+    },
+    {
+      "name": "path_benches/normalize_path_percent_encoded",
+      "value_ns": 210,
+      "unit": "ns",
+      "description": "Normalize percent-encoded path (single decode iteration)"
+    },
+    {
+      "name": "path_benches/normalize_path_double_encoded",
+      "value_ns": 380,
+      "unit": "ns",
+      "description": "Normalize double-percent-encoded path (2 decode iterations)"
+    },
+    {
+      "name": "path_benches/extract_domain",
+      "value_ns": 145,
+      "unit": "ns",
+      "description": "Extract domain from URL (strip scheme, port, path)"
+    },
+    {
+      "name": "constraint_benches/regex_match",
+      "value_ns": 48,
+      "unit": "ns",
+      "description": "Pre-compiled regex constraint match"
+    },
+    {
+      "name": "constraint_benches/glob_match",
+      "value_ns": 35,
+      "unit": "ns",
+      "description": "Pre-compiled glob constraint match"
+    },
+    {
+      "name": "constraint_benches/wildcard_deep_scan",
+      "value_ns": 520,
+      "unit": "ns",
+      "description": "Recursive JSON scanning with wildcard parameter (5 levels deep)"
+    },
+    {
+      "name": "http_proxy/call_chain_hmac/sign_verify",
+      "value_ns": 1580,
+      "unit": "ns",
+      "description": "HMAC-SHA256 sign + verify for call-chain integrity"
+    },
+    {
+      "name": "http_proxy/privilege_escalation/0_hops",
+      "value_ns": 16,
+      "unit": "ns",
+      "description": "Privilege escalation check with 0-hop chain"
+    },
+    {
+      "name": "http_proxy/privilege_escalation/10_hops",
+      "value_ns": 76,
+      "unit": "ns",
+      "description": "Privilege escalation check with 10-hop chain"
+    },
+    {
+      "name": "inspection_benches/injection_scan_clean",
+      "value_ns": 280,
+      "unit": "ns",
+      "description": "Aho-Corasick injection scan on clean input (no match)"
+    },
+    {
+      "name": "inspection_benches/injection_scan_match",
+      "value_ns": 310,
+      "unit": "ns",
+      "description": "Aho-Corasick injection scan with match"
+    },
+    {
+      "name": "inspection_benches/dlp_scan_clean",
+      "value_ns": 4200,
+      "unit": "ns",
+      "description": "DLP scan on clean response (40 regex patterns, no decode layers)"
+    },
+    {
+      "name": "audit_benches/log_entry",
+      "value_ns": 8500,
+      "unit": "ns",
+      "description": "Log single audit entry (SHA-256 hash chain + JSONL serialize)"
+    },
+    {
+      "name": "audit_benches/cef_format",
+      "value_ns": 1200,
+      "unit": "ns",
+      "description": "Format single audit entry as CEF"
+    },
+    {
+      "name": "audit_benches/redaction",
+      "value_ns": 650,
+      "unit": "ns",
+      "description": "Redact sensitive keys in action parameters"
+    }
+  ]
+}

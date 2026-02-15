@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Vellaveto v3.0 established the most comprehensive MCP runtime security engine in the market: full MCP 2025-11-25 compliance, three transport layers (HTTP/WebSocket/gRPC), Cedar-style ABAC, EU AI Act evidence generation, 100% CoSAI and Adversa TOP 25 coverage, cryptographic audit trails with Merkle proofs, capability-based delegation tokens, and multimodal injection detection. The rebrand from Sentinel to Vellaveto marks the transition from a research prototype to an enterprise product.
+Vellaveto v3.0 established the most comprehensive MCP runtime security engine in the market: full MCP 2025-11-25 compliance, three transport layers (HTTP/WebSocket/gRPC), Cedar-style ABAC, EU AI Act evidence generation, CoSAI and Adversa TOP 25 threat mapping (38/38 and 25/25 respectively; see `vellaveto-audit` for coverage matrix), cryptographic audit trails with Merkle proofs, capability-based delegation tokens, and multimodal injection detection. The rebrand from Sentinel to Vellaveto marks the transition from a research prototype to an enterprise product.
 
 The v4.0 roadmap addresses five strategic imperatives:
 
@@ -25,7 +25,7 @@ The v4.0 roadmap addresses five strategic imperatives:
 | Source | Relevance |
 |--------|-----------|
 | [MCP Specification 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25) | Current baseline spec |
-| [EU AI Act (Regulation 2024/1689)](https://eur-lex.europa.eu/eli/reg/2024/1689/oj) | Hard deadline Aug 2, 2026 |
+| [EU AI Act (Regulation 2024/1689)](https://eur-lex.europa.eu/eli/reg/2024/1689/oj) | Prohibited practices: 2 Feb 2025; GPAI: 2 Aug 2025; full roll-out: 2 Aug 2027 |
 | [OWASP Top 10 for Agentic Applications 2026](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) | Least agency principle |
 | [Lakera Agent Security Report Q4 2025](https://www.lakera.ai) | 88% incident rate, 14.4% approval rate |
 | [Gravitee State of AI Agent Security 2026](https://www.gravitee.io/blog/state-of-ai-agent-security-2026-report-when-adoption-outpaces-control) | Enterprise security gaps |
@@ -667,7 +667,7 @@ Phases 33, 34, 35, and 36 can run in parallel (Q1 2027).
 - 4/4 exit criteria delivered
 
 ### Phase 19: Regulatory Compliance (P0) — COMPLETE
-- EU AI Act registry (Art 5–50), Art 50(1) transparency marking, Art 14 human oversight, SOC 2 evidence (CC1-CC9), Merkle proofs, OTLP GenAI export, CoSAI 38/38, Adversa TOP 25 25/25, 7-framework gap analysis, immutable archive, compliance dashboard
+- EU AI Act registry (Art 5–50), Art 50(1) transparency marking, Art 14 human oversight, SOC 2 evidence (CC1-CC9), Merkle proofs, OTLP GenAI export, CoSAI threat mapping (38/38), Adversa TOP 25 mapping (25/25), 7-framework gap analysis, immutable archive, compliance dashboard
 - 9/9 exit criteria delivered
 
 ### Phase 20: MCP Gateway Mode (P1) — COMPLETE (20.4 deferred to Phase 27)

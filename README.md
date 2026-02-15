@@ -975,14 +975,14 @@ Vellaveto provides built-in compliance mapping and reporting for major AI securi
 
 | Standard | Module | Coverage |
 |----------|--------|----------|
-| **EU AI Act** | `vellaveto-audit/src/eu_ai_act.rs` | 10 obligations (Art 5–50), 19 capability mappings, conformity assessment reports, Art 50(2) decision explanations, Art 10 data governance |
+| **EU AI Act** | `vellaveto-audit/src/eu_ai_act.rs` | Evidence packs mapped to Art 9, 13-15, 26; readiness gap analysis (not certification), Art 50(2) decision explanations, Art 10 data governance |
 | **SOC 2** | `vellaveto-audit/src/soc2.rs` | 22 criteria across CC1-CC9, ~30 capability mappings, evidence reports |
 | **MITRE ATLAS** | `vellaveto-audit/src/atlas.rs` | 14 techniques (AML.T0051-T0065), 30+ detection mappings |
 | **OWASP AIVSS** | `vellaveto-audit/src/aivss.rs` | Full severity scoring with AI-specific multipliers |
 | **NIST AI RMF** | `vellaveto-audit/src/nist_rmf.rs` | All 4 functions (Govern, Map, Measure, Manage) |
 | **ISO/IEC 27090** | `vellaveto-audit/src/iso27090.rs` | 5 control domains, readiness assessment |
-| **CoSAI** | `vellaveto-audit/src/cosai.rs` | 12 threat categories, 38 threats, 100% coverage |
-| **Adversa AI TOP 25** | `vellaveto-audit/src/adversa_top25.rs` | 25 ranked vulnerabilities, 100% coverage |
+| **CoSAI** | `vellaveto-audit/src/cosai.rs` | 12 threat categories, 38 threats mapped (see module for coverage matrix) |
+| **Adversa AI TOP 25** | `vellaveto-audit/src/adversa_top25.rs` | 25 ranked vulnerabilities mapped (see module for coverage matrix) |
 | **ISO/IEC 42001** | `vellaveto-audit/src/iso42001.rs` | AI Management System controls, clause coverage, evidence reports |
 | **Cross-Framework** | `vellaveto-audit/src/gap_analysis.rs` | Unified gap analysis across all 7 frameworks |
 
@@ -1304,6 +1304,7 @@ Comprehensive documentation is available in the `docs/` directory:
 | [Quantum Migration Runbook](docs/quantum-migration.md) | Phased TLS PQ rollout and rollback gates |
 | [Benchmarks](docs/BENCHMARKS.md) | Reproducible performance benchmarks and methodology |
 | [API Reference](docs/API.md) | Complete HTTP API documentation |
+| [MCPSEC Benchmark](mcpsec/README.md) | MCP Security Benchmark Framework (Apache-2.0) |
 | [Roadmap](ROADMAP.md) | Current release status and upcoming phases |
 | [Changelog](CHANGELOG.md) | Version history and release notes |
 | [Contributing](CONTRIBUTING.md) | Development rules, commit format, release checklist |
