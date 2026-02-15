@@ -1,45 +1,49 @@
-# Vellaveto Roadmap v3.0
+# Vellaveto Roadmap v4.0
 
-> **Version:** 3.0.0
-> **Generated:** 2026-02-13
-> **Baseline:** v2.2.1 — 4,783 Rust tests, 130 Python SDK tests, 37 audit rounds, 22 fuzz targets, 11 CI workflows
-> **Scope:** 12 months (Q1–Q4 2026), quarterly milestones
-> **Status:** All v2.0–v2.2 phases (1–15) complete; Phase 17 complete (all 6 exit criteria); Phase 18 complete (all 4 exit criteria); Phase 19 complete (all 9 exit criteria); Phase 21.0 complete; v3.0 in progress
+> **Version:** 4.0.0
+> **Generated:** 2026-02-15
+> **Baseline:** v3.0.0 — 4,812 Rust tests, 130 Python SDK tests, 28 Go SDK tests, 15 TypeScript SDK tests, 22 fuzz targets, 11 CI workflows, 38 audit rounds, 23 phases complete
+> **Scope:** 12 months (Q2 2026 – Q1 2027), quarterly milestones
+> **Status:** v3.0 shipped; all 23 phases complete
 
 ---
 
 ## Executive Summary
 
-Vellaveto v2.2.1 is production-ready. The v3.0 roadmap addresses the next wave of protocol evolution, regulatory deadlines, and enterprise competition:
+Vellaveto v3.0 established the most comprehensive MCP runtime security engine in the market: full MCP 2025-11-25 compliance, three transport layers (HTTP/WebSocket/gRPC), Cedar-style ABAC, EU AI Act evidence generation, 100% CoSAI and Adversa TOP 25 coverage, cryptographic audit trails with Merkle proofs, capability-based delegation tokens, and multimodal injection detection. The rebrand from Sentinel to Vellaveto marks the transition from a research prototype to an enterprise product.
 
-1. **MCP Next Spec (June 2026)** — WebSocket transport (SEP-1288), gRPC transport (Google), async operations (SEP-1391), protocol extensions, SDK tiering
-2. **EU AI Act Enforcement (August 2, 2026)** — High-risk AI system compliance, transparency obligations, penalties up to 7% global revenue
-3. **Threat Landscape Maturity** — CoSAI MCP Security Whitepaper (12 threat categories, ~40 threats), Adversa AI MCP Security TOP 25 vulnerability catalog
-4. **Observability Standards** — OpenTelemetry GenAI Semantic Conventions for standardized agent telemetry
-5. **Gateway Competition** — Microsoft MCP Gateway (K8s), AWS AgentCore, MintMCP (SOC 2)
-6. **Enterprise Competitors** — Cisco AI Defense, Palo Alto Prisma AIRS, Radware, CalypsoAI, Akamai
-7. **Transport Evolution** — gRPC (Google Cloud), WebSocket (SEP-1288), transport negotiation
+The v4.0 roadmap addresses five strategic imperatives:
+
+1. **Regulatory hard deadline:** EU AI Act enforcement on August 2, 2026 requires closing the remaining Art 50(2) automated decision explanations and Art 10 data governance gaps.
+2. **Production readiness:** Kubernetes-native deployment (deferred Phase 20.4), cross-transport fallback, and distributed tracing are table-stakes for enterprise adoption.
+3. **Market positioning:** 88% of organizations report AI agent security incidents, but only 14.4% have full security approval for their agents. Shadow AI detection, governance visibility, and the OWASP Least Agency principle are the demand signals.
+4. **Technical moat:** Formal verification (TLA+/Alloy) and zero-knowledge audit trails (zk-SNARK) are open research questions where first-mover advantage is durable.
+5. **Competitive defense:** MintMCP (SOC 2 focus), TrueFoundry (sub-3ms latency claims), Lunar.dev MCPX, Microsoft MCP Gateway (K8s-native), and AWS AgentCore are all entering the space.
 
 ### Research Sources
 
 | Source | Relevance |
 |--------|-----------|
-| [MCP Specification 2025-06-18](https://modelcontextprotocol.io/specification/2025-06-18) | Current baseline spec |
-| [MCP SEP-1288: WebSocket Transport](https://github.com/modelcontextprotocol/specification/discussions/1288) | Bidirectional, session-persistent transport |
-| [MCP SEP-1391: Async Operations](https://github.com/modelcontextprotocol/specification/discussions/1391) | Long-running task improvements |
-| [Google gRPC Transport for MCP](https://cloud.google.com/blog/products/ai-machine-learning/grpc-transport-for-mcp) | Protocol Buffers transport proposal |
-| [EU AI Act — EUR-Lex](https://eur-lex.europa.eu/eli/reg/2024/1689/oj) | Regulation (EU) 2024/1689, enforcement August 2, 2026 |
-| [CoSAI MCP Security Whitepaper](https://www.cosai.owasp.org/) | 12 threat categories, ~40 threats |
-| [Adversa AI MCP Security TOP 25](https://adversa.ai/mcp-security-top-25/) | Industry-first MCP vulnerability catalog |
-| [OpenTelemetry GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) | Standardized agent observability |
-| [Microsoft MCP Gateway](https://github.com/microsoft/mcp-gateway) | Kubernetes-native MCP gateway |
-| [AWS AgentCore](https://aws.amazon.com/agentcore/) | Managed agent runtime |
-| [OWASP Top 10 for Agentic Applications 2026](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) | ASI01–ASI10 threat taxonomy |
-| [OWASP Guide for Securely Using Third-Party MCP Servers](https://genai.owasp.org/resource/cheatsheet-a-practical-guide-for-securely-using-third-party-mcp-servers-1-0/) | MCP security best practices |
-| [ETDI: Mitigating Tool Squatting and Rug Pull Attacks](https://arxiv.org/abs/2506.01333) | Cryptographic tool attestation |
-| [Enterprise-Grade Security for MCP](https://arxiv.org/pdf/2504.08623) | Enterprise security patterns |
-| [Microsoft: Runtime Risk to Real-Time Defense](https://www.microsoft.com/en-us/security/blog/2026/01/23/runtime-risk-realtime-defense-securing-ai-agents/) | Agent runtime security |
-| [Kaspersky: Agentic AI Security per OWASP ASI Top 10](https://www.kaspersky.com/blog/top-agentic-ai-risks-2026/55184/) | Threat analysis |
+| [MCP Specification 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25) | Current baseline spec |
+| [EU AI Act (Regulation 2024/1689)](https://eur-lex.europa.eu/eli/reg/2024/1689/oj) | Hard deadline Aug 2, 2026 |
+| [OWASP Top 10 for Agentic Applications 2026](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) | Least agency principle |
+| [Lakera Agent Security Report Q4 2025](https://www.lakera.ai) | 88% incident rate, 14.4% approval rate |
+| [Gravitee State of AI Agent Security 2026](https://www.gravitee.io/blog/state-of-ai-agent-security-2026-report-when-adoption-outpaces-control) | Enterprise security gaps |
+| [zk-MCP: Privacy-Preserving Audit](https://arxiv.org/abs/2512.14737) | Phase 34 zk-SNARK reference |
+| [Securing the Model Context Protocol](https://arxiv.org/abs/2511.20920) | Formal verification gap |
+| [31 Formal Properties for Agentic AI](https://arxiv.org/abs/2510.14133) | CTL/LTL specifications |
+| [FIPS 203 ML-KEM](https://csrc.nist.gov/pubs/fips/203/final) | Post-quantum key encapsulation |
+| [FIPS 204 ML-DSA](https://csrc.nist.gov/pubs/fips/204/final) | Post-quantum digital signatures |
+| [Microsoft MCP Gateway](https://github.com/microsoft/mcp-gateway) | K8s-native competitor |
+| [AWS AgentCore](https://aws.amazon.com/agentcore) | Managed agent runtime competitor |
+| [MintMCP](https://mintmcp.com) | SOC 2 Type II competitor |
+| [TrueFoundry MCP Gateway](https://www.truefoundry.com) | Sub-3ms latency competitor |
+| [OpenTelemetry GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) | Phase 28 tracing |
+| [AAP: Agent Authorization Profile](https://aap-protocol.org) | Phase 32 federation reference |
+| [CoSAI MCP Security Whitepaper](https://www.cosai.owasp.org/) | Threat coverage baseline |
+| [Adversa AI MCP Security TOP 25](https://adversa.ai/mcp-security-top-25/) | Vulnerability catalog |
+| [Singapore IMDA Agentic AI Framework v1.0](https://www.imda.gov.sg) | Governance reference |
+| [Cedar Policy Language](https://www.cedarpolicy.com) | ABAC reference |
 
 ---
 
@@ -47,877 +51,600 @@ Vellaveto v2.2.1 is production-ready. The v3.0 roadmap addresses the next wave o
 
 | Priority | Theme | Business Driver | Deadline Pressure |
 |----------|-------|-----------------|-------------------|
-| **P0** | Protocol compliance + Regulatory | MCP June 2026 spec, EU AI Act Aug 2 2026 | Hard deadlines |
-| **P1** | Gateway mode + Authorization | Enterprise customer requirements, competitive parity | H2 2026 |
-| **P2** | Developer experience + SDK | Adoption, community growth | Q4 2026 |
-| **P3** | Research + Future-proofing | Technical differentiation, long-term moat | Ongoing |
+| **P0** | EU AI Act compliance gaps + MCP 2026 spec | Hard regulatory deadline Aug 2, 2026; spec compliance | Q2–Q3 2026 |
+| **P1** | Kubernetes + Observability + SOC 2 + Federation | Enterprise deployment readiness, sales pipeline | H2 2026 |
+| **P2** | Developer experience + SDK ecosystem | Adoption velocity, community growth | Q4 2026 |
+| **P3** | Research: formal verification, zk-audit, PQC | Technical differentiation, academic credibility | Rolling 12 months |
 
 ---
 
 ## Timeline Overview
 
 ```
-Q1 2026 (Feb–Mar):  Phase 17 — MCP Next Spec Preparation          [P0] ✅ COMPLETE
-Q2 2026 (Apr–Jun):  Phase 18 — MCP June 2026 Spec Compliance      [P0] ✅ COMPLETE
-                     Phase 19 — Regulatory Compliance               [P0] ✅ COMPLETE
-Q3 2026 (Jul–Sep):  Phase 20 — MCP Gateway Mode                   [P1] ✅ COMPLETE
-                     Phase 21 — Advanced Authorization              [P1] ✅ COMPLETE
-Q4 2026 (Oct–Dec):  Phase 22 — Developer Experience               [P2] ✅ COMPLETE
-                     Phase 23 — Research & Future                   [P3] ✅ COMPLETE
+Q2 2026 (Apr–Jun):  Phase 24 — EU AI Act Final Compliance             [P0]
+                     Phase 25 — MCP June 2026 Spec Adoption            [P0]
+                     Phase 26 — Shadow AI & Governance Visibility       [P1]
+
+Q3 2026 (Jul–Sep):  Phase 27 — Kubernetes-Native Deployment            [P1]
+                     Phase 28 — Distributed Tracing & Observability     [P1]
+                     Phase 29 — Cross-Transport Smart Fallback          [P1]
+
+Q4 2026 (Oct–Dec):  Phase 30 — Developer Experience & SDKs             [P2]
+                     Phase 31 — SOC 2 Type II Access Reviews            [P1]
+                     Phase 32 — Agent Identity Federation               [P1]
+
+Q1 2027 (Jan–Mar):  Phase 33 — Formal Verification (TLA+/Alloy)        [P3]
+                     Phase 34 — Zero-Knowledge Audit Trails             [P3]
+                     Phase 35 — Post-Quantum Cryptography Migration     [P3]
+                     Phase 36 — Performance Benchmarking Paper          [P3]
 ```
 
 ---
 
-## Q1 2026 (Feb–Mar): Foundation & Protocol Prep
+## Q2 2026 (Apr–Jun): Regulatory & Protocol Compliance
 
-### Phase 17: MCP Next Spec Preparation (P0) ✅ COMPLETE
+### Phase 24: EU AI Act Final Compliance (P0)
 
-*Focus: Prepare for the upcoming MCP June 2026 specification by implementing transport layer extensions and async operation enhancements*
+*Focus: Close remaining Art 50(2) and Art 10 gaps before the August 2, 2026 enforcement deadline*
 
-The MCP specification is evolving rapidly. Three major proposals are expected to land in the June 2026 spec:
-- **SEP-1288** introduces WebSocket transport for bidirectional, session-persistent connections
-- **Google's gRPC proposal** adds Protocol Buffers-based transport for high-throughput environments
-- **SEP-1391** enhances async operations for long-running agent tasks
+The v3.0 implementation covers Art 50(1) runtime transparency marking (`mark_ai_mediated()` in `vellaveto-mcp/src/transparency.rs`), Art 14 human oversight triggers, Art 12 tamper-evident logging, and Art 43 conformity assessment. Two gaps remain:
 
-#### 17.1 WebSocket Transport Support (SEP-1288) ✅ COMPLETE
+1. **Art 50(2) — Automated decision explanations**: per-verdict structured explanations
+2. **Art 10 — Data governance record keeping**: data provenance and classification tracking
 
-Bidirectional, session-persistent transport replacing HTTP SSE for real-time agent communication.
+#### 24.1 Art 50(2) Automated Decision Explanations
 
-> **Status:** Implemented in commit `2423f0e`. All deliverables complete.
-
-| Task | Status | Notes |
-|------|--------|-------|
-| Bidirectional MCP-over-WebSocket reverse proxy at `/mcp/ws` | ✅ | `vellaveto-http-proxy/src/proxy/websocket/mod.rs` |
-| Full policy enforcement on client→upstream tool calls | ✅ | Fail-closed semantics, engine errors produce Deny |
-| DLP scanning + injection detection on upstream→client responses | ✅ | Reuses existing inspection infrastructure |
-| TOCTOU-safe JSON canonicalization before forwarding | ✅ | Matching HTTP proxy behavior |
-| Per-connection rate limiting (sliding window) | ✅ | Configurable messages/sec, default 100/s |
-| Idle timeout enforcement | ✅ | Configurable, default 300s |
-| Max message size enforcement | ✅ | Configurable, default 1MB, close code 1009 |
-| Session binding (one session per WebSocket connection) | ✅ | Via query parameter or auto-created |
-| Binary frame rejection | ✅ | Close code 1003 (Unsupported Data) |
-| Unparseable message rejection | ✅ | Close code 1008 (Policy Violation) |
-| Upstream WebSocket client via `tokio-tungstenite` | ✅ | http→ws / https→wss URL conversion, 10s timeout |
-| WebSocket metrics | ✅ | `vellaveto_ws_connections_total`, `vellaveto_ws_messages_total` |
-| CLI args | ✅ | `--ws-max-message-size`, `--ws-idle-timeout`, `--ws-message-rate-limit` |
-| WebSocket transport fuzz target | ✅ | `fuzz_ws_frame` (21 fuzz targets total) |
-| WebSocket unit tests | ✅ | 29 tests covering all components |
-
-**Security properties delivered:**
-- Origin validation on WebSocket upgrade requests
-- Per-message policy evaluation (not just per-connection)
-- Frame size limits to prevent memory exhaustion
-- Connection idle timeout enforcement
-- Fail-closed: unparseable → close 1008, binary → close 1003, engine error → Deny
-- No `unwrap()` in library code
-
-**Configuration (CLI args):**
-```
---ws-max-message-size 1048576    # 1 MB (default)
---ws-message-rate-limit 100      # per second per connection (default)
---ws-idle-timeout 300            # seconds (default)
-```
-
-**Completed:** 2026-02-13
-
-#### 17.2 gRPC Transport Support (Google Proposal) ✅ COMPLETE
-
-Protocol Buffers-based transport for high-throughput, strongly-typed agent communication.
-
-> **Status:** Implemented. All deliverables complete. Feature-gated behind `grpc`.
-
-| Task | Status | Notes |
-|------|--------|-------|
-| Protobuf schema for MCP messages (`proto/mcp/v1/mcp.proto`) | ✅ | Unary Call, bidirectional StreamCall, server-streaming Subscribe |
-| gRPC transport adapter with tonic 0.13 | ✅ | `vellaveto-http-proxy/src/proxy/grpc/mod.rs`, separate listener on port 50051 |
-| gRPC service with full policy evaluation pipeline | ✅ | `service.rs` — classify → evaluate → audit → forward → DLP/injection scan |
-| Proto↔JSON conversion with depth-bounded recursion | ✅ | `convert.rs` — MAX_DEPTH=64, NaN/Infinity rejection, fail-closed |
-| Auth interceptor with constant-time API key validation | ✅ | `interceptors.rs` — SHA-256 + `subtle::ConstantTimeEq` |
-| gRPC Health Checking v1 | ✅ | `tonic-health` integration, configurable |
-| DLP scanning + injection detection on gRPC responses | ✅ | Reuses existing inspection infrastructure |
-| gRPC-to-HTTP fallback upstream forwarding | ✅ | `upstream.rs` — gRPC clients work with HTTP MCP servers |
-| Bidirectional streaming with per-message policy evaluation | ✅ | `stream_call()` — same pattern as WebSocket relay |
-| gRPC transport fuzz target | ✅ | `fuzz_grpc_proto` (22 fuzz targets total) |
-| gRPC unit tests | ✅ | 46 tests covering conversion, config, classification, auth, interceptors |
-| GrpcTransportConfig in vellaveto-config | ✅ | `vellaveto-config/src/grpc_transport.rs` |
-| CLI args for gRPC | ✅ | `--grpc`, `--grpc-port`, `--grpc-max-message-size`, `--upstream-grpc-url` |
-| Metrics | ✅ | `vellaveto_grpc_requests_total`, `vellaveto_grpc_messages_total` |
-
-**Security properties delivered:**
-- Constant-time API key validation (SHA-256 hash comparison)
-- Fail-closed: proto conversion errors → gRPC INTERNAL, policy denials → JSON-RPC error (not gRPC status)
-- Depth-bounded proto↔JSON conversion (MAX_DEPTH=64) prevents stack overflow
-- NaN/Infinity rejection in float conversion
-- Message size limits at gRPC transport level (default 4 MB)
-- Session ID extraction from gRPC metadata with length limits
-- Binary frame semantics: invalid proto → gRPC INTERNAL status
-- No `unwrap()` in library code
-- Feature-gated: zero impact on non-grpc builds
-
-**Configuration (CLI args):**
-```
---grpc                              # Enable gRPC transport
---grpc-port 50051                   # Listen port (default)
---grpc-max-message-size 4194304     # 4 MB (default)
---upstream-grpc-url <url>           # Optional native gRPC upstream
-```
-
-**Completed:** 2026-02-13
-
-#### 17.3 Async Operations Enhancements (SEP-1391) ✅ COMPLETE
-
-TaskRequest policy enforcement across all transports for long-running agent workflows.
-
-> **Status:** Implemented. All deliverables complete.
-
-| Task | Status | Notes |
-|------|--------|-------|
-| TaskRequest policy enforcement across all 4 transports (HTTP, WS, gRPC, stdio) | ✅ | Extract action → evaluate → audit → forward/deny with fail-closed semantics |
-| `ProgressNotification` message classification | ✅ | `notifications/progress` classified with progress_token, progress, total fields |
-| `ExtensionMethod` message classification | ✅ | `x-` prefixed methods classified and policy-evaluated on all transports |
-| `extract_extension_action()` for extension → Action conversion | ✅ | `vellaveto-mcp/src/extractor.rs` |
-| Unit tests across all transport layers | ✅ | 32+ new tests in extractor, WebSocket, gRPC, HTTP handler test suites |
-
-**Security properties delivered:**
-- TaskRequest fail-closed: engine errors and missing policies produce Deny
-- Extension methods policy-evaluated before forwarding (never pass through unchecked)
-- ProgressNotification classified for future interception capability
-- No `unwrap()` in library code
-
-**Completed:** 2026-02-14
-
-#### 17.4 Protocol Extensions Framework ✅ COMPLETE
-
-Pluggable domain-specific extensions for MCP protocol with `x-` prefix convention.
-
-> **Status:** Implemented. All deliverables complete.
-
-| Task | Status | Notes |
-|------|--------|-------|
-| Extension types in leaf crate (`ExtensionDescriptor`, `ExtensionResourceLimits`, `ExtensionError`) | ✅ | `vellaveto-types/src/extension.rs` |
-| Extension configuration (`ExtensionConfig` with allow/block/signatures/limits) | ✅ | `vellaveto-config/src/extension.rs`, added to `PolicyConfig` |
-| Extension registry trait and lifecycle hooks (`ExtensionHandler`) | ✅ | `vellaveto-mcp/src/extension_registry.rs` — `on_load`, `on_unload`, `handle_method`, `descriptor` |
-| Extension capability negotiation (glob-based allow/block) | ✅ | `ExtensionRegistry::negotiate()` with glob pattern matching |
-| Extension-scoped policy evaluation on all transports | ✅ | `ExtensionMethod` match arms in HTTP, WebSocket, gRPC, stdio |
-| Extension isolation (per-extension resource limits) | ✅ | `ExtensionResourceLimits` with `max_concurrent_requests` and `max_requests_per_sec` |
-| Example extension (audit query) | ✅ | `vellaveto-mcp/src/extensions/audit_query.rs` handles `x-vellaveto-audit/stats` |
-| `ProxyState.extension_registry` field for transport wiring | ✅ | `vellaveto-http-proxy/src/proxy/mod.rs` |
-| Unit tests | ✅ | 24 tests (6 types + 2 config + 12 registry + 4 audit query) |
-
-**Security properties delivered:**
-- Extension allow/block lists via glob patterns
-- Signature requirement support (Ed25519) for extension loading
-- Thread-safe registration via RwLock with poisoning protection
-- O(1) method dispatch via route map
-- Fail-closed: unregistered extensions rejected, policy denials on all transports
-- No `unwrap()` in library code
-- Extension framework is opt-in: zero cost when disabled
-
-**Completed:** 2026-02-14
-
-### Phase 17 Exit Criteria
-- [x] WebSocket transport passes all security tests with origin validation
-- [x] gRPC transport passes all security tests with auth interceptor and fail-closed semantics
-- [x] Async operations work across all three transports (HTTP, WebSocket, gRPC)
-- [x] Protocol extensions framework supports at least one example extension
-- [x] All fuzz targets passing, zero new `unwrap()` in library code
-- [x] P99 evaluation latency remains <5ms on existing transports
-
-**Completed:** 2026-02-14
-
----
-
-## Q2 2026 (Apr–Jun): Protocol & Compliance
-
-### Phase 18: MCP June 2026 Spec Compliance (P0) ✅ COMPLETE
-
-*Focus: Adopt final MCP June 2026 specification changes, achieve SDK tiering compliance, implement transport negotiation*
-
-> **Status:** All 4 exit criteria delivered. Completed 2026-02-14.
->
-> Structural preparation for the upcoming June 2026 MCP specification with `2026-06` protocol version placeholder, SDK tier declaration (Extended), transport discovery at `/.well-known/mcp-transport`, and transport negotiation across HTTP, WebSocket, and gRPC. Full backward compatibility verified with 2025-03-26, 2025-06-18, and 2025-11-25 protocol versions.
-
-#### 18.1 Spec Delta Adoption
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Analyze June 2026 spec diff against current implementation | P0 | 2 days | Spec publication |
-| Implement new required protocol features | P0 | TBD | Analysis |
-| Update protocol version negotiation (2025-06-18 → 2026-06) | P0 | 1 day | — |
-| Add backward compatibility for 2025-06-18 clients | P0 | 2 days | Version negotiation |
-| Update all protocol compliance tests | P0 | 3 days | Implementation |
-
-#### 18.2 SDK Tiering Compliance
-
-MCP SDK tiering defines capability levels that implementations must declare and maintain.
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Declare Vellaveto SDK tier level based on spec requirements | P0 | 1 day | Spec publication |
-| Implement tier-specific capability advertisements | P0 | 2 days | Tier declaration |
-| Add tier compliance validation in CI | P0 | 1 day | Capability ads |
-| Create tier compatibility matrix documentation | P1 | 1 day | — |
-
-#### 18.3 Transport Negotiation and Fallback
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Implement transport capability advertisement | P0 | 2 days | Phase 17 transports |
-| Add automatic transport negotiation (prefer gRPC → WebSocket → HTTP SSE → stdio) | P0 | 3 days | Capability ad |
-| Implement graceful transport fallback on connection failure | P0 | 2 days | Negotiation |
-| Add transport selection policy (admin can restrict transports) | P1 | 2 days | — |
-| Create transport migration tests (upgrade/downgrade scenarios) | P0 | 2 days | All above |
-
-### Phase 18 Exit Criteria
-- [x] Full compliance with MCP June 2026 specification — `2026-06` version placeholder in `SUPPORTED_PROTOCOL_VERSIONS`
-- [x] SDK tier level declared and CI-validated — `SdkTier::Extended` with 12 capabilities, CI tests in `sdk_tier_ci.rs`
-- [x] Transport negotiation working across all supported transports — discovery endpoint, negotiation logic, preference parsing
-- [x] Backward compatibility with 2025-06-18 clients verified — integration tests for 2025-03-26, 2025-06-18, 2025-11-25
-
-**Estimated Duration:** 4 weeks (parallel with Phase 19)
-
----
-
-### Phase 19: Regulatory Compliance (P0) ✅ COMPLETE
-
-*Focus: EU AI Act Article 50 compliance, OpenTelemetry standardization, threat framework gap closure, SOC 2 audit readiness*
-
-> **Status:** All 9 exit criteria delivered. Completed 2026-02-14.
-
-The EU AI Act enforcement date of **August 2, 2026** creates a hard deadline for transparency and logging requirements applicable to AI systems.
-
-#### 19.1 EU AI Act Compliance Evidence Generation ✅ COMPLETE
-
-Conformity assessment, transparency evidence generation, and runtime transparency features for EU AI Act obligations.
-
-> **Status:** Implemented. Registry-based evidence generation, Art 50(1) runtime transparency marking, Art 14 human oversight triggers, and compliance dashboard all complete.
-
-| Task | Status | Notes |
-|------|--------|-------|
-| EU AI Act registry with obligation mappings (Art 5, 6, 9, 12, 13, 14, 15, 43, 50) | ✅ | `vellaveto-audit/src/eu_ai_act.rs` |
-| Conformity assessment report generator (Art. 43) | ✅ | `EuAiActRegistry::generate_assessment()` |
-| Risk classification with capability mappings (Art. 6/Annex III) | ✅ | `AiActRiskClass` enum, 18 capability mappings |
-| Transparency entry classification (read-time) | ✅ | `classify_entry_transparency()` |
-| Compliance status API endpoint | ✅ | `GET /api/compliance/status` |
-| EU AI Act report API endpoint | ✅ | `GET /api/compliance/eu-ai-act/report` |
-| `ComplianceConfig` with validation | ✅ | `vellaveto-config/src/compliance.rs` |
-| Shared compliance types in leaf crate | ✅ | `vellaveto-types/src/compliance.rs` |
-| EU AI Act unit tests | ✅ | 11 tests |
-| Implement AI system identification in all agent outputs (Art. 50(1)) | ✅ | `mark_ai_mediated()` injects `_meta.vellaveto_ai_mediated` into responses (`vellaveto-mcp/src/transparency.rs`) |
-| Add automated decision explanation logging (Art. 50(2)) | 🔲 | Future: per-verdict explanations |
-| Implement human oversight notification triggers (Art. 14) | ✅ | `requires_human_oversight()` with glob-based tool matching + audit events in relay loop |
-| Implement data governance record keeping (Art. 10) | 🔲 | Future |
-| Create EU AI Act compliance dashboard section | ✅ | 4 metric cards + 7-framework table in `vellaveto-server/src/dashboard.rs` |
+| Task | Priority | Effort | Depends On | Crate |
+|------|----------|--------|------------|-------|
+| Define `VerdictExplanation` type with reason chain, contributing policies, and confidence | P0 | 2 days | — | `vellaveto-types` |
+| Implement `explain_verdict()` in PolicyEngine producing structured explanation alongside each Verdict | P0 | 4 days | VerdictExplanation type | `vellaveto-engine` |
+| Add ABAC explanation support: which attributes matched, which conditions triggered | P0 | 2 days | explain_verdict | `vellaveto-engine` |
+| Inject `_meta.vellaveto_decision_explanation` into tool-call responses (extending `mark_ai_mediated()`) | P0 | 2 days | explain_verdict | `vellaveto-mcp` |
+| Add `explanation_verbosity` config: `none`, `summary`, `full` | P0 | 1 day | — | `vellaveto-config` |
+| Update EU AI Act registry: Art 50(2) status from Partial to Compliant | P0 | 1 day | All above | `vellaveto-audit` |
+| Integration tests: explanation present in HTTP/WS/gRPC responses | P0 | 2 days | All above | `vellaveto-integration` |
 
 **Configuration:**
 ```toml
 [compliance.eu_ai_act]
-enabled = true
-risk_class = "high_risk"             # minimal | limited | high_risk | unacceptable
-deployer_name = "Acme Corp"
-system_id = "vellaveto-mcp-firewall-v3"
-transparency_marking = true          # Art 50(1)
-human_oversight_tools = ["CredentialAccess", "SystemExecute", "DataDelete"]  # Art 14
-record_retention_days = 365          # Art 12
-conformity_assessment = true         # Art 43
+explanation_verbosity = "summary"  # none | summary | full
 ```
 
-#### 19.2 OpenTelemetry GenAI Semantic Conventions ✅ COMPLETE
+#### 24.2 Art 10 Data Governance Record Keeping
 
-Native OTLP export using the standardized GenAI semantic conventions for agent observability.
+| Task | Priority | Effort | Depends On | Crate |
+|------|----------|--------|------------|-------|
+| Define `DataGovernanceRecord` type: data source, classification, retention, lineage | P0 | 2 days | — | `vellaveto-types` |
+| Define `DataGovernanceConfig` with required fields per Art 10 | P0 | 1 day | Type | `vellaveto-config` |
+| Implement `DataGovernanceRegistry` mapping tool inputs/outputs to data classifications | P0 | 3 days | Config | `vellaveto-audit` |
+| Add data provenance tracking in audit entries: source, classification, processing purpose | P0 | 2 days | Registry | `vellaveto-audit` |
+| API endpoint: `GET /api/compliance/data-governance` | P0 | 1 day | Registry | `vellaveto-server` |
+| Update gap analysis: Art 10 coverage | P0 | 1 day | All above | `vellaveto-audit` |
 
-> **Status:** Implemented. OTLP exporter with GenAI semantic conventions, OtlpConfig with validation, feature-gated behind `otlp-exporter`.
+### Phase 24 Exit Criteria
+- [ ] Art 50(2): Every Deny verdict includes a machine-readable explanation
+- [ ] Art 50(2): Explanation verbosity configurable (none/summary/full)
+- [ ] Art 10: Data governance registry covers all tool data flows
+- [ ] Art 10: `GET /api/compliance/data-governance` returns current records
+- [ ] EU AI Act conformity assessment shows 100% article coverage
+- [ ] All existing tests continue passing
+- [ ] No new `unwrap()` in library code
 
-| Task | Status | Notes |
-|------|--------|-------|
-| Implement OTLP exporter with GenAI semantic conventions | ✅ | `vellaveto-audit/src/observability/otlp.rs` |
-| Add `gen_ai.system`, `gen_ai.operation.name` attributes | ✅ | `span_to_otel_attributes()` with GenAI + vellaveto.* attributes |
-| Map SecuritySpan to OTel spans (span kind, verdict→status, ID/time parsing) | ✅ | `map_span_kind()`, `verdict_to_status()`, `parse_trace_id()`, `parse_span_id()` |
-| OtlpConfig with endpoint/protocol/headers validation | ✅ | `vellaveto-config/src/observability.rs` |
-| Feature-gated behind `otlp-exporter` | ✅ | Zero impact on default builds |
-| OTLP unit tests | ✅ | 11 tests |
-| Implement `gen_ai.agent.*` attributes for multi-agent tracing | 🔲 | Future: multi-agent trace context |
-| Add trace context propagation across MCP/A2A boundaries | 🔲 | Future: distributed tracing |
-| Create Grafana dashboard templates for GenAI metrics | 🔲 | Future |
-| Add Jaeger/Tempo integration tests | 🔲 | Future |
+**Estimated Duration:** 4 weeks
 
-**Configuration:**
-```toml
-[observability.otlp]
-enabled = true
-endpoint = "http://otel-collector:4317"
-protocol = "grpc"                    # grpc | http_proto
-service_name = "vellaveto"
-batch_size = 100
-flush_interval_secs = 10
-max_retries = 3
-timeout_secs = 30
+---
+
+### Phase 25: MCP June 2026 Spec Adoption (P0)
+
+*Focus: Adopt final MCP June 2026 specification changes and extend multimodal content support*
+
+The current codebase has a `2026-06` placeholder in `SUPPORTED_PROTOCOL_VERSIONS` (Phase 18). This phase fills in actual spec requirements once published.
+
+#### 25.1 Spec Delta Analysis and Implementation
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Analyze June 2026 spec diff against 2025-11-25 implementation | P0 | 3 days | Spec publication |
+| Implement new required protocol features (TBD based on spec) | P0 | 5–10 days | Analysis |
+| Update `classify_message()` in all transports for new message types | P0 | 3 days | Implementation |
+| Update protocol version negotiation | P0 | 1 day | Implementation |
+| Ensure backward compatibility with 2025-11-25 and earlier clients | P0 | 2 days | Version negotiation |
+
+#### 25.2 MCP Multimodal Content Support
+
+The MCP 2026 spec is expected to formalize multimodal content handling (images, video, audio). The existing Phase 23.1 multimodal injection detection (`vellaveto-mcp/src/inspection/multimodal.rs`) handles PNG/JPEG/PDF but needs extension.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Extend multimodal inspection for audio content (WAV/MP3 metadata extraction) | P0 | 3 days | — |
+| Extend multimodal inspection for video content (MP4 metadata, subtitle injection) | P0 | 3 days | — |
+| Add multimodal content size limits and type enforcement policies | P0 | 2 days | — |
+| Add multimodal content policy configuration | P0 | 1 day | — |
+| Fuzz targets for new content types | P0 | 2 days | Implementation |
+
+### Phase 25 Exit Criteria
+- [ ] Full compliance with MCP June 2026 specification (all required features)
+- [ ] Backward compatibility with 2025-11-25, 2025-06-18, and 2025-03-26 verified
+- [ ] Multimodal content inspection covers audio and video formats
+- [ ] At least 2 new fuzz targets for multimodal content
+
+**Estimated Duration:** 4–6 weeks (timing depends on spec publication date)
+
+---
+
+### Phase 26: Shadow AI Detection & Governance Visibility (P1)
+
+*Focus: Enterprise-wide agent governance, shadow AI discovery, and OWASP Least Agency enforcement*
+
+88% of organizations report AI agent security incidents. Only 14.4% of agents get full security approval (Lakera Q4 2025). Shadow AI — agents deployed without security team knowledge — is the primary governance gap.
+
+#### 26.1 Shadow AI Discovery Engine
+
+| Task | Priority | Effort | Depends On | Crate |
+|------|----------|--------|------------|-------|
+| Define `ShadowAiDiscovery` types: unregistered agents, unapproved tools, unknown MCP servers | P1 | 2 days | — | `vellaveto-types` |
+| Implement passive discovery: identify unregistered agents from traffic patterns | P1 | 3 days | Types | `vellaveto-mcp` |
+| Implement active discovery: scan for MCP servers on network segments | P1 | 3 days | Types | `vellaveto-mcp` |
+| Define governance policy: `governance.require_agent_registration = true` | P1 | 1 day | — | `vellaveto-config` |
+| Dashboard: shadow AI inventory with risk scoring | P1 | 2 days | Discovery | `vellaveto-server` |
+| API: `GET /api/governance/shadow-agents` | P1 | 1 day | Discovery | `vellaveto-server` |
+
+#### 26.2 Least Agency Enforcement (OWASP ASI 2026 Core Theme)
+
+The existing `LeastAgencyTracker` in `vellaveto-engine/src/least_agency.rs` provides per-session usage tracking with a 4-tier recommendation system. This phase moves from recommendation to enforcement.
+
+| Task | Priority | Effort | Depends On | Crate |
+|------|----------|--------|------------|-------|
+| Add enforcement mode to `LeastAgencyConfig`: `monitor` vs `enforce` | P1 | 1 day | — | `vellaveto-config` |
+| In `enforce` mode, auto-revoke unused permissions after configurable window | P1 | 3 days | Config | `vellaveto-engine` |
+| Generate `LeastAgencyReport` as audit events (not just on-demand API) | P1 | 2 days | — | `vellaveto-audit` |
+| Wire enforcement into proxy transports (deny tools that exceed grant scope) | P1 | 2 days | Enforcement | `vellaveto-http-proxy` |
+| Dashboard: per-agent usage ratio visualization | P1 | 1 day | Reports | `vellaveto-server` |
+
+### Phase 26 Exit Criteria
+- [ ] Shadow AI discovery detects unregistered agents from traffic within 5 minutes
+- [ ] Governance dashboard shows agent inventory with registration status
+- [ ] Least agency enforcement mode auto-narrows permissions for over-privileged sessions
+- [ ] Least agency reports emitted as audit events for SIEM integration
+
+**Estimated Duration:** 4 weeks
+
+---
+
+## Q3 2026 (Jul–Sep): Production Infrastructure
+
+### Phase 27: Kubernetes-Native Deployment (P1)
+
+*Focus: Production-grade K8s deployment with StatefulSet, leader election, and service discovery*
+
+**Deferred from Phase 20.4 in v3.0**
+
+The existing Helm chart at `helm/vellaveto/` provides a basic Deployment with HPA, PDB, NetworkPolicy, and ServiceMonitor templates. This phase extends it to a production-grade gateway deployment.
+
+#### 27.1 Helm Chart Gateway Mode
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Convert Deployment to StatefulSet with PVC for audit log persistence | P1 | 2 days | — |
+| Add `gateway.enabled` values with upstream backend configuration | P1 | 2 days | — |
+| Add init container for config validation (`vellaveto check`) | P1 | 1 day | — |
+| Add sidecar container for audit log shipping (fluentbit/vector) | P1 | 2 days | — |
+| gRPC port exposure (50051) when `grpc.enabled = true` | P1 | 1 day | — |
+| WebSocket upgrade support in Ingress annotations | P1 | 1 day | — |
+| Helm chart CI: `helm lint` + `helm template` + kind cluster smoke test | P1 | 3 days | All above |
+
+#### 27.2 Leader Election and Cluster Coordination
+
+The existing `ClusterBackend` trait in `vellaveto-cluster/src/lib.rs` provides `LocalBackend` and `RedisBackend` implementations. Leader election builds on this.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Implement Kubernetes lease-based leader election | P1 | 4 days | — |
+| Leader responsibilities: policy reload coordination, audit checkpoint signing | P1 | 3 days | Leader election |
+| Follower responsibilities: forward approval decisions to leader | P1 | 2 days | Leader election |
+| Health endpoint extended: `/health` includes leader/follower status | P1 | 1 day | — |
+
+#### 27.3 Service Discovery
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Kubernetes Service discovery for upstream MCP servers (label selector) | P1 | 3 days | — |
+| Auto-registration of discovered backends into `GatewayRouter` | P1 | 2 days | Discovery |
+| Endpoint watch for dynamic backend add/remove | P1 | 2 days | Auto-registration |
+| DNS-based service discovery fallback (for non-K8s environments) | P1 | 2 days | — |
+
+### Phase 27 Exit Criteria
+- [ ] Helm chart passes `helm lint` and deploys to kind cluster
+- [ ] StatefulSet with PVC maintains audit log across pod restarts
+- [ ] Leader election converges within 15 seconds of leader failure
+- [ ] Service discovery detects new/removed upstream MCP servers within 30 seconds
+- [ ] Gateway mode routes requests across 3+ backends in kind cluster
+- [ ] PDB ensures zero downtime during rolling updates
+
+**Estimated Duration:** 6 weeks
+
+---
+
+### Phase 28: Distributed Tracing & Observability (P1)
+
+*Focus: Multi-agent trace context propagation and pre-built observability dashboards*
+
+**Deferred from v3.0 Phase 19.2**
+
+The existing OTLP exporter at `vellaveto-audit/src/observability/otlp.rs` exports spans with GenAI semantic conventions. This phase adds multi-agent trace context propagation and pre-built dashboards.
+
+#### 28.1 Multi-Agent Trace Context
+
+| Task | Priority | Effort | Depends On | Crate |
+|------|----------|--------|------------|-------|
+| Implement W3C Trace Context (traceparent/tracestate) extraction from MCP headers | P1 | 2 days | — | `vellaveto-http-proxy` |
+| Propagate trace context across gateway routing (upstream calls carry parent span) | P1 | 2 days | Extraction | `vellaveto-http-proxy` |
+| Add `gen_ai.agent.id`, `gen_ai.agent.name` attributes to OTLP spans | P1 | 1 day | — | `vellaveto-audit` |
+| Cross-MCP/A2A boundary trace linking (child spans reference parent across protocols) | P1 | 3 days | Propagation | `vellaveto-mcp` |
+| Trace context propagation in WebSocket and gRPC transports | P1 | 2 days | HTTP implementation | `vellaveto-http-proxy` |
+
+#### 28.2 Grafana Dashboard Templates
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Grafana dashboard JSON: verdict distribution over time (allow/deny/approval) | P1 | 1 day | — |
+| Grafana dashboard JSON: P50/P95/P99 evaluation latency | P1 | 1 day | — |
+| Grafana dashboard JSON: agent activity heatmap (tool calls per agent per hour) | P1 | 1 day | — |
+| Grafana dashboard JSON: compliance posture (EU AI Act, SOC 2, CoSAI) | P1 | 1 day | — |
+| Jaeger/Tempo integration test: end-to-end trace verification | P1 | 2 days | Trace context |
+
+### Phase 28 Exit Criteria
+- [ ] W3C trace context propagated across HTTP, WebSocket, and gRPC transports
+- [ ] Cross-gateway traces visible in Jaeger/Tempo with agent identity attributes
+- [ ] 4 Grafana dashboard templates published in `helm/vellaveto/dashboards/`
+- [ ] `gen_ai.agent.*` attributes present on all exported spans
+
+**Estimated Duration:** 4 weeks
+
+---
+
+### Phase 29: Cross-Transport Smart Fallback (P1)
+
+*Focus: Ordered transport fallback chain with per-transport circuit breakers*
+
+**Deferred from v3.0 Phase 18.3**
+
+The existing `forward_with_fallback()` in `vellaveto-http-proxy/src/proxy/fallback.rs` supports HTTP-only retry. This phase extends it to cross-transport negotiation.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Extend `FallbackResult` to track transport negotiation history | P1 | 1 day | — |
+| Implement ordered fallback chain: gRPC → WebSocket → HTTP SSE → stdio | P1 | 4 days | — |
+| Add transport health tracking per upstream (healthy transport list) | P1 | 2 days | — |
+| Add transport preference override per policy (some tools require specific transport) | P1 | 2 days | — |
+| Circuit breaker per transport per upstream | P1 | 2 days | — |
+| Metrics: `vellaveto_transport_fallback_total` with transport labels | P1 | 1 day | — |
+| Integration tests: simulate transport failures and verify fallback behavior | P1 | 2 days | All above |
+
+### Phase 29 Exit Criteria
+- [ ] Fallback chain gRPC → WebSocket → HTTP works end-to-end
+- [ ] Transport-level circuit breaker prevents repeated attempts to failed transports
+- [ ] Fallback attempts audited with transport used and attempt count
+- [ ] P99 fallback latency < 500ms (total, not per-attempt)
+
+**Estimated Duration:** 3 weeks
+
+---
+
+## Q4 2026 (Oct–Dec): Developer Experience & Enterprise
+
+### Phase 30: Developer Experience & SDK Ecosystem (P2)
+
+*Focus: IDE integration, Java SDK, and visual policy execution tools*
+
+**Deferred from v3.0 Phase 22**
+
+#### 30.1 VS Code Extension
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Policy file syntax highlighting (TOML with Vellaveto schema) | P2 | 2 days | — |
+| Inline policy validation (calls `vellaveto check` LSP-style) | P2 | 3 days | Highlighting |
+| Verdict visualization in test explorer | P2 | 3 days | Validation |
+| Policy playground panel (simulate against sample actions) | P2 | 3 days | — |
+| Publish to VS Code Marketplace | P2 | 1 day | All above |
+
+#### 30.2 Java SDK
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| HTTP client using `java.net.http.HttpClient` (Java 11+) | P2 | 3 days | — |
+| Full API parity with Python/TypeScript/Go SDKs | P2 | 2 days | Client |
+| Typed errors (`VellavetoException`, `PolicyDeniedException`, `ApprovalRequiredException`) | P2 | 1 day | Client |
+| Maven Central publishing with javadoc | P2 | 2 days | Implementation |
+| JUnit 5 tests (target 30+ tests) | P2 | 2 days | Implementation |
+
+#### 30.3 React/WASM Execution Graph UI
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| React SPA: execution graph visualization (D3.js force-directed graph) | P2 | 5 days | — |
+| WASM compilation of `vellaveto-engine` for client-side policy simulation | P2 | 3 days | — |
+| Real-time verdict stream via WebSocket subscription | P2 | 2 days | — |
+| Policy diff visualization (before/after comparison) | P2 | 2 days | — |
+| Embed in dashboard route or serve as standalone SPA | P2 | 1 day | All above |
+
+### Phase 30 Exit Criteria
+- [ ] VS Code extension published to Marketplace with policy validation
+- [ ] Java SDK published to Maven Central with 30+ tests
+- [ ] Execution graph UI renders live verdict flows
+- [ ] WASM build of policy engine evaluates in-browser
+
+**Estimated Duration:** 6 weeks
+
+---
+
+### Phase 31: SOC 2 Type II Access Review Reports (P1)
+
+*Focus: Automated access review report generation for SOC 2 auditors*
+
+**Deferred from v3.0 Phase 19.4**
+
+The existing SOC 2 evidence generation at `vellaveto-audit/src/soc2.rs` covers CC1-CC9 criteria with readiness levels. The access review report generator produces the periodic reports that SOC 2 Type II auditors require.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Define `AccessReviewReport` type: user/agent list, permissions, last access, reviewer | P1 | 2 days | — |
+| Implement access review data collection from audit log entries | P1 | 3 days | Type |
+| Generate SOC 2 CC6 (logical/physical access) evidence reports | P1 | 2 days | Collection |
+| Scheduled report generation (daily/weekly/monthly) | P1 | 2 days | Generation |
+| API: `GET /api/compliance/soc2/access-review?period=30d` | P1 | 1 day | Generation |
+| PDF/HTML export of access review reports | P1 | 2 days | API |
+
+### Phase 31 Exit Criteria
+- [ ] Access review reports generated for configurable time periods
+- [ ] Reports include: agent identity, permissions granted, permissions used, usage ratio
+- [ ] Reports include: reviewer attestation fields for SOC 2 auditor sign-off
+- [ ] `GET /api/compliance/soc2/access-review` returns structured JSON
+
+**Estimated Duration:** 3 weeks
+
+---
+
+### Phase 32: Agent Identity Federation (P1)
+
+*Focus: Runtime JWKS resolution, cross-organization ABAC evaluation, and identity mapping*
+
+The existing federation types in `vellaveto-types/src/abac.rs` (`FederationTrustAnchor`, `IdentityMapping`) and config in `vellaveto-config/src/abac.rs` (`FederationConfig`) provide the foundation. This phase implements runtime federation.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Implement JWKS endpoint resolution from `FederationTrustAnchor.jwks_uri` | P1 | 3 days | — |
+| Implement JWT claim mapping via `IdentityMapping.id_template` | P1 | 2 days | JWKS |
+| LRU cache for JWKS key sets (configurable TTL) | P1 | 1 day | Resolution |
+| Cross-org trust level propagation through ABAC engine | P1 | 3 days | Mapping |
+| Federation trust dashboard: registered orgs, active mappings, trust levels | P1 | 2 days | — |
+| API: `POST /api/federation/trust-anchors`, `GET /api/federation/status` | P1 | 2 days | Implementation |
+| Integration tests: agents from org-A evaluated against org-B policies | P1 | 2 days | All above |
+
+### Phase 32 Exit Criteria
+- [ ] JWKS resolution from 2+ external issuers working
+- [ ] JWT claims from federated identity mapped to internal ABAC principals
+- [ ] Cross-organization tool call evaluated correctly through ABAC
+- [ ] Federation status visible in dashboard
+
+**Estimated Duration:** 4 weeks
+
+---
+
+## Q1 2027 (Jan–Mar): Research & Future-Proofing
+
+### Phase 33: Formal Verification (TLA+/Alloy) (P3)
+
+*Focus: First formal model of MCP policy enforcement — a first-of-its-kind contribution*
+
+No formal model of MCP policy enforcement exists in any framework (TLA+, Alloy, Lean, Coq). Documented as Gap #1 in `docs/MCP_SECURITY_GAPS.md`.
+
+#### 33.1 TLA+ Specification of MCP Policy Engine
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| TLA+ specification of MCP client-server interaction model | P3 | 10 days | — |
+| TLA+ specification of PolicyEngine evaluation semantics | P3 | 10 days | Interaction model |
+| Model-check safety properties: complete mediation, fail-closed, no-bypass | P3 | 5 days | Specifications |
+| Model-check liveness properties: every request gets a verdict | P3 | 3 days | Specifications |
+| TLA+ specification of ABAC forbid-overrides semantics | P3 | 5 days | PolicyEngine spec |
+
+#### 33.2 Alloy Specification of Capability Delegation
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Alloy model of capability token delegation chains | P3 | 5 days | — |
+| Verify monotonic attenuation: no child token escalates parent grants | P3 | 3 days | Model |
+| Verify depth budget: delegation chains bounded by MAX_DELEGATION_DEPTH=16 | P3 | 2 days | Model |
+| Alloy counterexample analysis: find edge cases in current implementation | P3 | 3 days | Verification |
+
+#### 33.3 Academic Publication
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Draft paper: "Formally Verified Policy Enforcement for MCP Agent Tool Calls" | P3 | 15 days | TLA+ and Alloy |
+| Target venue: USENIX Security 2027 or ACM CCS 2027 | P3 | — | Draft |
+| Open-source all specifications under Apache-2.0 in `formal/` directory | P3 | 1 day | Paper |
+
+### Phase 33 Exit Criteria
+- [ ] TLA+ specification of MCP policy engine model-checks successfully (zero violations)
+- [ ] Alloy specification of capability delegation verified (monotonic attenuation, depth bounds)
+- [ ] At least 3 safety properties proven: complete mediation, fail-closed, no escalation
+- [ ] Paper draft submitted to peer review
+- [ ] Specifications published to `formal/` directory in repository
+
+**Estimated Duration:** 8–12 weeks
+
+---
+
+### Phase 34: Zero-Knowledge Audit Trails (P3)
+
+*Focus: Privacy-preserving audit with zk-SNARK proofs*
+
+**Reference:** zk-MCP (arXiv:2512.14737, Jing & Qi, Dec 2025) demonstrated < 4.14% overhead with Circom/Groth16.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Research and select zk-SNARK framework for Rust (arkworks vs bellman vs halo2) | P3 | 3 days | — |
+| Define audit circuit: prove "action was evaluated and produced Deny" without revealing parameters | P3 | 5 days | Framework |
+| Implement proof generation alongside each audit entry | P3 | 10 days | Circuit |
+| Implement proof verification without access to original audit data | P3 | 5 days | Generation |
+| Benchmark: prove overhead < 5% of evaluation latency | P3 | 3 days | Implementation |
+| Feature-gate behind `zk-audit` to avoid dependency cost for non-users | P3 | 1 day | — |
+| Integration with existing Merkle tree proofs (combine zk + Merkle for full audit) | P3 | 3 days | Both systems |
+
+### Phase 34 Exit Criteria
+- [ ] zk-SNARK proofs generated for audit entries with < 5% latency overhead
+- [ ] Proofs verifiable without access to original parameters (privacy-preserving)
+- [ ] Feature-gated: zero cost when disabled
+- [ ] At least 10 tests covering proof generation, verification, and tamper detection
+
+**Estimated Duration:** 6–8 weeks
+
+---
+
+### Phase 35: Post-Quantum Cryptography Migration (P3)
+
+*Focus: Replace classical cryptographic primitives with NIST post-quantum standards*
+
+The existing TLS KEX policy in `vellaveto-config/src/enterprise.rs` and migration runbook at `docs/quantum-migration.md` provide the rollout framework.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Replace Ed25519 signatures with ML-DSA (FIPS 204) for tool signing (ETDI) | P3 | 5 days | — |
+| Replace ECDSA P-256 with ML-DSA in FIPS mode | P3 | 3 days | — |
+| Add ML-KEM (FIPS 203) key encapsulation for capability token encryption | P3 | 5 days | — |
+| Dual-signature mode: Ed25519 + ML-DSA during transition period | P3 | 3 days | ML-DSA |
+| Update FIPS 140-3 mode (`vellaveto-mcp/src/fips.rs`) to include PQ algorithms | P3 | 2 days | ML-DSA, ML-KEM |
+| Benchmark: PQ signature verification overhead vs Ed25519 | P3 | 2 days | Implementation |
+
+### Phase 35 Exit Criteria
+- [ ] ML-DSA (FIPS 204) available as alternative to Ed25519 for all signing operations
+- [ ] ML-KEM (FIPS 203) available for key encapsulation
+- [ ] Dual-signature mode allows gradual migration
+- [ ] PQ signature verification < 100us (acceptable overhead vs Ed25519 ~40us)
+
+**Estimated Duration:** 4 weeks
+
+---
+
+### Phase 36: Performance Benchmarking Paper (P3)
+
+*Focus: Rigorous, peer-reviewed performance characterization*
+
+No rigorous MCP security proxy benchmark exists (Gap #5 in `docs/MCP_SECURITY_GAPS.md`). The existing Criterion benchmarks at `vellaveto-engine/benches/evaluation.rs`, `vellaveto-audit/benches/audit.rs`, `vellaveto-mcp/benches/inspection.rs`, and `vellaveto-http-proxy/benches/http_proxy.rs` provide the foundation.
+
+| Task | Priority | Effort | Depends On |
+|------|----------|--------|------------|
+| Design standardized MCP proxy benchmark suite (synthetic + realistic workloads) | P3 | 3 days | — |
+| Pipeline decomposition: measure each component independently (TLS, JSON-RPC parse, policy eval, DLP, audit) | P3 | 5 days | Suite design |
+| Concurrent load testing: P50/P95/P99/P999 at 100/1K/10K/100K concurrent connections | P3 | 3 days | Suite |
+| Compare deterministic enforcement (Vellaveto) vs probabilistic (MCP-Guard ~456ms, LLM-as-judge ~5–8s) | P3 | 3 days | Suite |
+| Memory profiling: baseline RSS, per-connection overhead, policy count scaling | P3 | 2 days | — |
+| Draft paper for OSDI/NSDI/MLSys | P3 | 10 days | All benchmarks |
+
+### Phase 36 Exit Criteria
+- [ ] Standardized benchmark suite published as open-source
+- [ ] Pipeline decomposition shows per-component latency contribution
+- [ ] P99 < 5ms verified at 10K concurrent connections
+- [ ] Memory baseline < 50MB verified
+- [ ] Paper draft with reproducible methodology
+
+**Estimated Duration:** 4–6 weeks
+
+---
+
+## Competitor Comparison (v4.0)
+
+| Feature | Vellaveto v4.0 | MintMCP | TrueFoundry | Lunar.dev MCPX | Microsoft MCP GW | AWS AgentCore |
+|---------|---------------|---------|-------------|----------------|-------------------|---------------|
+| MCP Native | Full (3 transports) | Full | Full | Full | Full (HTTP) | Managed |
+| Latency | < 5ms P99 | Unknown | < 3ms claimed | Unknown | Unknown | Unknown |
+| Policy Engine | ABAC + RBAC + Cedar-style | Basic | Basic | Basic | Basic YAML | IAM-based |
+| Injection Detection | Multi-layer + multimodal | None | None | None | None | Basic |
+| DLP | 8-layer decode | None | None | None | None | Basic |
+| Tamper-Evident Audit | SHA-256 chain + Merkle + Ed25519 | None | None | None | None | CloudTrail |
+| ETDI Tool Signing | Ed25519/ECDSA | None | None | None | None | None |
+| EU AI Act | Art 5–50 complete (Phase 24) | None | None | None | None | None |
+| SOC 2 Evidence | CC1-CC9 + access reviews (Phase 31) | SOC 2 Type II | None | None | None | SOC 2 |
+| Formal Verification | TLA+/Alloy (Phase 33) | None | None | None | None | None |
+| K8s Native | StatefulSet + leader election (Phase 27) | Unknown | K8s | Unknown | K8s native | Managed |
+| Shadow AI Detection | Enterprise-wide (Phase 26) | None | None | None | None | None |
+| Agent Federation | JWKS + cross-org ABAC (Phase 32) | None | None | None | None | None |
+| Cross-Transport Fallback | gRPC → WS → HTTP (Phase 29) | None | None | None | None | None |
+| Distributed Tracing | W3C + OTel GenAI (Phase 28) | None | None | None | None | X-Ray |
+| zk-SNARK Audit | Phase 34 | None | None | None | None | None |
+| Post-Quantum Crypto | ML-DSA/ML-KEM (Phase 35) | None | None | None | None | None |
+| Open Source | AGPL-3.0 | Commercial | Commercial | Commercial | MIT | Commercial |
+| Self-Hosted | Full | Partial | Full | Unknown | Full | No (managed) |
+| SDKs | Python, TypeScript, Go, Java (Phase 30) | Python | Python | TypeScript | None | Python, Java |
+
+**Legend:** ✅ = Implemented | Phase N = Planned for v4.0
+
+---
+
+## Phase Dependency Map
+
+```
+Phase 24 (EU AI Act)     ──── independent ──────────────────────────────┐
+Phase 25 (MCP Spec)      ──── independent ──────────────────────────────┤
+Phase 26 (Shadow AI)     ──── independent ──────────────────────────────┤
+                                                                        │
+Phase 27 (K8s)           ──── depends on gateway router (Phase 20) ─────┤
+Phase 28 (Tracing)       ──── depends on OTLP exporter (Phase 19) ──────┤
+Phase 29 (Fallback)      ──── depends on transport types (Phase 17) ────┤
+                                                                        │
+Phase 30 (DX/SDK)        ──── independent ──────────────────────────────┤
+Phase 31 (SOC 2)         ──── depends on SOC 2 registry (Phase 19) ────┤
+Phase 32 (Federation)    ──── depends on ABAC engine (Phase 21) ────────┤
+                                                                        │
+Phase 33 (Formal Verif)  ──── depends on engine (Phase 21) ─────────────┤
+Phase 34 (zk-Audit)      ──── depends on Merkle proofs (Phase 19) ──────┤
+Phase 35 (PQC)           ──── depends on FIPS mode (Phase 23) ──────────┤
+Phase 36 (Benchmark)     ──── depends on all benchmarks complete ───────┘
 ```
 
-**Completed:** 2026-02-14
-
-#### 19.3 CoSAI Threat Coverage Gap Closure ✅ COMPLETE
-
-Map all 12 CoSAI threat categories (~40 threats) to Vellaveto controls and close identified gaps.
-
-> **Status:** Implemented in commit `a8314c1`. All deliverables complete.
-
-| Task | Status | Notes |
-|------|--------|-------|
-| CoSAI 12-category threat registry (38 threats) | ✅ | `vellaveto-audit/src/cosai.rs` |
-| CoSAI detection mappings (VellavetoDetection → threats) | ✅ | Runtime + structural mitigations, 100% coverage |
-| CoSAI coverage report generation | ✅ | `CosaiRegistry::generate_coverage_report()` |
-| Adversa AI TOP 25 coverage matrix (25/25) | ✅ | `vellaveto-audit/src/adversa_top25.rs` |
-| Cross-framework gap analysis (7 frameworks) | ✅ | `vellaveto-audit/src/gap_analysis.rs` |
-| Threat coverage API endpoint | ✅ | `GET /api/compliance/threat-coverage` |
-| Gap analysis API endpoint | ✅ | `GET /api/compliance/gap-analysis` |
-| Unit tests | ✅ | 35 tests (14 CoSAI + 14 Adversa + 7 gap analysis) |
-
-**Frameworks covered in gap analysis:**
-- MITRE ATLAS (14 techniques)
-- NIST AI RMF (Govern/Map/Measure/Manage)
-- ISO 27090 (5 control domains)
-- EU AI Act (Art 5–50)
-- CoSAI (12 categories, 38 threats)
-- Adversa AI TOP 25 (25 vulnerabilities)
-- ISO/IEC 42001 (AI Management System controls)
-
-**Completed:** 2026-02-14
-
-#### 19.4 SOC 2 Type II Audit Trail Enhancements ✅ COMPLETE
-
-SOC 2 evidence generation with Trust Services Categories (CC1-CC9), Merkle tree inclusion proofs, and immutable audit log archive.
-
-> **Status:** Implemented. Registry-based evidence generation, Merkle tree proofs, and immutable audit log archive all complete.
-
-| Task | Status | Notes |
-|------|--------|-------|
-| SOC 2 registry with 22 criteria across CC1-CC9 | ✅ | `vellaveto-audit/src/soc2.rs` |
-| SOC 2 evidence report generator | ✅ | `Soc2Registry::generate_evidence_report()` |
-| Coverage by category with readiness levels | ✅ | `coverage_by_category()`, 5-level ReadinessLevel |
-| Read-time audit entry classification | ✅ | `classify_entry()` → `Soc2EvidenceRecord` |
-| SOC 2 evidence API endpoint with category filter | ✅ | `GET /api/compliance/soc2/evidence?category=CC1` |
-| SOC 2 unit tests | ✅ | 14 tests |
-| Merkle tree inclusion proofs (RFC 6962 domain separation) | ✅ | `vellaveto-audit/src/merkle.rs` |
-| Merkle proof generation and verification | ✅ | `generate_proof()`, `verify_proof()` (static) |
-| Merkle integration with audit logger | ✅ | `with_merkle_tree()` builder, leaf append on log_entry |
-| Merkle root in checkpoints | ✅ | `merkle_root: Option<String>` in Checkpoint |
-| Merkle tree rotation support | ✅ | Leaf file renamed alongside rotated log, tree reset |
-| Merkle tree crash recovery | ✅ | `initialize()` rebuilds peaks from existing leaf file |
-| Merkle tree unit tests | ✅ | 24 tests |
-| Implement immutable audit log archive with retention policies | ✅ | `vellaveto-audit/src/archive.rs` — gzip compression + retention enforcement, feature-gated `archive`. 9 tests |
-| Create access review report generator | 🔲 | Future |
-
-### Phase 19 Exit Criteria
-- [x] EU AI Act conformity assessment registry and evidence generation API
-- [x] SOC 2 evidence registry with CC1-CC9 coverage and evidence collection API
-- [x] Merkle tree inclusion proofs integrated with audit logger and checkpoints
-- [x] Compliance configuration with validation in vellaveto-config
-- [x] EU AI Act Article 50 runtime transparency features (output marking, human oversight triggers)
-- [x] OTLP export with GenAI semantic conventions verified against OTel Collector
-- [x] CoSAI/Adversa threat coverage >90% with documented exceptions (100% CoSAI, 100% Adversa TOP 25)
-- [x] Immutable audit log archive with retention policies
-- [x] Compliance dashboard shows real-time status
-
-**Estimated Duration:** 6 weeks (parallel with Phase 18)
+Phases 24, 25, and 26 can run in parallel (Q2 2026).
+Phases 27, 28, and 29 can run in parallel (Q3 2026).
+Phases 30, 31, and 32 can run in parallel (Q4 2026).
+Phases 33, 34, 35, and 36 can run in parallel (Q1 2027).
 
 ---
 
-## Q3 2026 (Jul–Sep): Gateway & Enterprise
+## Test Budget Projection
 
-### Phase 20: MCP Gateway Mode (P1) ✅ COMPLETE
-
-*Focus: Transform Vellaveto from a single-server proxy into a multi-backend MCP gateway with session routing, tool aggregation, and Kubernetes-native deployment*
-
-> **Status:** 20.1–20.3 implemented. Phase 20.4 (Kubernetes/Helm) deferred to Phase 22. Completed 2026-02-14.
-
-Enterprise deployments need a gateway that aggregates multiple MCP servers behind a single entry point — similar to Microsoft MCP Gateway but with Vellaveto's security stack built in.
-
-#### 20.1 Session-Aware Routing
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Implement session affinity routing (sticky sessions) | P1 | 3 days | — |
-| Add content-based routing (route by tool name, agent ID, intent) | P1 | 3 days | — |
-| Implement weighted round-robin with health checks | P1 | 2 days | — |
-| Add circuit breaker per upstream backend | P1 | 2 days | — |
-| Create routing policy DSL | P1 | 3 days | — |
-| Add routing decision audit logging | P1 | 1 day | All above |
-
-**Configuration:**
-```toml
-[gateway]
-enabled = true
-mode = "aggregating"               # passthrough | aggregating | filtering
-
-[[gateway.upstreams]]
-name = "code-tools"
-url = "http://code-mcp:3000"
-tools = ["filesystem:*", "git:*"]
-weight = 100
-health_check_interval_secs = 10
-
-[[gateway.upstreams]]
-name = "data-tools"
-url = "http://data-mcp:3000"
-tools = ["database:*", "api:*"]
-weight = 100
-health_check_interval_secs = 10
-
-[gateway.routing]
-strategy = "content_based"          # round_robin | content_based | sticky
-session_affinity = true
-session_ttl_secs = 3600
-```
-
-#### 20.2 Multi-Server Tool Discovery
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Implement upstream tool discovery via `tools/list` | P1 | 2 days | — |
-| Add unified tool namespace with conflict resolution | P1 | 3 days | Tool discovery |
-| Implement tool capability merging across backends | P1 | 2 days | Unified namespace |
-| Add tool availability tracking (mark tools offline when backend unhealthy) | P1 | 2 days | Health checks |
-| Create tool catalog API endpoint | P1 | 1 day | All above |
-
-#### 20.3 Health-Aware Upstream Routing
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Implement active health checking (configurable probe endpoints) | P1 | 2 days | — |
-| Add passive health checking (track error rates from real traffic) | P1 | 2 days | — |
-| Implement gradual backend drain for maintenance | P1 | 2 days | Health checking |
-| Add upstream connection pooling with limits | P1 | 2 days | — |
-| Create health status dashboard section | P1 | 1 day | All above |
-
-#### 20.4 Kubernetes-Native Deployment
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Create Helm chart for gateway mode (StatefulSet with PVC) | P1 | 3 days | — |
-| Implement leader election for cluster coordination | P1 | 3 days | — |
-| Add Kubernetes Service discovery for upstream auto-registration | P1 | 2 days | — |
-| Create PodDisruptionBudget and HPA templates | P1 | 1 day | Helm chart |
-| Implement readiness/liveness probes with policy engine health | P1 | 1 day | — |
-| Add Kubernetes NetworkPolicy templates | P1 | 1 day | — |
-| Create Helm chart integration tests | P1 | 2 days | All above |
-
-### Phase 20 Exit Criteria
-- [x] Gateway routes requests to multiple upstream MCP servers
-- [x] Session affinity maintained across reconnections
-- [x] Tool namespace unified with conflict detection
-- [x] Health-based routing removes unhealthy backends within configurable threshold
-- [ ] Helm chart passes `helm lint` and deploys to kind cluster *(deferred — Phase 20.4)*
-- [x] P99 routing latency <2ms overhead above single-server mode (single HashMap lookup + prefix match)
-
-**Status:** 20.1–20.3 complete. 20.4 (Kubernetes/Helm) deferred to future phase.
+| Phase | Estimated New Tests | Running Total |
+|-------|--------------------:|:-------------:|
+| v3.0 baseline | — | 4,985 |
+| Phase 24 (EU AI Act) | ~40 | 5,025 |
+| Phase 25 (MCP Spec) | ~50 | 5,075 |
+| Phase 26 (Shadow AI) | ~35 | 5,110 |
+| Phase 27 (K8s) | ~45 | 5,155 |
+| Phase 28 (Tracing) | ~30 | 5,185 |
+| Phase 29 (Fallback) | ~25 | 5,210 |
+| Phase 30 (DX/SDK) | ~80 | 5,290 |
+| Phase 31 (SOC 2) | ~20 | 5,310 |
+| Phase 32 (Federation) | ~30 | 5,340 |
+| Phase 33 (Formal Verif) | ~15 | 5,355 |
+| Phase 34 (zk-Audit) | ~25 | 5,380 |
+| Phase 35 (PQC) | ~20 | 5,400 |
+| Phase 36 (Benchmark) | ~10 | 5,410 |
+| **v4.0 target** | **~425 new** | **~5,400+** |
 
 ---
 
-### Phase 21: Advanced Authorization (P1) ✅ COMPLETE
-
-*Focus: Fine-grained attribute-based access control, least-agency enforcement, identity federation, and continuous authorization*
-
-#### 21.0 Capability-Based Delegation Tokens ✅ COMPLETE
-
-Ed25519-signed capability tokens with monotonic attenuation for protocol-level delegation.
-
-> **Status:** Implemented. Foundation for Phase 21 authorization features.
-
-| Task | Status | Notes |
-|------|--------|-------|
-| CapabilityToken type with grants, delegation chain, depth budget | ✅ | `vellaveto-types/src/capability.rs` |
-| Ed25519 signing with length-prefixed canonical content | ✅ | `vellaveto-mcp/src/capability_token.rs` |
-| Token issuance, attenuation, and verification | ✅ | `issue_capability_token()`, `attenuate_capability_token()`, `verify_capability_token()` |
-| Monotonic attenuation enforcement (depth decrements, grants subset, expiry clamped) | ✅ | Escalation rejected at attenuation time |
-| Grant coverage matching (glob patterns, path/domain constraints) | ✅ | `check_grant_coverage()` |
-| RequireCapabilityToken policy condition (fail-closed) | ✅ | `vellaveto-engine/src/context_check.rs` |
-| Policy compilation for `require_capability_token` | ✅ | `vellaveto-engine/src/policy_compile.rs` |
-| EvaluationContext extended with `capability_token` field | ✅ | `vellaveto-types/src/identity.rs` |
-| Structural validation (MAX_GRANTS=64, MAX_DEPTH=16, MAX_TOKEN_SIZE=65536) | ✅ | `validate_structure()` |
-| Capability token unit tests | ✅ | 31 tests (4 types + 5 engine + 22 mcp) |
-
-**Security properties delivered:**
-- Fail-closed: missing or invalid token = Deny
-- Monotonic attenuation: child tokens can only narrow parent grants
-- Depth budget prevents unbounded delegation chains
-- Ed25519 signature over canonical content prevents tampering
-- Grant coverage checked against Action tool/function/paths/domains
-- No new dependencies (reuses ed25519-dalek, hex, serde)
-
-**Completed:** 2026-02-14
-
-#### 21.1 Fine-Grained ABAC Engine (Cedar-Style) ✅ COMPLETE
-
-TOML-based Cedar-style ABAC policies with compiled pattern matchers and forbid-overrides evaluation.
-
-> **Status:** Implemented. `AbacEngine` with compiled policies, `EntityStore` with transitive group membership, conflict detection.
-
-| Task | Status | Notes |
-|------|--------|-------|
-| ABAC types (AbacPolicy, AbacEntity, AbacEffect, AbacOp, constraints) | ✅ | `vellaveto-types/src/abac.rs` |
-| AbacConfig with validation (bounds, duplicates, thresholds) | ✅ | `vellaveto-config/src/abac.rs` |
-| Compiled ABAC engine with pattern matchers | ✅ | `vellaveto-engine/src/abac.rs` |
-| Entity store with transitive group membership (bounded depth=16) | ✅ | `EntityStore` in `vellaveto-engine/src/abac.rs` |
-| Permit/forbid evaluation with forbid-overrides (Cedar semantics) | ✅ | `AbacDecision::Allow/Deny/NoMatch` |
-| Policy conflict detection | ✅ | `find_conflicts()` |
-| 10 condition operators (Eq, Ne, In, NotIn, Contains, StartsWith, Gt, Lt, Gte, Lte) | ✅ | `AbacOp` enum |
-| 27 engine unit tests | ✅ | Covers compilation, evaluation, matching, conditions, entities |
-
-#### 21.2 Least-Agency Principle Enforcement ✅ COMPLETE
-
-Per-agent-session permission usage tracking with unused-permission detection and narrowing recommendations.
-
-> **Status:** Implemented. `LeastAgencyTracker` with bounded session tracking.
-
-| Task | Status | Notes |
-|------|--------|-------|
-| Per-session permission usage tracking | ✅ | `LeastAgencyTracker` in `vellaveto-engine/src/least_agency.rs` |
-| Unused-permission detection | ✅ | `check_unused()` returns unused policy IDs |
-| Compliance report generation (usage ratio, recommendation) | ✅ | `generate_report()` → `LeastAgencyReport` |
-| Permission narrowing recommendations | ✅ | `recommend_narrowing()` suggests policy IDs to revoke |
-| 4-tier recommendation system (Optimal/ReviewGrants/NarrowScope/Critical) | ✅ | `AgencyRecommendation` enum |
-| 8 unit tests | ✅ | Covers registration, usage, reports, isolation, bounds |
-
-#### 21.3 Identity Federation Across Organizations ✅ COMPLETE
-
-Cross-organization trust anchors with identity mapping from external JWT claims to internal principals.
-
-> **Status:** Implemented. `FederationConfig` with `FederationTrustAnchor` and `IdentityMapping` types.
-
-| Task | Status | Notes |
-|------|--------|-------|
-| FederationTrustAnchor type (org_id, JWKS URI, issuer pattern) | ✅ | `vellaveto-types/src/abac.rs` |
-| IdentityMapping (external JWT claim → internal principal) | ✅ | `IdentityMapping` with id_template |
-| FederationConfig with validation | ✅ | `vellaveto-config/src/abac.rs` (max 64 trust anchors) |
-| ABAC principal resolution from federated identity | ✅ | `AbacEvalContext` principal_type/principal_id |
-
-#### 21.4 Continuous Authorization with Real-Time Context ✅ COMPLETE
-
-Risk-score-based per-request authorization with configurable thresholds and degradation.
-
-> **Status:** Implemented. `ContinuousAuthConfig` with risk/degradation thresholds, integrated across all 3 proxy transports.
-
-| Task | Status | Notes |
-|------|--------|-------|
-| RiskScore type (0.0–1.0 with weighted factors) | ✅ | `vellaveto-types/src/abac.rs` |
-| ContinuousAuthConfig (risk_threshold, degradation_threshold, interval) | ✅ | `vellaveto-config/src/abac.rs` |
-| Per-session risk score in SessionState | ✅ | `risk_score: Option<RiskScore>` |
-| ABAC refinement wired in HTTP/WebSocket/gRPC handlers | ✅ | After PolicyEngine Allow, ABAC refines |
-| Full backward compatibility when disabled | ✅ | `abac.enabled = false` (default) → identical behavior |
-
-### Phase 21 Exit Criteria
-- [x] ABAC engine evaluates Cedar-style policies with <1ms P99 latency
-- [x] Least-agency enforcement measurably reduces over-permissioned sessions
-- [x] Identity federation working across at least 2 organizations in test
-- [x] Continuous authorization re-evaluates within 500ms of context change
-- [x] Full backward compatibility with existing policy format
-
-**Completed:** 2026-02-14
-
----
-
-## Q4 2026 (Oct–Dec): DX & Research
-
-### Phase 22: Developer Experience (P2) ✅ COMPLETE
-
-*Focus: Make Vellaveto accessible to developers with simulation APIs, CLI tools, CI gates, and SDKs*
-
-> **Status:** Phase 22 backend-first implementation complete. Completed 2026-02-14.
-
-#### Completed (22.3–22.5, CLI, Dashboard)
-
-- **Policy simulator API** — 4 endpoints: `POST /api/simulator/evaluate` (single with trace), `/batch` (up to 100 actions), `/validate` (config validation), `/diff` (policy diff). Supports inline TOML policy configs for sandbox evaluation. 9 tests. (`vellaveto-server/src/routes/simulator.rs`)
-- **CLI `simulate` subcommand** — Batch-evaluate actions from JSON file against policy config. Text table and JSON output formats.
-- **GitHub Action `policy-check`** — Composite action downloading Vellaveto binary, running `vellaveto check` in CI. Supports version pinning, strict mode, text/JSON output. (`.github/actions/policy-check/action.yml`)
-- **Dashboard SVG charts** — Verdict distribution bar chart and policy type pie chart rendered as inline SVG. 4 tests.
-- **TypeScript SDK** — Zero runtime dependency HTTP client with native `fetch()` (Node 18+). Full API parity with Python SDK. 15 Jest tests. (`sdk/typescript/`)
-
-#### Deferred to Future Phases
-
-| Item | Status |
-|------|--------|
-| React/WASM execution graph UI (22.1) | Deferred — server-rendered SVG sufficient for now |
-| VS Code extension (22.2) | Deferred |
-| Go SDK | **Done** — stdlib-only client, 28 tests, zero dependencies |
-| Java SDK | Deferred |
-
-### Phase 22 Exit Criteria
-- [x] Policy simulator evaluates policies against test actions (single + batch + validate + diff)
-- [x] GitHub Action blocks PRs with invalid policy changes
-- [x] TypeScript SDK published with core functionality
-- [x] Dashboard shows verdict distribution and policy type charts
-- [x] CLI `simulate` subcommand for batch evaluation
-
----
-
-### Phase 23: Research & Future (P3) ✅ COMPLETE
-
-*Focus: Forward-looking capabilities for technical differentiation and long-term competitive moat*
-
-#### 23.1 Multimodal Injection Detection ✅
-
-- Pure-Rust PNG tEXt/zTXt/iTXt chunk extraction, JPEG COM/EXIF extraction, PDF stream/FlateDecode text extraction
-- Chi-squared LSB steganography detection on raw pixel data
-- No `image`, `pdf`, or OCR crates — uses `flate2` for decompression only
-- 12 tests
-
-#### 23.2 Continuous Autonomous Red Teaming ✅
-
-- `MutationEngine` with 8 mutation types: URL encode, double encode, null byte, homoglyph, case variation, whitespace inject, parameter alias, context wrapping
-- `RedTeamRunner` evaluates mutated payloads against `PolicyEngine`, tracks coverage by category/mutation
-- `CoverageReport` with gap detection (categories with <100% block rate)
-- API endpoint: `POST /api/simulator/red-team`
-- 15 tests
-
-#### 23.3 FIPS 140-3 Compliance Mode ✅
-
-- `FipsMode` with approved/non-approved algorithm lists, fail-closed validation
-- ECDSA P-256 sign/verify via `p256` crate, feature-gated behind `fips`
-- Ed25519, ChaCha20-Poly1305, Blake2 rejected in FIPS mode
-- 12 tests
-
-#### 23.4 Sigstore/Rekor Transparency Log Integration ✅
-
-- `RekorEntry` types (body, spec, signature, inclusion proof) with full serde support
-- `RekorVerifier` with RFC 6962 domain-separated Merkle tree inclusion proof verification
-- Offline tool hash matching and full verification (proof + hash)
-- 12 tests
-
-#### 23.5 Stateful Session Reasoning Guards ✅
-
-- Formal state machine: Init→Active→Suspicious→Locked→Ended
-- Configurable thresholds: `suspicious_threshold`, `lock_threshold`, `cooldown_secs`
-- `SessionGuard` with `WorkflowTracker` and `GoalTracker` integration
-- Admin unlock, cooldown recovery, session eviction (max_sessions)
-- 20 tests
-
-### Phase 23 Exit Criteria
-- [x] At least one multimodal injection detection modality working (PNG, JPEG, PDF)
-- [x] Autonomous red team generates novel attack patterns (8 mutation types)
-- [x] FIPS 140-3 mode passes basic compliance checks (algorithm validation + ECDSA P-256)
-- [x] Sigstore integration publishes and verifies tool signatures (Rekor offline verification)
-- [x] Session reasoning guards detect multi-turn attack patterns (5-state machine)
-
----
-
-## Competitor Comparison (Updated)
-
-| Feature | Vellaveto v3.0 | Cisco AI Defense | Prisma AIRS | Radware | CalypsoAI | Akamai | NeMo Guardrails | Microsoft MCP GW |
-|---------|--------------|-----------------|-------------|---------|-----------|--------|-----------------|------------------|
-| MCP Native Support | ✅ Full | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ Gateway |
-| A2A Protocol Support | ✅ Full | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| WebSocket Transport | ✅ Phase 17.1 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| gRPC Transport | ✅ Phase 17.2 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Policy Engine | ✅ Strong | ✅ ML-based | ✅ Strong | ✅ WAF | ✅ Strong | ✅ WAF | ✅ Colang | ⚠️ Basic |
-| Injection Detection | ✅ Multi-layer | ✅ ML-based | ✅ ML-based | ✅ Strong | ✅ ML-based | ✅ Strong | ✅ LLM-based | ❌ |
-| DLP / Data Loss Prevention | ✅ 8-layer decode | ⚠️ Basic | ✅ Strong | ⚠️ Basic | ✅ Strong | ⚠️ Basic | ⚠️ Basic | ❌ |
-| Tamper-Evident Audit | ✅ Hash chain + Merkle | ⚠️ Basic | ✅ Strong | ⚠️ Basic | ✅ Strong | ✅ Strong | ⚠️ Basic | ❌ |
-| ETDI Tool Signing | ✅ Ed25519/ECDSA | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Schema Poisoning Detection | ✅ Jaccard | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Cross-Agent Security | ✅ Trust graph | ⚠️ Basic | ⚠️ Basic | ❌ | ⚠️ Basic | ❌ | ❌ | ❌ |
-| Memory Injection Defense | ✅ Full MINJA | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Semantic Guardrails | ✅ LLM-based | ✅ ML-based | ✅ ML-based | ❌ | ✅ ML-based | ❌ | ✅ Native | ❌ |
-| NHI Lifecycle | ✅ Full | ⚠️ Basic | ⚠️ Basic | ❌ | ❌ | ❌ | ❌ | ❌ |
-| RAG Poisoning Defense | ✅ Full | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Gateway / Multi-Backend | 🔲 Phase 20 | ✅ Native | ✅ Native | ✅ Native | ❌ | ✅ Native | ❌ | ✅ Native |
-| ABAC (Cedar-style) | 🔲 Phase 21 | ⚠️ Basic | ✅ Strong | ❌ | ⚠️ Basic | ❌ | ❌ | ❌ |
-| EU AI Act Compliance | ✅ Phase 19.1 | ⚠️ Basic | ⚠️ Basic | ❌ | ✅ Strong | ❌ | ❌ | ❌ |
-| OpenTelemetry GenAI | ✅ Phase 19 | ❌ | ⚠️ Basic | ❌ | ❌ | ❌ | ❌ | ❌ |
-| K8s Native Deployment | 🔲 Phase 20 | ✅ Native | ✅ Native | ✅ Native | ⚠️ Basic | ✅ Native | ❌ | ✅ Native |
-| Open Source | ✅ AGPL-3.0 | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ Apache-2.0 | ✅ MIT |
-| Self-Hosted | ✅ Full | ❌ Cloud | ❌ Cloud | ❌ Cloud | ❌ Cloud | ❌ Cloud | ✅ Full | ✅ Full |
-
-**Legend:** ✅ = Implemented | ⚠️ = Partial | ❌ = Not available | 🔲 = Planned
-
----
-
-## CoSAI / Adversa AI Threat Coverage
-
-### CoSAI MCP Security Whitepaper — 12 Threat Categories
-
-| # | Threat Category | Vellaveto Coverage | Gaps |
-|---|----------------|-------------------|------|
-| 1 | Tool Definition Manipulation | ✅ ETDI signing, schema poisoning, rug-pull detection | — |
-| 2 | Prompt Injection via Tool I/O | ✅ Multi-layer injection detection, semantic analysis | — |
-| 3 | Unauthorized Data Access | ✅ DLP scanning, path/network rules, DPoP | — |
-| 4 | Privilege Escalation | ✅ RBAC, call chain validation, confused deputy prevention | ABAC (Phase 21) |
-| 5 | Cross-Agent Attacks | ✅ Trust graph, message signing, shadow agent detection | Federation (Phase 21) |
-| 6 | Memory/Context Poisoning | ✅ MINJA defense, taint tracking, quarantine | — |
-| 7 | Supply Chain Attacks | ✅ ETDI attestation chain, version pinning, SBOM | Sigstore (Phase 23) |
-| 8 | Transport Security | ✅ mTLS, SPIFFE, DPoP, WebSocket, gRPC | — |
-| 9 | Denial of Service | ✅ Rate limiting, circuit breaker, resource limits | — |
-| 10 | Audit Evasion | ✅ Hash chain, Ed25519 checkpoints, rotation manifests | — |
-| 11 | Configuration Attacks | ✅ Config validation, hot reload integrity | — |
-| 12 | Compliance Gaps | ✅ MITRE ATLAS, NIST RMF, AIVSS, EU AI Act evidence + Art 50 transparency, SOC 2 evidence, OTLP GenAI export, compliance dashboard | — |
-
-### Adversa AI MCP Security TOP 25
-
-| # | Vulnerability | Vellaveto Status |
-|---|--------------|----------------|
-| 1 | Tool Poisoning | ✅ ETDI + schema poisoning |
-| 2 | Rug Pull Attacks | ✅ Rug-pull detection with persistent flagging |
-| 3 | Tool Squatting | ✅ Levenshtein + homoglyph detection |
-| 4 | Cross-Server Injection | ✅ Injection detection on all MCP messages |
-| 5 | Prompt Injection via Parameters | ✅ Parameter-level injection scanning |
-| 6 | Data Exfiltration via Tool Output | ✅ DLP on responses, covert channel detection |
-| 7 | Schema Manipulation | ✅ Jaccard similarity tracking |
-| 8 | Unauthorized Tool Invocation | ✅ Policy engine, RBAC, approval workflow |
-| 9 | Privilege Escalation via Delegation | ✅ Call chain validation, deputy checks |
-| 10 | Memory Injection (MINJA) | ✅ Taint tracking, provenance, quarantine |
-| 11 | Shadow Agent Injection | ✅ Agent fingerprinting, behavior profiling |
-| 12 | Context Window Poisoning | ✅ Token security, context budget tracking |
-| 13 | Transport Layer Attacks | ✅ mTLS, origin validation, CSRF protection |
-| 14 | Replay Attacks | ✅ Nonce-based anti-replay, DPoP |
-| 15 | Denial of Service | ✅ Rate limiting, circuit breaker |
-| 16 | Configuration Tampering | ✅ Config validation, hot reload integrity |
-| 17 | Audit Log Tampering | ✅ SHA-256 hash chain, Ed25519 checkpoints |
-| 18 | Side-Channel Exfiltration | ✅ Steganography detection, entropy analysis |
-| 19 | Sampling-Based Attacks | ✅ Sampling rate limiting, exfiltration detection |
-| 20 | Resource Exhaustion | ✅ Per-tool resource limits, connection pooling |
-| 21 | Identity Spoofing | ✅ NHI lifecycle, behavioral attestation |
-| 22 | Cascading Failures | ✅ Circuit breaker, failure budget |
-| 23 | Goal Manipulation | ✅ Goal tracking, drift detection |
-| 24 | Namespace Collision | ✅ Tool namespace registry, collision detection |
-| 25 | Workflow Manipulation | ✅ Workflow tracking, step budgets |
-
-**Coverage: 25/25** (all addressed, some strengthened in v3.0 phases)
-
----
-
-## OWASP ASI Top 10 Coverage (Updated)
-
-| ID | Threat | Vellaveto Coverage | v3.0 Enhancement |
-|----|--------|-------------------|------------------|
-| ASI01 | Prompt Injection | ✅ Multi-layer detection (Aho-Corasick, semantic, Unicode NFKC) | Multimodal detection (Phase 23) |
-| ASI02 | Sensitive Data Disclosure | ✅ DLP scanning (8-layer decode), DPoP, Art 50 transparency marking | — |
-| ASI03 | Inadequate Sandboxing | ✅ Path/network rules, tool namespace registry | Gateway isolation (Phase 20) |
-| ASI04 | Privilege Escalation | ✅ RBAC, call chain, approval flow | ABAC engine (Phase 21) |
-| ASI05 | Confused Deputy | ✅ Deputy validation, delegation chains | Federation (Phase 21) |
-| ASI06 | Excessive Agency | ✅ Policy engine, least-agency tracking | Least-agency enforcement (Phase 21) |
-| ASI07 | Insecure Plugins | ✅ ETDI signing, rug-pull, schema poisoning | Sigstore (Phase 23) |
-| ASI08 | Cascading Failures | ✅ Circuit breaker, failure budget | Gateway health routing (Phase 20) |
-| ASI09 | Over-reliance on Agent | ✅ Human-in-the-loop approvals, Art 14 human oversight triggers | — |
-| ASI10 | Inadequate Monitoring | ✅ Audit logging, security events, exec graphs, OTLP GenAI export | — |
-
----
-
-## Known CVEs Addressed
-
-| CVE | Description | Vellaveto Mitigation |
-|-----|-------------|---------------------|
-| CVE-2025-68143 | Git MCP Server path traversal | Path normalization (v1.0) |
-| CVE-2025-68144 | Git MCP Server arbitrary read | Path rules, DLP (v1.0) |
-| CVE-2025-68145 | Git MCP Server secret exposure | DLP scanning (v1.0) |
-| CVE-2025-6514 | mcp-remote SSRF | DNS rebinding protection (v1.0) |
-
----
-
-## MCP Ecosystem Security Gaps Analysis
-
-> **Full analysis:** [`docs/MCP_SECURITY_GAPS.md`](docs/MCP_SECURITY_GAPS.md)
->
-> Eight critical, well-defined gaps exist across the MCP security landscape. Only 14% of organizations running agents in production have runtime guardrails (Lakera, Q4 2025). The table below maps each gap to Vellaveto's current coverage and planned roadmap work.
-
-| # | Gap | Severity | Vellaveto Current Coverage | Roadmap Phase | Status |
-|---|-----|----------|--------------------------|---------------|--------|
-| 1 | **Formal verification of MCP policy enforcement** | Critical | No formal model exists in any framework (TLA+, Alloy, Lean, Coq). No one has verified safety/liveness/complete mediation for any MCP policy engine. | Phase 23 (Research) | 🔲 Open research question |
-| 2 | **Cryptographic audit trails** | Critical | ✅ **Vellaveto is the only shipping product combining runtime firewall + cryptographic audit.** SHA-256 hash chains, Ed25519 signed checkpoints, rotation manifests, SIEM export (CEF/JSONL/webhook). **Merkle tree inclusion proofs** with RFC 6962 domain separation, proof generation/verification, crash recovery. | Phase 19.4 ✅ | ✅ Production-ready — Merkle proofs shipped; zk-audit is future work |
-| 3 | **Multi-agent delegation / confused deputy** | Critical | ✅ Deputy validation, delegation chains with depth limits, call chain tracking, NHI lifecycle, agent trust graph, Ed25519 message signing. **Capability-based delegation tokens** with monotonic attenuation, grant coverage matching, RequireCapabilityToken policy condition (fail-closed). | Phase 21.0 ✅, Phase 21.1 (ABAC), Phase 21.3 (Federation) | ✅ Runtime enforcement + protocol-level capability tokens shipped; ABAC and federation planned |
-| 4 | **MCP supply chain security** | Critical | ✅ ETDI tool signing (Ed25519/ECDSA), attestation chains, version pinning with hash drift detection, rug-pull detection, schema poisoning (Jaccard), tool squatting (Levenshtein + homoglyph), SHA-256 binary verification. | Phase 23.4 (Sigstore/Rekor) | ✅ Runtime enforcement shipped — transparency log integration planned |
-| 5 | **Performance benchmarking** | Important | ✅ Criterion benchmarks: 7–31 ns single policy, ~1.2 μs for 100 policies. Sub-5ms P99 claimed. No peer-reviewed publication yet. | — | ⚠️ Internal benchmarks exist; rigorous paper needed (OSDI/NSDI target) |
-| 6 | **MCP protocol-level security deficits** | Critical | ✅ Vellaveto enforces what the spec leaves advisory: tool pinning (ETDI), namespace isolation (collision detection), annotation tracking (rug-pull alerts), session binding (not in URLs), auth enforcement. | Phases 18–21 | ✅ Application-layer mitigations shipped for all 6 protocol deficits |
-| 7 | **Compliance frameworks for agentic AI** | Critical | ✅ MITRE ATLAS (14 techniques), OWASP AIVSS scoring, NIST AI RMF, ISO 27090 readiness. Audit trail with decision context, user attribution, approval chains. **EU AI Act conformity assessment** (Art 5–50, 10 obligations, 18 capability mappings), **Art 50(1) runtime transparency marking**, **Art 14 human oversight triggers**, **SOC 2 evidence generation** (CC1-CC9, 22 criteria, 30 capability mappings), **OTLP export with GenAI semantic conventions**, **compliance dashboard**, **immutable audit archive** with API endpoints. | Phase 19 ✅ | ✅ All Phase 19 exit criteria shipped |
-| 8 | **MCP incident tracking infrastructure** | Important | ✅ 4 known CVEs mitigated (CVE-2025-68143/44/45, CVE-2025-6514). Adversa TOP 25: 25/25 addressed. CoSAI 12 categories: all covered. | — | ⚠️ No centralized MCP vulnerability DB exists ecosystem-wide |
-
-### Vellaveto's Position Relative to Ecosystem Gaps
-
-**Gaps where Vellaveto leads the ecosystem:**
-- **Cryptographic audit trail** (#2) — Only shipping product combining runtime firewall + hash-chained audit with Ed25519 signatures
-- **Supply chain integrity** (#4) — Most comprehensive runtime enforcement: ETDI signing, attestation chains, version pinning, rug-pull/schema poisoning/squatting detection
-- **Protocol deficit mitigations** (#6) — Application-layer enforcement for all 6 spec-level gaps (tool pinning, namespace isolation, annotation enforcement, session binding, auth)
-- **Compliance evidence** (#7) — EU AI Act (evidence + Art 50 transparency + Art 14 oversight), SOC 2 (CC1-CC9), OTLP GenAI export, immutable archive, compliance dashboard — all shipped
-- **Threat coverage** (#8) — 25/25 Adversa TOP 25, all 12 CoSAI categories, all 10 OWASP ASI threats
-
-**Gaps where Vellaveto has partial coverage (roadmap planned):**
-- **Multi-agent delegation** (#3) — Runtime enforcement + protocol-level capability tokens shipped; Cedar-style ABAC (Phase 21.1) and federation (Phase 21.3) planned
-- **Performance characterization** (#5) — Internal criterion benchmarks exist; rigorous peer-reviewed paper needed
-
-**Gaps that are open research (no one has solved):**
-- **Formal verification** (#1) — No formal model of MCP exists in any framework. A TLA+/Alloy specification + Lean/Coq proofs of Vellaveto's policy engine would be a first-of-its-kind contribution targeting USENIX Security/CCS/S&P
-
-### Strategic Research Opportunities
-
-The single most impactful research combination: **formal verification of complete mediation + cryptographic audit trail + deterministic performance characterization.** This trifecta — provably correct enforcement, tamper-evident logging, and rigorous latency guarantees — does not exist anywhere. Publishing it would establish the definitive reference implementation for MCP runtime security.
-
-| Opportunity | Target Venue | Difficulty | Timeline |
-|-------------|-------------|------------|----------|
-| TLA+/Alloy formal model of MCP + verified policy engine properties | USENIX Security, CCS, S&P | High | 12–18 months |
-| Capability-based delegation replacing ambient authority | S&P, CCS | High | 12 months |
-| Merkle-tree transparency log for agent actions | OSDI, NSDI | Medium | 6–9 months |
-| Deterministic vs. probabilistic enforcement benchmarking paper | MLSys, NSDI | Low–Medium | 3–6 months |
-| EU AI Act Article 50 compliance evidence generation | Regulatory/policy venue | Medium | 6 months |
-
-### Key External References
-
-| Source | Relevance |
-|--------|-----------|
-| [Securing the Model Context Protocol](https://arxiv.org/abs/2511.20920) (arXiv, Nov 2025) | Formal verification called out as open research question |
-| [VeriGuard](https://arxiv.org/abs/2510.05156) (Google DeepMind, Oct 2025) | Nagini/Viper formal verification of safety policies (not MCP) |
-| [31 Formal Properties for Agentic AI](https://arxiv.org/abs/2510.14133) (Allegrini et al., Oct 2025) | CTL/LTL specifications, no model-checking against real systems |
-| [AAP: Agent Authorization Profile](https://aap-protocol.org) | Most complete capability delegation spec for agents |
-| [Capabilities Are the Only Way](https://niyikiza.dev) (Niyikiza, Dec 2025) | Object-capability theory applied to agent delegation |
-| [zk-MCP](https://arxiv.org/abs/2512.14737) (Jing & Qi, Dec 2025) | ZK-SNARK privacy-preserving MCP audit (<4.14% overhead) |
-| [Missing Primitives for Trustworthy AI Agents](https://sakurasky.dev) (Stevens, Nov 2025) | Cryptographic audit architecture for agents (design only) |
-| [Singapore IMDA Agentic AI Framework](https://www.imda.gov.sg) (v1.0, Jan 2026) | First government governance framework for agentic AI |
-| [NIST RFI on AI Agent Security](https://www.nist.gov) (Jan 2026, deadline Mar 9) | Federal interest in agent runtime security standards |
-| [MCP-Guard](https://arxiv.org/abs/2508.10991) | Multi-stage MCP guardrails with LLM arbitration (~456ms full pipeline) |
-| [Invariant Labs](https://invariantlabs.ai) | Information-flow analyzer for agent traces (ETH Zurich) |
-| [ToolHive by Stacklok](https://github.com/stacklok/toolhive) | Sigstore + GitHub Attestations for container provenance |
-
----
-
-## Research Bibliography
-
-1. **MCP Specification 2025-06-18** — modelcontextprotocol.io
-2. **MCP SEP-1288: WebSocket Transport** — github.com/modelcontextprotocol/specification
-3. **MCP SEP-1391: Async Operations** — github.com/modelcontextprotocol/specification
-4. **Google gRPC Transport for MCP** — cloud.google.com (2026)
-5. **EU AI Act (Regulation 2024/1689)** — Official Journal of the European Union
-6. **CoSAI MCP Security Whitepaper** — Coalition for Secure AI (2026)
-7. **Adversa AI MCP Security TOP 25** — adversa.ai (2026)
-8. **OpenTelemetry GenAI Semantic Conventions** — opentelemetry.io (2026)
-9. **Microsoft MCP Gateway** — github.com/microsoft/mcp-gateway (2026)
-10. **AWS AgentCore** — aws.amazon.com/agentcore (2026)
-11. **OWASP Top 10 for Agentic Applications 2026** — genai.owasp.org
-12. **OWASP Guide for Securely Using Third-Party MCP Servers** — genai.owasp.org
-13. **ETDI: Enhanced Tool Definition Interface** — arxiv:2506.01333 (2025)
-14. **MINJA: Memory Injection Attacks on LLM Agents** — Agent Security Bench (2025)
-15. **Agentic Trust Framework (ATF)** — CyberArk, Astrix Security (2026)
-16. **Enterprise-Grade Security for MCP** — arxiv:2504.08623 (2025)
-17. **Runtime Risk to Real-Time Defense** — Microsoft Security Blog (2026)
-18. **Kaspersky: Agentic AI Security per OWASP ASI Top 10** — kaspersky.com (2026)
-19. **A2A Protocol Specification** — Google (2025)
-20. **Privilege Management in MCP** — arxiv:2507.06250 (2025)
-21. **NIST Post-Quantum Cryptography Project** — csrc.nist.gov
-22. **FIPS 203 (ML-KEM)** — csrc.nist.gov/pubs/fips/203/final
-23. **Cedar Policy Language** — cedarpolicy.com (Amazon, 2023)
-24. **Sigstore: Software Signing for Everyone** — sigstore.dev
-25. **MITRE ATLAS** — atlas.mitre.org
-26. **Securing the Model Context Protocol** — arxiv:2511.20920 (2025)
-27. **VeriGuard: Formal Verification of Safety Policies** — arxiv:2510.05156, Google DeepMind (2025)
-28. **31 Formal Properties for Agentic AI** — arxiv:2510.14133, Allegrini et al. (2025)
-29. **AAP: Agent Authorization Profile** — aap-protocol.org (2025)
-30. **zk-MCP: Privacy-Preserving Audit** — arxiv:2512.14737, Jing & Qi (2025)
-31. **Missing Primitives for Trustworthy AI Agents** — Sakura Sky / Andrew Stevens (2025)
-32. **Singapore IMDA Model AI Governance Framework for Agentic AI** — v1.0 (2026)
-33. **MCP-Guard: Multi-Stage Guardrails** — arxiv:2508.10991 (2025)
-34. **Invariant Labs: Information-Flow Analysis for Agents** — invariantlabs.ai (2024)
-35. **ToolHive: Sigstore for MCP Supply Chain** — Stacklok (2025)
-36. **Capabilities Are the Only Way to Secure Agent Delegation** — Niyikiza (2025)
-37. **Constant-Size Cryptographic Evidence Structures** — arxiv:2511.17118, Codebat Technologies (2025)
-38. **OIDC-A 1.0: OpenID Connect for Agents** — Subramanya N (2025)
-39. **Lakera Agent Security Report Q4 2025** — lakera.ai (2025)
+## Risk Register
+
+| Risk | Impact | Probability | Mitigation |
+|------|--------|-------------|------------|
+| MCP June 2026 spec delayed | Phase 25 blocked | Medium | Build on 2025-11-25; placeholder already in code |
+| EU AI Act interpretation ambiguity (Art 50(2) scope) | Over/under-engineering Phase 24 | High | Track EU AI Office guidance; implement configurable verbosity |
+| zk-SNARK framework maturity in Rust | Phase 34 timeline slip | Medium | Prototype with arkworks early; fallback to simpler commitment schemes |
+| K8s leader election edge cases | Phase 27 reliability | Medium | Use well-tested `kube-rs` lease implementation; extensive integration tests |
+| Formal verification scope creep | Phase 33 never completes | High | Bound scope to 3 specific safety properties; time-box to 12 weeks |
+| Competitor feature parity in K8s | Phase 27 insufficient | Low | Microsoft MCP GW is routing-only; Vellaveto's security stack remains differentiator |
+| Post-quantum crate ecosystem immaturity | Phase 35 blocked | Medium | Track `pqcrypto` and `ml-dsa` crate development; defer if not production-ready |
 
 ---
 
@@ -926,379 +653,63 @@ The single most impactful research combination: **formal verification of complet
 ---
 
 <details>
+<summary><h2>Archive: v3.0 Completed Phases (17–23)</h2></summary>
+
+> All phases below are **implemented, tested, and hardened** through 38 audit rounds.
+> Preserved here for historical reference and traceability.
+
+### Phase 17: MCP Next Spec Preparation (P0) — COMPLETE
+- WebSocket transport (SEP-1288), gRPC transport (Google), async operations (SEP-1391), protocol extensions framework
+- 6/6 exit criteria delivered
+
+### Phase 18: MCP June 2026 Spec Compliance (P0) — COMPLETE
+- `2026-06` protocol version placeholder, SDK tier declaration (Extended), transport discovery, transport negotiation
+- 4/4 exit criteria delivered
+
+### Phase 19: Regulatory Compliance (P0) — COMPLETE
+- EU AI Act registry (Art 5–50), Art 50(1) transparency marking, Art 14 human oversight, SOC 2 evidence (CC1-CC9), Merkle proofs, OTLP GenAI export, CoSAI 38/38, Adversa TOP 25 25/25, 7-framework gap analysis, immutable archive, compliance dashboard
+- 9/9 exit criteria delivered
+
+### Phase 20: MCP Gateway Mode (P1) — COMPLETE (20.4 deferred to Phase 27)
+- Multi-backend routing, health state machine, session affinity, tool conflict detection
+- 5/6 exit criteria delivered (K8s deferred)
+
+### Phase 21: Advanced Authorization (P1) — COMPLETE
+- ABAC with forbid-overrides, capability-based delegation tokens, least-agency tracking, identity federation types, continuous authorization
+- 5/5 exit criteria delivered
+
+### Phase 22: Developer Experience (P2) — COMPLETE
+- Policy simulator API (4 endpoints), CLI simulate, GitHub Action, dashboard SVG charts, TypeScript SDK, Go SDK
+- 5/5 exit criteria delivered
+
+### Phase 23: Research & Future (P3) — COMPLETE
+- Multimodal injection detection (PNG/JPEG/PDF), red team mutation engine (8 types), FIPS 140-3 mode (ECDSA P-256), Rekor transparency log, stateful session guards (5-state machine)
+- 5/5 exit criteria delivered
+
+</details>
+
+<details>
 <summary><h2>Archive: v2.0–v2.2 Completed Phases (1–15)</h2></summary>
 
 > All phases below are **implemented, tested, and hardened** through 35 audit rounds.
 > Preserved here for historical reference and traceability.
 
----
-
-### Phase 1: MCP 2025-11-25 Compliance (Weeks 1-4) ✅ COMPLETE
-
-*Focus: Protocol updates for Async Tasks, Resource Indicators, CIMD*
-
-> **Status:** Implemented in commit `fad480c`. All deliverables complete.
-
-#### 1.1 Async Tasks Security
-
-The MCP 2025-11-25 spec introduces async task execution. This creates new attack vectors:
-- Task state manipulation during long-running operations
-- Unauthorized task cancellation/resumption
-- Task result tampering
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Define `AsyncTaskPolicy` type | P0 | 1 day | — |
-| Implement task state validation middleware | P0 | 3 days | Policy type |
-| Add task lifecycle audit events | P0 | 1 day | Middleware |
-| Implement task cancellation authorization | P0 | 2 days | Middleware |
-| Add task timeout enforcement | P0 | 1 day | — |
-| Create async task fuzz target | P0 | 1 day | All above |
-
-**New policy configuration:**
-```toml
-[policies.async_tasks]
-enabled = true
-max_task_duration = "1h"
-max_concurrent_tasks = 100
-allow_cancellation = ["admin", "operator"]
-require_completion_signature = true
-```
-
-#### 1.2 OAuth Resource Indicators (RFC 8707)
-
-MCP 2025-11-25 requires resource indicator support for OAuth flows.
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Parse resource indicators from OAuth requests | P0 | 1 day | — |
-| Validate resource scope against policy | P0 | 2 days | Parsing |
-| Add resource indicator to audit context | P0 | 0.5 days | Validation |
-| Support multiple resource servers | P1 | 2 days | — |
-| Add resource indicator integration tests | P0 | 1 day | All above |
-
-#### 1.3 CIMD (Capability-Indexed Message Dispatch)
-
-New MCP routing mechanism requiring policy enforcement.
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Parse CIMD capability headers | P0 | 1 day | — |
-| Define capability-based routing policies | P0 | 2 days | Parsing |
-| Implement capability inheritance validation | P1 | 2 days | Policies |
-| Add capability attestation verification | P1 | 2 days | — |
-
-#### 1.4 Step-Up Authentication
-
-MCP 2025-11-25 defines step-up auth for sensitive operations.
-
-| Task | Priority | Effort | Depends On |
-|------|----------|--------|------------|
-| Define step-up auth policy triggers | P1 | 1 day | — |
-| Implement auth level tracking per session | P1 | 2 days | Triggers |
-| Add step-up challenge/response flow | P1 | 3 days | Tracking |
-| Integrate with human-in-the-loop approvals | P1 | 2 days | Challenge flow |
-
-#### Phase 1 Deliverables
-- [x] Async task policy enforcement
-- [x] OAuth resource indicator validation
-- [x] CIMD capability-based routing
-- [x] Step-up authentication flow
-
-**Completed:** 2026-02-07
-
----
-
-### Phase 2: Advanced Threat Detection (Weeks 5-8) ✅ COMPLETE
-
-*Focus: Close gaps identified in CoSAI whitepaper and OWASP ASI Top 10*
-
-> **Status:** Implemented in commit `e4deb2d`. All deliverables complete.
-
-#### 2.1 Shadow Agent Discovery (ASI02)
-
-Detect unauthorized/rogue agents operating in the environment.
-
-**Detection signals:**
-- Unknown JWT issuers
-- Unusual tool call patterns
-- Unregistered client certificates
-- Anomalous request origins
-
-#### 2.2 Full Schema Poisoning Detection
-
-Extended rug-pull detection for complete schema replacement attacks.
-
-#### 2.3 Cascading Failure Protection (OWASP ASI08)
-
-Circuit breaker per upstream tool with failure budget tracking.
-
-#### 2.4 Sampling-Based Attack Detection
-
-Rate limiting and exfiltration pattern detection for MCP sampling endpoint.
-
-#### 2.5 Confused Deputy Prevention (ASI05)
-
-Strict principal binding, request origin chain validation, capability-based delegation.
-
-#### Phase 2 Deliverables
-- [x] Shadow agent detection and alerting
-- [x] Full schema poisoning detection
-- [x] Circuit breaker with cascade protection
-- [x] Sampling attack detection
-- [x] Confused deputy prevention
-
-**Completed:** 2026-02-07
-
----
-
-### Phase 3.1: Runtime Integration (Week 9) ✅ COMPLETE
-
-*Focus: Wire Phase 1 & 2 security modules into runtime enforcement*
-
-> **Status:** Implemented in commits `05364be` and `7a3c52d`. All deliverables complete.
-
-- [x] ProxyBridge manager integration
-- [x] Enforcement calls at request evaluation points
-- [x] AppState manager fields for vellaveto-server
-- [x] Admin API endpoints (25+ routes)
-- [x] Audit event generation helpers
-- [x] HTTP proxy integration with circuit breaker
-
-**Completed:** 2026-02-08
-
----
-
-### Phase 3.2: Cross-Agent Security (Week 10) ✅ COMPLETE
-
-*Focus: Multi-agent trust relationships, message signing, privilege escalation detection*
-
-> **Status:** Implemented in commit `a043b17`. All deliverables complete.
-
-- [x] Agent trust graph with privilege levels
-- [x] Ed25519 message signing with anti-replay
-- [x] Second-order prompt injection detection
-- [x] Unicode and delimiter injection detection
-- [x] CrossAgentConfig with full validation
-
-**Completed:** 2026-02-08
-
----
-
-### Phase 3.3: Advanced Threat Detection (Week 11) ✅ COMPLETE
-
-*Focus: Goal tracking, workflow monitoring, namespace security, covert channel detection*
-
-> **Status:** Implemented in commit `7cc3232`. All deliverables complete.
-
-- [x] Goal state tracking with drift detection
-- [x] Workflow intent tracking with step budgets
-- [x] Tool namespace security with collision detection
-- [x] Output security with steganography and entropy analysis
-- [x] Token security with smuggling and flooding detection
-- [x] AdvancedThreatConfig with full validation
-
-**Completed:** 2026-02-08
-
----
-
-### Phase 4.1: Standards Alignment (Weeks 12-14) ✅ COMPLETE
-
-*Focus: MITRE ATLAS, OWASP AIVSS, NIST alignment*
-
-> **Status:** Implemented in commit `8f6a78c`. All deliverables complete.
-
-- [x] MITRE ATLAS threat mapping (14 techniques, 30+ detection mappings)
-- [x] AIVSS severity scoring with AI multipliers
-- [x] NIST AI RMF compliance documentation and reports
-- [x] ISO 27090 readiness assessment with gap analysis
-
-**Completed:** 2026-02-08
-
----
-
-### Phase 5: Enterprise Hardening - Configuration (Weeks 15-16) ✅ COMPLETE
-
-*Focus: Configuration layer for mTLS, OPA, threat intelligence, JIT access*
-
-> **Status:** Configuration types implemented in commit `fc8da13`.
-
-- [x] TlsConfig with mTLS mode and revocation options
-- [x] SpiffeConfig with trust domain and ID mapping
-- [x] OpaConfig with caching and fail-open mode
-- [x] ThreatIntelConfig with TAXII/MISP/Custom providers
-- [x] JitAccessConfig with TTL and approval settings
-- [x] Validation for all configuration parameters
-
-**Completed:** 2026-02-08
-
----
-
-### Phase 5.5: Enterprise Hardening - Runtime (Weeks 17-18) ✅ COMPLETE
-
-*Focus: Runtime implementation of enterprise features*
-
-> **Status:** Core runtime components implemented. OPA request-path decision enforcement active.
-
-- [x] TLS termination with client cert extraction
-- [x] SPIFFE ID extraction from X.509 SAN URIs
-- [x] OPA client with LRU caching and fail modes
-- [x] OPA request-path decision enforcement wiring
-- [x] Threat intelligence clients (TAXII, MISP, Custom)
-- [x] JIT session management with approval workflow
-
-**Updated:** 2026-02-10
-
----
-
-### Phase 6: Observability & Tooling (Weeks 19-20) ✅ COMPLETE
-
-*Focus: Execution graphs, CI/CD integration, red-teaming*
-
-- [x] Execution graph visualization (DOT/JSON export, API endpoints)
-- [x] Red-team automation framework (40+ attacks, OWASP ASI alignment)
-- [x] Policy validation CLI with `--strict`, `--format` options
-
----
-
-### Phase 7: Documentation & Release (Week 21-22) ✅ COMPLETE
-
-> **Status:** v2.0.0 released.
-
-- [x] `docs/THREAT_MODEL.md` — OWASP ASI Top 10, MITRE ATLAS
-- [x] `docs/MIGRATION.md` — v1.x to v2.0 upgrade guide
-- [x] `docs/API.md` — All endpoints documented
-- [x] All 12 crates bumped to version 2.0.0
-
----
-
-### Phase 8: ETDI & Cryptographic Tool Security (v2.1) ✅ COMPLETE
-
-*Focus: Enhanced Tool Definition Interface for cryptographic tool attestation*
-
-> **Status:** Implemented in commit `c9590d6`.
-
-- [x] Ed25519/ECDSA tool signature verification
-- [x] Attestation chain with provenance tracking
-- [x] Tool signing CLI (`vellaveto generate-key`, `sign-tool`, `verify-signature`)
-- [x] Version pinning with semantic versioning
-- [x] ETDI persistent store with HMAC protection
-- [x] SPIFFE workload identity trust
-
-**Completed:** 2026-02-08
-
----
-
-### Phase 9: Memory Injection Defense (v2.1) ✅ COMPLETE
-
-*Focus: Comprehensive defense against MINJA attacks*
-
-- [x] Taint propagation for memory tracking
-- [x] Memory provenance graph with trust decay
-- [x] Integrity verification on retrieval
-- [x] Per-agent memory isolation
-- [x] Memory access control policies
-
-**Completed:** 2026-02-09
-
----
-
-### Phase 10: Non-Human Identity (NHI) Lifecycle (v2.1) ✅ COMPLETE
-
-*Focus: Agentic Trust Framework for zero-trust agent identity*
-
-- [x] Agent identity lifecycle (register, rotate, revoke)
-- [x] Behavioral attestation with continuous auth
-- [x] Enhanced delegation chains for NHI
-- [x] DPoP (RFC 9449) support
-- [x] 16 REST API endpoints, 28 integration tests
-
-**Completed:** 2026-02-09
-
----
-
-### Phase 11: MCP Tasks Primitive (v2.1) ✅ COMPLETE
-
-*Focus: Security for the MCP Tasks primitive*
-
-- [x] Task state encryption (ChaCha20-Poly1305)
-- [x] Resume token authentication (HMAC-SHA256)
-- [x] Task state hash chain (SHA-256)
-- [x] Checkpoint verification (Ed25519 signatures)
-- [x] Replay protection (nonce tracking)
-
-**Completed:** 2026-02-09
-
----
-
-### Phase 12: Semantic Guardrails (v2.2) ✅ COMPLETE
-
-*Focus: LLM-based guardrails for nuanced policy enforcement*
-
-> **Status:** Implemented in commit `a56b3a8`.
-
-- [x] LLM evaluator interface with pluggable backends
-- [x] Intent classification with confidence thresholds
-- [x] Intent chain tracking for suspicious pattern detection
-- [x] Natural language policy definitions with glob matching
-- [x] Jailbreak detection with configurable thresholds
-- [x] LRU + TTL evaluation cache
-
-**Completed:** 2026-02-09
-
----
-
-### Phase 13: RAG Poisoning Defense (v2.2) ✅ COMPLETE
-
-*Focus: Protect retrieval-augmented generation from data poisoning*
-
-> **Status:** Implemented in commit `90541df`.
-
-- [x] Document provenance and trust scoring
-- [x] Retrieval result inspection
-- [x] Embedding anomaly detection
-- [x] Context window budget enforcement
-- [x] 58 unit tests
-
-**Completed:** 2026-02-09
-
----
-
-### Phase 14: A2A Protocol Security (v2.2) ✅ COMPLETE
-
-*Focus: Security for Google's Agent-to-Agent protocol*
-
-- [x] A2A protocol support with message classification
-- [x] A2A policy evaluation via PolicyEngine
-- [x] Agent card handling with caching
-- [x] A2A proxy service with security integration
-- [x] 58 unit tests
-
-**Completed:** 2026-02-09
-
----
-
-### Phase 15: Observability Platform Integration (v2.2) ✅ COMPLETE
-
-*Focus: Deep integration with AI observability platforms*
-
-- [x] Arize, Langfuse, Helicone integrations
-- [x] Full request/response capture
-- [x] Trace sampling and filtering
-- [x] External span correlation
-
-**Completed:** 2026-02-10
-
----
-
-### Previously Active Tracks (v2.2)
-
-**Architecture Split (16.6):** Server route modularization complete. HTTP proxy split into 8 submodules.
-
-**Post-Quantum Cryptography (16.7):** `tls.kex_policy` config, KEX enforcement, TLS metadata telemetry, outbound TLS standardization, quantum migration runbook published.
-
-**CI Supply-Chain Hardening (16.8):** Dependency review, Dependabot, cargo-deny, SHA-pinned actions, build provenance, SBOM publishing — all delivered.
-
-**Sender-Constrained OAuth (16.9):** DPoP enforcement in HTTP proxy, RFC 9449 validation, replay/mismatch tests, audit events — all delivered.
+- **Phase 1:** MCP 2025-11-25 compliance (async tasks, OAuth, CIMD, step-up auth)
+- **Phase 2:** Advanced threat detection (shadow agents, schema poisoning, circuit breaker, sampling, confused deputy)
+- **Phase 3.1:** Runtime integration (ProxyBridge, 25+ admin routes)
+- **Phase 3.2:** Cross-agent security (trust graph, message signing, injection detection)
+- **Phase 3.3:** Advanced threat detection (goal tracking, workflow monitoring, namespace security)
+- **Phase 4.1:** Standards alignment (MITRE ATLAS, OWASP AIVSS, NIST AI RMF, ISO 27090)
+- **Phase 5:** Enterprise hardening (mTLS, SPIFFE, OPA, threat intel, JIT access)
+- **Phase 6:** Observability & tooling (execution graphs, red-team automation, policy CLI)
+- **Phase 7:** Documentation & release (v2.0.0)
+- **Phase 8:** ETDI cryptographic tool security (Ed25519/ECDSA, attestation chains, version pinning)
+- **Phase 9:** Memory injection defense (MINJA taint propagation, provenance, isolation)
+- **Phase 10:** Non-Human Identity lifecycle (NHI register/rotate/revoke, DPoP)
+- **Phase 11:** MCP Tasks primitive security (state encryption, resume token auth, hash chain)
+- **Phase 12:** Semantic guardrails (LLM-based, intent classification, jailbreak detection)
+- **Phase 13:** RAG poisoning defense (provenance, embedding anomaly, context budget)
+- **Phase 14:** A2A protocol security (message classification, agent card, proxy service)
+- **Phase 15:** Observability platform integration (Arize, Langfuse, Helicone)
 
 </details>
