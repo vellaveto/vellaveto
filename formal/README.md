@@ -102,10 +102,8 @@ cd formal/lean
 lake build
 ```
 
-Expected output: all three files type-check. Two `sorry` markers in
-`PathNormalization.lean` mark mechanical case-split sub-lemmas — the
-overall proof structure is sound and the property is additionally
-validated by proptest (10,000+ random inputs) and fuzzing.
+Expected output: all three files type-check with no `sorry` markers
+and no warnings.
 
 ## Property Catalog
 

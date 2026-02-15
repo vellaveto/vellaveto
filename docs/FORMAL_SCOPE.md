@@ -31,7 +31,7 @@ For the full property catalog with source traceability, see
 | No stuck states (liveness) | TLA+ | L2 | Verified |
 | ABAC eventual decision (liveness) | TLA+ | L3 | Verified |
 | Evaluation determinism | Lean 4 | — | Verified |
-| Path normalization idempotence | Lean 4 | — | Partial (2 `sorry` markers) |
+| Path normalization idempotence | Lean 4 | — | Verified |
 
 **Total: 19 model-checked properties + 3 Lean 4 lemmas.**
 
@@ -84,7 +84,7 @@ These properties are covered by the test suite (5,003+ tests, 24 fuzz targets,
 | `RequireApproval` verdict not modeled in TLA+ | Approval flow not formally verified | Covered by integration tests |
 | `max_invocations` not checked during attenuation | Child could inherit unlimited invocations | Known implementation gap, tracked |
 | Small model bounds (3 policies, 2 actions) | Exhaustive for structural properties | Properties are independent of bound values |
-| Lean 4 `sorry` markers (2) | Path normalization sub-lemmas incomplete | Property validated by proptest (10,000+ inputs) + fuzzing |
+| Small model bounds in Lean (list induction) | Proofs are over abstract lists, not bounded integers | Matches Rust implementation structure exactly |
 
 ---
 

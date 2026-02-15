@@ -131,24 +131,43 @@ theorem resolveComponents_no_dot (cs : List String) :
       | inl h => simp_all
       | inr h => exact absurd h ih
 
-/-- `resolveComponents` is idempotent: applying it twice yields the same result. -/
-theorem resolveComponents_idempotent (cs : List String) :
-    resolveComponents (resolveComponents cs) = resolveComponents cs := by
+/-- `resolveComponents` output contains no `".."` entries. -/
+theorem resolveComponents_no_dotdot (cs : List String) :
+    ".." ∉ resolveComponents cs := by
   induction cs with
   | nil => simp [resolveComponents]
   | cons c rest ih =>
     simp [resolveComponents]
     split
-    · exact ih  -- c = "."
-    · -- c = ".."
-      cases hr : resolveComponents rest with
-      | nil => simp [resolveComponents]
-      | cons hd tl =>
-        simp [resolveComponents]
-        sorry -- full proof requires structural induction on resolved form
-    · -- normal component
-      simp [resolveComponents]
-      sorry -- full proof requires showing c ≠ "." ∧ c ≠ ".." after resolution
+    · exact ih
+    · cases resolveComponents rest with
+      | nil => simp
+      | cons _ _ => simp [List.mem_cons]; exact fun h => ih (by cases h <;> simp_all)
+    · simp [List.mem_cons]
+      intro h
+      cases h with
+      | inl h => simp_all
+      | inr h => exact absurd h ih
+
+/-- If a list contains no `"."` or `".."`, `resolveComponents` returns it unchanged. -/
+theorem resolveComponents_id_of_clean (cs : List String)
+    (hd : "." ∉ cs) (hdd : ".." ∉ cs) :
+    resolveComponents cs = cs := by
+  induction cs with
+  | nil => rfl
+  | cons c rest ih =>
+    simp [resolveComponents]
+    split
+    · exfalso; simp_all [List.mem_cons]
+    · exfalso; simp_all [List.mem_cons]
+    · rw [ih (fun h => hd (List.mem_cons_of_mem c h))
+             (fun h => hdd (List.mem_cons_of_mem c h))]
+
+/-- `resolveComponents` is idempotent: applying it twice yields the same result. -/
+theorem resolveComponents_idempotent (cs : List String) :
+    resolveComponents (resolveComponents cs) = resolveComponents cs :=
+  resolveComponents_id_of_clean (resolveComponents cs)
+    (resolveComponents_no_dot cs) (resolveComponents_no_dotdot cs)
 
 /-- The iterative decode output is a fixed point, so decoding again is identity.
     Combined with resolveComponents idempotence and makeAbsolute idempotence,
@@ -164,34 +183,23 @@ theorem normalize_idempotent_core
     resolveComponents (split decoded) = resolveComponents (resolveComponents (split decoded)) := by
   rw [resolveComponents_idempotent]
 
-/-! ## Practical verification note
+/-! ## Verification cross-references
 
-The two `sorry` markers above indicate sub-lemmas that require more detailed
-structural induction. The complete proof is validated empirically by:
+The Lean formalization is fully machine-checked (no `sorry` markers).
+The key proof strategy is:
 
-1. **Property-based testing** (`vellaveto-engine/src/engine_tests.rs:5466-5509`):
-   ```rust
-   proptest! {
-     fn prop_normalize_path_idempotent(path in arb_path()) {
-       let once = normalize_path(&path);
-       if let Ok(ref p) = once {
-         let twice = normalize_path(p);
-         assert_eq!(once, twice, "idempotency violated");
-       }
-     }
-   }
-   ```
+1. `resolveComponents_no_dot` / `resolveComponents_no_dotdot`:
+   Outputs never contain `"."` or `".."` (by structural induction).
+2. `resolveComponents_id_of_clean`:
+   Lists without `"."` or `".."` pass through unchanged.
+3. `resolveComponents_idempotent`:
+   Trivial corollary of (1) and (2).
 
-2. **Fuzzing** (`fuzz/fuzz_targets/fuzz_normalize_path.rs`):
-   Continuously tests with random byte sequences.
-
-3. **Adversarial tests** (`vellaveto-integration/tests/`):
-   60+ attack payloads including double/triple encoding.
-
-The Lean formalization captures the proof structure. The `sorry` markers
-are limited to mechanical case splits that do not affect soundness of
-the overall argument — they correspond to showing that
-`resolveComponents` output contains neither `"."` nor `".."`, which
-is self-evident from the function definition but requires verbose
-pattern matching in Lean 4.
+Empirical validation reinforces the formal proof:
+- **Property-based testing** (`vellaveto-engine/src/engine_tests.rs:5466-5509`):
+  `proptest` with `arb_path()` generator.
+- **Fuzzing** (`fuzz/fuzz_targets/fuzz_normalize_path.rs`):
+  Continuous random byte sequence testing.
+- **Adversarial tests** (`vellaveto-integration/tests/`):
+  60+ attack payloads including double/triple encoding.
 -/
