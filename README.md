@@ -11,9 +11,9 @@
     <a href="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/vellaveto/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-5%2C133_passing-brightgreen.svg" alt="Tests: 5,133 passing">
+    <img src="https://img.shields.io/badge/tests-5%2C159_passing-brightgreen.svg" alt="Tests: 5,159 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
-    <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-39_rounds%2C_330%2B_findings-informational.svg" alt="Adversarial Testing: 39 rounds, 330+ findings"></a>
+    <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-42_rounds%2C_350%2B_findings-informational.svg" alt="Adversarial Testing: 42 rounds, 350+ findings"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
   </p>
@@ -35,7 +35,7 @@ Vellaveto is a lightweight, high-performance firewall that sits between AI agent
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>4.0.0-dev</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>5,133+ tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>5,159+ tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
