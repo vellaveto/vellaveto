@@ -33,6 +33,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **FIND-R41-014** (Medium): Glob key validation — transport override glob keys validated for max length (256), empty key, and null byte content.
 - 7 new tests for config validation (stdio path, metacharacters, override bounds, glob keys, URL schemes).
 
+### Fixed (Adversarial Hardening — Round 42)
+- **FIND-R42-002** (High): Transport preference header DoS — `parse_transport_preference` now deduplicates and caps at 4 entries (one per protocol variant), preventing unbounded Vec from malicious `mcp-transport-preference` headers.
+- **FIND-R42-003** (High): URL host parser SSRF — `extract_host_from_url` now strips userinfo (`user:pass@host`) via `rfind('@')` to prevent @-smuggling, and handles IPv6 addresses in brackets (`[::1]:8080`).
+- **FIND-R42-020** (High): Unbounded response body in fallback — `forward_with_fallback` now reads response body in chunks with `MAX_RESPONSE_BODY_BYTES = 16MB` bound (matching `smart_fallback.rs`).
+- **FIND-R42-005** (Medium): Circuit breaker bypass at capacity — `can_use()` now returns `Err` for unknown circuits when tracker is at capacity, preventing untracked requests from bypassing fail-closed semantics.
+- **FIND-R42-006** (Medium): Exec graph metadata leak — `ExecutionGraph::add_node` now checks `MAX_NODES_PER_GRAPH` bound BEFORE updating metadata (`total_calls`, `unique_tools`, `unique_agents`, parent `children`).
+- **FIND-R42-007** (Medium): Agent trust graph session exhaustion — `AgentTrustGraph::record_request` now enforces `MAX_TRACKED_SESSIONS = 10,000` to prevent unbounded memory growth from unique session IDs.
+- **FIND-R42-008** (Medium): Backend URL scheme validation — `GatewayConfig::validate` now requires `backend.url` to use `http://` or `https://` scheme (previously only validated non-empty).
+- **FIND-R42-009** (Medium): Wildcard glob override shadowing — `TransportConfig::validate` rejects `"*"` wildcard in `transport_overrides` when other patterns exist, since lexicographic sort makes `"*"` match first and shadow all specific overrides.
+- **FIND-R42-010** (Medium): Half-open thundering herd — `TransportHealthTracker` now tracks `half_open_in_flight` per circuit, allowing only one concurrent probe request in HalfOpen state.
+- **FIND-R42-011** (Medium): DOT language injection — `ExecutionGraph::to_dot()` now escapes all user-controlled strings (node IDs, tool names, function names) via `escape_dot()` to prevent injection of DOT constructs.
+- **FIND-R42-012** (Low): Failure count overflow — `failure_count += 1` replaced with `saturating_add(1)` in both Closed and Open branches of `record_failure`.
+- **FIND-R42-013** (Low): Duplicate protocols in overrides — `TransportConfig::validate` rejects duplicate protocols within `transport_overrides` values.
+- **FIND-R42-014** (Low): Clock error logging — `now_secs()` now logs `tracing::error!` when system clock is before Unix epoch instead of silently returning 0.
+- **FIND-R42-015** (Low): Duplicate upstream priorities — `TransportConfig::validate` rejects duplicate protocols in `upstream_priorities`.
+- **FIND-R42-016** (Low): Path parameter validation — `remove_delegation`, `get_nhi_agent`, and all NHI path-based endpoints now validate path parameter length and content.
+- **FIND-R42-017** (Low): Rotation manifest chain linking — manifest entries now include `start_hash` (prev_hash of first entry) for cross-rotation segment verification.
+- **FIND-R42-018** (Low): Self-delegation rejection — `register_delegation` now rejects `from_principal == to_principal`.
+- 17 new tests across 4 crates (discovery, transport_health, exec_graph, config).
+
 #### Phase 25.1 — Audio Metadata Inspection (WAV + MP3)
 - **WAV LIST/INFO chunk parser** (`extract_text_from_wav`) — walks RIFF container for INFO sub-chunks (INAM, IART, ICMT, IGNR, ISFT), extracts null-terminated text, bounded at 200 sub-chunks and 1MB aggregate text.
 - **MP3 ID3v2 tag parser** (`extract_text_from_mp3`) — parses ID3v2.3/2.4 headers with syncsafe integer decoding, extracts text from TIT2, TPE1, TALB, COMM, USLT, TXXX frames. Supports 4 encodings: ISO-8859-1, UTF-16 with BOM, UTF-16BE, UTF-8. Bounded at 200 frames and 1MB aggregate.

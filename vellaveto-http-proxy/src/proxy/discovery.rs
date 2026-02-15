@@ -584,4 +584,42 @@ mod discovery_tests {
             ]
         );
     }
+
+    // ═══════════════════════════════════════════════════════
+    // Adversarial audit tests (FIND-R42-002)
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R42-002: parse_transport_preference deduplicates entries.
+    #[test]
+    fn test_parse_transport_preference_dedup() {
+        let result = parse_transport_preference("http,http,grpc,http,grpc");
+        assert_eq!(
+            result,
+            vec![TransportProtocol::Http, TransportProtocol::Grpc]
+        );
+    }
+
+    /// FIND-R42-002: parse_transport_preference caps at MAX_TRANSPORT_PREFERENCES.
+    #[test]
+    fn test_parse_transport_preference_capped() {
+        // Even with 1000 entries, result is capped.
+        let header = std::iter::repeat("http,grpc,websocket,stdio")
+            .take(250)
+            .collect::<Vec<_>>()
+            .join(",");
+        let result = parse_transport_preference(&header);
+        assert!(result.len() <= MAX_TRANSPORT_PREFERENCES);
+        assert_eq!(result.len(), 4); // All 4 unique protocols, exactly.
+    }
+
+    /// FIND-R42-002: parse_transport_preference handles aliases correctly.
+    #[test]
+    fn test_parse_transport_preference_aliases_dedup() {
+        // "ws" and "websocket" should both map to WebSocket and be deduped.
+        let result = parse_transport_preference("ws,websocket,http,sse");
+        assert_eq!(
+            result,
+            vec![TransportProtocol::WebSocket, TransportProtocol::Http]
+        );
+    }
 }

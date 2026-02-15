@@ -785,4 +785,64 @@ mod tests {
             TransportCircuitState::Open
         );
     }
+
+    // ═══════════════════════════════════════════════════════
+    // Adversarial audit tests (FIND-R42-005, FIND-R42-010, FIND-R42-012)
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R42-010: Half-open circuit rejects concurrent probes.
+    #[test]
+    fn test_half_open_rejects_second_probe() {
+        let tracker = TransportHealthTracker::new(1, 2, 0); // clamped to 1s
+        let proto = TransportProtocol::Http;
+
+        // Open the circuit.
+        tracker.record_failure("up", proto);
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+
+        // First probe transitions Open → HalfOpen and sets in_flight.
+        assert!(tracker.can_use("up", proto).is_ok());
+
+        // Second probe should be rejected (in_flight = true).
+        assert!(tracker.can_use("up", proto).is_err());
+
+        // After recording success, in_flight is cleared.
+        tracker.record_success("up", proto);
+        assert!(tracker.can_use("up", proto).is_ok());
+    }
+
+    /// FIND-R42-010: Half-open in_flight flag is cleared on failure too.
+    #[test]
+    fn test_half_open_in_flight_cleared_on_failure() {
+        let tracker = TransportHealthTracker::new(1, 2, 0); // clamped to 1s
+        let proto = TransportProtocol::Grpc;
+
+        // Open circuit, wait, transition to HalfOpen.
+        tracker.record_failure("up", proto);
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        assert!(tracker.can_use("up", proto).is_ok()); // HalfOpen, in_flight=true
+
+        // Fail the probe → back to Open, in_flight cleared.
+        tracker.record_failure("up", proto);
+        assert!(tracker.can_use("up", proto).is_err()); // Open again
+
+        // Wait for Open → HalfOpen transition.
+        std::thread::sleep(std::time::Duration::from_millis(2200)); // 2x backoff
+        // Should be able to probe again.
+        assert!(tracker.can_use("up", proto).is_ok());
+    }
+
+    /// FIND-R42-012: failure_count uses saturating_add (won't overflow).
+    #[test]
+    fn test_failure_count_saturating() {
+        let tracker = TransportHealthTracker::new(u32::MAX, 1, 300);
+        let proto = TransportProtocol::WebSocket;
+
+        // Record many failures — should not panic from overflow.
+        for _ in 0..10 {
+            tracker.record_failure("up", proto);
+        }
+        // Circuit should still be Closed (threshold is u32::MAX).
+        assert!(tracker.can_use("up", proto).is_ok());
+    }
 }

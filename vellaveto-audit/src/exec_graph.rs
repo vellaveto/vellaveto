@@ -803,4 +803,73 @@ mod tests {
         let sessions = store.list_sessions().await;
         assert_eq!(sessions.len(), 3);
     }
+
+    // ═══════════════════════════════════════════════════════
+    // Adversarial audit tests (FIND-R42-006, FIND-R42-011)
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R42-006: Metadata is NOT updated when node is rejected at capacity.
+    #[test]
+    fn test_add_node_metadata_not_updated_at_capacity() {
+        let mut graph = ExecutionGraph::new("session1".to_string());
+
+        // Fill to capacity.
+        for i in 0..MAX_NODES_PER_GRAPH {
+            let node = ExecutionNode::new(
+                format!("node{}", i),
+                "session1".to_string(),
+                "tool_a".to_string(),
+                "fn_a".to_string(),
+            );
+            graph.add_node(node);
+        }
+        assert_eq!(graph.nodes.len(), MAX_NODES_PER_GRAPH);
+        let total_before = graph.metadata.total_calls;
+        let tools_before = graph.metadata.unique_tools.len();
+
+        // This node should be rejected and metadata should NOT change.
+        let overflow_node = ExecutionNode::new(
+            "overflow".to_string(),
+            "session1".to_string(),
+            "NEW_TOOL".to_string(),
+            "new_fn".to_string(),
+        );
+        graph.add_node(overflow_node);
+
+        assert_eq!(graph.nodes.len(), MAX_NODES_PER_GRAPH);
+        assert_eq!(graph.metadata.total_calls, total_before);
+        assert_eq!(graph.metadata.unique_tools.len(), tools_before);
+        assert!(!graph.metadata.unique_tools.contains("NEW_TOOL"));
+    }
+
+    /// FIND-R42-011: DOT output escapes special characters in node labels.
+    #[test]
+    fn test_to_dot_escapes_special_characters() {
+        let mut graph = ExecutionGraph::new("session1".to_string());
+
+        let mut node = ExecutionNode::new(
+            "node\"inject".to_string(),
+            "session1".to_string(),
+            "tool\"with\"quotes".to_string(),
+            "fn\nwith\nnewlines".to_string(),
+        );
+        node.complete(NodeVerdict::Allow);
+        graph.add_node(node);
+
+        let dot = graph.to_dot();
+        // The DOT output should escape quotes and newlines.
+        assert!(dot.contains("\\\""), "quotes should be escaped in DOT output");
+        assert!(!dot.contains("\"\n"), "raw newlines should not appear in DOT labels");
+    }
+
+    /// FIND-R42-011: escape_dot handles all special characters.
+    #[test]
+    fn test_escape_dot_function() {
+        assert_eq!(escape_dot("hello"), "hello");
+        assert_eq!(escape_dot("a\"b"), "a\\\"b");
+        assert_eq!(escape_dot("a\\b"), "a\\\\b");
+        assert_eq!(escape_dot("a\nb"), "a\\nb");
+        assert_eq!(escape_dot("{test}"), "\\{test\\}");
+        assert_eq!(escape_dot("<html>"), "\\<html\\>");
+    }
 }

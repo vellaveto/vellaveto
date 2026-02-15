@@ -3762,3 +3762,113 @@ fn test_deployment_dns_name_azure_metadata_rejected() {
     let err = config.validate().unwrap_err();
     assert!(err.contains("link-local") || err.contains("metadata"), "expected metadata/link-local rejection: {}", err);
 }
+
+// ═══════════════════════════════════════════════════════
+// Adversarial audit tests (FIND-R42-008, R42-009, R42-013, R42-015)
+// ═══════════════════════════════════════════════════════
+
+/// FIND-R42-008: backend.url must use http:// or https:// scheme.
+#[test]
+fn test_gateway_backend_url_scheme_validation() {
+    let config = crate::GatewayConfig {
+        enabled: true,
+        backends: vec![crate::BackendConfig {
+            id: "test".to_string(),
+            url: "ftp://evil.com/mcp".to_string(),
+            tool_prefixes: vec![],
+            weight: 100,
+            transport_urls: std::collections::HashMap::new(),
+        }],
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("http://") || err.contains("https://"), "expected scheme error: {}", err);
+}
+
+/// FIND-R42-008: Valid http:// and https:// schemes pass validation.
+#[test]
+fn test_gateway_backend_url_valid_schemes() {
+    for scheme in &["http://localhost:8080/mcp", "https://example.com/mcp"] {
+        let config = crate::GatewayConfig {
+            enabled: true,
+            backends: vec![crate::BackendConfig {
+                id: "test".to_string(),
+                url: scheme.to_string(),
+                tool_prefixes: vec![],
+                weight: 100,
+                transport_urls: std::collections::HashMap::new(),
+            }],
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok(), "valid scheme {} should pass", scheme);
+    }
+}
+
+/// FIND-R42-009: "*" wildcard with other overrides is rejected.
+#[test]
+fn test_transport_overrides_wildcard_with_others_rejected() {
+    let mut overrides = std::collections::HashMap::new();
+    overrides.insert(
+        "*".to_string(),
+        vec![vellaveto_types::TransportProtocol::Http],
+    );
+    overrides.insert(
+        "fs_*".to_string(),
+        vec![vellaveto_types::TransportProtocol::Grpc],
+    );
+    let config = crate::TransportConfig {
+        transport_overrides: overrides,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("wildcard"), "expected wildcard rejection: {}", err);
+}
+
+/// FIND-R42-009: "*" wildcard alone is allowed.
+#[test]
+fn test_transport_overrides_wildcard_alone_ok() {
+    let mut overrides = std::collections::HashMap::new();
+    overrides.insert(
+        "*".to_string(),
+        vec![vellaveto_types::TransportProtocol::Http],
+    );
+    let config = crate::TransportConfig {
+        transport_overrides: overrides,
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+}
+
+/// FIND-R42-013: Duplicate protocols in override values rejected.
+#[test]
+fn test_transport_overrides_duplicate_protocols_rejected() {
+    let mut overrides = std::collections::HashMap::new();
+    overrides.insert(
+        "fs_*".to_string(),
+        vec![
+            vellaveto_types::TransportProtocol::Http,
+            vellaveto_types::TransportProtocol::Http,
+        ],
+    );
+    let config = crate::TransportConfig {
+        transport_overrides: overrides,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("duplicate"), "expected duplicate error: {}", err);
+}
+
+/// FIND-R42-015: Duplicate protocols in upstream_priorities rejected.
+#[test]
+fn test_upstream_priorities_duplicate_rejected() {
+    let config = crate::TransportConfig {
+        upstream_priorities: vec![
+            vellaveto_types::TransportProtocol::Http,
+            vellaveto_types::TransportProtocol::Grpc,
+            vellaveto_types::TransportProtocol::Http,
+        ],
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("duplicate"), "expected duplicate error: {}", err);
+}

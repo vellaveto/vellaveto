@@ -1937,3 +1937,45 @@ fn test_build_transport_targets_single_server_grpc_no_port() {
     assert_eq!(targets.len(), 1);
     assert_eq!(targets[0].protocol, TransportProtocol::Http);
 }
+
+// ═══════════════════════════════════════════════════════
+// Adversarial audit tests (FIND-R42-003)
+// ═══════════════════════════════════════════════════════
+
+/// FIND-R42-003: extract_host_from_url strips userinfo to prevent SSRF.
+#[test]
+fn test_extract_host_from_url_ssrf_userinfo() {
+    // Attacker uses userinfo to smuggle a different host.
+    assert_eq!(
+        extract_host_from_url("http://safe.example.com@evil.com/path"),
+        Some("evil.com")
+    );
+    assert_eq!(
+        extract_host_from_url("http://user:pass@target.internal:8080/admin"),
+        Some("target.internal")
+    );
+}
+
+/// FIND-R42-003: extract_host_from_url handles IPv6 addresses.
+#[test]
+fn test_extract_host_from_url_ipv6() {
+    assert_eq!(
+        extract_host_from_url("http://[::1]:8080/mcp"),
+        Some("::1")
+    );
+    assert_eq!(
+        extract_host_from_url("http://[2001:db8::1]/path"),
+        Some("2001:db8::1")
+    );
+    // Empty brackets should return None.
+    assert_eq!(extract_host_from_url("http://[]:8080"), None);
+}
+
+/// FIND-R42-003: extract_host_from_url handles userinfo + IPv6 combined.
+#[test]
+fn test_extract_host_from_url_userinfo_and_ipv6() {
+    assert_eq!(
+        extract_host_from_url("http://user@[::1]:8080/mcp"),
+        Some("::1")
+    );
+}
