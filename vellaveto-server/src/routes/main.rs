@@ -415,6 +415,16 @@ pub fn build_router(state: AppState) -> Router {
         // ═══════════════════════════════════════════════════════════════════
         // Phase 26: Shadow AI Detection & Governance Visibility
         // ═══════════════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════
+        // Phase 27: Kubernetes-Native Deployment
+        // ═══════════════════════════════════════════════════════════════════
+        .route(
+            "/api/deployment/info",
+            get(super::deployment::deployment_info),
+        )
+        // ═══════════════════════════════════════════════════════════════════
+        // Phase 26: Shadow AI Detection & Governance Visibility
+        // ═══════════════════════════════════════════════════════════════════
         .route(
             "/api/governance/shadow-report",
             get(super::governance::shadow_report),
@@ -833,6 +843,15 @@ struct HealthResponse {
     cluster: Option<String>,
     /// Security scanning subsystem status (SEC-006).
     scanning: ScanningStatus,
+    /// Leader election status (Phase 27). Omitted in standalone mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    leader_status: Option<vellaveto_types::LeaderStatus>,
+    /// Instance identifier (Phase 27). Omitted in standalone mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    instance_id: Option<String>,
+    /// Number of discovered service endpoints (Phase 27). Omitted in standalone mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    discovered_endpoints: Option<usize>,
 }
 
 /// Status of security scanning subsystems.
@@ -869,10 +888,25 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
         "ok".to_string()
     };
 
+    // Phase 27: Deployment status (only populated when leader election / discovery is configured)
+    let leader_status = state.leader_election.as_ref().map(|le| le.current_status());
+    let instance_id = if state.leader_election.is_some() || state.service_discovery.is_some() {
+        Some(state.deployment_config.effective_instance_id())
+    } else {
+        None
+    };
+    let discovered_endpoints = match state.service_discovery.as_ref() {
+        Some(sd) => Some(sd.discover().await.map(|eps| eps.len()).unwrap_or(0)),
+        None => None,
+    };
+
     Json(HealthResponse {
         status,
         cluster: cluster_status,
         scanning,
+        leader_status,
+        instance_id,
+        discovered_endpoints,
     })
 }
 
@@ -1929,6 +1963,11 @@ async fn evaluate(
             .action_from(&action)
             .verdict_from(&verdict)
             .attribute("tenant_id", json!(tenant_ctx.tenant_id));
+
+        // Phase 28: Add agent identity attributes for GenAI semantic conventions
+        if let Some(ref agent_id) = context.agent_id {
+            builder = builder.attribute("gen_ai.agent.id", json!(agent_id));
+        }
 
         // Set parent span if provided
         if let Some(ref ctx) = trace_ctx {
@@ -3162,6 +3201,9 @@ mod tests {
                 dlp_available: true,
                 injection_available: true,
             },
+            leader_status: None,
+            instance_id: None,
+            discovered_endpoints: None,
         };
         let json = serde_json::to_value(&response).expect("serialize");
         assert_eq!(json["status"], "ok");
@@ -3182,6 +3224,9 @@ mod tests {
                 dlp_available: false,
                 injection_available: true,
             },
+            leader_status: None,
+            instance_id: None,
+            discovered_endpoints: None,
         };
         let json = serde_json::to_value(&response).expect("serialize");
         assert_eq!(json["status"], "degraded");

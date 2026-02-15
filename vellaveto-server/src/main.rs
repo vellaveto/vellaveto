@@ -921,6 +921,59 @@ async fn cmd_serve(
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: policy_config.metrics_require_auth,
         audit_strict_mode: policy_config.audit.strict_mode,
+
+        // Phase 27: Kubernetes-Native Deployment
+        leader_election: {
+            use vellaveto_config::DeploymentMode;
+            match policy_config.deployment.mode {
+                DeploymentMode::Standalone => {
+                    if policy_config.deployment.leader_election.enabled {
+                        let id = policy_config.deployment.effective_instance_id();
+                        Some(Arc::new(
+                            vellaveto_cluster::leader_local::LocalLeaderElection::new(id),
+                        ) as Arc<dyn vellaveto_cluster::leader::LeaderElection>)
+                    } else {
+                        None
+                    }
+                }
+                _ => {
+                    // Clustered / Kubernetes modes use local leader election as placeholder
+                    // until kube-rs backend is implemented behind a feature gate.
+                    let id = policy_config.deployment.effective_instance_id();
+                    Some(Arc::new(
+                        vellaveto_cluster::leader_local::LocalLeaderElection::new(id),
+                    ) as Arc<dyn vellaveto_cluster::leader::LeaderElection>)
+                }
+            }
+        },
+        service_discovery: {
+            use vellaveto_config::ServiceDiscoveryMode;
+            match policy_config.deployment.service_discovery.mode {
+                ServiceDiscoveryMode::Static => None, // no static endpoints configured at server level
+                ServiceDiscoveryMode::Dns => {
+                    if let Some(ref dns_name) = policy_config.deployment.service_discovery.dns_name {
+                        let interval = std::time::Duration::from_secs(
+                            policy_config.deployment.service_discovery.refresh_interval_secs,
+                        );
+                        Some(Arc::new(
+                            vellaveto_cluster::discovery_dns::DnsServiceDiscovery::new(
+                                dns_name.clone(),
+                                interval,
+                            ),
+                        ) as Arc<dyn vellaveto_cluster::discovery::ServiceDiscovery>)
+                    } else {
+                        tracing::warn!("DNS service discovery mode requires dns_name; falling back to none");
+                        None
+                    }
+                }
+                ServiceDiscoveryMode::Kubernetes => {
+                    tracing::info!("Kubernetes service discovery is a future feature; using none");
+                    None
+                }
+            }
+        },
+        deployment_config: policy_config.deployment.clone(),
+        start_time: std::time::Instant::now(),
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -1391,6 +1444,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         abac: Default::default(),
         fips: Default::default(),
         governance: Default::default(),
+        deployment: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

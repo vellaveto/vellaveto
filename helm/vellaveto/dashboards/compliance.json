@@ -1,0 +1,216 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "Compliance posture: EU AI Act obligations, SOC 2 criteria, CoSAI coverage",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "title": "EU AI Act Obligation Coverage",
+      "type": "gauge",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "max": 1,
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.7 },
+              { "color": "green", "value": 0.9 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "vellaveto_compliance_eu_ai_act_coverage",
+          "legendFormat": "EU AI Act Coverage"
+        }
+      ]
+    },
+    {
+      "title": "SOC 2 Criteria Coverage",
+      "type": "gauge",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "max": 1,
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.7 },
+              { "color": "green", "value": 0.9 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "vellaveto_compliance_soc2_coverage",
+          "legendFormat": "SOC 2 Coverage"
+        }
+      ]
+    },
+    {
+      "title": "CoSAI Framework Coverage",
+      "type": "gauge",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "max": 1,
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.7 },
+              { "color": "green", "value": 0.9 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "vellaveto_compliance_cosai_coverage",
+          "legendFormat": "CoSAI Coverage"
+        }
+      ]
+    },
+    {
+      "title": "Audit Log Integrity",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "vellaveto_audit_integrity_failures_total",
+          "legendFormat": "Integrity Failures"
+        }
+      ]
+    },
+    {
+      "title": "Audit Entries (Rate)",
+      "type": "timeseries",
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(vellaveto_audit_entries_total[$__rate_interval])",
+          "legendFormat": "Audit Entries/s"
+        }
+      ]
+    },
+    {
+      "title": "Transparency Markings",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "vellaveto_transparency_markings_total",
+          "legendFormat": "Art 50 Markings"
+        }
+      ]
+    },
+    {
+      "title": "Compliance Gap Analysis",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "vellaveto_compliance_gaps",
+          "legendFormat": "{{framework}} — {{gap}}",
+          "format": "table",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "title": "Adversa TOP 25 Coverage",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "max": 1,
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.7 },
+              { "color": "green", "value": 0.9 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "vellaveto_compliance_adversa_coverage",
+          "legendFormat": "Adversa TOP 25"
+        }
+      ]
+    },
+    {
+      "title": "ISO 42001 Coverage",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "max": 1,
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.7 },
+              { "color": "green", "value": 0.9 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "vellaveto_compliance_iso42001_coverage",
+          "legendFormat": "ISO 42001"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["vellaveto", "compliance", "audit"],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "Vellaveto — Compliance",
+  "uid": "vellaveto-compliance"
+}

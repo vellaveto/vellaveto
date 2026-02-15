@@ -79,6 +79,39 @@ pub fn extract_session_id(metadata: &tonic::metadata::MetadataMap) -> Option<Str
         .map(|s| s.to_string())
 }
 
+/// gRPC metadata key for W3C traceparent propagation (Phase 28).
+pub const METADATA_TRACEPARENT: &str = "traceparent";
+/// gRPC metadata key for W3C tracestate propagation (Phase 28).
+pub const METADATA_TRACESTATE: &str = "tracestate";
+
+/// Extract W3C Trace Context from gRPC metadata (Phase 28).
+///
+/// Parses `traceparent` and `tracestate` metadata keys. If `traceparent` is
+/// missing or invalid, generates a new trace context (fail-open for observability).
+pub fn extract_trace_context_from_metadata(
+    metadata: &tonic::metadata::MetadataMap,
+) -> vellaveto_audit::observability::TraceContext {
+    let traceparent = metadata
+        .get(METADATA_TRACEPARENT)
+        .and_then(|v| v.to_str().ok());
+
+    let mut ctx = match traceparent {
+        Some(tp) => vellaveto_audit::observability::TraceContext::parse_traceparent(tp)
+            .unwrap_or_default(),
+        None => vellaveto_audit::observability::TraceContext::default(),
+    };
+
+    ctx.ensure_trace_id();
+
+    if let Some(ts) = metadata.get(METADATA_TRACESTATE).and_then(|v| v.to_str().ok()) {
+        if !ts.is_empty() {
+            ctx = ctx.with_parsed_tracestate(ts);
+        }
+    }
+
+    ctx
+}
+
 /// Extract the request ID from gRPC metadata, or generate one.
 pub fn extract_or_generate_request_id(metadata: &tonic::metadata::MetadataMap) -> String {
     metadata

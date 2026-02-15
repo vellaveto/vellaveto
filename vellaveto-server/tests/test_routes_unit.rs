@@ -158,6 +158,10 @@ fn test_state() -> (AppState, TempDir) {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
     (state, tmp)
 }
@@ -531,6 +535,10 @@ async fn health_not_rate_limited() {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
 
     // Rapid /health requests must all succeed despite strict rate limit
@@ -605,6 +613,10 @@ async fn rate_limit_429_includes_retry_after() {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -773,6 +785,10 @@ async fn per_ip_rate_limit_throttles_single_ip() {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -889,6 +905,10 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -978,6 +998,10 @@ async fn per_ip_health_exempt_from_rate_limit() {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
 
     // Multiple health checks from same IP should all succeed
@@ -1059,6 +1083,10 @@ async fn per_ip_rate_limit_ipv6_addresses() {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1175,6 +1203,10 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1275,6 +1307,10 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1374,6 +1410,10 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1471,6 +1511,10 @@ async fn per_ip_rate_limit_429_response_body_format() {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1579,6 +1623,10 @@ async fn health_returns_degraded_when_cluster_unhealthy() {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
 
     let app = routes::build_router(state);

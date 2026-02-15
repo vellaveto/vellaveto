@@ -53,6 +53,8 @@ impl UpstreamForwarder {
     }
 
     /// Forward via HTTP (gRPC-to-HTTP fallback).
+    ///
+    /// Optionally injects W3C Trace Context headers when `trace_ctx` is provided.
     async fn forward_via_http(&self, json_req: &Value) -> Result<Value, UpstreamError> {
         let body = serde_json::to_vec(json_req)
             .map_err(|e| UpstreamError::HttpError(format!("Failed to serialize request: {}", e)))?;
@@ -66,12 +68,22 @@ impl UpstreamForwarder {
             self.state.upstream_url.clone()
         };
 
-        let response = self
+        let mut request_builder = self
             .state
             .http_client
             .post(&upstream_url)
             .header("Content-Type", "application/json")
-            .header("Accept", "application/json")
+            .header("Accept", "application/json");
+
+        // Phase 28: Inject trace context if available in the request
+        // For gRPC-to-HTTP fallback, generate a fresh trace context
+        let mut trace_ctx = vellaveto_audit::observability::TraceContext::default();
+        trace_ctx.ensure_trace_id();
+        if let Some(traceparent) = trace_ctx.to_traceparent() {
+            request_builder = request_builder.header("traceparent", traceparent);
+        }
+
+        let response = request_builder
             .body(body)
             .send()
             .await

@@ -1,14 +1,13 @@
-{{- if not .Values.statefulSet.enabled }}
+{{- if .Values.statefulSet.enabled }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "vellaveto.fullname" . }}
   labels:
     {{- include "vellaveto.labels" . | nindent 4 }}
 spec:
-  {{- if not .Values.autoscaling.enabled }}
+  serviceName: {{ include "vellaveto.fullname" . }}-headless
   replicas: {{ .Values.replicaCount }}
-  {{- end }}
   selector:
     matchLabels:
       {{- include "vellaveto.selectorLabels" . | nindent 6 }}
@@ -60,6 +59,10 @@ spec:
               value: {{ .Values.vellaveto.logLevel }}
             - name: VELLAVETO_STRICT_MODE
               value: "{{ .Values.vellaveto.strictMode }}"
+            - name: VELLAVETO_INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             {{- with .Values.vellaveto.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -102,14 +105,37 @@ spec:
               mountPath: /var/lib/vellaveto
             - name: tmp
               mountPath: /tmp
+        {{- if .Values.logShipping.enabled }}
+        - name: log-shipper
+          image: {{ .Values.logShipping.image }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/vellaveto
+              readOnly: true
+            - name: log-shipper-config
+              mountPath: /fluent-bit/etc
+              readOnly: true
+          resources:
+            limits:
+              cpu: 100m
+              memory: 64Mi
+            requests:
+              cpu: 50m
+              memory: 32Mi
+        {{- end }}
       volumes:
         - name: config
           configMap:
             name: {{ include "vellaveto.fullname" . }}-config
-        - name: data
-          emptyDir: {}
         - name: tmp
           emptyDir: {}
+        {{- if .Values.logShipping.enabled }}
+        - name: log-shipper-config
+          configMap:
+            name: {{ include "vellaveto.fullname" . }}-log-shipper
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -122,4 +148,16 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - {{ .Values.statefulSet.persistence.accessMode | default "ReadWriteOnce" }}
+        {{- if .Values.statefulSet.persistence.storageClass }}
+        storageClassName: {{ .Values.statefulSet.persistence.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.statefulSet.persistence.size | default "1Gi" }}
 {{- end }}

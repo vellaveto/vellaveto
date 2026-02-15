@@ -81,6 +81,10 @@ fn state_with_api_key(tmp: &TempDir) -> AppState {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     }
 }
 
@@ -325,6 +329,10 @@ async fn regression_38_prometheus_metrics_rate_limited() {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
 
     // First request should succeed

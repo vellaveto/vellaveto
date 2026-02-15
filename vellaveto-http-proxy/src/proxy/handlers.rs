@@ -24,6 +24,7 @@ use super::call_chain::{
 use super::helpers::resolve_domains;
 use super::inspection::{attach_session_header, attach_trace_header};
 use super::origin::validate_origin;
+use super::trace_propagation;
 use super::upstream::{
     canonicalize_body, forward_to_upstream, forward_to_upstream_url, make_jsonrpc_error,
 };
@@ -162,6 +163,12 @@ pub async fn handle_mcp_post(
     // prevention. Without this, approval_store.create() receives None as requested_by,
     // which bypasses the self-approval check.
     let requested_by = oauth_claims.as_ref().map(|c| c.sub.clone());
+
+    // Phase 28: Extract W3C Trace Context from incoming request headers.
+    // Creates a new trace context if none is present (fail-open for observability).
+    let incoming_trace = trace_propagation::extract_trace_context(&headers);
+    let (vellaveto_trace_ctx, _vellaveto_span_id) =
+        trace_propagation::create_vellaveto_span(&incoming_trace);
 
     // Defense-in-depth: reject JSON with duplicate keys before parsing.
     // Prevents parser-disagreement attacks (CVE-2017-12635, CVE-2020-16250)
@@ -959,21 +966,34 @@ pub async fn handle_mcp_post(
                         None
                     };
 
+                    // Phase 28: Build upstream trace headers.
+                    // For gateway mode, create a gateway child span so each
+                    // backend gets its own traceparent with the gateway as parent.
                     let response = if let Some(ref decision) = gateway_decision {
+                        let gw_child = vellaveto_trace_ctx.child();
+                        let (gw_tp, gw_ts) =
+                            trace_propagation::build_upstream_headers(&gw_child, "allow");
                         forward_to_upstream_url(
                             &state,
                             &decision.upstream_url,
                             &session_id,
                             forward_body,
                             auth_header_for_upstream.as_deref(),
+                            Some((gw_tp.as_str(), gw_ts.as_deref())),
                         )
                         .await
                     } else {
+                        let (up_tp, up_ts) =
+                            trace_propagation::build_upstream_headers(
+                                &vellaveto_trace_ctx,
+                                "allow",
+                            );
                         forward_to_upstream(
                             &state,
                             &session_id,
                             forward_body,
                             auth_header_for_upstream.as_deref(),
+                            Some((up_tp.as_str(), up_ts.as_deref())),
                         )
                         .await
                     };
@@ -1282,11 +1302,14 @@ pub async fn handle_mcp_post(
                             )
                         }
                     };
+                    let (up_tp, up_ts) =
+                        trace_propagation::build_upstream_headers(&vellaveto_trace_ctx, "allow");
                     let response = forward_to_upstream(
                         &state,
                         &session_id,
                         forward_body,
                         auth_header_for_upstream.as_deref(),
+                        Some((up_tp.as_str(), up_ts.as_deref())),
                     )
                     .await;
                     let response = attach_session_header(response, &session_id);
@@ -1417,11 +1440,14 @@ pub async fn handle_mcp_post(
                             );
                         }
                     };
+                    let (up_tp, up_ts) =
+                        trace_propagation::build_upstream_headers(&vellaveto_trace_ctx, "allow");
                     let response = forward_to_upstream(
                         &state,
                         &session_id,
                         forward_body,
                         auth_header_for_upstream.as_deref(),
+                        Some((up_tp.as_str(), up_ts.as_deref())),
                     )
                     .await;
                     attach_session_header(response, &session_id)
@@ -1575,11 +1601,14 @@ pub async fn handle_mcp_post(
                     )
                 }
             };
+            let (up_tp, up_ts) =
+                trace_propagation::build_upstream_headers(&vellaveto_trace_ctx, "allow");
             let response = forward_to_upstream(
                 &state,
                 &session_id,
                 forward_body,
                 auth_header_for_upstream.as_deref(),
+                Some((up_tp.as_str(), up_ts.as_deref())),
             )
             .await;
 
@@ -1633,11 +1662,14 @@ pub async fn handle_mcp_post(
                             );
                         }
                     };
+                    let (up_tp, up_ts) =
+                        trace_propagation::build_upstream_headers(&vellaveto_trace_ctx, "allow");
                     let response = forward_to_upstream(
                         &state,
                         &session_id,
                         forward_body,
                         auth_header_for_upstream.as_deref(),
+                        Some((up_tp.as_str(), up_ts.as_deref())),
                     )
                     .await;
 
@@ -1928,11 +1960,14 @@ pub async fn handle_mcp_post(
                             )
                         }
                     };
+                    let (up_tp, up_ts) =
+                        trace_propagation::build_upstream_headers(&vellaveto_trace_ctx, "allow");
                     let response = forward_to_upstream(
                         &state,
                         &session_id,
                         forward_body,
                         auth_header_for_upstream.as_deref(),
+                        Some((up_tp.as_str(), up_ts.as_deref())),
                     )
                     .await;
                     let response = attach_trace_header(response, trace);
@@ -2108,11 +2143,14 @@ pub async fn handle_mcp_post(
                     )
                 }
             };
+            let (up_tp, up_ts) =
+                trace_propagation::build_upstream_headers(&vellaveto_trace_ctx, "allow");
             let response = forward_to_upstream(
                 &state,
                 &session_id,
                 forward_body,
                 auth_header_for_upstream.as_deref(),
+                Some((up_tp.as_str(), up_ts.as_deref())),
             )
             .await;
             attach_session_header(response, &session_id)
@@ -2175,11 +2213,14 @@ pub async fn handle_mcp_post(
                             )
                         }
                     };
+                    let (up_tp, up_ts) =
+                        trace_propagation::build_upstream_headers(&vellaveto_trace_ctx, "allow");
                     let response = forward_to_upstream(
                         &state,
                         &session_id,
                         forward_body,
                         auth_header_for_upstream.as_deref(),
+                        Some((up_tp.as_str(), up_ts.as_deref())),
                     )
                     .await;
                     attach_session_header(response, &session_id)

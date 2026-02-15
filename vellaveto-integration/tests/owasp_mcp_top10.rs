@@ -916,6 +916,10 @@ mod owasp_mcp07_auth {
             // Server Configuration (FIND-004, FIND-005)
             metrics_require_auth: true,
             audit_strict_mode: false,
+            leader_election: None,
+            service_discovery: None,
+            deployment_config: Default::default(),
+            start_time: std::time::Instant::now(),
         };
         (state, tmp)
     }
@@ -1335,6 +1339,10 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
             // Server Configuration (FIND-004, FIND-005)
             metrics_require_auth: true,
             audit_strict_mode: false,
+            leader_election: None,
+            service_discovery: None,
+            deployment_config: Default::default(),
+            start_time: std::time::Instant::now(),
         };
 
         let app = routes::build_router(state);
@@ -1605,6 +1613,10 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1711,6 +1723,10 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

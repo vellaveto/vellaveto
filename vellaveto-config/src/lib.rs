@@ -26,6 +26,7 @@ pub mod abac;
 pub mod cluster;
 pub mod compliance;
 pub mod config_validate;
+pub mod deployment;
 pub mod fips;
 pub mod governance;
 pub mod grpc_transport;
@@ -104,6 +105,7 @@ pub use config_validate::{
     MAX_ALLOWED_SERVERS, MAX_CUSTOM_PII_PATTERNS, MAX_DISABLED_INJECTION_PATTERNS,
     MAX_EXTRA_INJECTION_PATTERNS, MAX_KNOWN_TOOL_NAMES, MAX_POLICIES, MAX_TRUSTED_KEYS,
 };
+pub use deployment::{DeploymentConfig, DeploymentMode, LeaderElectionConfig, ServiceDiscoveryConfig, ServiceDiscoveryMode};
 pub use extension::ExtensionConfig;
 pub use fips::FipsConfig;
 pub use gateway::{BackendConfig, GatewayConfig};
@@ -443,6 +445,14 @@ pub struct PolicyConfig {
     /// and automatic revocation of unused permissions.
     #[serde(default)]
     pub governance: GovernanceConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 27: KUBERNETES-NATIVE DEPLOYMENT
+    // ═══════════════════════════════════════════════════
+    /// Deployment configuration for Kubernetes-native operation.
+    /// Controls deployment mode, leader election, and service discovery.
+    #[serde(default)]
+    pub deployment: DeploymentConfig,
 }
 
 impl PolicyConfig {

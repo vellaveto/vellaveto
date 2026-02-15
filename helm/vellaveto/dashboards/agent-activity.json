@@ -1,0 +1,128 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "Per-agent tool call rates, session counts, and anomaly detections",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "title": "Tool Calls by Agent",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(vellaveto_evaluations_total[$__rate_interval])) by (agent_id)",
+          "legendFormat": "{{agent_id}}"
+        }
+      ]
+    },
+    {
+      "title": "Active Sessions",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 100 },
+              { "color": "red", "value": 500 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "vellaveto_active_sessions",
+          "legendFormat": "Active Sessions"
+        }
+      ]
+    },
+    {
+      "title": "WebSocket Connections",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "vellaveto_ws_connections_total",
+          "legendFormat": "Total WS Connections"
+        }
+      ]
+    },
+    {
+      "title": "Anomaly Detections per Agent",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(rate(vellaveto_anomaly_detections_total[$__rate_interval])) by (agent_id)",
+          "legendFormat": "{{agent_id}}"
+        }
+      ]
+    },
+    {
+      "title": "Security Detections by Type",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(increase(vellaveto_security_detections_total[1h])) by (type)",
+          "legendFormat": "{{type}}"
+        }
+      ]
+    },
+    {
+      "title": "DLP Findings by Pattern",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "topk(10, sum by (pattern) (increase(vellaveto_dlp_findings_total[1h])))",
+          "legendFormat": "{{pattern}}"
+        }
+      ]
+    },
+    {
+      "title": "Circuit Breaker State",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "vellaveto_circuit_breaker_state",
+          "legendFormat": "{{tool}}",
+          "format": "table",
+          "instant": true
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["vellaveto", "agents", "activity"],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "Vellaveto — Agent Activity",
+  "uid": "vellaveto-agent-activity"
+}

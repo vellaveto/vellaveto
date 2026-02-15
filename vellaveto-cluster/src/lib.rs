@@ -11,6 +11,13 @@ pub mod local;
 #[cfg(feature = "redis-backend")]
 pub mod redis_backend;
 
+pub mod leader;
+pub mod leader_local;
+
+pub mod discovery;
+pub mod discovery_dns;
+pub mod discovery_static;
+
 use async_trait::async_trait;
 use thiserror::Error;
 use vellaveto_approval::PendingApproval;

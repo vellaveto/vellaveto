@@ -1115,6 +1115,7 @@ fn test_validate_rejects_too_many_policies() {
         abac: AbacConfig::default(),
         fips: Default::default(),
         governance: Default::default(),
+        deployment: Default::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {
@@ -3070,4 +3071,190 @@ policy_type = "Allow"
     let config = PolicyConfig::from_toml(toml).unwrap();
     assert!(!config.governance.shadow_ai_discovery);
     assert_eq!(config.governance.auto_revoke_after_secs, 3600);
+}
+
+// ═══════════════════════════════════════════════════
+// Phase 27: Deployment configuration tests
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_deployment_config_defaults() {
+    let config = crate::DeploymentConfig::default();
+    assert_eq!(config.mode, crate::DeploymentMode::Standalone);
+    assert!(!config.leader_election.enabled);
+    assert_eq!(config.leader_election.lease_duration_secs, 15);
+    assert_eq!(config.leader_election.renew_interval_secs, 10);
+    assert_eq!(config.leader_election.retry_period_secs, 5);
+    assert_eq!(config.service_discovery.mode, crate::ServiceDiscoveryMode::Static);
+    assert_eq!(config.service_discovery.refresh_interval_secs, 30);
+    assert!(config.instance_id.is_none());
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_deployment_config_serde_roundtrip() {
+    let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+
+[deployment]
+mode = "kubernetes"
+instance_id = "vellaveto-0"
+
+[deployment.leader_election]
+enabled = true
+lease_duration_secs = 20
+renew_interval_secs = 15
+retry_period_secs = 3
+
+[deployment.service_discovery]
+mode = "dns"
+dns_name = "vellaveto-headless.default.svc.cluster.local"
+refresh_interval_secs = 15
+"#;
+    let config = PolicyConfig::from_toml(toml).unwrap();
+    assert_eq!(config.deployment.mode, crate::DeploymentMode::Kubernetes);
+    assert_eq!(config.deployment.instance_id, Some("vellaveto-0".to_string()));
+    assert!(config.deployment.leader_election.enabled);
+    assert_eq!(config.deployment.leader_election.lease_duration_secs, 20);
+    assert_eq!(config.deployment.service_discovery.mode, crate::ServiceDiscoveryMode::Dns);
+    assert_eq!(
+        config.deployment.service_discovery.dns_name,
+        Some("vellaveto-headless.default.svc.cluster.local".to_string())
+    );
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_deployment_config_absent_uses_defaults() {
+    let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#;
+    let config = PolicyConfig::from_toml(toml).unwrap();
+    assert_eq!(config.deployment.mode, crate::DeploymentMode::Standalone);
+    assert!(!config.deployment.leader_election.enabled);
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_deployment_leader_election_lease_too_short() {
+    let mut config = crate::DeploymentConfig::default();
+    config.leader_election.enabled = true;
+    config.leader_election.lease_duration_secs = 2;
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("lease_duration_secs"));
+}
+
+#[test]
+fn test_deployment_leader_election_lease_too_long() {
+    let mut config = crate::DeploymentConfig::default();
+    config.leader_election.enabled = true;
+    config.leader_election.lease_duration_secs = 400;
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("lease_duration_secs"));
+}
+
+#[test]
+fn test_deployment_leader_election_renew_exceeds_lease() {
+    let mut config = crate::DeploymentConfig::default();
+    config.leader_election.enabled = true;
+    config.leader_election.lease_duration_secs = 10;
+    config.leader_election.renew_interval_secs = 10; // equal, not less
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("renew_interval_secs"));
+}
+
+#[test]
+fn test_deployment_leader_election_retry_out_of_range() {
+    let mut config = crate::DeploymentConfig::default();
+    config.leader_election.enabled = true;
+    config.leader_election.retry_period_secs = 0;
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("retry_period_secs"));
+}
+
+#[test]
+fn test_deployment_service_discovery_dns_requires_name() {
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
+    config.service_discovery.dns_name = None;
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("dns_name"));
+}
+
+#[test]
+fn test_deployment_service_discovery_dns_empty_name_rejected() {
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
+    config.service_discovery.dns_name = Some("  ".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("dns_name"));
+}
+
+#[test]
+fn test_deployment_service_discovery_refresh_out_of_range() {
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.refresh_interval_secs = 2;
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("refresh_interval_secs"));
+}
+
+#[test]
+fn test_deployment_instance_id_too_long() {
+    let mut config = crate::DeploymentConfig::default();
+    config.instance_id = Some("a".repeat(254));
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("instance_id"));
+}
+
+#[test]
+fn test_deployment_instance_id_empty_rejected() {
+    let mut config = crate::DeploymentConfig::default();
+    config.instance_id = Some("".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("instance_id"));
+}
+
+#[test]
+fn test_deployment_instance_id_invalid_chars() {
+    let mut config = crate::DeploymentConfig::default();
+    config.instance_id = Some("Vellaveto_0".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("DNS-safe"));
+}
+
+#[test]
+fn test_deployment_instance_id_leading_hyphen() {
+    let mut config = crate::DeploymentConfig::default();
+    config.instance_id = Some("-vellaveto-0".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("hyphen"));
+}
+
+#[test]
+fn test_deployment_effective_instance_id_configured() {
+    let mut config = crate::DeploymentConfig::default();
+    config.instance_id = Some("my-instance".to_string());
+    assert_eq!(config.effective_instance_id(), "my-instance");
+}
+
+#[test]
+fn test_deployment_valid_kubernetes_config() {
+    let mut config = crate::DeploymentConfig::default();
+    config.mode = crate::DeploymentMode::Kubernetes;
+    config.leader_election.enabled = true;
+    config.leader_election.lease_duration_secs = 30;
+    config.leader_election.renew_interval_secs = 20;
+    config.leader_election.retry_period_secs = 5;
+    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
+    config.service_discovery.dns_name = Some("vellaveto-headless.default.svc.cluster.local".to_string());
+    config.instance_id = Some("vellaveto-0".to_string());
+    assert!(config.validate().is_ok());
 }

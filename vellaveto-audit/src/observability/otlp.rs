@@ -140,6 +140,18 @@ pub fn span_to_otel_attributes(span: &SecuritySpan) -> Vec<KeyValue> {
         attrs.push(KeyValue::new("vellaveto.agent.id", agent_id.clone()));
     }
 
+    // GenAI agent identity attributes (Phase 28)
+    if let Some(agent_id) = span.attributes.get("gen_ai.agent.id").and_then(|v| v.as_str()) {
+        attrs.push(KeyValue::new("gen_ai.agent.id", agent_id.to_string()));
+    }
+    if let Some(agent_name) = span
+        .attributes
+        .get("gen_ai.agent.name")
+        .and_then(|v| v.as_str())
+    {
+        attrs.push(KeyValue::new("gen_ai.agent.name", agent_name.to_string()));
+    }
+
     // Detection type (first detection, if any)
     if let Some(detection) = span.detections.first() {
         attrs.push(KeyValue::new(
@@ -186,6 +198,7 @@ pub fn map_span_kind(kind: SpanKind) -> opentelemetry::trace::SpanKind {
         SpanKind::Llm => opentelemetry::trace::SpanKind::Client,
         SpanKind::Policy => opentelemetry::trace::SpanKind::Internal,
         SpanKind::Approval => opentelemetry::trace::SpanKind::Internal,
+        SpanKind::Gateway => opentelemetry::trace::SpanKind::Internal,
     }
 }
 
@@ -398,6 +411,48 @@ mod tests {
         // UUID-format span IDs should work (hyphens stripped)
         let span_id = parse_span_id("550e8400-e29b-41d4-a716-446655440000");
         assert_ne!(span_id, SpanId::INVALID);
+    }
+
+    #[test]
+    fn test_genai_agent_attributes_in_span() {
+        let span = SecuritySpan::builder("trace-1", SpanKind::Tool)
+            .span_id("abcdef0123456789")
+            .verdict(VerdictSummary {
+                outcome: "allow".to_string(),
+                reason: None,
+            })
+            .attribute("gen_ai.agent.id", serde_json::json!("agent-007"))
+            .attribute("gen_ai.agent.name", serde_json::json!("research-bot"))
+            .build()
+            .unwrap();
+
+        let attrs = span_to_otel_attributes(&span);
+        let find = |key: &str| attrs.iter().find(|kv| kv.key.as_str() == key);
+
+        let agent_id = find("gen_ai.agent.id").expect("gen_ai.agent.id should be present");
+        assert_eq!(agent_id.value.as_str(), "agent-007");
+
+        let agent_name = find("gen_ai.agent.name").expect("gen_ai.agent.name should be present");
+        assert_eq!(agent_name.value.as_str(), "research-bot");
+    }
+
+    #[test]
+    fn test_gateway_span_kind_mapping() {
+        use opentelemetry::trace::SpanKind as OtelKind;
+        assert!(matches!(
+            map_span_kind(SpanKind::Gateway),
+            OtelKind::Internal
+        ));
+    }
+
+    #[test]
+    fn test_genai_agent_attributes_absent_when_not_set() {
+        let span = make_test_span();
+        let attrs = span_to_otel_attributes(&span);
+        let find = |key: &str| attrs.iter().find(|kv| kv.key.as_str() == key);
+
+        assert!(find("gen_ai.agent.id").is_none());
+        assert!(find("gen_ai.agent.name").is_none());
     }
 
     #[test]

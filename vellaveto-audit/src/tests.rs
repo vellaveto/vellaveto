@@ -3188,3 +3188,161 @@ async fn test_merkle_checkpoint_backward_compat() {
     let result = logger_no_merkle.verify_checkpoints().await.unwrap();
     assert!(result.valid);
 }
+
+// =========================================================================
+// Phase 27: Deployment Event Logging Tests
+// =========================================================================
+
+#[tokio::test]
+async fn test_log_leader_election_event_acquired() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = AuditLogger::new(log_path.clone());
+
+    logger
+        .log_leader_election_event(
+            "acquired",
+            "instance-0",
+            json!({ "lease_duration_secs": 15 }),
+        )
+        .await
+        .unwrap();
+
+    let entries = logger.load_entries().await.unwrap();
+    assert_eq!(entries.len(), 1);
+    assert!(matches!(entries[0].verdict, Verdict::Allow));
+    let event = entries[0]
+        .metadata
+        .get("event")
+        .and_then(|v| v.as_str())
+        .unwrap();
+    assert_eq!(event, "leader_election.acquired");
+    assert_eq!(
+        entries[0]
+            .metadata
+            .get("instance_id")
+            .and_then(|v| v.as_str())
+            .unwrap(),
+        "instance-0"
+    );
+}
+
+#[tokio::test]
+async fn test_log_leader_election_event_lost_produces_deny() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = AuditLogger::new(log_path.clone());
+
+    logger
+        .log_leader_election_event("lost", "instance-1", json!({ "reason": "lease expired" }))
+        .await
+        .unwrap();
+
+    let entries = logger.load_entries().await.unwrap();
+    assert_eq!(entries.len(), 1);
+    assert!(
+        matches!(&entries[0].verdict, Verdict::Deny { reason } if reason.contains("lost"))
+    );
+}
+
+#[tokio::test]
+async fn test_log_leader_election_event_failed_produces_deny() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = AuditLogger::new(log_path.clone());
+
+    logger
+        .log_leader_election_event("failed", "instance-2", json!({ "error": "backend unreachable" }))
+        .await
+        .unwrap();
+
+    let entries = logger.load_entries().await.unwrap();
+    assert_eq!(entries.len(), 1);
+    assert!(
+        matches!(&entries[0].verdict, Verdict::Deny { reason } if reason.contains("failed"))
+    );
+}
+
+#[tokio::test]
+async fn test_log_service_discovery_event_endpoint_added() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = AuditLogger::new(log_path.clone());
+
+    logger
+        .log_service_discovery_event(
+            "endpoint_added",
+            "backend-1",
+            json!({ "url": "http://backend-1:3000" }),
+        )
+        .await
+        .unwrap();
+
+    let entries = logger.load_entries().await.unwrap();
+    assert_eq!(entries.len(), 1);
+    assert!(matches!(entries[0].verdict, Verdict::Allow));
+    let event = entries[0]
+        .metadata
+        .get("event")
+        .and_then(|v| v.as_str())
+        .unwrap();
+    assert_eq!(event, "service_discovery.endpoint_added");
+    assert_eq!(
+        entries[0]
+            .metadata
+            .get("endpoint_id")
+            .and_then(|v| v.as_str())
+            .unwrap(),
+        "backend-1"
+    );
+}
+
+#[tokio::test]
+async fn test_log_service_discovery_event_refresh_failed_produces_deny() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = AuditLogger::new(log_path.clone());
+
+    logger
+        .log_service_discovery_event(
+            "refresh_failed",
+            "dns-headless",
+            json!({ "error": "DNS resolution failed" }),
+        )
+        .await
+        .unwrap();
+
+    let entries = logger.load_entries().await.unwrap();
+    assert_eq!(entries.len(), 1);
+    assert!(
+        matches!(&entries[0].verdict, Verdict::Deny { reason } if reason.contains("refresh failed"))
+    );
+}
+
+#[tokio::test]
+async fn test_log_service_discovery_event_endpoint_removed() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = AuditLogger::new(log_path.clone());
+
+    logger
+        .log_service_discovery_event(
+            "endpoint_removed",
+            "backend-2",
+            json!({ "reason": "no longer resolving" }),
+        )
+        .await
+        .unwrap();
+
+    let entries = logger.load_entries().await.unwrap();
+    assert_eq!(entries.len(), 1);
+    assert!(matches!(entries[0].verdict, Verdict::Allow));
+    assert_eq!(
+        entries[0]
+            .metadata
+            .get("event")
+            .and_then(|v| v.as_str())
+            .unwrap(),
+        "service_discovery.endpoint_removed"
+    );
+}

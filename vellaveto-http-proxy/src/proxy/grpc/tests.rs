@@ -943,3 +943,58 @@ fn test_extension_method_fail_closed_no_policies_grpc() {
         verdict
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 28: gRPC Trace Context Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_extract_trace_context_from_metadata_valid() {
+    let mut metadata = tonic::metadata::MetadataMap::new();
+    metadata.insert(
+        "traceparent",
+        "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+            .parse()
+            .unwrap(),
+    );
+
+    let ctx = extract_trace_context_from_metadata(&metadata);
+    assert_eq!(
+        ctx.trace_id,
+        Some("0af7651916cd43dd8448eb211c80319c".to_string())
+    );
+    assert_eq!(ctx.parent_span_id, Some("b7ad6b7169203331".to_string()));
+    assert!(ctx.is_sampled());
+}
+
+#[test]
+fn test_extract_trace_context_from_metadata_missing() {
+    let metadata = tonic::metadata::MetadataMap::new();
+    let ctx = extract_trace_context_from_metadata(&metadata);
+    assert!(ctx.trace_id.is_some());
+    assert_eq!(ctx.trace_id.as_ref().unwrap().len(), 32);
+}
+
+#[test]
+fn test_extract_trace_context_from_metadata_with_tracestate() {
+    let mut metadata = tonic::metadata::MetadataMap::new();
+    metadata.insert(
+        "traceparent",
+        "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+            .parse()
+            .unwrap(),
+    );
+    metadata.insert("tracestate", "vendor=value".parse().unwrap());
+
+    let ctx = extract_trace_context_from_metadata(&metadata);
+    assert_eq!(ctx.trace_state, Some("vendor=value".to_string()));
+}
+
+#[test]
+fn test_extract_trace_context_from_metadata_invalid_traceparent() {
+    let mut metadata = tonic::metadata::MetadataMap::new();
+    metadata.insert("traceparent", "not-valid".parse().unwrap());
+
+    let ctx = extract_trace_context_from_metadata(&metadata);
+    assert!(ctx.trace_id.is_some());
+}

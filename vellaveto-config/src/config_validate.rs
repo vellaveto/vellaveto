@@ -827,6 +827,9 @@ impl PolicyConfig {
         // Governance configuration bounds (Phase 26)
         self.governance.validate()?;
 
+        // Deployment configuration bounds (Phase 27)
+        self.deployment.validate()?;
+
         Ok(())
     }
 

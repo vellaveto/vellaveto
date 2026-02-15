@@ -328,6 +328,93 @@ impl AuditLogger {
         self.log_entry(&action, &verdict, metadata).await
     }
 
+    // =========================================================================
+    // Deployment Event Logging Helpers (Phase 27)
+    // =========================================================================
+
+    /// Log a leader election lifecycle event.
+    ///
+    /// Leader election events track acquisition, renewal, release, and failure
+    /// of the leader lease for cluster coordination visibility.
+    ///
+    /// Event types:
+    /// - `leader_election.acquired` — instance became the leader
+    /// - `leader_election.renewed` — lease successfully renewed
+    /// - `leader_election.released` — leader voluntarily released the lease
+    /// - `leader_election.lost` — lease lost (expired or backend unreachable)
+    /// - `leader_election.failed` — acquisition or renewal failed
+    pub async fn log_leader_election_event(
+        &self,
+        event_type: &str,
+        instance_id: &str,
+        details: serde_json::Value,
+    ) -> Result<(), AuditError> {
+        let action = Action::new("vellaveto", "leader_election", serde_json::json!({}));
+        let verdict = if event_type == "lost" || event_type == "failed" {
+            Verdict::Deny {
+                reason: format!(
+                    "Leader election {} for instance '{}'",
+                    event_type, instance_id
+                ),
+            }
+        } else {
+            Verdict::Allow
+        };
+        let mut metadata = serde_json::json!({
+            "event": format!("leader_election.{}", event_type),
+            "instance_id": instance_id,
+        });
+        if let serde_json::Value::Object(ref mut map) = metadata {
+            if let serde_json::Value::Object(d) = details {
+                for (k, v) in d {
+                    map.insert(k, v);
+                }
+            }
+        }
+        self.log_entry(&action, &verdict, metadata).await
+    }
+
+    /// Log a service discovery lifecycle event.
+    ///
+    /// Service discovery events track endpoint additions, removals, and
+    /// refresh failures for operational visibility.
+    ///
+    /// Event types:
+    /// - `service_discovery.endpoint_added` — new endpoint discovered
+    /// - `service_discovery.endpoint_removed` — endpoint no longer resolved
+    /// - `service_discovery.endpoint_updated` — endpoint health or metadata changed
+    /// - `service_discovery.refresh_failed` — periodic refresh encountered an error
+    pub async fn log_service_discovery_event(
+        &self,
+        event_type: &str,
+        endpoint_id: &str,
+        details: serde_json::Value,
+    ) -> Result<(), AuditError> {
+        let action = Action::new("vellaveto", "service_discovery", serde_json::json!({}));
+        let verdict = if event_type == "refresh_failed" {
+            Verdict::Deny {
+                reason: format!(
+                    "Service discovery refresh failed for endpoint '{}'",
+                    endpoint_id
+                ),
+            }
+        } else {
+            Verdict::Allow
+        };
+        let mut metadata = serde_json::json!({
+            "event": format!("service_discovery.{}", event_type),
+            "endpoint_id": endpoint_id,
+        });
+        if let serde_json::Value::Object(ref mut map) = metadata {
+            if let serde_json::Value::Object(d) = details {
+                for (k, v) in d {
+                    map.insert(k, v);
+                }
+            }
+        }
+        self.log_entry(&action, &verdict, metadata).await
+    }
+
     /// Check whether the audit log has a heartbeat gap — a period longer than
     /// `max_gap_secs` between consecutive entries (heartbeat or otherwise).
     ///

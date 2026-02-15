@@ -1,0 +1,30 @@
+{{- if and .Values.statefulSet.enabled .Values.logShipping.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vellaveto.fullname" . }}-log-shipper
+  labels:
+    {{- include "vellaveto.labels" . | nindent 4 }}
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush        5
+        Daemon       Off
+        Log_Level    info
+
+    [INPUT]
+        Name         tail
+        Path         /var/lib/vellaveto/audit.log
+        Tag          vellaveto.audit
+        Read_from_Head true
+
+    [OUTPUT]
+        Name         {{ .Values.logShipping.outputPlugin | default "stdout" }}
+        Match        vellaveto.*
+        {{- if .Values.logShipping.outputHost }}
+        Host         {{ .Values.logShipping.outputHost }}
+        {{- end }}
+        {{- if .Values.logShipping.outputPort }}
+        Port         {{ .Values.logShipping.outputPort }}
+        {{- end }}
+{{- end }}

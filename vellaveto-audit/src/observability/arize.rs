@@ -238,6 +238,7 @@ impl ArizeExporter {
             SpanKind::Llm => "LLM".to_string(),
             SpanKind::Policy => "TOOL".to_string(), // Map to TOOL for OpenInference
             SpanKind::Approval => "TOOL".to_string(),
+            SpanKind::Gateway => "CHAIN".to_string(), // Gateway is a routing chain
         }
     }
 
@@ -250,6 +251,7 @@ impl ArizeExporter {
             SpanKind::Llm => 3,
             SpanKind::Policy => 1,
             SpanKind::Approval => 1,
+            SpanKind::Gateway => 1, // INTERNAL
         }
     }
 

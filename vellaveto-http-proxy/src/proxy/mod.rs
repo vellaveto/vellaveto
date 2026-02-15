@@ -18,6 +18,7 @@ mod inspection;
 pub mod origin;
 #[cfg(test)]
 mod tests;
+pub mod trace_propagation;
 mod upstream;
 pub mod websocket;
 

@@ -85,6 +85,8 @@ pub enum SpanKind {
     Policy,
     /// Approval workflow span.
     Approval,
+    /// Gateway routing span (multi-backend).
+    Gateway,
 }
 
 impl SpanKind {
@@ -97,6 +99,7 @@ impl SpanKind {
             SpanKind::Llm => "llm",
             SpanKind::Policy => "policy",
             SpanKind::Approval => "approval",
+            SpanKind::Gateway => "gateway",
         }
     }
 }
@@ -803,6 +806,39 @@ impl TraceContext {
     /// Check if sampling is requested (trace flags bit 0).
     pub fn is_sampled(&self) -> bool {
         self.trace_flags & 0x01 != 0
+    }
+
+    /// Create a child context inheriting trace_id and flags, with a new span_id.
+    ///
+    /// The child's `parent_span_id` is set to a newly generated span ID
+    /// (the child's own ID), while preserving the same trace_id and flags.
+    /// The caller can use the returned context to build upstream `traceparent`.
+    pub fn child(&self) -> Self {
+        TraceContext {
+            trace_id: self.trace_id.clone(),
+            parent_span_id: Some(Self::new_span_id()),
+            trace_flags: self.trace_flags,
+            trace_state: self.trace_state.clone(),
+        }
+    }
+
+    /// Prepend `vellaveto=<verdict>` to the tracestate.
+    ///
+    /// If tracestate already exists, vellaveto's entry is prepended per W3C spec
+    /// (vendor entries are ordered left-to-right by recency).
+    pub fn with_vellaveto_verdict(mut self, verdict: &str) -> Self {
+        let entry = format!("vellaveto={}", verdict);
+        self.trace_state = Some(match self.trace_state.take() {
+            Some(existing) => format!("{},{}", entry, existing),
+            None => entry,
+        });
+        self
+    }
+
+    /// Store a raw tracestate string (parsed from incoming headers).
+    pub fn with_parsed_tracestate(mut self, value: impl Into<String>) -> Self {
+        self.trace_state = Some(value.into());
+        self
     }
 
     /// Format as traceparent header value.
@@ -1741,5 +1777,123 @@ mod tests {
         // Should return same ID on subsequent calls
         let trace_id2 = ctx.ensure_trace_id().to_string();
         assert_eq!(trace_id, trace_id2);
+    }
+
+    // ========================================
+    // Phase 28, Step 1: TraceContext helpers + SpanKind::Gateway
+    // ========================================
+
+    #[test]
+    fn test_span_kind_gateway_as_str() {
+        assert_eq!(SpanKind::Gateway.as_str(), "gateway");
+    }
+
+    #[test]
+    fn test_trace_context_child_inherits_trace_id() {
+        let parent = TraceContext {
+            trace_id: Some("0af7651916cd43dd8448eb211c80319c".to_string()),
+            parent_span_id: Some("b7ad6b7169203331".to_string()),
+            trace_flags: 1,
+            trace_state: Some("vendor=value".to_string()),
+        };
+
+        let child = parent.child();
+        assert_eq!(child.trace_id, parent.trace_id);
+        assert_eq!(child.trace_flags, parent.trace_flags);
+        assert_eq!(child.trace_state, parent.trace_state);
+        // Child has a new span_id
+        assert!(child.parent_span_id.is_some());
+        assert_ne!(child.parent_span_id, parent.parent_span_id);
+        // New span_id is valid hex, 16 chars
+        let span_id = child.parent_span_id.as_ref().unwrap();
+        assert_eq!(span_id.len(), 16);
+        assert!(span_id.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_trace_context_child_unique_span_ids() {
+        let parent = TraceContext {
+            trace_id: Some("0af7651916cd43dd8448eb211c80319c".to_string()),
+            parent_span_id: Some("b7ad6b7169203331".to_string()),
+            trace_flags: 1,
+            trace_state: None,
+        };
+
+        let child1 = parent.child();
+        let child2 = parent.child();
+        assert_ne!(child1.parent_span_id, child2.parent_span_id);
+    }
+
+    #[test]
+    fn test_trace_context_with_vellaveto_verdict_no_existing_state() {
+        let ctx = TraceContext {
+            trace_id: Some("0af7651916cd43dd8448eb211c80319c".to_string()),
+            parent_span_id: Some("b7ad6b7169203331".to_string()),
+            trace_flags: 1,
+            trace_state: None,
+        };
+
+        let ctx = ctx.with_vellaveto_verdict("allow");
+        assert_eq!(ctx.trace_state, Some("vellaveto=allow".to_string()));
+    }
+
+    #[test]
+    fn test_trace_context_with_vellaveto_verdict_prepends_to_existing() {
+        let ctx = TraceContext {
+            trace_id: Some("0af7651916cd43dd8448eb211c80319c".to_string()),
+            parent_span_id: Some("b7ad6b7169203331".to_string()),
+            trace_flags: 1,
+            trace_state: Some("vendor=value".to_string()),
+        };
+
+        let ctx = ctx.with_vellaveto_verdict("deny");
+        assert_eq!(
+            ctx.trace_state,
+            Some("vellaveto=deny,vendor=value".to_string())
+        );
+    }
+
+    #[test]
+    fn test_trace_context_with_parsed_tracestate() {
+        let ctx = TraceContext::default();
+        let ctx = ctx.with_parsed_tracestate("congo=lZWRzIHRoNhcm5teleHQ,rojo=00f067aa0ba902b7");
+        assert_eq!(
+            ctx.trace_state,
+            Some("congo=lZWRzIHRoNhcm5teleHQ,rojo=00f067aa0ba902b7".to_string())
+        );
+    }
+
+    #[test]
+    fn test_trace_context_child_to_traceparent() {
+        let parent = TraceContext {
+            trace_id: Some("0af7651916cd43dd8448eb211c80319c".to_string()),
+            parent_span_id: Some("b7ad6b7169203331".to_string()),
+            trace_flags: 1,
+            trace_state: None,
+        };
+
+        let child = parent.child();
+        let traceparent = child.to_traceparent().expect("should format");
+        assert!(traceparent.starts_with("00-0af7651916cd43dd8448eb211c80319c-"));
+        assert!(traceparent.ends_with("-01"));
+        // The middle span_id should be the child's new span_id
+        let parts: Vec<&str> = traceparent.split('-').collect();
+        assert_eq!(parts.len(), 4);
+        assert_eq!(parts[2], child.parent_span_id.as_deref().unwrap());
+    }
+
+    #[test]
+    fn test_trace_context_verdict_chain() {
+        let ctx = TraceContext {
+            trace_id: Some("0af7651916cd43dd8448eb211c80319c".to_string()),
+            parent_span_id: Some("b7ad6b7169203331".to_string()),
+            trace_flags: 1,
+            trace_state: None,
+        };
+
+        let child = ctx.child().with_vellaveto_verdict("allow");
+        let traceparent = child.to_traceparent().expect("should format");
+        assert!(traceparent.starts_with("00-0af7651916cd43dd8448eb211c80319c-"));
+        assert_eq!(child.trace_state, Some("vellaveto=allow".to_string()));
     }
 }

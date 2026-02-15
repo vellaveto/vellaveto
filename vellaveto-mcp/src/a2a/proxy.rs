@@ -98,6 +98,18 @@ pub enum A2aProxyDecision {
     },
 }
 
+/// Extract W3C traceparent from A2A message metadata (Phase 28).
+///
+/// A2A messages may carry trace context in a `metadata.traceparent` field
+/// for cross-protocol trace linking between MCP and A2A flows.
+pub fn extract_a2a_trace_context(msg: &Value) -> Option<String> {
+    msg.get("params")
+        .and_then(|p| p.get("metadata"))
+        .and_then(|m| m.get("traceparent"))
+        .and_then(|tp| tp.as_str())
+        .map(|s| s.to_string())
+}
+
 /// A2A proxy service for intercepting and evaluating A2A traffic.
 ///
 /// This service coordinates policy evaluation, security checks, and
@@ -959,5 +971,57 @@ mod tests {
 
         assert!(retrieved.require_agent_card);
         assert_eq!(retrieved.max_message_size, 5 * 1024 * 1024);
+    }
+
+    // ========================================
+    // Phase 28: A2A Trace Context Tests
+    // ========================================
+
+    #[test]
+    fn test_extract_a2a_trace_context_present() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "message/send",
+            "params": {
+                "message": {"role": "user", "parts": []},
+                "metadata": {
+                    "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+                }
+            }
+        });
+
+        let tp = extract_a2a_trace_context(&msg);
+        assert_eq!(
+            tp,
+            Some("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_a2a_trace_context_absent() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "message/send",
+            "params": {
+                "message": {"role": "user", "parts": []}
+            }
+        });
+
+        let tp = extract_a2a_trace_context(&msg);
+        assert!(tp.is_none());
+    }
+
+    #[test]
+    fn test_extract_a2a_trace_context_no_params() {
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"status": "ok"}
+        });
+
+        let tp = extract_a2a_trace_context(&msg);
+        assert!(tp.is_none());
     }
 }

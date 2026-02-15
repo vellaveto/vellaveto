@@ -687,6 +687,23 @@ pub struct AppState {
     /// requests to be denied instead of proceeding without an audit trail.
     /// Default: false (backward compatible).
     pub audit_strict_mode: bool,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 27: Kubernetes-Native Deployment
+    // ═══════════════════════════════════════════════════════════════════
+    /// Leader election backend for cluster coordination.
+    /// None in standalone mode.
+    pub leader_election: Option<Arc<dyn vellaveto_cluster::leader::LeaderElection>>,
+
+    /// Service discovery backend for dynamic endpoint resolution.
+    /// None in standalone mode.
+    pub service_discovery: Option<Arc<dyn vellaveto_cluster::discovery::ServiceDiscovery>>,
+
+    /// Deployment configuration (mode, leader election, service discovery).
+    pub deployment_config: vellaveto_config::DeploymentConfig,
+
+    /// Server start time for uptime calculation.
+    pub start_time: Instant,
 }
 
 /// Error type for cluster-dispatched approval operations.
@@ -905,6 +922,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             abac: Default::default(),
             fips: Default::default(),
             governance: Default::default(),
+            deployment: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

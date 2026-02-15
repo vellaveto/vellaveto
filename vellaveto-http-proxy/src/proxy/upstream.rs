@@ -79,8 +79,10 @@ pub(super) async fn forward_to_upstream(
     session_id: &str,
     body: Bytes,
     auth_header: Option<&str>,
+    trace_ctx: Option<(&str, Option<&str>)>,
 ) -> Response {
-    forward_to_upstream_url(state, &state.upstream_url, session_id, body, auth_header).await
+    forward_to_upstream_url(state, &state.upstream_url, session_id, body, auth_header, trace_ctx)
+        .await
 }
 
 /// Forward a request to a specific upstream URL.
@@ -88,12 +90,16 @@ pub(super) async fn forward_to_upstream(
 /// This is the core forwarding function. `forward_to_upstream()` delegates here
 /// with `state.upstream_url`. Gateway mode calls this directly with the
 /// routed backend URL.
+///
+/// When `trace_ctx` is provided, `traceparent` and optionally `tracestate`
+/// headers are injected into the upstream request for distributed tracing.
 pub(super) async fn forward_to_upstream_url(
     state: &ProxyState,
     upstream_url: &str,
     session_id: &str,
     body: Bytes,
     auth_header: Option<&str>,
+    trace_ctx: Option<(&str, Option<&str>)>,
 ) -> Response {
     let mut request_builder = state
         .http_client
@@ -105,6 +111,14 @@ pub(super) async fn forward_to_upstream_url(
     // Forward Authorization header in OAuth pass-through mode
     if let Some(auth) = auth_header {
         request_builder = request_builder.header("authorization", auth);
+    }
+
+    // Phase 28: Inject W3C Trace Context headers for distributed tracing
+    if let Some((traceparent, tracestate)) = trace_ctx {
+        request_builder = request_builder.header("traceparent", traceparent);
+        if let Some(ts) = tracestate {
+            request_builder = request_builder.header("tracestate", ts);
+        }
     }
 
     let result = request_builder.body(body).send().await;

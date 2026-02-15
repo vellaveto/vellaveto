@@ -81,6 +81,10 @@ fn make_state() -> (AppState, TempDir) {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
     (state, tmp)
 }
@@ -134,6 +138,10 @@ fn make_empty_state() -> (AppState, TempDir) {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
     (state, tmp)
 }
@@ -1235,6 +1243,10 @@ priority = 1
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
     let app = routes::build_router(state.clone());
 
@@ -1353,6 +1365,10 @@ fn make_approval_state() -> (AppState, TempDir) {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
     (state, tmp)
 }
@@ -1832,6 +1848,10 @@ fn make_authed_state() -> (AppState, TempDir) {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
     (state, tmp)
 }
@@ -2335,6 +2355,10 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
     (state, tmp)
 }
@@ -3039,6 +3063,10 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
     (state, tmp)
 }

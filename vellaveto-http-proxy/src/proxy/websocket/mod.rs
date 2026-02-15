@@ -131,15 +131,26 @@ pub async fn handle_ws_upgrade(
 
     let ws_config = state.ws_config.clone().unwrap_or_default();
 
+    // Phase 28: Extract W3C Trace Context from the HTTP upgrade request headers.
+    // The trace_id is used for correlating all audit entries during this WS session.
+    let trace_ctx = super::trace_propagation::extract_trace_context(&headers);
+    let ws_trace_id = trace_ctx
+        .trace_id
+        .clone()
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string().replace('-', ""));
+
     tracing::info!(
         session_id = %session_id,
+        trace_id = %ws_trace_id,
         peer = %addr,
         "WebSocket upgrade accepted"
     );
 
     // 4. Configure and upgrade
     ws.max_message_size(ws_config.max_message_size)
-        .on_upgrade(move |socket| handle_ws_connection(socket, state, session_id, ws_config, addr))
+        .on_upgrade(move |socket| {
+            handle_ws_connection(socket, state, session_id, ws_config, addr, ws_trace_id)
+        })
 }
 
 /// Handle an established WebSocket connection.
@@ -153,9 +164,15 @@ async fn handle_ws_connection(
     session_id: String,
     ws_config: WebSocketConfig,
     peer_addr: SocketAddr,
+    trace_id: String,
 ) {
     record_ws_connection();
     let start = std::time::Instant::now();
+    tracing::debug!(
+        session_id = %session_id,
+        trace_id = %trace_id,
+        "WebSocket connection established with trace context"
+    );
 
     // Connect to upstream — use gateway default backend if configured
     let upstream_url = if let Some(ref gw) = state.gateway {

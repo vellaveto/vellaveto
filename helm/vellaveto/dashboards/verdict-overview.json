@@ -1,0 +1,129 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "Vellaveto verdict distribution, deny rates, and approval queue depth",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "title": "Verdict Distribution (Rate)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(vellaveto_evaluations_total{verdict=\"allow\"}[$__rate_interval])) by (verdict)",
+          "legendFormat": "Allow"
+        },
+        {
+          "expr": "sum(rate(vellaveto_evaluations_total{verdict=\"deny\"}[$__rate_interval])) by (verdict)",
+          "legendFormat": "Deny"
+        },
+        {
+          "expr": "sum(rate(vellaveto_evaluations_total{verdict=\"require_approval\"}[$__rate_interval])) by (verdict)",
+          "legendFormat": "Require Approval"
+        }
+      ]
+    },
+    {
+      "title": "Deny Rate (%)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.1 },
+              { "color": "red", "value": 0.3 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(vellaveto_evaluations_total{verdict=\"deny\"}[5m])) / sum(rate(vellaveto_evaluations_total[5m]))",
+          "legendFormat": "Deny Rate"
+        }
+      ]
+    },
+    {
+      "title": "Approval Queue Depth",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 20 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "vellaveto_pending_approvals",
+          "legendFormat": "Pending Approvals"
+        }
+      ]
+    },
+    {
+      "title": "Evaluations Over Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(vellaveto_evaluations_total[$__rate_interval]))",
+          "legendFormat": "Total Evaluations/s"
+        }
+      ]
+    },
+    {
+      "title": "Denial Reasons (Top 10)",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "topk(10, sum by (reason) (increase(vellaveto_denials_total[1h])))",
+          "legendFormat": "{{reason}}",
+          "format": "table",
+          "instant": true
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["vellaveto", "security", "mcp"],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "Vellaveto — Verdict Overview",
+  "uid": "vellaveto-verdict-overview"
+}

@@ -93,6 +93,10 @@ fn test_state() -> (AppState, TempDir) {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
     (state, tmp)
 }

@@ -82,6 +82,10 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
     (state, tmp)
 }
@@ -447,6 +451,10 @@ async fn regression_24_error_message_does_not_leak_architecture() {
         least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

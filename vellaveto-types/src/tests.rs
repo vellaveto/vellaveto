@@ -2375,3 +2375,131 @@ fn test_evaluation_context_from_stateless() {
     assert!(eval_ctx.agent_identity.is_none());
     assert!(eval_ctx.session_state.is_none());
 }
+
+// ═══════════════════════════════════════════════════
+// Phase 27: Deployment types serde tests
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_leader_status_leader_roundtrip() {
+    let status = LeaderStatus::Leader {
+        since: "2026-02-15T10:00:00Z".to_string(),
+    };
+    let json_str = serde_json::to_string(&status).unwrap();
+    let deserialized: LeaderStatus = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(status, deserialized);
+}
+
+#[test]
+fn test_leader_status_follower_roundtrip() {
+    let status = LeaderStatus::Follower {
+        leader_id: Some("vellaveto-0".to_string()),
+    };
+    let json_str = serde_json::to_string(&status).unwrap();
+    let deserialized: LeaderStatus = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(status, deserialized);
+}
+
+#[test]
+fn test_leader_status_follower_no_leader_roundtrip() {
+    let status = LeaderStatus::Follower { leader_id: None };
+    let json_str = serde_json::to_string(&status).unwrap();
+    let deserialized: LeaderStatus = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(status, deserialized);
+}
+
+#[test]
+fn test_leader_status_unknown_roundtrip() {
+    let status = LeaderStatus::Unknown;
+    let json_str = serde_json::to_string(&status).unwrap();
+    let deserialized: LeaderStatus = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(status, deserialized);
+}
+
+#[test]
+fn test_leader_status_default_is_unknown() {
+    let status = LeaderStatus::default();
+    assert_eq!(status, LeaderStatus::Unknown);
+}
+
+#[test]
+fn test_service_endpoint_roundtrip() {
+    let mut labels = HashMap::new();
+    labels.insert("region".to_string(), "us-east-1".to_string());
+    let ep = ServiceEndpoint {
+        id: "vellaveto-0".to_string(),
+        url: "http://vellaveto-0.vellaveto:3000".to_string(),
+        labels,
+        healthy: true,
+    };
+    let json_str = serde_json::to_string(&ep).unwrap();
+    let deserialized: ServiceEndpoint = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(ep, deserialized);
+}
+
+#[test]
+fn test_service_endpoint_empty_labels_skipped() {
+    let ep = ServiceEndpoint {
+        id: "node-1".to_string(),
+        url: "http://node-1:3000".to_string(),
+        labels: HashMap::new(),
+        healthy: false,
+    };
+    let json_str = serde_json::to_string(&ep).unwrap();
+    assert!(!json_str.contains("labels"), "empty labels should be skipped");
+}
+
+#[test]
+fn test_discovery_event_added_roundtrip() {
+    let event = DiscoveryEvent::Added(ServiceEndpoint {
+        id: "pod-1".to_string(),
+        url: "http://pod-1:3000".to_string(),
+        labels: HashMap::new(),
+        healthy: true,
+    });
+    let json_str = serde_json::to_string(&event).unwrap();
+    let deserialized: DiscoveryEvent = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(event, deserialized);
+}
+
+#[test]
+fn test_discovery_event_removed_roundtrip() {
+    let event = DiscoveryEvent::Removed {
+        id: "pod-2".to_string(),
+    };
+    let json_str = serde_json::to_string(&event).unwrap();
+    let deserialized: DiscoveryEvent = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(event, deserialized);
+}
+
+#[test]
+fn test_discovery_event_updated_roundtrip() {
+    let event = DiscoveryEvent::Updated(ServiceEndpoint {
+        id: "pod-3".to_string(),
+        url: "http://pod-3:3000".to_string(),
+        labels: HashMap::new(),
+        healthy: false,
+    });
+    let json_str = serde_json::to_string(&event).unwrap();
+    let deserialized: DiscoveryEvent = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(event, deserialized);
+}
+
+#[test]
+fn test_deployment_info_roundtrip() {
+    let info = DeploymentInfo {
+        instance_id: "vellaveto-0".to_string(),
+        leader_status: LeaderStatus::Leader {
+            since: "2026-02-15T10:00:00Z".to_string(),
+        },
+        discovered_endpoints: 3,
+        uptime_secs: 86400,
+        mode: "kubernetes".to_string(),
+    };
+    let json_str = serde_json::to_string(&info).unwrap();
+    let deserialized: DeploymentInfo = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(deserialized.instance_id, "vellaveto-0");
+    assert_eq!(deserialized.discovered_endpoints, 3);
+    assert_eq!(deserialized.uptime_secs, 86400);
+    assert_eq!(deserialized.mode, "kubernetes");
+}
