@@ -1,0 +1,117 @@
+# Vellaveto Default Policy — Deny-by-default with common safe patterns
+#
+# Baked into the Docker image for zero-config usage:
+#   docker run -p 3000:3000 ghcr.io/paolovella/vellaveto:latest
+#
+# Override by mounting your own config:
+#   docker run -p 3000:3000 -v ./policy.toml:/etc/vellaveto/config.toml:ro ghcr.io/paolovella/vellaveto:latest
+
+# --- Priority 300: Block credential and secret file access ---
+[[policies]]
+name = "Block credential files"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 300
+id = "default:*:credential-block"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "**/.aws/**",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.ssh/**",             on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.gnupg/**",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env",                on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/.env.*",              on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/credentials.json",    on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.yaml",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/secrets.yml",         on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/*.pem",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/*_rsa",               on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "**/*_ed25519",           on_match = "deny", on_missing = "skip" },
+]
+
+# --- Priority 280: Block known exfiltration domains ---
+[[policies]]
+name = "Block exfiltration domains"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 280
+id = "default:*:exfil-domains"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "glob", pattern = "*.ngrok.io*",            on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "*.requestbin.com*",      on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "*.webhook.site*",        on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "*.burpcollaborator.net*", on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "glob", pattern = "*.oastify.com*",         on_match = "deny", on_missing = "skip" },
+]
+
+# --- Priority 200: Require approval for destructive commands ---
+[[policies]]
+name = "Require approval for destructive commands"
+tool_pattern = "*"
+function_pattern = "*"
+priority = 200
+id = "default:*:dangerous-commands"
+
+[policies.policy_type.Conditional.conditions]
+on_no_match = "continue"
+parameter_constraints = [
+  { param = "*", op = "regex", pattern = "rm\\s+-rf\\s+/",          on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+push\\s+--force",  on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "git\\s+reset\\s+--hard",  on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "chmod\\s+-R\\s+777",      on_match = "require_approval", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "curl.*\\|.*sh",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "DROP\\s+TABLE",           on_match = "deny", on_missing = "skip" },
+  { param = "*", op = "regex", pattern = "DROP\\s+DATABASE",        on_match = "deny", on_missing = "skip" },
+]
+
+# --- Priority 100: Allow common safe tool patterns ---
+[[policies]]
+name = "Allow file reads"
+tool_pattern = "file"
+function_pattern = "read"
+policy_type = "Allow"
+priority = 100
+id = "default:file:read-allow"
+
+[[policies]]
+name = "Allow file listing"
+tool_pattern = "file"
+function_pattern = "list"
+policy_type = "Allow"
+priority = 100
+id = "default:file:list-allow"
+
+[[policies]]
+name = "Allow search operations"
+tool_pattern = "search"
+function_pattern = "*"
+policy_type = "Allow"
+priority = 100
+id = "default:search:allow"
+
+# --- Priority 0: Default deny everything else ---
+[[policies]]
+name = "Default deny"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Deny"
+priority = 0
+id = "default:*:deny-all"
+
+# --- Injection detection (alert-only, non-blocking) ---
+[injection]
+enabled = true
+blocking = false
+
+# --- DLP response scanning ---
+[dlp]
+enabled = true
+blocking = false
+
+# --- Audit logging ---
+[audit]
+redaction_level = "KeysAndPatterns"

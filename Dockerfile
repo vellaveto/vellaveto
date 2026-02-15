@@ -1,9 +1,11 @@
 # Vellaveto Multi-Stage Dockerfile
 # Builds optimized production binaries for the MCP firewall
 #
-# Usage:
-#   docker build -t vellaveto:latest .
-#   docker run -p 3000:3000 vellaveto:latest serve --config /etc/vellaveto/config.toml
+# Zero-config usage (deny-by-default policy baked in):
+#   docker run -p 3000:3000 ghcr.io/paolovella/vellaveto:latest
+#
+# With custom policy:
+#   docker run -p 3000:3000 -v ./policy.toml:/etc/vellaveto/config.toml:ro ghcr.io/paolovella/vellaveto:latest
 
 # Build stage: Compile Rust binaries with musl for static linking
 FROM rust:1.93-alpine AS builder
@@ -104,16 +106,19 @@ COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/vellaveto-ht
 # Copy example configs
 COPY examples/*.toml /etc/vellaveto/examples/
 
+# Bake the default deny-by-default policy for zero-config usage
+COPY examples/default.toml /etc/vellaveto/config.toml
+
 # Switch to non-root user
 USER vellaveto
 
 # Default port for HTTP API server
 EXPOSE 3000
 
-# Health check (assumes /health endpoint)
+# Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
 
-# Default command: run the API server
+# Default: serve with baked-in policy, bind all interfaces, allow anonymous access
 ENTRYPOINT ["vellaveto"]
-CMD ["serve", "--config", "/etc/vellaveto/config.toml"]
+CMD ["serve", "--config", "/etc/vellaveto/config.toml", "--bind", "0.0.0.0", "--allow-anonymous"]

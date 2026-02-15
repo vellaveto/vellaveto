@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vellaveto — Runtime Security for AI Agents</title>
+<meta name="description" content="MCP firewall for AI agent tool calls. Intercept, evaluate, enforce, and audit every action your agents take. EU AI Act compliant.">
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0a0e17;--surface:#111827;--border:#1e293b;
+    --text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;
+    --accent2:#0ea5e9;--teal:#14b8a6;
+    --grad:linear-gradient(135deg,#0ea5e9,#14b8a6);
+    --mono:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    --max:960px;
+  }
+  html{scroll-behavior:smooth}
+  body{font-family:var(--sans);background:var(--bg);color:var(--text);
+    line-height:1.7;-webkit-font-smoothing:antialiased}
+  a{color:var(--accent);text-decoration:none;transition:color .2s}
+  a:hover{color:var(--teal)}
+
+  /* Layout */
+  .wrap{max-width:var(--max);margin:0 auto;padding:0 1.5rem}
+  section{padding:5rem 0}
+
+  /* Nav */
+  nav{position:fixed;top:0;left:0;right:0;z-index:100;
+    background:rgba(10,14,23,.85);backdrop-filter:blur(12px);
+    border-bottom:1px solid var(--border)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;
+    height:3.5rem}
+  .logo{font-weight:700;font-size:1.1rem;letter-spacing:.04em;
+    background:var(--grad);-webkit-background-clip:text;
+    -webkit-text-fill-color:transparent}
+  .nav-links a{margin-left:1.5rem;font-size:.875rem;color:var(--muted)}
+  .nav-links a:hover{color:var(--text)}
+
+  /* Hero */
+  .hero{padding:9rem 0 5rem;text-align:center}
+  .hero h1{font-size:clamp(2rem,5vw,3.25rem);font-weight:800;
+    line-height:1.15;margin-bottom:1rem}
+  .hero h1 span{background:var(--grad);-webkit-background-clip:text;
+    -webkit-text-fill-color:transparent}
+  .hero .tagline{font-size:1.125rem;color:var(--muted);margin-bottom:.5rem}
+  .hero .compliance{font-size:.95rem;color:var(--teal);font-weight:600;
+    margin-bottom:2.5rem}
+
+  /* Install */
+  .install{background:var(--surface);border:1px solid var(--border);
+    border-radius:.5rem;padding:1rem 1.25rem;max-width:640px;margin:0 auto;
+    display:flex;align-items:center;justify-content:space-between;gap:1rem;
+    font-family:var(--mono);font-size:.875rem;overflow-x:auto}
+  .install code{white-space:nowrap;color:var(--accent)}
+  .install .label{color:var(--muted);font-size:.75rem;
+    font-family:var(--sans);flex-shrink:0}
+
+  /* Pillars */
+  .pillars-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+    gap:1.5rem;margin-top:2.5rem}
+  .pillar{background:var(--surface);border:1px solid var(--border);
+    border-radius:.5rem;padding:1.75rem}
+  .pillar h3{font-size:1rem;margin-bottom:.5rem;color:var(--accent)}
+  .pillar p{font-size:.875rem;color:var(--muted);line-height:1.6}
+  .section-title{font-size:1.75rem;font-weight:700;margin-bottom:.25rem}
+  .section-sub{color:var(--muted);margin-bottom:1rem}
+
+  /* API Example */
+  .code-block{background:#0d1117;border:1px solid var(--border);
+    border-radius:.5rem;padding:1.25rem 1.5rem;overflow-x:auto;
+    font-family:var(--mono);font-size:.8rem;line-height:1.8;
+    color:#c9d1d9;margin-top:2rem;max-width:640px}
+  .code-block .comment{color:#6e7681}
+  .code-block .str{color:#a5d6ff}
+  .code-block .key{color:#7ee787}
+  .code-block .cmd{color:#f0883e}
+
+  /* Audience */
+  .audience-list{list-style:none;margin-top:2rem;display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem}
+  .audience-list li{background:var(--surface);border:1px solid var(--border);
+    border-radius:.5rem;padding:1.25rem 1.5rem}
+  .audience-list li strong{display:block;margin-bottom:.25rem;color:var(--text)}
+  .audience-list li span{font-size:.875rem;color:var(--muted)}
+
+  /* Stats */
+  .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+    gap:1.5rem;margin-top:2.5rem;text-align:center}
+  .stat{background:var(--surface);border:1px solid var(--border);
+    border-radius:.5rem;padding:1.75rem 1rem}
+  .stat .num{font-size:1.75rem;font-weight:800;
+    background:var(--grad);-webkit-background-clip:text;
+    -webkit-text-fill-color:transparent}
+  .stat .desc{font-size:.8rem;color:var(--muted);margin-top:.35rem}
+
+  /* Links */
+  .links-row{display:flex;flex-wrap:wrap;gap:1rem;margin-top:2rem;
+    justify-content:center}
+  .btn{display:inline-block;padding:.7rem 1.6rem;border-radius:.375rem;
+    font-weight:600;font-size:.9rem;transition:all .2s}
+  .btn-primary{background:var(--grad);color:#0a0e17}
+  .btn-primary:hover{opacity:.9;color:#0a0e17}
+  .btn-outline{border:1px solid var(--border);color:var(--text)}
+  .btn-outline:hover{border-color:var(--accent);color:var(--accent)}
+
+  /* Footer */
+  footer{border-top:1px solid var(--border);padding:2.5rem 0;
+    text-align:center;font-size:.85rem;color:var(--muted)}
+  footer a{color:var(--muted)}
+  footer a:hover{color:var(--accent)}
+  footer .copy{margin-top:.5rem;font-size:.75rem}
+
+  /* Divider */
+  .divider{border:none;border-top:1px solid var(--border);margin:0}
+
+  /* Responsive */
+  @media(max-width:600px){
+    section{padding:3.5rem 0}
+    .hero{padding:7rem 0 3.5rem}
+    .hero h1{font-size:1.75rem}
+    .install{flex-direction:column;align-items:flex-start}
+    .nav-links a{margin-left:.75rem;font-size:.8rem}
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <div class="logo">VELLAVETO</div>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/paolovella/vellaveto">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="wrap">
+    <h1><span>Vellaveto</span> &mdash; Runtime Security for AI Agents</h1>
+    <p class="tagline">The MCP firewall that intercepts, evaluates, and enforces policy on every AI agent tool call.</p>
+    <p class="compliance">EU AI Act compliant before August 2, 2026</p>
+    <div class="install" id="install">
+      <span class="label">Quick start</span>
+      <code>docker run -p 3000:3000 ghcr.io/paolovella/vellaveto:latest</code>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- What it does -->
+<section id="features">
+  <div class="wrap">
+    <h2 class="section-title">What it does</h2>
+    <p class="section-sub">Four pillars of runtime protection for autonomous AI systems.</p>
+    <div class="pillars-grid">
+      <div class="pillar">
+        <h3>Intercept</h3>
+        <p>Sits between your AI agent and its tools. Every MCP call passes through Vellaveto before execution.</p>
+      </div>
+      <div class="pillar">
+        <h3>Evaluate</h3>
+        <p>Policy engine scores each request against configurable rules &mdash; scope, sensitivity, blast radius.</p>
+      </div>
+      <div class="pillar">
+        <h3>Enforce</h3>
+        <p>Allow, deny, or require human approval in real time. No tool call runs without clearance.</p>
+      </div>
+      <div class="pillar">
+        <h3>Audit</h3>
+        <p>Full structured logs of every decision. Tamper-evident trail for compliance and forensics.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- API Example -->
+<section>
+  <div class="wrap">
+    <h2 class="section-title">Try it</h2>
+    <p class="section-sub">Evaluate a tool call with a single request.</p>
+    <div class="code-block">
+      <span class="comment"># Evaluate an MCP tool call against your policy</span><br>
+      <span class="cmd">curl</span> -X POST http://localhost:3000/api/evaluate \<br>
+      &nbsp;&nbsp;-H <span class="str">"Content-Type: application/json"</span> \<br>
+      &nbsp;&nbsp;-d <span class="str">'</span>{<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"tool"</span>: <span class="str">"filesystem.write"</span>,<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"arguments"</span>: {<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"path"</span>: <span class="str">"/etc/passwd"</span>,<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"content"</span>: <span class="str">"..."</span><br>
+      &nbsp;&nbsp;&nbsp;&nbsp;},<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"context"</span>: { <span class="key">"agent"</span>: <span class="str">"coding-assistant"</span> }<br>
+      &nbsp;&nbsp;}<span class="str">'</span><br>
+      <br>
+      <span class="comment"># Response: { "decision": "deny", "reason": "write to sensitive system path", ... }</span>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- Who it's for -->
+<section>
+  <div class="wrap">
+    <h2 class="section-title">Who it's for</h2>
+    <p class="section-sub">Teams running AI agents that interact with real systems through MCP tool access.</p>
+    <ul class="audience-list">
+      <li>
+        <strong>Coding Assistants</strong>
+        <span>Guard file system, terminal, and git operations from unintended side effects.</span>
+      </li>
+      <li>
+        <strong>Autonomous Agents</strong>
+        <span>Enforce boundaries on agents that chain tool calls without human oversight.</span>
+      </li>
+      <li>
+        <strong>Enterprise AI</strong>
+        <span>Meet compliance requirements with auditable, policy-driven control over agent behavior.</span>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- Stats -->
+<section>
+  <div class="wrap">
+    <h2 class="section-title">By the numbers</h2>
+    <div class="stats-grid">
+      <div class="stat">
+        <div class="num">&lt;5ms</div>
+        <div class="desc">P99 evaluation latency</div>
+      </div>
+      <div class="stat">
+        <div class="num">4,892+</div>
+        <div class="desc">Tests passing</div>
+      </div>
+      <div class="stat">
+        <div class="num">Rust</div>
+        <div class="desc">Memory-safe, zero-cost abstractions</div>
+      </div>
+      <div class="stat">
+        <div class="num">AGPL-3.0</div>
+        <div class="desc">Open source license</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- Links -->
+<section>
+  <div class="wrap" style="text-align:center">
+    <h2 class="section-title">Get started</h2>
+    <p class="section-sub">Explore the source, read the docs, or review the license.</p>
+    <div class="links-row">
+      <a href="https://github.com/paolovella/vellaveto" class="btn btn-primary">GitHub Repository</a>
+      <a href="https://github.com/paolovella/vellaveto/tree/main/docs" class="btn btn-outline">Documentation</a>
+      <a href="https://github.com/paolovella/vellaveto/blob/main/LICENSING.md" class="btn btn-outline">Licensing</a>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="wrap">
+    <p>Built by <strong>Paolo Vella</strong> &mdash; <a href="mailto:paolovella1993@gmail.com">paolovella1993@gmail.com</a></p>
+    <p class="copy">Vellaveto is licensed under AGPL-3.0. Commercial licenses available.</p>
+  </div>
+</footer>
+
+</body>
+</html>
