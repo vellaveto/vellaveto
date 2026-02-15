@@ -27,6 +27,7 @@ pub mod cluster;
 pub mod compliance;
 pub mod config_validate;
 pub mod fips;
+pub mod governance;
 pub mod grpc_transport;
 pub mod limits;
 pub mod policy_rule;
@@ -46,7 +47,7 @@ pub use observability::{
 
 pub use detection::{
     AuditConfig, AuditExportConfig, CustomPiiPattern, DlpConfig, InjectionConfig,
-    MemoryTrackingConfig, RateLimitConfig,
+    MemoryTrackingConfig, MultimodalPolicyConfig, RateLimitConfig,
 };
 
 pub use supply_chain::{SupplyChainConfig, MAX_BINARY_SIZE};
@@ -106,6 +107,7 @@ pub use config_validate::{
 pub use extension::ExtensionConfig;
 pub use fips::FipsConfig;
 pub use gateway::{BackendConfig, GatewayConfig};
+pub use governance::GovernanceConfig;
 pub use grpc_transport::GrpcTransportConfig;
 pub use limits::LimitsConfig;
 pub use policy_rule::PolicyRule;
@@ -132,6 +134,12 @@ pub struct PolicyConfig {
     /// When absent, defaults are used (scanning enabled, block on finding).
     #[serde(default)]
     pub dlp: DlpConfig,
+
+    /// Optional multimodal content inspection configuration.
+    /// Controls scanning of image/audio/video/PDF content for hidden
+    /// prompt injection attacks. When absent, scanning is disabled.
+    #[serde(default)]
+    pub multimodal: MultimodalPolicyConfig,
 
     /// Optional rate limiting configuration.
     /// When absent, all rate limits are unconfigured (env vars or defaults apply).
@@ -426,6 +434,15 @@ pub struct PolicyConfig {
     /// Requires the `fips` feature flag on `vellaveto-mcp`.
     #[serde(default)]
     pub fips: FipsConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 26: SHADOW AI DETECTION & GOVERNANCE
+    // ═══════════════════════════════════════════════════
+    /// Governance configuration for shadow AI discovery and least agency enforcement.
+    /// Controls passive traffic analysis for unregistered agents/tools/servers,
+    /// and automatic revocation of unused permissions.
+    #[serde(default)]
+    pub governance: GovernanceConfig,
 }
 
 impl PolicyConfig {

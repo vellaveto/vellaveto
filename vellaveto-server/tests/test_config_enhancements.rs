@@ -144,6 +144,7 @@ fn to_policies_produces_correct_policy_structs() {
         }],
         injection: Default::default(),
         dlp: Default::default(),
+        multimodal: Default::default(),
         rate_limit: Default::default(),
         audit: Default::default(),
         supply_chain: Default::default(),
@@ -190,6 +191,7 @@ fn to_policies_produces_correct_policy_structs() {
         gateway: Default::default(),
         abac: Default::default(),
         fips: Default::default(),
+        governance: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(policies.len(), 1);
@@ -215,6 +217,7 @@ fn to_policies_uses_default_priority_when_none() {
         }],
         injection: Default::default(),
         dlp: Default::default(),
+        multimodal: Default::default(),
         rate_limit: Default::default(),
         audit: Default::default(),
         supply_chain: Default::default(),
@@ -261,6 +264,7 @@ fn to_policies_uses_default_priority_when_none() {
         gateway: Default::default(),
         abac: Default::default(),
         fips: Default::default(),
+        governance: Default::default(),
     };
     let policies = config.to_policies();
     assert_eq!(
@@ -392,6 +396,7 @@ fn policy_config_toml_roundtrip() {
         }],
         injection: Default::default(),
         dlp: Default::default(),
+        multimodal: Default::default(),
         rate_limit: Default::default(),
         audit: Default::default(),
         supply_chain: Default::default(),
@@ -438,6 +443,7 @@ fn policy_config_toml_roundtrip() {
         gateway: Default::default(),
         abac: Default::default(),
         fips: Default::default(),
+        governance: Default::default(),
     };
     let toml_str = toml::to_string(&original).unwrap();
     let parsed = PolicyConfig::from_toml(&toml_str).unwrap();

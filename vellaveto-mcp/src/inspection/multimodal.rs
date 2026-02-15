@@ -234,6 +234,45 @@ impl Default for MultimodalConfig {
     }
 }
 
+impl ContentType {
+    /// Parse a content type from a string name (case-insensitive).
+    /// Returns `Unknown` for unrecognized values.
+    pub fn from_name(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "image" => ContentType::Image,
+            "audio" => ContentType::Audio,
+            "pdf" => ContentType::Pdf,
+            "video" => ContentType::Video,
+            _ => ContentType::Unknown,
+        }
+    }
+}
+
+impl From<vellaveto_config::MultimodalPolicyConfig> for MultimodalConfig {
+    fn from(cfg: vellaveto_config::MultimodalPolicyConfig) -> Self {
+        Self {
+            enabled: cfg.enabled,
+            enable_ocr: cfg.enable_ocr,
+            max_image_size: cfg.max_image_size,
+            max_audio_size: cfg.max_audio_size,
+            max_video_size: cfg.max_video_size,
+            ocr_timeout_ms: cfg.ocr_timeout_ms,
+            min_ocr_confidence: cfg.min_ocr_confidence,
+            enable_stego_detection: cfg.enable_stego_detection,
+            content_types: cfg
+                .content_types
+                .iter()
+                .map(|s| ContentType::from_name(s))
+                .collect(),
+            blocked_content_types: cfg
+                .blocked_content_types
+                .iter()
+                .map(|s| ContentType::from_name(s))
+                .collect(),
+        }
+    }
+}
+
 /// Result of multimodal content scanning.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MultimodalScanResult {
@@ -3715,5 +3754,103 @@ mod tests {
             result.unwrap_err(),
             MultimodalError::ContentTooLarge { size: 81, max: 80 }
         ));
+    }
+
+    // ── ContentType::from_name tests ────────────────────────────────
+
+    #[test]
+    fn test_content_type_from_name_image() {
+        assert_eq!(ContentType::from_name("Image"), ContentType::Image);
+        assert_eq!(ContentType::from_name("image"), ContentType::Image);
+        assert_eq!(ContentType::from_name("IMAGE"), ContentType::Image);
+    }
+
+    #[test]
+    fn test_content_type_from_name_audio() {
+        assert_eq!(ContentType::from_name("Audio"), ContentType::Audio);
+        assert_eq!(ContentType::from_name("audio"), ContentType::Audio);
+    }
+
+    #[test]
+    fn test_content_type_from_name_video() {
+        assert_eq!(ContentType::from_name("Video"), ContentType::Video);
+    }
+
+    #[test]
+    fn test_content_type_from_name_pdf() {
+        assert_eq!(ContentType::from_name("Pdf"), ContentType::Pdf);
+        assert_eq!(ContentType::from_name("pdf"), ContentType::Pdf);
+    }
+
+    #[test]
+    fn test_content_type_from_name_unknown() {
+        assert_eq!(ContentType::from_name("spreadsheet"), ContentType::Unknown);
+        assert_eq!(ContentType::from_name(""), ContentType::Unknown);
+    }
+
+    // ── Config conversion tests ─────────────────────────────────────
+
+    #[test]
+    fn test_multimodal_config_from_policy_config() {
+        let policy_cfg = vellaveto_config::MultimodalPolicyConfig {
+            enabled: true,
+            enable_ocr: false,
+            max_image_size: 5_000_000,
+            max_audio_size: 25_000_000,
+            max_video_size: 50_000_000,
+            ocr_timeout_ms: 2000,
+            min_ocr_confidence: 0.8,
+            enable_stego_detection: true,
+            content_types: vec![
+                "Image".into(),
+                "Audio".into(),
+                "Video".into(),
+                "Pdf".into(),
+            ],
+            blocked_content_types: vec!["Video".into()],
+        };
+
+        let config: MultimodalConfig = policy_cfg.into();
+        assert!(config.enabled);
+        assert!(!config.enable_ocr);
+        assert_eq!(config.max_image_size, 5_000_000);
+        assert_eq!(config.max_audio_size, 25_000_000);
+        assert_eq!(config.max_video_size, 50_000_000);
+        assert_eq!(config.ocr_timeout_ms, 2000);
+        assert!((config.min_ocr_confidence - 0.8).abs() < f32::EPSILON);
+        assert!(config.enable_stego_detection);
+        assert_eq!(
+            config.content_types,
+            vec![
+                ContentType::Image,
+                ContentType::Audio,
+                ContentType::Video,
+                ContentType::Pdf,
+            ]
+        );
+        assert_eq!(config.blocked_content_types, vec![ContentType::Video]);
+    }
+
+    #[test]
+    fn test_multimodal_config_from_policy_config_defaults() {
+        let policy_cfg = vellaveto_config::MultimodalPolicyConfig::default();
+        let config: MultimodalConfig = policy_cfg.into();
+        assert!(!config.enabled);
+        assert!(config.enable_ocr);
+        assert_eq!(config.max_image_size, 10 * 1024 * 1024);
+        assert_eq!(config.content_types, vec![ContentType::Image]);
+        assert!(config.blocked_content_types.is_empty());
+    }
+
+    #[test]
+    fn test_multimodal_config_from_policy_config_unknown_type() {
+        let policy_cfg = vellaveto_config::MultimodalPolicyConfig {
+            content_types: vec!["Image".into(), "Spreadsheet".into()],
+            ..Default::default()
+        };
+        let config: MultimodalConfig = policy_cfg.into();
+        assert_eq!(config.content_types.len(), 2);
+        assert_eq!(config.content_types[0], ContentType::Image);
+        assert_eq!(config.content_types[1], ContentType::Unknown);
     }
 }

@@ -666,6 +666,17 @@ pub struct AppState {
     pub observability: Option<Arc<observability::ObservabilityManager>>,
 
     // ═══════════════════════════════════════════════════════════════════
+    // Phase 26: Shadow AI Detection & Governance Visibility
+    // ═══════════════════════════════════════════════════════════════════
+    /// Shadow AI discovery engine for detecting unregistered agents/tools/servers.
+    /// None when shadow AI discovery is disabled.
+    pub shadow_ai_discovery: Option<Arc<vellaveto_mcp::shadow_ai_discovery::ShadowAiDiscovery>>,
+
+    /// Least agency tracker for permission usage monitoring and enforcement.
+    /// None when least agency tracking is disabled.
+    pub least_agency_tracker: Option<Arc<vellaveto_engine::least_agency::LeastAgencyTracker>>,
+
+    // ═══════════════════════════════════════════════════════════════════
     // Server Configuration (FIND-004, FIND-005)
     // ═══════════════════════════════════════════════════════════════════
     /// When true, `/metrics` and `/api/metrics` require authentication (FIND-004).
@@ -846,6 +857,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             policies: vec![],
             injection: Default::default(),
             dlp: Default::default(),
+            multimodal: Default::default(),
             rate_limit: Default::default(),
             audit: Default::default(),
             supply_chain: Default::default(),
@@ -892,6 +904,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             gateway: Default::default(),
             abac: Default::default(),
             fips: Default::default(),
+            governance: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

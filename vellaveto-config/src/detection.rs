@@ -295,3 +295,107 @@ impl Default for AuditExportConfig {
         }
     }
 }
+
+/// Configuration for multimodal content inspection (image/audio/video/PDF).
+///
+/// Controls which content types are scanned for prompt injection attacks
+/// hidden in non-text media (e.g., EXIF fields, ID3 tags, MP4 metadata).
+/// Content types are specified as strings; the MCP crate converts them
+/// to the runtime `ContentType` enum.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [multimodal]
+/// enabled = true
+/// enable_ocr = true
+/// max_image_size = 10485760
+/// max_audio_size = 52428800
+/// max_video_size = 104857600
+/// ocr_timeout_ms = 5000
+/// min_ocr_confidence = 0.5
+/// enable_stego_detection = false
+/// content_types = ["Image", "Pdf", "Audio", "Video"]
+/// blocked_content_types = []
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MultimodalPolicyConfig {
+    /// Enable multimodal scanning. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Enable OCR for image text extraction. Default: true when enabled.
+    #[serde(default = "default_true")]
+    pub enable_ocr: bool,
+
+    /// Maximum image/PDF size to process in bytes. Default: 10MB.
+    #[serde(default = "default_max_image_size")]
+    pub max_image_size: usize,
+
+    /// Maximum audio file size to process in bytes. Default: 50MB.
+    #[serde(default = "default_max_audio_size")]
+    pub max_audio_size: usize,
+
+    /// Maximum video file size to process in bytes. Default: 100MB.
+    #[serde(default = "default_max_video_size")]
+    pub max_video_size: usize,
+
+    /// OCR timeout in milliseconds. Default: 5000ms.
+    #[serde(default = "default_ocr_timeout_ms")]
+    pub ocr_timeout_ms: u64,
+
+    /// Minimum confidence for OCR text. Default: 0.5.
+    #[serde(default = "default_min_ocr_confidence")]
+    pub min_ocr_confidence: f32,
+
+    /// Enable steganography detection. Default: false (computationally expensive).
+    #[serde(default)]
+    pub enable_stego_detection: bool,
+
+    /// Content types to scan. Recognized values: "Image", "Pdf", "Audio", "Video".
+    /// Default: `["Image"]`.
+    #[serde(default = "default_multimodal_content_types")]
+    pub content_types: Vec<String>,
+
+    /// Content types to explicitly block (reject immediately).
+    /// Evaluated before `content_types`. If a type appears in both lists,
+    /// it is blocked. Default: empty.
+    #[serde(default)]
+    pub blocked_content_types: Vec<String>,
+}
+
+fn default_max_image_size() -> usize {
+    10 * 1024 * 1024
+}
+fn default_max_audio_size() -> usize {
+    50 * 1024 * 1024
+}
+fn default_max_video_size() -> usize {
+    100 * 1024 * 1024
+}
+fn default_ocr_timeout_ms() -> u64 {
+    5000
+}
+fn default_min_ocr_confidence() -> f32 {
+    0.5
+}
+fn default_multimodal_content_types() -> Vec<String> {
+    vec!["Image".to_string()]
+}
+
+impl Default for MultimodalPolicyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            enable_ocr: true,
+            max_image_size: default_max_image_size(),
+            max_audio_size: default_max_audio_size(),
+            max_video_size: default_max_video_size(),
+            ocr_timeout_ms: default_ocr_timeout_ms(),
+            min_ocr_confidence: default_min_ocr_confidence(),
+            enable_stego_detection: false,
+            content_types: default_multimodal_content_types(),
+            blocked_content_types: vec![],
+        }
+    }
+}

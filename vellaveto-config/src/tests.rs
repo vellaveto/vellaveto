@@ -1067,6 +1067,7 @@ fn test_validate_rejects_too_many_policies() {
         policies: Vec::new(),
         injection: InjectionConfig::default(),
         dlp: DlpConfig::default(),
+        multimodal: MultimodalPolicyConfig::default(),
         rate_limit: RateLimitConfig::default(),
         audit: AuditConfig::default(),
         supply_chain: SupplyChainConfig::default(),
@@ -1113,6 +1114,7 @@ fn test_validate_rejects_too_many_policies() {
         gateway: GatewayConfig::default(),
         abac: AbacConfig::default(),
         fips: Default::default(),
+        governance: Default::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {
@@ -2870,4 +2872,202 @@ fn test_abac_disabled_skips_validation() {
         })
         .collect();
     assert!(config.validate().is_ok());
+}
+
+// ── Multimodal policy config tests ──────────────────────────────
+
+#[test]
+fn test_multimodal_config_defaults_when_absent() {
+    let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#;
+    let config = PolicyConfig::from_toml(toml).unwrap();
+    assert!(!config.multimodal.enabled);
+    assert!(config.multimodal.enable_ocr);
+    assert_eq!(config.multimodal.max_image_size, 10 * 1024 * 1024);
+    assert_eq!(config.multimodal.max_audio_size, 50 * 1024 * 1024);
+    assert_eq!(config.multimodal.max_video_size, 100 * 1024 * 1024);
+    assert_eq!(config.multimodal.ocr_timeout_ms, 5000);
+    assert!(!config.multimodal.enable_stego_detection);
+    assert_eq!(config.multimodal.content_types, vec!["Image".to_string()]);
+    assert!(config.multimodal.blocked_content_types.is_empty());
+}
+
+#[test]
+fn test_multimodal_config_from_toml_full() {
+    let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+
+[multimodal]
+enabled = true
+enable_ocr = false
+max_image_size = 20971520
+max_audio_size = 104857600
+max_video_size = 209715200
+ocr_timeout_ms = 3000
+min_ocr_confidence = 0.7
+enable_stego_detection = true
+content_types = ["Image", "Pdf", "Audio", "Video"]
+blocked_content_types = ["Video"]
+"#;
+    let config = PolicyConfig::from_toml(toml).unwrap();
+    assert!(config.multimodal.enabled);
+    assert!(!config.multimodal.enable_ocr);
+    assert_eq!(config.multimodal.max_image_size, 20 * 1024 * 1024);
+    assert_eq!(config.multimodal.max_audio_size, 100 * 1024 * 1024);
+    assert_eq!(config.multimodal.max_video_size, 200 * 1024 * 1024);
+    assert_eq!(config.multimodal.ocr_timeout_ms, 3000);
+    assert!((config.multimodal.min_ocr_confidence - 0.7).abs() < f32::EPSILON);
+    assert!(config.multimodal.enable_stego_detection);
+    assert_eq!(config.multimodal.content_types.len(), 4);
+    assert_eq!(config.multimodal.blocked_content_types, vec!["Video"]);
+}
+
+#[test]
+fn test_multimodal_config_partial_override() {
+    let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+
+[multimodal]
+enabled = true
+content_types = ["Image", "Audio"]
+"#;
+    let config = PolicyConfig::from_toml(toml).unwrap();
+    assert!(config.multimodal.enabled);
+    // Non-specified fields should have defaults
+    assert!(config.multimodal.enable_ocr);
+    assert_eq!(config.multimodal.max_image_size, 10 * 1024 * 1024);
+    assert_eq!(config.multimodal.content_types.len(), 2);
+    assert!(config.multimodal.blocked_content_types.is_empty());
+}
+
+#[test]
+fn test_multimodal_config_json_roundtrip() {
+    let config = MultimodalPolicyConfig {
+        enabled: true,
+        enable_ocr: true,
+        max_image_size: 5_000_000,
+        max_audio_size: 25_000_000,
+        max_video_size: 50_000_000,
+        ocr_timeout_ms: 2000,
+        min_ocr_confidence: 0.6,
+        enable_stego_detection: false,
+        content_types: vec!["Image".into(), "Audio".into()],
+        blocked_content_types: vec!["Video".into()],
+    };
+    let json = serde_json::to_string(&config).unwrap();
+    let parsed: MultimodalPolicyConfig = serde_json::from_str(&json).unwrap();
+    assert_eq!(config, parsed);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PHASE 26: GOVERNANCE CONFIG TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_governance_config_defaults() {
+    let config = GovernanceConfig::default();
+    assert!(!config.shadow_ai_discovery);
+    assert!(!config.require_agent_registration);
+    assert_eq!(config.discovery_window_secs, 300);
+    assert!(config.approved_tools.is_empty());
+    assert!(config.known_servers.is_empty());
+    assert_eq!(
+        config.least_agency_enforcement,
+        vellaveto_types::EnforcementMode::Monitor
+    );
+    assert_eq!(config.auto_revoke_after_secs, 3600);
+    assert!(config.emit_agency_audit_events);
+}
+
+#[test]
+fn test_governance_config_serde_roundtrip() {
+    let config = GovernanceConfig {
+        shadow_ai_discovery: true,
+        require_agent_registration: true,
+        discovery_window_secs: 600,
+        approved_tools: vec!["filesystem".into(), "http".into()],
+        known_servers: vec!["server-1".into()],
+        least_agency_enforcement: vellaveto_types::EnforcementMode::Enforce,
+        auto_revoke_after_secs: 7200,
+        emit_agency_audit_events: false,
+    };
+    let json = serde_json::to_string(&config).unwrap();
+    let parsed: GovernanceConfig = serde_json::from_str(&json).unwrap();
+    assert_eq!(config, parsed);
+}
+
+#[test]
+fn test_governance_config_validation_rejects_zero_auto_revoke() {
+    let mut config = GovernanceConfig::default();
+    config.auto_revoke_after_secs = 0;
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn test_governance_config_validation_rejects_excessive_auto_revoke() {
+    let mut config = GovernanceConfig::default();
+    config.auto_revoke_after_secs = 999_999;
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn test_governance_config_validation_rejects_zero_discovery_window() {
+    let mut config = GovernanceConfig::default();
+    config.discovery_window_secs = 0;
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn test_governance_config_validation_accepts_valid() {
+    let config = GovernanceConfig::default();
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_governance_config_in_policy_config() {
+    let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+
+[governance]
+shadow_ai_discovery = true
+require_agent_registration = true
+approved_tools = ["fs", "http"]
+auto_revoke_after_secs = 7200
+"#;
+    let config = PolicyConfig::from_toml(toml).unwrap();
+    assert!(config.governance.shadow_ai_discovery);
+    assert!(config.governance.require_agent_registration);
+    assert_eq!(config.governance.approved_tools, vec!["fs", "http"]);
+    assert_eq!(config.governance.auto_revoke_after_secs, 7200);
+}
+
+#[test]
+fn test_governance_config_absent_uses_defaults() {
+    let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+"#;
+    let config = PolicyConfig::from_toml(toml).unwrap();
+    assert!(!config.governance.shadow_ai_discovery);
+    assert_eq!(config.governance.auto_revoke_after_secs, 3600);
 }

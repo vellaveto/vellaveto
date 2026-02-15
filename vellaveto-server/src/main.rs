@@ -892,6 +892,32 @@ async fn cmd_serve(
         #[cfg(not(feature = "observability-exporters"))]
         observability: None,
 
+        // Phase 26: Shadow AI Discovery & Governance
+        shadow_ai_discovery: if policy_config.governance.shadow_ai_discovery {
+            let registered: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let approved: std::collections::HashSet<String> =
+                policy_config.governance.approved_tools.iter().cloned().collect();
+            let known: std::collections::HashSet<String> =
+                policy_config.governance.known_servers.iter().cloned().collect();
+            Some(Arc::new(
+                vellaveto_mcp::shadow_ai_discovery::ShadowAiDiscovery::new(
+                    registered,
+                    approved,
+                    known,
+                    policy_config.governance.require_agent_registration,
+                ),
+            ))
+        } else {
+            None
+        },
+        least_agency_tracker: Some(Arc::new(
+            vellaveto_engine::least_agency::LeastAgencyTracker::new_with_config(
+                0.5,
+                policy_config.governance.least_agency_enforcement,
+                policy_config.governance.auto_revoke_after_secs,
+            ),
+        )),
+
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: policy_config.metrics_require_auth,
         audit_strict_mode: policy_config.audit.strict_mode,
@@ -1317,6 +1343,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         policies: rules,
         injection: Default::default(),
         dlp: Default::default(),
+        multimodal: Default::default(),
         rate_limit: Default::default(),
         audit: Default::default(),
         supply_chain: Default::default(),
@@ -1363,6 +1390,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         gateway: Default::default(),
         abac: Default::default(),
         fips: Default::default(),
+        governance: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;
