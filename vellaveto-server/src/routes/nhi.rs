@@ -33,6 +33,78 @@ use vellaveto_types::{NhiAttestationType, NhiIdentityStatus};
 
 use crate::AppState;
 
+/// Maximum length for string fields (name, spiffe_id, public_key, etc.).
+const MAX_FIELD_LEN: usize = 256;
+/// Maximum number of entries in array fields (tags, permissions, scope_constraints).
+const MAX_ARRAY_LEN: usize = 100;
+/// Maximum number of entries in map fields (metadata).
+const MAX_MAP_LEN: usize = 50;
+
+/// Validate a string field: reject if too long or contains control characters.
+/// SECURITY (FIND-R41-011): Rejects ALL control characters to prevent log injection.
+fn validate_string_field(
+    value: &str,
+    field_name: &str,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if value.len() > MAX_FIELD_LEN {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": format!("{} exceeds maximum length of {}", field_name, MAX_FIELD_LEN)
+            })),
+        ));
+    }
+    if value.chars().any(|c| c.is_control()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": format!("{} contains invalid control characters", field_name)
+            })),
+        ));
+    }
+    Ok(())
+}
+
+/// Validate an array of strings: reject if too many entries or any entry is invalid.
+fn validate_string_array(
+    values: &[String],
+    field_name: &str,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if values.len() > MAX_ARRAY_LEN {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": format!("{} exceeds maximum of {} entries", field_name, MAX_ARRAY_LEN)
+            })),
+        ));
+    }
+    for (i, v) in values.iter().enumerate() {
+        validate_string_field(v, &format!("{}[{}]", field_name, i))?;
+    }
+    Ok(())
+}
+
+/// Validate a map of string key-value pairs: reject if too many entries or any
+/// key/value is invalid.
+fn validate_string_map(
+    map: &HashMap<String, String>,
+    field_name: &str,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if map.len() > MAX_MAP_LEN {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": format!("{} exceeds maximum of {} entries", field_name, MAX_MAP_LEN)
+            })),
+        ));
+    }
+    for (k, v) in map {
+        validate_string_field(k, &format!("{}.key", field_name))?;
+        validate_string_field(v, &format!("{}[{}]", field_name, k))?;
+    }
+    Ok(())
+}
+
 /// List all NHI agent identities.
 pub async fn list_nhi_agents(
     State(state): State<AppState>,
@@ -71,6 +143,8 @@ pub async fn register_nhi_agent(
     };
 
     let name = body["name"].as_str().unwrap_or("unnamed");
+    validate_string_field(name, "name")?;
+
     let attestation_type = match body["attestation_type"].as_str().unwrap_or("jwt") {
         "jwt" => NhiAttestationType::Jwt,
         "mtls" => NhiAttestationType::Mtls,
@@ -80,8 +154,17 @@ pub async fn register_nhi_agent(
         _ => NhiAttestationType::Jwt,
     };
     let spiffe_id = body["spiffe_id"].as_str();
+    if let Some(s) = spiffe_id {
+        validate_string_field(s, "spiffe_id")?;
+    }
     let public_key = body["public_key"].as_str();
+    if let Some(s) = public_key {
+        validate_string_field(s, "public_key")?;
+    }
     let key_algorithm = body["key_algorithm"].as_str();
+    if let Some(s) = key_algorithm {
+        validate_string_field(s, "key_algorithm")?;
+    }
     let ttl_secs = body["ttl_secs"].as_u64();
     let tags: Vec<String> = body["tags"]
         .as_array()
@@ -91,6 +174,8 @@ pub async fn register_nhi_agent(
                 .collect()
         })
         .unwrap_or_default();
+    validate_string_array(&tags, "tags")?;
+
     let metadata: HashMap<String, String> = body["metadata"]
         .as_object()
         .map(|obj| {
@@ -99,6 +184,7 @@ pub async fn register_nhi_agent(
                 .collect()
         })
         .unwrap_or_default();
+    validate_string_map(&metadata, "metadata")?;
 
     match manager
         .register_identity(
@@ -305,12 +391,16 @@ pub async fn create_nhi_delegation(
             Json(json!({"error": "from_agent required"})),
         )
     })?;
+    validate_string_field(from_agent, "from_agent")?;
+
     let to_agent = body["to_agent"].as_str().ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "to_agent required"})),
         )
     })?;
+    validate_string_field(to_agent, "to_agent")?;
+
     let permissions: Vec<String> = body["permissions"]
         .as_array()
         .map(|arr| {
@@ -319,6 +409,8 @@ pub async fn create_nhi_delegation(
                 .collect()
         })
         .unwrap_or_default();
+    validate_string_array(&permissions, "permissions")?;
+
     let scope_constraints: Vec<String> = body["scope_constraints"]
         .as_array()
         .map(|arr| {
@@ -327,8 +419,13 @@ pub async fn create_nhi_delegation(
                 .collect()
         })
         .unwrap_or_default();
+    validate_string_array(&scope_constraints, "scope_constraints")?;
+
     let ttl_secs = body["ttl_secs"].as_u64().unwrap_or(3600);
     let reason = body["reason"].as_str().map(|s| s.to_string());
+    if let Some(ref r) = reason {
+        validate_string_field(r, "reason")?;
+    }
 
     match manager
         .create_delegation(

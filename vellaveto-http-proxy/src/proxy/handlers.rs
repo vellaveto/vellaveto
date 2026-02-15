@@ -966,6 +966,127 @@ pub async fn handle_mcp_post(
                         None
                     };
 
+                    // Phase 29: Cross-transport smart fallback path.
+                    // When enabled and transport_health is available, try
+                    // each transport in priority order before giving up.
+                    if state.transport_config.cross_transport_fallback {
+                        if let Some(ref health_tracker) = state.transport_health {
+                            let client_pref_header = headers
+                                .get(super::MCP_TRANSPORT_PREFERENCE_HEADER)
+                                .and_then(|v| v.to_str().ok())
+                                .map(super::discovery::parse_transport_preference);
+                            let priorities = super::discovery::resolve_transport_priority(
+                                &tool_name,
+                                client_pref_header.as_deref(),
+                                &state.transport_config,
+                            );
+
+                            let targets = build_transport_targets(
+                                &state,
+                                gateway_decision.as_ref(),
+                                &priorities,
+                            );
+
+                            if !targets.is_empty() {
+                                let per_attempt = std::time::Duration::from_secs(
+                                    state.transport_config.fallback_timeout_secs,
+                                );
+                                let total = per_attempt
+                                    .saturating_mul(priorities.len() as u32);
+
+                                let mut chain = super::smart_fallback::SmartFallbackChain::new(
+                                    &state.http_client,
+                                    health_tracker,
+                                    per_attempt,
+                                    total,
+                                );
+                                if state.transport_config.stdio_fallback_enabled {
+                                    if let Some(ref cmd) = state.transport_config.stdio_command {
+                                        chain = chain.with_stdio(cmd.clone());
+                                    }
+                                }
+
+                                match chain
+                                    .execute(&targets, forward_body.clone(), &headers)
+                                    .await
+                                {
+                                    Ok(result) => {
+                                        // Record gateway health on success.
+                                        if let Some(ref gw) = state.gateway {
+                                            if let Some(ref decision) = gateway_decision {
+                                                gw.record_success(&decision.backend_id);
+                                            }
+                                        }
+                                        // Audit if fallback occurred (>1 attempt).
+                                        if result.history.attempts.len() > 1 {
+                                            let _ = state
+                                                .audit
+                                                .log_entry(
+                                                    &action,
+                                                    &Verdict::Allow,
+                                                    json!({
+                                                        "event": "cross_transport_fallback",
+                                                        "tool": tool_name,
+                                                        "transport_used": format!("{:?}", result.transport_used),
+                                                        "attempts": result.history.attempts.len(),
+                                                        "total_duration_ms": result.history.total_duration_ms,
+                                                    }),
+                                                )
+                                                .await;
+                                        }
+                                        let response = axum::response::Response::builder()
+                                            .status(result.status)
+                                            .header("content-type", "application/json")
+                                            .body(axum::body::Body::from(result.response))
+                                            .unwrap_or_else(|_| {
+                                                StatusCode::BAD_GATEWAY.into_response()
+                                            });
+                                        let response =
+                                            attach_session_header(response, &session_id);
+                                        return attach_trace_header(response, trace);
+                                    }
+                                    Err(e) => {
+                                        // All transports failed — fail-closed.
+                                        if let Some(ref gw) = state.gateway {
+                                            if let Some(ref decision) = gateway_decision {
+                                                gw.record_failure(&decision.backend_id);
+                                            }
+                                        }
+                                        tracing::warn!(
+                                            tool = %tool_name,
+                                            "cross-transport fallback failed: {}",
+                                            e,
+                                        );
+                                        let _ = state
+                                            .audit
+                                            .log_entry(
+                                                &action,
+                                                &Verdict::Deny {
+                                                    reason: format!(
+                                                        "all transports failed: {}",
+                                                        e
+                                                    ),
+                                                },
+                                                json!({
+                                                    "event": "cross_transport_fallback_failed",
+                                                    "tool": tool_name,
+                                                }),
+                                            )
+                                            .await;
+                                        return attach_session_header(
+                                            make_jsonrpc_error(
+                                                msg.get("id"),
+                                                -32000,
+                                                "Upstream unavailable",
+                                            ),
+                                            &session_id,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Phase 28: Build upstream trace headers.
                     // For gateway mode, create a gateway child span so each
                     // backend gets its own traceparent with the gateway as parent.
@@ -2393,5 +2514,104 @@ pub async fn handle_protected_resource_metadata(State(state): State<ProxyState>)
             // OAuth not configured — return 404 as there's no protected resource
             StatusCode::NOT_FOUND.into_response()
         }
+    }
+}
+
+/// Build transport targets for the smart fallback chain (Phase 29).
+///
+/// In gateway mode, uses `BackendConfig.transport_urls` for per-transport endpoints.
+/// In single-server mode, derives targets from `upstream_url`, `grpc_port`, and
+/// WebSocket path conventions.
+pub(crate) fn build_transport_targets(
+    state: &ProxyState,
+    gateway_decision: Option<&vellaveto_types::RoutingDecision>,
+    priorities: &[vellaveto_types::TransportProtocol],
+) -> Vec<super::smart_fallback::TransportTarget> {
+    use vellaveto_types::TransportProtocol;
+
+    let mut targets = Vec::new();
+
+    if let Some(ref gw) = state.gateway {
+        // Gateway mode: use backend transport_urls.
+        if let Some(decision) = gateway_decision {
+            let config = gw.backend_config(&decision.backend_id);
+            for proto in priorities {
+                let url = config
+                    .and_then(|c| c.transport_urls.get(proto))
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        // Fall back to the primary backend URL for HTTP.
+                        if *proto == TransportProtocol::Http {
+                            decision.upstream_url.clone()
+                        } else {
+                            String::new()
+                        }
+                    });
+                if !url.is_empty() {
+                    targets.push(super::smart_fallback::TransportTarget {
+                        protocol: *proto,
+                        url,
+                        upstream_id: decision.backend_id.clone(),
+                    });
+                }
+            }
+        }
+    } else {
+        // Single-server mode: derive from upstream_url + grpc_port.
+        for proto in priorities {
+            let url = match proto {
+                TransportProtocol::Http => state.upstream_url.clone(),
+                TransportProtocol::Grpc => {
+                    if let Some(grpc_port) = state.grpc_port {
+                        // Extract host from upstream_url via simple string parsing.
+                        let host = extract_host_from_url(&state.upstream_url)
+                            .unwrap_or("127.0.0.1");
+                        format!("http://{}:{}", host, grpc_port)
+                    } else {
+                        continue;
+                    }
+                }
+                TransportProtocol::WebSocket => {
+                    // Derive WS URL from HTTP URL: http -> ws, /mcp -> /mcp/ws.
+                    let ws_url = state
+                        .upstream_url
+                        .replace("http://", "ws://")
+                        .replace("https://", "wss://");
+                    if ws_url.ends_with("/mcp") {
+                        format!("{}/ws", ws_url)
+                    } else {
+                        format!("{}/ws", ws_url.trim_end_matches('/'))
+                    }
+                }
+                TransportProtocol::Stdio => "stdio://local".to_string(),
+            };
+            targets.push(super::smart_fallback::TransportTarget {
+                protocol: *proto,
+                url,
+                upstream_id: "default".to_string(),
+            });
+        }
+    }
+
+    targets
+}
+
+/// Extract host from a URL string without the `url` crate.
+/// Returns the host portion (between `://` and the next `/` or `:`).
+pub(crate) fn extract_host_from_url(url: &str) -> Option<&str> {
+    let after_scheme = url
+        .find("://")
+        .map(|i| &url[i + 3..])
+        .unwrap_or(url);
+    // Trim any path or port suffix.
+    let host = after_scheme
+        .split('/')
+        .next()
+        .unwrap_or(after_scheme);
+    let host = host.split(':').next().unwrap_or(host);
+    if host.is_empty() {
+        None
+    } else {
+        Some(host)
     }
 }

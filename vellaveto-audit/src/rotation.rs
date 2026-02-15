@@ -12,6 +12,10 @@ use uuid::Uuid;
 /// Default max file size before rotation: 100 MB.
 pub(crate) const DEFAULT_MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
 
+/// Maximum number of rotated log files to retain.
+/// Oldest files beyond this limit are deleted to prevent disk exhaustion.
+const MAX_ROTATED_FILES: usize = 100;
+
 impl AuditLogger {
     /// Initialize the hash chain by reading the last entry from the log.
     ///
@@ -214,6 +218,15 @@ impl AuditLogger {
             entry_count,
             &tail_hash[..tail_hash.len().min(16)],
         );
+
+        // SECURITY (FIND-041-007): Prune oldest rotated files beyond MAX_ROTATED_FILES
+        // to prevent unbounded disk exhaustion.
+        if let Err(e) = self.prune_rotated_files().await {
+            tracing::warn!(
+                error = %e,
+                "Failed to prune old rotated audit log files"
+            );
+        }
 
         Ok(true)
     }
@@ -643,5 +656,52 @@ impl AuditLogger {
 
         rotated.sort();
         Ok(rotated)
+    }
+
+    /// Remove the oldest rotated log files when the count exceeds `MAX_ROTATED_FILES`.
+    ///
+    /// Files are sorted by modification time (oldest first) and the excess
+    /// oldest files are deleted. Errors on individual file deletions are
+    /// logged but do not abort the pruning of remaining files.
+    async fn prune_rotated_files(&self) -> Result<(), AuditError> {
+        let mut rotated = self.list_rotated_files()?;
+
+        if rotated.len() <= MAX_ROTATED_FILES {
+            return Ok(());
+        }
+
+        // Sort by modification time (oldest first) for deterministic pruning.
+        // Fall back to epoch on metadata errors so those files sort first and
+        // get pruned preferentially.
+        rotated.sort_by(|a, b| {
+            let time_a = std::fs::metadata(a)
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            let time_b = std::fs::metadata(b)
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            time_a.cmp(&time_b)
+        });
+
+        let excess = rotated.len() - MAX_ROTATED_FILES;
+        for path in rotated.iter().take(excess) {
+            match tokio::fs::remove_file(path).await {
+                Ok(()) => {
+                    tracing::info!(
+                        path = %path.display(),
+                        "Pruned old rotated audit log file (FIND-041-007)"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        path = %path.display(),
+                        "Failed to prune rotated audit log file"
+                    );
+                }
+            }
+        }
+
+        Ok(())
     }
 }

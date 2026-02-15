@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 use std::sync::RwLock;
-use vellaveto_config::GatewayConfig;
+use vellaveto_config::{BackendConfig, GatewayConfig};
 use vellaveto_types::{BackendHealth, RoutingDecision, ToolConflict};
 
 /// Maximum tool name length considered for routing.
@@ -57,6 +57,9 @@ pub struct GatewayRouter {
     unhealthy_threshold: u32,
     /// Number of consecutive successes before restoring a backend to healthy.
     healthy_threshold: u32,
+    /// Original backend configs, keyed by backend ID (Phase 29).
+    /// Used to retrieve `transport_urls` for cross-transport fallback.
+    backend_configs: HashMap<String, BackendConfig>,
 }
 
 impl GatewayRouter {
@@ -107,12 +110,19 @@ impl GatewayRouter {
         // Sort by prefix length descending for longest-prefix-first matching
         prefix_table.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
 
+        let backend_configs: HashMap<String, BackendConfig> = config
+            .backends
+            .iter()
+            .map(|b| (b.id.clone(), b.clone()))
+            .collect();
+
         Ok(Self {
             states: RwLock::new(states),
             prefix_table,
             default_backend_id,
             unhealthy_threshold: config.unhealthy_threshold,
             healthy_threshold: config.healthy_threshold,
+            backend_configs,
         })
     }
 
@@ -127,7 +137,14 @@ impl GatewayRouter {
             tool_name
         };
 
-        let states = self.states.read().unwrap_or_else(|e| e.into_inner());
+        // SECURITY (FIND-041-011): Fail-closed on RwLock poisoning.
+        let states = match self.states.read() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("Gateway states RwLock poisoned in route(): {}", e);
+                return None; // fail-closed: no healthy backend
+            }
+        };
 
         // Try longest-prefix match first
         for (prefix, backend_id) in &self.prefix_table {
@@ -168,7 +185,14 @@ impl GatewayRouter {
     ) -> Option<RoutingDecision> {
         // Check if there's a session-affine backend for this tool
         if let Some(affine_id) = session_affinities.get(tool_name) {
-            let states = self.states.read().unwrap_or_else(|e| e.into_inner());
+            // SECURITY (FIND-041-011): Fail-closed on RwLock poisoning.
+            let states = match self.states.read() {
+                Ok(guard) => guard,
+                Err(e) => {
+                    tracing::error!("Gateway states RwLock poisoned in route_with_affinity(): {}", e);
+                    return None; // fail-closed: no healthy backend
+                }
+            };
             if let Some(state) = states.get(affine_id.as_str()) {
                 if state.health != BackendHealth::Unhealthy {
                     return Some(RoutingDecision {
@@ -188,7 +212,14 @@ impl GatewayRouter {
     /// Transitions: Unhealthy→Degraded (after 1 success), Degraded→Healthy
     /// (after `healthy_threshold` consecutive successes).
     pub fn record_success(&self, backend_id: &str) {
-        let mut states = self.states.write().unwrap_or_else(|e| e.into_inner());
+        // SECURITY (FIND-041-011): Fail-closed on RwLock poisoning.
+        let mut states = match self.states.write() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("Gateway states RwLock poisoned in record_success(): {}", e);
+                return;
+            }
+        };
         if let Some(state) = states.get_mut(backend_id) {
             state.consecutive_failures = 0;
             state.consecutive_successes += 1;
@@ -221,7 +252,14 @@ impl GatewayRouter {
     ///
     /// Marks the backend as Unhealthy after `unhealthy_threshold` consecutive failures.
     pub fn record_failure(&self, backend_id: &str) {
-        let mut states = self.states.write().unwrap_or_else(|e| e.into_inner());
+        // SECURITY (FIND-041-011): Fail-closed on RwLock poisoning.
+        let mut states = match self.states.write() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("Gateway states RwLock poisoned in record_failure(): {}", e);
+                return;
+            }
+        };
         if let Some(state) = states.get_mut(backend_id) {
             state.consecutive_successes = 0;
             state.consecutive_failures += 1;
@@ -244,9 +282,23 @@ impl GatewayRouter {
         }
     }
 
+    /// Look up the original backend configuration by ID (Phase 29).
+    ///
+    /// Used by cross-transport fallback to retrieve `transport_urls`.
+    pub fn backend_config(&self, backend_id: &str) -> Option<&BackendConfig> {
+        self.backend_configs.get(backend_id)
+    }
+
     /// Return a snapshot of all backend health states.
     pub fn backend_health(&self) -> Vec<(String, String, BackendHealth)> {
-        let states = self.states.read().unwrap_or_else(|e| e.into_inner());
+        // SECURITY (FIND-041-011): Fail-closed on RwLock poisoning.
+        let states = match self.states.read() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("Gateway states RwLock poisoned in backend_health(): {}", e);
+                return Vec::new();
+            }
+        };
         states
             .iter()
             .map(|(id, state)| (id.clone(), state.url.clone(), state.health))
@@ -255,7 +307,14 @@ impl GatewayRouter {
 
     /// Number of configured backends.
     pub fn backend_count(&self) -> usize {
-        let states = self.states.read().unwrap_or_else(|e| e.into_inner());
+        // SECURITY (FIND-041-011): Fail-closed on RwLock poisoning.
+        let states = match self.states.read() {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!("Gateway states RwLock poisoned in backend_count(): {}", e);
+                return 0;
+            }
+        };
         states.len()
     }
 }
@@ -307,7 +366,14 @@ pub fn spawn_health_checker(
             interval.tick().await;
 
             let backends: Vec<(String, String)> = {
-                let states = gateway.states.read().unwrap_or_else(|e| e.into_inner());
+                // SECURITY (FIND-041-011): Fail-closed on RwLock poisoning.
+                let states = match gateway.states.read() {
+                    Ok(guard) => guard,
+                    Err(e) => {
+                        tracing::error!("Gateway states RwLock poisoned in health_checker: {}", e);
+                        continue; // skip this health check cycle
+                    }
+                };
                 states
                     .iter()
                     .map(|(id, state)| (id.clone(), state.url.clone()))
@@ -388,6 +454,7 @@ mod tests {
             url: url.to_string(),
             tool_prefixes: prefixes.iter().map(|s| s.to_string()).collect(),
             weight: 100,
+            transport_urls: std::collections::HashMap::new(),
         }
     }
 
@@ -397,6 +464,7 @@ mod tests {
             url: url.to_string(),
             tool_prefixes: vec![],
             weight: 100,
+            transport_urls: std::collections::HashMap::new(),
         }
     }
 
@@ -758,6 +826,7 @@ mod tests {
             url: "http://a:8000".to_string(),
             tool_prefixes: vec![],
             weight: 100,
+            transport_urls: std::collections::HashMap::new(),
         }]);
         let err = config.validate().unwrap_err();
         assert!(err.contains("id must not be empty"), "got: {}", err);
@@ -770,6 +839,7 @@ mod tests {
             url: "http://a:8000".to_string(),
             tool_prefixes: vec![],
             weight: 0,
+            transport_urls: std::collections::HashMap::new(),
         }]);
         let err = config.validate().unwrap_err();
         assert!(err.contains("weight must be >= 1"), "got: {}", err);

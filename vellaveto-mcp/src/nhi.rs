@@ -112,14 +112,7 @@ impl NhiManager {
             return Err(NhiError::AttestationTypeNotAllowed(atype_str));
         }
 
-        // Check capacity
-        let identities = self.identities.read().await;
-        if identities.len() >= self.config.max_identities {
-            return Err(NhiError::CapacityExceeded("identities".to_string()));
-        }
-        drop(identities);
-
-        // Compute TTL
+        // Compute TTL before acquiring the lock
         let ttl = ttl_secs.unwrap_or(self.config.credential_ttl_secs);
         if ttl > self.config.max_credential_ttl_secs {
             return Err(NhiError::TtlExceedsMax {
@@ -152,7 +145,11 @@ impl NhiManager {
             attestations: Vec::new(),
         };
 
+        // Acquire write lock for atomic capacity check + insert
         let mut identities = self.identities.write().await;
+        if identities.len() >= self.config.max_identities {
+            return Err(NhiError::CapacityExceeded("identities".to_string()));
+        }
         identities.insert(id.clone(), identity);
 
         // Update stats
@@ -199,13 +196,17 @@ impl NhiManager {
             .ok_or_else(|| NhiError::IdentityNotFound(id.to_string()))?;
 
         let old_status = identity.status;
-        identity.status = new_status;
 
-        // Update revocation list
+        // Update revocation list BEFORE setting identity status so that
+        // is_revoked() returns true before the status field is visible.
+        // This closes the TOCTOU window where status == Revoked but
+        // is_revoked() would return false.
         if new_status == NhiIdentityStatus::Revoked {
             let mut revoked = self.revocation_list.write().await;
             revoked.insert(id.to_string());
         }
+
+        identity.status = new_status;
 
         // Update stats
         let mut stats = self.stats.write().await;

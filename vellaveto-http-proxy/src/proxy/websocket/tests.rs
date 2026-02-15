@@ -543,5 +543,6 @@ fn make_test_state() -> ProxyState {
         abac_engine: None,
         least_agency: None,
         continuous_auth_config: None,
+        transport_health: None,
     }
 }

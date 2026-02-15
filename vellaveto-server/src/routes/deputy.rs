@@ -19,6 +19,42 @@ use serde_json::json;
 use crate::routes::ErrorResponse;
 use crate::AppState;
 
+/// Maximum length for string fields in delegation requests.
+const MAX_FIELD_LEN: usize = 256;
+/// Maximum length for session_id.
+const MAX_SESSION_ID_LEN: usize = 128;
+/// Maximum number of entries in allowed_tools.
+const MAX_TOOLS_LEN: usize = 100;
+/// Maximum expiration in seconds (30 days).
+const MAX_EXPIRES_SECS: u64 = 86400 * 30;
+
+/// Validate a string field: reject if too long or contains control characters.
+/// SECURITY (FIND-R41-011): Rejects ALL control characters (including \n, \t)
+/// to prevent log injection in identifier fields.
+fn validate_field(
+    value: &str,
+    field_name: &str,
+    max_len: usize,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    if value.len() > max_len {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("{} exceeds maximum length of {}", field_name, max_len),
+            }),
+        ));
+    }
+    if value.chars().any(|c| c.is_control()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("{} contains invalid control characters", field_name),
+            }),
+        ));
+    }
+    Ok(())
+}
+
 /// List active delegation count.
 ///
 /// GET /api/deputy/delegations
@@ -67,6 +103,40 @@ pub async fn register_delegation(
             }),
         )
     })?;
+
+    // Validate input fields before processing.
+    validate_field(&req.session_id, "session_id", MAX_SESSION_ID_LEN)?;
+    validate_field(&req.from_principal, "from_principal", MAX_FIELD_LEN)?;
+    validate_field(&req.to_principal, "to_principal", MAX_FIELD_LEN)?;
+
+    if req.allowed_tools.len() > MAX_TOOLS_LEN {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!(
+                    "allowed_tools exceeds maximum of {} entries",
+                    MAX_TOOLS_LEN
+                ),
+            }),
+        ));
+    }
+    for (i, tool) in req.allowed_tools.iter().enumerate() {
+        validate_field(tool, &format!("allowed_tools[{}]", i), MAX_FIELD_LEN)?;
+    }
+
+    if let Some(secs) = req.expires_secs {
+        if secs == 0 || secs > MAX_EXPIRES_SECS {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!(
+                        "expires_secs must be between 1 and {} (30 days)",
+                        MAX_EXPIRES_SECS
+                    ),
+                }),
+            ));
+        }
+    }
 
     // Note: expires_secs is captured but not currently used by DeputyValidator.
     // This allows future API compatibility if expiration is added.

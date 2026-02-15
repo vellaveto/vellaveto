@@ -12,6 +12,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
+/// Maximum number of request chain entries stored per session.
+/// Prevents unbounded memory growth from long-running sessions (FIND-041-006).
+const MAX_CHAINS_PER_SESSION: usize = 10_000;
+
 /// Privilege level assigned to an agent.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
@@ -260,10 +264,19 @@ impl AgentTrustGraph {
                 return;
             }
         };
-        chains
+        let session_chains = chains
             .entry(session_id.to_string())
-            .or_default()
-            .push(entry);
+            .or_default();
+        if session_chains.len() >= MAX_CHAINS_PER_SESSION {
+            tracing::warn!(
+                target: "vellaveto::security",
+                session_id = %session_id,
+                limit = MAX_CHAINS_PER_SESSION,
+                "Request chain limit reached for session — dropping new entry"
+            );
+            return;
+        }
+        session_chains.push(entry);
 
         let mut activity = match self.last_activity.write() {
             Ok(g) => g,

@@ -5,6 +5,8 @@
 //! tool name prefix matching with health-aware failover.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use vellaveto_types::TransportProtocol;
 
 /// Maximum number of upstream backends in gateway configuration.
 pub const MAX_BACKENDS: usize = 64;
@@ -111,6 +113,32 @@ impl GatewayConfig {
             if backend.tool_prefixes.is_empty() {
                 default_count += 1;
             }
+            // Phase 29: Validate transport_urls values are non-empty and use safe schemes.
+            // SECURITY (FIND-R41-008): Validate URL scheme matches expected protocol.
+            for (proto, url) in &backend.transport_urls {
+                let trimmed = url.trim();
+                if trimmed.is_empty() {
+                    return Err(format!(
+                        "gateway.backends[{}].transport_urls[{:?}] must not be empty (id: '{}')",
+                        i, proto, backend.id
+                    ));
+                }
+                let valid_scheme = match proto {
+                    TransportProtocol::Http | TransportProtocol::Grpc => {
+                        trimmed.starts_with("http://") || trimmed.starts_with("https://")
+                    }
+                    TransportProtocol::WebSocket => {
+                        trimmed.starts_with("ws://") || trimmed.starts_with("wss://")
+                    }
+                    TransportProtocol::Stdio => true, // no URL scheme constraint
+                };
+                if !valid_scheme {
+                    return Err(format!(
+                        "gateway.backends[{}].transport_urls[{:?}] has invalid URL scheme (id: '{}', url: '{}')",
+                        i, proto, backend.id, trimmed
+                    ));
+                }
+            }
         }
 
         if default_count > 1 {
@@ -156,4 +184,10 @@ pub struct BackendConfig {
     /// Routing weight (1-100). Higher weight = preferred. Default: 100.
     #[serde(default = "default_weight")]
     pub weight: u8,
+
+    /// Per-transport endpoint URLs for multi-transport backends (Phase 29).
+    /// Maps each `TransportProtocol` to its endpoint URL. Used when
+    /// `cross_transport_fallback` is enabled to try alternative transports.
+    #[serde(default)]
+    pub transport_urls: HashMap<TransportProtocol, String>,
 }

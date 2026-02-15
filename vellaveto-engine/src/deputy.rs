@@ -107,6 +107,10 @@ pub struct DelegationRule {
     pub expires_secs: Option<u64>,
 }
 
+/// Maximum number of active delegation contexts tracked concurrently.
+/// Prevents unbounded memory growth (FIND-041-009).
+const MAX_ACTIVE_CONTEXTS: usize = 10_000;
+
 /// Validates principal binding to prevent confused deputy attacks.
 #[derive(Debug)]
 pub struct DeputyValidator {
@@ -232,6 +236,21 @@ impl DeputyValidator {
             // No parent context — first delegation, use as-is
             allowed_tools.to_vec()
         };
+
+        // Check capacity before inserting a new session (fail-closed)
+        if !contexts.contains_key(session_id) && contexts.len() >= MAX_ACTIVE_CONTEXTS {
+            tracing::error!(
+                target: "vellaveto::security",
+                session_id = %session_id,
+                limit = MAX_ACTIVE_CONTEXTS,
+                "Active delegation context limit reached — denying new delegation"
+            );
+            return Err(DeputyError::InternalError {
+                reason: format!(
+                    "Active delegation context limit ({MAX_ACTIVE_CONTEXTS}) reached — failing closed"
+                ),
+            });
+        }
 
         // Create new context
         let ctx = PrincipalContext {

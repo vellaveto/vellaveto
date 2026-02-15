@@ -1905,6 +1905,112 @@ fn test_sdk_capabilities_serde_roundtrip() {
 }
 
 // ═══════════════════════════════════════════════════
+// PHASE 29: TRANSPORT FALLBACK TYPES TESTS
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_transport_attempt_serde_roundtrip_success() {
+    let attempt = TransportAttempt {
+        protocol: TransportProtocol::Grpc,
+        endpoint_url: "http://localhost:50051".to_string(),
+        succeeded: true,
+        duration_ms: 12,
+        error: None,
+    };
+    let json_str = serde_json::to_string(&attempt).unwrap();
+    let deserialized: TransportAttempt = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(attempt, deserialized);
+    assert!(json_str.contains("\"grpc\""));
+}
+
+#[test]
+fn test_transport_attempt_serde_roundtrip_failure() {
+    let attempt = TransportAttempt {
+        protocol: TransportProtocol::WebSocket,
+        endpoint_url: "ws://localhost:3001/mcp/ws".to_string(),
+        succeeded: false,
+        duration_ms: 5000,
+        error: Some("connection refused".to_string()),
+    };
+    let json_str = serde_json::to_string(&attempt).unwrap();
+    let deserialized: TransportAttempt = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(attempt, deserialized);
+    assert!(json_str.contains("connection refused"));
+}
+
+#[test]
+fn test_fallback_negotiation_history_serde_roundtrip() {
+    let history = FallbackNegotiationHistory {
+        attempts: vec![
+            TransportAttempt {
+                protocol: TransportProtocol::Grpc,
+                endpoint_url: "http://localhost:50051".to_string(),
+                succeeded: false,
+                duration_ms: 30,
+                error: Some("circuit open".to_string()),
+            },
+            TransportAttempt {
+                protocol: TransportProtocol::Http,
+                endpoint_url: "http://localhost:3001/mcp".to_string(),
+                succeeded: true,
+                duration_ms: 15,
+                error: None,
+            },
+        ],
+        successful_transport: Some(TransportProtocol::Http),
+        total_duration_ms: 45,
+    };
+    let json_str = serde_json::to_string(&history).unwrap();
+    let deserialized: FallbackNegotiationHistory = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(history, deserialized);
+}
+
+#[test]
+fn test_fallback_negotiation_history_all_failed() {
+    let history = FallbackNegotiationHistory {
+        attempts: vec![TransportAttempt {
+            protocol: TransportProtocol::Http,
+            endpoint_url: "http://localhost:3001/mcp".to_string(),
+            succeeded: false,
+            duration_ms: 5000,
+            error: Some("timeout".to_string()),
+        }],
+        successful_transport: None,
+        total_duration_ms: 5000,
+    };
+    assert!(history.successful_transport.is_none());
+    assert_eq!(history.attempts.len(), 1);
+}
+
+#[test]
+fn test_fallback_negotiation_history_empty_attempts() {
+    let history = FallbackNegotiationHistory {
+        attempts: Vec::new(),
+        successful_transport: None,
+        total_duration_ms: 0,
+    };
+    let json_str = serde_json::to_string(&history).unwrap();
+    let deserialized: FallbackNegotiationHistory = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(history, deserialized);
+    assert!(deserialized.attempts.is_empty());
+}
+
+#[test]
+fn test_transport_attempt_zero_duration() {
+    let attempt = TransportAttempt {
+        protocol: TransportProtocol::Stdio,
+        endpoint_url: "stdio://local".to_string(),
+        succeeded: true,
+        duration_ms: 0,
+        error: None,
+    };
+    let json_str = serde_json::to_string(&attempt).unwrap();
+    assert!(json_str.contains("\"stdio\""));
+    let deserialized: TransportAttempt = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(attempt, deserialized);
+}
+
+// ═══════════════════════════════════════════════════
 // PHASE 20: GATEWAY TYPES TESTS
 // ═══════════════════════════════════════════════════
 

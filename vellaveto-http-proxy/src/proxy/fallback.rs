@@ -6,7 +6,7 @@
 //! (Gateway Mode) when multiple upstream URLs will be available.
 
 use std::fmt;
-use vellaveto_types::TransportProtocol;
+use vellaveto_types::{FallbackNegotiationHistory, TransportProtocol};
 
 /// Errors returned by fallback forwarding.
 #[derive(Debug)]
@@ -46,7 +46,22 @@ pub struct FallbackResult {
     pub fallback_attempts: u32,
     /// HTTP status code from the upstream response.
     pub status: u16,
+    /// Cross-transport fallback negotiation history (Phase 29).
+    /// `None` for simple HTTP-only forwarding (backward compatible).
+    pub negotiation_history: Option<FallbackNegotiationHistory>,
 }
+
+/// SECURITY (FIND-041-008): Allowlist of headers forwarded to upstream.
+/// Only these headers are forwarded to prevent leaking internal/sensitive
+/// headers (e.g., authorization, cookies) to upstream backends.
+const FORWARDED_HEADERS: &[&str] = &[
+    "content-type",
+    "accept",
+    "user-agent",
+    "traceparent",
+    "tracestate",
+    "x-request-id",
+];
 
 /// Forward a request to the upstream with timeout-based retry.
 ///
@@ -67,9 +82,13 @@ pub async fn forward_with_fallback(
     for attempt in 0..=max_retries {
         let mut request = client.post(upstream_url).timeout(timeout);
 
-        // Forward relevant headers.
+        // SECURITY (FIND-041-008): Only forward allowlisted headers to
+        // prevent leaking internal/sensitive headers to upstream backends.
         for (key, value) in headers {
-            request = request.header(key.clone(), value.clone());
+            let key_lower = key.as_str().to_lowercase();
+            if FORWARDED_HEADERS.iter().any(|&allowed| allowed == key_lower) {
+                request = request.header(key.clone(), value.clone());
+            }
         }
 
         match request.body(body.clone()).send().await {
@@ -82,6 +101,7 @@ pub async fn forward_with_fallback(
                             transport_used: TransportProtocol::Http,
                             fallback_attempts: attempt,
                             status,
+                            negotiation_history: None,
                         });
                     }
                     Err(e) => {

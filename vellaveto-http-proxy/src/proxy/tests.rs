@@ -793,6 +793,7 @@ fn make_test_proxy_state(canonicalize: bool) -> ProxyState {
         abac_engine: None,
         least_agency: None,
         continuous_auth_config: None,
+        transport_health: None,
     }
 }
 
@@ -1846,4 +1847,93 @@ fn test_sdk_capabilities_tier() {
 #[test]
 fn test_transport_preference_header_constant() {
     assert_eq!(MCP_TRANSPORT_PREFERENCE_HEADER, "mcp-transport-preference");
+}
+
+// ═══════════════════════════════════════════════════
+// PHASE 29: CROSS-TRANSPORT FALLBACK HANDLER TESTS
+// ═══════════════════════════════════════════════════
+
+use super::handlers::extract_host_from_url;
+
+#[test]
+fn test_extract_host_from_url_http() {
+    assert_eq!(
+        extract_host_from_url("http://localhost:8080/mcp"),
+        Some("localhost")
+    );
+}
+
+#[test]
+fn test_extract_host_from_url_https() {
+    assert_eq!(
+        extract_host_from_url("https://example.com:443/path"),
+        Some("example.com")
+    );
+}
+
+#[test]
+fn test_extract_host_from_url_no_port() {
+    assert_eq!(
+        extract_host_from_url("http://example.com/mcp"),
+        Some("example.com")
+    );
+}
+
+#[test]
+fn test_extract_host_from_url_ip() {
+    assert_eq!(
+        extract_host_from_url("http://192.168.1.1:8000"),
+        Some("192.168.1.1")
+    );
+}
+
+#[test]
+fn test_extract_host_from_url_no_scheme() {
+    assert_eq!(
+        extract_host_from_url("localhost:8080/path"),
+        Some("localhost")
+    );
+}
+
+#[test]
+fn test_extract_host_from_url_empty() {
+    assert_eq!(extract_host_from_url(""), None);
+    assert_eq!(extract_host_from_url("http://"), None);
+}
+
+#[test]
+fn test_build_transport_targets_single_server_http_only() {
+    use super::smart_fallback::TransportTarget;
+    use vellaveto_types::TransportProtocol;
+
+    let state = make_test_proxy_state(false);
+    let priorities = vec![TransportProtocol::Http];
+    let targets = super::handlers::build_transport_targets(&state, None, &priorities);
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].protocol, TransportProtocol::Http);
+    assert_eq!(targets[0].url, state.upstream_url);
+}
+
+#[test]
+fn test_build_transport_targets_single_server_websocket() {
+    use vellaveto_types::TransportProtocol;
+
+    let state = make_test_proxy_state(false);
+    let priorities = vec![TransportProtocol::WebSocket];
+    let targets = super::handlers::build_transport_targets(&state, None, &priorities);
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].protocol, TransportProtocol::WebSocket);
+    assert!(targets[0].url.starts_with("ws://"));
+}
+
+#[test]
+fn test_build_transport_targets_single_server_grpc_no_port() {
+    use vellaveto_types::TransportProtocol;
+
+    let state = make_test_proxy_state(false);
+    // No grpc_port set, so gRPC should be skipped.
+    let priorities = vec![TransportProtocol::Grpc, TransportProtocol::Http];
+    let targets = super::handlers::build_transport_targets(&state, None, &priorities);
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].protocol, TransportProtocol::Http);
 }

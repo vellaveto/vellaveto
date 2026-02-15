@@ -52,6 +52,38 @@ pub enum SdkTier {
     Full = 3,
 }
 
+/// Record of a single transport fallback attempt (Phase 29).
+///
+/// Captures the outcome (success/failure), duration, and optional error
+/// for one leg of a cross-transport fallback sequence.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TransportAttempt {
+    /// The transport protocol that was tried.
+    pub protocol: TransportProtocol,
+    /// The endpoint URL that was targeted.
+    pub endpoint_url: String,
+    /// Whether this attempt succeeded.
+    pub succeeded: bool,
+    /// Wall-clock duration of this attempt in milliseconds.
+    pub duration_ms: u64,
+    /// Error message if the attempt failed.
+    pub error: Option<String>,
+}
+
+/// Full audit trail for a cross-transport fallback negotiation (Phase 29).
+///
+/// Captures every attempt made during a fallback sequence and which
+/// transport (if any) ultimately handled the request.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FallbackNegotiationHistory {
+    /// Ordered list of transport attempts (first = highest priority).
+    pub attempts: Vec<TransportAttempt>,
+    /// The transport that successfully handled the request, if any.
+    pub successful_transport: Option<TransportProtocol>,
+    /// Total wall-clock duration of the entire fallback sequence in milliseconds.
+    pub total_duration_ms: u64,
+}
+
 /// Declared SDK capabilities for a Vellaveto instance.
 ///
 /// Advertised via the `/.well-known/mcp-transport` discovery endpoint.

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 29 — Cross-Transport Smart Fallback
+- **Transport health tracker** (`vellaveto-http-proxy/src/proxy/transport_health.rs`) — per-transport circuit breaker keyed by `(upstream_id, TransportProtocol)` with Closed/Open/HalfOpen state machine, exponential backoff (2^trip_count, max 32x), RwLock fail-closed semantics. API: `can_use()`, `record_success()`, `record_failure()`, `available_transports()`, `summary()`, `reset()`.
+- **Smart fallback chain** (`vellaveto-http-proxy/src/proxy/smart_fallback.rs`) — ordered transport fallback orchestrator (gRPC → WebSocket → HTTP → stdio). Per-attempt and total timeout budgets, transport-specific dispatch (HTTP POST, WebSocket one-shot via tokio-tungstenite, gRPC HTTP bridge, stdio subprocess). Circuit breaker integration skips Open transports.
+- **Transport priority resolution** (`vellaveto-http-proxy/src/proxy/discovery.rs`) — `resolve_transport_priority()` with 4-level resolution: per-tool glob overrides → client `mcp-transport-preference` header → config `upstream_priorities` → default `[Grpc, WebSocket, Http]`. Restricted transports filtered in all paths.
+- **Fallback audit types** (`vellaveto-types/src/transport.rs`) — `TransportAttempt` (protocol, endpoint, success, duration, error) and `FallbackNegotiationHistory` (attempts, successful_transport, total_duration) for full audit trail of fallback negotiations.
+- **Smart fallback config** (`vellaveto-config/src/transport.rs`) — `cross_transport_fallback: bool` (default false), `transport_overrides: HashMap<String, Vec<TransportProtocol>>`, circuit breaker threshold/duration, `stdio_fallback_enabled`/`stdio_command`. Per-backend `transport_urls` in `BackendConfig`.
+- **Handler integration** (`vellaveto-http-proxy/src/proxy/handlers.rs`) — smart fallback branch in `handle_mcp_post` gated behind `cross_transport_fallback` flag. `build_transport_targets()` derives targets from gateway `BackendConfig.transport_urls` or single-server URL derivation.
+- **Default off:** `cross_transport_fallback: false` — zero behavioral change without opt-in. Fail-closed: all transports failed → deny.
+- 71 new tests across 6 crates. Integration tests in `vellaveto-integration/tests/cross_transport_fallback.rs`.
+
 #### Phase 25.1 — Audio Metadata Inspection (WAV + MP3)
 - **WAV LIST/INFO chunk parser** (`extract_text_from_wav`) — walks RIFF container for INFO sub-chunks (INAM, IART, ICMT, IGNR, ISFT), extracts null-terminated text, bounded at 200 sub-chunks and 1MB aggregate text.
 - **MP3 ID3v2 tag parser** (`extract_text_from_mp3`) — parses ID3v2.3/2.4 headers with syncsafe integer decoding, extracts text from TIT2, TPE1, TALB, COMM, USLT, TXXX frames. Supports 4 encodings: ISO-8859-1, UTF-16 with BOM, UTF-16BE, UTF-8. Bounded at 200 frames and 1MB aggregate.

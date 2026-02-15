@@ -961,12 +961,14 @@ impl RedactionConfig {
 
     fn redact_recursive(&self, value: &serde_json::Value, depth: usize) -> serde_json::Value {
         // Prevent stack overflow with deep recursion (limit: 50)
+        // FIND-041-003: Return safe placeholder instead of raw value to prevent
+        // attacker-controlled data at depth 51+ from bypassing redaction.
         if depth > 50 {
-            trace!(
+            tracing::warn!(
                 depth = depth,
-                "redaction depth limit exceeded, returning unredacted"
+                "redaction depth limit exceeded, value truncated for safety"
             );
-            return value.clone();
+            return serde_json::Value::String("[DEPTH_LIMIT_EXCEEDED]".to_string());
         }
 
         match value {
@@ -1253,9 +1255,11 @@ mod tests {
     }
 
     #[test]
-    fn test_redaction_depth_51_not_redacted() {
+    fn test_redaction_depth_51_truncated() {
         // Build a 52-level deep nested object (depth 0-51)
         // The limit is `depth > 50`, so depth 51 will return early
+        // FIND-041-003: Values beyond depth 50 are now replaced with a safe
+        // placeholder to prevent attacker-controlled data from bypassing redaction.
         let config = RedactionConfig::default();
         let mut value = serde_json::json!({"password": "secret_at_depth_52"});
         for _ in 0..51 {
@@ -1263,13 +1267,14 @@ mod tests {
         }
 
         let redacted = config.redact(&value);
-        // Navigate down 51 levels to get to depth 52
+        // Navigate down 50 levels (depth 50 is the last level that produces
+        // a proper object; depth 51 returns the placeholder string).
         let mut current = &redacted;
-        for _ in 0..51 {
+        for _ in 0..50 {
             current = &current["nested"];
         }
-        // Password at depth 52 should NOT be redacted (past limit of 50)
-        assert_eq!(current["password"], "secret_at_depth_52");
+        // At depth 50, the "nested" key exists but its value is the depth-limit placeholder
+        assert_eq!(current["nested"], "[DEPTH_LIMIT_EXCEEDED]");
     }
 
     #[test]

@@ -701,6 +701,17 @@ async fn main() -> Result<()> {
         } else {
             None
         },
+        transport_health: if policy_config.transport.cross_transport_fallback {
+            Some(std::sync::Arc::new(
+                proxy::transport_health::TransportHealthTracker::new(
+                    policy_config.transport.transport_circuit_breaker_failure_threshold,
+                    2, // success threshold for half-open recovery
+                    policy_config.transport.transport_circuit_breaker_open_duration_secs,
+                ),
+            ))
+        } else {
+            None
+        },
     };
 
     // Phase 20: Spawn gateway health checker if gateway is enabled

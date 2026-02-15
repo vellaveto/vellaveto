@@ -10,6 +10,14 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 
+/// Maximum number of nodes stored per execution graph.
+/// Prevents unbounded memory growth in long sessions (FIND-R41-007).
+const MAX_NODES_PER_GRAPH: usize = 50_000;
+
+/// Maximum number of edges stored per execution graph.
+/// Prevents unbounded memory growth in long sessions (FIND-041-010).
+const MAX_EDGES_PER_GRAPH: usize = 50_000;
+
 /// Unique identifier for a graph node.
 pub type NodeId = String;
 
@@ -222,13 +230,33 @@ impl ExecutionGraph {
             if let Some(parent) = self.nodes.get_mut(parent_id) {
                 parent.add_child(node_id.clone());
             }
-            // Add call edge
-            self.edges.push(ExecutionEdge {
-                from: parent_id.clone(),
-                to: node_id.clone(),
-                edge_type: EdgeType::Call,
-                timestamp: node.started_at,
-            });
+            // Add call edge (bounded by MAX_EDGES_PER_GRAPH)
+            if self.edges.len() < MAX_EDGES_PER_GRAPH {
+                self.edges.push(ExecutionEdge {
+                    from: parent_id.clone(),
+                    to: node_id.clone(),
+                    edge_type: EdgeType::Call,
+                    timestamp: node.started_at,
+                });
+            } else {
+                tracing::warn!(
+                    target: "vellaveto::observability",
+                    session_id = %self.session_id,
+                    limit = MAX_EDGES_PER_GRAPH,
+                    "Edge limit reached — skipping call edge"
+                );
+            }
+        }
+
+        // SECURITY (FIND-R41-007): Bound node count to prevent unbounded memory.
+        if self.nodes.len() >= MAX_NODES_PER_GRAPH {
+            tracing::warn!(
+                target: "vellaveto::observability",
+                session_id = %self.session_id,
+                limit = MAX_NODES_PER_GRAPH,
+                "Node limit reached — skipping node insertion"
+            );
+            return;
         }
 
         self.nodes.insert(node_id.clone(), node);
@@ -254,6 +282,15 @@ impl ExecutionGraph {
 
     /// Add a data flow edge between nodes.
     pub fn add_data_flow(&mut self, from: NodeId, to: NodeId) {
+        if self.edges.len() >= MAX_EDGES_PER_GRAPH {
+            tracing::warn!(
+                target: "vellaveto::observability",
+                session_id = %self.session_id,
+                limit = MAX_EDGES_PER_GRAPH,
+                "Edge limit reached — skipping data flow edge"
+            );
+            return;
+        }
         self.edges.push(ExecutionEdge {
             from,
             to,
@@ -264,6 +301,15 @@ impl ExecutionGraph {
 
     /// Add a delegation edge between nodes.
     pub fn add_delegation(&mut self, from: NodeId, to: NodeId) {
+        if self.edges.len() >= MAX_EDGES_PER_GRAPH {
+            tracing::warn!(
+                target: "vellaveto::observability",
+                session_id = %self.session_id,
+                limit = MAX_EDGES_PER_GRAPH,
+                "Edge limit reached — skipping delegation edge"
+            );
+            return;
+        }
         self.edges.push(ExecutionEdge {
             from,
             to,

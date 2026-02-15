@@ -15,6 +15,8 @@ pub mod grpc;
 mod handlers;
 mod helpers;
 mod inspection;
+pub mod smart_fallback;
+pub mod transport_health;
 pub mod origin;
 #[cfg(test)]
 mod tests;
@@ -212,6 +214,14 @@ pub struct ProxyState {
     pub least_agency: Option<Arc<vellaveto_engine::least_agency::LeastAgencyTracker>>,
     /// Continuous authorization config for risk-based deny.
     pub continuous_auth_config: Option<vellaveto_config::abac::ContinuousAuthConfig>,
+
+    // =========================================================================
+    // Phase 29: Cross-Transport Smart Fallback
+    // =========================================================================
+    /// Per-transport circuit breaker tracker. When `Some` and
+    /// `transport_config.cross_transport_fallback` is true, failed transports
+    /// trigger automatic fallback to the next transport in priority order.
+    pub transport_health: Option<Arc<transport_health::TransportHealthTracker>>,
 }
 
 /// Per-request trust signal for forwarded-header handling.
