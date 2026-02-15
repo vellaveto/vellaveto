@@ -66,13 +66,13 @@ CMD ["bash", "-c", "\
   echo \"CPU: $(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | xargs || echo 'unknown')\" && \
   echo \"Cores: $(nproc)\" && \
   echo '' && \
-  cargo bench -p vellaveto-engine 2>&1 | grep -E '(^[a-z]|time:)' && \
+  cargo bench -p vellaveto-engine 2>&1 | grep -E '(Benchmarking|time:)' && \
   echo '' && \
-  cargo bench -p vellaveto-mcp 2>&1 | grep -E '(^[a-z]|time:)' && \
+  cargo bench -p vellaveto-mcp 2>&1 | grep -E '(Benchmarking|time:)' && \
   echo '' && \
-  cargo bench -p vellaveto-audit 2>&1 | grep -E '(^[a-z]|time:)' && \
+  cargo bench -p vellaveto-audit 2>&1 | grep -E '(Benchmarking|time:)' && \
   echo '' && \
-  cargo bench -p vellaveto-http-proxy 2>&1 | grep -E '(^[a-z]|time:)' && \
+  cargo bench -p vellaveto-http-proxy 2>&1 | grep -E '(Benchmarking|time:)' && \
   echo '' && \
   echo 'HTML reports: target/criterion/report/index.html' && \
   echo 'Done.' \

@@ -15,7 +15,8 @@ lexicographic by ID as tiebreaker). The scan is a pure fold with no
 side effects. Therefore the result is fully determined by (policies, action).
 -/
 
--- Policy types mirroring vellaveto-types
+-- Policy types mirroring vellaveto-types.
+-- Defined locally (not imported) so each proof file is self-contained.
 inductive Verdict where
   | allow : Verdict
   | deny (reason : String) : Verdict
@@ -85,8 +86,11 @@ def evaluate (policies : List Policy) (action : Action) : Verdict :=
 /-! ## Determinism theorem
 
 `evaluate` is a pure function (no IO, no mutable state, no randomness).
-In Lean 4, all definitions are total and deterministic by construction.
-The theorem below makes this explicit. -/
+In Lean 4, all definitions are total and deterministic by construction,
+so these theorems are intentionally trivial (`rfl`). Their value is
+making the *meta-property* explicit and machine-checked: the Rust
+implementation's first-match-wins algorithm maps to a pure function
+in the Lean model, confirming no hidden state or non-determinism. -/
 
 /-- `evaluateFirstMatch` is deterministic: same inputs → same output. -/
 theorem evaluateFirstMatch_deterministic

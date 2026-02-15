@@ -126,7 +126,7 @@ explanation_verbosity = "summary"  # none | summary | full
 - [ ] Art 50(2): Explanation verbosity configurable (none/summary/full)
 - [ ] Art 10: Data governance registry covers all tool data flows
 - [ ] Art 10: `GET /api/compliance/data-governance` returns current records
-- [ ] EU AI Act conformity assessment shows 100% article coverage
+- [ ] EU AI Act conformity assessment achieves target article coverage for Art 9, 13-15, 26
 - [ ] All existing tests continue passing
 - [ ] No new `unwrap()` in library code
 

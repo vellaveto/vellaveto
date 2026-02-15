@@ -20,7 +20,8 @@ For all actions `a` and policy sets `P`:
 if no policy in `P` matches `a`, then `evaluate(P, a) = Deny`.
 -/
 
--- Import shared definitions
+-- Policy types mirroring vellaveto-types.
+-- Defined locally (not imported) so each proof file is self-contained.
 inductive Verdict where
   | allow : Verdict
   | deny (reason : String) : Verdict

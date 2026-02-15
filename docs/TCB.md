@@ -4,7 +4,7 @@ This document defines Vellaveto's Trusted Computing Base — the minimal set of 
 
 ## Scope
 
-The TCB consists of three components totaling approximately **3,200 lines of non-test Rust** (excluding tests, comments, and blank lines):
+The TCB consists of three components totaling approximately **3,350 lines of non-test Rust** (excluding tests, comments, and blank lines):
 
 1. **Policy Evaluation Core** (`vellaveto-engine`)
 2. **Canonicalization** (`vellaveto-engine`)
@@ -40,7 +40,7 @@ Input normalization that runs before policy matching. If canonicalization is wro
 
 | File | Lines | Responsibility |
 |------|-------|----------------|
-| `vellaveto-engine/src/path.rs` | ~156 | `normalize_path` — percent-decode loop, null-byte rejection, backslash normalization, `..`/`.` resolution, absolute path enforcement |
+| `vellaveto-engine/src/path.rs` | ~304 | `normalize_path` — percent-decode loop, null-byte rejection, backslash normalization, `..`/`.` resolution, absolute path enforcement |
 | `vellaveto-engine/src/domain.rs` | ~540 | `normalize_domain_for_match` — IDNA normalization, trailing dot removal, case folding, fail-closed on IDNA failure |
 | `vellaveto-engine/src/ip.rs` | ~437 | `extract_embedded_ipv4` — IPv6 transition mechanism canonicalization (IPv4-mapped, 6to4, Teredo, NAT64) |
 

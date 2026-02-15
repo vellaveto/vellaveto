@@ -512,7 +512,7 @@ Tag characters (U+E0000-U+E007F) inserted to evade detection.
 | A2: Tool Poisoning | 7 | P5 | ASI03 |
 | A3: Parameter Bypass | 6 | P1, P2 | ASI01 |
 | A4: DLP Evasion | 8 | P6 | ASI04 |
-| A5: Confused Deputy | 5 | P1, P3, P8 | ASI02 |
+| A5: Confused Deputy | 5 | P1, P2, P3, P8 | ASI02 |
 | A6: Memory Poisoning | 5 | P4, P6 | ASI06 |
 | A7: Tool Squatting | 5 | P5, P9 | ASI03 |
 | A8: Audit Tampering | 4 | P7 | MCP08 |

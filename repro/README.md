@@ -18,13 +18,13 @@ docker run --rm vellaveto-bench
 
 ## What Gets Benchmarked
 
-| Suite | Crate | What it measures |
+| Suite | Crate | Benchmark Groups |
 |-------|-------|------------------|
-| `evaluation` | vellaveto-engine | Policy evaluation hot path (single, 100, 1000 policies) |
-| `inspection` | vellaveto-mcp | Injection scanning, DLP, duplicate key detection |
-| `rug_pull` | vellaveto-mcp | Tool squatting and rug-pull detection |
-| `audit` | vellaveto-audit | Hash chain logging, CEF/JSONL export, redaction |
-| `http_proxy` | vellaveto-http-proxy | Origin validation, HMAC, privilege escalation detection |
+| evaluation | vellaveto-engine | `compiled/*`, `eval/*`, `normalize_path/*`, `extract_domain/*`, `constraint/*`, `path_rules/*`, `network_rules/*` |
+| inspection | vellaveto-mcp | `injection_scanner/*`, `dlp_scanning/*`, `duplicate_key_detection/*`, `framing/*` |
+| rug_pull | vellaveto-mcp | `semantic/*` |
+| audit | vellaveto-audit | `audit_logging/*`, `audit_export/*`, `audit_redaction/*` |
+| http_proxy | vellaveto-http-proxy | `origin/*`, `call_chain_hmac/*`, `privilege_escalation/*`, `audit_context/*` |
 
 All benchmarks use [Criterion.rs](https://github.com/bheisler/criterion.rs) v0.8 with HTML reports.
 
@@ -85,4 +85,4 @@ Benchmarks run on every push to `main` via GitHub Actions. The workflow:
 1. Builds in release mode
 2. Runs `cargo bench --workspace`
 3. Archives `target/criterion/` as build artifact
-4. Compares against previous run; flags >10% regressions as warnings
+4. Compares against previous run; `verify.sh` uses 2x tolerance for hardware variation

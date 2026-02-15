@@ -16,127 +16,127 @@
   },
   "benchmarks": [
     {
-      "name": "eval_benches/single_policy_allow",
+      "name": "compiled/single_policy_exact",
       "value_ns": 7.2,
       "unit": "ns",
       "description": "Single pre-compiled Allow policy, exact tool match (index hit)"
     },
     {
-      "name": "eval_benches/single_policy_deny_with_rules",
+      "name": "compiled/single_policy_wildcard",
       "value_ns": 31.4,
       "unit": "ns",
-      "description": "Single pre-compiled Deny policy with path + domain rule checks"
+      "description": "Single pre-compiled policy with wildcard tool match"
     },
     {
-      "name": "eval_benches/100_policies_fallthrough",
+      "name": "compiled/100_policies_fallthrough",
       "value_ns": 1180,
       "unit": "ns",
       "description": "100 policies, match at ~50th (typical worst case with tool indexing)"
     },
     {
-      "name": "eval_benches/1000_policies_no_match",
+      "name": "compiled/1000_policies_fallthrough",
       "value_ns": 11800,
       "unit": "ns",
-      "description": "1000 policies, no match (full scan, default deny)"
+      "description": "1000 policies, full scan (default deny)"
     },
     {
-      "name": "path_benches/normalize_path_simple",
+      "name": "normalize_path/clean",
       "value_ns": 85,
       "unit": "ns",
       "description": "Normalize a simple absolute path (no encoding, no traversal)"
     },
     {
-      "name": "path_benches/normalize_path_traversal",
+      "name": "normalize_path/traversal",
       "value_ns": 120,
       "unit": "ns",
       "description": "Normalize path with ../.. traversal components"
     },
     {
-      "name": "path_benches/normalize_path_percent_encoded",
+      "name": "normalize_path/encoded_simple",
       "value_ns": 210,
       "unit": "ns",
       "description": "Normalize percent-encoded path (single decode iteration)"
     },
     {
-      "name": "path_benches/normalize_path_double_encoded",
+      "name": "normalize_path/double_encoded",
       "value_ns": 380,
       "unit": "ns",
       "description": "Normalize double-percent-encoded path (2 decode iterations)"
     },
     {
-      "name": "path_benches/extract_domain",
+      "name": "extract_domain/simple",
       "value_ns": 145,
       "unit": "ns",
       "description": "Extract domain from URL (strip scheme, port, path)"
     },
     {
-      "name": "constraint_benches/regex_match",
+      "name": "constraint/regex/simple_match",
       "value_ns": 48,
       "unit": "ns",
       "description": "Pre-compiled regex constraint match"
     },
     {
-      "name": "constraint_benches/glob_match",
+      "name": "constraint/glob/match",
       "value_ns": 35,
       "unit": "ns",
       "description": "Pre-compiled glob constraint match"
     },
     {
-      "name": "constraint_benches/wildcard_deep_scan",
+      "name": "constraint/wildcard_scan/small_params",
       "value_ns": 520,
       "unit": "ns",
-      "description": "Recursive JSON scanning with wildcard parameter (5 levels deep)"
+      "description": "Recursive JSON scanning with wildcard parameter"
     },
     {
-      "name": "http_proxy/call_chain_hmac/sign_verify",
+      "name": "call_chain_hmac/signing_content",
       "value_ns": 1580,
       "unit": "ns",
-      "description": "HMAC-SHA256 sign + verify for call-chain integrity"
+      "description": "HMAC-SHA256 signing content construction for call-chain integrity"
     },
     {
-      "name": "http_proxy/privilege_escalation/0_hops",
+      "name": "privilege_escalation/no_chain",
       "value_ns": 16,
       "unit": "ns",
-      "description": "Privilege escalation check with 0-hop chain"
+      "description": "Privilege escalation check with no chain"
     },
     {
-      "name": "http_proxy/privilege_escalation/10_hops",
+      "name": "privilege_escalation/10_hop_chain",
       "value_ns": 76,
       "unit": "ns",
       "description": "Privilege escalation check with 10-hop chain"
     },
     {
-      "name": "inspection_benches/injection_scan_clean",
+      "name": "injection_scanner/inspect_safe_text",
       "value_ns": 280,
       "unit": "ns",
       "description": "Aho-Corasick injection scan on clean input (no match)"
     },
     {
-      "name": "inspection_benches/injection_scan_match",
+      "name": "injection_scanner/inspect_injection_hit",
       "value_ns": 310,
       "unit": "ns",
       "description": "Aho-Corasick injection scan with match"
     },
     {
-      "name": "inspection_benches/dlp_scan_clean",
+      "name": "dlp_scanning/scan_params_clean",
       "value_ns": 4200,
       "unit": "ns",
       "description": "DLP scan on clean response (40 regex patterns, no decode layers)"
     },
     {
-      "name": "audit_benches/log_entry",
+      "name": "audit_logging/log_single_entry",
       "value_ns": 8500,
       "unit": "ns",
       "description": "Log single audit entry (SHA-256 hash chain + JSONL serialize)"
     },
     {
-      "name": "audit_benches/cef_format",
+      "name": "audit_export/to_cef_single",
       "value_ns": 1200,
       "unit": "ns",
       "description": "Format single audit entry as CEF"
     },
     {
-      "name": "audit_benches/redaction",
+      "name": "audit_redaction/redact_simple_clean",
       "value_ns": 650,
       "unit": "ns",
       "description": "Redact sensitive keys in action parameters"

@@ -18,7 +18,7 @@ The overall score is a weighted average of the 10 property scores:
 | Property | Weight | Rationale |
 |----------|--------|-----------|
 | **P1** Tool-Level Access Control | 15% | Foundation property. Without deny-by-default, nothing else matters. |
-| **P2** Parameter Constraints | 12% | Deep inspection is what separates real security from allowlist theater. |
+| **P2** Parameter Constraint Enforcement | 12% | Deep inspection is what separates real security from allowlist theater. |
 | **P3** Priority Monotonicity | 5% | Policy correctness. Important but lower attack surface. |
 | **P4** Injection Resistance | 15% | Primary threat vector. Prompt injection is the #1 AI agent risk. |
 | **P5** Schema Integrity | 10% | Supply chain defense. Rug-pulls are unique to MCP. |
@@ -59,7 +59,7 @@ The tier is determined by the overall score using the thresholds defined above.
 | A2.1-A2.7 | P5 |
 | A3.1-A3.6 | P1, P2 |
 | A4.1-A4.8 | P6 |
-| A5.1-A5.5 | P1, P3, P8 |
+| A5.1-A5.5 | P1, P2, P3, P8 |
 | A6.1-A6.5 | P4, P6 |
 | A7.1-A7.5 | P5, P9 |
 | A8.1-A8.4 | P7 |
