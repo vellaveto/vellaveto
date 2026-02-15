@@ -1,9 +1,9 @@
 //! Stress and adversarial tests for vellaveto-config enhancements.
 //! Targets from_toml, load_file, to_policies, and default field handling.
 
+use tempfile::TempDir;
 use vellaveto_config::PolicyConfig;
 use vellaveto_types::PolicyType;
-use tempfile::TempDir;
 
 // ════════════════════════════════
 // from_toml: VALID INPUTS

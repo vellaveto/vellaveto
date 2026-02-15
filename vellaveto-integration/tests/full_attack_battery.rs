@@ -9,6 +9,8 @@
 //!
 //! Run with: cargo test -p vellaveto-integration --test full_attack_battery -- --nocapture
 
+use serde_json::{json, Value};
+use std::collections::HashMap;
 use vellaveto_audit::AuditEntry;
 use vellaveto_config::ElicitationConfig;
 use vellaveto_engine::PolicyEngine;
@@ -21,8 +23,6 @@ use vellaveto_mcp::rug_pull::{
     build_known_tools, detect_rug_pull, detect_squatting, ToolAnnotations,
 };
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::{json, Value};
-use std::collections::HashMap;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // HELPER FUNCTIONS

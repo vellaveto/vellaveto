@@ -2,9 +2,9 @@
 //! The engine stores strict_mode but never reads it (confirmed by dead_code warning).
 //! These tests will BREAK if someone implements strict mode — that's intentional.
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType};
-use serde_json::json;
 
 fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action {
     Action::new(tool.to_string(), function.to_string(), params)

@@ -1378,7 +1378,8 @@ fn test_validate_accepts_opa_http_endpoint_when_require_https_disabled() {
 fn test_validate_rejects_opa_endpoint_with_userinfo() {
     let mut config = minimal_config();
     config.opa.enabled = true;
-    config.opa.endpoint = Some("https://user:pass@opa.internal/v1/data/vellaveto/allow".to_string());
+    config.opa.endpoint =
+        Some("https://user:pass@opa.internal/v1/data/vellaveto/allow".to_string());
     config.opa.bundle_path = None;
 
     let err = config.validate().unwrap_err();

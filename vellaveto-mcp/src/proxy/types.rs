@@ -1,8 +1,8 @@
 //! Proxy types and error definitions.
 
-use vellaveto_types::Verdict;
 use serde_json::Value;
 use thiserror::Error;
+use vellaveto_types::Verdict;
 
 use crate::framing::FramingError;
 

@@ -17,9 +17,9 @@
 
 use crate::etdi::{EtdiError, EtdiStore, ToolSigner};
 use chrono::Utc;
-use vellaveto_types::ToolAttestation;
 use serde_json::Value;
 use std::sync::Arc;
+use vellaveto_types::ToolAttestation;
 
 /// Result of attestation chain verification.
 #[derive(Debug, Clone)]

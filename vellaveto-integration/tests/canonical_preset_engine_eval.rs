@@ -2,9 +2,9 @@
 //! The vellaveto-canonical crate has unit tests for construction, but these test
 //! whether the produced policies actually work as intended when evaluated.
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 // We can't depend on vellaveto-canonical from vellaveto-integration (it's not
 // in the Cargo.toml), so we recreate the canonical presets exactly as defined.

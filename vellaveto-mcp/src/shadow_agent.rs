@@ -29,10 +29,10 @@
 //! assert!(result.is_err()); // Shadow agent detected!
 //! ```
 
-use vellaveto_types::{AgentFingerprint, TrustLevel};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::RwLock;
+use vellaveto_types::{AgentFingerprint, TrustLevel};
 
 /// Alert severity levels for shadow agent detection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

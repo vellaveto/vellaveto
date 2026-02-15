@@ -12,11 +12,11 @@
 
 use chrono::Utc;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use vellaveto_config::AllowedSignersConfig;
-use vellaveto_types::{SignatureAlgorithm, SignatureVerification, ToolSignature};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use vellaveto_config::AllowedSignersConfig;
+use vellaveto_types::{SignatureAlgorithm, SignatureVerification, ToolSignature};
 
 /// Errors from ETDI operations.
 #[derive(Error, Debug)]

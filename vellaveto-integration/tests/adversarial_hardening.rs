@@ -7,9 +7,9 @@
 //! - Wildcard domain suffix attacks
 //! - Concurrent evaluation determinism
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, NetworkRules, PathRules, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 // ═══════════════════════════════════════════════════
 // ADVERSARIAL 1: Regex catastrophic backtracking protection

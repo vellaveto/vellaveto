@@ -1,9 +1,9 @@
 //! Session tracking, call chain management, and privilege escalation detection.
 
 use chrono::Utc;
+use serde_json::{json, Value};
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, EvaluationContext, Policy, Verdict};
-use serde_json::{json, Value};
 
 use super::{HmacSha256, X_UPSTREAM_AGENTS};
 use crate::oauth::OAuthClaims;

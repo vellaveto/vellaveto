@@ -7,10 +7,10 @@
 //! - JSON nesting depth <= 20
 //! - Serialized parameter size <= 1,000,000 bytes
 
-use vellaveto_audit::AuditLogger;
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
 use tempfile::TempDir;
+use vellaveto_audit::AuditLogger;
+use vellaveto_types::{Action, Verdict};
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()

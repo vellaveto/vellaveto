@@ -13,8 +13,8 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
+use vellaveto_types::{Action, Verdict};
 
 use crate::routes::approval::derive_resolver_identity;
 use crate::routes::ErrorResponse;

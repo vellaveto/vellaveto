@@ -4,9 +4,9 @@
 //!
 //!   export PATH=$HOME/.cargo/bin:$PATH && cargo run -p vellaveto-integration --example serialization_benchmark
 
-use vellaveto_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 use std::time::Instant;
+use vellaveto_types::{Action, Policy, PolicyType, Verdict};
 
 fn bench_serialize<T: serde::Serialize>(label: &str, value: &T, iterations: usize) {
     let start = Instant::now();

@@ -4,11 +4,11 @@
 //!
 //!   export PATH=$HOME/.cargo/bin:$PATH && cargo run -p vellaveto-integration --example concurrent_audit_benchmark
 
-use vellaveto_audit::AuditLogger;
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Instant;
+use vellaveto_audit::AuditLogger;
+use vellaveto_types::{Action, Verdict};
 
 fn main() {
     let rt = tokio::runtime::Builder::new_multi_thread()

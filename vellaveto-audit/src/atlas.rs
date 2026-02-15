@@ -534,7 +534,10 @@ impl AtlasRegistry {
             VellavetoDetection::ConfusedDeputy,
             vec!["AML.T0063", "AML.T0063.001"],
         );
-        self.map_detection(VellavetoDetection::UnauthorizedDelegation, vec!["AML.T0063"]);
+        self.map_detection(
+            VellavetoDetection::UnauthorizedDelegation,
+            vec!["AML.T0063"],
+        );
         self.map_detection(VellavetoDetection::PrivilegeEscalation, vec!["AML.T0063"]);
 
         // Tool Manipulation mappings
@@ -576,8 +579,14 @@ impl AtlasRegistry {
 
         // Excessive Agency mappings
         self.map_detection(VellavetoDetection::ExcessiveAgency, vec!["AML.T0060"]);
-        self.map_detection(VellavetoDetection::WorkflowBudgetExceeded, vec!["AML.T0060"]);
-        self.map_detection(VellavetoDetection::UnauthorizedToolAccess, vec!["AML.T0040"]);
+        self.map_detection(
+            VellavetoDetection::WorkflowBudgetExceeded,
+            vec!["AML.T0060"],
+        );
+        self.map_detection(
+            VellavetoDetection::UnauthorizedToolAccess,
+            vec!["AML.T0040"],
+        );
 
         // Cascading Failure mappings (no direct ATLAS mapping yet)
         self.map_detection(VellavetoDetection::CircuitBreakerTriggered, vec![]);
@@ -850,7 +859,11 @@ mod tests {
         let registry = AtlasRegistry::new();
         let mut metadata = serde_json::json!({});
 
-        add_atlas_metadata(&mut metadata, VellavetoDetection::PromptInjection, &registry);
+        add_atlas_metadata(
+            &mut metadata,
+            VellavetoDetection::PromptInjection,
+            &registry,
+        );
 
         assert!(metadata.get("atlas_techniques").is_some());
         assert!(metadata.get("detection_type").is_some());

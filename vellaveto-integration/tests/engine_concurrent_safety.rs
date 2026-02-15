@@ -2,10 +2,10 @@
 //! The engine has no interior mutability (&self only), so concurrent
 //! evaluate_action calls must never interfere with each other.
 
-use vellaveto_engine::PolicyEngine;
-use vellaveto_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 use std::sync::Arc;
+use vellaveto_engine::PolicyEngine;
+use vellaveto_types::{Action, Policy, PolicyType, Verdict};
 
 fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action {
     Action::new(tool.to_string(), function.to_string(), params)

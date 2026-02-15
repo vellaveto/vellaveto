@@ -1,9 +1,9 @@
 //! Adversarial tests for vellaveto-config TOML enhancements.
 //! Tries to break from_toml, load_file, to_policies, and default handling.
 
+use tempfile::TempDir;
 use vellaveto_config::PolicyConfig;
 use vellaveto_types::PolicyType;
-use tempfile::TempDir;
 
 // ═══════════════════════════════════
 // from_toml: HAPPY PATH

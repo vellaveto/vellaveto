@@ -27,6 +27,9 @@ pub use handlers::{handle_mcp_delete, handle_mcp_post, handle_protected_resource
 pub use websocket::{handle_ws_upgrade, WebSocketConfig};
 
 use hmac::Hmac;
+use sha2::Sha256;
+use std::net::SocketAddr;
+use std::sync::Arc;
 use vellaveto_approval::ApprovalStore;
 use vellaveto_audit::AuditLogger;
 use vellaveto_config::ManifestConfig;
@@ -40,9 +43,6 @@ use vellaveto_mcp::{
     schema_poisoning::SchemaLineageTracker, shadow_agent::ShadowAgentDetector,
 };
 use vellaveto_types::Policy;
-use sha2::Sha256;
-use std::net::SocketAddr;
-use std::sync::Arc;
 
 use crate::oauth::OAuthValidator;
 use crate::session::SessionStore;

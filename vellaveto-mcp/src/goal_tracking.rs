@@ -10,12 +10,12 @@
 //! The tracker maintains a fingerprint of the initial goal for each session
 //! and compares subsequent actions against it to detect drift.
 
-use vellaveto_types::Action;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
+use vellaveto_types::Action;
 
 /// Result of goal alignment check.
 #[derive(Debug, Clone, PartialEq)]

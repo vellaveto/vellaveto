@@ -5,10 +5,10 @@
 //! just \n, \r, and \0. This prevents log injection via tabs, backspaces,
 //! escape sequences, and other control chars.
 
-use vellaveto_audit::AuditLogger;
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
 use tempfile::TempDir;
+use vellaveto_audit::AuditLogger;
+use vellaveto_types::{Action, Verdict};
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()

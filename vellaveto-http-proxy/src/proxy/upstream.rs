@@ -8,12 +8,12 @@ use axum::{
     Json,
 };
 use bytes::Bytes;
+use serde_json::{json, Value};
 use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_response_for_secrets, scan_tool_descriptions,
     scan_tool_descriptions_with_scanner,
 };
 use vellaveto_types::{Action, Verdict};
-use serde_json::{json, Value};
 
 use super::call_chain::take_tracked_tool_call;
 use super::helpers::{

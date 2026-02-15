@@ -748,13 +748,19 @@ mod tests {
 
         // With port
         assert_eq!(
-            extract_tenant_from_subdomain("acme.vellaveto.example.com:8080", "vellaveto.example.com"),
+            extract_tenant_from_subdomain(
+                "acme.vellaveto.example.com:8080",
+                "vellaveto.example.com"
+            ),
             Some("acme".to_string())
         );
 
         // Multi-level subdomain (only first level)
         assert_eq!(
-            extract_tenant_from_subdomain("dev.acme.vellaveto.example.com", "vellaveto.example.com"),
+            extract_tenant_from_subdomain(
+                "dev.acme.vellaveto.example.com",
+                "vellaveto.example.com"
+            ),
             Some("acme".to_string())
         );
 

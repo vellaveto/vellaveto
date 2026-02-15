@@ -21,10 +21,10 @@
 //! - Circuit breaker for upstream protection
 //! - Shadow agent detection
 
-use vellaveto_engine::PolicyEngine;
-use vellaveto_types::{Policy, Verdict};
 use serde_json::Value;
 use std::sync::Arc;
+use vellaveto_engine::PolicyEngine;
+use vellaveto_types::{Policy, Verdict};
 
 use crate::inspection::{inspect_for_injection, scan_text_for_secrets};
 

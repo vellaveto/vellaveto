@@ -1,11 +1,11 @@
 //! Tests that AuditLogger produces distinct entries for identical inputs,
 //! and that load order matches append order (FIFO).
 
-use vellaveto_audit::AuditLogger;
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
 use std::collections::HashSet;
 use tempfile::TempDir;
+use vellaveto_audit::AuditLogger;
+use vellaveto_types::{Action, Verdict};
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()

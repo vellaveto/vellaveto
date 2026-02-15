@@ -3,10 +3,10 @@
 //! that entries[0] corresponds to the first write and entries[N-1]
 //! to the last write. This is critical for forensic analysis.
 
-use vellaveto_audit::AuditLogger;
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
 use tempfile::TempDir;
+use vellaveto_audit::AuditLogger;
+use vellaveto_types::{Action, Verdict};
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()

@@ -1,7 +1,7 @@
 //! Integration tests for the MCP server with realistic multi-step workflows.
 
-use vellaveto_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
+use vellaveto_types::{Action, Policy, PolicyType, Verdict};
 
 // Note: vellaveto-integration doesn't depend on vellaveto-mcp directly,
 // so these tests exercise the engine + types pipeline that MCP would use.

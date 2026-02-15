@@ -2,9 +2,9 @@
 //! Specifically targets IDs that are just ":", just colons, or have
 //! unusual whitespace/unicode around the colon.
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 fn make_action(tool: &str, function: &str) -> Action {
     Action::new(tool.to_string(), function.to_string(), json!({}))

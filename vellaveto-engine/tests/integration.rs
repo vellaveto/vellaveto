@@ -1,8 +1,8 @@
 //! Integration tests for vellaveto-engine - adversarial and edge-case focused.
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 // --- Helpers ---
 

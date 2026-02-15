@@ -8,8 +8,8 @@ use crate::matcher::{CompiledToolMatcher, PatternMatcher};
 use globset::GlobMatcher;
 use ipnet::IpNet;
 use regex::Regex;
-use vellaveto_types::Policy;
 use std::collections::HashMap;
+use vellaveto_types::Policy;
 
 /// A single pre-compiled parameter constraint with all patterns resolved at load time.
 #[derive(Debug, Clone)]

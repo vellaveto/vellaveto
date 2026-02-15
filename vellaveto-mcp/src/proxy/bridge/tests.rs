@@ -4,16 +4,18 @@ use super::*;
 use crate::extractor::classify_message;
 use crate::inspection::{scan_parameters_for_secrets, scan_response_for_injection};
 use crate::proxy::types::ProxyDecision;
-use vellaveto_types::{EvaluationContext, PolicyType, Verdict};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use vellaveto_types::{EvaluationContext, PolicyType, Verdict};
 
 fn test_bridge(policies: Vec<vellaveto_types::Policy>) -> ProxyBridge {
     let dir = std::env::temp_dir().join("vellaveto-proxy-test");
     let _ = std::fs::create_dir_all(&dir);
-    let audit = Arc::new(vellaveto_audit::AuditLogger::new(dir.join("test-audit.log")));
+    let audit = Arc::new(vellaveto_audit::AuditLogger::new(
+        dir.join("test-audit.log"),
+    ));
     // Use compiled policies so context-aware evaluation works (R13-LEG-7).
     let engine = vellaveto_engine::PolicyEngine::with_policies(false, &policies).unwrap();
     ProxyBridge::new(engine, policies, audit)

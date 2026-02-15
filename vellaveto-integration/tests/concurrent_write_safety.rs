@@ -3,11 +3,11 @@
 //! opens the file in append mode independently. This test verifies
 //! whether concurrent tokio tasks produce a valid JSONL file.
 
-use vellaveto_audit::{AuditEntry, AuditLogger};
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;
+use vellaveto_audit::{AuditEntry, AuditLogger};
+use vellaveto_types::{Action, Verdict};
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_multi_thread()

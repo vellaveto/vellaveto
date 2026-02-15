@@ -1,8 +1,8 @@
 //! Unit tests for WebSocket transport (Phase 17.1 — SEP-1288).
 
 use super::*;
-use vellaveto_mcp::extractor::{self, MessageType};
 use serde_json::json;
+use vellaveto_mcp::extractor::{self, MessageType};
 
 // ==========================================================================
 // URL conversion tests
@@ -492,11 +492,11 @@ fn make_test_state_with_allow_all() -> ProxyState {
 }
 
 fn make_test_state() -> ProxyState {
+    use std::sync::Arc;
+    use std::time::Duration;
     use vellaveto_audit::AuditLogger;
     use vellaveto_engine::PolicyEngine;
     use vellaveto_mcp::output_validation::OutputSchemaRegistry;
-    use std::sync::Arc;
-    use std::time::Duration;
 
     let engine = PolicyEngine::new(false);
     let audit = AuditLogger::new(std::path::PathBuf::from("/dev/null"));

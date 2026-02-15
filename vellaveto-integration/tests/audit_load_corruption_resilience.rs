@@ -3,10 +3,10 @@
 //! are skipped with a warning, and valid entries are still returned.
 //! This ensures a single corrupt line cannot make the entire audit log unreadable.
 
-use vellaveto_audit::AuditLogger;
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
 use tempfile::TempDir;
+use vellaveto_audit::AuditLogger;
+use vellaveto_types::{Action, Verdict};
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()

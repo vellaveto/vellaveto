@@ -33,10 +33,10 @@
 //! }
 //! ```
 
-use vellaveto_types::{CircuitState, CircuitStats};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
+use vellaveto_types::{CircuitState, CircuitStats};
 
 /// Manages circuit breakers for tool calls.
 ///

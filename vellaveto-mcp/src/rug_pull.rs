@@ -11,12 +11,12 @@
 //! 4. **Tool squatting** — tool names similar to known tools (Levenshtein/homoglyph)
 
 use crate::inspection::{scan_tool_descriptions, ToolDescriptionFinding};
-use vellaveto_audit::AuditLogger;
-use vellaveto_types::unicode::normalize_homoglyphs;
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
+use vellaveto_audit::AuditLogger;
+use vellaveto_types::unicode::normalize_homoglyphs;
+use vellaveto_types::{Action, Verdict};
 
 // ── Tool Squatting Detection Types ─────────────────────
 

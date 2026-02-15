@@ -8,11 +8,11 @@
 use crate::compiled::{CompiledConstraint, CompiledPolicy};
 use crate::error::EngineError;
 use crate::PolicyEngine;
+use std::time::Instant;
 use vellaveto_types::{
     Action, ActionSummary, ConstraintResult, EvaluationContext, EvaluationTrace, Policy,
     PolicyMatch, PolicyType, Verdict,
 };
-use std::time::Instant;
 
 impl PolicyEngine {
     /// Evaluate an action with full decision trace.

@@ -2,11 +2,11 @@
 //! The AuditLogger has no internal locking — each log_entry opens the file
 //! independently in append mode. This test verifies JSONL integrity.
 
-use vellaveto_audit::AuditLogger;
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;
+use vellaveto_audit::AuditLogger;
+use vellaveto_types::{Action, Verdict};
 
 fn runtime_mt() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_multi_thread()

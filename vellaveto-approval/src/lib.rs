@@ -1,6 +1,4 @@
 use chrono::{DateTime, Duration, Utc};
-use vellaveto_types::unicode::normalize_homoglyphs;
-use vellaveto_types::Action;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -11,6 +9,8 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 use unicode_normalization::UnicodeNormalization;
 use uuid::Uuid;
+use vellaveto_types::unicode::normalize_homoglyphs;
+use vellaveto_types::Action;
 
 #[derive(Error, Debug)]
 pub enum ApprovalError {

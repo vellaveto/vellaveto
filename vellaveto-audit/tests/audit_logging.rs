@@ -1,9 +1,9 @@
 //! Integration tests for the AuditLogger.
 
-use vellaveto_audit::AuditLogger;
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
 use tempfile::TempDir;
+use vellaveto_audit::AuditLogger;
+use vellaveto_types::{Action, Verdict};
 
 fn setup_logger() -> (AuditLogger, TempDir) {
     let dir = TempDir::new().expect("Failed to create temp dir");

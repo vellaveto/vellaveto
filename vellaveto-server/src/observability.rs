@@ -29,18 +29,18 @@
 //! This module is always compiled but exporters are only created when the
 //! `observability-exporters` feature is enabled in vellaveto-audit.
 
-use vellaveto_audit::observability::{ObservabilityError, RedactionConfig, SecuritySpan};
-use vellaveto_config::observability::ObservabilityConfig;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tracing::warn;
+use vellaveto_audit::observability::{ObservabilityError, RedactionConfig, SecuritySpan};
+use vellaveto_config::observability::ObservabilityConfig;
 
-#[cfg(feature = "observability-exporters")]
-use vellaveto_audit::observability::{ObservabilityExporter, SamplingConfig, SpanSampler};
 #[cfg(feature = "observability-exporters")]
 use tokio::sync::mpsc;
 #[cfg(feature = "observability-exporters")]
 use tracing::{debug, error, info};
+#[cfg(feature = "observability-exporters")]
+use vellaveto_audit::observability::{ObservabilityExporter, SamplingConfig, SpanSampler};
 
 /// Statistics for observability exports.
 #[derive(Debug, Default)]
@@ -486,8 +486,10 @@ mod enabled {
 
         fn build_webhook_config(
             config: &vellaveto_config::observability::WebhookExporterConfig,
-        ) -> Result<vellaveto_audit::observability::webhook::WebhookExporterConfig, ObservabilityError>
-        {
+        ) -> Result<
+            vellaveto_audit::observability::webhook::WebhookExporterConfig,
+            ObservabilityError,
+        > {
             let mut exporter_config =
                 vellaveto_audit::observability::webhook::WebhookExporterConfig::new(
                     &config.endpoint,

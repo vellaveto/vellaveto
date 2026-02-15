@@ -7,7 +7,6 @@ use crate::redaction::{
 use crate::types::{AuditEntry, AuditError, RedactionLevel};
 use chrono::Utc;
 use ed25519_dalek::SigningKey;
-use vellaveto_types::{Action, Verdict};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
@@ -16,6 +15,7 @@ use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use uuid::Uuid;
+use vellaveto_types::{Action, Verdict};
 
 use crate::pii::CustomPiiPattern;
 use crate::rotation::DEFAULT_MAX_FILE_SIZE;

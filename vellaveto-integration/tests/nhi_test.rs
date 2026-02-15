@@ -8,10 +8,10 @@
 //! - Credential rotation
 //! - DPoP nonce generation and validation
 
+use std::collections::HashMap;
 use vellaveto_config::NhiConfig;
 use vellaveto_mcp::nhi::{NhiError, NhiManager};
 use vellaveto_types::{NhiAttestationType, NhiBehavioralRecommendation, NhiIdentityStatus};
-use std::collections::HashMap;
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()

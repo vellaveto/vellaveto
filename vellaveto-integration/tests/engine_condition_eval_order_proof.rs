@@ -9,9 +9,9 @@
 //! Each test constructs conditions that would trigger multiple steps,
 //! then verifies only the FIRST applicable step fires.
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 fn make_action(params: serde_json::Value) -> Action {
     Action::new("tool".to_string(), "func".to_string(), params)

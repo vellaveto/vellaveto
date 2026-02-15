@@ -2,11 +2,11 @@
 //! in the audit log, and that report statistics stay consistent under
 //! various policy configurations.
 
+use serde_json::json;
+use tempfile::TempDir;
 use vellaveto_audit::AuditLogger;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
-use tempfile::TempDir;
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()

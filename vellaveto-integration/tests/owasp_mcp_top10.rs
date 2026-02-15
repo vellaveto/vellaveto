@@ -16,12 +16,12 @@
 //! | MCP09 Insufficient Logging    | Comprehensive log              | GOOD       |
 //! | MCP10 Denial of Service       | Rate limit + caps              | GOOD       |
 
-use vellaveto_audit::AuditLogger;
-use vellaveto_engine::PolicyEngine;
-use vellaveto_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;
+use vellaveto_audit::AuditLogger;
+use vellaveto_engine::PolicyEngine;
+use vellaveto_types::{Action, Policy, PolicyType, Verdict};
 
 // ═══════════════════════════════════════════════════════════════
 // Helpers
@@ -851,14 +851,14 @@ mod owasp_mcp07_auth {
     use arc_swap::ArcSwap;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use std::sync::Arc;
+    use tempfile::TempDir;
+    use tower::ServiceExt;
     use vellaveto_approval::ApprovalStore;
     use vellaveto_audit::AuditLogger;
     use vellaveto_engine::PolicyEngine;
     use vellaveto_server::{routes, AppState, Metrics, RateLimits};
     use vellaveto_types::{Policy, PolicyType};
-    use std::sync::Arc;
-    use tempfile::TempDir;
-    use tower::ServiceExt;
 
     fn make_state(api_key: Option<&str>) -> (AppState, TempDir) {
         let tmp = TempDir::new().unwrap();
@@ -1272,9 +1272,9 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
         use arc_swap::ArcSwap;
         use axum::body::Body;
         use axum::http::Request;
+        use tower::ServiceExt;
         use vellaveto_approval::ApprovalStore;
         use vellaveto_server::{routes, AppState, Metrics, RateLimits};
-        use tower::ServiceExt;
 
         let tmp = TempDir::new().unwrap();
         let logger = Arc::new(AuditLogger::new(tmp.path().join("audit.log")));
@@ -1525,9 +1525,9 @@ fn test_owasp_mcp09_audit_report_counts_verdicts() {
 
 #[tokio::test]
 async fn test_owasp_mcp10_oversized_mcp_message_rejected() {
-    use vellaveto_mcp::framing::{read_message, FramingError};
     use std::io::Cursor;
     use tokio::io::BufReader;
+    use vellaveto_mcp::framing::{read_message, FramingError};
 
     // 1MB+ line should be rejected
     let oversized = format!("{}\n", "X".repeat(1_048_577));
@@ -1547,9 +1547,9 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
     use arc_swap::ArcSwap;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
     use vellaveto_approval::ApprovalStore;
     use vellaveto_server::{routes, AppState, Metrics, RateLimits};
-    use tower::ServiceExt;
 
     let tmp = TempDir::new().unwrap();
 
@@ -1634,9 +1634,9 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
 fn test_owasp_mcp10_normal_sized_message_accepted() {
     let rt = runtime();
     rt.block_on(async {
-        use vellaveto_mcp::framing::read_message;
         use std::io::Cursor;
         use tokio::io::BufReader;
+        use vellaveto_mcp::framing::read_message;
 
         let msg = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "ping"});
         let data = format!("{}\n", serde_json::to_string(&msg).unwrap());
@@ -1653,9 +1653,9 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
     use arc_swap::ArcSwap;
     use axum::body::Body;
     use axum::http::Request;
+    use tower::ServiceExt;
     use vellaveto_approval::ApprovalStore;
     use vellaveto_server::{routes, AppState, Metrics, RateLimits};
-    use tower::ServiceExt;
 
     let tmp = TempDir::new().unwrap();
     let state = AppState {

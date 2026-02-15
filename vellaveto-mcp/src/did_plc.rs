@@ -8,8 +8,8 @@
 //! No new external dependencies — uses `sha2`, `serde_json_canonicalizer`,
 //! and `hex` already present in this crate.
 
-use vellaveto_types::{DidPlc, DidPlcError, DidPlcGenesisOperation};
 use sha2::{Digest, Sha256};
+use vellaveto_types::{DidPlc, DidPlcError, DidPlcGenesisOperation};
 
 /// Generate a DID:PLC from a genesis operation.
 ///

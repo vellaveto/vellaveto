@@ -2,10 +2,10 @@
 //!   report.total_entries == report.allow_count + report.deny_count + report.require_approval_count
 //! across varied verdict distributions. Also verifies report.entries.len() == report.total_entries.
 
-use vellaveto_audit::AuditLogger;
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
 use tempfile::TempDir;
+use vellaveto_audit::AuditLogger;
+use vellaveto_types::{Action, Verdict};
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()

@@ -8,10 +8,10 @@ use axum::{
     Extension, Json,
 };
 use bytes::Bytes;
+use serde_json::{json, Value};
 use vellaveto_mcp::extractor::{self, make_denial_response, MessageType};
 use vellaveto_mcp::inspection::{scan_notification_for_secrets, scan_parameters_for_secrets};
 use vellaveto_types::{Action, EvaluationContext, Verdict};
-use serde_json::{json, Value};
 
 use super::auth::{
     build_effective_request_uri, validate_agent_identity, validate_api_key, validate_oauth,

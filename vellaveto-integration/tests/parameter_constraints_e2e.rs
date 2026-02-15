@@ -3,12 +3,12 @@
 //! Tests the full flow: TOML config → PolicyConfig → Policy vec → PolicyEngine
 //! → evaluate_action with parameter_constraints → AuditLogger → verify_chain.
 
+use serde_json::json;
+use tempfile::TempDir;
 use vellaveto_audit::AuditLogger;
 use vellaveto_config::PolicyConfig;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Verdict};
-use serde_json::json;
-use tempfile::TempDir;
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()

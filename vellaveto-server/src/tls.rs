@@ -7,11 +7,11 @@ use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::WebPkiClientVerifier;
 use rustls::RootCertStore;
-use vellaveto_config::{TlsConfig, TlsKexPolicy, TlsMode};
 use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio_rustls::TlsAcceptor;
+use vellaveto_config::{TlsConfig, TlsKexPolicy, TlsMode};
 
 /// Errors that can occur during TLS setup.
 #[derive(Debug, Error)]

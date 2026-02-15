@@ -1,11 +1,11 @@
 //! Audit-focused integration tests.
 //! Tests AuditLogger with realistic engine outputs.
 
+use serde_json::json;
+use tempfile::TempDir;
 use vellaveto_audit::AuditLogger;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
-use tempfile::TempDir;
 
 fn make_action(tool: &str, function: &str) -> Action {
     Action::new(tool.to_string(), function.to_string(), json!({}))

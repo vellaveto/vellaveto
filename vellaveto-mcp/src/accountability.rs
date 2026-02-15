@@ -9,11 +9,11 @@
 //! (transitive dep of ed25519-dalek, now direct for constant-time comparison).
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use vellaveto_types::{AccountabilityAttestation, AttestationVerificationResult};
 use sha2::{Digest, Sha256};
 use std::fmt;
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
+use vellaveto_types::{AccountabilityAttestation, AttestationVerificationResult};
 
 /// Errors from attestation operations.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -3,8 +3,8 @@
 //! Controls which extensions are allowed, signature requirements, and
 //! resource limits for extension isolation.
 
-use vellaveto_types::ExtensionResourceLimits;
 use serde::{Deserialize, Serialize};
+use vellaveto_types::ExtensionResourceLimits;
 
 /// Maximum number of trusted public keys.
 pub const MAX_TRUSTED_EXTENSION_KEYS: usize = 64;

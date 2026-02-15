@@ -4,10 +4,10 @@
 //!
 //!   export PATH=$HOME/.cargo/bin:$PATH && cargo run -p vellaveto-integration --example audit_trail
 
+use serde_json::json;
 use vellaveto_audit::AuditLogger;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType};
-use serde_json::json;
 
 fn main() {
     let rt = tokio::runtime::Builder::new_current_thread()

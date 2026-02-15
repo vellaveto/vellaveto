@@ -12,8 +12,8 @@ pub mod local;
 pub mod redis_backend;
 
 use async_trait::async_trait;
-use vellaveto_approval::PendingApproval;
 use thiserror::Error;
+use vellaveto_approval::PendingApproval;
 
 /// Errors from cluster backend operations.
 ///
@@ -158,7 +158,8 @@ mod tests {
 
     #[test]
     fn test_cluster_error_from_approval_error() {
-        let err: ClusterError = vellaveto_approval::ApprovalError::NotFound("test-id".into()).into();
+        let err: ClusterError =
+            vellaveto_approval::ApprovalError::NotFound("test-id".into()).into();
         assert!(matches!(err, ClusterError::NotFound(_)));
 
         let err: ClusterError =

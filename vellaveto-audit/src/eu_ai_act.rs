@@ -717,7 +717,11 @@ mod tests {
 
     #[test]
     fn test_classify_entry_approval_adds_art14() {
-        let entry = make_test_entry("approval", "human_approval", vellaveto_types::Verdict::Allow);
+        let entry = make_test_entry(
+            "approval",
+            "human_approval",
+            vellaveto_types::Verdict::Allow,
+        );
         let record = classify_entry_transparency(&entry);
         assert!(record.relevant_articles.contains(&"Art 14".to_string()));
     }

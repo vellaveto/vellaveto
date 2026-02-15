@@ -1,7 +1,7 @@
 //! Policy rule types — PolicyRule struct and default_priority helper.
 
-use vellaveto_types::{NetworkRules, PathRules, PolicyType};
 use serde::{Deserialize, Serialize};
+use vellaveto_types::{NetworkRules, PathRules, PolicyType};
 
 /// Default priority for policies when not explicitly specified.
 /// SECURITY (R19-CFG-1): Default to 0 (lowest priority) so that policies

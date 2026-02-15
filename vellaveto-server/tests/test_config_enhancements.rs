@@ -1,10 +1,10 @@
 //! Tests for the enhanced vellaveto-config crate:
 //! from_toml, load_file, to_policies, priority/id defaults.
 
-use vellaveto_config::{PolicyConfig, PolicyRule};
-use vellaveto_types::PolicyType;
 use serde_json::json;
 use tempfile::TempDir;
+use vellaveto_config::{PolicyConfig, PolicyRule};
+use vellaveto_types::PolicyType;
 
 // ═════════════════════════════
 // from_toml BASIC PARSING

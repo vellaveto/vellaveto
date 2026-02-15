@@ -1,11 +1,11 @@
 //! Tests that audit entry IDs are unique UUIDs and that entry
 //! identity properties hold across the pipeline.
 
-use vellaveto_audit::AuditLogger;
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
 use std::collections::HashSet;
 use tempfile::TempDir;
+use vellaveto_audit::AuditLogger;
+use vellaveto_types::{Action, Verdict};
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()

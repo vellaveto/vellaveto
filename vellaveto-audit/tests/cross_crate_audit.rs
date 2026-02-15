@@ -4,10 +4,10 @@
 //! NOTE: Uses manual tokio runtime because we cannot modify
 //! vellaveto-audit/Cargo.toml to add tokio/macros feature.
 
-use vellaveto_audit::AuditLogger;
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
 use tempfile::TempDir;
+use vellaveto_audit::AuditLogger;
+use vellaveto_types::{Action, Verdict};
 
 fn make_action(tool: &str, function: &str) -> Action {
     Action::new(tool.to_string(), function.to_string(), json!({}))

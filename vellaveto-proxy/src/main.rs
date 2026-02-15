@@ -10,12 +10,12 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use std::sync::Arc;
+use tokio::process::Command;
 use vellaveto_audit::AuditLogger;
 use vellaveto_config::PolicyConfig;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_mcp::proxy::ProxyBridge;
-use std::sync::Arc;
-use tokio::process::Command;
 
 #[derive(Parser)]
 #[command(

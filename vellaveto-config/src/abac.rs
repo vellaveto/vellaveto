@@ -4,8 +4,8 @@
 //! entity stores, least-agency enforcement, identity federation, and
 //! continuous authorization.
 
-use vellaveto_types::{AbacEntity, AbacPolicy, FederationTrustAnchor};
 use serde::{Deserialize, Serialize};
+use vellaveto_types::{AbacEntity, AbacPolicy, FederationTrustAnchor};
 
 /// Maximum number of ABAC policies allowed in config.
 pub const MAX_ABAC_POLICIES: usize = 512;

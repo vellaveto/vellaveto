@@ -4,13 +4,13 @@
 //! approval workflows, and audit trail.
 
 use dashmap::DashMap;
-use vellaveto_config::JitAccessConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use uuid::Uuid;
+use vellaveto_config::JitAccessConfig;
 
 /// Errors that can occur during JIT access operations.
 #[derive(Debug, Error)]

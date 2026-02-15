@@ -11,10 +11,10 @@
 //! 6. DLP response scanning for secret exfiltration
 //! 7. DLP clean response passes without alerts
 
+use serde_json::json;
 use vellaveto_config::ToolManifest;
 use vellaveto_mcp::inspection::scan_response_for_secrets;
 use vellaveto_mcp::output_validation::{OutputSchemaRegistry, ValidationResult};
-use serde_json::json;
 
 // ════════════════════════════════════════════════════════════════
 // TEST 1: RFC 8707 Resource Indicator Validation

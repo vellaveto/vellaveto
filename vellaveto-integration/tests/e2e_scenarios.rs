@@ -1,11 +1,11 @@
 //! End-to-end scenario tests simulating real-world security workflows.
 //! Each test exercises: policy definition → engine evaluation → audit logging → report verification.
 
+use serde_json::json;
+use tempfile::TempDir;
 use vellaveto_audit::AuditLogger;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
-use tempfile::TempDir;
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()

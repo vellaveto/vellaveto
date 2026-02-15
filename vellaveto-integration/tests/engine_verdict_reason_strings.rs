@@ -2,9 +2,9 @@
 //! Every assertion is derived from specific lines in vellaveto-engine/src/lib.rs.
 //! If someone changes a reason string, these tests catch it immediately.
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action {
     Action::new(tool.to_string(), function.to_string(), params)

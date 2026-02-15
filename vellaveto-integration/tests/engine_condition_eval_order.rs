@@ -11,9 +11,9 @@
 //!
 //! This means require_approval=true ALWAYS wins over forbidden/required params.
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 fn make_action(params: serde_json::Value) -> Action {
     Action::new("tool".to_string(), "func".to_string(), params)

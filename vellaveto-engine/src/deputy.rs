@@ -30,10 +30,10 @@
 //! ```
 
 use crate::PatternMatcher;
-use vellaveto_types::PrincipalContext;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
+use vellaveto_types::PrincipalContext;
 
 /// Error types for deputy validation.
 #[derive(Debug, Clone)]

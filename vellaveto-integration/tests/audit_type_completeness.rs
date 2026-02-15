@@ -2,9 +2,9 @@
 //! ErrorLogEntry is exported from vellaveto_audit but never tested.
 //! Also tests AuditEntry construction edge cases and AuditReport field access patterns.
 
+use serde_json::json;
 use vellaveto_audit::{AuditEntry, AuditReport, ErrorLogEntry};
 use vellaveto_types::{Action, Verdict};
-use serde_json::json;
 
 // ═══════════════════════════════════
 // ERROR LOG ENTRY — ZERO EXISTING COVERAGE

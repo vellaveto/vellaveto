@@ -2,9 +2,9 @@
 //! values (e.g., 99 vs 100) and verifies deny-overrides ONLY applies
 //! at EQUAL priority, not at adjacent priorities.
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 fn make_action() -> Action {
     Action::new("tool".to_string(), "func".to_string(), json!({}))

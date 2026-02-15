@@ -12,10 +12,10 @@
 //! - Detect suspicious workflow patterns
 //! - Predict potential outcomes based on action history
 
-use vellaveto_types::Action;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
+use vellaveto_types::Action;
 
 /// Result of recording a workflow step.
 #[derive(Debug, Clone, PartialEq)]

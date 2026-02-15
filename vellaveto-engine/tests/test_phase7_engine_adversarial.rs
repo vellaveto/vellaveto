@@ -8,9 +8,9 @@
 //! - #32 (LOW): Pattern matching has no Unicode normalization — homoglyph bypass
 //!   possible if tool names contain non-ASCII characters.
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType};
-use serde_json::json;
 
 // =============================================================================
 // Finding #30: Domain extraction with percent-encoded @.

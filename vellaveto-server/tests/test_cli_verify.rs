@@ -460,8 +460,8 @@ fn verify_list_rotated_shows_rotated_files() {
     // Create a rotated log with a proper rotation using the AuditLogger
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        let logger =
-            vellaveto_audit::AuditLogger::new_unredacted(audit_path.clone()).with_max_file_size(200); // Tiny threshold to trigger rotation
+        let logger = vellaveto_audit::AuditLogger::new_unredacted(audit_path.clone())
+            .with_max_file_size(200); // Tiny threshold to trigger rotation
         logger.initialize_chain().await.unwrap();
 
         for _ in 0..20 {

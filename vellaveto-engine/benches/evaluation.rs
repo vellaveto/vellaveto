@@ -5,9 +5,9 @@
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, NetworkRules, PathRules, Policy, PolicyType};
-use serde_json::json;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1115,8 +1115,8 @@ criterion_group!(
 // ---------------------------------------------------------------------------
 
 fn bench_behavioral_record_session(c: &mut Criterion) {
-    use vellaveto_engine::behavioral::{BehavioralConfig, BehavioralTracker};
     use std::collections::HashMap;
+    use vellaveto_engine::behavioral::{BehavioralConfig, BehavioralTracker};
 
     let config = BehavioralConfig::default();
     let mut tracker = BehavioralTracker::new(config).unwrap();
@@ -1134,8 +1134,8 @@ fn bench_behavioral_record_session(c: &mut Criterion) {
 }
 
 fn bench_behavioral_check_session(c: &mut Criterion) {
-    use vellaveto_engine::behavioral::{BehavioralConfig, BehavioralTracker};
     use std::collections::HashMap;
+    use vellaveto_engine::behavioral::{BehavioralConfig, BehavioralTracker};
 
     let config = BehavioralConfig {
         min_sessions: 3,
@@ -1168,8 +1168,8 @@ fn bench_behavioral_check_session(c: &mut Criterion) {
 }
 
 fn bench_behavioral_check_anomalous(c: &mut Criterion) {
-    use vellaveto_engine::behavioral::{BehavioralConfig, BehavioralTracker};
     use std::collections::HashMap;
+    use vellaveto_engine::behavioral::{BehavioralConfig, BehavioralTracker};
 
     let config = BehavioralConfig {
         min_sessions: 3,

@@ -38,16 +38,16 @@ use chacha20poly1305::{
 };
 use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use hmac::{Hmac, Mac};
-use vellaveto_types::{
-    SecureTask, SecureTaskStats, TaskCheckpoint, TaskIntegrityResult, TaskResumeRequest,
-    TaskResumeResult, TaskStateTransition, TaskStatus, TrackedTask,
-};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
+use vellaveto_types::{
+    SecureTask, SecureTaskStats, TaskCheckpoint, TaskIntegrityResult, TaskResumeRequest,
+    TaskResumeResult, TaskStateTransition, TaskStatus, TrackedTask,
+};
 
 type HmacSha256 = Hmac<Sha256>;
 

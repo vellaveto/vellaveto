@@ -4,11 +4,11 @@
 //!
 //!   export PATH=$HOME/.cargo/bin:$PATH && cargo run -p vellaveto-integration --example mixed_workload_benchmark
 
+use serde_json::json;
+use std::time::Instant;
 use vellaveto_audit::AuditLogger;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType};
-use serde_json::json;
-use std::time::Instant;
 
 fn make_policies() -> Vec<Policy> {
     vec![

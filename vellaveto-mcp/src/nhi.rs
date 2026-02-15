@@ -11,6 +11,10 @@
 
 use crate::accountability;
 use crate::did_plc;
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet, VecDeque};
+use tokio::sync::RwLock;
+use uuid::Uuid;
 use vellaveto_config::NhiConfig;
 use vellaveto_types::{
     AccountabilityAttestation, AttestationVerificationResult, DidPlc, NhiAgentIdentity,
@@ -18,10 +22,6 @@ use vellaveto_types::{
     NhiBehavioralRecommendation, NhiCredentialRotation, NhiDelegationChain, NhiDelegationLink,
     NhiDpopProof, NhiDpopVerificationResult, NhiIdentityStatus, NhiStats, VerificationTier,
 };
-use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet, VecDeque};
-use tokio::sync::RwLock;
-use uuid::Uuid;
 
 /// Maximum nonces to keep for DPoP replay prevention.
 const MAX_DPOP_NONCES: usize = 10000;

@@ -15,10 +15,10 @@
 //! assert!(result.is_ok());
 //! ```
 
-use vellaveto_types::SamplingStats;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
+use vellaveto_types::SamplingStats;
 
 /// Reason for denying a sampling request.
 #[derive(Debug, Clone)]

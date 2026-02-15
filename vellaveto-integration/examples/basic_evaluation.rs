@@ -4,9 +4,9 @@
 //!
 //!   export PATH=$HOME/.cargo/bin:$PATH && cargo run -p vellaveto-integration --example basic_evaluation
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType};
-use serde_json::json;
 
 fn main() {
     let engine = PolicyEngine::new(false);

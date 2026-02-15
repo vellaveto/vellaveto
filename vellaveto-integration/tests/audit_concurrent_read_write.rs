@@ -2,11 +2,11 @@
 //! Multiple tasks write while others simultaneously load entries
 //! and generate reports. This probes for file-locking issues.
 
-use vellaveto_audit::AuditLogger;
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;
+use vellaveto_audit::AuditLogger;
+use vellaveto_types::{Action, Verdict};
 
 fn runtime_mt() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_multi_thread()

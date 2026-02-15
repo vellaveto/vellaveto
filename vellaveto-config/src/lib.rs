@@ -112,8 +112,8 @@ pub use policy_rule::PolicyRule;
 pub use tool_registry::ToolRegistryConfig;
 pub use transport::TransportConfig;
 
-use vellaveto_types::{Policy, PolicyType};
 use serde::{Deserialize, Serialize};
+use vellaveto_types::{Policy, PolicyType};
 
 pub(crate) fn default_true() -> bool {
     true

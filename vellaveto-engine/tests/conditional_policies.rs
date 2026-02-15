@@ -1,8 +1,8 @@
 //! Integration tests for conditional policy evaluation.
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, CallChainEntry, EvaluationContext, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 fn conditional_policy(
     id: &str,

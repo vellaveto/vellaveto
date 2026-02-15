@@ -13,8 +13,8 @@
 //! failures. The caller converts errors to `Deny` verdicts.
 
 use async_trait::async_trait;
-use deadpool_redis::{Config as PoolConfig, Pool, Runtime};
 use deadpool_redis::redis::AsyncCommands;
+use deadpool_redis::{Config as PoolConfig, Pool, Runtime};
 use vellaveto_approval::{ApprovalStatus, PendingApproval};
 use vellaveto_types::Action;
 

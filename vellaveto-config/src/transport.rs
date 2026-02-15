@@ -3,8 +3,8 @@
 //! Controls which transports are advertised via `/.well-known/mcp-transport`,
 //! upstream fallback priorities, and transport restrictions.
 
-use vellaveto_types::TransportProtocol;
 use serde::{Deserialize, Serialize};
+use vellaveto_types::TransportProtocol;
 
 /// Maximum fallback retries to prevent retry storms.
 const MAX_FALLBACK_RETRIES: u32 = 10;

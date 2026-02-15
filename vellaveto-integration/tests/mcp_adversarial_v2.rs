@@ -3,9 +3,9 @@
 //! Tests are done through the engine+types layer (vellaveto-integration
 //! doesn't directly depend on vellaveto-mcp).
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 // ════════════════════════════════════════════
 // DESERIALIZATION OF MALFORMED MCP-STYLE PAYLOADS

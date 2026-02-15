@@ -7,7 +7,6 @@
 
 use lru::LruCache;
 use reqwest::Client;
-use vellaveto_config::{ThreatIntelConfig, ThreatIntelProvider};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
@@ -15,6 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::RwLock;
+use vellaveto_config::{ThreatIntelConfig, ThreatIntelProvider};
 
 /// Errors that can occur during threat intel operations.
 #[derive(Debug, Error)]

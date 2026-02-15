@@ -4,8 +4,8 @@
 //! Shared enums (`AiActRiskClass`, `TrustServicesCategory`) live in
 //! `vellaveto-types` so both config and audit crates can use them.
 
-pub use vellaveto_types::compliance::{AiActRiskClass, TrustServicesCategory};
 use serde::{Deserialize, Serialize};
+pub use vellaveto_types::compliance::{AiActRiskClass, TrustServicesCategory};
 
 // ── Validation Constants ──────────────────────────────────────────────────────
 

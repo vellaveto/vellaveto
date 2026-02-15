@@ -1,10 +1,10 @@
 //! Least-agency enforcement — tracks permission usage per agent session
 //! and detects unused permissions for scope narrowing recommendations.
 
-use vellaveto_types::{AgencyRecommendation, LeastAgencyReport, PermissionUsage};
 use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 use std::time::Instant;
+use vellaveto_types::{AgencyRecommendation, LeastAgencyReport, PermissionUsage};
 
 /// Maximum tracked sessions to bound memory.
 const MAX_TRACKED_SESSIONS: usize = 4096;

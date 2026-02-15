@@ -5,8 +5,8 @@
 //! preserving single-instance behavior exactly.
 
 use async_trait::async_trait;
-use vellaveto_approval::ApprovalStore;
 use std::sync::Arc;
+use vellaveto_approval::ApprovalStore;
 
 use crate::{ClusterBackend, ClusterError};
 

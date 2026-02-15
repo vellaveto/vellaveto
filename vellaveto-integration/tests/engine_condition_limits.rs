@@ -1,9 +1,9 @@
 //! Tests for the engine's defensive limits on condition JSON:
 //! nesting depth (>10) and size (>100KB).
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType};
-use serde_json::json;
 
 fn make_action() -> Action {
     Action::new("tool".to_string(), "func".to_string(), json!({}))

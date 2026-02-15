@@ -16,8 +16,8 @@
 //! This module classifies messages and extracts the tool name + arguments
 //! into a [`vellaveto_types::Action`] for policy evaluation.
 
-use vellaveto_types::Action;
 use serde_json::Value;
+use vellaveto_types::Action;
 
 /// Standard parameter key for file system paths (extracted from tool arguments or URIs).
 ///

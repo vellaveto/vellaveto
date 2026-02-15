@@ -5,7 +5,6 @@
 
 use crate::etdi::EtdiError;
 use hmac::{Hmac, Mac};
-use vellaveto_types::{ToolAttestation, ToolSignature, ToolVersionPin};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::collections::HashMap;
@@ -13,6 +12,7 @@ use std::path::{Path, PathBuf};
 use tokio::fs::{self, OpenOptions};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::RwLock;
+use vellaveto_types::{ToolAttestation, ToolSignature, ToolVersionPin};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -347,8 +347,8 @@ impl EtdiStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vellaveto_types::SignatureAlgorithm;
     use tempfile::TempDir;
+    use vellaveto_types::SignatureAlgorithm;
 
     fn test_signature() -> ToolSignature {
         ToolSignature {

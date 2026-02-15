@@ -58,9 +58,9 @@ fn example_config_has_expected_policy_types() {
 
 #[test]
 fn example_config_evaluates_correctly_through_engine() {
+    use serde_json::json;
     use vellaveto_engine::PolicyEngine;
     use vellaveto_types::{Action, Verdict};
-    use serde_json::json;
 
     let config = PolicyConfig::load_file("vellaveto-server/example-config.toml")
         .or_else(|_| PolicyConfig::load_file("example-config.toml"))

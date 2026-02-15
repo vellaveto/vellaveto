@@ -1,10 +1,10 @@
 //! Tests that the shipped example-config.toml is valid, produces
 //! correct engine behavior, and survives roundtrip serialization.
 
+use serde_json::json;
 use vellaveto_config::PolicyConfig;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, PolicyType, Verdict};
-use serde_json::json;
 
 fn load_example_config() -> PolicyConfig {
     PolicyConfig::load_file("vellaveto-server/example-config.toml")

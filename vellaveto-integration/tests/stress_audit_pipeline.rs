@@ -1,11 +1,11 @@
 //! Stress and concurrency tests for the audit pipeline.
 //! Exercises concurrent writes, large volumes, and report consistency.
 
+use serde_json::json;
+use tempfile::TempDir;
 use vellaveto_audit::AuditLogger;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
-use tempfile::TempDir;
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()

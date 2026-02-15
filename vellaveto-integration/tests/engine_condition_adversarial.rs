@@ -2,9 +2,9 @@
 //! Focuses on malformed JSON, deeply nested conditions, forbidden parameter matching,
 //! and edge cases in the conditional policy pipeline.
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action {
     Action::new(tool.to_string(), function.to_string(), params)

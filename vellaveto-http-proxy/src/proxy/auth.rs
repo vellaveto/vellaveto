@@ -5,10 +5,10 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use vellaveto_types::{Action, Verdict};
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use subtle::ConstantTimeEq;
+use vellaveto_types::{Action, Verdict};
 
 use super::{ProxyState, X_AGENT_IDENTITY};
 use crate::oauth::{OAuthClaims, OAuthError};

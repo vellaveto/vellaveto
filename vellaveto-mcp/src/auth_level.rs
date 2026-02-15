@@ -23,11 +23,11 @@
 //! assert_eq!(tracker.get_level("session-1").await, AuthLevel::OAuthMfa);
 //! ```
 
-use vellaveto_types::AuthLevel;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
+use vellaveto_types::AuthLevel;
 
 /// State for a session's authentication level.
 #[derive(Debug, Clone)]

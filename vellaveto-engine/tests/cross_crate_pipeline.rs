@@ -4,9 +4,9 @@
 //! These tests use the ACTUAL workspace API and try adversarially
 //! to find edge cases and broken assumptions.
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 // ─── Helper constructors ───────────────────────────────────────
 

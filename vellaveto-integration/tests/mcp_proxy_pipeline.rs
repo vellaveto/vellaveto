@@ -4,15 +4,15 @@
 //! evaluation → audit logging. This validates that policies defined in TOML
 //! configs correctly flow through to MCP proxy decisions with proper audit trails.
 
+use serde_json::json;
+use std::sync::Arc;
+use tempfile::TempDir;
 use vellaveto_audit::AuditLogger;
 use vellaveto_config::PolicyConfig;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_mcp::extractor::{classify_message, extract_action, MessageType};
 use vellaveto_mcp::proxy::{ProxyBridge, ProxyDecision};
 use vellaveto_types::Verdict;
-use serde_json::json;
-use std::sync::Arc;
-use tempfile::TempDir;
 
 /// Build a ProxyBridge from TOML config string.
 fn bridge_from_toml(toml_str: &str) -> (ProxyBridge, Arc<AuditLogger>, TempDir) {

@@ -1,5 +1,5 @@
-use vellaveto_types::{Policy, PolicyType};
 use serde_json::json;
+use vellaveto_types::{Policy, PolicyType};
 
 pub struct CanonicalPolicies;
 

@@ -1,5 +1,5 @@
-use vellaveto_types::SignatureAlgorithm;
 use serde::{Deserialize, Serialize};
+use vellaveto_types::SignatureAlgorithm;
 
 // ═══════════════════════════════════════════════════
 // ETDI: ENHANCED TOOL DEFINITION INTERFACE

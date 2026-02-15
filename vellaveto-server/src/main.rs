@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use arc_swap::ArcSwap;
 use clap::{Parser, Subcommand};
+use serde_json::json;
+use std::sync::Arc;
 use vellaveto_approval::ApprovalStore;
 use vellaveto_audit::AuditLogger;
 use vellaveto_canonical::CanonicalPolicies;
@@ -8,8 +10,6 @@ use vellaveto_config::PolicyConfig;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_server::{routes, AppState, RateLimits};
 use vellaveto_types::{Action, Policy, Verdict};
-use serde_json::json;
-use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(
@@ -453,10 +453,11 @@ async fn cmd_serve(
     let eff_readonly_burst = env_or("VELLAVETO_RATE_READONLY_BURST", rl_cfg.readonly_burst);
     let eff_per_ip_rps = env_or("VELLAVETO_RATE_PER_IP", rl_cfg.per_ip_rps);
     let eff_per_ip_burst = env_or("VELLAVETO_RATE_PER_IP_BURST", rl_cfg.per_ip_burst);
-    let eff_per_ip_max_capacity: Option<usize> = std::env::var("VELLAVETO_RATE_PER_IP_MAX_CAPACITY")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .or(rl_cfg.per_ip_max_capacity);
+    let eff_per_ip_max_capacity: Option<usize> =
+        std::env::var("VELLAVETO_RATE_PER_IP_MAX_CAPACITY")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .or(rl_cfg.per_ip_max_capacity);
 
     let mut rate_limits_val = RateLimits::new_with_burst(
         eff_evaluate_rps,

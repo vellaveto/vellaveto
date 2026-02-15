@@ -14,9 +14,9 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     Json,
 };
-use vellaveto_types::{Action, Verdict};
 use serde::Deserialize;
 use serde_json::json;
+use vellaveto_types::{Action, Verdict};
 
 use crate::routes::ErrorResponse;
 use crate::AppState;

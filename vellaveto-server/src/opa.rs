@@ -12,7 +12,6 @@
 use lru::LruCache;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::Client;
-use vellaveto_config::OpaConfig;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::num::NonZeroUsize;
@@ -20,6 +19,7 @@ use std::sync::{Arc, OnceLock, RwLock as StdRwLock};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::RwLock;
+use vellaveto_config::OpaConfig;
 
 /// Fallback cache size for OPA decisions if configured size is zero.
 const FALLBACK_CACHE_SIZE: usize = 1000;

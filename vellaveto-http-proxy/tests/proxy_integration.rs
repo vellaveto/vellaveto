@@ -5,6 +5,12 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use serde_json::{json, Value};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+use tempfile::TempDir;
+use tower::ServiceExt;
 use vellaveto_audit::AuditLogger;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_http_proxy::oauth::{
@@ -14,12 +20,6 @@ use vellaveto_http_proxy::oauth::{
 use vellaveto_http_proxy::proxy::ProxyState;
 use vellaveto_http_proxy::session::SessionStore;
 use vellaveto_types::{NetworkRules, Policy, PolicyType};
-use serde_json::{json, Value};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
-use tempfile::TempDir;
-use tower::ServiceExt;
 
 /// Start a mock upstream MCP server that echoes back tool call results.
 /// Returns the URL of the mock server.

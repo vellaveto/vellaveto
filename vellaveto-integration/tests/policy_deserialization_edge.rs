@@ -2,8 +2,8 @@
 //! The config → engine pipeline depends on Policy deserializing correctly
 //! from user-provided JSON. These tests verify edge cases in that path.
 
-use vellaveto_types::{Policy, PolicyType};
 use serde_json::json;
+use vellaveto_types::{Policy, PolicyType};
 
 // ═══════════════════════════════════
 // BASIC POLICY DESERIALIZATION

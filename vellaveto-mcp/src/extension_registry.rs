@@ -3,12 +3,12 @@
 //! Manages loaded extensions, routes `x-` prefixed method calls to the
 //! appropriate handler, and enforces allow/block patterns from configuration.
 
-use vellaveto_types::{
-    ExtensionDescriptor, ExtensionError, ExtensionNegotiationResult, ExtensionResourceLimits,
-};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::RwLock;
+use vellaveto_types::{
+    ExtensionDescriptor, ExtensionError, ExtensionNegotiationResult, ExtensionResourceLimits,
+};
 
 /// Maximum number of registered extensions.
 const MAX_EXTENSIONS: usize = 256;

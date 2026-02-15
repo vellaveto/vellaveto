@@ -7,13 +7,13 @@
 //! **Status:** Production — fully wired into the HTTP proxy.
 
 use dashmap::DashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use vellaveto_config::ToolManifest;
 use vellaveto_mcp::memory_tracking::MemoryTracker;
 use vellaveto_mcp::rug_pull::ToolAnnotations;
 use vellaveto_types::AgentIdentity;
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 /// Type alias for backward compatibility with existing code.
 pub type ToolAnnotationsCompact = ToolAnnotations;

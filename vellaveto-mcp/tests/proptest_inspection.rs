@@ -6,9 +6,9 @@
 //! - Sanitization idempotence: sanitize(sanitize(x)) == sanitize(x)
 
 use proptest::prelude::*;
+use serde_json::{json, Value};
 use vellaveto_mcp::extractor::{classify_message, MessageType};
 use vellaveto_mcp::inspection::{inspect_for_injection, sanitize_for_injection_scan};
-use serde_json::{json, Value};
 
 // ═══════════════════════════════════
 // PROPERTY: inspect_for_injection is deterministic

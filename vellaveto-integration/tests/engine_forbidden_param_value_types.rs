@@ -2,9 +2,9 @@
 //! in action parameters. The engine checks `action.parameters.get(param_str).is_some()`
 //! which only checks KEY presence, not value type. These tests verify that.
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 fn make_action_with_params(params: serde_json::Value) -> Action {
     Action::new("tool".to_string(), "func".to_string(), params)

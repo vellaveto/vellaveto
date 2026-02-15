@@ -4,9 +4,9 @@
 //! capabilities to SOC 2 Common Criteria (CC1-CC9) and generates evidence
 //! reports for Type II audit readiness.
 
-use vellaveto_types::TrustServicesCategory;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use vellaveto_types::TrustServicesCategory;
 
 // ── Criterion Identifier ─────────────────────────────────────────────────────
 
@@ -1037,7 +1037,11 @@ mod tests {
 
     #[test]
     fn test_classify_entry_approval_adds_cc7() {
-        let entry = make_test_entry("approval", "human_approval", vellaveto_types::Verdict::Allow);
+        let entry = make_test_entry(
+            "approval",
+            "human_approval",
+            vellaveto_types::Verdict::Allow,
+        );
         let record = classify_entry(&entry);
         assert!(record.relevant_criteria.contains(&"CC7.3".to_string()));
     }

@@ -9,6 +9,12 @@
 use arc_swap::ArcSwap;
 use axum::body::Body;
 use axum::http::Request;
+use serde_json::json;
+use std::io::Cursor;
+use std::sync::Arc;
+use tempfile::TempDir;
+use tokio::io::BufReader;
+use tower::ServiceExt;
 use vellaveto_approval::ApprovalStore;
 use vellaveto_audit::AuditLogger;
 use vellaveto_engine::PolicyEngine;
@@ -16,12 +22,6 @@ use vellaveto_mcp::extractor::{classify_message, MessageType};
 use vellaveto_mcp::framing::{read_message, FramingError};
 use vellaveto_server::{routes, AppState, Metrics, RateLimits};
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
-use std::io::Cursor;
-use std::sync::Arc;
-use tempfile::TempDir;
-use tokio::io::BufReader;
-use tower::ServiceExt;
 
 // ═══════════════════════════════════════════════════
 // FINDING #1 — Hash chain bypass (CRITICAL)
@@ -337,14 +337,14 @@ mod server_auth {
     use arc_swap::ArcSwap;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use std::sync::Arc;
+    use tempfile::TempDir;
+    use tower::ServiceExt;
     use vellaveto_approval::ApprovalStore;
     use vellaveto_audit::AuditLogger;
     use vellaveto_engine::PolicyEngine;
     use vellaveto_server::{routes, AppState, Metrics, RateLimits};
     use vellaveto_types::{Policy, PolicyType};
-    use std::sync::Arc;
-    use tempfile::TempDir;
-    use tower::ServiceExt;
 
     fn make_authed_state(api_key: &str) -> (AppState, TempDir) {
         let tmp = TempDir::new().unwrap();

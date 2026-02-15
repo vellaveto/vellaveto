@@ -8,8 +8,8 @@
 use crate::compiled::CompiledPolicy;
 use crate::ip;
 use crate::PolicyEngine;
-use vellaveto_types::{Action, Verdict};
 use std::net::IpAddr;
+use vellaveto_types::{Action, Verdict};
 
 impl PolicyEngine {
     /// Check action target_paths against compiled path rules.

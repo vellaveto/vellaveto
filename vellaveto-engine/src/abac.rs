@@ -4,10 +4,10 @@
 //! and evaluates them with forbid-overrides semantics.
 
 use crate::matcher::PatternMatcher;
+use std::collections::HashMap;
 use vellaveto_types::{
     AbacEffect, AbacEntity, AbacOp, AbacPolicy, Action, EvaluationContext, RiskScore,
 };
-use std::collections::HashMap;
 
 /// Maximum transitive group membership depth to prevent cycles.
 const MAX_MEMBERSHIP_DEPTH: usize = 16;

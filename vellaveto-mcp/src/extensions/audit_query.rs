@@ -4,8 +4,8 @@
 //! Serves as the reference implementation for the extension framework.
 
 use crate::extension_registry::ExtensionHandler;
-use vellaveto_types::{ExtensionDescriptor, ExtensionError};
 use serde_json::{json, Value};
+use vellaveto_types::{ExtensionDescriptor, ExtensionError};
 
 /// Extension ID for the audit query extension.
 pub const EXTENSION_ID: &str = "x-vellaveto-audit";

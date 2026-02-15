@@ -1,11 +1,11 @@
 use super::*;
 use ed25519_dalek::Signer;
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
 use std::path::PathBuf;
 use tempfile::TempDir;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
+use vellaveto_types::{Action, Verdict};
 
 fn test_action() -> Action {
     Action::new(

@@ -1,11 +1,11 @@
 //! Tests that multiple AuditLogger instances writing to different files
 //! are fully isolated — no shared global state, no cross-contamination.
 
-use vellaveto_audit::AuditLogger;
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;
+use vellaveto_audit::AuditLogger;
+use vellaveto_types::{Action, Verdict};
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()

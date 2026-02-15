@@ -5,10 +5,10 @@
 
 use super::ProxyBridge;
 use super::ToolAnnotations;
-use vellaveto_audit::AuditLogger;
-use vellaveto_types::AgentFingerprint;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use vellaveto_audit::AuditLogger;
+use vellaveto_types::AgentFingerprint;
 
 impl ProxyBridge {
     /// Extract agent fingerprint from MCP message `_meta` field.

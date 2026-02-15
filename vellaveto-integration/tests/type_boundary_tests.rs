@@ -2,8 +2,8 @@
 //! Exercises edge cases in Action, Policy, Verdict, and PolicyType
 //! serialization/deserialization to find breakage.
 
-use vellaveto_types::{Action, Policy, PolicyType, Verdict};
 use serde_json::json;
+use vellaveto_types::{Action, Policy, PolicyType, Verdict};
 
 // ═════════════════════════════════════════════════
 // ACTION SERIALIZATION ROUNDTRIPS

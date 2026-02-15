@@ -17,9 +17,9 @@
 
 use crate::etdi::{EtdiError, EtdiStore};
 use chrono::Utc;
-use vellaveto_types::{ToolVersionPin, VersionDriftAlert};
 use serde_json::Value;
 use std::sync::Arc;
+use vellaveto_types::{ToolVersionPin, VersionDriftAlert};
 
 /// Result of version pin check.
 #[derive(Debug, Clone, PartialEq)]

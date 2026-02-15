@@ -39,7 +39,10 @@ fn binary_responds_to_help_flag() {
         .expect("failed to run vellaveto");
     assert!(output.status.success(), "vellaveto --help should succeed");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("vellaveto"), "Help should mention vellaveto");
+    assert!(
+        stdout.contains("vellaveto"),
+        "Help should mention vellaveto"
+    );
     assert!(
         stdout.contains("serve"),
         "Help should list serve subcommand"

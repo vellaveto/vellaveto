@@ -27,9 +27,9 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use vellaveto_types::{NhiAttestationType, NhiIdentityStatus};
 use serde_json::json;
 use std::collections::HashMap;
+use vellaveto_types::{NhiAttestationType, NhiIdentityStatus};
 
 use crate::AppState;
 

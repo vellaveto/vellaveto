@@ -5,10 +5,10 @@
 //! - Checkpoint verification: N entries + checkpoint → verify always succeeds
 
 use proptest::prelude::*;
-use vellaveto_audit::AuditLogger;
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
 use tempfile::TempDir;
+use vellaveto_audit::AuditLogger;
+use vellaveto_types::{Action, Verdict};
 
 /// Generate an arbitrary Action.
 fn arb_action() -> impl Strategy<Value = Action> {

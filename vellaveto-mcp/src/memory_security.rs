@@ -7,16 +7,16 @@
 //! - Quarantining suspicious data
 //! - Enforcing namespace isolation between agents
 
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, VecDeque};
+use tokio::sync::RwLock;
+use uuid::Uuid;
 use vellaveto_config::MemorySecurityConfig;
 use vellaveto_types::{
     MemoryAccessDecision, MemoryEntry, MemoryNamespace, MemorySecurityStats, NamespaceAccessType,
     NamespaceIsolation, NamespaceSharingRequest, ProvenanceEventType, ProvenanceNode,
     QuarantineDetection, QuarantineEntry, TaintLabel,
 };
-use sha2::{Digest, Sha256};
-use std::collections::{HashMap, VecDeque};
-use tokio::sync::RwLock;
-use uuid::Uuid;
 
 /// Maximum recursion depth for provenance traversal.
 const MAX_PROVENANCE_DEPTH: usize = 100;

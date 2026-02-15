@@ -5,10 +5,10 @@
 //!
 //!   export PATH=$HOME/.cargo/bin:$PATH && cargo run -p vellaveto-integration --example conditional_scaling_benchmark
 
-use vellaveto_engine::PolicyEngine;
-use vellaveto_types::{Action, Policy, PolicyType};
 use serde_json::json;
 use std::time::Instant;
+use vellaveto_engine::PolicyEngine;
+use vellaveto_types::{Action, Policy, PolicyType};
 
 fn make_conditional_policy(num_forbidden: usize, num_required: usize) -> Policy {
     let forbidden: Vec<String> = (0..num_forbidden)

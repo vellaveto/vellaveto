@@ -4,9 +4,9 @@
 //! policy engine blocks using parameter constraints (glob, not_glob,
 //! domain_match, domain_not_in, regex).
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 // ═══════════════════════════════════════════════════════════════
 // HELPERS

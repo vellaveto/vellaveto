@@ -145,8 +145,8 @@ pub async fn compliance_status(
 ///
 /// Generates a full ISO 42001 AI Management System compliance evidence report.
 #[tracing::instrument(name = "vellaveto.iso42001_report")]
-pub async fn iso42001_report(
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+pub async fn iso42001_report() -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)>
+{
     let registry = vellaveto_audit::iso42001::Iso42001Registry::new();
     let report = registry.generate_report("Vellaveto", "vellaveto-runtime");
 

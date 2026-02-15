@@ -383,7 +383,9 @@ impl Iso42001Registry {
             Iso42001Capability::ThreatDetection,
             "8.2",
             ComplianceStatus::Compliant,
-            Some("Continuous risk assessment via injection detection, DLP, and behavioral analysis"),
+            Some(
+                "Continuous risk assessment via injection detection, DLP, and behavioral analysis",
+            ),
         );
         self.add_mapping(
             Iso42001Capability::RuntimeEvaluation,
@@ -450,10 +452,7 @@ impl Iso42001Registry {
     }
 
     /// Get mappings for a specific capability.
-    pub fn mappings_for_capability(
-        &self,
-        capability: Iso42001Capability,
-    ) -> Vec<&ClauseMapping> {
+    pub fn mappings_for_capability(&self, capability: Iso42001Capability) -> Vec<&ClauseMapping> {
         self.mappings
             .iter()
             .filter(|m| m.capability == capability)
@@ -468,11 +467,7 @@ impl Iso42001Registry {
     // ── Report Generation ────────────────────────────────────────────────────
 
     /// Generate an ISO 42001 compliance evidence report.
-    pub fn generate_report(
-        &self,
-        organization_name: &str,
-        system_id: &str,
-    ) -> Iso42001Report {
+    pub fn generate_report(&self, organization_name: &str, system_id: &str) -> Iso42001Report {
         let mut clause_assessments = Vec::new();
 
         for (clause_key, clause) in &self.clauses {
@@ -484,8 +479,7 @@ impl Iso42001Registry {
                     .iter()
                     .all(|m| m.status == ComplianceStatus::Compliant);
                 let any_evidence = mappings.iter().any(|m| {
-                    m.status == ComplianceStatus::Compliant
-                        || m.status == ComplianceStatus::Partial
+                    m.status == ComplianceStatus::Compliant || m.status == ComplianceStatus::Partial
                 });
                 if all_compliant {
                     ComplianceStatus::Compliant
@@ -523,8 +517,7 @@ impl Iso42001Registry {
             .count();
 
         let compliance_percentage = if total_clauses > 0 {
-            ((compliant_count as f32 + partial_count as f32 * 0.5) / total_clauses as f32)
-                * 100.0
+            ((compliant_count as f32 + partial_count as f32 * 0.5) / total_clauses as f32) * 100.0
         } else {
             100.0
         };
@@ -653,7 +646,10 @@ mod tests {
     fn test_compliance_status_display() {
         assert_eq!(ComplianceStatus::Compliant.to_string(), "Compliant");
         assert_eq!(ComplianceStatus::Partial.to_string(), "Partial");
-        assert_eq!(ComplianceStatus::NotImplemented.to_string(), "Not Implemented");
+        assert_eq!(
+            ComplianceStatus::NotImplemented.to_string(),
+            "Not Implemented"
+        );
     }
 
     #[test]

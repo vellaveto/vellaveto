@@ -38,11 +38,11 @@ pub mod otlp;
 pub mod webhook;
 
 use async_trait::async_trait;
-use vellaveto_types::Verdict;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
 use tracing::{debug, trace};
+use vellaveto_types::Verdict;
 
 /// Error type for observability export operations.
 #[derive(Debug, Error)]

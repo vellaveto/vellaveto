@@ -1,7 +1,7 @@
-use vellaveto_types::{Action, Verdict};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use vellaveto_types::{Action, Verdict};
 
 #[derive(Error, Debug)]
 pub enum AuditError {

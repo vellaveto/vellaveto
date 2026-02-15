@@ -4,12 +4,12 @@
 //! to the underlying ApprovalStore while conforming to the ClusterBackend
 //! trait contract.
 
+use std::sync::Arc;
+use tempfile::TempDir;
 use vellaveto_approval::ApprovalStore;
 use vellaveto_cluster::local::LocalBackend;
 use vellaveto_cluster::ClusterBackend;
 use vellaveto_types::Action;
-use std::sync::Arc;
-use tempfile::TempDir;
 
 /// Helper: create a LocalBackend with a temporary persistence file.
 fn make_backend() -> (Arc<dyn ClusterBackend>, TempDir) {
@@ -248,7 +248,10 @@ async fn test_self_approval_prevention() {
     let result = backend.approval_approve(&id, "alice").await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, vellaveto_cluster::ClusterError::Validation(_)));
+    assert!(matches!(
+        err,
+        vellaveto_cluster::ClusterError::Validation(_)
+    ));
 
     // A different person should be able to approve
     let approval = backend

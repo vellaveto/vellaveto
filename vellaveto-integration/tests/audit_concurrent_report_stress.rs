@@ -4,11 +4,11 @@
 //! - report.entries.len() == report.total_entries
 //! - counts are non-decreasing over time (no lost entries)
 
-use vellaveto_audit::AuditLogger;
-use vellaveto_types::{Action, Verdict};
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;
+use vellaveto_audit::AuditLogger;
+use vellaveto_types::{Action, Verdict};
 
 fn runtime_mt() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_multi_thread()

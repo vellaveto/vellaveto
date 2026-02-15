@@ -13,13 +13,13 @@
 //! - Constant-time key comparison via `subtle::ConstantTimeEq`
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq;
+use uuid::Uuid;
 use vellaveto_types::{
     Action, CapabilityError, CapabilityGrant, CapabilityToken, CapabilityVerification,
     MAX_DELEGATION_DEPTH, MAX_GRANTS,
 };
-use sha2::{Digest, Sha256};
-use subtle::ConstantTimeEq;
-use uuid::Uuid;
 
 /// Issue a new root capability token.
 ///

@@ -5,12 +5,12 @@
 //! This is the automated proof of Success Criteria #2:
 //!   "Demo shows blocked credential exfiltration attack."
 
+use serde_json::json;
+use tempfile::TempDir;
 use vellaveto_audit::AuditLogger;
 use vellaveto_config::PolicyConfig;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Verdict};
-use serde_json::json;
-use tempfile::TempDir;
 
 /// The demo config is embedded at compile time to avoid CWD issues in tests.
 const DEMO_CONFIG_TOML: &str = include_str!("../../examples/credential-exfil-demo.toml");

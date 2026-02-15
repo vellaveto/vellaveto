@@ -6,12 +6,12 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use vellaveto_types::{Action, EvaluationContext, Verdict};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::atomic::Ordering;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
+use vellaveto_types::{Action, EvaluationContext, Verdict};
 
 use governor::clock::Clock;
 

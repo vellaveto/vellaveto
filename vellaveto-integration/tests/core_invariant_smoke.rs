@@ -2,9 +2,9 @@
 //! Every assertion traces to a specific source code line.
 //! If any of these fail, the workspace is fundamentally broken.
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 fn action(tool: &str, function: &str) -> Action {
     Action::new(tool.to_string(), function.to_string(), json!({}))

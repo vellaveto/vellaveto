@@ -14,12 +14,12 @@
 use crate::agent_trust::{
     AgentTrustGraph, EscalationAlert, EscalationAlertType, PrivilegeLevel, RequestChainEntry,
 };
-use vellaveto_types::Action;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use unicode_normalization::UnicodeNormalization;
+use vellaveto_types::Action;
 
 /// Alert generated when second-order prompt injection is detected.
 #[derive(Debug, Clone)]

@@ -8,8 +8,8 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use vellaveto_types::{SdkCapabilities, SdkTier, TransportEndpoint, TransportProtocol};
 use serde::Serialize;
+use vellaveto_types::{SdkCapabilities, SdkTier, TransportEndpoint, TransportProtocol};
 
 use super::{ProxyState, SUPPORTED_PROTOCOL_VERSIONS};
 

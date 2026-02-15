@@ -3,8 +3,8 @@
 //! that would hit the MCP server. Since vellaveto-integration doesn't
 //! depend on vellaveto-mcp, we test the shared type boundaries.
 
-use vellaveto_types::{Action, Policy, Verdict};
 use serde_json::json;
+use vellaveto_types::{Action, Policy, Verdict};
 
 // ═══════════════════════════════════════════
 // MALFORMED ACTION JSON

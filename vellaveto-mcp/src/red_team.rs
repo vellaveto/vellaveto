@@ -4,10 +4,10 @@
 //! runs them against a `PolicyEngine`, and tracks coverage by category
 //! and severity. No LLM needed — pure algorithmic mutation and evaluation.
 
-use vellaveto_engine::PolicyEngine;
-use vellaveto_types::{Action, Verdict};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use vellaveto_engine::PolicyEngine;
+use vellaveto_types::{Action, Verdict};
 
 use crate::attack_sim::{AttackContent, AttackPayload, AttackResult, AttackScenario};
 

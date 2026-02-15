@@ -10,8 +10,8 @@
 // ═══════════════════════════════════════════════════
 
 mod behavioral {
-    use vellaveto_engine::behavioral::{AnomalySeverity, BehavioralConfig, BehavioralTracker};
     use std::collections::HashMap;
+    use vellaveto_engine::behavioral::{AnomalySeverity, BehavioralConfig, BehavioralTracker};
 
     fn default_tracker() -> BehavioralTracker {
         BehavioralTracker::new(BehavioralConfig::default()).expect("default config works")
@@ -404,10 +404,10 @@ mod data_flow {
 // ═══════════════════════════════════════════════════
 
 mod p4_interaction {
+    use std::collections::HashMap;
     use vellaveto_engine::behavioral::{BehavioralConfig, BehavioralTracker};
     use vellaveto_mcp::data_flow::{DataFlowConfig, DataFlowTracker, DlpFindingWithFingerprint};
     use vellaveto_mcp::inspection::DlpFinding;
-    use std::collections::HashMap;
 
     /// Simulates a complete attack scenario:
     /// 1. Agent builds normal baseline (behavioral)

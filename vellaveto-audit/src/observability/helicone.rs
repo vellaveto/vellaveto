@@ -88,7 +88,10 @@ impl HeliconeExporter {
             "vellaveto_function".to_string(),
             span.action.function.clone(),
         );
-        properties.insert("vellaveto_verdict".to_string(), span.verdict.outcome.clone());
+        properties.insert(
+            "vellaveto_verdict".to_string(),
+            span.verdict.outcome.clone(),
+        );
         properties.insert(
             "vellaveto_span_kind".to_string(),
             span.span_kind.as_str().to_string(),

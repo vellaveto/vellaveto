@@ -2,8 +2,8 @@
 //! Existing tests do roundtrip checks but never assert the actual JSON shape.
 //! If someone changes the serde attributes, these tests catch it.
 
-use vellaveto_types::Verdict;
 use serde_json::json;
+use vellaveto_types::Verdict;
 
 #[test]
 fn verdict_allow_serializes_to_string() {

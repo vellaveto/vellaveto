@@ -6,9 +6,9 @@
 //! - `extract_domain` consistency: same URL → same domain every time
 
 use proptest::prelude::*;
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, NetworkRules, PathRules, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 /// Generate arbitrary Action values for testing.
 fn arb_action() -> impl Strategy<Value = Action> {

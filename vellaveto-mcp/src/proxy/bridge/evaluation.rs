@@ -9,8 +9,8 @@ use crate::extractor::{
     extract_action, extract_resource_action, make_approval_response, make_denial_response,
 };
 use crate::proxy::types::ProxyDecision;
-use vellaveto_types::{EvaluationContext, EvaluationTrace, Verdict};
 use serde_json::{json, Value};
+use vellaveto_types::{EvaluationContext, EvaluationTrace, Verdict};
 
 impl ProxyBridge {
     /// Evaluate an action against policies, optionally producing a trace.

@@ -19,13 +19,13 @@ use crate::inspection::{
 };
 use crate::output_validation::ValidationResult;
 use crate::proxy::types::{ProxyDecision, ProxyError};
-use vellaveto_config::ToolManifest;
-use vellaveto_types::{EvaluationContext, Verdict};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 use tokio::io::BufReader;
 use tokio::process::{ChildStdin, ChildStdout};
+use vellaveto_config::ToolManifest;
+use vellaveto_types::{EvaluationContext, Verdict};
 
 /// SECURITY (R8-MCP-8): Maximum number of pending (in-flight) requests.
 /// Prevents OOM if an agent sends requests faster than the server responds.

@@ -7,15 +7,15 @@
 //! - Version pinning and drift detection
 //! - Store persistence
 
+use serde_json::json;
+use std::sync::Arc;
+use tempfile::TempDir;
 use vellaveto_config::AllowedSignersConfig;
 use vellaveto_mcp::etdi::version_pin::PinCheckResult;
 use vellaveto_mcp::etdi::{
     AttestationChain, EtdiStore, ToolSignatureVerifier, ToolSigner, VersionPinManager,
 };
 use vellaveto_types::SignatureAlgorithm;
-use serde_json::json;
-use std::sync::Arc;
-use tempfile::TempDir;
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()

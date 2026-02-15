@@ -1,9 +1,9 @@
 //! Tests for negative and extreme i32 priority values.
 //! Priority is i32, so negative values are valid and should be ordered correctly.
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 fn make_action(tool: &str, function: &str) -> Action {
     Action::new(tool.to_string(), function.to_string(), json!({}))

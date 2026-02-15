@@ -7,9 +7,9 @@
 //! - Boundary conditions
 //! - Randomly-structured inputs via manual construction
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 // ════════════════════════════════════════════
 // SERIALIZATION ROUNDTRIP INVARIANTS

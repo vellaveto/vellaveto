@@ -21,12 +21,12 @@
 //! assert!(result.is_ok());
 //! ```
 
-use vellaveto_types::SchemaRecord;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
+use vellaveto_types::SchemaRecord;
 
 /// Result of a schema observation.
 #[derive(Debug, Clone, PartialEq)]

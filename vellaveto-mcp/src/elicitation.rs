@@ -472,8 +472,8 @@ fn content_contains_tool_result(content: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vellaveto_config::{ElicitationConfig, SamplingConfig};
     use serde_json::json;
+    use vellaveto_config::{ElicitationConfig, SamplingConfig};
 
     // ═══════════════════════════════════════════════════
     // ELICITATION TESTS

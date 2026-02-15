@@ -13,8 +13,8 @@ use crate::ip;
 use crate::path::normalize_path_bounded;
 use crate::PolicyEngine;
 use ipnet::IpNet;
-use vellaveto_types::{Action, Policy, PolicyType, Verdict};
 use std::net::IpAddr;
+use vellaveto_types::{Action, Policy, PolicyType, Verdict};
 
 impl PolicyEngine {
     /// Check if a policy matches an action.

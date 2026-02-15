@@ -13,10 +13,10 @@
 //! - **No rewrite of forwarding**: The router only resolves "which URL" — the
 //!   existing `forward_to_upstream()` function handles the actual HTTP request.
 
-use vellaveto_config::GatewayConfig;
-use vellaveto_types::{BackendHealth, RoutingDecision, ToolConflict};
 use std::collections::HashMap;
 use std::sync::RwLock;
+use vellaveto_config::GatewayConfig;
+use vellaveto_types::{BackendHealth, RoutingDecision, ToolConflict};
 
 /// Maximum tool name length considered for routing.
 /// Tool names longer than this are truncated before prefix matching.

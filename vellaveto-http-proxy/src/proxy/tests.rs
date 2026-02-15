@@ -14,11 +14,11 @@ use axum::response::IntoResponse;
 use axum::Json;
 use bytes::Bytes;
 use chrono::Utc;
+use serde_json::{json, Value};
 use vellaveto_mcp::extractor::{self, MessageType};
 use vellaveto_mcp::inspection::{
     inspect_for_injection, sanitize_for_injection_scan, scan_text_for_secrets,
 };
-use serde_json::{json, Value};
 
 // Classification and extraction are tested in vellaveto-mcp::extractor.
 // These tests verify the integration through the shared module.
@@ -743,8 +743,8 @@ fn test_extract_authority_rejects_invalid_chars() {
 // --- KL2: TOCTOU Canonicalization tests ---
 
 fn make_test_proxy_state(canonicalize: bool) -> ProxyState {
-    use vellaveto_audit::AuditLogger;
     use std::path::PathBuf;
+    use vellaveto_audit::AuditLogger;
     ProxyState {
         engine: Arc::new(PolicyEngine::new(false)),
         policies: Arc::new(vec![]),

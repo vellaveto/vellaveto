@@ -2,9 +2,9 @@
 //! Existing tests only roundtrip vellaveto-types structs; these test
 //! the audit-specific types that go through JSONL persistence.
 
+use serde_json::json;
 use vellaveto_audit::{AuditEntry, AuditReport};
 use vellaveto_types::{Action, Verdict};
-use serde_json::json;
 
 // ═══════════════════════════════════
 // AUDIT ENTRY ROUNDTRIPS

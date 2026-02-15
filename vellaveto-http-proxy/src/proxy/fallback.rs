@@ -5,8 +5,8 @@
 //! Cross-transport fallback (e.g., gRPC → HTTP) is deferred to Phase 20
 //! (Gateway Mode) when multiple upstream URLs will be available.
 
-use vellaveto_types::TransportProtocol;
 use std::fmt;
+use vellaveto_types::TransportProtocol;
 
 /// Errors returned by fallback forwarding.
 #[derive(Debug)]

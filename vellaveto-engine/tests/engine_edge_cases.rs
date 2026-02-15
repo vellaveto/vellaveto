@@ -1,9 +1,9 @@
 //! Additional edge-case tests for PolicyEngine behavior.
 //! Focuses on behavioral contracts and regression cases.
 
+use serde_json::json;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, Policy, PolicyType, Verdict};
-use serde_json::json;
 
 fn make_action(tool: &str, function: &str) -> Action {
     Action::new(tool.to_string(), function.to_string(), json!({}))

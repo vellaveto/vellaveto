@@ -20,9 +20,9 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use vellaveto_types::{NamespaceAccessType, QuarantineDetection};
 use serde::Deserialize;
 use serde_json::json;
+use vellaveto_types::{NamespaceAccessType, QuarantineDetection};
 
 use crate::AppState;
 

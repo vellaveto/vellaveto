@@ -20,15 +20,15 @@ use axum::{
     response::Response,
 };
 use futures_util::{SinkExt, StreamExt};
-use vellaveto_mcp::extractor::{self, MessageType};
-use vellaveto_mcp::inspection::{inspect_for_injection, scan_response_for_secrets};
-use vellaveto_types::{Action, EvaluationContext, Verdict};
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
+use vellaveto_mcp::extractor::{self, MessageType};
+use vellaveto_mcp::inspection::{inspect_for_injection, scan_response_for_secrets};
+use vellaveto_types::{Action, EvaluationContext, Verdict};
 
 use super::auth::validate_api_key;
 use super::origin::validate_origin;
