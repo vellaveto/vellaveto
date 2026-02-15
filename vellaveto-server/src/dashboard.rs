@@ -336,6 +336,9 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
         let _ = write!(html, "</table>");
     }
 
+    // ── Governance section (Phase 26) ──────────────
+    render_governance_section(&mut html, &state);
+
     // ── Compliance status ────────────────────────────
     render_compliance_section(&mut html, &snap);
 
@@ -615,6 +618,66 @@ fn format_duration(secs: u64) -> String {
         format!("{}m {}s", mins, s)
     } else {
         format!("{}s", s)
+    }
+}
+
+/// Render governance visibility section (Phase 26).
+fn render_governance_section(html: &mut String, state: &AppState) {
+    if let Some(ref discovery) = state.shadow_ai_discovery {
+        let unreg = discovery.unregistered_agent_count();
+        let unapp = discovery.unapproved_tool_count();
+        let unksvr = discovery.unknown_server_count();
+
+        let unreg_cls = if unreg == 0 { "green" } else { "red" };
+        let unapp_cls = if unapp == 0 { "green" } else { "yellow" };
+        let unksvr_cls = if unksvr == 0 { "green" } else { "red" };
+
+        let _ = write!(
+            html,
+            r#"<h2>Governance — Shadow AI Discovery</h2>
+<div class="grid">
+  <div class="card"><div class="label">Unregistered Agents</div><div class="value {unreg_cls}">{unreg}</div></div>
+  <div class="card"><div class="label">Unapproved Tools</div><div class="value {unapp_cls}">{unapp}</div></div>
+  <div class="card"><div class="label">Unknown Servers</div><div class="value {unksvr_cls}">{unksvr}</div></div>
+</div>
+"#
+        );
+
+        // Show unregistered agents table if any
+        if unreg > 0 {
+            let report = discovery.generate_report();
+            let _ = write!(
+                html,
+                r#"<table>
+<tr><th>Agent ID</th><th>First Seen</th><th>Requests</th><th>Tools Used</th><th>Risk</th></tr>
+"#
+            );
+            for agent in report.unregistered_agents.iter().take(20) {
+                let id = html_escape(&truncate(&agent.agent_id, 40));
+                let first = html_escape(&truncate(&agent.first_seen, 19));
+                let tools_count = agent.tools_used.len();
+                let risk_cls = if agent.risk_score >= 0.7 {
+                    "red"
+                } else if agent.risk_score >= 0.3 {
+                    "yellow"
+                } else {
+                    "green"
+                };
+                let _ = write!(
+                    html,
+                    r#"<tr>
+  <td>{id}</td>
+  <td class="nowrap">{first}</td>
+  <td>{}</td>
+  <td>{tools_count}</td>
+  <td class="{risk_cls}">{:.2}</td>
+</tr>
+"#,
+                    agent.request_count, agent.risk_score
+                );
+            }
+            let _ = write!(html, "</table>");
+        }
     }
 }
 

@@ -412,6 +412,25 @@ pub fn build_router(state: AppState) -> Router {
             "/api/simulator/red-team",
             post(super::simulator::simulate_red_team),
         )
+        // ═══════════════════════════════════════════════════════════════════
+        // Phase 26: Shadow AI Detection & Governance Visibility
+        // ═══════════════════════════════════════════════════════════════════
+        .route(
+            "/api/governance/shadow-report",
+            get(super::governance::shadow_report),
+        )
+        .route(
+            "/api/governance/unregistered-agents",
+            get(super::governance::unregistered_agents),
+        )
+        .route(
+            "/api/governance/unapproved-tools",
+            get(super::governance::unapproved_tools),
+        )
+        .route(
+            "/api/governance/least-agency/{agent_id}/{session_id}",
+            get(super::governance::least_agency_report),
+        )
         // SECURITY (R38-SRV-1): /metrics inside auth — exposes policy count
         // and pending approval count, which are security-sensitive (see R26-SRV-6).
         // SECURITY (R38-SRV-2): /metrics inside rate_limit — prevents scraper DoS.

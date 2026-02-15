@@ -398,6 +398,8 @@ mod server_auth {
             nhi: None,
             observability: None,
             // Server Configuration (FIND-004, FIND-005)
+            shadow_ai_discovery: None,
+            least_agency_tracker: None,
             metrics_require_auth: true,
             audit_strict_mode: false,
         };
@@ -543,6 +545,8 @@ mod server_auth {
             nhi: None,
             observability: None,
             // Server Configuration (FIND-004, FIND-005)
+            shadow_ai_discovery: None,
+            least_agency_tracker: None,
             metrics_require_auth: true,
             audit_strict_mode: false,
         };
@@ -1155,6 +1159,8 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         nhi: None,
         observability: None,
         // Server Configuration (FIND-004, FIND-005)
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };
@@ -1266,6 +1272,8 @@ async fn finding_12_approval_creation_failure_denies_request() {
         nhi: None,
         observability: None,
         // Server Configuration (FIND-004, FIND-005)
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };

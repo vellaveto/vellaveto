@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 use std::time::Instant;
-use vellaveto_types::{AgencyRecommendation, LeastAgencyReport, PermissionUsage};
+use vellaveto_types::{AgencyRecommendation, EnforcementMode, LeastAgencyReport, PermissionUsage};
 
 /// Maximum tracked sessions to bound memory.
 const MAX_TRACKED_SESSIONS: usize = 4096;
@@ -12,6 +12,8 @@ const MAX_TRACKED_SESSIONS: usize = 4096;
 /// Per-agent-session permission tracker.
 struct PermissionTracker {
     granted: HashSet<String>,
+    /// Tracks when each granted permission was last used (or grant time if never used).
+    granted_last_used: HashMap<String, Instant>,
     used: HashMap<String, PermissionUsage>,
     session_start: Instant,
 }
@@ -19,16 +21,39 @@ struct PermissionTracker {
 /// Tracks permission usage across agent sessions for least-agency enforcement.
 pub struct LeastAgencyTracker {
     narrow_threshold: f64,
+    enforcement_mode: EnforcementMode,
+    auto_revoke_after_secs: u64,
     trackers: RwLock<HashMap<String, PermissionTracker>>,
 }
 
 impl LeastAgencyTracker {
-    /// Create a new tracker with the given narrowing threshold.
+    /// Create a new tracker with the given narrowing threshold (monitor-only mode).
     pub fn new(narrow_threshold: f64) -> Self {
         Self {
             narrow_threshold,
+            enforcement_mode: EnforcementMode::Monitor,
+            auto_revoke_after_secs: 3600,
             trackers: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Create a tracker with enforcement configuration.
+    pub fn new_with_config(
+        narrow_threshold: f64,
+        enforcement_mode: EnforcementMode,
+        auto_revoke_after_secs: u64,
+    ) -> Self {
+        Self {
+            narrow_threshold,
+            enforcement_mode,
+            auto_revoke_after_secs,
+            trackers: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Return the current enforcement mode.
+    pub fn enforcement_mode(&self) -> EnforcementMode {
+        self.enforcement_mode
     }
 
     fn session_key(agent_id: &str, session_id: &str) -> String {
@@ -51,13 +76,19 @@ impl LeastAgencyTracker {
                 trackers.remove(&oldest);
             }
         }
+        let now = Instant::now();
         let tracker = trackers.entry(key).or_insert_with(|| PermissionTracker {
             granted: HashSet::new(),
+            granted_last_used: HashMap::new(),
             used: HashMap::new(),
-            session_start: Instant::now(),
+            session_start: now,
         });
         for id in policy_ids {
             tracker.granted.insert(id.clone());
+            tracker
+                .granted_last_used
+                .entry(id.clone())
+                .or_insert(now);
         }
     }
 
@@ -86,6 +117,11 @@ impl LeastAgencyTracker {
                 });
             usage.used_count = usage.used_count.saturating_add(1);
             usage.last_used = Some(chrono::Utc::now().to_rfc3339());
+
+            // Update last-used timestamp for auto-revocation tracking
+            tracker
+                .granted_last_used
+                .insert(policy_id.to_string(), Instant::now());
         }
     }
 
@@ -147,6 +183,35 @@ impl LeastAgencyTracker {
             usage_ratio: ratio,
             recommendation,
         })
+    }
+
+    /// Return policy IDs that have been unused for longer than `auto_revoke_after_secs`.
+    ///
+    /// In `Monitor` mode, returns candidates without revoking.
+    /// In `Enforce` mode, the caller should revoke these permissions.
+    pub fn check_auto_revoke(&self, agent_id: &str, session_id: &str) -> Vec<String> {
+        let key = Self::session_key(agent_id, session_id);
+        let Ok(trackers) = self.trackers.read() else {
+            return Vec::new();
+        };
+        let Some(tracker) = trackers.get(&key) else {
+            return Vec::new();
+        };
+        let now = Instant::now();
+        let threshold = std::time::Duration::from_secs(self.auto_revoke_after_secs);
+        tracker
+            .granted
+            .iter()
+            .filter(|id| {
+                let last_used = tracker
+                    .granted_last_used
+                    .get(*id)
+                    .copied()
+                    .unwrap_or(tracker.session_start);
+                now.duration_since(last_used) > threshold
+            })
+            .cloned()
+            .collect()
     }
 
     /// Suggest policy IDs that could be revoked (unused permissions below threshold).
@@ -284,5 +349,52 @@ mod tests {
         let report = tracker.generate_report("agent-1", "sess-1").unwrap();
         assert!((report.usage_ratio - 0.5).abs() < f64::EPSILON);
         assert_eq!(report.recommendation, AgencyRecommendation::ReviewGrants);
+    }
+
+    #[test]
+    fn test_new_with_config_enforcement_mode() {
+        let tracker =
+            LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 1800);
+        assert_eq!(tracker.enforcement_mode(), EnforcementMode::Enforce);
+    }
+
+    #[test]
+    fn test_new_with_config_monitor_mode() {
+        let tracker =
+            LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Monitor, 3600);
+        assert_eq!(tracker.enforcement_mode(), EnforcementMode::Monitor);
+    }
+
+    #[test]
+    fn test_check_auto_revoke_no_session() {
+        let tracker =
+            LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 1);
+        // No session registered — should return empty
+        let revokable = tracker.check_auto_revoke("agent-1", "sess-1");
+        assert!(revokable.is_empty());
+    }
+
+    #[test]
+    fn test_check_auto_revoke_recently_granted() {
+        let tracker =
+            LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 3600);
+        tracker.register_grants("agent-1", "sess-1", &["p1".to_string(), "p2".to_string()]);
+        // Just granted — nothing should be revokable with 3600s threshold
+        let revokable = tracker.check_auto_revoke("agent-1", "sess-1");
+        assert!(revokable.is_empty());
+    }
+
+    #[test]
+    fn test_check_auto_revoke_with_zero_threshold() {
+        // With auto_revoke_after_secs = 0, any elapsed time > 0 triggers revocation.
+        // Config validation prevents 0 in production, but the tracker itself handles it.
+        let tracker =
+            LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 0);
+        tracker.register_grants("agent-1", "sess-1", &["p1".to_string()]);
+        // Even a microsecond of elapsed time is > Duration::from_secs(0),
+        // so the permission should be revokable.
+        let revokable = tracker.check_auto_revoke("agent-1", "sess-1");
+        assert_eq!(revokable.len(), 1);
+        assert_eq!(revokable[0], "p1");
     }
 }

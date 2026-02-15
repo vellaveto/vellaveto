@@ -102,6 +102,8 @@ fn test_state_with_rbac(rbac_config: RbacConfig) -> (AppState, TempDir) {
         nhi: None,
         observability: None,
         // Server Configuration (FIND-004, FIND-005)
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };

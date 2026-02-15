@@ -78,6 +78,8 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         nhi: None,
         observability: None,
         // Server Configuration (FIND-004, FIND-005)
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };
@@ -441,6 +443,8 @@ async fn regression_24_error_message_does_not_leak_architecture() {
         nhi: None,
         observability: None,
         // Server Configuration (FIND-004, FIND-005)
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };

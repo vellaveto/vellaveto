@@ -89,6 +89,8 @@ fn test_state() -> (AppState, TempDir) {
         memory_security: None,
         nhi: None,
         observability: None,
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };

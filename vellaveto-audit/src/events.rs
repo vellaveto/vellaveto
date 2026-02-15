@@ -250,6 +250,84 @@ impl AuditLogger {
         self.log_entry(&action, &verdict, metadata).await
     }
 
+    // =========================================================================
+    // Governance Event Logging Helpers (Phase 26)
+    // =========================================================================
+
+    /// Log a shadow AI discovery event.
+    ///
+    /// Shadow AI events track detection of unregistered agents, unapproved tools,
+    /// and unknown MCP servers in the traffic flow.
+    ///
+    /// Event types:
+    /// - `shadow_ai.unregistered_agent` — new agent observed outside registration list
+    /// - `shadow_ai.unapproved_tool` — tool used that is not in approved list
+    /// - `shadow_ai.unknown_server` — MCP server observed that is not in known list
+    pub async fn log_shadow_ai_discovery_event(
+        &self,
+        event_type: &str,
+        entity_id: &str,
+        details: serde_json::Value,
+    ) -> Result<(), AuditError> {
+        let action = Action::new("vellaveto", "shadow_ai_discovery", serde_json::json!({}));
+        let verdict = Verdict::Deny {
+            reason: format!("Shadow AI discovery: {} for entity '{}'", event_type, entity_id),
+        };
+        let mut metadata = serde_json::json!({
+            "event": format!("shadow_ai.{}", event_type),
+            "entity_id": entity_id,
+        });
+        if let serde_json::Value::Object(ref mut map) = metadata {
+            if let serde_json::Value::Object(d) = details {
+                for (k, v) in d {
+                    map.insert(k, v);
+                }
+            }
+        }
+        self.log_entry(&action, &verdict, metadata).await
+    }
+
+    /// Log a least agency enforcement event.
+    ///
+    /// Least agency events track permission usage reports and auto-revocation
+    /// actions for governance visibility.
+    ///
+    /// Event types:
+    /// - `least_agency.report` — periodic usage ratio report
+    /// - `least_agency.auto_revoke` — permission auto-revoked due to inactivity
+    pub async fn log_least_agency_event(
+        &self,
+        event_type: &str,
+        agent_id: &str,
+        session_id: &str,
+        details: serde_json::Value,
+    ) -> Result<(), AuditError> {
+        let action = Action::new("vellaveto", "least_agency", serde_json::json!({}));
+        let verdict = if event_type == "auto_revoke" {
+            Verdict::Deny {
+                reason: format!(
+                    "Least agency auto-revoke for agent '{}' session '{}'",
+                    agent_id, session_id
+                ),
+            }
+        } else {
+            Verdict::Allow
+        };
+        let mut metadata = serde_json::json!({
+            "event": format!("least_agency.{}", event_type),
+            "agent_id": agent_id,
+            "session_id": session_id,
+        });
+        if let serde_json::Value::Object(ref mut map) = metadata {
+            if let serde_json::Value::Object(d) = details {
+                for (k, v) in d {
+                    map.insert(k, v);
+                }
+            }
+        }
+        self.log_entry(&action, &verdict, metadata).await
+    }
+
     /// Check whether the audit log has a heartbeat gap — a period longer than
     /// `max_gap_secs` between consecutive entries (heartbeat or otherwise).
     ///

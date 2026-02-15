@@ -41,6 +41,7 @@ pub mod semantic_detection;
 pub mod semantic_guardrails;
 pub mod session_guard;
 pub mod shadow_agent;
+pub mod shadow_ai_discovery;
 pub mod task_security;
 pub mod task_state;
 pub mod token_security;

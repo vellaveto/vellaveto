@@ -154,6 +154,8 @@ fn test_state() -> (AppState, TempDir) {
         nhi: None,
         observability: None,
         // Server Configuration (FIND-004, FIND-005)
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };
@@ -525,6 +527,8 @@ async fn health_not_rate_limited() {
         nhi: None,
         observability: None,
         // Server Configuration (FIND-004, FIND-005)
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };
@@ -597,6 +601,8 @@ async fn rate_limit_429_includes_retry_after() {
         nhi: None,
         observability: None,
         // Server Configuration (FIND-004, FIND-005)
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };
@@ -763,6 +769,8 @@ async fn per_ip_rate_limit_throttles_single_ip() {
         nhi: None,
         observability: None,
         // Server Configuration (FIND-004, FIND-005)
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };
@@ -877,6 +885,8 @@ async fn per_ip_rate_limit_uses_x_real_ip_fallback() {
         nhi: None,
         observability: None,
         // Server Configuration (FIND-004, FIND-005)
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };
@@ -964,6 +974,8 @@ async fn per_ip_health_exempt_from_rate_limit() {
         nhi: None,
         observability: None,
         // Server Configuration (FIND-004, FIND-005)
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };
@@ -1043,6 +1055,8 @@ async fn per_ip_rate_limit_ipv6_addresses() {
         nhi: None,
         observability: None,
         // Server Configuration (FIND-004, FIND-005)
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };
@@ -1157,6 +1171,8 @@ async fn per_ip_rate_limit_malformed_xff_falls_back() {
         nhi: None,
         observability: None,
         // Server Configuration (FIND-004, FIND-005)
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };
@@ -1255,6 +1271,8 @@ async fn per_ip_rate_limit_multi_proxy_chain_uses_first() {
         nhi: None,
         observability: None,
         // Server Configuration (FIND-004, FIND-005)
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };
@@ -1352,6 +1370,8 @@ async fn per_ip_rate_limit_no_headers_uses_localhost() {
         nhi: None,
         observability: None,
         // Server Configuration (FIND-004, FIND-005)
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };
@@ -1447,6 +1467,8 @@ async fn per_ip_rate_limit_429_response_body_format() {
         nhi: None,
         observability: None,
         // Server Configuration (FIND-004, FIND-005)
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };
@@ -1553,6 +1575,8 @@ async fn health_returns_degraded_when_cluster_unhealthy() {
         memory_security: None,
         nhi: None,
         observability: None,
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         metrics_require_auth: true,
         audit_strict_mode: false,
     };

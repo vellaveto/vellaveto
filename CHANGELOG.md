@@ -63,6 +63,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `FirstMatchIndex` helper operator for correct first-match-wins invariant formulation.
 - Documented all known abstraction gaps in `formal/README.md`.
 
+## [4.0.0-dev] — Phase 26: Shadow AI Detection & Governance Visibility (2026-02-15)
+
+### Added
+- **Shadow AI Discovery Engine** (`vellaveto-mcp/src/shadow_ai_discovery.rs`): Passive traffic analysis detects unregistered agents, unapproved tools, and unknown MCP servers with bounded tracking (max 1000/500/100 entities)
+- **Governance Types** (`vellaveto-types/src/governance.rs`): `EnforcementMode`, `UnregisteredAgent`, `UnapprovedTool`, `UnknownMcpServer`, `ShadowAiReport`
+- **Governance Config** (`vellaveto-config/src/governance.rs`): `GovernanceConfig` with shadow AI discovery, agent registration enforcement, approved tools/servers lists, least agency enforcement mode, auto-revocation window
+- **Governance API** (`vellaveto-server/src/routes/governance.rs`): `GET /api/governance/shadow-report`, `/unregistered-agents`, `/unapproved-tools`, `/least-agency/{agent_id}/{session_id}`
+- **Least Agency Enforcement** (`vellaveto-engine/src/least_agency.rs`): `new_with_config()` constructor with `EnforcementMode`, `check_auto_revoke()` method with per-permission `last_used` tracking
+- **Audit Events** (`vellaveto-audit/src/events.rs`): `log_shadow_ai_discovery_event()` and `log_least_agency_event()` helpers for governance audit trail
+- **Dashboard Governance Section** (`vellaveto-server/src/dashboard.rs`): Unregistered agents table with risk scores, unapproved tools/unknown servers counters
+- 43 new tests across 4 crates (17 shadow_ai_discovery, 8 governance config, 5 least agency enforcement, 13 engine)
+
+### Design Decisions
+- Passive discovery only — observe traffic, don't scan network
+- Bounded tracking prevents memory growth (LRU eviction at capacity)
+- `require_agent_registration` enables fail-closed mode for unregistered agents
+- `EnforcementMode::Monitor` (default) → safe rollout; `Enforce` → auto-revocation
+
 ## [3.0.0] — 2026-02-14
 
 ### Added

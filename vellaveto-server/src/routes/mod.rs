@@ -30,6 +30,7 @@ pub mod compliance;
 pub mod deputy;
 pub mod etdi;
 pub mod exec_graph;
+pub mod governance;
 mod main;
 pub mod memory;
 pub mod nhi;

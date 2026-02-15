@@ -911,6 +911,8 @@ mod owasp_mcp07_auth {
             memory_security: None,
             nhi: None,
             observability: None,
+            shadow_ai_discovery: None,
+            least_agency_tracker: None,
             // Server Configuration (FIND-004, FIND-005)
             metrics_require_auth: true,
             audit_strict_mode: false,
@@ -1328,6 +1330,8 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
             memory_security: None,
             nhi: None,
             observability: None,
+            shadow_ai_discovery: None,
+            least_agency_tracker: None,
             // Server Configuration (FIND-004, FIND-005)
             metrics_require_auth: true,
             audit_strict_mode: false,
@@ -1596,6 +1600,8 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
         memory_security: None,
         nhi: None,
         observability: None,
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,
@@ -1700,6 +1706,8 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
         memory_security: None,
         nhi: None,
         observability: None,
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
         // Server Configuration (FIND-004, FIND-005)
         metrics_require_auth: true,
         audit_strict_mode: false,

@@ -824,6 +824,9 @@ impl PolicyConfig {
         // ABAC configuration bounds (Phase 21)
         self.abac.validate()?;
 
+        // Governance configuration bounds (Phase 26)
+        self.governance.validate()?;
+
         Ok(())
     }
 
