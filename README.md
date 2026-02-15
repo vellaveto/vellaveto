@@ -13,7 +13,7 @@
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
     <img src="https://img.shields.io/badge/tests-4%2C944_passing-brightgreen.svg" alt="Tests: 4,944 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
-    <img src="https://img.shields.io/badge/security_audit-38_rounds%2C_400%2B_findings-informational.svg" alt="Security Audit: 38 rounds, 400+ findings">
+    <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-39_rounds%2C_330%2B_findings-informational.svg" alt="Adversarial Testing: 39 rounds, 330+ findings"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
   </p>
@@ -30,7 +30,7 @@
 
 ---
 
-Vellaveto is a lightweight, high-performance firewall that sits between AI agents and their tools. It intercepts [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) and function-calling requests, enforces security policies on paths, domains, and actions, and maintains a tamper-evident audit trail with cryptographic guarantees.
+Vellaveto is a lightweight, high-performance firewall that sits between AI agents and their tools. It intercepts [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) and function-calling requests, enforces security policies on paths, domains, and actions, and maintains a [tamper-evident audit trail](docs/SECURITY_GUARANTEES.md#g3-audit-integrity-tamper-detection) with SHA-256 hash chains and Ed25519 checkpoint signatures. See [Security Guarantees](docs/SECURITY_GUARANTEES.md) for the full normative contract and [Assurance Case](docs/ASSURANCE_CASE.md) for the Claim → Evidence map.
 
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>4.0.0-dev</td></tr>

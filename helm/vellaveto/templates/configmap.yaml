@@ -29,6 +29,26 @@ data:
     [audit]
     redaction_level = "{{ .Values.vellaveto.audit.redactionLevel }}"
 
+    # Deployment configuration (Phase 27)
+    [deployment]
+    mode = "{{ .Values.deployment.mode }}"
+    {{- if .Values.deployment.instanceId }}
+    instance_id = "{{ .Values.deployment.instanceId }}"
+    {{- end }}
+
+    [deployment.leader_election]
+    enabled = {{ .Values.deployment.leaderElection.enabled }}
+    lease_duration_secs = {{ .Values.deployment.leaderElection.leaseDurationSecs }}
+    renew_interval_secs = {{ .Values.deployment.leaderElection.renewIntervalSecs }}
+    retry_period_secs = {{ .Values.deployment.leaderElection.retryPeriodSecs }}
+
+    [deployment.service_discovery]
+    mode = "{{ .Values.deployment.serviceDiscovery.mode }}"
+    {{- if .Values.deployment.serviceDiscovery.dnsName }}
+    dns_name = "{{ .Values.deployment.serviceDiscovery.dnsName }}"
+    {{- end }}
+    refresh_interval_secs = {{ .Values.deployment.serviceDiscovery.refreshIntervalSecs }}
+
     # Policies
     {{- range .Values.vellaveto.policies }}
     [[policies]]

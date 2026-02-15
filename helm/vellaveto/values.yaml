@@ -148,6 +148,52 @@ vellaveto:
   #       name: anthropic-secrets
   #       key: api-key
 
+# StatefulSet mode (Phase 27)
+# When enabled, replaces Deployment with StatefulSet + PVC for audit persistence.
+statefulSet:
+  enabled: false
+  persistence:
+    # Storage class (empty = cluster default)
+    storageClass: ""
+    # PVC size for audit log persistence
+    size: 1Gi
+    accessMode: ReadWriteOnce
+
+# gRPC configuration (Phase 27)
+grpc:
+  enabled: false
+  port: 50051
+
+# WebSocket configuration (Phase 27)
+websocket:
+  enabled: false
+
+# Log shipping sidecar (Phase 27)
+logShipping:
+  enabled: false
+  image: fluent/fluent-bit:latest
+  outputPlugin: stdout
+  outputHost: ""
+  outputPort: ""
+
+# Deployment mode configuration (Phase 27)
+deployment:
+  # Mode: Standalone, Clustered, Kubernetes
+  mode: Standalone
+  # Override instance ID (default: HOSTNAME env var)
+  instanceId: ""
+  leaderElection:
+    enabled: false
+    leaseDurationSecs: 15
+    renewIntervalSecs: 10
+    retryPeriodSecs: 5
+  serviceDiscovery:
+    # Mode: Static, Dns, Kubernetes
+    mode: Static
+    # DNS name for DNS-based discovery (required when mode=Dns)
+    dnsName: ""
+    refreshIntervalSecs: 30
+
 # Prometheus metrics
 metrics:
   enabled: true

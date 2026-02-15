@@ -55,3 +55,22 @@ Published advisories will be listed at [github.com/paolovella/vellaveto/security
 ## Security Hardening
 
 For production deployment hardening guidance, see [docs/SECURITY.md](docs/SECURITY.md).
+
+## Security Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Security Guarantees](docs/SECURITY_GUARANTEES.md) | Normative contract: what Vellaveto guarantees, assumes, and excludes |
+| [Assurance Case](docs/ASSURANCE_CASE.md) | Claim → Evidence map with reproduction commands |
+| [Security Model](docs/SECURITY_MODEL.md) | Trust boundaries, data flows, threat coverage |
+| [Security Defaults](docs/DEFAULTS.md) | Every security-relevant default value and rationale |
+| [Formal Verification Scope](docs/FORMAL_SCOPE.md) | What is proven vs. tested vs. assumed |
+| [Hardening Guide](docs/SECURITY.md) | Production deployment security configuration |
+| [Audit History](audits/README.md) | Internal adversarial testing methodology and results |
+
+## Patch Policy
+
+- **Critical/High (CVSS ≥ 7.0):** Patch released within 30 days of confirmed triage.
+- **Medium (CVSS 4.0–6.9):** Patch released within 90 days.
+- **Low (CVSS < 4.0):** Addressed in next scheduled release.
+- Security patches are backported to the latest minor release of each supported major version.

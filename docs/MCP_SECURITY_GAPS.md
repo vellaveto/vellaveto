@@ -1,14 +1,22 @@
 # The open frontiers of MCP runtime security
 
-**The MCP security landscape has critical, well-defined gaps across formal verification, cryptographic audit, multi-agent authorization, supply chain integrity, performance characterization, protocol design, compliance mapping, and incident tracking.** No one has formally verified MCP policy enforcement in any theorem prover. No production-grade cryptographic audit trail exists for agent tool calls. The confused deputy problem remains unsolved at the protocol level. Only **14% of organizations running agents in production have runtime guardrails** (Lakera, Q4 2025). These gaps represent both acute security risks and extraordinary research/product opportunities for a Rust-based runtime firewall.
+**The MCP security landscape has critical, well-defined gaps across formal verification, cryptographic audit, multi-agent authorization, supply chain integrity, performance characterization, protocol design, compliance mapping, and incident tracking.** No one has formally verified MCP policy enforcement in any theorem prover. No production-grade cryptographic audit trail exists for agent tool calls. The confused deputy problem remains unsolved at the protocol level. Only **14% of organizations running agents in production have runtime guardrails** [^lakera]. These gaps represent both acute security risks and extraordinary research/product opportunities for a Rust-based runtime firewall.
 
-The MCP specification — now under the Agentic AI Foundation (Linux Foundation) — was not designed with security as a first-class concern. The community joke "the S in MCP stands for security" reflects a real architectural deficit. Real-world incidents are accelerating: **CVE-2025-6514** (CVSS 9.6 RCE in `mcp-remote`, 437K downloads), the first malicious MCP server in the wild (`postmark-mcp`, September 2025), and 492 unauthenticated MCP servers found exposed on the internet by Trend Micro. What follows is a gap-by-gap analysis with severity assessments, active work inventory, and strategic recommendations.
+[^lakera]: Lakera, "State of AI Agent Security" Q4 2025 report.
+
+The MCP specification — now under the Agentic AI Foundation (Linux Foundation) — was not designed with security as a first-class concern. The community joke "the S in MCP stands for security" reflects a real architectural deficit. Real-world incidents are accelerating: **CVE-2025-6514** [^cve6514] (CVSS 9.6 RCE in `mcp-remote`, 437K downloads), the first malicious MCP server in the wild (`postmark-mcp`, September 2025) [^koi], and 492 unauthenticated MCP servers found exposed on the internet by Trend Micro [^trendmicro]. What follows is a gap-by-gap analysis with severity assessments, active work inventory, and strategic recommendations.
+
+[^cve6514]: NVD, CVE-2025-6514. NIST National Vulnerability Database.
+[^koi]: Koi Security, "postmark-mcp: First Malicious MCP Server in the Wild," September 2025.
+[^trendmicro]: Trend Micro Research, "Exposed MCP Servers: Scanning the Agentic AI Attack Surface," 2025.
 
 ---
 
 ## 1. Formal verification of MCP is a completely empty field
 
-**No formal model of the MCP protocol exists in any framework — TLA+, Alloy, Lean, Coq, or Isabelle.** No one has specified, let alone verified, safety, liveness, or complete mediation properties for MCP policy enforcement. The arXiv paper "Securing the Model Context Protocol" (2511.20920, November 2025) explicitly calls out formal verification as an open research question, noting that "MCP-based agents violate [traditional formal method] assumptions through adaptive behavior, tool composition, and natural language interfaces."
+**No formal model of the MCP protocol exists in any framework — TLA+, Alloy, Lean, Coq, or Isabelle.** No one has specified, let alone verified, safety, liveness, or complete mediation properties for MCP policy enforcement. The arXiv paper "Securing the Model Context Protocol" [^arxiv-mcp] (2511.20920, November 2025) explicitly calls out formal verification as an open research question, noting that "MCP-based agents violate [traditional formal method] assumptions through adaptive behavior, tool composition, and natural language interfaces."
+
+[^arxiv-mcp]: arXiv:2511.20920, "Securing the Model Context Protocol," November 2025.
 
 Two adjacent pieces of work exist but fall short. **Invariant Labs** (ETH Zurich spinoff, ICML 2024) built an information-flow analyzer for agent traces with formal guarantees — but it verifies trace properties, not the enforcement mechanism itself. **VeriGuard** (Google DeepMind/Cloud AI Research, arXiv:2510.05156, October 2025) uses the Nagini/Viper verifier to prove Hoare-logic properties of Python safety policies — but targets generated policy code, not MCP protocol interactions. **Allegrini et al.** (arXiv:2510.14133, October 2025) defined **31 formal properties** for agentic AI in CTL/LTL temporal logic, but these remain purely specifications — no one has model-checked them against any real system.
 
@@ -59,7 +67,10 @@ The strongest theoretical argument comes from Niki Niyikiza's "Capabilities Are 
 
 ## 4. MCP supply chain security is fragmented and incomplete
 
-The first malicious MCP server (`postmark-mcp`) was discovered by Koi Security in September 2025 — a trojanized npm package that silently BCC'd every email to `phan@giftshop.club` after 15 benign versions. A second discovery found **126 packages from a single publisher with dual reverse shells** (86,000 downloads). CVE-2025-6514 in `mcp-remote` (CVSS 9.6, 437K downloads) enabled full RCE through OAuth proxy exploitation. Smithery's hosting platform leaked a Fly.io API token controlling 3,000+ MCP server apps via path traversal (June 2025).
+The first malicious MCP server (`postmark-mcp`) was discovered by Koi Security in September 2025 — a trojanized npm package that silently BCC'd every email to `phan@giftshop.club` after 15 benign versions. A second discovery found **126 packages from a single publisher with dual reverse shells** (86,000 downloads) [^npm-shells]. CVE-2025-6514 in `mcp-remote` (CVSS 9.6, 437K downloads) enabled full RCE through OAuth proxy exploitation. Smithery's hosting platform leaked a Fly.io API token controlling 3,000+ MCP server apps via path traversal (June 2025) [^smithery].
+
+[^npm-shells]: Socket Security, "Malicious npm MCP Packages with Reverse Shells," 2025.
+[^smithery]: Reported by independent security researchers; Smithery issued a post-mortem, June 2025.
 
 The official MCP Registry (registry.modelcontextprotocol.io, launched September 2025) is a **metaregistry** — it stores metadata pointing to npm, PyPI, and Docker Hub but hosts no code and performs no verification. **No cryptographic signing is required to publish.** Docker's MCP Catalog is the most secure option, with signed images, commit pinning, and AI-audited code reviews — but it covers only containerized servers, which are a minority of the ecosystem.
 
@@ -102,7 +113,9 @@ The most critical protocol-level gaps, which **cannot be fully fixed at the appl
 - **Session IDs in URLs** violate security best practices, exposing them in logs and enabling session hijacking.
 - **Stdio transport has zero authentication or encryption** — plaintext stdin/stdout with arbitrary command execution. LibreChat's RCE (GHSA-cxhj-j78r-p88f) proved this leads to root-level compromise.
 - **No namespace isolation** — tool name collisions across servers enable shadowing attacks where a malicious tool impersonates a legitimate one.
-- **OAuth adoption is critically low** — **53% of MCP servers still use static API keys, 79% store credentials in environment variables** (2025 ecosystem study).
+- **OAuth adoption is critically low** — **53% of MCP servers still use static API keys, 79% store credentials in environment variables** [^ecosystem-study].
+
+[^ecosystem-study]: Pillar Security / Backslash Security, "MCP Ecosystem Security Survey," 2025.
 
 The OAuth 2.1 framework (June 2025 revision) was a significant improvement — reclassifying MCP servers as Resource Servers, mandating PKCE, and requiring Protected Resource Metadata (RFC 9728). But it still lacks client authentication for public clients, agent-to-agent auth, and revocation propagation. Christian Posta (Solo.io) called the implementation "a mess" noting that enterprises reject Dynamic Client Registration's anonymous registration model.
 
@@ -131,16 +144,24 @@ A runtime firewall generating structured, immutable audit logs with decision con
 
 ## 8. Real incidents are mounting but tracking infrastructure doesn't exist
 
-The real-world MCP threat landscape has materialized faster than the security community anticipated. AuthZed compiled the first consolidated breach timeline, documenting **8+ major incidents** through early 2026:
+The real-world MCP threat landscape has materialized faster than the security community anticipated. AuthZed compiled the first consolidated breach timeline [^authzed], documenting **8+ major incidents** through early 2026:
 
-- **WhatsApp MCP Exfiltration** (April 2025) — Invariant Labs demonstrated silent chat history theft via tool poisoning
-- **GitHub MCP Data Heist** (May 2025) — prompt injection in public issues hijacked AI assistants to steal private repo data through the official GitHub MCP server (14,000+ stars)
-- **Asana MCP Cross-Tenant Exposure** (June 2025) — logic flaw leaked data between organizations
-- **CVE-2025-49596** (June 2025, CVSS 9.4) — RCE in Anthropic's own MCP Inspector, 560 exposed instances on Shodan
-- **CVE-2025-6514** (July 2025, CVSS 9.6) — full system compromise via `mcp-remote` OAuth proxy
-- **Anthropic Filesystem MCP Sandbox Escape** (August 2025, CVE-2025-53109/53110)
-- **postmark-mcp supply chain attack** (September 2025) — ~300 organizations compromised
-- **1,000+ exposed AI agent deployments** found in January 2026 with unauthenticated MCP endpoints
+- **WhatsApp MCP Exfiltration** (April 2025) — Invariant Labs demonstrated silent chat history theft via tool poisoning [^invariant]
+- **GitHub MCP Data Heist** (May 2025) — prompt injection in public issues hijacked AI assistants to steal private repo data through the official GitHub MCP server (14,000+ stars) [^github-heist]
+- **Asana MCP Cross-Tenant Exposure** (June 2025) — logic flaw leaked data between organizations [^asana]
+- **CVE-2025-49596** (June 2025, CVSS 9.4) — RCE in Anthropic's own MCP Inspector, 560 exposed instances on Shodan [^inspector]
+- **CVE-2025-6514** (July 2025, CVSS 9.6) — full system compromise via `mcp-remote` OAuth proxy [^cve6514]
+- **Anthropic Filesystem MCP Sandbox Escape** (August 2025, CVE-2025-53109/53110) [^sandbox]
+- **postmark-mcp supply chain attack** (September 2025) — ~300 organizations compromised [^koi]
+- **1,000+ exposed AI agent deployments** found in January 2026 with unauthenticated MCP endpoints [^backslash]
+
+[^authzed]: AuthZed, "The MCP Security Breach Timeline," January 2026.
+[^invariant]: Invariant Labs, "Tool Poisoning Attacks in MCP," April 2025.
+[^github-heist]: Reported by multiple security researchers; GitHub MCP server repository (github/github-mcp-server).
+[^asana]: Asana security advisory, June 2025. CVE pending at time of writing.
+[^inspector]: NVD, CVE-2025-49596. Shodan scan by independent researchers.
+[^sandbox]: NVD, CVE-2025-53109, CVE-2025-53110.
+[^backslash]: Backslash Security Hub, "MCP Server Exposure Report," January 2026.
 
 Despite this, **no centralized MCP vulnerability database exists.** CVE/NVD tracks some MCP flaws when they map to conventional vulnerability classes (command injection, RCE), but **no CWE entries exist for AI-native vulnerability classes** — tool poisoning, rug pulls, context over-sharing, preference manipulation, and agent goal hijacking have no standard identifiers. OWASP's MCP Top 10 (beta) and Agentic Applications Top 10 provide risk taxonomies but no automated enforcement or scanning tools comparable to ZAP for web applications.
 
