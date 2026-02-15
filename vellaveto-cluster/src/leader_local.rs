@@ -7,6 +7,8 @@ use async_trait::async_trait;
 use std::sync::atomic::{AtomicBool, Ordering};
 use vellaveto_types::LeaderStatus;
 
+use tracing;
+
 use crate::leader::LeaderElection;
 use crate::ClusterError;
 
@@ -31,11 +33,13 @@ impl LocalLeaderElection {
 #[async_trait]
 impl LeaderElection for LocalLeaderElection {
     async fn try_acquire(&self) -> Result<bool, ClusterError> {
-        self.is_leader.store(true, Ordering::SeqCst);
+        // SECURITY (FIND-P27-003): Propagate mutex poisoning instead of silently swallowing.
         let now = chrono::Utc::now().to_rfc3339();
-        if let Ok(mut guard) = self.acquired_at.lock() {
-            *guard = Some(now);
-        }
+        let mut guard = self.acquired_at.lock().map_err(|e| {
+            ClusterError::Backend(format!("Leader election mutex poisoned: {}", e))
+        })?;
+        self.is_leader.store(true, Ordering::SeqCst);
+        *guard = Some(now);
         Ok(true)
     }
 
@@ -45,10 +49,12 @@ impl LeaderElection for LocalLeaderElection {
     }
 
     async fn release(&self) -> Result<(), ClusterError> {
+        // SECURITY (FIND-P27-003): Propagate mutex poisoning.
+        let mut guard = self.acquired_at.lock().map_err(|e| {
+            ClusterError::Backend(format!("Leader election mutex poisoned: {}", e))
+        })?;
         self.is_leader.store(false, Ordering::SeqCst);
-        if let Ok(mut guard) = self.acquired_at.lock() {
-            *guard = None;
-        }
+        *guard = None;
         Ok(())
     }
 
@@ -58,12 +64,14 @@ impl LeaderElection for LocalLeaderElection {
 
     fn current_status(&self) -> LeaderStatus {
         if self.is_leader.load(Ordering::SeqCst) {
-            let since = self
-                .acquired_at
-                .lock()
-                .ok()
-                .and_then(|g| g.clone())
-                .unwrap_or_default();
+            // SECURITY (FIND-P27-003): Log mutex poisoning instead of silently defaulting.
+            let since = match self.acquired_at.lock() {
+                Ok(guard) => guard.clone().unwrap_or_default(),
+                Err(e) => {
+                    tracing::error!("Leader election acquired_at mutex poisoned: {}", e);
+                    "unknown (mutex poisoned)".to_string()
+                }
+            };
             LeaderStatus::Leader { since }
         } else {
             LeaderStatus::Follower {

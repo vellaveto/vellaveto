@@ -3258,3 +3258,163 @@ fn test_deployment_valid_kubernetes_config() {
     config.instance_id = Some("vellaveto-0".to_string());
     assert!(config.validate().is_ok());
 }
+
+// =========================================================================
+// Adversarial Tests — Phase 27 (FIND-P27-005, FIND-P27-007)
+// =========================================================================
+
+#[test]
+fn test_deployment_dns_name_ssrf_localhost_rejected() {
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
+    config.service_discovery.dns_name = Some("localhost:80".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("loopback"), "expected loopback rejection: {}", err);
+}
+
+#[test]
+fn test_deployment_dns_name_ssrf_127_rejected() {
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
+    config.service_discovery.dns_name = Some("127.0.0.1:8080".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("loopback"), "expected loopback rejection: {}", err);
+}
+
+#[test]
+fn test_deployment_dns_name_ssrf_127_subnet_rejected() {
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
+    config.service_discovery.dns_name = Some("127.99.99.99:80".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("loopback"), "expected loopback rejection: {}", err);
+}
+
+#[test]
+fn test_deployment_dns_name_ssrf_aws_metadata_rejected() {
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
+    config.service_discovery.dns_name = Some("169.254.169.254:80".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("metadata") || err.contains("link-local"), "expected metadata rejection: {}", err);
+}
+
+#[test]
+fn test_deployment_dns_name_ssrf_gcp_metadata_rejected() {
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
+    config.service_discovery.dns_name = Some("metadata.google.internal:80".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("metadata") || err.contains("internal"), "expected metadata rejection: {}", err);
+}
+
+#[test]
+fn test_deployment_dns_name_ssrf_link_local_rejected() {
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
+    config.service_discovery.dns_name = Some("169.254.0.1:80".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("link-local"), "expected link-local rejection: {}", err);
+}
+
+#[test]
+fn test_deployment_dns_name_ssrf_zero_address_rejected() {
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
+    config.service_discovery.dns_name = Some("0.0.0.0:80".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("loopback"), "expected loopback rejection: {}", err);
+}
+
+#[test]
+fn test_deployment_dns_name_ssrf_ipv6_loopback_rejected() {
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
+    config.service_discovery.dns_name = Some("[::1]:80".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("loopback"), "expected loopback rejection: {}", err);
+}
+
+#[test]
+fn test_deployment_dns_name_ssrf_internal_suffix_rejected() {
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
+    config.service_discovery.dns_name = Some("evil.internal:80".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("metadata") || err.contains("internal"), "expected internal rejection: {}", err);
+}
+
+#[test]
+fn test_deployment_dns_name_valid_headless_service_accepted() {
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
+    config.service_discovery.dns_name =
+        Some("vellaveto-headless.prod.svc.cluster.local:3000".to_string());
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_deployment_instance_id_leading_dot_rejected() {
+    let mut config = crate::DeploymentConfig::default();
+    config.instance_id = Some(".my-instance".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("dot"), "expected dot rejection: {}", err);
+}
+
+#[test]
+fn test_deployment_instance_id_trailing_dot_rejected() {
+    let mut config = crate::DeploymentConfig::default();
+    config.instance_id = Some("my-instance.".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("dot"), "expected dot rejection: {}", err);
+}
+
+#[test]
+fn test_deployment_instance_id_consecutive_dots_rejected() {
+    let mut config = crate::DeploymentConfig::default();
+    config.instance_id = Some("my..instance".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("consecutive dots"), "expected consecutive dots rejection: {}", err);
+}
+
+#[test]
+fn test_deployment_instance_id_dot_only_rejected() {
+    let mut config = crate::DeploymentConfig::default();
+    config.instance_id = Some(".".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("dot"), "expected dot rejection: {}", err);
+}
+
+#[test]
+fn test_deployment_instance_id_double_dot_only_rejected() {
+    let mut config = crate::DeploymentConfig::default();
+    config.instance_id = Some("..".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("dot"), "expected dot rejection: {}", err);
+}
+
+#[test]
+fn test_deployment_instance_id_valid_fqdn_style_accepted() {
+    let mut config = crate::DeploymentConfig::default();
+    config.instance_id = Some("vellaveto-0.prod".to_string());
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_deployment_dns_name_case_insensitive_ssrf_check() {
+    // Verify that uppercase bypass attempts are caught
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
+    config.service_discovery.dns_name = Some("LOCALHOST:80".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("loopback"), "expected case-insensitive loopback rejection: {}", err);
+}
+
+#[test]
+fn test_deployment_dns_name_azure_metadata_rejected() {
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
+    config.service_discovery.dns_name = Some("169.254.165.254:80".to_string());
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("link-local") || err.contains("metadata"), "expected metadata/link-local rejection: {}", err);
+}

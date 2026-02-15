@@ -166,6 +166,52 @@ impl ServiceDiscoveryConfig {
                     "deployment.service_discovery.dns_name must not be empty".to_string()
                 );
             }
+            // SECURITY (FIND-P27-005): Reject SSRF-prone DNS names.
+            // Extract host part before the port (required by tokio::net::lookup_host).
+            // Handle bracketed IPv6 addresses like [::1]:80.
+            let host = if name.starts_with('[') {
+                // IPv6 bracketed notation: [::1]:80
+                name.split(']')
+                    .next()
+                    .unwrap_or(name)
+                    .trim_start_matches('[')
+                    .to_lowercase()
+            } else {
+                name.rsplit_once(':')
+                    .map(|(h, _)| h)
+                    .unwrap_or(name)
+                    .to_lowercase()
+            };
+            // Block loopback addresses
+            if host == "localhost"
+                || host == "127.0.0.1"
+                || host == "::1"
+                || host == "0.0.0.0"
+                || host.starts_with("127.")
+            {
+                return Err(format!(
+                    "deployment.service_discovery.dns_name must not resolve to loopback (got '{}')",
+                    host
+                ));
+            }
+            // Block cloud metadata endpoints
+            if host == "169.254.169.254"
+                || host == "metadata.google.internal"
+                || host == "169.254.165.254"
+                || host.ends_with(".internal")
+            {
+                return Err(format!(
+                    "deployment.service_discovery.dns_name must not target cloud metadata endpoints (got '{}')",
+                    host
+                ));
+            }
+            // Block link-local range
+            if host.starts_with("169.254.") {
+                return Err(format!(
+                    "deployment.service_discovery.dns_name must not target link-local addresses (got '{}')",
+                    host
+                ));
+            }
         }
         Ok(())
     }
@@ -229,6 +275,19 @@ impl DeploymentConfig {
             if id.starts_with('-') || id.ends_with('-') {
                 return Err(format!(
                     "deployment.instance_id must not start or end with a hyphen, got '{}'",
+                    id
+                ));
+            }
+            // SECURITY (FIND-P27-007): Reject leading/trailing dots and consecutive dots.
+            if id.starts_with('.') || id.ends_with('.') {
+                return Err(format!(
+                    "deployment.instance_id must not start or end with a dot, got '{}'",
+                    id
+                ));
+            }
+            if id.contains("..") {
+                return Err(format!(
+                    "deployment.instance_id must not contain consecutive dots, got '{}'",
                     id
                 ));
             }
