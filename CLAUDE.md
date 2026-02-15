@@ -79,7 +79,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 |------|-------|
 | **vellaveto-types** (leaf crate) | |
 | Core types: Action, Verdict, Policy, PathRules, NetworkRules | `vellaveto-types/src/core.rs` |
-| Identity: AgentIdentity, CallChainEntry, EvaluationContext | `vellaveto-types/src/identity.rs` |
+| Identity: AgentIdentity, CallChainEntry, EvaluationContext, RequestContext trait, StatelessContextBlob | `vellaveto-types/src/identity.rs` |
 | ETDI: signatures, attestation, version pinning | `vellaveto-types/src/etdi.rs` |
 | Threat: auth levels, circuit breakers, fingerprints, trust | `vellaveto-types/src/threat.rs` |
 | Advanced: ABAC, capability, compliance, extension, gateway, transport, verification, NHI, MINJA, DID:PLC, task | `vellaveto-types/src/*.rs` |

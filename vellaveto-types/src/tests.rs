@@ -2247,3 +2247,131 @@ fn test_verdict_explanation_serde_roundtrip() {
     assert_eq!(deserialized.policies_checked, 5);
     assert!(deserialized.policy_details.is_some());
 }
+
+// ═══════════════════════════════════════════════════
+// Phase 25.6: RequestContext trait and StatelessContextBlob tests
+// ═══════════════════════════════════════════════════
+
+/// Phase 25.6: StatelessContextBlob serialization roundtrip.
+#[test]
+fn test_stateless_blob_roundtrip() {
+    let blob = StatelessContextBlob {
+        version: 1,
+        agent_id: "agent-123".to_string(),
+        call_counts: {
+            let mut m = HashMap::new();
+            m.insert("read_file".to_string(), 5);
+            m.insert("write_file".to_string(), 2);
+            m
+        },
+        recent_actions: vec!["read_file".to_string(), "write_file".to_string()],
+        call_chain: vec![CallChainEntry {
+            agent_id: "upstream-1".to_string(),
+            tool: "read_file".to_string(),
+            function: "read".to_string(),
+            timestamp: "2026-02-15T10:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        }],
+        risk_score: None,
+        issued_at: 1739613600,
+        signature: "deadbeef".to_string(),
+    };
+
+    let json_str = serde_json::to_string(&blob).unwrap();
+    let deserialized: StatelessContextBlob = serde_json::from_str(&json_str).unwrap();
+
+    assert_eq!(deserialized.version, 1);
+    assert_eq!(deserialized.agent_id, "agent-123");
+    assert_eq!(deserialized.call_counts.len(), 2);
+    assert_eq!(deserialized.call_counts["read_file"], 5);
+    assert_eq!(deserialized.recent_actions.len(), 2);
+    assert_eq!(deserialized.call_chain.len(), 1);
+    assert_eq!(deserialized.issued_at, 1739613600);
+    assert_eq!(deserialized.signature, "deadbeef");
+}
+
+/// Phase 25.6: Expired blob detection.
+#[test]
+fn test_stateless_blob_expiry() {
+    let blob = StatelessContextBlob {
+        version: 1,
+        agent_id: "agent-1".to_string(),
+        call_counts: HashMap::new(),
+        recent_actions: vec![],
+        call_chain: vec![],
+        risk_score: None,
+        issued_at: 1000,
+        signature: String::new(),
+    };
+
+    // 301 seconds later — expired (max age is 300)
+    assert!(blob.is_expired(1301));
+    // 300 seconds later — not expired (boundary)
+    assert!(!blob.is_expired(1300));
+    // Same time — not expired
+    assert!(!blob.is_expired(1000));
+}
+
+/// Phase 25.6: StatelessContextBlob implements RequestContext.
+#[test]
+fn test_stateless_blob_request_context_trait() {
+    let blob = StatelessContextBlob {
+        version: 1,
+        agent_id: "agent-ctx".to_string(),
+        call_counts: {
+            let mut m = HashMap::new();
+            m.insert("tool_a".to_string(), 3);
+            m
+        },
+        recent_actions: vec!["tool_a".to_string(), "tool_b".to_string()],
+        call_chain: vec![],
+        risk_score: None,
+        issued_at: 1000,
+        signature: String::new(),
+    };
+
+    // Test via trait
+    let ctx: &dyn RequestContext = &blob;
+    assert_eq!(ctx.call_counts()["tool_a"], 3);
+    assert_eq!(ctx.previous_actions().len(), 2);
+    assert!(ctx.call_chain().is_empty());
+    assert!(ctx.agent_identity().is_none());
+    assert!(ctx.session_guard_state().is_none());
+    assert!(ctx.risk_score().is_none());
+}
+
+/// Phase 25.6: EvaluationContext built from StatelessContextBlob via trait.
+#[test]
+fn test_evaluation_context_from_stateless() {
+    let blob = StatelessContextBlob {
+        version: 1,
+        agent_id: "agent-eval".to_string(),
+        call_counts: {
+            let mut m = HashMap::new();
+            m.insert("read".to_string(), 10);
+            m
+        },
+        recent_actions: vec!["read".to_string()],
+        call_chain: vec![CallChainEntry {
+            agent_id: "hop-1".to_string(),
+            tool: "read".to_string(),
+            function: "get".to_string(),
+            timestamp: "2026-02-15T12:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        }],
+        risk_score: None,
+        issued_at: 1000,
+        signature: String::new(),
+    };
+
+    let eval_ctx = blob.to_evaluation_context();
+    assert_eq!(eval_ctx.call_counts["read"], 10);
+    assert_eq!(eval_ctx.previous_actions, vec!["read".to_string()]);
+    assert_eq!(eval_ctx.call_chain.len(), 1);
+    assert_eq!(eval_ctx.call_chain[0].agent_id, "hop-1");
+    // Stateless blob doesn't carry agent_identity or session_state
+    assert!(eval_ctx.agent_identity.is_none());
+    assert!(eval_ctx.session_state.is_none());
+}

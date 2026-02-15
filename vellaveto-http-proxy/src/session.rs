@@ -142,6 +142,82 @@ impl SessionState {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// Phase 25.6: StatefulContext — RequestContext impl for SessionState
+// ═══════════════════════════════════════════════════════════════════
+
+use vellaveto_types::identity::RequestContext;
+
+/// Adapter that implements [`RequestContext`] for [`SessionState`].
+///
+/// This is the stateful-mode implementation: all context is read from the
+/// in-memory session store. Wrapping `SessionState` in this adapter allows
+/// security-critical code to accept `&dyn RequestContext` and work identically
+/// in both stateful and (future) stateless modes.
+///
+/// # Usage
+///
+/// ```ignore
+/// let ctx = StatefulContext::new(&session);
+/// let eval = ctx.to_evaluation_context();
+/// engine.evaluate(&action, &eval)?;
+/// ```
+pub struct StatefulContext<'a> {
+    session: &'a SessionState,
+    /// Cached Vec of previous actions (converted from VecDeque).
+    /// Lazily populated on first access. Uses OnceLock for Sync.
+    previous_actions_cache: std::sync::OnceLock<Vec<String>>,
+}
+
+impl<'a> StatefulContext<'a> {
+    /// Create a new stateful context wrapping a session reference.
+    pub fn new(session: &'a SessionState) -> Self {
+        Self {
+            session,
+            previous_actions_cache: std::sync::OnceLock::new(),
+        }
+    }
+}
+
+impl RequestContext for StatefulContext<'_> {
+    fn call_counts(&self) -> &HashMap<String, u64> {
+        &self.session.call_counts
+    }
+
+    fn previous_actions(&self) -> &[String] {
+        self.previous_actions_cache
+            .get_or_init(|| self.session.action_history.iter().cloned().collect())
+    }
+
+    fn call_chain(&self) -> &[vellaveto_types::CallChainEntry] {
+        &self.session.current_call_chain
+    }
+
+    fn agent_identity(&self) -> Option<&AgentIdentity> {
+        self.session.agent_identity.as_ref()
+    }
+
+    fn session_guard_state(&self) -> Option<&str> {
+        None // SessionGuard state is tracked separately, not in SessionState fields
+    }
+
+    fn risk_score(&self) -> Option<&vellaveto_types::RiskScore> {
+        self.session.risk_score.as_ref()
+    }
+
+    fn to_evaluation_context(&self) -> vellaveto_types::EvaluationContext {
+        vellaveto_types::EvaluationContext {
+            agent_id: self.session.oauth_subject.clone(),
+            agent_identity: self.session.agent_identity.clone(),
+            call_counts: self.session.call_counts.clone(),
+            previous_actions: self.session.action_history.iter().cloned().collect(),
+            call_chain: self.session.current_call_chain.clone(),
+            session_state: None,
+            ..Default::default()
+        }
+    }
+}
+
 /// SECURITY (R39-PROXY-7): Maximum length for client-provided session IDs.
 /// Server-generated IDs are UUIDs (36 chars). Reject anything longer than
 /// this to prevent memory abuse via arbitrarily long session ID strings.
@@ -561,5 +637,79 @@ mod tests {
         assert_eq!(id2.len(), 36);
         // Both should have created new sessions
         assert_eq!(store.len(), 2);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // Phase 25.6: StatefulContext tests
+    // ═══════════════════════════════════════════════════
+
+    /// Phase 25.6: StatefulContext implements RequestContext trait.
+    #[test]
+    fn test_stateful_context_implements_trait() {
+        let session = SessionState::new("test-ctx".to_string());
+        let ctx = StatefulContext::new(&session);
+
+        // Verify trait methods work
+        let _: &dyn RequestContext = &ctx;
+        assert!(ctx.call_counts().is_empty());
+        assert!(ctx.previous_actions().is_empty());
+        assert!(ctx.call_chain().is_empty());
+        assert!(ctx.agent_identity().is_none());
+        assert!(ctx.session_guard_state().is_none());
+        assert!(ctx.risk_score().is_none());
+    }
+
+    /// Phase 25.6: call_counts() returns session's call counts.
+    #[test]
+    fn test_stateful_context_call_counts() {
+        let mut session = SessionState::new("test-counts".to_string());
+        session.call_counts.insert("read_file".to_string(), 5);
+        session.call_counts.insert("write_file".to_string(), 3);
+
+        let ctx = StatefulContext::new(&session);
+        assert_eq!(ctx.call_counts().len(), 2);
+        assert_eq!(ctx.call_counts()["read_file"], 5);
+        assert_eq!(ctx.call_counts()["write_file"], 3);
+    }
+
+    /// Phase 25.6: previous_actions() returns session's action history.
+    #[test]
+    fn test_stateful_context_previous_actions() {
+        let mut session = SessionState::new("test-actions".to_string());
+        session.action_history.push_back("read_file".to_string());
+        session.action_history.push_back("write_file".to_string());
+        session.action_history.push_back("execute".to_string());
+
+        let ctx = StatefulContext::new(&session);
+        let actions = ctx.previous_actions();
+        assert_eq!(actions.len(), 3);
+        assert_eq!(actions[0], "read_file");
+        assert_eq!(actions[1], "write_file");
+        assert_eq!(actions[2], "execute");
+    }
+
+    /// Phase 25.6: EvaluationContext built from StatefulContext.
+    #[test]
+    fn test_evaluation_context_from_stateful() {
+        let mut session = SessionState::new("test-eval".to_string());
+        session.oauth_subject = Some("user-42".to_string());
+        session.call_counts.insert("tool_a".to_string(), 7);
+        session.action_history.push_back("tool_a".to_string());
+        session.agent_identity = Some(AgentIdentity {
+            issuer: Some("test-issuer".to_string()),
+            subject: Some("agent-sub".to_string()),
+            ..Default::default()
+        });
+
+        let ctx = StatefulContext::new(&session);
+        let eval = ctx.to_evaluation_context();
+
+        assert_eq!(eval.agent_id.as_deref(), Some("user-42"));
+        assert_eq!(eval.call_counts["tool_a"], 7);
+        assert_eq!(eval.previous_actions, vec!["tool_a".to_string()]);
+        assert_eq!(
+            eval.agent_identity.as_ref().unwrap().issuer.as_deref(),
+            Some("test-issuer")
+        );
     }
 }

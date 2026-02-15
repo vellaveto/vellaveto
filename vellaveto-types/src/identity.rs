@@ -312,3 +312,134 @@ impl EvaluationContextBuilder {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 25.6: Stateless protocol abstraction
+// ═══════════════════════════════════════════════════════════════════
+
+/// Abstraction over session state access for policy evaluation.
+///
+/// Stateful mode (current behavior): reads from in-memory `SessionStore`.
+/// Stateless mode (future): reads from a signed per-request context blob.
+///
+/// This trait boundary allows security-critical code to remain unchanged
+/// while supporting both session-based and stateless HTTP transports.
+///
+/// # Security
+///
+/// Implementors must ensure that:
+/// - `call_counts()` and `previous_actions()` are tamper-proof
+/// - In stateless mode, the context blob is signed and verified
+/// - `record_action()` correctly persists state (or returns it in the response)
+pub trait RequestContext: Send + Sync {
+    /// Per-tool call counts for the current session/request chain.
+    fn call_counts(&self) -> &HashMap<String, u64>;
+
+    /// History of tool names called in this session/request chain.
+    fn previous_actions(&self) -> &[String];
+
+    /// Multi-agent call chain entries.
+    fn call_chain(&self) -> &[CallChainEntry];
+
+    /// Cryptographically attested agent identity (if available).
+    fn agent_identity(&self) -> Option<&AgentIdentity>;
+
+    /// Session guard state machine state (if tracked).
+    fn session_guard_state(&self) -> Option<&str>;
+
+    /// Current risk score from continuous authorization (if available).
+    fn risk_score(&self) -> Option<&crate::abac::RiskScore>;
+
+    /// Build an `EvaluationContext` from this request context.
+    ///
+    /// Populates all session-derived fields so the policy engine can
+    /// evaluate context conditions (call limits, action sequences, etc.).
+    fn to_evaluation_context(&self) -> EvaluationContext {
+        EvaluationContext {
+            call_counts: self.call_counts().clone(),
+            previous_actions: self.previous_actions().to_vec(),
+            call_chain: self.call_chain().to_vec(),
+            agent_identity: self.agent_identity().cloned(),
+            session_state: self.session_guard_state().map(|s| s.to_string()),
+            ..Default::default()
+        }
+    }
+}
+
+/// Signed context carried per-request in stateless mode.
+///
+/// In stateless HTTP mode (MCP June 2026+), there is no server-side session.
+/// Instead, the proxy issues this blob in responses and the client echoes it
+/// back in subsequent requests. The HMAC-SHA256 signature prevents tampering.
+///
+/// # Security
+///
+/// - `signature` covers all other fields via HMAC-SHA256 with a server-side key
+/// - `issued_at` enables expiry checking (reject stale blobs)
+/// - `version` enables forward-compatible format changes
+/// - Maximum blob size is bounded to prevent memory abuse
+///
+/// # Future
+///
+/// This struct is defined now to lock the wire format. The actual
+/// serialization, signing, and verification logic will be implemented
+/// when the June 2026 MCP spec is finalized.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatelessContextBlob {
+    /// Wire format version. Current: 1.
+    pub version: u8,
+    /// Agent identifier.
+    pub agent_id: String,
+    /// Per-tool call counts.
+    pub call_counts: HashMap<String, u64>,
+    /// Last N actions (bounded to prevent unbounded growth).
+    pub recent_actions: Vec<String>,
+    /// Multi-agent call chain.
+    pub call_chain: Vec<CallChainEntry>,
+    /// Risk score from continuous authorization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk_score: Option<crate::abac::RiskScore>,
+    /// Unix timestamp when this blob was issued.
+    pub issued_at: u64,
+    /// HMAC-SHA256 signature over the serialized content (hex-encoded).
+    pub signature: String,
+}
+
+impl StatelessContextBlob {
+    /// Maximum age of a stateless context blob before it's considered expired.
+    pub const MAX_AGE_SECS: u64 = 300; // 5 minutes
+
+    /// Maximum number of recent actions stored in the blob.
+    pub const MAX_RECENT_ACTIONS: usize = 100;
+
+    /// Check if this blob has expired based on the current time.
+    pub fn is_expired(&self, now_unix_secs: u64) -> bool {
+        now_unix_secs.saturating_sub(self.issued_at) > Self::MAX_AGE_SECS
+    }
+}
+
+impl RequestContext for StatelessContextBlob {
+    fn call_counts(&self) -> &HashMap<String, u64> {
+        &self.call_counts
+    }
+
+    fn previous_actions(&self) -> &[String] {
+        &self.recent_actions
+    }
+
+    fn call_chain(&self) -> &[CallChainEntry] {
+        &self.call_chain
+    }
+
+    fn agent_identity(&self) -> Option<&AgentIdentity> {
+        None // Stateless blobs don't carry full identity (it's in the JWT)
+    }
+
+    fn session_guard_state(&self) -> Option<&str> {
+        None // Session guard is stateful-only for now
+    }
+
+    fn risk_score(&self) -> Option<&crate::abac::RiskScore> {
+        self.risk_score.as_ref()
+    }
+}

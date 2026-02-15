@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 25.1 — Audio Metadata Inspection (WAV + MP3)
+- **WAV LIST/INFO chunk parser** (`extract_text_from_wav`) — walks RIFF container for INFO sub-chunks (INAM, IART, ICMT, IGNR, ISFT), extracts null-terminated text, bounded at 200 sub-chunks and 1MB aggregate text.
+- **MP3 ID3v2 tag parser** (`extract_text_from_mp3`) — parses ID3v2.3/2.4 headers with syncsafe integer decoding, extracts text from TIT2, TPE1, TALB, COMM, USLT, TXXX frames. Supports 4 encodings: ISO-8859-1, UTF-16 with BOM, UTF-16BE, UTF-8. Bounded at 200 frames and 1MB aggregate.
+- **Audio extraction wired into `scan_content()`** — extracted text feeds into existing `scan_text_for_injection()` pipeline for injection detection.
+- **FLAC/OGG magic bytes** — `fLaC` and `OggS` detected as `ContentType::Audio`.
+- 15 new tests.
+
+#### Phase 25.2 — Video Metadata Inspection (MP4 + WebM)
+- **MP4 ISO BMFF box walker** (`extract_text_from_mp4`) — traverses ftyp → moov → udta → meta → ilst for iTunes-style metadata (©nam, ©ART, ©cmt, ©des) and legacy QuickTime format. Bounded at 500 boxes, 10 nesting levels, 1MB aggregate text.
+- **WebM EBML tag parser** (`extract_text_from_webm`) — parses variable-length element IDs/sizes (VINT encoding), walks Segment → Tags → Tag → SimpleTag to extract TagString values. Bounded at 200 elements per level and 1MB aggregate text.
+- **Video extraction wired into `scan_content()`** — extracted text feeds into injection detection pipeline.
+- **MP4/WebM/AVI magic bytes** — ftyp at offset 4 → Video, EBML header `\x1A\x45\xDF\xA3` → Video, RIFF....AVI → Video.
+- 12 new tests.
+
+#### Phase 25.6 — Stateless Protocol Abstraction
+- **`RequestContext` trait** (`vellaveto-types/src/identity.rs`) — abstracts session state access for policy evaluation. Methods: `call_counts()`, `previous_actions()`, `call_chain()`, `agent_identity()`, `session_guard_state()`, `risk_score()`. Default `to_evaluation_context()` builder populates `EvaluationContext` from any implementor.
+- **`StatelessContextBlob` struct** — signed per-request context for future stateless HTTP mode (MCP June 2026). Carries agent_id, call_counts, recent_actions, call_chain, risk_score, issued_at timestamp, and HMAC-SHA256 signature. 5-minute expiry. Implements `RequestContext`.
+- **`StatefulContext` adapter** (`vellaveto-http-proxy/src/session.rs`) — wraps `&SessionState` to implement `RequestContext`, zero-cost migration for existing stateful code.
+- 8 new tests.
+
 #### Phase 33 — Formal Verification (TLA+/Alloy)
 - **TLA+ policy engine specification** (`formal/tla/MCPPolicyEngine.tla`) — state machine modeling `PolicyEngine::evaluate_action` with 6 safety invariants (fail-closed default, priority ordering, blocked-paths-override, blocked-domains-override, errors-produce-deny, missing-context-deny) and 2 liveness properties (eventual verdict, no stuck states).
 - **TLA+ ABAC forbid-overrides specification** (`formal/tla/AbacForbidOverrides.tla`) — models `AbacEngine::evaluate` with 4 safety invariants: forbid dominance, forbid ignores priority, permit-only-without-forbid, no-match result.
