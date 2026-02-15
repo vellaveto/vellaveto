@@ -179,10 +179,17 @@ impl AuditLogger {
                 ))
             })?
             .to_string_lossy();
+        // SECURITY (FIND-R42-017): Record chain segment start hash for cross-rotation
+        // linking. The start_hash is the prev_hash of the first entry (None for the first segment).
+        let start_hash = entries
+            .first()
+            .and_then(|e| e.prev_hash.clone())
+            .unwrap_or_default();
         let mut manifest_entry = serde_json::json!({
             "timestamp": Utc::now().to_rfc3339(),
             "rotated_file": rotated_filename,
             "tail_hash": tail_hash,
+            "start_hash": start_hash,
             "entry_count": entry_count,
         });
         if let Some(signing_key) = &self.signing_key {

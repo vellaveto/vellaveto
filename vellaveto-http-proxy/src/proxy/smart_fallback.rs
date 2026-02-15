@@ -277,6 +277,10 @@ impl<'a> SmartFallbackChain<'a> {
     }
 
     /// Dispatch via HTTP POST.
+    ///
+    /// SECURITY (FIND-R41-015): Uses chunk-based reading to prevent OOM from
+    /// chunked-encoded responses that omit Content-Length. Each chunk is checked
+    /// against MAX_RESPONSE_BODY_BYTES before accumulating.
     async fn dispatch_http(
         &self,
         url: &str,
@@ -295,7 +299,7 @@ impl<'a> SmartFallbackChain<'a> {
             }
         }
 
-        let resp = request
+        let mut resp = request
             .body(body)
             .send()
             .await
@@ -303,30 +307,42 @@ impl<'a> SmartFallbackChain<'a> {
 
         let status = resp.status().as_u16();
 
-        // SECURITY (FIND-R41-004): Limit response body size to prevent OOM.
-        let content_length = resp.content_length().unwrap_or(0) as usize;
-        if content_length > MAX_RESPONSE_BODY_BYTES {
-            return Err(format!(
-                "response body too large: {} bytes (max {})",
-                content_length, MAX_RESPONSE_BODY_BYTES
-            ));
-        }
-        let body = resp
-            .bytes()
-            .await
-            .map_err(|e| format!("HTTP response body error: {}", e))?;
-        if body.len() > MAX_RESPONSE_BODY_BYTES {
-            return Err(format!(
-                "response body too large: {} bytes (max {})",
-                body.len(),
-                MAX_RESPONSE_BODY_BYTES
-            ));
+        // SECURITY (FIND-R41-004): Fast-reject if Content-Length exceeds limit.
+        if let Some(len) = resp.content_length() {
+            if len as usize > MAX_RESPONSE_BODY_BYTES {
+                return Err(format!(
+                    "response body too large: {} bytes (max {})",
+                    len, MAX_RESPONSE_BODY_BYTES
+                ));
+            }
         }
 
-        Ok((body, status))
+        // SECURITY (FIND-R41-015): Read body in chunks with bounded accumulation.
+        // Prevents OOM from chunked-encoded responses that omit Content-Length.
+        let capacity =
+            std::cmp::min(resp.content_length().unwrap_or(8192) as usize, MAX_RESPONSE_BODY_BYTES);
+        let mut response_body = Vec::with_capacity(capacity);
+        while let Some(chunk) = resp
+            .chunk()
+            .await
+            .map_err(|e| format!("HTTP response body error: {}", e))?
+        {
+            if response_body.len() + chunk.len() > MAX_RESPONSE_BODY_BYTES {
+                return Err(format!(
+                    "response body too large: >{} bytes (max {})",
+                    MAX_RESPONSE_BODY_BYTES, MAX_RESPONSE_BODY_BYTES
+                ));
+            }
+            response_body.extend_from_slice(&chunk);
+        }
+
+        Ok((bytes::Bytes::from(response_body), status))
     }
 
     /// Dispatch via WebSocket (one-shot: connect, send, receive, close).
+    ///
+    /// SECURITY (FIND-R41-011): Configures max_message_size to prevent OOM
+    /// from unbounded upstream WebSocket frames.
     async fn dispatch_websocket(
         &self,
         url: &str,
@@ -336,9 +352,16 @@ impl<'a> SmartFallbackChain<'a> {
         use tokio_tungstenite::tungstenite::Message;
 
         let result = tokio::time::timeout(timeout, async {
-            let (mut ws, _) = tokio_tungstenite::connect_async(url)
-                .await
-                .map_err(|e| format!("WebSocket connect error: {}", e))?;
+            // SECURITY (FIND-R41-011): Configure max message/frame size to prevent
+            // a malicious upstream from sending unbounded WebSocket frames (OOM).
+            let mut ws_config =
+                tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default();
+            ws_config.max_message_size = Some(MAX_RESPONSE_BODY_BYTES);
+            ws_config.max_frame_size = Some(MAX_RESPONSE_BODY_BYTES);
+            let (mut ws, _) =
+                tokio_tungstenite::connect_async_with_config(url, Some(ws_config), false)
+                    .await
+                    .map_err(|e| format!("WebSocket connect error: {}", e))?;
 
             use futures_util::SinkExt;
             ws.send(Message::Text(
@@ -359,8 +382,27 @@ impl<'a> SmartFallbackChain<'a> {
                 .map_err(|e| format!("WebSocket close error: {}", e))?;
 
             let response_bytes = match response {
-                Message::Text(t) => bytes::Bytes::from(Vec::from(t.as_bytes())),
-                Message::Binary(b) => bytes::Bytes::from(Vec::from(b.as_ref())),
+                Message::Text(t) => {
+                    let bytes = t.as_bytes();
+                    if bytes.len() > MAX_RESPONSE_BODY_BYTES {
+                        return Err(format!(
+                            "WebSocket response too large: {} bytes (max {})",
+                            bytes.len(),
+                            MAX_RESPONSE_BODY_BYTES
+                        ));
+                    }
+                    bytes::Bytes::from(Vec::from(bytes))
+                }
+                Message::Binary(b) => {
+                    if b.len() > MAX_RESPONSE_BODY_BYTES {
+                        return Err(format!(
+                            "WebSocket response too large: {} bytes (max {})",
+                            b.len(),
+                            MAX_RESPONSE_BODY_BYTES
+                        ));
+                    }
+                    bytes::Bytes::from(Vec::from(b.as_ref()))
+                }
                 other => {
                     return Err(format!(
                         "unexpected WebSocket message type: {:?}",

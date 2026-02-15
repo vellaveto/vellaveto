@@ -51,6 +51,9 @@ pub struct FallbackResult {
     pub negotiation_history: Option<FallbackNegotiationHistory>,
 }
 
+/// Maximum response body size from upstream (16 MB). FIND-R42-020.
+const MAX_RESPONSE_BODY_BYTES: usize = 16 * 1024 * 1024;
+
 /// SECURITY (FIND-041-008): Allowlist of headers forwarded to upstream.
 /// Only these headers are forwarded to prevent leaking internal/sensitive
 /// headers (e.g., authorization, cookies) to upstream backends.
@@ -92,22 +95,60 @@ pub async fn forward_with_fallback(
         }
 
         match request.body(body.clone()).send().await {
-            Ok(resp) => {
+            Ok(mut resp) => {
                 let status = resp.status().as_u16();
-                match resp.bytes().await {
-                    Ok(response_body) => {
-                        return Ok(FallbackResult {
-                            response: response_body,
-                            transport_used: TransportProtocol::Http,
-                            fallback_attempts: attempt,
-                            status,
-                            negotiation_history: None,
-                        });
-                    }
-                    Err(e) => {
-                        last_error = format!("response body read error: {}", e);
+
+                // SECURITY (FIND-R42-020): Fast-reject if Content-Length exceeds limit.
+                if let Some(len) = resp.content_length() {
+                    if len as usize > MAX_RESPONSE_BODY_BYTES {
+                        last_error = format!(
+                            "response body too large: {} bytes (max {})",
+                            len, MAX_RESPONSE_BODY_BYTES
+                        );
+                        continue;
                     }
                 }
+
+                // SECURITY (FIND-R42-020): Read body in chunks with bounded accumulation.
+                // Prevents OOM from chunked-encoded responses that omit Content-Length.
+                let capacity = std::cmp::min(
+                    resp.content_length().unwrap_or(8192) as usize,
+                    MAX_RESPONSE_BODY_BYTES,
+                );
+                let mut response_body = Vec::with_capacity(capacity);
+                let mut body_too_large = false;
+                loop {
+                    match resp.chunk().await {
+                        Ok(Some(chunk)) => {
+                            if response_body.len() + chunk.len() > MAX_RESPONSE_BODY_BYTES {
+                                last_error = format!(
+                                    "response body too large: >{} bytes (max {})",
+                                    MAX_RESPONSE_BODY_BYTES, MAX_RESPONSE_BODY_BYTES
+                                );
+                                body_too_large = true;
+                                break;
+                            }
+                            response_body.extend_from_slice(&chunk);
+                        }
+                        Ok(None) => break,
+                        Err(e) => {
+                            last_error = format!("response body read error: {}", e);
+                            body_too_large = true;
+                            break;
+                        }
+                    }
+                }
+                if body_too_large {
+                    continue;
+                }
+
+                return Ok(FallbackResult {
+                    response: bytes::Bytes::from(response_body),
+                    transport_used: TransportProtocol::Http,
+                    fallback_attempts: attempt,
+                    status,
+                    negotiation_history: None,
+                });
             }
             Err(e) => {
                 last_error = format!("request error: {}", e);

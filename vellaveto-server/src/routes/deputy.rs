@@ -109,6 +109,16 @@ pub async fn register_delegation(
     validate_field(&req.from_principal, "from_principal", MAX_FIELD_LEN)?;
     validate_field(&req.to_principal, "to_principal", MAX_FIELD_LEN)?;
 
+    // SECURITY (FIND-R42-018): Reject self-delegation.
+    if req.from_principal == req.to_principal {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "from_principal and to_principal must differ".to_string(),
+            }),
+        ));
+    }
+
     if req.allowed_tools.len() > MAX_TOOLS_LEN {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -182,6 +192,9 @@ pub async fn remove_delegation(
             }),
         )
     })?;
+
+    // SECURITY (FIND-R42-016): Validate path parameter length.
+    validate_field(&session, "session", MAX_SESSION_ID_LEN)?;
 
     deputy.remove_context(&session);
 

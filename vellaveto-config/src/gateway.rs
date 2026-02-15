@@ -98,6 +98,14 @@ impl GatewayConfig {
                     i, backend.id
                 ));
             }
+            // SECURITY (FIND-R42-008): Validate backend.url has a safe scheme.
+            let url_trimmed = backend.url.trim();
+            if !url_trimmed.starts_with("http://") && !url_trimmed.starts_with("https://") {
+                return Err(format!(
+                    "gateway.backends[{}].url must use http:// or https:// scheme (id: '{}', url: '{}')",
+                    i, backend.id, url_trimmed
+                ));
+            }
             if backend.weight == 0 {
                 return Err(format!(
                     "gateway.backends[{}].weight must be >= 1 (id: '{}')",

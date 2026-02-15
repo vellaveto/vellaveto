@@ -16,6 +16,10 @@ use std::time::{Duration, Instant};
 /// Prevents unbounded memory growth from long-running sessions (FIND-041-006).
 const MAX_CHAINS_PER_SESSION: usize = 10_000;
 
+/// Maximum number of tracked sessions in request_chains (FIND-R42-007).
+/// Prevents unbounded memory growth from many unique sessions.
+const MAX_TRACKED_SESSIONS: usize = 10_000;
+
 /// Privilege level assigned to an agent.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
@@ -264,6 +268,15 @@ impl AgentTrustGraph {
                 return;
             }
         };
+        // SECURITY (FIND-R42-007): Bound the number of tracked sessions.
+        if !chains.contains_key(session_id) && chains.len() >= MAX_TRACKED_SESSIONS {
+            tracing::warn!(
+                target: "vellaveto::security",
+                limit = MAX_TRACKED_SESSIONS,
+                "Request chain session limit reached — dropping new session"
+            );
+            return;
+        }
         let session_chains = chains
             .entry(session_id.to_string())
             .or_default();

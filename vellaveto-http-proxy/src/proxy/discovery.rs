@@ -137,9 +137,17 @@ pub async fn handle_transport_discovery(State(state): State<ProxyState>) -> Resp
     Json(response).into_response()
 }
 
+/// Maximum entries in a parsed transport preference list (FIND-R42-002).
+/// There are only 4 protocol variants, so more than 4 is redundant.
+const MAX_TRANSPORT_PREFERENCES: usize = 4;
+
 /// Parse the `mcp-transport-preference` header value into an ordered list
 /// of `TransportProtocol` values. Unknown values are silently ignored.
+///
+/// SECURITY (FIND-R42-002): Deduplicates and caps at `MAX_TRANSPORT_PREFERENCES`
+/// to prevent DoS via headers with hundreds of comma-separated entries.
 pub fn parse_transport_preference(header: &str) -> Vec<TransportProtocol> {
+    let mut seen = std::collections::HashSet::new();
     header
         .split(',')
         .filter_map(|s| match s.trim().to_lowercase().as_str() {
@@ -149,6 +157,8 @@ pub fn parse_transport_preference(header: &str) -> Vec<TransportProtocol> {
             "stdio" => Some(TransportProtocol::Stdio),
             _ => None,
         })
+        .filter(|proto| seen.insert(*proto))
+        .take(MAX_TRANSPORT_PREFERENCES)
         .collect()
 }
 
@@ -193,7 +203,11 @@ pub fn resolve_transport_priority(
     let restricted = &config.restricted_transports;
 
     // 1. Per-tool override (glob match).
-    for (glob_pattern, protos) in &config.transport_overrides {
+    // SECURITY (FIND-R41-013): Sort keys lexicographically for deterministic
+    // matching when multiple glob patterns overlap.
+    let mut sorted_overrides: Vec<_> = config.transport_overrides.iter().collect();
+    sorted_overrides.sort_by_key(|(glob, _)| glob.as_str());
+    for (glob_pattern, protos) in sorted_overrides {
         if glob_matches(glob_pattern, tool_name) {
             return filter_restricted(protos, restricted, config.stdio_fallback_enabled);
         }
@@ -245,42 +259,52 @@ fn filter_restricted(
 ///
 /// Supports `*` (match any characters) and `?` (match single character).
 /// Used for `transport_overrides` keys.
+///
+/// SECURITY (FIND-R41-012): Uses iterative DP (O(M*N)) instead of recursive
+/// backtracking which had exponential worst-case complexity O(2^m).
 fn glob_matches(pattern: &str, text: &str) -> bool {
-    let pattern_chars: Vec<char> = pattern.chars().collect();
-    let text_chars: Vec<char> = text.chars().collect();
-    glob_matches_recursive(&pattern_chars, &text_chars, 0, 0)
-}
+    let p: Vec<char> = pattern.chars().collect();
+    let t: Vec<char> = text.chars().collect();
+    let m = p.len();
+    let n = t.len();
 
-fn glob_matches_recursive(pattern: &[char], text: &[char], pi: usize, ti: usize) -> bool {
-    if pi == pattern.len() {
-        return ti == text.len();
+    if m == 0 {
+        return n == 0;
     }
 
-    match pattern[pi] {
-        '*' => {
-            // Try matching zero or more characters.
-            for i in ti..=text.len() {
-                if glob_matches_recursive(pattern, text, pi + 1, i) {
-                    return true;
+    // dp[i][j] = true if pattern[0..i] matches text[0..j].
+    // Rolling two rows: prev_row = dp[i-1], curr_row = dp[i].
+    let mut prev_row = vec![false; n + 1];
+    prev_row[0] = true; // Empty pattern matches empty text.
+
+    let mut all_stars = true;
+
+    for i in 1..=m {
+        let mut curr_row = vec![false; n + 1];
+        all_stars = all_stars && p[i - 1] == '*';
+        curr_row[0] = all_stars; // All-star prefix matches empty text.
+
+        for j in 1..=n {
+            match p[i - 1] {
+                '*' => {
+                    // '*' matches zero chars (curr_row[j-1]) or one+ chars (prev_row[j]).
+                    curr_row[j] = curr_row[j - 1] || prev_row[j];
+                }
+                '?' => {
+                    // '?' matches exactly one character.
+                    curr_row[j] = prev_row[j - 1];
+                }
+                c => {
+                    // Literal match.
+                    curr_row[j] = prev_row[j - 1] && t[j - 1] == c;
                 }
             }
-            false
         }
-        '?' => {
-            if ti < text.len() {
-                glob_matches_recursive(pattern, text, pi + 1, ti + 1)
-            } else {
-                false
-            }
-        }
-        c => {
-            if ti < text.len() && text[ti] == c {
-                glob_matches_recursive(pattern, text, pi + 1, ti + 1)
-            } else {
-                false
-            }
-        }
+
+        prev_row = curr_row;
     }
+
+    prev_row[n]
 }
 
 #[cfg(test)]
@@ -429,5 +453,135 @@ mod discovery_tests {
         assert!(!glob_matches("?s_read", "ffs_read"));
         assert!(glob_matches("exact", "exact"));
         assert!(!glob_matches("exact", "exactx"));
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // Adversarial audit tests (FIND-R41-012, FIND-R41-013)
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R41-012: Verify DP-based glob matching completes in bounded time
+    /// for patterns that would cause exponential backtracking in a recursive
+    /// implementation. Must complete in under 10ms.
+    #[test]
+    fn test_glob_matches_no_exponential_backtracking() {
+        // Pattern with many wildcards that causes O(2^m) in recursive impl.
+        let pattern = "*a*a*a*a*a*a*a*a*a*a*b";
+        let text = "a".repeat(100); // 100 'a's, no 'b' → must return false.
+
+        let start = std::time::Instant::now();
+        let result = glob_matches(pattern, &text);
+        let elapsed = start.elapsed();
+
+        assert!(!result, "should not match (no 'b' in text)");
+        assert!(
+            elapsed.as_millis() < 10,
+            "glob match took {}ms — DP should be O(M*N), not exponential",
+            elapsed.as_millis()
+        );
+    }
+
+    /// FIND-R41-012: Extreme pattern (256 chars of alternating *a) + long text.
+    #[test]
+    fn test_glob_matches_max_length_pattern_bounded() {
+        // 128 '*a' pairs = 256 chars (MAX_GLOB_KEY_LEN).
+        let pattern = "*a".repeat(128);
+        let text = "a".repeat(200);
+
+        let start = std::time::Instant::now();
+        let result = glob_matches(&pattern, &text);
+        let elapsed = start.elapsed();
+
+        assert!(result, "128 '*a' should match 200 'a's");
+        assert!(
+            elapsed.as_millis() < 100,
+            "glob match took {}ms — must complete in bounded time",
+            elapsed.as_millis()
+        );
+    }
+
+    /// FIND-R41-012: Empty pattern and text edge cases.
+    #[test]
+    fn test_glob_matches_edge_cases() {
+        assert!(glob_matches("", ""));
+        assert!(!glob_matches("", "a"));
+        assert!(!glob_matches("a", ""));
+        assert!(glob_matches("*", ""));
+        assert!(glob_matches("**", ""));
+        assert!(glob_matches("***", "abc"));
+        assert!(glob_matches("?", "x"));
+        assert!(!glob_matches("?", ""));
+        assert!(!glob_matches("??", "x"));
+    }
+
+    /// FIND-R41-013: Verify overlapping globs are resolved deterministically
+    /// (lexicographic order of pattern keys).
+    #[test]
+    fn test_resolve_transport_priority_overlapping_globs_deterministic() {
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "*_query".to_string(),
+            vec![TransportProtocol::Grpc],
+        );
+        overrides.insert(
+            "fs_*".to_string(),
+            vec![TransportProtocol::Http],
+        );
+
+        let config = TransportConfig {
+            transport_overrides: overrides,
+            ..default_config()
+        };
+
+        // "fs_query" matches both "fs_*" and "*_query".
+        // Lexicographically, "*_query" < "fs_*", so gRPC should win.
+        let result = resolve_transport_priority("fs_query", None, &config);
+        assert_eq!(
+            result,
+            vec![TransportProtocol::Grpc],
+            "lexicographically first glob (*_query) should take precedence"
+        );
+
+        // Run 10x to confirm determinism (would catch HashMap iteration flakiness).
+        for _ in 0..10 {
+            let r = resolve_transport_priority("fs_query", None, &config);
+            assert_eq!(r, vec![TransportProtocol::Grpc]);
+        }
+    }
+
+    /// FIND-R41-013: Non-overlapping globs should still work correctly.
+    #[test]
+    fn test_resolve_transport_priority_non_overlapping_globs() {
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "db_*".to_string(),
+            vec![TransportProtocol::WebSocket],
+        );
+        overrides.insert(
+            "fs_*".to_string(),
+            vec![TransportProtocol::Http],
+        );
+
+        let config = TransportConfig {
+            transport_overrides: overrides,
+            ..default_config()
+        };
+
+        assert_eq!(
+            resolve_transport_priority("fs_read", None, &config),
+            vec![TransportProtocol::Http]
+        );
+        assert_eq!(
+            resolve_transport_priority("db_query", None, &config),
+            vec![TransportProtocol::WebSocket]
+        );
+        // Non-matching falls through to default.
+        assert_eq!(
+            resolve_transport_priority("net_call", None, &config),
+            vec![
+                TransportProtocol::Grpc,
+                TransportProtocol::WebSocket,
+                TransportProtocol::Http,
+            ]
+        );
     }
 }

@@ -179,6 +179,19 @@ impl TransportConfig {
             }
         }
 
+        // SECURITY (FIND-R42-015): Reject duplicate protocols in upstream_priorities.
+        {
+            let mut seen = std::collections::HashSet::new();
+            for proto in &self.upstream_priorities {
+                if !seen.insert(proto) {
+                    return Err(format!(
+                        "transport.upstream_priorities contains duplicate protocol {:?}",
+                        proto
+                    ));
+                }
+            }
+        }
+
         // Phase 29: Cross-transport fallback validation.
         if self.transport_circuit_breaker_failure_threshold < MIN_CB_FAILURE_THRESHOLD
             || self.transport_circuit_breaker_failure_threshold > MAX_CB_FAILURE_THRESHOLD
@@ -200,6 +213,16 @@ impl TransportConfig {
                 MAX_CB_OPEN_DURATION_SECS,
                 self.transport_circuit_breaker_open_duration_secs
             ));
+        }
+
+        // SECURITY (FIND-R42-009): Reject "*" wildcard when other overrides exist,
+        // because it would shadow all specific patterns (lexicographically "*" < any letter).
+        if self.transport_overrides.len() > 1 && self.transport_overrides.contains_key("*") {
+            return Err(
+                "transport.transport_overrides: \"*\" wildcard cannot coexist with other \
+                 patterns (would shadow all specific overrides due to lexicographic sort order)"
+                    .to_string(),
+            );
         }
 
         // SECURITY (FIND-R41-009): Bound the number of transport override entries.
@@ -238,7 +261,15 @@ impl TransportConfig {
                     glob
                 ));
             }
+            // SECURITY (FIND-R42-013): Check for duplicate protocols in override values.
+            let mut seen_protos = std::collections::HashSet::new();
             for proto in protos {
+                if !seen_protos.insert(proto) {
+                    return Err(format!(
+                        "transport.transport_overrides[\"{}\"] contains duplicate protocol {:?}",
+                        glob, proto
+                    ));
+                }
                 if self.restricted_transports.contains(proto) {
                     return Err(format!(
                         "transport.transport_overrides[\"{}\"] contains restricted transport {:?}",

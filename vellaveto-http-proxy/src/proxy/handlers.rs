@@ -2598,17 +2598,37 @@ pub(crate) fn build_transport_targets(
 
 /// Extract host from a URL string without the `url` crate.
 /// Returns the host portion (between `://` and the next `/` or `:`).
+///
+/// SECURITY (FIND-R42-003): Handles userinfo (`user:pass@host`) by stripping
+/// everything before the last `@` in the authority component. Also handles
+/// IPv6 addresses in brackets (`[::1]:8080`).
 pub(crate) fn extract_host_from_url(url: &str) -> Option<&str> {
     let after_scheme = url
         .find("://")
         .map(|i| &url[i + 3..])
         .unwrap_or(url);
-    // Trim any path or port suffix.
-    let host = after_scheme
+    // Strip path and query to get authority component.
+    let authority = after_scheme
         .split('/')
         .next()
         .unwrap_or(after_scheme);
-    let host = host.split(':').next().unwrap_or(host);
+    // SECURITY (FIND-R42-003): Strip userinfo (user:pass@host) to prevent
+    // SSRF via @-smuggling (e.g., "http://safe@evil/path").
+    let host_port = match authority.rfind('@') {
+        Some(i) => &authority[i + 1..],
+        None => authority,
+    };
+    // Handle IPv6 addresses in brackets (e.g., "[::1]:8080").
+    if host_port.starts_with('[') {
+        let end = host_port.find(']')?;
+        let ipv6 = &host_port[1..end];
+        if ipv6.is_empty() {
+            return None;
+        }
+        return Some(ipv6);
+    }
+    // IPv4 or hostname: strip port.
+    let host = host_port.split(':').next().unwrap_or(host_port);
     if host.is_empty() {
         None
     } else {

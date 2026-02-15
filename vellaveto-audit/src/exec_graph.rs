@@ -208,6 +208,19 @@ impl ExecutionGraph {
 
     /// Add a node to the graph.
     pub fn add_node(&mut self, node: ExecutionNode) {
+        // SECURITY (FIND-R42-006): Check bounds BEFORE updating metadata or parent
+        // children lists. Previously, metadata (total_calls, unique_tools, unique_agents,
+        // edges, parent.children) were updated even when the node was rejected.
+        if self.nodes.len() >= MAX_NODES_PER_GRAPH {
+            tracing::warn!(
+                target: "vellaveto::observability",
+                session_id = %self.session_id,
+                limit = MAX_NODES_PER_GRAPH,
+                "Node limit reached — skipping node insertion"
+            );
+            return;
+        }
+
         let node_id = node.id.clone();
         let is_root = node.is_root();
         let depth = node.depth;
@@ -246,17 +259,6 @@ impl ExecutionGraph {
                     "Edge limit reached — skipping call edge"
                 );
             }
-        }
-
-        // SECURITY (FIND-R41-007): Bound node count to prevent unbounded memory.
-        if self.nodes.len() >= MAX_NODES_PER_GRAPH {
-            tracing::warn!(
-                target: "vellaveto::observability",
-                session_id = %self.session_id,
-                limit = MAX_NODES_PER_GRAPH,
-                "Node limit reached — skipping node insertion"
-            );
-            return;
         }
 
         self.nodes.insert(node_id.clone(), node);
@@ -345,6 +347,9 @@ impl ExecutionGraph {
     }
 
     /// Export to DOT format for Graphviz visualization.
+    ///
+    /// SECURITY (FIND-R42-011): All user-controlled strings (node IDs, tool names,
+    /// function names) are escaped to prevent DOT language injection.
     pub fn to_dot(&self) -> String {
         let mut dot = String::new();
         dot.push_str("digraph execution_graph {\n");
@@ -359,11 +364,12 @@ impl ExecutionGraph {
                 NodeVerdict::Pending => "yellow",
                 NodeVerdict::RequireApproval => "orange",
             };
-            let tool = &node.tool;
-            let function = &node.function;
+            let tool = escape_dot(&node.tool);
+            let function = escape_dot(&node.function);
+            let escaped_id = escape_dot(id);
             let label = format!("{tool}\\n{function}");
             dot.push_str(&format!(
-                "  \"{id}\" [label=\"{label}\", color={color}, penwidth=2];\n"
+                "  \"{escaped_id}\" [label=\"{label}\", color={color}, penwidth=2];\n"
             ));
         }
 
@@ -383,7 +389,10 @@ impl ExecutionGraph {
             };
             dot.push_str(&format!(
                 "  \"{}\" -> \"{}\" [style={}, color={}];\n",
-                edge.from, edge.to, style, color
+                escape_dot(&edge.from),
+                escape_dot(&edge.to),
+                style,
+                color
             ));
         }
 
@@ -564,6 +573,21 @@ impl ExecutionGraphStore {
 
         initial_len - graphs.len()
     }
+}
+
+/// Escape special characters for DOT/Graphviz string contexts (FIND-R42-011).
+///
+/// Prevents injection of DOT language constructs via user-controlled node
+/// labels, IDs, and edge endpoints.
+fn escape_dot(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('{', "\\{")
+        .replace('}', "\\}")
+        .replace('<', "\\<")
+        .replace('>', "\\>")
 }
 
 /// Get current Unix timestamp in milliseconds.

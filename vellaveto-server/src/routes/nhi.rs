@@ -215,6 +215,9 @@ pub async fn get_nhi_agent(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // SECURITY (FIND-R42-016): Validate path parameter length.
+    validate_string_field(&id, "id")?;
+
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -236,6 +239,8 @@ pub async fn revoke_nhi_agent(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_string_field(&id, "id")?;
+
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -260,6 +265,8 @@ pub async fn activate_nhi_agent(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_string_field(&id, "id")?;
+
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -284,6 +291,8 @@ pub async fn suspend_nhi_agent(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_string_field(&id, "id")?;
+
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -311,6 +320,8 @@ pub async fn get_nhi_baseline(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_string_field(&id, "id")?;
+
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -333,6 +344,8 @@ pub async fn check_nhi_behavior(
     Path(id): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_string_field(&id, "id")?;
+
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -454,6 +467,9 @@ pub async fn get_nhi_delegation(
     State(state): State<AppState>,
     Path((from, to)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_string_field(&from, "from")?;
+    validate_string_field(&to, "to")?;
+
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -475,6 +491,9 @@ pub async fn revoke_nhi_delegation(
     State(state): State<AppState>,
     Path((from, to)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_string_field(&from, "from")?;
+    validate_string_field(&to, "to")?;
+
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -499,6 +518,8 @@ pub async fn get_nhi_delegation_chain(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_string_field(&id, "id")?;
+
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -516,6 +537,8 @@ pub async fn rotate_nhi_credentials(
     Path(id): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_string_field(&id, "id")?;
+
     let Some(ref manager) = state.nhi else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
