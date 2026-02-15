@@ -19,6 +19,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Default off:** `cross_transport_fallback: false` — zero behavioral change without opt-in. Fail-closed: all transports failed → deny.
 - 71 new tests across 6 crates. Integration tests in `vellaveto-integration/tests/cross_transport_fallback.rs`.
 
+### Fixed (Adversarial Hardening — Round 41: Phase 29)
+- **FIND-R41-001** (Critical): Header allowlist for upstream proxy — `dispatch_http` now filters forwarded headers through `FORWARDED_HEADERS` allowlist (content-type, accept, user-agent, traceparent, tracestate, x-request-id) preventing cookie/auth header leakage to upstream servers.
+- **FIND-R41-002** (High): Shell injection in stdio fallback — replaced `sh -c <command>` with direct `Command::new(command)`, added config validation requiring absolute paths with no shell metacharacters.
+- **FIND-R41-003** (High): Unbounded circuit breaker state — `TransportHealthTracker` capped at `MAX_TRACKED_CIRCUITS = 10,000` entries with fail-closed (Open) for new circuits at capacity.
+- **FIND-R41-004** (High): Unbounded HTTP response body — added `MAX_RESPONSE_BODY_BYTES = 16MB` limit in `dispatch_http` and `MAX_STDERR_BYTES = 4096` in `dispatch_stdio`.
+- **FIND-R41-006** (High): Zombie stdio processes on timeout — restructured `dispatch_stdio` with `tokio::select!` to call `child.kill().await` on timeout branch instead of leaking the process.
+- **FIND-R41-007** (Medium): Unbounded execution graph — `ExecGraph::add_node` capped at `MAX_NODES_PER_GRAPH = 50,000` with skip-and-warn on overflow.
+- **FIND-R41-008** (Medium): URL scheme mismatch in gateway — `BackendConfig::validate` now checks URL schemes match transport protocol (http/https for HTTP/gRPC, ws/wss for WebSocket).
+- **FIND-R41-009** (Medium): Unbounded transport overrides map — `TransportConfig::validate` rejects >100 entries in `transport_overrides`.
+- **FIND-R41-010** (Medium): Discarded stdio stderr — `dispatch_stdio` now captures stderr via `Stdio::piped()` and includes it in error diagnostics.
+- **FIND-R41-011** (Medium): Log injection via control chars — `validate_field` in deputy/NHI routes now rejects ALL control characters (including `\n`, `\t`) to prevent log injection.
+- **FIND-R41-014** (Medium): Glob key validation — transport override glob keys validated for max length (256), empty key, and null byte content.
+- 7 new tests for config validation (stdio path, metacharacters, override bounds, glob keys, URL schemes).
+
 #### Phase 25.1 — Audio Metadata Inspection (WAV + MP3)
 - **WAV LIST/INFO chunk parser** (`extract_text_from_wav`) — walks RIFF container for INFO sub-chunks (INAM, IART, ICMT, IGNR, ISFT), extracts null-terminated text, bounded at 200 sub-chunks and 1MB aggregate text.
 - **MP3 ID3v2 tag parser** (`extract_text_from_mp3`) — parses ID3v2.3/2.4 headers with syncsafe integer decoding, extracts text from TIT2, TPE1, TALB, COMM, USLT, TXXX frames. Supports 4 encodings: ISO-8859-1, UTF-16 with BOM, UTF-16BE, UTF-8. Bounded at 200 frames and 1MB aggregate.
