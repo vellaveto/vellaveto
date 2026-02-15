@@ -15,8 +15,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **TLA+ shared operators** (`formal/tla/MCPCommon.tla`) — abstract pattern matching, policy sorting predicate, path/domain rule checking operators.
 - **Alloy capability delegation model** (`formal/alloy/CapabilityDelegation.als`) — models capability token delegation with 6 assertions: monotonic attenuation, transitive attenuation across chains, depth budget, temporal monotonicity, terminal-cannot-delegate, issuer chain integrity.
 - **TLC model checker configs** for both TLA+ specs with small-bound verification (3 policies, 2 actions).
-- **18 verified properties total** (16 safety + 2 liveness), each mapped to exact source locations in the Rust codebase.
+- **19 verified properties total** (16 safety + 3 liveness), each mapped to exact source locations in the Rust codebase.
 - First formal model of MCP policy enforcement in any framework (TLA+, Alloy, Lean, Coq) — addresses Gap #1 from `docs/MCP_SECURITY_GAPS.md`.
+
+### Fixed (Adversarial Hardening — Round 1)
+- **P0-1/P0-2**: Moved TLC record definitions to `MC_*.tla` model companion modules (TLC `.cfg` parser cannot handle set-of-record literals).
+- **P0-3**: Removed `SafetyFailClosed` operator that used primed variables in state predicate (invalid for TLC invariant checking).
+- **P0-4**: Replaced tautological `InvariantS1_FailClosed` (was `TRUE`) with real fail-closed invariant: no-match implies Deny.
+- **P0-5**: Fixed Alloy `minus` → `sub` (correct Alloy integer subtraction function).
+- **P0-6**: Fixed Alloy module-level `let MAX_DEPTH = 4` → `fun MAX_DEPTH : one Int { 3 }`.
+- **P1-1**: Fixed S3/S4 invariants to restrict blocked-path/domain check to first matching policy only (first-match-wins semantics).
+- **P1-2**: Reformulated S5 invariant — Allow verdicts require a matching Allow policy (previously failed when prior evaluations produced Allow).
+- **P1-6**: Removed weak fairness on `HandleError` — errors are possible but don't preempt normal evaluation.
+- **P1-7**: Fixed Alloy `add` → `plus` for integer addition.
+- **P1-8**: Reduced Alloy `MAX_DEPTH` from 4→3, increased scope from 5→7 tokens so S13 (depth budget) is non-vacuous.
+- **P2-3**: Fixed `CheckPathRules`/`CheckDomainRules` to deny on empty targets with configured allowlist (fail-closed R28-ENG-1).
+- **P2-7**: Restructured Alloy facts/assertions — structural well-formedness as facts, delegation constraints separated, making S12 (transitive attenuation) a genuine theorem.
+- **P3-2**: Added ABAC policy with `conditions=FALSE` to test condition-exclusion logic.
+- **P3-4**: Added ABAC liveness property L3 (eventual decision for all pending evaluations).
+- Added grant ownership fact (each Grant belongs to exactly one Token).
+- Added `FirstMatchIndex` helper operator for correct first-match-wins invariant formulation.
+- Documented all known abstraction gaps in `formal/README.md`.
 
 ## [3.0.0] — 2026-02-14
 

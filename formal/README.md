@@ -10,24 +10,26 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | Model | Framework | Properties | What It Covers |
 |-------|-----------|------------|----------------|
 | `MCPPolicyEngine.tla` | TLA+ | S1–S6, L1–L2 | First-match-wins policy evaluation, fail-closed defaults |
-| `AbacForbidOverrides.tla` | TLA+ | S7–S10 | ABAC forbid-overrides combining algorithm |
+| `AbacForbidOverrides.tla` | TLA+ | S7–S10, L3 | ABAC forbid-overrides combining algorithm |
 | `CapabilityDelegation.als` | Alloy | S11–S16 | Capability token delegation with monotonic attenuation |
 
-**18 verified properties total** (16 safety + 2 liveness).
+**19 verified properties total** (16 safety + 3 liveness).
 
 ## Directory Structure
 
 ```
 formal/
-  README.md                     ← This file
+  README.md                          ← This file
   tla/
-    MCPCommon.tla               ← Shared operators (pattern matching, sorting)
-    MCPPolicyEngine.tla         ← Policy evaluation state machine
-    MCPPolicyEngine.cfg         ← TLC model checker configuration
-    AbacForbidOverrides.tla     ← ABAC forbid-overrides evaluation
-    AbacForbidOverrides.cfg     ← TLC configuration for ABAC
+    MCPCommon.tla                    ← Shared operators (pattern matching, sorting)
+    MCPPolicyEngine.tla              ← Policy evaluation state machine
+    MC_MCPPolicyEngine.tla           ← Model companion (concrete constants for TLC)
+    MCPPolicyEngine.cfg              ← TLC model checker configuration
+    AbacForbidOverrides.tla          ← ABAC forbid-overrides evaluation
+    MC_AbacForbidOverrides.tla       ← Model companion (concrete constants for TLC)
+    AbacForbidOverrides.cfg          ← TLC configuration for ABAC
   alloy/
-    CapabilityDelegation.als    ← Capability token delegation model
+    CapabilityDelegation.als         ← Capability token delegation model
 ```
 
 ## Tooling Setup
@@ -54,19 +56,20 @@ Requirements:
 
 ```bash
 cd formal/tla
-java -jar tla2tools.jar -config MCPPolicyEngine.cfg MCPPolicyEngine.tla
+# Note: TLC runs against the MC (model companion) module, which extends the spec.
+java -jar tla2tools.jar -config MCPPolicyEngine.cfg MC_MCPPolicyEngine.tla
 ```
 
-Expected output: all 6 invariants and 2 temporal properties pass with zero violations.
+Expected output: all 7 invariants and 2 temporal properties pass with zero violations.
 
-### TLA+ ABAC Forbid-Overrides (S7–S10)
+### TLA+ ABAC Forbid-Overrides (S7–S10, L3)
 
 ```bash
 cd formal/tla
-java -jar tla2tools.jar -config AbacForbidOverrides.cfg AbacForbidOverrides.tla
+java -jar tla2tools.jar -config AbacForbidOverrides.cfg MC_AbacForbidOverrides.tla
 ```
 
-Expected output: all 4 invariants pass with zero violations.
+Expected output: all 4 invariants and 1 liveness property pass with zero violations.
 
 ### Alloy Capability Delegation (S11–S16)
 
@@ -86,12 +89,12 @@ Expected output: all 6 assertions pass with 0 counterexamples found.
 
 | ID | Property | Source | Spec Location |
 |----|----------|--------|---------------|
-| S1 | **Fail-closed:** no matching policy → Deny, never Allow | `vellaveto-engine/src/lib.rs:417-419` | `MCPPolicyEngine.tla:DefaultDeny` |
+| S1 | **Fail-closed:** no matching policy → Deny, never Allow | `vellaveto-engine/src/lib.rs:417-419` | `MCPPolicyEngine.tla:InvariantS1_FailClosed` |
 | S2 | **Priority ordering:** policies evaluated in priority-descending order | `vellaveto-engine/src/lib.rs:209-224` | `MCPCommon.tla:SortedByPriority` |
-| S3 | **Blocked paths override allowed:** blocked path patterns always win | `vellaveto-engine/src/rule_check.rs:50-59` | `MCPCommon.tla:CheckPathRules` |
-| S4 | **Blocked domains override allowed:** blocked domain patterns always win | `vellaveto-engine/src/rule_check.rs:124-133` | `MCPCommon.tla:CheckDomainRules` |
-| S5 | **Errors produce Deny:** any evaluation error → Deny | `vellaveto-engine/src/lib.rs:545-547` | `MCPPolicyEngine.tla:HandleError` |
-| S6 | **Missing context → Deny:** context-conditions without context → Deny | `vellaveto-engine/src/lib.rs:519-535` | `MCPPolicyEngine.tla:ApplyPolicy` |
+| S3 | **Blocked paths override allowed:** first-match blocked path → Deny | `vellaveto-engine/src/rule_check.rs:50-59` | `MCPPolicyEngine.tla:InvariantS3_BlockedPathsOverride` |
+| S4 | **Blocked domains override allowed:** first-match blocked domain → Deny | `vellaveto-engine/src/rule_check.rs:124-133` | `MCPPolicyEngine.tla:InvariantS4_BlockedDomainsOverride` |
+| S5 | **Allow requires matching Allow policy:** Allow verdict only from Allow policy | `vellaveto-engine/src/lib.rs:545-547` | `MCPPolicyEngine.tla:InvariantS5_ErrorsDeny` |
+| S6 | **Missing context → Deny:** context-conditions without context → Deny | `vellaveto-engine/src/lib.rs:519-535` | `MCPPolicyEngine.tla:InvariantS6_MissingContextDeny` |
 
 ### ABAC Safety (S7–S10)
 
@@ -107,18 +110,19 @@ Expected output: all 6 assertions pass with 0 counterexamples found.
 | ID | Property | Source | Spec Location |
 |----|----------|--------|---------------|
 | S11 | **Monotonic attenuation:** child grants ⊆ parent grants | `vellaveto-mcp/src/capability_token.rs:470-508` | `CapabilityDelegation.als:S11` |
-| S12 | **Transitive attenuation:** attenuation holds across entire delegation chains | Derived from S11 | `CapabilityDelegation.als:S12` |
+| S12 | **Transitive attenuation:** attenuation holds across entire delegation chains | Derived from S11 (non-trivial: verifies transitivity of composed relation) | `CapabilityDelegation.als:S12` |
 | S13 | **Depth budget:** chain length ≤ MAX_DELEGATION_DEPTH | `vellaveto-types/src/capability.rs:21` | `CapabilityDelegation.als:S13` |
 | S14 | **Temporal monotonicity:** child.expiry ≤ parent.expiry | `vellaveto-mcp/src/capability_token.rs:172-176` | `CapabilityDelegation.als:S14` |
 | S15 | **Terminal cannot delegate:** depth=0 → no children | `vellaveto-mcp/src/capability_token.rs:128-131` | `CapabilityDelegation.als:S15` |
 | S16 | **Issuer chain integrity:** child.issuer = parent.holder | `vellaveto-mcp/src/capability_token.rs:195` | `CapabilityDelegation.als:S16` |
 
-### Liveness (L1–L2)
+### Liveness (L1–L3)
 
 | ID | Property | Spec Location |
 |----|----------|---------------|
 | L1 | **Eventual verdict:** every pending action eventually receives a verdict | `MCPPolicyEngine.tla:LivenessL1` |
 | L2 | **No stuck states:** engine never permanently stuck in matching/applying | `MCPPolicyEngine.tla:LivenessL2` |
+| L3 | **ABAC eventual decision:** every pending ABAC eval eventually gets a decision | `AbacForbidOverrides.tla:LivenessAbacEventualDecision` |
 
 ## Design Decisions
 
@@ -142,7 +146,16 @@ sufficient because the verified properties are structural:
 - **Forbid-overrides** is independent of the number of matching policies
 - **Monotonic attenuation** is a pairwise relation on parent-child pairs
 
-A counterexample found with 3 policies also applies at 300.
+A counterexample found with 3 policies also applies at 300. Alloy scopes use
+7 tokens with MAX_DEPTH=3 to ensure the depth budget assertion (S13) is
+non-vacuous (7 > MAX_DEPTH+1 = 4).
+
+### TLC Model Companions (MC_*.tla)
+
+TLC's `.cfg` file parser cannot handle set-of-record literals as CONSTANT
+values. Record definitions (PolicySet, ActionSet, etc.) are placed in separate
+`MC_*.tla` model companion modules that are loaded by TLC. The `.cfg` files
+use `CONSTANT PolicySet <- const_PolicySet` operator overrides to reference them.
 
 ### Abstract Time
 
@@ -165,6 +178,22 @@ modeled because this is a subtle corner where bypass bugs could hide: if a
 conditional policy doesn't fire, evaluation must continue to the next policy
 rather than producing a verdict.
 
+### Fact/Assertion Separation (Alloy)
+
+The Alloy model separates structural well-formedness (encoded as facts) from
+delegation protocol constraints (also facts) and verified properties (assertions).
+This ensures that the key assertions — especially S12 (transitive attenuation)
+and S13 (depth budget) — are genuine theorems, not tautological restatements
+of axioms. S15 and S16 follow structurally from DelegationStructure but are
+verified independently for completeness.
+
+### Error Modeling (TLA+)
+
+HandleError is modeled as a non-deterministic transition that can occur during
+matching or applying, always producing Deny. It is intentionally NOT given weak
+fairness — errors are possible but not required. This ensures liveness properties
+hold for the normal evaluation path while still allowing error traces.
+
 ## Scope and Limitations
 
 These specifications verify **structural security properties** of the policy
@@ -175,11 +204,28 @@ evaluation algorithms. They do **not** cover:
 - Timing side channels or performance properties
 - Concurrency (the engine is synchronous by design)
 - Network-level properties (DNS rebinding, IP resolution)
+- IP rule evaluation (modeled code paths stop at path/domain rules)
 - Full glob/regex semantics (abstracted to wildcard + exact)
+- Conditional constraint evaluation internals (modeled as fire/no-fire)
+- `RequireApproval` verdict type (not yet modeled in TLA+ spec)
+- ABAC entity store / group membership (principal matching is abstracted)
+- `max_invocations` grant field (not checked during attenuation in Rust code)
+- Token size / grant count bounds (serialization-level constraints)
+- Path normalization / traversal protection (tested by Rust unit tests)
+- Determinism (same input → same output; would need separate model)
 
 The model bounds are finite (bounded model checking), not unbounded proofs.
 However, the properties are structural and do not depend on the specific
 bound values.
+
+### Known Abstraction Gaps
+
+| Gap | Impact | Mitigation |
+|-----|--------|------------|
+| Glob patterns → Wildcard + Exact | Cannot detect glob-specific matching bugs | 22 fuzz targets cover pattern compilation |
+| Path/domain subset uses set identity, not glob matching | Alloy model is more restrictive than Rust | Sound over-approximation for security |
+| ABAC CHOOSE vs priority-ordered selection | Reported policy_id may differ | Does not affect Deny/Allow decision |
+| Conditional policies simplified to fire/no-fire | Constraint-level deny paths not modeled | Covered by 4,857 Rust unit tests |
 
 ## Relation to Existing Test Suite
 
@@ -188,7 +234,7 @@ bound values.
 | Unit tests | Rust `#[test]` | 4,857 |
 | Fuzz targets | `cargo fuzz` | 22 |
 | Property-based tests | `proptest` | ~50 |
-| **Formal specs** | **TLA+ / Alloy** | **18 properties** |
+| **Formal specs** | **TLA+ / Alloy** | **19 properties** |
 
 The formal specs complement (not replace) the test suite:
 - Tests verify concrete executions against expected outputs

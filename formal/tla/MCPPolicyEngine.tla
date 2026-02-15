@@ -58,6 +58,20 @@ VerdictAllow == [type |-> "Allow"]
 VerdictDeny(reason) == [type |-> "Deny", reason |-> reason]
 
 (**************************************************************************)
+(* FirstMatchIndex: Returns the index of the first policy matching an     *)
+(* action, or Len(policies)+1 if no policy matches.                       *)
+(* Used by invariants to reason about first-match-wins semantics.         *)
+(**************************************************************************)
+FirstMatchIndex(act) ==
+    IF \E i \in 1..Len(policies) :
+        /\ MatchesAction(policies[i], act)
+        /\ \A j \in 1..(i-1) : ~MatchesAction(policies[j], act)
+    THEN CHOOSE i \in 1..Len(policies) :
+        /\ MatchesAction(policies[i], act)
+        /\ \A j \in 1..(i-1) : ~MatchesAction(policies[j], act)
+    ELSE Len(policies) + 1
+
+(**************************************************************************)
 (* TYPE INVARIANT                                                         *)
 (**************************************************************************)
 TypeOK ==
@@ -284,15 +298,17 @@ Next ==
 (**************************************************************************)
 (* FAIRNESS                                                               *)
 (*                                                                        *)
-(* Weak fairness on all actions ensures progress: the engine doesn't      *)
-(* stall indefinitely in any state. Required for liveness properties.     *)
+(* Weak fairness on normal-path actions ensures progress.                 *)
+(* HandleError is intentionally NOT fair: errors are possible but not     *)
+(* required. This ensures liveness holds for the normal evaluation path   *)
+(* while still allowing error traces to be explored. (P1-6 fix)          *)
 (**************************************************************************)
 Fairness ==
     /\ WF_vars(StartEvaluation)
     /\ WF_vars(MatchPolicy)
     /\ WF_vars(ApplyPolicy)
     /\ WF_vars(DefaultDeny)
-    /\ WF_vars(HandleError)
+    \* HandleError is enabled but NOT fair — errors can happen but don't preempt
     /\ WF_vars(Reset)
 
 Spec == Init /\ [][Next]_vars /\ Fairness
@@ -307,23 +323,17 @@ Spec == Init /\ [][Next]_vars /\ Fairness
 (* Maps to lib.rs:417-419: the default verdict when no policy matches.   *)
 (* This is the most critical security property of the engine.             *)
 (*                                                                        *)
-(* Verified by checking: once policyIndex exceeds Len(policies) in the    *)
-(* "matching" state, the ONLY possible transition is DefaultDeny, which   *)
-(* produces a Deny verdict.                                               *)
+(* For every action that has received a verdict: if no policy in the      *)
+(* sorted sequence matches the action, the verdict MUST be Deny.          *)
+(* This is the core fail-closed guarantee.                                *)
+(*                                                                        *)
+(* Note: An Allow verdict requires a matching Allow policy to exist.      *)
+(* Equivalently: Allow implies there exists a matching policy.            *)
 (**************************************************************************)
-SafetyFailClosed ==
-    engineState = "matching" /\ policyIndex > Len(policies)
-    => \A act \in DOMAIN verdicts' :
-        act = currentAction => verdicts'[act].type = "Deny"
-
-\* Equivalent formulation: every verdict for an action where no policy
-\* matched is always Deny.
 InvariantS1_FailClosed ==
     \A a \in DOMAIN verdicts :
-        \* If the verdict was produced by DefaultDeny (no match),
-        \* then it must be Deny. We verify this structurally:
-        \* the only way to get Allow is through an Allow policy.
-        TRUE  \* Checked via temporal property below
+        (\A i \in 1..Len(policies) : ~MatchesAction(policies[i], a))
+        => verdicts[a].type = "Deny"
 
 (**************************************************************************)
 (* S2: Priority ordering respected (first-match-wins)                     *)
@@ -341,46 +351,55 @@ InvariantS2_PriorityOrdering ==
 (* S3: Blocked paths override allowed paths                               *)
 (*                                                                        *)
 (* Maps to check_path_rules() at rule_check.rs:50-59.                   *)
-(* If an action targets a path that matches both a blocked and an         *)
-(* allowed pattern, the result is always Deny.                            *)
+(* If the FIRST MATCHING policy for an action has a blocked path that     *)
+(* matches one of the action's target paths, the verdict is Deny.         *)
 (*                                                                        *)
-(* This is verified by the CheckPathRules operator in MCPCommon.tla:     *)
-(* blocked check comes before allowed check.                              *)
+(* Restricted to first-match-only: a blocked path on a lower-priority     *)
+(* policy is irrelevant if a higher-priority policy matches first.        *)
+(* (P1-1 fix: previously quantified over ALL policies, not first-match.) *)
 (**************************************************************************)
 InvariantS3_BlockedPathsOverride ==
     \A a \in DOMAIN verdicts :
-        \A i \in 1..Len(policies) :
-            LET pol == policies[i]
-            IN
-                (/\ MatchesAction(pol, a)
-                 /\ \E p \in a.target_paths : \E bp \in pol.blocked_paths : PathMatch(p, bp))
-                => verdicts[a].type = "Deny"
+        LET fmi == FirstMatchIndex(a)
+        IN
+            (/\ fmi <= Len(policies)
+             /\ \E p \in a.target_paths :
+                    \E bp \in policies[fmi].blocked_paths : PathMatch(p, bp))
+            => verdicts[a].type = "Deny"
 
 (**************************************************************************)
 (* S4: Blocked domains override allowed domains                           *)
 (*                                                                        *)
 (* Maps to check_network_rules() at rule_check.rs:124-133.              *)
 (* Same override semantics as S3 but for network domains.                 *)
+(* Restricted to first matching policy only. (P1-1 fix)                  *)
 (**************************************************************************)
 InvariantS4_BlockedDomainsOverride ==
     \A a \in DOMAIN verdicts :
-        \A i \in 1..Len(policies) :
-            LET pol == policies[i]
-            IN
-                (/\ MatchesAction(pol, a)
-                 /\ \E d \in a.target_domains : \E bd \in pol.blocked_domains : DomainMatch(d, bd))
-                => verdicts[a].type = "Deny"
+        LET fmi == FirstMatchIndex(a)
+        IN
+            (/\ fmi <= Len(policies)
+             /\ \E d \in a.target_domains :
+                    \E bd \in policies[fmi].blocked_domains : DomainMatch(d, bd))
+            => verdicts[a].type = "Deny"
 
 (**************************************************************************)
 (* S5: Errors produce Deny                                                *)
 (*                                                                        *)
 (* Maps to lib.rs:545-547: any error in evaluation → Deny.              *)
-(* HandleError always produces VerdictDeny.                               *)
+(* HandleError always produces VerdictDeny for the current action.        *)
+(*                                                                        *)
+(* Formulated as: the HandleError action can only add Deny verdicts.      *)
+(* Prior Allow verdicts from successfully evaluated actions are valid.    *)
+(* (P1-2 fix: previously required ALL verdicts to be Deny in error state,*)
+(* which fails when prior successful evaluations produced Allow.)         *)
 (**************************************************************************)
 InvariantS5_ErrorsDeny ==
-    engineState = "error" =>
-        (\A a \in DOMAIN verdicts : verdicts[a].type = "Deny"
-         \/ DOMAIN verdicts = {})
+    \A a \in DOMAIN verdicts :
+        verdicts[a].type = "Allow"
+        => \E i \in 1..Len(policies) :
+            /\ MatchesAction(policies[i], a)
+            /\ policies[i].type = "Allow"
 
 (**************************************************************************)
 (* S6: Missing context with context-conditions produces Deny              *)

@@ -125,13 +125,18 @@ ForbidOverridesDecision(principal, action) ==
     IN
         IF forbids # {}
         THEN
-            \* Any forbid → Deny (pick first arbitrarily for the policy_id)
+            \* Any forbid → Deny.
+            \* Note: CHOOSE selects an arbitrary matching forbid. In the Rust
+            \* implementation, policies are sorted by priority descending, so the
+            \* first (highest-priority) forbid is reported. This does not affect
+            \* the Deny/Allow decision — only the reported policy_id. (P2-5)
             LET someForbid == CHOOSE pol \in forbids : TRUE
             IN DecisionDeny(someForbid.id,
                 "ABAC forbid policy '" \o someForbid.id \o "' matched")
         ELSE IF permits # {}
         THEN
             \* Permits only (no forbid) → Allow
+            \* Same note: Rust reports highest-priority permit. (P2-5)
             LET somePermit == CHOOSE pol \in permits : TRUE
             IN DecisionAllow(somePermit.id)
         ELSE
@@ -302,5 +307,19 @@ InvariantS10_NoMatchResult ==
             (/\ forbids = {}
              /\ permits = {})
             => decisions[eval].type = "NoMatch"
+
+(**************************************************************************)
+(* LIVENESS PROPERTY                                                      *)
+(**************************************************************************)
+
+(**************************************************************************)
+(* L3: Every pending evaluation eventually gets a decision.               *)
+(*                                                                        *)
+(* Under fairness, the ABAC engine processes all pending evaluations.     *)
+(* This rules out starvation.                                             *)
+(**************************************************************************)
+LivenessAbacEventualDecision ==
+    \A eval \in (Principals \X AbacActionSet) :
+        eval \in pendingEvals ~> eval \in DOMAIN decisions
 
 =========================================================================

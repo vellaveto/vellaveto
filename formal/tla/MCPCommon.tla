@@ -121,6 +121,7 @@ MatchesAction(policy, action) ==
 (* Maps to check_path_rules() in vellaveto-engine/src/rule_check.rs:50-59*)
 (*                                                                        *)
 (* Returns: "deny" if any target path matches a blocked pattern           *)
+(*          "deny" if targets empty but allowlist configured (R28-ENG-1)  *)
 (*          "allow" if all target paths match an allowed pattern           *)
 (*          "skip" if no path rules apply (empty sets)                    *)
 (**************************************************************************)
@@ -129,7 +130,9 @@ CheckPathRules(policy, action) ==
         allowed == policy.allowed_paths
         targets == action.target_paths
     IN
-        IF targets = {} THEN "skip"
+        IF targets = {}
+        THEN IF allowed # {} THEN "deny"  \* Fail-closed: R28-ENG-1 (rule_check.rs:23-36)
+             ELSE "skip"                   \* Blocklist-only mode, no targets = no issue
         ELSE IF \E p \in targets : \E bp \in blocked : PathMatch(p, bp)
              THEN "deny"     \* Blocked overrides allowed (S3)
         ELSE IF allowed # {} /\ \A p \in targets : \E ap \in allowed : PathMatch(p, ap)
@@ -146,6 +149,7 @@ CheckPathRules(policy, action) ==
 (*   :124-133                                                             *)
 (*                                                                        *)
 (* Returns: "deny" if any target domain matches a blocked pattern         *)
+(*          "deny" if targets empty but allowlist configured (R28-ENG-1)  *)
 (*          "allow" if all target domains match an allowed pattern         *)
 (*          "skip" if no domain rules apply                               *)
 (**************************************************************************)
@@ -154,7 +158,9 @@ CheckDomainRules(policy, action) ==
         allowed == policy.allowed_domains
         targets == action.target_domains
     IN
-        IF targets = {} THEN "skip"
+        IF targets = {}
+        THEN IF allowed # {} THEN "deny"  \* Fail-closed: R28-ENG-1 (rule_check.rs:90-103)
+             ELSE "skip"                   \* Blocklist-only mode, no targets = no issue
         ELSE IF \E d \in targets : \E bd \in blocked : DomainMatch(d, bd)
              THEN "deny"     \* Blocked overrides allowed (S4)
         ELSE IF allowed # {} /\ \A d \in targets : \E ad \in allowed : DomainMatch(d, ad)
