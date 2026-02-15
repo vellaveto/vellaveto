@@ -1,7 +1,7 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–24 complete, 38 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–24 + 33 complete, 38 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
 > **Tests:** 4,857 Rust tests + 130 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
@@ -130,12 +130,17 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Python SDK: client, langchain, langgraph, redaction (130 tests) | `sdk/python/` |
 | TypeScript SDK: client + types (15 tests) | `sdk/typescript/` |
 | Go SDK: client + types + errors (28 tests) | `sdk/go/` |
+| **Formal Verification** | |
+| Shared TLA+ operators (pattern matching, sorting) | `formal/tla/MCPCommon.tla` |
+| Policy engine state machine (S1–S6, L1–L2) | `formal/tla/MCPPolicyEngine.tla` + `.cfg` |
+| ABAC forbid-overrides (S7–S10) | `formal/tla/AbacForbidOverrides.tla` + `.cfg` |
+| Capability delegation model (S11–S16) | `formal/alloy/CapabilityDelegation.als` |
 
 ---
 
 ## What's Done (DO NOT rebuild)
 
-All 24 phases implemented, tested, and hardened through 38 audit rounds. Details in CHANGELOG.md.
+All 24 phases + Phase 33 implemented, tested, and hardened through 38 audit rounds. Details in CHANGELOG.md.
 
 - **Core Engine:** Policy evaluation with glob/regex/domain matching, path traversal protection, DNS rebinding defense, context-aware policies (time windows, call limits, agent ID, action sequences)
 - **Audit:** Tamper-evident logging (SHA-256 chain, Merkle proofs, Ed25519 checkpoints, rotation), export (CEF/JSONL/webhook/syslog), immutable archive with retention
@@ -152,6 +157,7 @@ All 24 phases implemented, tested, and hardened through 38 audit rounds. Details
 - **Adversarial Hardening:** 5 pentest rounds (FIND-043–084 + Phase 23 Critical/High + Medium), RwLock poisoning hardened, PDF byte-level parsing, session guard fail-closed, Rekor canonical JSON, JPEG stego loop bound, PDF 4096-byte dict look-back, whitespace-normalized injection scan, EXIF 4-char min extraction, PDF hex string parsing, stego limitations documented
 - **CI/CD:** 11 workflows, Docker/GHCR, release automation, SBOM, provenance attestation
 - **SDKs:** Python (sync+async, LangChain/LangGraph, 130 tests), TypeScript (fetch-based, 15 tests), Go (stdlib-only, 28 tests)
+- **Formal Verification (Phase 33):** TLA+ specs for policy engine (6 safety + 2 liveness) and ABAC forbid-overrides (4 safety), Alloy model for capability delegation (6 safety assertions), 18 verified properties with source traceability
 - **Docs:** Quickstart guides, security model, benchmarks, 5 policy presets
 
 ---

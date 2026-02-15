@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+#### Phase 33 — Formal Verification (TLA+/Alloy)
+- **TLA+ policy engine specification** (`formal/tla/MCPPolicyEngine.tla`) — state machine modeling `PolicyEngine::evaluate_action` with 6 safety invariants (fail-closed default, priority ordering, blocked-paths-override, blocked-domains-override, errors-produce-deny, missing-context-deny) and 2 liveness properties (eventual verdict, no stuck states).
+- **TLA+ ABAC forbid-overrides specification** (`formal/tla/AbacForbidOverrides.tla`) — models `AbacEngine::evaluate` with 4 safety invariants: forbid dominance, forbid ignores priority, permit-only-without-forbid, no-match result.
+- **TLA+ shared operators** (`formal/tla/MCPCommon.tla`) — abstract pattern matching, policy sorting predicate, path/domain rule checking operators.
+- **Alloy capability delegation model** (`formal/alloy/CapabilityDelegation.als`) — models capability token delegation with 6 assertions: monotonic attenuation, transitive attenuation across chains, depth budget, temporal monotonicity, terminal-cannot-delegate, issuer chain integrity.
+- **TLC model checker configs** for both TLA+ specs with small-bound verification (3 policies, 2 actions).
+- **18 verified properties total** (16 safety + 2 liveness), each mapped to exact source locations in the Rust codebase.
+- First formal model of MCP policy enforcement in any framework (TLA+, Alloy, Lean, Coq) — addresses Gap #1 from `docs/MCP_SECURITY_GAPS.md`.
+
 ## [3.0.0] — 2026-02-14
 
 ### Added
