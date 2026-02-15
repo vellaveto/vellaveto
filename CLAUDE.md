@@ -4,8 +4,8 @@
 > **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 33 complete, 38 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 4,892 Rust tests + 130 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
-> **Fuzz targets:** 22
+> **Tests:** 4,901 Rust tests + 130 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Fuzz targets:** 24
 > **CI workflows:** 11
 > **Updated:** 2026-02-15
 

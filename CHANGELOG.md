@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **MP4/WebM/AVI magic bytes** — ftyp at offset 4 → Video, EBML header `\x1A\x45\xDF\xA3` → Video, RIFF....AVI → Video.
 - 12 new tests.
 
+#### Phase 25 — Multimodal Enforcement & Fuzz Targets
+- **Per-content-type size limits** — `max_audio_size` (50MB default), `max_video_size` (100MB default) in `MultimodalConfig`. Image/PDF keep `max_image_size`. Fail-closed on oversize.
+- **Blocked content types** — `blocked_content_types` field rejects specified types before scanning (priority over `content_types`). Returns `MultimodalError::BlockedContentType`.
+- **Fuzz targets for audio/video** — `fuzz_audio_metadata` and `fuzz_video_metadata` exercise WAV/MP3/MP4/WebM parsers with arbitrary bytes. Total fuzz targets: 24.
+- 9 new tests for enforcement policies (blocked types, per-type size limits, config defaults).
+
 #### Phase 25.6 — Stateless Protocol Abstraction
 - **`RequestContext` trait** (`vellaveto-types/src/identity.rs`) — abstracts session state access for policy evaluation. Methods: `call_counts()`, `previous_actions()`, `call_chain()`, `agent_identity()`, `session_guard_state()`, `risk_score()`. Default `to_evaluation_context()` builder populates `EvaluationContext` from any implementor.
 - **`StatelessContextBlob` struct** — signed per-request context for future stateless HTTP mode (MCP June 2026). Carries agent_id, call_counts, recent_actions, call_chain, risk_score, issued_at timestamp, and HMAC-SHA256 signature. 5-minute expiry. Implements `RequestContext`.

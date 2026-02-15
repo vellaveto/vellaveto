@@ -151,3 +151,15 @@ name = "fuzz_grpc_proto"
 path = "fuzz_targets/fuzz_grpc_proto.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_audio_metadata"
+path = "fuzz_targets/fuzz_audio_metadata.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_video_metadata"
+path = "fuzz_targets/fuzz_video_metadata.rs"
+test = false
+doc = false

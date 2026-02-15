@@ -152,8 +152,19 @@ pub struct MultimodalConfig {
     pub enable_ocr: bool,
 
     /// Maximum image size to process in bytes. Default: 10MB.
+    /// Also used as the fallback limit for audio/video if their specific limits are not set.
     #[serde(default = "default_max_image_size")]
     pub max_image_size: usize,
+
+    /// Maximum audio file size to process in bytes. Default: 50MB.
+    /// Audio files (WAV especially) can be much larger than images.
+    #[serde(default = "default_max_audio_size")]
+    pub max_audio_size: usize,
+
+    /// Maximum video file size to process in bytes. Default: 100MB.
+    /// Video files can be very large; only metadata is parsed, not frames.
+    #[serde(default = "default_max_video_size")]
+    pub max_video_size: usize,
 
     /// OCR timeout in milliseconds. Default: 5000ms.
     #[serde(default = "default_ocr_timeout_ms")]
@@ -170,6 +181,12 @@ pub struct MultimodalConfig {
     /// Content types to scan. Default: `[Image]`.
     #[serde(default = "default_content_types")]
     pub content_types: Vec<ContentType>,
+
+    /// Content types to explicitly block (reject immediately).
+    /// Evaluated before `content_types`. If a content type appears in both
+    /// `blocked_content_types` and `content_types`, it is blocked.
+    #[serde(default)]
+    pub blocked_content_types: Vec<ContentType>,
 }
 
 fn default_true() -> bool {
@@ -178,6 +195,14 @@ fn default_true() -> bool {
 
 fn default_max_image_size() -> usize {
     10 * 1024 * 1024 // 10MB
+}
+
+fn default_max_audio_size() -> usize {
+    50 * 1024 * 1024 // 50MB
+}
+
+fn default_max_video_size() -> usize {
+    100 * 1024 * 1024 // 100MB
 }
 
 fn default_ocr_timeout_ms() -> u64 {
@@ -198,10 +223,13 @@ impl Default for MultimodalConfig {
             enabled: false,
             enable_ocr: true,
             max_image_size: default_max_image_size(),
+            max_audio_size: default_max_audio_size(),
+            max_video_size: default_max_video_size(),
             ocr_timeout_ms: default_ocr_timeout_ms(),
             min_ocr_confidence: default_min_ocr_confidence(),
             enable_stego_detection: false,
             content_types: default_content_types(),
+            blocked_content_types: vec![],
         }
     }
 }
@@ -326,6 +354,11 @@ impl MultimodalScanner {
             });
         }
 
+        // Check blocked content types (fail-closed: blocked takes priority)
+        if self.config.blocked_content_types.contains(&content_type) {
+            return Err(MultimodalError::BlockedContentType(content_type));
+        }
+
         // Check if we should scan this content type
         if !self.config.content_types.contains(&content_type) {
             return Ok(MultimodalScanResult {
@@ -338,11 +371,16 @@ impl MultimodalScanner {
             });
         }
 
-        // Check size limits
-        if data.len() > self.config.max_image_size {
+        // Check per-content-type size limits
+        let max_size = match content_type {
+            ContentType::Audio => self.config.max_audio_size,
+            ContentType::Video => self.config.max_video_size,
+            _ => self.config.max_image_size, // Image, PDF, Unknown
+        };
+        if data.len() > max_size {
             return Err(MultimodalError::ContentTooLarge {
                 size: data.len(),
-                max: self.config.max_image_size,
+                max: max_size,
             });
         }
 
@@ -1921,6 +1959,9 @@ pub enum MultimodalError {
     #[error("Unsupported content type: {0:?}")]
     UnsupportedContentType(ContentType),
 
+    #[error("Blocked content type: {0:?}")]
+    BlockedContentType(ContentType),
+
     #[error("Steganography detection failed: {0}")]
     StegoError(String),
 }
@@ -3498,5 +3539,181 @@ mod tests {
             .scan_content(&data, Some(ContentType::Video))
             .unwrap();
         assert!(result.extracted_text.is_none());
+    }
+
+    // ── Content type enforcement tests ──────────────────────────────
+
+    #[test]
+    fn test_blocked_content_type_audio_rejected() {
+        let config = MultimodalConfig {
+            enabled: true,
+            content_types: vec![ContentType::Audio],
+            blocked_content_types: vec![ContentType::Audio],
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+
+        let result = scanner.scan_content(&[0xFF, 0xFB], Some(ContentType::Audio));
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, MultimodalError::BlockedContentType(ContentType::Audio)),
+            "expected BlockedContentType(Audio), got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_blocked_content_type_video_rejected() {
+        let config = MultimodalConfig {
+            enabled: true,
+            content_types: vec![ContentType::Video],
+            blocked_content_types: vec![ContentType::Video],
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+
+        let result = scanner.scan_content(&[0x1A, 0x45, 0xDF, 0xA3], Some(ContentType::Video));
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            MultimodalError::BlockedContentType(ContentType::Video)
+        ));
+    }
+
+    #[test]
+    fn test_blocked_content_type_overrides_allowed() {
+        // Even though Audio is in content_types, blocked_content_types takes priority
+        let config = MultimodalConfig {
+            enabled: true,
+            content_types: vec![ContentType::Image, ContentType::Audio],
+            blocked_content_types: vec![ContentType::Audio],
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+
+        let result = scanner.scan_content(&[0xFF, 0xFB], Some(ContentType::Audio));
+        assert!(matches!(
+            result.unwrap_err(),
+            MultimodalError::BlockedContentType(ContentType::Audio)
+        ));
+
+        // Image should still work fine (not blocked)
+        let img_result = scanner.scan_content(&[0x89, 0x50, 0x4E, 0x47], Some(ContentType::Image));
+        assert!(img_result.is_ok());
+    }
+
+    #[test]
+    fn test_blocked_content_type_not_checked_when_disabled() {
+        // Scanner disabled → blocked list not checked, returns Ok
+        let config = MultimodalConfig {
+            enabled: false,
+            blocked_content_types: vec![ContentType::Audio],
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+
+        let result = scanner.scan_content(&[0xFF, 0xFB], Some(ContentType::Audio));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_audio_size_limit_enforced() {
+        let config = MultimodalConfig {
+            enabled: true,
+            content_types: vec![ContentType::Audio],
+            max_audio_size: 100, // 100 bytes
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+
+        // Exactly at limit — should succeed
+        let data_ok = vec![0xFF; 100];
+        let result = scanner.scan_content(&data_ok, Some(ContentType::Audio));
+        assert!(result.is_ok());
+
+        // Over limit — should fail
+        let data_big = vec![0xFF; 101];
+        let result = scanner.scan_content(&data_big, Some(ContentType::Audio));
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, MultimodalError::ContentTooLarge { size: 101, max: 100 }),
+            "expected ContentTooLarge, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_video_size_limit_enforced() {
+        let config = MultimodalConfig {
+            enabled: true,
+            content_types: vec![ContentType::Video],
+            max_video_size: 200, // 200 bytes
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+
+        // Exactly at limit — should succeed
+        let data_ok = vec![0x00; 200];
+        let result = scanner.scan_content(&data_ok, Some(ContentType::Video));
+        assert!(result.is_ok());
+
+        // Over limit — should fail
+        let data_big = vec![0x00; 201];
+        let result = scanner.scan_content(&data_big, Some(ContentType::Video));
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            MultimodalError::ContentTooLarge { size: 201, max: 200 }
+        ));
+    }
+
+    #[test]
+    fn test_image_size_limit_unchanged_for_images() {
+        // Image still uses max_image_size, not the new audio/video limits
+        let config = MultimodalConfig {
+            enabled: true,
+            content_types: vec![ContentType::Image],
+            max_image_size: 50,
+            max_audio_size: 1000,
+            max_video_size: 2000,
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+
+        let data = vec![0x89; 51]; // Over max_image_size
+        let result = scanner.scan_content(&data, Some(ContentType::Image));
+        assert!(matches!(
+            result.unwrap_err(),
+            MultimodalError::ContentTooLarge { size: 51, max: 50 }
+        ));
+    }
+
+    #[test]
+    fn test_config_defaults_audio_video_sizes() {
+        let config = MultimodalConfig::default();
+        assert_eq!(config.max_audio_size, 50 * 1024 * 1024); // 50MB
+        assert_eq!(config.max_video_size, 100 * 1024 * 1024); // 100MB
+        assert!(config.blocked_content_types.is_empty());
+    }
+
+    #[test]
+    fn test_pdf_uses_image_size_limit() {
+        // PDF falls through to the image size limit (default catch-all)
+        let config = MultimodalConfig {
+            enabled: true,
+            content_types: vec![ContentType::Pdf],
+            max_image_size: 80,
+            max_audio_size: 5000,
+            max_video_size: 10000,
+            ..Default::default()
+        };
+        let scanner = MultimodalScanner::new(config);
+
+        let data = vec![0x25; 81]; // Over max_image_size
+        let result = scanner.scan_content(&data, Some(ContentType::Pdf));
+        assert!(matches!(
+            result.unwrap_err(),
+            MultimodalError::ContentTooLarge { size: 81, max: 80 }
+        ));
     }
 }
