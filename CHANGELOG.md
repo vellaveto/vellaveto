@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Composio Integration (Python SDK)
+- **ComposioGuard** (`sdk/python/vellaveto/composio/guard.py`) — High-level guard with `before_execute_modifier()` and `after_execute_modifier()` factory methods for Composio's native modifier system. Standalone `execute()` wrapper for direct tool calls. Works with any Composio provider (OpenAI, LangChain, CrewAI, AutoGen, Google ADK) — no framework-specific code.
+- **Modifier factories** (`sdk/python/vellaveto/composio/modifiers.py`) — `create_before_execute_modifier()` evaluates tool calls against Vellaveto policies before execution (allow/deny/require_approval). `create_after_execute_modifier()` scans responses for DLP/injection findings. `CallChainTracker` maintains bounded FIFO chain (max 20 entries).
+- **Response scanner** (`sdk/python/vellaveto/composio/scanner.py`) — Client-side defense-in-depth scanning with 10 injection patterns and `ParameterRedactor`-based secret detection. Recursive scanning up to configurable depth.
+- **Slug normalization + target extraction** (`sdk/python/vellaveto/composio/extractor.py`) — Converts Composio `TOOLKIT_ACTION_NAME` slugs to `(tool, function)` pairs. Extracts `target_paths` and `target_domains` from arguments using the same heuristic as the LangChain adapter.
+- **Optional dependency** — `composio>=1.0.0` in `pyproject.toml` optional deps group. Zero new hard dependencies.
+- **Fail-closed by default** — API/network errors produce `PolicyDenied`. Configurable `fail_closed=False` for fail-open mode.
+- 35 new tests in `sdk/python/tests/test_composio.py` (7 test classes: slug normalization, target extraction, before/after modifiers, call chain tracker, response scanner, guard API).
+
 #### Phase 30 — MCP 2025-11-25 Spec Adoption
 - **Tool name validation** (`vellaveto-types/src/core.rs`) — `validate_mcp_tool_name()` enforces MCP 2025-11-25 format: 1–64 chars, `[a-zA-Z0-9_\-./]`, no leading/trailing dots/slashes, no consecutive dots (`..`). Re-exported at crate root.
 - **StreamableHttpConfig** (`vellaveto-config/src/mcp_protocol.rs`) — new config struct with `resumability_enabled` (default false), `strict_tool_name_validation` (default false), `max_event_id_length` (default 128, range 1–512), `sse_retry_ms` (optional, range 100–60000). Wired into `PolicyConfig.streamable_http`.

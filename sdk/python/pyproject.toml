@@ -50,9 +50,13 @@ langgraph = [
     "langchain-core>=0.2.0",
     "langgraph>=0.2.0",
 ]
+composio = [
+    "composio>=1.0.0",
+]
 all = [
     "langchain-core>=0.2.0",
     "langgraph>=0.2.0",
+    "composio>=1.0.0",
 ]
 dev = [
     "pytest>=7.0.0",

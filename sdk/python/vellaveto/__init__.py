@@ -18,6 +18,12 @@ from vellaveto.client import VellavetoClient, VellavetoError, PolicyDenied, Appr
 from vellaveto.redaction import ParameterRedactor
 from vellaveto.types import Verdict, EvaluationResult, Action
 
+# Conditional re-export: ComposioGuard is available when vellaveto.composio is importable
+try:
+    from vellaveto.composio import ComposioGuard
+except Exception:
+    ComposioGuard = None  # type: ignore[assignment,misc]
+
 __version__ = "2.2.1"
 __all__ = [
     "VellavetoClient",
@@ -28,4 +34,5 @@ __all__ = [
     "Verdict",
     "EvaluationResult",
     "Action",
+    "ComposioGuard",
 ]

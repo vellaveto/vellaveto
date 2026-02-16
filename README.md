@@ -73,7 +73,7 @@ Vellaveto is a lightweight, high-performance firewall that sits between AI agent
 - **Phase 17.2: gRPC Transport (Google Proposal)** — Protocol Buffers-based MCP transport on separate port (50051) via tonic 0.13, feature-gated behind `grpc`. Full policy enforcement pipeline (classify → evaluate → audit → forward → DLP/injection scan), depth-bounded proto↔JSON conversion (MAX_DEPTH=64), constant-time auth interceptor, gRPC Health v1, bidirectional streaming with per-message evaluation, gRPC-to-HTTP fallback for existing HTTP MCP servers. 46 unit tests + `fuzz_grpc_proto` fuzz target. New CLI args: `--grpc`, `--grpc-port`, `--grpc-max-message-size`, `--upstream-grpc-url`.
 - **Phase 17.1: WebSocket Transport (SEP-1288)** — Bidirectional MCP-over-WebSocket reverse proxy at `/mcp/ws` with full policy enforcement, DLP/injection response scanning, TOCTOU-safe canonicalization, per-connection rate limiting, idle timeout, session binding, and fail-closed semantics. 29 unit tests + `fuzz_ws_frame` fuzz target. New CLI args: `--ws-max-message-size`, `--ws-idle-timeout`, `--ws-message-rate-limit`.
 - **Production-ready CI/CD** — 11 GitHub Actions workflows: CI, security audit, cargo-deny, dependency review, scorecard, provenance/SBOM, Docker publish (GHCR + Trivy), release automation (static binaries, checksums, SBOM, provenance), rustdoc Pages, PyPI publish (trusted OIDC), and crates.io publish (dependency-ordered).
-- **Python SDK** — 130 tests covering types, sync/async client, LangChain, LangGraph, and parameter redaction. Client-side secret stripping via `ParameterRedactor` with 3 modes.
+- **Python SDK** — 165 tests covering types, sync/async client, LangChain, LangGraph, Composio, and parameter redaction. Client-side secret stripping via `ParameterRedactor` with 3 modes. **Composio integration** — `ComposioGuard` with `before_execute`/`after_execute` modifier factories for universal Composio provider support (OpenAI, LangChain, CrewAI, AutoGen, Google ADK), client-side response DLP + injection scanning, fail-closed semantics. Works with any of Composio's 500+ tool connectors.
 - **Framework quickstart guides** — Step-by-step integration for Anthropic SDK, OpenAI SDK, LangChain, LangGraph, and MCP proxy.
 - **Policy presets** — 5 curated configurations for dev-laptop, CI/CD, RAG, database, and browser agent scenarios.
 - **AGPL-3.0 dual license** — Switched from Apache-2.0 to AGPL-3.0 with commercial license option. Machine-readable AI training opt-out for EU CDSM Article 4 compliance.
@@ -1093,7 +1093,7 @@ server     proxy     http-proxy   HTTP API, stdio proxy, HTTP reverse proxy
 | `vellaveto-proxy` | binary | `vellaveto-proxy/` | Stdio MCP proxy enforcement runtime | `cargo test -p vellaveto-proxy` |
 | `vellaveto-http-proxy` | binary | `vellaveto-http-proxy/` | Streamable HTTP + WebSocket MCP reverse proxy with OAuth, session, SSE controls | `cargo test -p vellaveto-http-proxy` |
 | `vellaveto-integration` | test-suite | `vellaveto-integration/` | Cross-crate regression, adversarial, and conformance tests | `cargo test -p vellaveto-integration` |
-| `sdk/python` | sdk | `sdk/python/` | Python client + LangChain/LangGraph adapters | `cd sdk/python && pytest` |
+| `sdk/python` | sdk | `sdk/python/` | Python client + LangChain/LangGraph/Composio adapters | `cd sdk/python && pytest` |
 | `helm/vellaveto` | deployment | `helm/vellaveto/` | Kubernetes packaging and values templates | `helm lint helm/vellaveto` |
 | `fuzz` | fuzzing | `fuzz/` | 24 fuzz targets for parser/protocol/security boundary hardening | `cd fuzz && cargo +nightly fuzz list` |
 | `security-testing` | security | `security-testing/` | Pentest harnesses and red-team scenarios | `bash security-testing/run-shannon-pentest.sh` |
@@ -1123,7 +1123,7 @@ server     proxy     http-proxy   HTTP API, stdio proxy, HTTP reverse proxy
 | A2A protocol security | `vellaveto-mcp` | A2A message classification and proxy service | `vellaveto-mcp/src/a2a.rs` tests, `vellaveto-integration/tests/owasp_mcp_top10.rs` |
 | Enterprise controls (mTLS/SPIFFE/OPA/JIT/Threat Intel) | `vellaveto-server`, `vellaveto-mcp`, `vellaveto-cluster` | server runtime integrations and policy hooks (OPA runtime enforcement active) | `vellaveto-server/src/threat_intel.rs` tests, `vellaveto-server/tests/` |
 | Observability exporters and traces | `vellaveto-audit`, `vellaveto-integration` | exporter backends and trace propagation | `vellaveto-integration/tests/observability_test.rs`, `vellaveto-audit/tests/proptest_observability.rs` |
-| Python SDK integrations | `sdk/python` | SDK client APIs and middleware callbacks | `sdk/python` test suite |
+| Python SDK integrations (LangChain, LangGraph, Composio) | `sdk/python` | SDK client APIs, middleware callbacks, Composio modifiers | `sdk/python` test suite |
 | TypeScript SDK | `sdk/typescript` | HTTP client, types, simulator methods | `sdk/typescript` test suite |
 | Go SDK | `sdk/go` | HTTP client, types, functional options | `sdk/go` test suite |
 | Policy simulator API | `vellaveto-server` | Evaluate/batch/validate/diff endpoints | `vellaveto-server/src/routes/simulator.rs` tests |
