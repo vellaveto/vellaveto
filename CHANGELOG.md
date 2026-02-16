@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (Adversarial Hardening — Round 46: Full-Codebase Audit)
+
+~177 findings resolved across all crates and SDKs (21 P1, 66 P2, ~90 P3).
+
+#### P1 Fixes (Critical)
+- **FIND-R46-001** (P1): `ToolSensitivity::default()` changed from `Low` to `High` — fail-closed for unknown tool sensitivity.
+- **FIND-R46-002** (P1): `NhiIdentityStatus::default()` changed from `Active` to `Probationary` — new non-human identities start restricted.
+- **FIND-R46-003** (P1): ABAC `NotIn` operator fails closed on non-array attribute values instead of silently passing.
+- **FIND-R46-004** (P1): `deny_unknown_fields` added to security-critical serde structs (`Action`, `PathRules`, `NetworkRules`, `IpRules`) preventing silent field injection.
+- **FIND-R46-005** (P1): `EvaluationContext::builder()` validation — rejects empty agent_id, empty session_id, zero max_calls, empty call chain entries.
+- **FIND-R46-013** (P1): Merkle rotation `start_hash` verification hardened.
+- **FIND-R46-014** (P1): Rotation manifest skip-missing-files verification.
+- **FIND-R46-015** (P1): Relay `PassThrough` mode audit logging — previously silent.
+- **FIND-R46-016** (P1): Relay `PassThrough` mode DLP/injection scanning — previously bypassed.
+- **FIND-R46-017** (P1): WebSocket proxy security parity with HTTP path.
+- **FIND-R46-018** (P1): `MemoryEntry` trust/taint consistency — Untrusted entries now start at trust_score 0.5 instead of contradictory 1.0.
+
+#### P2 Fixes (Medium)
+- 66 findings across all crates: relay channel buffer reduction (256→64), 4MB message size limits, `SchemaRecord.version_history` bounded, domain cache eviction, BFS scan ordering, JSON depth limits, Python SDK `__repr__` redacts API keys, `ConnectionError` renamed to `VellavetoConnectionError`, exponential retry backoff with jitter, thread-safe LangChain call chains, TypeScript baseUrl HTTPS validation, Go `Action.Validate()`, config pattern length limits (4096), empty pattern rejection, unknown extension error reporting.
+
+#### P3 Fixes (Low)
+- ~90 findings: archive TOCTOU documentation, OTLP PII redaction docs, syslog limits, relay allowed-decision audit, infix wildcard documentation, mutex poisoning documentation, scanner circular reference protection (seen-set), bytes handling and total work limit in Composio scanner, snippet truncation bounds, PolicyDenied docstrings, path traversal warnings, key variant casefold normalization, checkpoint fixes in LangGraph, thread_id validation, TLS warning for non-HTTPS, JSON depth validation on projector routes (max 32), token_budget cap (1M) on discovery routes, batch_size>0 validation.
+
+#### Test Count Updates
+- Rust: 6,032 → 6,042 (+10)
+- Python SDK: 245 → 288 (+43 new tests)
+- TypeScript SDK: 15 → 34 (+19 new tests)
+- Go SDK: 28 → 33 (+5 new tests)
+- **Total: 6,397 tests across all languages**
+
 ### Added
 
 #### Codebase Improvement Campaign — Tests, Benchmarks, Formal Verification, CI
