@@ -1,10 +1,10 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 complete, 45 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 complete, 45 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 5,725 Rust tests + 226 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 5,763 Rust tests + 245 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 24
 > **CI workflows:** 11
 > **Updated:** 2026-02-16
@@ -86,6 +86,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Governance: EnforcementMode, UnregisteredAgent, ShadowAiReport | `vellaveto-types/src/governance.rs` |
 | Discovery: ToolMetadata, ToolSensitivity, DiscoveryResult | `vellaveto-types/src/discovery.rs` |
 | Projector: CanonicalToolSchema, CanonicalToolCall, ModelFamily | `vellaveto-types/src/projector.rs` |
+| ZK Audit: PedersenCommitment, ZkBatchProof, ZkVerifyResult, ZkSchedulerStatus | `vellaveto-types/src/zk_audit.rs` |
 | Tests (~180) | `vellaveto-types/src/tests.rs` |
 | **vellaveto-engine** | |
 | Policy evaluation | `vellaveto-engine/src/lib.rs` |
@@ -96,6 +97,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Redaction, checkpoints, Merkle proofs, events | `vellaveto-audit/src/*.rs` |
 | Compliance registries: EU AI Act, SOC 2, CoSAI, Adversa, ISO 42001, gap analysis | `vellaveto-audit/src/{eu_ai_act,soc2,cosai,adversa_top25,iso42001,gap_analysis}.rs` |
 | Data governance registry (Art 10) | `vellaveto-audit/src/data_governance.rs` |
+| ZK audit: Pedersen commitments, witness store, Groth16 circuit, batch prover, scheduler | `vellaveto-audit/src/zk/{mod,pedersen,witness,circuit,prover,scheduler}.rs` |
 | OTLP exporter, archive | `vellaveto-audit/src/observability/otlp.rs`, `vellaveto-audit/src/archive.rs` |
 | Tests (~404) | `vellaveto-audit/src/tests.rs` |
 | **vellaveto-config** | |
@@ -105,6 +107,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Governance config | `vellaveto-config/src/governance.rs` |
 | Discovery config | `vellaveto-config/src/discovery.rs` |
 | Projector config | `vellaveto-config/src/projector.rs` |
+| ZK Audit config | `vellaveto-config/src/zk_audit.rs` |
 | Tests (~301) | `vellaveto-config/src/tests.rs` |
 | **vellaveto-mcp** | |
 | MCP handling | `vellaveto-mcp/src/lib.rs` |
@@ -133,6 +136,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Governance API routes | `vellaveto-server/src/routes/governance.rs` |
 | Discovery API routes | `vellaveto-server/src/routes/discovery.rs` |
 | Projector API routes | `vellaveto-server/src/routes/projector.rs` |
+| ZK Audit API routes (status, proofs, verify, commitments) | `vellaveto-server/src/routes/zk_audit.rs` |
 | Dashboard | `vellaveto-server/src/dashboard.rs` |
 | **Other** | |
 | Stdio proxy | `vellaveto-proxy/src/main.rs` |
@@ -146,7 +150,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Proto: MCP gRPC schema | `proto/mcp/v1/mcp.proto` |
 | GitHub Action: policy-check | `.github/actions/policy-check/action.yml` |
 | **SDKs** | |
-| Python SDK: client, langchain, langgraph, composio, redaction (226 tests) | `sdk/python/` |
+| Python SDK: client, langchain, langgraph, composio, redaction (245 tests) | `sdk/python/` |
 | Composio integration: guard, modifiers, extractor, scanner (84 tests) | `sdk/python/vellaveto/composio/` |
 | TypeScript SDK: client + types (15 tests) | `sdk/typescript/` |
 | Go SDK: client + types + errors (28 tests) | `sdk/go/` |
@@ -160,7 +164,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 ## What's Done (DO NOT rebuild)
 
-All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 implemented, tested, and hardened through 45 audit rounds. Details in CHANGELOG.md.
+All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 + Phase 37 implemented, tested, and hardened through 45 audit rounds. Details in CHANGELOG.md.
 
 - **Core Engine:** Policy evaluation with glob/regex/domain matching, path traversal protection, DNS rebinding defense, context-aware policies (time windows, call limits, agent ID, action sequences)
 - **Audit:** Tamper-evident logging (SHA-256 chain, Merkle proofs, Ed25519 checkpoints, rotation), export (CEF/JSONL/webhook/syslog), immutable archive with retention
@@ -178,7 +182,7 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - **Developer Experience (Phase 22):** Policy simulator API, CLI simulate, GitHub Action, dashboard SVG charts
 - **Adversarial Hardening:** 5 pentest rounds (FIND-043–084 + Phase 23 Critical/High + Medium), RwLock poisoning hardened, PDF byte-level parsing, session guard fail-closed, Rekor canonical JSON, JPEG stego loop bound, PDF 4096-byte dict look-back, whitespace-normalized injection scan, EXIF 4-char min extraction, PDF hex string parsing, stego limitations documented, Phase 27 adversarial audit (FIND-P27-001–007: DNS amplification DoS on /health cached, mutex poisoning propagated, SSRF dns_name validation, instance_id dot validation, effective_instance_id cached at startup), Phase 29 adversarial audit round 41 (FIND-R41-001–015: header allowlist on forwarded requests, shell injection prevention for stdio command, circuit breaker OOM bound, response body size limit, stdio zombie process kill-on-timeout, exec graph node limit, gateway URL scheme validation, transport overrides count bound, stderr capture, control character log injection, glob key validation), Round 42 (FIND-R42-002–020: transport preference header dedup+cap, URL host parser SSRF via userinfo/@/IPv6, circuit breaker capacity fail-closed, exec graph metadata-before-bounds-check, agent trust graph session limit, backend URL scheme validation, wildcard glob coexistence rejection, half-open thundering herd prevention, DOT language injection escaping, failure_count saturating arithmetic, duplicate protocol validation, clock error logging, path parameter length validation, self-delegation rejection, fallback response body bounded, rotation manifest start_hash), Round 43 (FIND-R43-001–035: stdio pipe deadlock fixed via concurrent stdout read, subprocess environment cleared, kill_on_drop(true), 5xx circuit breaker corrected, stale Open→HalfOpen success discarded, Merkle leaf pruning exclusion, manifest skip-missing-files verification, NHI terminal-state enforcement, unbounded trust_edges/privilege_levels/trusted_agents capped, cleanup() auto-invoked, Unicode format char validation, case-insensitive self-delegation, match-all glob pattern rejection, URL-encoded %40 userinfo, IPv6 gRPC URL brackets, gateway counter saturating_add, WebSocket URL prefix-only replacement, dangerous status code blocking, exec_graph edge validation/dedup/self-loop rejection, escape_dot pipe+null, roots dedup, NHI body field validation, TOCTOU delegation fix, DeputyError redaction, backend ID validation, tool prefix uniqueness, UTF-8 safe gateway truncation), Round 44 (FIND-R44-001–008), Round 45 (FIND-R45-001–015: GET /mcp full security parity with POST — session ownership binding, agent identity validation, call chain validation, audit logging, rug-pull detection in GET SSE path, output schema validation, gateway mode rejection, session touch/request_count, error message normalization, Last-Event-ID generic errors)
 - **CI/CD:** 11 workflows, Docker/GHCR, release automation, SBOM, provenance attestation
-- **SDKs:** Python (sync+async, LangChain/LangGraph/Composio, 226 tests), TypeScript (fetch-based, 15 tests), Go (stdlib-only, 28 tests)
+- **SDKs:** Python (sync+async, LangChain/LangGraph/Composio, 245 tests), TypeScript (fetch-based, 15 tests), Go (stdlib-only, 28 tests)
 - **Composio Integration:** `ComposioGuard` with `before_execute`/`after_execute` modifier factories for universal Composio provider support (OpenAI, LangChain, CrewAI, AutoGen, Google ADK), client-side response scanning (DLP + injection with NFKC normalization + invisible char stripping), `CallChainTracker` (thread-safe, bounded FIFO), slug normalization (ASCII-only with homoglyph rejection), target extraction (recursive with depth bound, file:// URI support), standalone `execute()` wrapper with TOCTOU prevention, 84 tests (49 adversarial)
 - **Formal Verification (Phase 33):** TLA+ specs for policy engine (6 safety + 2 liveness) and ABAC forbid-overrides (4 safety), Alloy model for capability delegation (6 safety assertions), 19 verified properties with source traceability
 - **Shadow AI Detection & Governance (Phase 26):** Passive shadow AI discovery engine (unregistered agents, unapproved tools, unknown MCP servers with bounded tracking — max 1000/500/100), governance API endpoints (shadow-report, unregistered-agents, unapproved-tools, least-agency), `GovernanceConfig` with `require_agent_registration` fail-closed mode, `LeastAgencyTracker` enforcement mode with auto-revocation, governance dashboard section, audit event helpers (`shadow_ai.{unregistered_agent,unapproved_tool,unknown_server}`, `least_agency.{report,auto_revoke}`)
@@ -187,6 +191,7 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - **MCP 2025-11-25 Spec Adoption (Phase 30):** `validate_mcp_tool_name()` in vellaveto-types (1–64 chars, `[a-zA-Z0-9_\-./]`, no `..`), `StreamableHttpConfig` with `resumability_enabled`/`strict_tool_name_validation`/`max_event_id_length`/`sse_retry_ms`, `handle_mcp_get()` for SSE stream initiation/resumption with `Last-Event-ID` forwarding, RFC 6750 §3.1 `WWW-Authenticate` header on `InsufficientScope`, strict tool name validation in proxy (config-gated), ~42 new tests
 - **Tool Discovery (Phase 34):** Pure Rust TF-IDF inverted index (cosine similarity, zero new deps), `DiscoveryEngine` with policy filtering and token budget, session-scoped TTL lifecycle (record/expire/evict), REST API (search/stats/reindex/tools), SDK methods (Python/TypeScript/Go), feature-gated behind `discovery`, ~260 new tests
 - **Model Projector (Phase 35):** `ModelProjection` trait with `ProjectorRegistry`, 5 built-in projections (Claude/OpenAI/DeepSeek/Qwen/Generic), `SchemaCompressor` (5 progressive strategies), `CallRepairer` (type coercion, Levenshtein fuzzy matching, DeepSeek markdown extraction), REST API (models/transform), feature-gated behind `projector`, ~230 new tests
+- **Zero-Knowledge Audit Trails (Phase 37):** Two-tier ZK audit: inline Pedersen commitments (~50µs per entry, `curve25519-dalek` Ristretto) + offline Groth16 batch proofs (`ark-groth16`/`ark-bn254`). `PedersenCommitter` with domain-separated generators, `WitnessStore` with bounded capacity, `AuditChainCircuit` (R1CS for hash-chain + commitment verification), `ZkBatchProver` (setup/prove/verify with key serialization), `ZkBatchScheduler` (async batch loop with size/interval triggers). REST API: `GET /api/zk-audit/status`, `GET /api/zk-audit/proofs`, `POST /api/zk-audit/verify`, `GET /api/zk-audit/commitments`. `ZkAuditConfig` with validation (batch_size 10–10,000). Python SDK methods (sync+async): `zk_status()`, `zk_proofs()`, `zk_verify()`, `zk_commitments()`. Feature-gated behind `zk-audit`, ~190 new tests (Rust + Python)
 - **Docs:** Quickstart guides, security model, benchmarks, 5 policy presets
 
 ---
