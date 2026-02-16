@@ -4,7 +4,7 @@
 //! and evaluates them with forbid-overrides semantics.
 
 use crate::matcher::PatternMatcher;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use vellaveto_types::{
     AbacEffect, AbacEntity, AbacOp, AbacPolicy, Action, EvaluationContext, RiskScore,
 };
@@ -125,12 +125,26 @@ impl EntityStore {
 
     /// Check if an entity is a (transitive) member of a group.
     /// Bounded to MAX_MEMBERSHIP_DEPTH to prevent infinite loops.
+    /// Uses a visited set to prevent exponential blowup through diamond-shaped
+    /// membership graphs (FIND-R44-001).
     pub fn is_member_of(&self, entity_key: &str, group_key: &str) -> bool {
-        self.is_member_of_bounded(entity_key, group_key, 0)
+        let mut visited = HashSet::new();
+        self.is_member_of_bounded(entity_key, group_key, 0, &mut visited)
     }
 
-    fn is_member_of_bounded(&self, entity_key: &str, group_key: &str, depth: usize) -> bool {
+    fn is_member_of_bounded(
+        &self,
+        entity_key: &str,
+        group_key: &str,
+        depth: usize,
+        visited: &mut HashSet<String>,
+    ) -> bool {
         if depth >= MAX_MEMBERSHIP_DEPTH {
+            return false;
+        }
+        // FIND-R44-001: Skip entities already visited through a different path
+        // to prevent exponential blowup in diamond-shaped graphs.
+        if !visited.insert(entity_key.to_string()) {
             return false;
         }
         if let Some(parents) = self.memberships.get(entity_key) {
@@ -138,7 +152,7 @@ impl EntityStore {
                 if parent == group_key {
                     return true;
                 }
-                if self.is_member_of_bounded(parent, group_key, depth + 1) {
+                if self.is_member_of_bounded(parent, group_key, depth + 1, visited) {
                     return true;
                 }
             }
@@ -1414,5 +1428,108 @@ mod tests {
             engine.evaluate(&make_action("any", "any"), &ctx),
             AbacDecision::NoMatch
         );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R44-001: Diamond-shaped membership graph
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_diamond_membership_no_exponential_blowup() {
+        // Diamond graph: entity → A, entity → B, A → top, B → top
+        // Without visited-set, checking membership in "top" would visit
+        // the "top" node twice. With wider diamonds this becomes exponential.
+        let entities = vec![
+            AbacEntity {
+                entity_type: "G".to_string(),
+                id: "top".to_string(),
+                attributes: HashMap::new(),
+                parents: vec![],
+            },
+            AbacEntity {
+                entity_type: "G".to_string(),
+                id: "a".to_string(),
+                attributes: HashMap::new(),
+                parents: vec!["G::top".to_string()],
+            },
+            AbacEntity {
+                entity_type: "G".to_string(),
+                id: "b".to_string(),
+                attributes: HashMap::new(),
+                parents: vec!["G::top".to_string()],
+            },
+            AbacEntity {
+                entity_type: "E".to_string(),
+                id: "entity".to_string(),
+                attributes: HashMap::new(),
+                parents: vec!["G::a".to_string(), "G::b".to_string()],
+            },
+        ];
+        let store = EntityStore::from_config(&entities);
+        assert!(store.is_member_of("E::entity", "G::top"));
+        assert!(store.is_member_of("E::entity", "G::a"));
+        assert!(store.is_member_of("E::entity", "G::b"));
+        assert!(!store.is_member_of("E::entity", "G::nonexistent"));
+    }
+
+    #[test]
+    fn test_wide_diamond_membership_completes_quickly() {
+        // Create a wide diamond: entity → [g0..g15] → top
+        // Without visited-set this could be slow; with it, each node visited once.
+        let mut entities = vec![AbacEntity {
+            entity_type: "G".to_string(),
+            id: "top".to_string(),
+            attributes: HashMap::new(),
+            parents: vec![],
+        }];
+        let mut mid_parents = Vec::new();
+        for i in 0..16 {
+            let id = format!("mid{}", i);
+            entities.push(AbacEntity {
+                entity_type: "G".to_string(),
+                id: id.clone(),
+                attributes: HashMap::new(),
+                parents: vec!["G::top".to_string()],
+            });
+            mid_parents.push(format!("G::{}", id));
+        }
+        entities.push(AbacEntity {
+            entity_type: "E".to_string(),
+            id: "leaf".to_string(),
+            attributes: HashMap::new(),
+            parents: mid_parents,
+        });
+        let store = EntityStore::from_config(&entities);
+        assert!(store.is_member_of("E::leaf", "G::top"));
+    }
+
+    #[test]
+    fn test_cycle_in_membership_terminates() {
+        // Cycle: a → b → c → a (should terminate via depth or visited-set)
+        let entities = vec![
+            AbacEntity {
+                entity_type: "G".to_string(),
+                id: "a".to_string(),
+                attributes: HashMap::new(),
+                parents: vec!["G::b".to_string()],
+            },
+            AbacEntity {
+                entity_type: "G".to_string(),
+                id: "b".to_string(),
+                attributes: HashMap::new(),
+                parents: vec!["G::c".to_string()],
+            },
+            AbacEntity {
+                entity_type: "G".to_string(),
+                id: "c".to_string(),
+                attributes: HashMap::new(),
+                parents: vec!["G::a".to_string()],
+            },
+        ];
+        let store = EntityStore::from_config(&entities);
+        // Should terminate without stack overflow
+        assert!(!store.is_member_of("G::a", "G::nonexistent"));
+        // Self-cycle should still find transitive membership
+        assert!(store.is_member_of("G::a", "G::b"));
     }
 }

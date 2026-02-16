@@ -712,6 +712,7 @@ async fn main() -> Result<()> {
         } else {
             None
         },
+        streamable_http: policy_config.streamable_http.clone(),
     };
 
     // Phase 20: Spawn gateway health checker if gateway is enabled
@@ -783,7 +784,9 @@ async fn main() -> Result<()> {
     let mut app = axum::Router::new()
         .route(
             "/mcp",
-            axum::routing::post(proxy::handle_mcp_post).delete(proxy::handle_mcp_delete),
+            axum::routing::post(proxy::handle_mcp_post)
+                .delete(proxy::handle_mcp_delete)
+                .get(proxy::handle_mcp_get),
         )
         .route("/mcp/ws", axum::routing::get(proxy::handle_ws_upgrade))
         .route("/health", axum::routing::get(health))

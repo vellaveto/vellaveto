@@ -2594,18 +2594,208 @@ fn test_discovery_event_updated_roundtrip() {
 #[test]
 fn test_deployment_info_roundtrip() {
     let info = DeploymentInfo {
-        instance_id: "vellaveto-0".to_string(),
-        leader_status: LeaderStatus::Leader {
+        instance_id: Some("vellaveto-0".to_string()),
+        leader_status: Some(LeaderStatus::Leader {
             since: "2026-02-15T10:00:00Z".to_string(),
-        },
-        discovered_endpoints: 3,
+        }),
+        discovered_endpoints: Some(3),
         uptime_secs: 86400,
         mode: "kubernetes".to_string(),
     };
     let json_str = serde_json::to_string(&info).unwrap();
     let deserialized: DeploymentInfo = serde_json::from_str(&json_str).unwrap();
-    assert_eq!(deserialized.instance_id, "vellaveto-0");
-    assert_eq!(deserialized.discovered_endpoints, 3);
+    assert_eq!(deserialized.instance_id, Some("vellaveto-0".to_string()));
+    assert_eq!(deserialized.discovered_endpoints, Some(3));
     assert_eq!(deserialized.uptime_secs, 86400);
     assert_eq!(deserialized.mode, "kubernetes");
+}
+
+#[test]
+fn test_deployment_info_redacted_anonymous_mode() {
+    // SECURITY (FIND-R44-015): In anonymous mode, sensitive fields are None
+    // and should be omitted from JSON output.
+    let info = DeploymentInfo {
+        instance_id: None,
+        leader_status: None,
+        discovered_endpoints: None,
+        uptime_secs: 3600,
+        mode: "standalone".to_string(),
+    };
+    let json_str = serde_json::to_string(&info).unwrap();
+    assert!(!json_str.contains("instance_id"), "instance_id should be omitted when None");
+    assert!(!json_str.contains("leader_status"), "leader_status should be omitted when None");
+    assert!(!json_str.contains("discovered_endpoints"), "discovered_endpoints should be omitted when None");
+    assert!(json_str.contains("uptime_secs"), "uptime_secs should always be present");
+    assert!(json_str.contains("mode"), "mode should always be present");
+
+    // Verify deserialization works with missing fields
+    let deserialized: DeploymentInfo = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(deserialized.instance_id, None);
+    assert_eq!(deserialized.leader_status, None);
+    assert_eq!(deserialized.discovered_endpoints, None);
+    assert_eq!(deserialized.uptime_secs, 3600);
+    assert_eq!(deserialized.mode, "standalone");
+}
+
+// ═══════════════════════════════════════════════════════
+// FIND-R44-031: truncate_for_log must not panic on multi-byte UTF-8
+// ═══════════════════════════════════════════════════════
+
+/// FIND-R44-031: Fingerprint summary with multi-byte UTF-8 in jwt_sub must
+/// not panic. Previously, byte-based slicing would panic on char boundaries.
+#[test]
+fn test_agent_fingerprint_summary_multibyte_utf8_no_panic() {
+    // Create a jwt_sub with multi-byte chars that exceeds max_len=20
+    // Each CJK character is 3 bytes. 10 chars = 30 bytes > 20 limit.
+    let long_multibyte = "\u{4e16}\u{754c}\u{4f60}\u{597d}\u{6d4b}\u{8bd5}\u{5b57}\u{7b26}\u{4e32}\u{5b57}";
+    let fp = AgentFingerprint {
+        jwt_sub: Some(long_multibyte.to_string()),
+        ..Default::default()
+    };
+    // Must not panic — this is the critical assertion
+    let summary = fp.summary();
+    assert!(summary.contains("sub:"));
+    assert!(summary.contains("..."));
+}
+
+/// FIND-R44-031: Fingerprint summary with 2-byte UTF-8 chars (e.g., Latin-1
+/// extended) that land exactly on boundary positions.
+#[test]
+fn test_agent_fingerprint_summary_2byte_utf8_boundary() {
+    // Each e-acute (U+00E9) is 2 bytes. 15 chars = 30 bytes > 20.
+    let long_accent = "\u{00e9}".repeat(15);
+    let fp = AgentFingerprint {
+        jwt_sub: Some(long_accent),
+        ..Default::default()
+    };
+    let summary = fp.summary();
+    assert!(summary.contains("sub:"));
+    assert!(summary.contains("..."));
+}
+
+/// FIND-R44-031: Fingerprint summary with 4-byte emoji chars.
+#[test]
+fn test_agent_fingerprint_summary_4byte_emoji() {
+    // Each emoji is 4 bytes. 6 chars = 24 bytes > 20.
+    let emojis = "\u{1F600}\u{1F601}\u{1F602}\u{1F603}\u{1F604}\u{1F605}";
+    let fp = AgentFingerprint {
+        jwt_sub: Some(emojis.to_string()),
+        ..Default::default()
+    };
+    let summary = fp.summary();
+    assert!(summary.contains("sub:"));
+    assert!(summary.contains("..."));
+}
+
+/// FIND-R44-031: Short strings within max_len are not truncated.
+#[test]
+fn test_agent_fingerprint_summary_short_string_unchanged() {
+    let fp = AgentFingerprint {
+        jwt_sub: Some("short".to_string()),
+        ..Default::default()
+    };
+    let summary = fp.summary();
+    assert!(summary.contains("sub:short"));
+    assert!(!summary.contains("..."));
+}
+
+/// FIND-R44-031: Edge case — max_len < 3 should not underflow.
+#[test]
+fn test_agent_fingerprint_summary_mixed_multibyte_ascii() {
+    // Mix ASCII and multi-byte: "a\u{4e16}b\u{4e16}c\u{4e16}d\u{4e16}e\u{4e16}f"
+    // = 5 ASCII (5 bytes) + 5 CJK (15 bytes) = 20 bytes, exactly at limit.
+    let exactly_20 = "a\u{4e16}b\u{4e16}c\u{4e16}d\u{4e16}e\u{4e16}";
+    assert_eq!(exactly_20.len(), 20);
+    let fp = AgentFingerprint {
+        jwt_sub: Some(exactly_20.to_string()),
+        ..Default::default()
+    };
+    let summary = fp.summary();
+    // At exactly max_len, no truncation
+    assert!(summary.contains("sub:"));
+    assert!(!summary.contains("..."));
+}
+
+// ═══════════════════════════════════════════════════
+// MCP 2025-11-25 TOOL NAME VALIDATION (Phase 30)
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_validate_mcp_tool_name_empty_rejected() {
+    let err = validate_mcp_tool_name("").unwrap_err();
+    assert!(err.contains("empty"), "got: {}", err);
+}
+
+#[test]
+fn test_validate_mcp_tool_name_too_long_rejected() {
+    let name = "a".repeat(65);
+    let err = validate_mcp_tool_name(&name).unwrap_err();
+    assert!(err.contains("exceeds 64"), "got: {}", err);
+}
+
+#[test]
+fn test_validate_mcp_tool_name_max_length_accepted() {
+    let name = "a".repeat(64);
+    assert!(validate_mcp_tool_name(&name).is_ok());
+}
+
+#[test]
+fn test_validate_mcp_tool_name_valid_simple() {
+    assert!(validate_mcp_tool_name("read_file").is_ok());
+    assert!(validate_mcp_tool_name("bash-exec").is_ok());
+    assert!(validate_mcp_tool_name("tool123").is_ok());
+    assert!(validate_mcp_tool_name("A").is_ok());
+}
+
+#[test]
+fn test_validate_mcp_tool_name_valid_dotted_namespace() {
+    assert!(validate_mcp_tool_name("ns.tool").is_ok());
+    assert!(validate_mcp_tool_name("org.project.tool_v2").is_ok());
+}
+
+#[test]
+fn test_validate_mcp_tool_name_valid_slashed_namespace() {
+    assert!(validate_mcp_tool_name("ns/tool").is_ok());
+    assert!(validate_mcp_tool_name("org/project/read").is_ok());
+}
+
+#[test]
+fn test_validate_mcp_tool_name_invalid_chars_rejected() {
+    let err = validate_mcp_tool_name("tool@bad").unwrap_err();
+    assert!(err.contains("invalid character '@'"), "got: {}", err);
+
+    assert!(validate_mcp_tool_name("tool name").is_err()); // space
+    assert!(validate_mcp_tool_name("tool\ttab").is_err()); // tab
+    assert!(validate_mcp_tool_name("tool#hash").is_err()); // hash
+    assert!(validate_mcp_tool_name("tool$dollar").is_err()); // dollar
+}
+
+#[test]
+fn test_validate_mcp_tool_name_leading_dot_rejected() {
+    let err = validate_mcp_tool_name(".hidden").unwrap_err();
+    assert!(err.contains("must not start with"), "got: {}", err);
+}
+
+#[test]
+fn test_validate_mcp_tool_name_trailing_dot_rejected() {
+    let err = validate_mcp_tool_name("tool.").unwrap_err();
+    assert!(err.contains("must not end with"), "got: {}", err);
+}
+
+#[test]
+fn test_validate_mcp_tool_name_leading_slash_rejected() {
+    let err = validate_mcp_tool_name("/tool").unwrap_err();
+    assert!(err.contains("must not start with"), "got: {}", err);
+}
+
+#[test]
+fn test_validate_mcp_tool_name_trailing_slash_rejected() {
+    let err = validate_mcp_tool_name("tool/").unwrap_err();
+    assert!(err.contains("must not end with"), "got: {}", err);
+}
+
+#[test]
+fn test_validate_mcp_tool_name_consecutive_dots_rejected() {
+    let err = validate_mcp_tool_name("ns..tool").unwrap_err();
+    assert!(err.contains("consecutive dots"), "got: {}", err);
 }

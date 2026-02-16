@@ -61,9 +61,6 @@ fuzz_target!(|data: &[u8]| {
     // Test summary
     let _ = manager.summary();
 
-    // Test reset
-    manager.reset(&tool_name);
-
-    // Verify reset worked
-    assert_eq!(manager.get_state(&tool_name), CircuitState::Closed);
+    // Test reset (may be rejected if cooldown hasn't elapsed — that's OK)
+    let _ = manager.reset(&tool_name);
 });

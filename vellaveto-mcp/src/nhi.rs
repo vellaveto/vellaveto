@@ -255,6 +255,24 @@ impl NhiManager {
         revoked.contains(id)
     }
 
+    /// SECURITY (FIND-R44-039): Check if an identity is in a terminal state
+    /// (Revoked or Expired). Use this for access denial checks where both
+    /// terminal states should block access.
+    pub async fn is_terminal(&self, id: &str) -> bool {
+        // Check the revocation list first (covers Revoked).
+        let revoked = self.revocation_list.read().await;
+        if revoked.contains(id) {
+            return true;
+        }
+        drop(revoked);
+        // Also check if the identity status is Expired.
+        let identities = self.identities.read().await;
+        identities
+            .get(id)
+            .map(|i| matches!(i.status, NhiIdentityStatus::Expired))
+            .unwrap_or(false)
+    }
+
     /// Activate an identity (transition from probationary to active).
     pub async fn activate_identity(&self, id: &str) -> Result<(), NhiError> {
         let mut identities = self.identities.write().await;
@@ -1041,12 +1059,17 @@ impl NhiManager {
         let now = chrono::Utc::now();
 
         // Cleanup expired identities
+        // SECURITY (FIND-R44-036): Also check Probationary identities for TTL expiration,
+        // not just Active. If a Probationary identity's TTL has elapsed, transition to Expired.
         {
             let mut identities = self.identities.write().await;
             for identity in identities.values_mut() {
                 if let Ok(expires) = chrono::DateTime::parse_from_rfc3339(&identity.expires_at) {
                     if expires.with_timezone(&chrono::Utc) <= now
-                        && identity.status == NhiIdentityStatus::Active
+                        && matches!(
+                            identity.status,
+                            NhiIdentityStatus::Active | NhiIdentityStatus::Probationary
+                        )
                     {
                         identity.status = NhiIdentityStatus::Expired;
                     }
@@ -1839,5 +1862,197 @@ mod tests {
             result,
             Err(NhiError::AttestationLimitExceeded { .. })
         ));
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FIND-R44-036: cleanup_expired must transition Probationary identities
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R44-036: A Probationary identity whose TTL has elapsed must be
+    /// transitioned to Expired by cleanup_expired().
+    #[tokio::test]
+    async fn test_cleanup_expired_transitions_probationary() {
+        let mut config = enabled_config();
+        config.max_credential_ttl_secs = 1; // 1 second TTL max
+        let manager = NhiManager::new(config);
+
+        let id = manager
+            .register_identity(
+                "Probationary Agent",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                Some(1), // 1-second TTL
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Identity starts as Probationary
+        let identity = manager.get_identity(&id).await.unwrap();
+        assert_eq!(identity.status, NhiIdentityStatus::Probationary);
+
+        // Wait for TTL to expire
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        // Run cleanup
+        manager.cleanup_expired().await;
+
+        // Identity should now be Expired
+        let identity = manager.get_identity(&id).await.unwrap();
+        assert_eq!(
+            identity.status,
+            NhiIdentityStatus::Expired,
+            "Probationary identity with elapsed TTL must be transitioned to Expired"
+        );
+    }
+
+    /// FIND-R44-036: cleanup_expired still works for Active identities (regression).
+    #[tokio::test]
+    async fn test_cleanup_expired_still_transitions_active() {
+        let mut config = enabled_config();
+        config.max_credential_ttl_secs = 1;
+        let manager = NhiManager::new(config);
+
+        let id = manager
+            .register_identity(
+                "Active Agent",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                Some(1),
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Activate the identity
+        manager.activate_identity(&id).await.unwrap();
+        let identity = manager.get_identity(&id).await.unwrap();
+        assert_eq!(identity.status, NhiIdentityStatus::Active);
+
+        // Wait for TTL to expire
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        manager.cleanup_expired().await;
+
+        let identity = manager.get_identity(&id).await.unwrap();
+        assert_eq!(
+            identity.status,
+            NhiIdentityStatus::Expired,
+            "Active identity with elapsed TTL must be transitioned to Expired"
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FIND-R44-039: is_terminal() covers Revoked and Expired
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R44-039: is_terminal returns true for Revoked identity.
+    #[tokio::test]
+    async fn test_is_terminal_returns_true_for_revoked() {
+        let manager = NhiManager::new(enabled_config());
+
+        let id = manager
+            .register_identity(
+                "Revoke Me",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        manager
+            .update_status(&id, NhiIdentityStatus::Revoked)
+            .await
+            .unwrap();
+
+        assert!(
+            manager.is_terminal(&id).await,
+            "Revoked identity must be terminal"
+        );
+        // is_revoked should also be true (backward compat)
+        assert!(manager.is_revoked(&id).await);
+    }
+
+    /// FIND-R44-039: is_terminal returns true for Expired identity.
+    #[tokio::test]
+    async fn test_is_terminal_returns_true_for_expired() {
+        let manager = NhiManager::new(enabled_config());
+
+        let id = manager
+            .register_identity(
+                "Expire Me",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        manager
+            .update_status(&id, NhiIdentityStatus::Expired)
+            .await
+            .unwrap();
+
+        assert!(
+            manager.is_terminal(&id).await,
+            "Expired identity must be terminal"
+        );
+        // is_revoked returns false for Expired (it only checks revocation list)
+        assert!(
+            !manager.is_revoked(&id).await,
+            "is_revoked should not cover Expired — use is_terminal instead"
+        );
+    }
+
+    /// FIND-R44-039: is_terminal returns false for Active identity.
+    #[tokio::test]
+    async fn test_is_terminal_returns_false_for_active() {
+        let manager = NhiManager::new(enabled_config());
+
+        let id = manager
+            .register_identity(
+                "Active Agent",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        manager.activate_identity(&id).await.unwrap();
+
+        assert!(
+            !manager.is_terminal(&id).await,
+            "Active identity must not be terminal"
+        );
+    }
+
+    /// FIND-R44-039: is_terminal returns false for non-existent identity.
+    #[tokio::test]
+    async fn test_is_terminal_returns_false_for_nonexistent() {
+        let manager = NhiManager::new(enabled_config());
+        assert!(
+            !manager.is_terminal("nonexistent-id").await,
+            "Non-existent identity must not be terminal"
+        );
     }
 }

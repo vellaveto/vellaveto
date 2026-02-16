@@ -932,6 +932,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             fips: Default::default(),
             governance: Default::default(),
             deployment: Default::default(),
+            streamable_http: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

@@ -15,7 +15,7 @@
 //!
 //! The [`SpanSampler`] uses deterministic sampling based on trace ID hashing:
 //! - Same `trace_id` always produces the same sampling decision
-//! - Uses `DefaultHasher` for consistent hash distribution
+//! - Uses SHA-256 for stable, cross-version hash distribution (FIND-R44-041)
 //! - Hash is compared against `sample_rate * u64::MAX` threshold
 //! - At 50% sample rate, expect ~50% of distinct trace IDs to be sampled (±5%)
 //!
@@ -715,12 +715,18 @@ impl SpanSampler {
     }
 
     /// Hash a trace ID for deterministic sampling.
+    ///
+    /// SECURITY (FIND-R44-041): Uses SHA-256 instead of `DefaultHasher` because
+    /// `DefaultHasher` is not guaranteed to be stable across Rust versions,
+    /// which would break deterministic sampling across heterogeneous deployments.
     fn hash_trace_id(trace_id: &str) -> u64 {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut hasher = DefaultHasher::new();
-        trace_id.hash(&mut hasher);
-        hasher.finish()
+        use sha2::{Digest, Sha256};
+        let hash = Sha256::digest(trace_id.as_bytes());
+        u64::from_le_bytes(
+            hash[..8]
+                .try_into()
+                .unwrap_or_default(),
+        )
     }
 }
 
@@ -731,6 +737,13 @@ pub mod trace_context {
     /// The tracestate header name.
     pub const TRACESTATE: &str = "tracestate";
 }
+
+/// Maximum allowed tracestate header size in bytes (W3C Trace Context limit).
+///
+/// SECURITY (FIND-R44-009): Without this bound, an attacker could send an
+/// arbitrarily large tracestate header to consume memory. W3C recommends 512
+/// bytes for intermediaries.
+pub const MAX_TRACESTATE_BYTES: usize = 512;
 
 /// Parsed W3C Trace Context from incoming request headers.
 #[derive(Debug, Clone, Default)]
@@ -750,6 +763,14 @@ impl TraceContext {
     ///
     /// Format: `version-trace_id-parent_id-flags`
     /// Example: `00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01`
+    ///
+    /// # W3C Compliance
+    ///
+    /// - FIND-R44-008: All-zero `trace_id` (`00000000000000000000000000000000`) and
+    ///   all-zero `parent_span_id` (`0000000000000000`) are rejected per W3C spec
+    ///   (these are defined as invalid sentinel values).
+    /// - FIND-R44-040: Uppercase hex is accepted but normalized to lowercase for
+    ///   consistent downstream comparison.
     pub fn parse_traceparent(value: &str) -> Option<Self> {
         let parts: Vec<&str> = value.split('-').collect();
         if parts.len() != 4 {
@@ -772,11 +793,24 @@ impl TraceContext {
             return None;
         }
 
+        // FIND-R44-040: Normalize to lowercase for consistent comparison.
+        let trace_id_normalized = trace_id.to_ascii_lowercase();
+        let parent_span_id_normalized = parent_span_id.to_ascii_lowercase();
+
+        // FIND-R44-008: Reject all-zero trace_id and parent_span_id per W3C spec.
+        // These are defined as invalid sentinel values that must not be accepted.
+        if trace_id_normalized == "00000000000000000000000000000000" {
+            return None;
+        }
+        if parent_span_id_normalized == "0000000000000000" {
+            return None;
+        }
+
         let flags = u8::from_str_radix(parts[3], 16).ok()?;
 
         Some(TraceContext {
-            trace_id: Some(trace_id.to_string()),
-            parent_span_id: Some(parent_span_id.to_string()),
+            trace_id: Some(trace_id_normalized),
+            parent_span_id: Some(parent_span_id_normalized),
             trace_flags: flags,
             trace_state: None,
         })
@@ -798,9 +832,17 @@ impl TraceContext {
     }
 
     /// Generate a new span ID.
+    ///
+    /// SECURITY (FIND-R44-042): Retries if `rand::random::<u64>()` returns 0,
+    /// which would produce an all-zero span ID (invalid per W3C spec).
+    /// Probability of retry is 1/2^64 — effectively never in practice.
     pub fn new_span_id() -> String {
-        // Generate a 16-char hex span ID
-        format!("{:016x}", rand::random::<u64>())
+        // Generate a 16-char hex span ID, ensuring it is non-zero
+        let mut val = rand::random::<u64>();
+        while val == 0 {
+            val = rand::random::<u64>();
+        }
+        format!("{:016x}", val)
     }
 
     /// Check if sampling is requested (trace flags bit 0).
@@ -822,12 +864,36 @@ impl TraceContext {
         }
     }
 
+    /// Maximum length for verdict value in tracestate.
+    ///
+    /// SECURITY (FIND-R44-010): Prevents unbounded verdict strings from
+    /// inflating the tracestate header.
+    const MAX_VERDICT_LEN: usize = 64;
+
     /// Prepend `vellaveto=<verdict>` to the tracestate.
     ///
     /// If tracestate already exists, vellaveto's entry is prepended per W3C spec
     /// (vendor entries are ordered left-to-right by recency).
+    ///
+    /// SECURITY (FIND-R44-010): The verdict value is sanitized to only contain
+    /// W3C tracestate value characters `[a-z0-9_\-\*\/]` and truncated to 64
+    /// characters. Non-conforming characters are filtered out.
     pub fn with_vellaveto_verdict(mut self, verdict: &str) -> Self {
-        let entry = format!("vellaveto={}", verdict);
+        // Sanitize: only W3C tracestate value characters allowed
+        let sanitized: String = verdict
+            .chars()
+            .filter(|c| matches!(c, 'a'..='z' | '0'..='9' | '_' | '-' | '*' | '/'))
+            .take(Self::MAX_VERDICT_LEN)
+            .collect();
+
+        // Use "unknown" if sanitization empties the verdict
+        let safe_verdict = if sanitized.is_empty() {
+            "unknown".to_string()
+        } else {
+            sanitized
+        };
+
+        let entry = format!("vellaveto={}", safe_verdict);
         self.trace_state = Some(match self.trace_state.take() {
             Some(existing) => format!("{},{}", entry, existing),
             None => entry,
@@ -836,8 +902,32 @@ impl TraceContext {
     }
 
     /// Store a raw tracestate string (parsed from incoming headers).
+    ///
+    /// SECURITY (FIND-R44-009): Tracestate exceeding `MAX_TRACESTATE_BYTES`
+    /// (512 bytes per W3C spec) is truncated at the last complete entry
+    /// boundary (comma) that fits within the limit. If no comma is found
+    /// within the limit, the tracestate is dropped entirely.
     pub fn with_parsed_tracestate(mut self, value: impl Into<String>) -> Self {
-        self.trace_state = Some(value.into());
+        let raw = value.into();
+        if raw.len() <= MAX_TRACESTATE_BYTES {
+            self.trace_state = Some(raw);
+        } else {
+            // Truncate at the last comma boundary within the limit
+            let truncated = &raw[..MAX_TRACESTATE_BYTES];
+            if let Some(last_comma) = truncated.rfind(',') {
+                let safe = &raw[..last_comma];
+                if !safe.is_empty() {
+                    debug!(
+                        original_len = raw.len(),
+                        truncated_len = safe.len(),
+                        "tracestate truncated to fit W3C 512-byte limit"
+                    );
+                    self.trace_state = Some(safe.to_string());
+                }
+                // else: if empty after truncation, drop entirely
+            }
+            // else: no comma within limit, single oversized entry — drop entirely
+        }
         self
     }
 
@@ -1324,8 +1414,9 @@ mod tests {
     // ========================================
 
     #[test]
-    fn test_trace_context_uppercase_hex() {
-        // W3C spec says implementations SHOULD accept uppercase
+    fn test_trace_context_uppercase_hex_normalized() {
+        // FIND-R44-040: W3C spec says implementations SHOULD accept uppercase;
+        // we normalize to lowercase for consistent downstream comparison.
         let ctx = TraceContext::parse_traceparent(
             "00-0AF7651916CD43DD8448EB211C80319C-B7AD6B7169203331-01",
         );
@@ -1333,7 +1424,13 @@ mod tests {
         let ctx = ctx.unwrap();
         assert_eq!(
             ctx.trace_id,
-            Some("0AF7651916CD43DD8448EB211C80319C".to_string())
+            Some("0af7651916cd43dd8448eb211c80319c".to_string()),
+            "trace_id should be normalized to lowercase"
+        );
+        assert_eq!(
+            ctx.parent_span_id,
+            Some("b7ad6b7169203331".to_string()),
+            "parent_span_id should be normalized to lowercase"
         );
     }
 
@@ -1346,28 +1443,21 @@ mod tests {
     }
 
     #[test]
-    fn test_trace_context_all_zeros_trace_id() {
-        // All-zeros trace ID is technically valid per W3C but may be treated specially
+    fn test_trace_context_all_zeros_trace_id_rejected() {
+        // FIND-R44-008: All-zeros trace_id is invalid per W3C spec
         let ctx = TraceContext::parse_traceparent(
             "00-00000000000000000000000000000000-b7ad6b7169203331-01",
         );
-        assert!(ctx.is_some(), "all-zeros trace_id should parse");
-        assert_eq!(
-            ctx.unwrap().trace_id,
-            Some("00000000000000000000000000000000".to_string())
-        );
+        assert!(ctx.is_none(), "all-zeros trace_id must be rejected");
     }
 
     #[test]
-    fn test_trace_context_all_zeros_span_id() {
+    fn test_trace_context_all_zeros_span_id_rejected() {
+        // FIND-R44-008: All-zeros parent_span_id is invalid per W3C spec
         let ctx = TraceContext::parse_traceparent(
             "00-0af7651916cd43dd8448eb211c80319c-0000000000000000-01",
         );
-        assert!(ctx.is_some(), "all-zeros span_id should parse");
-        assert_eq!(
-            ctx.unwrap().parent_span_id,
-            Some("0000000000000000".to_string())
-        );
+        assert!(ctx.is_none(), "all-zeros span_id must be rejected");
     }
 
     #[test]
@@ -1900,5 +1990,269 @@ mod tests {
         let traceparent = child.to_traceparent().expect("should format");
         assert!(traceparent.starts_with("00-0af7651916cd43dd8448eb211c80319c-"));
         assert_eq!(child.trace_state, Some("vellaveto=allow".to_string()));
+    }
+
+    // ========================================
+    // Adversarial Audit Round 44 (FIND-R44-008 through FIND-R44-042)
+    // ========================================
+
+    // --- FIND-R44-008: All-zero trace_id/parent_id rejected ---
+
+    #[test]
+    fn test_r44_008_all_zero_trace_id_both_cases() {
+        // Uppercase all-zeros must also be rejected
+        assert!(TraceContext::parse_traceparent(
+            "00-00000000000000000000000000000000-b7ad6b7169203331-01"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn test_r44_008_all_zero_parent_id_both_cases() {
+        assert!(TraceContext::parse_traceparent(
+            "00-0af7651916cd43dd8448eb211c80319c-0000000000000000-01"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn test_r44_008_both_all_zero_rejected() {
+        assert!(TraceContext::parse_traceparent(
+            "00-00000000000000000000000000000000-0000000000000000-01"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn test_r44_008_almost_all_zero_trace_id_accepted() {
+        // One non-zero digit is valid
+        let ctx = TraceContext::parse_traceparent(
+            "00-00000000000000000000000000000001-b7ad6b7169203331-01",
+        );
+        assert!(ctx.is_some(), "trace_id with at least one non-zero digit is valid");
+    }
+
+    #[test]
+    fn test_r44_008_almost_all_zero_parent_id_accepted() {
+        let ctx = TraceContext::parse_traceparent(
+            "00-0af7651916cd43dd8448eb211c80319c-0000000000000001-01",
+        );
+        assert!(ctx.is_some(), "parent_span_id with at least one non-zero digit is valid");
+    }
+
+    // --- FIND-R44-009: Unbounded tracestate ---
+
+    #[test]
+    fn test_r44_009_tracestate_within_limit_accepted() {
+        let ts = "a=b,c=d"; // well within 512 bytes
+        let ctx = TraceContext::default().with_parsed_tracestate(ts);
+        assert_eq!(ctx.trace_state, Some("a=b,c=d".to_string()));
+    }
+
+    #[test]
+    fn test_r44_009_tracestate_exactly_512_accepted() {
+        // Build a tracestate that is exactly 512 bytes
+        let entry = "k=v"; // 3 bytes per entry + comma
+        let mut ts = String::new();
+        while ts.len() + entry.len() + 1 <= MAX_TRACESTATE_BYTES {
+            if !ts.is_empty() {
+                ts.push(',');
+            }
+            ts.push_str(entry);
+        }
+        // Pad the last entry to reach exactly 512
+        while ts.len() < MAX_TRACESTATE_BYTES {
+            ts.push('x');
+        }
+        assert_eq!(ts.len(), MAX_TRACESTATE_BYTES);
+
+        let ctx = TraceContext::default().with_parsed_tracestate(ts.clone());
+        assert_eq!(ctx.trace_state, Some(ts));
+    }
+
+    #[test]
+    fn test_r44_009_tracestate_over_512_truncated() {
+        // Build a tracestate that exceeds 512 bytes with multiple entries
+        let mut ts = String::new();
+        for i in 0..100 {
+            if !ts.is_empty() {
+                ts.push(',');
+            }
+            ts.push_str(&format!("vendor{}=value{}", i, i));
+        }
+        assert!(ts.len() > MAX_TRACESTATE_BYTES);
+
+        let ctx = TraceContext::default().with_parsed_tracestate(ts);
+        let state = ctx.trace_state.expect("should have truncated tracestate");
+        assert!(
+            state.len() <= MAX_TRACESTATE_BYTES,
+            "truncated tracestate must fit within 512 bytes, got {}",
+            state.len()
+        );
+        // Should end at a comma boundary (no partial entries)
+        assert!(
+            !state.ends_with(','),
+            "truncated tracestate should not end with comma"
+        );
+    }
+
+    #[test]
+    fn test_r44_009_tracestate_single_oversized_entry_dropped() {
+        // Single entry larger than 512 bytes with no commas
+        let ts = "a".repeat(600);
+        let ctx = TraceContext::default().with_parsed_tracestate(ts);
+        assert!(
+            ctx.trace_state.is_none(),
+            "single oversized entry with no comma boundary should be dropped"
+        );
+    }
+
+    // --- FIND-R44-010: Unsanitized verdict in tracestate ---
+
+    #[test]
+    fn test_r44_010_verdict_sanitized_allow() {
+        let ctx = TraceContext::default().with_vellaveto_verdict("allow");
+        assert_eq!(ctx.trace_state, Some("vellaveto=allow".to_string()));
+    }
+
+    #[test]
+    fn test_r44_010_verdict_sanitized_deny() {
+        let ctx = TraceContext::default().with_vellaveto_verdict("deny");
+        assert_eq!(ctx.trace_state, Some("vellaveto=deny".to_string()));
+    }
+
+    #[test]
+    fn test_r44_010_verdict_uppercase_stripped() {
+        // Uppercase letters are not in [a-z0-9_\-\*\/]
+        let ctx = TraceContext::default().with_vellaveto_verdict("ALLOW");
+        // Uppercase is filtered out, leaving empty -> "unknown"
+        assert_eq!(ctx.trace_state, Some("vellaveto=unknown".to_string()));
+    }
+
+    #[test]
+    fn test_r44_010_verdict_special_chars_stripped() {
+        let ctx = TraceContext::default().with_vellaveto_verdict("allow; DROP TABLE");
+        // Only 'a','l','l','o','w',' ','D','R','O','P',' ','T','A','B','L','E'
+        // After filter: 'a','l','l','o','w' (lowercase alpha only)
+        assert_eq!(ctx.trace_state, Some("vellaveto=allow".to_string()));
+    }
+
+    #[test]
+    fn test_r44_010_verdict_truncated_at_64_chars() {
+        let long_verdict = "a".repeat(100);
+        let ctx = TraceContext::default().with_vellaveto_verdict(&long_verdict);
+        let state = ctx.trace_state.unwrap();
+        // "vellaveto=" is 10 chars, plus 64 = 74
+        assert_eq!(state.len(), 74);
+        assert!(state.starts_with("vellaveto="));
+        assert_eq!(&state[10..], "a".repeat(64));
+    }
+
+    #[test]
+    fn test_r44_010_verdict_empty_becomes_unknown() {
+        let ctx = TraceContext::default().with_vellaveto_verdict("");
+        assert_eq!(ctx.trace_state, Some("vellaveto=unknown".to_string()));
+    }
+
+    #[test]
+    fn test_r44_010_verdict_only_invalid_chars_becomes_unknown() {
+        let ctx = TraceContext::default().with_vellaveto_verdict("!@#$%^&()");
+        assert_eq!(ctx.trace_state, Some("vellaveto=unknown".to_string()));
+    }
+
+    #[test]
+    fn test_r44_010_verdict_allows_valid_special_chars() {
+        // underscore, hyphen, asterisk, slash are all allowed
+        let ctx = TraceContext::default().with_vellaveto_verdict("deny_reason-1*test/path");
+        assert_eq!(
+            ctx.trace_state,
+            Some("vellaveto=deny_reason-1*test/path".to_string())
+        );
+    }
+
+    // --- FIND-R44-040: Uppercase hex normalized to lowercase ---
+
+    #[test]
+    fn test_r44_040_mixed_case_normalized() {
+        let ctx = TraceContext::parse_traceparent(
+            "00-0Af7651916Cd43dD8448eB211C80319c-b7Ad6B7169203331-01",
+        )
+        .expect("mixed case should parse");
+
+        assert_eq!(
+            ctx.trace_id,
+            Some("0af7651916cd43dd8448eb211c80319c".to_string()),
+            "trace_id must be lowercase"
+        );
+        assert_eq!(
+            ctx.parent_span_id,
+            Some("b7ad6b7169203331".to_string()),
+            "parent_span_id must be lowercase"
+        );
+    }
+
+    #[test]
+    fn test_r44_040_lowercase_preserved() {
+        let ctx = TraceContext::parse_traceparent(
+            "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+        )
+        .expect("lowercase should parse");
+
+        assert_eq!(
+            ctx.trace_id,
+            Some("0af7651916cd43dd8448eb211c80319c".to_string())
+        );
+    }
+
+    // --- FIND-R44-041: SHA-256 based hash_trace_id ---
+
+    #[test]
+    fn test_r44_041_hash_trace_id_deterministic() {
+        // Same input must always produce same output
+        let h1 = SpanSampler::hash_trace_id("test-trace-id");
+        let h2 = SpanSampler::hash_trace_id("test-trace-id");
+        assert_eq!(h1, h2, "hash must be deterministic");
+    }
+
+    #[test]
+    fn test_r44_041_hash_trace_id_different_inputs() {
+        let h1 = SpanSampler::hash_trace_id("trace-a");
+        let h2 = SpanSampler::hash_trace_id("trace-b");
+        assert_ne!(h1, h2, "different inputs should produce different hashes");
+    }
+
+    #[test]
+    fn test_r44_041_hash_trace_id_empty_string() {
+        // Should not panic on empty input
+        let h = SpanSampler::hash_trace_id("");
+        // Just verify it produces a deterministic value
+        assert_eq!(h, SpanSampler::hash_trace_id(""));
+    }
+
+    // --- FIND-R44-042: Generated span_id never all-zero ---
+
+    #[test]
+    fn test_r44_042_new_span_id_never_all_zero() {
+        // Generate many span IDs and verify none are all zeros
+        for _ in 0..1000 {
+            let id = TraceContext::new_span_id();
+            assert_ne!(
+                id, "0000000000000000",
+                "span_id must never be all zeros"
+            );
+        }
+    }
+
+    #[test]
+    fn test_r44_042_new_span_id_valid_format() {
+        for _ in 0..100 {
+            let id = TraceContext::new_span_id();
+            assert_eq!(id.len(), 16, "span_id must be 16 chars");
+            assert!(
+                id.chars().all(|c| c.is_ascii_hexdigit()),
+                "span_id must be valid hex: {}",
+                id
+            );
+        }
     }
 }

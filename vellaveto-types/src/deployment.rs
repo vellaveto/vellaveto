@@ -56,14 +56,25 @@ pub enum DiscoveryEvent {
 }
 
 /// Summary of deployment status for the `/api/deployment/info` endpoint.
+///
+/// SECURITY (FIND-R44-015): In anonymous mode (no api_key configured), sensitive
+/// topology fields (`instance_id`, `leader_status`, `discovered_endpoints`) are
+/// set to `None` and omitted from the JSON response. Only `mode` and `uptime_secs`
+/// are included.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeploymentInfo {
     /// Instance ID of this Vellaveto node (e.g., pod name).
-    pub instance_id: String,
+    /// None when redacted in anonymous mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
     /// Current leader election status.
-    pub leader_status: LeaderStatus,
+    /// None when redacted in anonymous mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub leader_status: Option<LeaderStatus>,
     /// Number of discovered service endpoints.
-    pub discovered_endpoints: usize,
+    /// None when redacted in anonymous mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub discovered_endpoints: Option<usize>,
     /// Uptime in seconds since process start.
     pub uptime_secs: u64,
     /// Deployment mode (standalone, clustered, kubernetes).

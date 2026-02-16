@@ -10,6 +10,7 @@ repository.workspace = true
 vellaveto-types = { path = "../vellaveto-types" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tracing = { workspace = true }
 toml = "1.0"
 sha2 = "0.10"
 hex = "0.4"

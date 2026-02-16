@@ -38,6 +38,10 @@ use std::sync::Arc;
 use std::sync::RwLock;
 use vellaveto_types::{CircuitState, CircuitStats};
 
+/// Maximum number of tracked circuits to bound memory (FIND-R44-032).
+/// Beyond this limit, new tools are treated as Open (fail-closed).
+const MAX_TRACKED_CIRCUITS: usize = 10_000;
+
 /// Manages circuit breakers for tool calls.
 ///
 /// Thread-safe via `RwLock` for concurrent access.
@@ -282,6 +286,9 @@ impl CircuitBreakerManager {
     /// Note: If RwLock is poisoned, logs a critical error but does not panic.
     /// This is acceptable because record_success is not on the security-critical
     /// path (can_proceed is). However, persistent poisoning will be visible in logs.
+    ///
+    /// FIND-R44-032: If the circuit map is at capacity and this is a new tool,
+    /// the insert is skipped silently.
     pub fn record_success(&self, tool: &str) {
         // SECURITY (FIND-077): Normalize tool name to prevent case-variation bypass.
         let tool_lower = tool.to_lowercase();
@@ -296,6 +303,17 @@ impl CircuitBreakerManager {
                 return;
             }
         };
+
+        // FIND-R44-032: Bound circuit map size to prevent memory exhaustion.
+        if circuits.len() >= MAX_TRACKED_CIRCUITS && !circuits.contains_key(&tool_lower) {
+            tracing::warn!(
+                tool = %tool,
+                max = MAX_TRACKED_CIRCUITS,
+                "Circuit breaker map at capacity — skipping record_success for new tool"
+            );
+            return;
+        }
+
         let now = Self::now_or_zero();
 
         let stats = circuits.entry(tool_lower).or_insert_with(|| CircuitStats {
@@ -363,6 +381,9 @@ impl CircuitBreakerManager {
     ///
     /// Note: If RwLock is poisoned, logs a critical error and returns Open
     /// (fail-closed behavior for the returned state).
+    ///
+    /// FIND-R44-032: If the circuit map is at capacity and this is a new tool,
+    /// the insert is skipped and `Open` is returned (fail-closed).
     pub fn record_failure(&self, tool: &str) -> CircuitState {
         // SECURITY (FIND-077): Normalize tool name to prevent case-variation bypass.
         let tool_lower = tool.to_lowercase();
@@ -378,6 +399,17 @@ impl CircuitBreakerManager {
                 return CircuitState::Open;
             }
         };
+
+        // FIND-R44-032: Bound circuit map size to prevent memory exhaustion.
+        if circuits.len() >= MAX_TRACKED_CIRCUITS && !circuits.contains_key(&tool_lower) {
+            tracing::warn!(
+                tool = %tool,
+                max = MAX_TRACKED_CIRCUITS,
+                "Circuit breaker map at capacity — treating new tool as Open (fail-closed)"
+            );
+            return CircuitState::Open;
+        }
+
         let now = Self::now_or_zero();
 
         let stats = circuits.entry(tool_lower).or_insert_with(|| CircuitStats {
@@ -501,8 +533,12 @@ impl CircuitBreakerManager {
 
     /// Manually reset a circuit to closed state.
     ///
-    /// Note: If RwLock is poisoned, logs error and does nothing.
-    pub fn reset(&self, tool: &str) {
+    /// FIND-R44-034: Rejects resets while the circuit is Open and the open
+    /// duration has not yet elapsed, to prevent abuse that bypasses backoff.
+    /// Returns `Ok(())` on success, `Err(reason)` if the reset is rejected.
+    ///
+    /// Note: If RwLock is poisoned, logs error and returns an error.
+    pub fn reset(&self, tool: &str) -> Result<(), String> {
         // SECURITY (FIND-077): Normalize tool name.
         let tool_lower = tool.to_lowercase();
         let mut circuits = match self.circuits.write() {
@@ -513,14 +549,38 @@ impl CircuitBreakerManager {
                     tool,
                     e
                 );
-                return;
+                return Err(format!(
+                    "Circuit breaker unavailable for tool '{tool}' (internal error)"
+                ));
             }
         };
+
+        // FIND-R44-034: Reject reset if circuit is Open and cooldown has not elapsed.
+        if let Some(stats) = circuits.get(&tool_lower) {
+            if stats.state == CircuitState::Open {
+                let now = Self::now_or_zero();
+                let eff_duration = self.effective_open_duration(stats);
+                if now < stats.last_state_change + eff_duration {
+                    let remaining = (stats.last_state_change + eff_duration).saturating_sub(now);
+                    tracing::warn!(
+                        tool = %tool,
+                        remaining_secs = remaining,
+                        "Circuit breaker reset rejected — open cooldown has not elapsed"
+                    );
+                    return Err(format!(
+                        "Circuit breaker reset rejected for tool '{tool}': \
+                         open cooldown has {remaining}s remaining"
+                    ));
+                }
+            }
+        }
+
         circuits.remove(&tool_lower);
-        tracing::info!(
+        tracing::warn!(
             tool = %tool,
             "Circuit breaker manually reset"
         );
+        Ok(())
     }
 
     /// Check if a tool's circuit is attempting recovery (half-open).
@@ -670,13 +730,14 @@ mod tests {
 
     #[test]
     fn test_manual_reset() {
-        let manager = CircuitBreakerManager::new(2, 2, 30);
+        // Use 0-sec open duration so reset is never blocked by cooldown
+        let manager = CircuitBreakerManager::new(2, 2, 0);
 
         manager.record_failure("my_tool");
         manager.record_failure("my_tool");
-        assert_eq!(manager.get_state("my_tool"), CircuitState::Open);
+        assert_eq!(manager.get_state("my_tool"), CircuitState::HalfOpen); // 0-sec → HalfOpen
 
-        manager.reset("my_tool");
+        assert!(manager.reset("my_tool").is_ok());
         assert_eq!(manager.get_state("my_tool"), CircuitState::Closed);
         assert!(manager.can_proceed("my_tool").is_ok());
     }
@@ -930,5 +991,131 @@ mod tests {
             "Open circuit with expired duration should show as half_open"
         );
         assert_eq!(summary.open, 0);
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R44-032: Bounded circuit map size
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_circuit_map_bounded_record_failure() {
+        let manager = CircuitBreakerManager::new(5, 3, 30);
+
+        // Fill to capacity
+        for i in 0..MAX_TRACKED_CIRCUITS {
+            manager.record_failure(&format!("tool_{}", i));
+        }
+
+        // Next new tool should be rejected (fail-closed → Open)
+        let state = manager.record_failure("overflow_tool");
+        assert_eq!(
+            state,
+            CircuitState::Open,
+            "New tool at capacity should be treated as Open (fail-closed)"
+        );
+
+        // Existing tool should still be tracked
+        let state = manager.record_failure("tool_0");
+        assert_eq!(
+            state,
+            CircuitState::Closed,
+            "Existing tool should still be updatable"
+        );
+    }
+
+    #[test]
+    fn test_circuit_map_bounded_record_success() {
+        let manager = CircuitBreakerManager::new(5, 3, 30);
+
+        // Fill to capacity
+        for i in 0..MAX_TRACKED_CIRCUITS {
+            manager.record_success(&format!("tool_{}", i));
+        }
+
+        // New tool success should be silently skipped
+        manager.record_success("overflow_tool");
+
+        // overflow_tool should not be tracked
+        assert_eq!(
+            manager.get_state("overflow_tool"),
+            CircuitState::Closed,
+            "Untracked tool returns Closed (no entry)"
+        );
+
+        let tools = manager.tracked_tools();
+        assert!(
+            !tools.contains(&"overflow_tool".to_string()),
+            "Overflow tool should not appear in tracked tools"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R44-034: Reset rate limiting
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_reset_rejected_during_open_cooldown() {
+        // 30-second open duration → reset should be rejected while Open
+        let manager = CircuitBreakerManager::new(2, 2, 30);
+
+        manager.record_failure("my_tool");
+        manager.record_failure("my_tool");
+        assert_eq!(manager.get_state("my_tool"), CircuitState::Open);
+
+        let result = manager.reset("my_tool");
+        assert!(
+            result.is_err(),
+            "Reset should be rejected while open cooldown has not elapsed"
+        );
+        let err = result.err().unwrap_or_default();
+        assert!(
+            err.contains("cooldown"),
+            "Error message should mention cooldown: {err}"
+        );
+
+        // Circuit should still be Open
+        assert_eq!(manager.get_state("my_tool"), CircuitState::Open);
+    }
+
+    #[test]
+    fn test_reset_allowed_after_cooldown_expires() {
+        // 0-second open duration → cooldown expires immediately
+        let manager = CircuitBreakerManager::new(2, 2, 0);
+
+        manager.record_failure("my_tool");
+        manager.record_failure("my_tool");
+
+        // With 0-sec duration, reset should succeed
+        let result = manager.reset("my_tool");
+        assert!(
+            result.is_ok(),
+            "Reset should succeed after cooldown expires"
+        );
+        assert_eq!(manager.get_state("my_tool"), CircuitState::Closed);
+    }
+
+    #[test]
+    fn test_reset_allowed_for_closed_circuit() {
+        let manager = CircuitBreakerManager::new(5, 3, 30);
+
+        manager.record_failure("my_tool");
+        // Not enough failures to open
+
+        let result = manager.reset("my_tool");
+        assert!(
+            result.is_ok(),
+            "Reset should succeed for a Closed circuit"
+        );
+    }
+
+    #[test]
+    fn test_reset_allowed_for_nonexistent_circuit() {
+        let manager = CircuitBreakerManager::new(5, 3, 30);
+
+        let result = manager.reset("nonexistent_tool");
+        assert!(
+            result.is_ok(),
+            "Reset should succeed for a nonexistent circuit"
+        );
     }
 }

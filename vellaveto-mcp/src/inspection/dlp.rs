@@ -341,6 +341,36 @@ const MAX_DLP_STRING_SIZE: usize = 1024 * 1024; // 1 MB
 // IMP-003: Use shared try_base64_decode from util module
 pub(crate) use super::util::try_base64_decode;
 
+/// FIND-R44-003: Attempt hex decoding of a string.
+///
+/// If the string contains only hex characters (0-9, a-f, A-F) and has even
+/// length >= 32, attempt to decode hex pairs to bytes and interpret as UTF-8.
+/// This catches secrets encoded as plain hex strings to bypass DLP detection.
+///
+/// Implemented without the `hex` crate to avoid adding a dependency.
+fn try_hex_decode(s: &str) -> Option<String> {
+    // Must be even length, >= 32 hex chars (16 decoded bytes minimum),
+    // and contain only hex digits
+    if s.len() < 32 || !s.len().is_multiple_of(2) {
+        return None;
+    }
+    if !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+
+    let bytes: Vec<u8> = (0..s.len() / 2)
+        .filter_map(|i| u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).ok())
+        .collect();
+
+    // Ensure we decoded all pairs
+    if bytes.len() != s.len() / 2 {
+        return None;
+    }
+
+    // Must be valid UTF-8
+    std::str::from_utf8(&bytes).ok().map(|d| d.to_string())
+}
+
 /// Attempt percent-decoding. Returns `Some(decoded_string)` if decoding changed the input,
 /// `None` if unchanged or invalid UTF-8.
 fn try_percent_decode(s: &str) -> Option<String> {
@@ -453,16 +483,27 @@ fn scan_string_for_secrets(
         );
     }
 
-    // Layers 4-5: Combinatorial two-layer chains (NEW in 11.4).
-    // Time-budgeted to prevent DoS from adversarial inputs.
-    // Only these combinatorial layers are gated — layers 1-3 always run
-    // to preserve backward compatibility and existing test guarantees.
+    // FIND-R44-003: Layer 3.5 — hex decode. Always attempted (core layer, no budget gate).
+    // Detects secrets encoded as plain hex strings (e.g., "414b4941494f53464f444e4e374558414d504c45").
+    let hex_decoded = try_hex_decode(scan_str);
+    if let Some(ref decoded) = hex_decoded {
+        scan_decoded_layer(
+            decoded,
+            path,
+            "(hex)",
+            regexes,
+            &mut matched_patterns,
+            findings,
+        );
+    }
+
+    // FIND-R44-024: Layers 4-5 (double encoding) always run regardless of time budget.
+    // Previously, a wall-clock time budget could cause these essential layers to be
+    // skipped in release builds (5ms budget). Only layers 6-8 (triple encoding) are
+    // time-gated since they are the most expensive combinatorial layers.
 
     // Layer 4: percent(base64(raw)) — base64 decode first, then percent decode the result
     if let Some(ref b64) = base64_decoded {
-        if start.elapsed() >= DLP_DECODE_BUDGET {
-            return;
-        }
         if let Some(ref decoded) = try_percent_decode(b64) {
             scan_decoded_layer(
                 decoded,
@@ -477,9 +518,6 @@ fn scan_string_for_secrets(
 
     // Layer 5: base64(percent(raw)) — percent decode first, then base64 decode the result
     if let Some(ref pct) = percent_decoded {
-        if start.elapsed() >= DLP_DECODE_BUDGET {
-            return;
-        }
         if let Some(ref decoded) = try_base64_decode(pct) {
             scan_decoded_layer(
                 decoded,
@@ -494,6 +532,7 @@ fn scan_string_for_secrets(
 
     // SECURITY (R33-005): Layers 6-8 add triple-encoding detection.
     // Attackers may use triple encoding to evade double-layer detection.
+    // FIND-R44-024: Only these triple-encoding layers are time-gated.
 
     // Layer 6: base64(base64(raw)) — double base64 encoding
     if let Some(ref b64) = base64_decoded {
@@ -1895,6 +1934,124 @@ mod tests {
             count,
             DLP_PATTERNS.len(),
             "Active pattern count should equal total patterns"
+        );
+    }
+
+    // ── FIND-R44-003: Hex encoding DLP bypass tests ─────────────
+
+    #[test]
+    fn test_dlp_hex_encoded_aws_key_detected() {
+        // FIND-R44-003: AWS key hex-encoded should be detected
+        let raw_key = "AKIAIOSFODNN7EXAMPLE";
+        let hex_encoded: String = raw_key.bytes().map(|b| format!("{:02x}", b)).collect();
+        let params = json!({"data": hex_encoded});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "aws_access_key"),
+            "Hex-encoded AWS key should be detected, encoded as: {}, findings: {:?}",
+            hex_encoded,
+            findings
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern_name == "aws_access_key" && f.location.contains("hex")),
+            "Finding should indicate hex decoding, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_hex_encoded_github_token_detected() {
+        // FIND-R44-003: GitHub token hex-encoded should be detected
+        let raw = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk";
+        let hex_encoded: String = raw.bytes().map(|b| format!("{:02x}", b)).collect();
+        let params = json!({"data": hex_encoded});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "github_token"),
+            "Hex-encoded GitHub token should be detected, findings: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_dlp_hex_encoded_uppercase_detected() {
+        // FIND-R44-003: Uppercase hex should also work
+        let raw_key = "AKIAIOSFODNN7EXAMPLE";
+        let hex_encoded: String = raw_key.bytes().map(|b| format!("{:02X}", b)).collect();
+        let params = json!({"data": hex_encoded});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "aws_access_key"),
+            "Uppercase hex-encoded AWS key should be detected, findings: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn test_try_hex_decode_valid() {
+        // FIND-R44-003: Test the hex decode function directly
+        let input = "414b4941494f53464f444e4e374558414d504c45"; // "AKIAIOSFODNN7EXAMPLE"
+        let result = try_hex_decode(input);
+        assert_eq!(result, Some("AKIAIOSFODNN7EXAMPLE".to_string()));
+    }
+
+    #[test]
+    fn test_try_hex_decode_too_short() {
+        // FIND-R44-003: Short hex strings should not be decoded
+        let input = "414b49414f53464f"; // 16 chars, below 32 threshold
+        let result = try_hex_decode(input);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_try_hex_decode_odd_length() {
+        // FIND-R44-003: Odd-length strings are not valid hex pairs
+        let input = "414b4941494f53464f444e4e3745584"; // 31 chars (odd)
+        let result = try_hex_decode(input);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_try_hex_decode_non_hex_chars() {
+        // FIND-R44-003: Non-hex characters should return None
+        let input = "414b4941494f53464f444e4e374558414d504c45xyz";
+        let result = try_hex_decode(input);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_dlp_hex_clean_no_false_positive() {
+        // FIND-R44-003: Clean hex string should not trigger DLP
+        // "Hello, World! No secrets here at all" in hex
+        let clean = "48656c6c6f2c20576f726c6421204e6f2073656372657473206865726520617420616c6c";
+        let params = json!({"data": clean});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.is_empty(),
+            "Clean hex data should not trigger DLP, got: {:?}",
+            findings
+        );
+    }
+
+    // ── FIND-R44-024: DLP time-budget bypass test ─────────────
+
+    #[test]
+    fn test_dlp_double_encoded_always_runs() {
+        // FIND-R44-024: Layers 4-5 (double encoding) must always run,
+        // even if the time budget would have been exceeded.
+        // This test verifies that percent(base64(secret)) is detected.
+        use base64::Engine;
+        let raw_key = "AKIAIOSFODNN7EXAMPLE";
+        let b64 = base64::engine::general_purpose::STANDARD.encode(raw_key);
+        let double_encoded: String = b64.bytes().map(|b| format!("%{:02X}", b)).collect();
+        let params = json!({"data": double_encoded});
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "aws_access_key"),
+            "Double-encoded secret must always be detected (no time budget gate), findings: {:?}",
+            findings
         );
     }
 }

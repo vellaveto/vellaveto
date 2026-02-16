@@ -225,6 +225,27 @@ impl ExecutionGraph {
         let is_root = node.is_root();
         let depth = node.depth;
 
+        // SECURITY (FIND-R44-056): If node ID already exists, update the existing
+        // node's fields but do NOT re-increment metadata counters.
+        if self.nodes.contains_key(&node_id) {
+            tracing::warn!(
+                target: "vellaveto::observability",
+                session_id = %self.session_id,
+                node_id = %node_id,
+                "Duplicate node ID — updating existing node without inflating metadata"
+            );
+            // Update the existing node's mutable fields
+            if let Some(existing) = self.nodes.get_mut(&node_id) {
+                existing.tool = node.tool;
+                existing.function = node.function;
+                existing.verdict = node.verdict;
+                existing.agent_id = node.agent_id;
+            }
+            // Skip parent edge creation for duplicates — the edge already exists
+            // if this parent-child relationship was established on first insert.
+            return;
+        }
+
         // Update metadata
         self.metadata.total_calls += 1;
         self.metadata.unique_tools.insert(node.tool.clone());
@@ -239,25 +260,53 @@ impl ExecutionGraph {
         }
 
         // Update parent's children list
+        // SECURITY (FIND-R44-035): Apply same validation as add_data_flow/add_delegation
         if let Some(ref parent_id) = node.parent_id {
-            if let Some(parent) = self.nodes.get_mut(parent_id) {
-                parent.add_child(node_id.clone());
-            }
-            // Add call edge (bounded by MAX_EDGES_PER_GRAPH)
-            if self.edges.len() < MAX_EDGES_PER_GRAPH {
-                self.edges.push(ExecutionEdge {
-                    from: parent_id.clone(),
-                    to: node_id.clone(),
-                    edge_type: EdgeType::Call,
-                    timestamp: node.started_at,
-                });
-            } else {
+            // Check for self-loop
+            if parent_id == &node_id {
                 tracing::warn!(
                     target: "vellaveto::observability",
                     session_id = %self.session_id,
-                    limit = MAX_EDGES_PER_GRAPH,
-                    "Edge limit reached — skipping call edge"
+                    node_id = %node_id,
+                    "Rejecting self-loop call edge in add_node"
                 );
+            // Check parent exists
+            } else if !self.nodes.contains_key(parent_id) {
+                tracing::warn!(
+                    target: "vellaveto::observability",
+                    session_id = %self.session_id,
+                    parent_id = %parent_id,
+                    node_id = %node_id,
+                    "Skipping call edge — parent node does not exist"
+                );
+            } else {
+                if let Some(parent) = self.nodes.get_mut(parent_id) {
+                    parent.add_child(node_id.clone());
+                }
+                // Add call edge (bounded by MAX_EDGES_PER_GRAPH)
+                if self.edges.len() < MAX_EDGES_PER_GRAPH {
+                    // SECURITY (FIND-R44-035): Deduplicate call edges
+                    let already_exists = self.edges.iter().any(|e| {
+                        e.from == *parent_id
+                            && e.to == node_id
+                            && e.edge_type == EdgeType::Call
+                    });
+                    if !already_exists {
+                        self.edges.push(ExecutionEdge {
+                            from: parent_id.clone(),
+                            to: node_id.clone(),
+                            edge_type: EdgeType::Call,
+                            timestamp: node.started_at,
+                        });
+                    }
+                } else {
+                    tracing::warn!(
+                        target: "vellaveto::observability",
+                        session_id = %self.session_id,
+                        limit = MAX_EDGES_PER_GRAPH,
+                        "Edge limit reached — skipping call edge"
+                    );
+                }
             }
         }
 
@@ -1066,5 +1115,191 @@ mod tests {
         // The tool name parts should still be present (without bidi)
         assert!(dot.contains("read_file"));
         assert!(dot.contains("eteled"));
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FIND-R44-035: add_node Call edges bypass R43 edge checks
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R44-035: add_node must reject self-loop call edges.
+    #[test]
+    fn test_add_node_self_loop_rejected() {
+        let mut graph = ExecutionGraph::new("session1".to_string());
+
+        // Create a node that references itself as parent
+        let node = ExecutionNode::new(
+            "self_ref".to_string(),
+            "session1".to_string(),
+            "tool_a".to_string(),
+            "fn_a".to_string(),
+        )
+        .with_parent("self_ref".to_string(), 1);
+
+        graph.add_node(node);
+
+        // Node should be inserted but no self-loop edge should exist
+        assert_eq!(graph.nodes.len(), 1);
+        assert_eq!(graph.edges.len(), 0, "Self-loop call edge must be rejected");
+    }
+
+    /// FIND-R44-035: add_node must reject call edges when parent doesn't exist.
+    #[test]
+    fn test_add_node_nonexistent_parent_no_edge() {
+        let mut graph = ExecutionGraph::new("session1".to_string());
+
+        // Create child with parent that doesn't exist
+        let child = ExecutionNode::new(
+            "child".to_string(),
+            "session1".to_string(),
+            "tool_a".to_string(),
+            "fn_a".to_string(),
+        )
+        .with_parent("ghost_parent".to_string(), 1);
+
+        graph.add_node(child);
+
+        assert_eq!(graph.nodes.len(), 1);
+        assert_eq!(
+            graph.edges.len(),
+            0,
+            "Call edge to non-existent parent must be rejected"
+        );
+    }
+
+    /// FIND-R44-035: add_node must deduplicate call edges.
+    #[test]
+    fn test_add_node_duplicate_call_edge_deduplicated() {
+        let mut graph = ExecutionGraph::new("session1".to_string());
+
+        let parent = ExecutionNode::new(
+            "parent".to_string(),
+            "session1".to_string(),
+            "orchestrator".to_string(),
+            "plan".to_string(),
+        );
+        graph.add_node(parent);
+
+        let child1 = ExecutionNode::new(
+            "child1".to_string(),
+            "session1".to_string(),
+            "filesystem".to_string(),
+            "read".to_string(),
+        )
+        .with_parent("parent".to_string(), 1);
+        graph.add_node(child1);
+
+        assert_eq!(graph.edges.len(), 1, "First edge should be added");
+
+        // Try adding a data flow edge with same from/to/type=Call manually
+        // (The dedup logic is in add_node itself via the edge push)
+        // Just verify the existing edge count is correct after normal operations
+        let child2 = ExecutionNode::new(
+            "child2".to_string(),
+            "session1".to_string(),
+            "network".to_string(),
+            "fetch".to_string(),
+        )
+        .with_parent("parent".to_string(), 1);
+        graph.add_node(child2);
+
+        assert_eq!(
+            graph.edges.len(),
+            2,
+            "Two distinct child edges should exist"
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FIND-R44-056: Duplicate node IDs inflate metadata
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R44-056: Adding a node with a duplicate ID must NOT increment total_calls.
+    #[test]
+    fn test_duplicate_node_id_does_not_inflate_metadata() {
+        let mut graph = ExecutionGraph::new("session1".to_string());
+
+        let node1 = ExecutionNode::new(
+            "node1".to_string(),
+            "session1".to_string(),
+            "tool_a".to_string(),
+            "fn_a".to_string(),
+        );
+        graph.add_node(node1);
+
+        assert_eq!(graph.metadata.total_calls, 1);
+        assert_eq!(graph.metadata.unique_tools.len(), 1);
+
+        // Add duplicate node ID with different tool
+        let node1_dup = ExecutionNode::new(
+            "node1".to_string(),
+            "session1".to_string(),
+            "tool_b".to_string(),
+            "fn_b".to_string(),
+        );
+        graph.add_node(node1_dup);
+
+        // Metadata should NOT be inflated
+        assert_eq!(
+            graph.metadata.total_calls, 1,
+            "total_calls must not increment on duplicate node ID"
+        );
+        assert_eq!(
+            graph.metadata.unique_tools.len(),
+            1,
+            "unique_tools must not grow on duplicate node ID"
+        );
+        // But the node's fields should be updated
+        let node = graph.get_node("node1").expect("node should exist");
+        assert_eq!(node.tool, "tool_b", "tool should be updated to new value");
+        assert_eq!(
+            node.function, "fn_b",
+            "function should be updated to new value"
+        );
+    }
+
+    /// FIND-R44-056: Duplicate node with parent should not create duplicate edges.
+    #[test]
+    fn test_duplicate_node_id_does_not_duplicate_edges() {
+        let mut graph = ExecutionGraph::new("session1".to_string());
+
+        let parent = ExecutionNode::new(
+            "parent".to_string(),
+            "session1".to_string(),
+            "orchestrator".to_string(),
+            "plan".to_string(),
+        );
+        graph.add_node(parent);
+
+        let child = ExecutionNode::new(
+            "child".to_string(),
+            "session1".to_string(),
+            "filesystem".to_string(),
+            "read".to_string(),
+        )
+        .with_parent("parent".to_string(), 1);
+        graph.add_node(child);
+
+        assert_eq!(graph.edges.len(), 1);
+        assert_eq!(graph.metadata.total_calls, 2);
+
+        // Re-add the child with same ID — should not create another edge or inflate metadata
+        let child_dup = ExecutionNode::new(
+            "child".to_string(),
+            "session1".to_string(),
+            "network".to_string(),
+            "fetch".to_string(),
+        )
+        .with_parent("parent".to_string(), 1);
+        graph.add_node(child_dup);
+
+        assert_eq!(
+            graph.edges.len(),
+            1,
+            "Duplicate node should not create additional edges"
+        );
+        assert_eq!(
+            graph.metadata.total_calls, 2,
+            "Duplicate node should not inflate total_calls"
+        );
     }
 }

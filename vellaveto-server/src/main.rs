@@ -894,7 +894,9 @@ async fn cmd_serve(
 
         // Phase 26: Shadow AI Discovery & Governance
         shadow_ai_discovery: if policy_config.governance.shadow_ai_discovery {
-            let registered: std::collections::HashSet<String> = std::collections::HashSet::new();
+            // FIND-R44-017: Populate registered agents from config
+            let registered: std::collections::HashSet<String> =
+                policy_config.governance.registered_agents.iter().cloned().collect();
             let approved: std::collections::HashSet<String> =
                 policy_config.governance.approved_tools.iter().cloned().collect();
             let known: std::collections::HashSet<String> =
@@ -1477,6 +1479,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         fips: Default::default(),
         governance: Default::default(),
         deployment: Default::default(),
+        streamable_http: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

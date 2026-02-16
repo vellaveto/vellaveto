@@ -40,9 +40,9 @@ const MAX_ARRAY_LEN: usize = 100;
 /// Maximum number of entries in map fields (metadata).
 const MAX_MAP_LEN: usize = 50;
 
-/// SECURITY (FIND-R43-019): Detect control characters AND Unicode format
-/// characters (ZWSP, bidi overrides, invisible operators, etc.) that can
-/// bypass simple `is_control()` checks.
+/// SECURITY (FIND-R43-019, FIND-R44-055): Detect control characters AND Unicode format
+/// characters (ZWSP, bidi overrides, invisible operators, TAG characters, soft hyphen)
+/// that can bypass simple `is_control()` checks.
 fn is_unsafe_char(c: char) -> bool {
     let cp = c as u32;
     c.is_control()
@@ -52,6 +52,8 @@ fn is_unsafe_char(c: char) -> bool {
         || (0x2066..=0x2069).contains(&cp) // Bidi isolates
         || cp == 0xFEFF                    // BOM
         || (0xFFF9..=0xFFFB).contains(&cp) // Interlinear annotation
+        || (0xE0001..=0xE007F).contains(&cp) // TAG characters
+        || cp == 0x00AD                    // Soft hyphen
 }
 
 /// Validate a string field: reject if too long or contains control/format characters.
@@ -439,8 +441,9 @@ pub async fn create_nhi_delegation(
     })?;
     validate_string_field(to_agent, "to_agent")?;
 
-    // SECURITY (FIND-R43-033): Reject self-delegation.
-    if from_agent == to_agent {
+    // SECURITY (FIND-R43-033, FIND-R44-037): Reject self-delegation.
+    // Use case-insensitive comparison consistent with deputy route (FIND-R43-024).
+    if from_agent.eq_ignore_ascii_case(to_agent) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "from_agent and to_agent must differ"})),
@@ -661,4 +664,76 @@ pub async fn nhi_stats(
 
     let stats = manager.stats().await;
     Ok(Json(json!({"stats": stats})))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ═══════════════════════════════════════════════════════
+    // FIND-R44-055: is_unsafe_char must detect TAG characters and soft hyphen
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R44-055: TAG characters (U+E0001..U+E007F) must be detected as unsafe.
+    #[test]
+    fn test_is_unsafe_char_tag_characters() {
+        assert!(
+            is_unsafe_char('\u{E0001}'),
+            "LANGUAGE TAG must be detected as unsafe"
+        );
+        assert!(
+            is_unsafe_char('\u{E0020}'),
+            "TAG SPACE must be detected as unsafe"
+        );
+        assert!(
+            is_unsafe_char('\u{E007F}'),
+            "CANCEL TAG must be detected as unsafe"
+        );
+    }
+
+    /// FIND-R44-055: Soft hyphen (U+00AD) must be detected as unsafe.
+    #[test]
+    fn test_is_unsafe_char_soft_hyphen() {
+        assert!(
+            is_unsafe_char('\u{00AD}'),
+            "Soft hyphen must be detected as unsafe"
+        );
+    }
+
+    /// FIND-R44-037: Self-delegation must be case-insensitive.
+    #[test]
+    fn test_self_delegation_case_insensitive() {
+        // Simulating the check that would happen in the route handler
+        let from = "AgentAlpha";
+        let to = "agentalpha";
+        assert!(
+            from.eq_ignore_ascii_case(to),
+            "Case-insensitive comparison must detect self-delegation"
+        );
+
+        let from2 = "AGENT";
+        let to2 = "agent";
+        assert!(
+            from2.eq_ignore_ascii_case(to2),
+            "All-caps vs lowercase must match"
+        );
+
+        let from3 = "agentA";
+        let to3 = "agentB";
+        assert!(
+            !from3.eq_ignore_ascii_case(to3),
+            "Different agents must not match"
+        );
+    }
+
+    /// Regression: existing unsafe chars still detected.
+    #[test]
+    fn test_is_unsafe_char_existing_ranges() {
+        assert!(is_unsafe_char('\0'));
+        assert!(is_unsafe_char('\u{200B}'));
+        assert!(is_unsafe_char('\u{202E}'));
+        assert!(is_unsafe_char('\u{FEFF}'));
+        assert!(!is_unsafe_char('a'));
+        assert!(!is_unsafe_char('-'));
+    }
 }

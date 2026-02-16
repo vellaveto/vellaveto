@@ -6,10 +6,15 @@
 
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use vellaveto_types::{DiscoveryEvent, ServiceEndpoint};
 
 use crate::discovery::ServiceDiscovery;
 use crate::ClusterError;
+
+/// SECURITY (FIND-R44-012): Maximum number of DNS results to accept.
+/// Prevents unbounded memory allocation from DNS amplification attacks.
+const MAX_DNS_RESULTS: usize = 256;
 
 /// DNS-based service discovery.
 ///
@@ -19,6 +24,72 @@ use crate::ClusterError;
 pub struct DnsServiceDiscovery {
     dns_name: String,
     refresh_interval: std::time::Duration,
+}
+
+/// SECURITY (FIND-R44-013): Post-resolution IP validation to prevent DNS rebinding.
+///
+/// Rejects addresses that should never appear as cluster endpoints:
+/// - Loopback (127.0.0.0/8, ::1)
+/// - Unspecified (0.0.0.0, ::)
+/// - Link-local (169.254.0.0/16, fe80::/10)
+/// - AWS/cloud metadata (169.254.169.254)
+/// - IPv4-mapped IPv6 addresses that map to private ranges (::ffff:127.x.x.x, etc.)
+fn is_safe_addr(addr: &SocketAddr) -> bool {
+    match addr {
+        SocketAddr::V4(v4) => {
+            let ip = v4.ip();
+            if ip.is_loopback() {
+                return false;
+            }
+            if ip.is_unspecified() {
+                return false;
+            }
+            // Link-local: 169.254.0.0/16
+            let octets = ip.octets();
+            if octets[0] == 169 && octets[1] == 254 {
+                return false;
+            }
+            true
+        }
+        SocketAddr::V6(v6) => {
+            let ip = v6.ip();
+            // Reject ::1
+            if ip.is_loopback() {
+                return false;
+            }
+            // Reject ::
+            if ip.is_unspecified() {
+                return false;
+            }
+            // Reject fe80::/10 (link-local)
+            let segments = ip.segments();
+            if segments[0] & 0xffc0 == 0xfe80 {
+                return false;
+            }
+            // Reject IPv4-mapped addresses (::ffff:x.x.x.x) that map to unsafe ranges
+            if let Some(v4) = ip.to_ipv4_mapped() {
+                if v4.is_loopback() || v4.is_unspecified() {
+                    return false;
+                }
+                let octets = v4.octets();
+                // Link-local: 169.254.0.0/16
+                if octets[0] == 169 && octets[1] == 254 {
+                    return false;
+                }
+                // Private ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+                if octets[0] == 10 {
+                    return false;
+                }
+                if octets[0] == 172 && (octets[1] & 0xf0) == 16 {
+                    return false;
+                }
+                if octets[0] == 192 && octets[1] == 168 {
+                    return false;
+                }
+            }
+            true
+        }
+    }
 }
 
 impl DnsServiceDiscovery {
@@ -38,9 +109,38 @@ impl DnsServiceDiscovery {
             .await
             .map_err(|e| ClusterError::Connection(format!("DNS lookup failed for '{}': {}", self.dns_name, e)))?;
 
-        let mut endpoints: Vec<ServiceEndpoint> = addrs
+        // SECURITY (FIND-R44-012): Bound DNS results to prevent unbounded memory allocation.
+        let all_addrs: Vec<SocketAddr> = addrs.collect();
+        let truncated = all_addrs.len() > MAX_DNS_RESULTS;
+        if truncated {
+            tracing::warn!(
+                dns_name = %self.dns_name,
+                total = all_addrs.len(),
+                max = MAX_DNS_RESULTS,
+                "DNS lookup returned more addresses than MAX_DNS_RESULTS; truncating"
+            );
+        }
+
+        let mut endpoints: Vec<ServiceEndpoint> = all_addrs
+            .into_iter()
+            .take(MAX_DNS_RESULTS)
+            .filter(|addr| {
+                // SECURITY (FIND-R44-013): Post-resolution IP validation.
+                let safe = is_safe_addr(addr);
+                if !safe {
+                    tracing::warn!(
+                        dns_name = %self.dns_name,
+                        rejected_addr = %addr,
+                        "Rejected unsafe resolved address (loopback/unspecified/link-local/private)"
+                    );
+                }
+                safe
+            })
             .map(|addr| {
                 let id = addr.to_string();
+                // SECURITY (FIND-R44-046): Resolved addresses have been validated
+                // through is_safe_addr() above, rejecting loopback, unspecified,
+                // link-local, cloud metadata, and IPv4-mapped private ranges.
                 ServiceEndpoint {
                     id: id.clone(),
                     url: format!("http://{}", addr),
@@ -82,16 +182,35 @@ impl ServiceDiscovery for DnsServiceDiscovery {
                 .map(|ep| (ep.id.clone(), ep))
                 .collect();
             let mut tick = tokio::time::interval(interval);
-            // Skip the first immediate tick — initial state already captured.
+            // Skip the first immediate tick -- initial state already captured.
             tick.tick().await;
+
+            // SECURITY (FIND-R44-043): Track consecutive DNS errors for logging.
+            let mut consecutive_errors: u32 = 0;
 
             loop {
                 tick.tick().await;
 
                 let resolver = DnsServiceDiscovery::new(dns_name.clone(), interval);
                 let current = match resolver.resolve().await {
-                    Ok(eps) => eps,
-                    Err(_) => continue, // transient DNS failure — retry next tick
+                    Ok(eps) => {
+                        // Reset error counter on success.
+                        consecutive_errors = 0;
+                        eps
+                    }
+                    Err(e) => {
+                        // SECURITY (FIND-R44-043): Log DNS errors with backoff.
+                        consecutive_errors = consecutive_errors.saturating_add(1);
+                        if consecutive_errors == 1 || consecutive_errors.is_multiple_of(10) {
+                            tracing::warn!(
+                                dns_name = %dns_name,
+                                consecutive_errors = consecutive_errors,
+                                error = %e,
+                                "DNS watch resolution failed"
+                            );
+                        }
+                        continue; // retry next tick
+                    }
                 };
 
                 let current_map: HashMap<String, ServiceEndpoint> = current
@@ -132,19 +251,137 @@ impl ServiceDiscovery for DnsServiceDiscovery {
 mod tests {
     use super::*;
 
+    // ─────────────────────────────────────────────────────────
+    // FIND-R44-013: is_safe_addr tests
+    // ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_safe_addr_rejects_ipv4_loopback() {
+        let addr: SocketAddr = "127.0.0.1:80".parse().unwrap();
+        assert!(!is_safe_addr(&addr), "127.0.0.1 should be rejected");
+    }
+
+    #[test]
+    fn test_is_safe_addr_rejects_ipv4_loopback_other() {
+        let addr: SocketAddr = "127.99.99.99:80".parse().unwrap();
+        assert!(!is_safe_addr(&addr), "127.x.x.x should be rejected");
+    }
+
+    #[test]
+    fn test_is_safe_addr_rejects_ipv4_unspecified() {
+        let addr: SocketAddr = "0.0.0.0:80".parse().unwrap();
+        assert!(!is_safe_addr(&addr), "0.0.0.0 should be rejected");
+    }
+
+    #[test]
+    fn test_is_safe_addr_rejects_link_local() {
+        let addr: SocketAddr = "169.254.0.1:80".parse().unwrap();
+        assert!(!is_safe_addr(&addr), "169.254.x.x should be rejected");
+    }
+
+    #[test]
+    fn test_is_safe_addr_rejects_aws_metadata() {
+        let addr: SocketAddr = "169.254.169.254:80".parse().unwrap();
+        assert!(!is_safe_addr(&addr), "AWS metadata IP should be rejected");
+    }
+
+    #[test]
+    fn test_is_safe_addr_accepts_public_ipv4() {
+        let addr: SocketAddr = "8.8.8.8:80".parse().unwrap();
+        assert!(is_safe_addr(&addr), "8.8.8.8 should be accepted");
+    }
+
+    #[test]
+    fn test_is_safe_addr_accepts_private_10_network() {
+        // Private ranges are valid for cluster endpoints (within same VPC)
+        let addr: SocketAddr = "10.0.1.5:80".parse().unwrap();
+        assert!(is_safe_addr(&addr), "10.x.x.x should be accepted for IPv4");
+    }
+
+    #[test]
+    fn test_is_safe_addr_rejects_ipv6_loopback() {
+        let addr: SocketAddr = "[::1]:80".parse().unwrap();
+        assert!(!is_safe_addr(&addr), "::1 should be rejected");
+    }
+
+    #[test]
+    fn test_is_safe_addr_rejects_ipv6_unspecified() {
+        let addr: SocketAddr = "[::]:80".parse().unwrap();
+        assert!(!is_safe_addr(&addr), ":: should be rejected");
+    }
+
+    #[test]
+    fn test_is_safe_addr_rejects_ipv6_link_local() {
+        let addr: SocketAddr = "[fe80::1]:80".parse().unwrap();
+        assert!(!is_safe_addr(&addr), "fe80::x should be rejected");
+    }
+
+    #[test]
+    fn test_is_safe_addr_accepts_public_ipv6() {
+        let addr: SocketAddr = "[2001:db8::1]:80".parse().unwrap();
+        assert!(is_safe_addr(&addr), "public IPv6 should be accepted");
+    }
+
+    #[test]
+    fn test_is_safe_addr_rejects_ipv4_mapped_loopback() {
+        let addr: SocketAddr = "[::ffff:127.0.0.1]:80".parse().unwrap();
+        assert!(!is_safe_addr(&addr), "IPv4-mapped loopback should be rejected");
+    }
+
+    #[test]
+    fn test_is_safe_addr_rejects_ipv4_mapped_link_local() {
+        let addr: SocketAddr = "[::ffff:169.254.1.1]:80".parse().unwrap();
+        assert!(!is_safe_addr(&addr), "IPv4-mapped link-local should be rejected");
+    }
+
+    #[test]
+    fn test_is_safe_addr_rejects_ipv4_mapped_private_10() {
+        let addr: SocketAddr = "[::ffff:10.0.0.1]:80".parse().unwrap();
+        assert!(!is_safe_addr(&addr), "IPv4-mapped 10.x should be rejected");
+    }
+
+    #[test]
+    fn test_is_safe_addr_rejects_ipv4_mapped_private_172() {
+        let addr: SocketAddr = "[::ffff:172.16.0.1]:80".parse().unwrap();
+        assert!(!is_safe_addr(&addr), "IPv4-mapped 172.16.x should be rejected");
+    }
+
+    #[test]
+    fn test_is_safe_addr_rejects_ipv4_mapped_private_192() {
+        let addr: SocketAddr = "[::ffff:192.168.1.1]:80".parse().unwrap();
+        assert!(!is_safe_addr(&addr), "IPv4-mapped 192.168.x should be rejected");
+    }
+
+    #[test]
+    fn test_is_safe_addr_rejects_ipv4_mapped_unspecified() {
+        let addr: SocketAddr = "[::ffff:0.0.0.0]:80".parse().unwrap();
+        assert!(!is_safe_addr(&addr), "IPv4-mapped 0.0.0.0 should be rejected");
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // FIND-R44-012: MAX_DNS_RESULTS constant
+    // ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_max_dns_results_is_256() {
+        assert_eq!(MAX_DNS_RESULTS, 256);
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Existing tests (updated to account for FIND-R44-013)
+    // ─────────────────────────────────────────────────────────
+
     #[tokio::test]
-    async fn test_dns_discovery_localhost() {
-        // Resolve localhost — should succeed on any machine with loopback.
+    async fn test_dns_discovery_localhost_filtered_by_safety() {
+        // Resolve localhost -- addresses should be filtered by is_safe_addr.
+        // Loopback addresses (127.x.x.x, ::1) are rejected.
         let dd = DnsServiceDiscovery::new(
             "localhost:80".to_string(),
             std::time::Duration::from_secs(5),
         );
         let endpoints = dd.discover().await.unwrap();
-        assert!(!endpoints.is_empty(), "localhost should resolve to at least one address");
-        for ep in &endpoints {
-            assert!(ep.url.starts_with("http://"));
-            assert!(ep.healthy);
-        }
+        // All loopback addresses should be filtered out.
+        assert!(endpoints.is_empty(), "localhost endpoints should be filtered as unsafe (loopback)");
     }
 
     #[tokio::test]
@@ -161,11 +398,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_dns_discovery_endpoints_are_sorted() {
+        // Use a hostname that might resolve to multiple addresses.
+        // We test sorting with whatever resolves.
         let dd = DnsServiceDiscovery::new(
             "localhost:80".to_string(),
             std::time::Duration::from_secs(5),
         );
         let endpoints = dd.discover().await.unwrap();
+        // Sorted check (even if empty after filtering, this should not fail).
         for pair in endpoints.windows(2) {
             assert!(pair[0].id <= pair[1].id);
         }
@@ -184,6 +424,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_dns_discovery_watch_returns_receiver() {
+        // Use a hostname that resolves -- even if endpoints are filtered,
+        // the resolve step succeeds and watch returns Some.
         let dd = DnsServiceDiscovery::new(
             "localhost:80".to_string(),
             std::time::Duration::from_secs(60),

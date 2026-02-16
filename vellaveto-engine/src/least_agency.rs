@@ -9,6 +9,9 @@ use vellaveto_types::{AgencyRecommendation, EnforcementMode, LeastAgencyReport, 
 /// Maximum tracked sessions to bound memory.
 const MAX_TRACKED_SESSIONS: usize = 4096;
 
+/// Maximum granted permissions per session to bound memory (FIND-R44-018).
+const MAX_GRANTS_PER_SESSION: usize = 1_000;
+
 /// Per-agent-session permission tracker.
 struct PermissionTracker {
     granted: HashSet<String>,
@@ -56,8 +59,12 @@ impl LeastAgencyTracker {
         self.enforcement_mode
     }
 
+    /// Build a collision-resistant session key using length-prefixed format
+    /// (FIND-R44-021). This prevents collisions where `agent_id` contains `::`
+    /// (e.g., `"a::b" + "c"` vs `"a" + "b::c"` would both produce `"a::b::c"`
+    /// with the naive separator approach).
     fn session_key(agent_id: &str, session_id: &str) -> String {
-        format!("{agent_id}::{session_id}")
+        format!("{}:{agent_id}::{session_id}", agent_id.len())
     }
 
     /// Register granted policy IDs for an agent session.
@@ -84,6 +91,14 @@ impl LeastAgencyTracker {
             session_start: now,
         });
         for id in policy_ids {
+            // FIND-R44-018: Bound per-session grants to prevent memory exhaustion.
+            if tracker.granted.len() >= MAX_GRANTS_PER_SESSION {
+                tracing::warn!(
+                    max = MAX_GRANTS_PER_SESSION,
+                    "Per-session grant limit reached — ignoring remaining grants"
+                );
+                break;
+            }
             tracker.granted.insert(id.clone());
             tracker
                 .granted_last_used
@@ -185,33 +200,77 @@ impl LeastAgencyTracker {
         })
     }
 
-    /// Return policy IDs that have been unused for longer than `auto_revoke_after_secs`.
+    /// Atomically identify and remove stale permissions (FIND-R44-019).
     ///
-    /// In `Monitor` mode, returns candidates without revoking.
-    /// In `Enforce` mode, the caller should revoke these permissions.
-    pub fn check_auto_revoke(&self, agent_id: &str, session_id: &str) -> Vec<String> {
+    /// Acquires a write lock, identifies permissions unused for longer than
+    /// `auto_revoke_after_secs`, removes them from `granted` and `granted_last_used`,
+    /// and returns the list of revoked permission IDs.
+    ///
+    /// In `Monitor` mode, returns candidates without revoking (read-only).
+    /// In `Enforce` mode, atomically removes stale permissions.
+    pub fn revoke_stale_permissions(&self, agent_id: &str, session_id: &str) -> Vec<String> {
         let key = Self::session_key(agent_id, session_id);
-        let Ok(trackers) = self.trackers.read() else {
-            return Vec::new();
-        };
-        let Some(tracker) = trackers.get(&key) else {
-            return Vec::new();
-        };
         let now = Instant::now();
         let threshold = std::time::Duration::from_secs(self.auto_revoke_after_secs);
-        tracker
-            .granted
-            .iter()
-            .filter(|id| {
-                let last_used = tracker
-                    .granted_last_used
-                    .get(*id)
-                    .copied()
-                    .unwrap_or(tracker.session_start);
-                now.duration_since(last_used) > threshold
-            })
-            .cloned()
-            .collect()
+
+        match self.enforcement_mode {
+            EnforcementMode::Monitor => {
+                // Read-only path: just identify candidates
+                let Ok(trackers) = self.trackers.read() else {
+                    return Vec::new();
+                };
+                let Some(tracker) = trackers.get(&key) else {
+                    return Vec::new();
+                };
+                tracker
+                    .granted
+                    .iter()
+                    .filter(|id| {
+                        let last_used = tracker
+                            .granted_last_used
+                            .get(*id)
+                            .copied()
+                            .unwrap_or(tracker.session_start);
+                        now.duration_since(last_used) > threshold
+                    })
+                    .cloned()
+                    .collect()
+            }
+            EnforcementMode::Enforce => {
+                // FIND-R44-019: Atomic identify-and-remove under a single write lock
+                // to prevent TOCTOU between checking staleness and revoking.
+                let Ok(mut trackers) = self.trackers.write() else {
+                    return Vec::new();
+                };
+                let Some(tracker) = trackers.get_mut(&key) else {
+                    return Vec::new();
+                };
+                let stale: Vec<String> = tracker
+                    .granted
+                    .iter()
+                    .filter(|id| {
+                        let last_used = tracker
+                            .granted_last_used
+                            .get(*id)
+                            .copied()
+                            .unwrap_or(tracker.session_start);
+                        now.duration_since(last_used) > threshold
+                    })
+                    .cloned()
+                    .collect();
+
+                for id in &stale {
+                    tracker.granted.remove(id);
+                    tracker.granted_last_used.remove(id);
+                }
+                stale
+            }
+        }
+    }
+
+    /// Backward-compatible alias for `revoke_stale_permissions`.
+    pub fn check_auto_revoke(&self, agent_id: &str, session_id: &str) -> Vec<String> {
+        self.revoke_stale_permissions(agent_id, session_id)
     }
 
     /// Suggest policy IDs that could be revoked (unused permissions below threshold).
@@ -396,5 +455,158 @@ mod tests {
         let revokable = tracker.check_auto_revoke("agent-1", "sess-1");
         assert_eq!(revokable.len(), 1);
         assert_eq!(revokable[0], "p1");
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R44-021: Session key separator collision
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_session_key_no_collision_with_separator_in_id() {
+        // "a::b" + "c" should not collide with "a" + "b::c"
+        let key1 = LeastAgencyTracker::session_key("a::b", "c");
+        let key2 = LeastAgencyTracker::session_key("a", "b::c");
+        assert_ne!(
+            key1, key2,
+            "Session keys must not collide when agent_id contains separator"
+        );
+    }
+
+    #[test]
+    fn test_session_key_no_collision_different_lengths() {
+        let key1 = LeastAgencyTracker::session_key("abc", "def");
+        let key2 = LeastAgencyTracker::session_key("ab", "cdef");
+        assert_ne!(
+            key1, key2,
+            "Session keys must not collide for different agent/session splits"
+        );
+    }
+
+    #[test]
+    fn test_session_key_collision_isolation_in_tracker() {
+        let tracker = LeastAgencyTracker::new(0.5);
+        // Register with agent_id containing the old separator
+        tracker.register_grants("a::b", "c", &["p1".to_string()]);
+        tracker.register_grants("a", "b::c", &["p2".to_string()]);
+
+        // Each should have their own grants
+        let unused1 = tracker.check_unused("a::b", "c");
+        assert_eq!(unused1, vec!["p1".to_string()]);
+
+        let unused2 = tracker.check_unused("a", "b::c");
+        assert_eq!(unused2, vec!["p2".to_string()]);
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R44-018: Bounded per-session grants
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_grants_per_session_bounded() {
+        let tracker = LeastAgencyTracker::new(0.5);
+        // Generate more than MAX_GRANTS_PER_SESSION policy IDs
+        let policy_ids: Vec<String> = (0..MAX_GRANTS_PER_SESSION + 500)
+            .map(|i| format!("policy_{}", i))
+            .collect();
+        tracker.register_grants("agent-1", "sess-1", &policy_ids);
+
+        let trackers = tracker.trackers.read().unwrap_or_else(|e| e.into_inner());
+        let key = LeastAgencyTracker::session_key("agent-1", "sess-1");
+        let pt = trackers.get(&key).expect("session should exist");
+        assert!(
+            pt.granted.len() <= MAX_GRANTS_PER_SESSION,
+            "Grants should be bounded to {}, got {}",
+            MAX_GRANTS_PER_SESSION,
+            pt.granted.len()
+        );
+    }
+
+    #[test]
+    fn test_grants_within_limit_all_accepted() {
+        let tracker = LeastAgencyTracker::new(0.5);
+        let policy_ids: Vec<String> = (0..100).map(|i| format!("p_{}", i)).collect();
+        tracker.register_grants("agent-1", "sess-1", &policy_ids);
+
+        let trackers = tracker.trackers.read().unwrap_or_else(|e| e.into_inner());
+        let key = LeastAgencyTracker::session_key("agent-1", "sess-1");
+        let pt = trackers.get(&key).expect("session should exist");
+        assert_eq!(pt.granted.len(), 100);
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R44-019: Atomic auto-revocation (TOCTOU fix)
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_revoke_stale_permissions_enforce_removes_stale() {
+        let tracker =
+            LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 0);
+        tracker.register_grants(
+            "agent-1",
+            "sess-1",
+            &["p1".to_string(), "p2".to_string()],
+        );
+
+        // With 0-sec threshold, both should be stale immediately
+        let revoked = tracker.revoke_stale_permissions("agent-1", "sess-1");
+        assert_eq!(revoked.len(), 2, "Both permissions should be revoked");
+
+        // After revocation, grants should be empty
+        let trackers = tracker.trackers.read().unwrap_or_else(|e| e.into_inner());
+        let key = LeastAgencyTracker::session_key("agent-1", "sess-1");
+        let pt = trackers.get(&key).expect("session should exist");
+        assert!(
+            pt.granted.is_empty(),
+            "Granted set should be empty after revocation"
+        );
+        assert!(
+            pt.granted_last_used.is_empty(),
+            "granted_last_used map should be empty after revocation"
+        );
+    }
+
+    #[test]
+    fn test_revoke_stale_permissions_monitor_does_not_remove() {
+        let tracker =
+            LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Monitor, 0);
+        tracker.register_grants(
+            "agent-1",
+            "sess-1",
+            &["p1".to_string(), "p2".to_string()],
+        );
+
+        // Monitor mode should identify but not remove
+        let candidates = tracker.revoke_stale_permissions("agent-1", "sess-1");
+        assert_eq!(candidates.len(), 2, "Both should be candidates");
+
+        // Grants should still be present
+        let trackers = tracker.trackers.read().unwrap_or_else(|e| e.into_inner());
+        let key = LeastAgencyTracker::session_key("agent-1", "sess-1");
+        let pt = trackers.get(&key).expect("session should exist");
+        assert_eq!(
+            pt.granted.len(),
+            2,
+            "Monitor mode should not remove grants"
+        );
+    }
+
+    #[test]
+    fn test_revoke_stale_permissions_used_recently_not_revoked() {
+        let tracker =
+            LeastAgencyTracker::new_with_config(0.5, EnforcementMode::Enforce, 3600);
+        tracker.register_grants(
+            "agent-1",
+            "sess-1",
+            &["p1".to_string(), "p2".to_string()],
+        );
+        // Record usage to refresh last_used
+        tracker.record_usage("agent-1", "sess-1", "p1", "fs", "read");
+
+        // With 3600s threshold and just-registered grants, nothing should be stale
+        let revoked = tracker.revoke_stale_permissions("agent-1", "sess-1");
+        assert!(
+            revoked.is_empty(),
+            "Recently used/granted permissions should not be revoked"
+        );
     }
 }

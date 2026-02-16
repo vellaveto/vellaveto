@@ -5,6 +5,12 @@
 //! - `GET /api/governance/unregistered-agents` — list unregistered agents
 //! - `GET /api/governance/unapproved-tools` — list unapproved tools
 //! - `GET /api/governance/least-agency/{agent_id}/{session_id}` — least-agency report
+//!
+//! **RBAC note (FIND-R44-049):** These endpoints are protected by the API key
+//! authentication middleware and RBAC layer configured in the server router.
+//! Granular governance permissions (e.g., read-only shadow report vs. full
+//! governance admin) should be configured via the RBAC policy definitions.
+//! See the server's middleware chain in `main.rs` for auth enforcement.
 
 use axum::{
     extract::{Path, State},
@@ -115,14 +121,12 @@ pub async fn least_agency_report(
         )
     })?;
 
+    // FIND-R44-050: Use generic error message to prevent agent/session enumeration
     let report = tracker.generate_report(&agent_id, &session_id).ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
-                error: format!(
-                    "No tracking data for agent '{}' session '{}'",
-                    agent_id, session_id
-                ),
+                error: "No tracking data found".to_string(),
             }),
         )
     })?;

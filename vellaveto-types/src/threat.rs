@@ -211,12 +211,20 @@ impl AgentFingerprint {
 }
 
 /// Truncate a string for logging, adding "..." if truncated.
+/// SECURITY (FIND-R44-031): Use char_indices() to find a valid char boundary
+/// instead of byte slicing, which panics on multi-byte UTF-8.
 fn truncate_for_log(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
+        return s.to_string();
     }
+    let truncate_at = max_len.saturating_sub(3);
+    let boundary = s
+        .char_indices()
+        .take_while(|&(i, _)| i <= truncate_at)
+        .last()
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    format!("{}...", &s[..boundary])
 }
 
 /// Trust level for known agents (shadow agent detection).

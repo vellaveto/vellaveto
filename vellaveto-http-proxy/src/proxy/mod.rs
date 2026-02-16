@@ -26,7 +26,9 @@ pub mod websocket;
 
 pub use call_chain::PrivilegeEscalationCheck;
 pub use discovery::handle_transport_discovery;
-pub use handlers::{handle_mcp_delete, handle_mcp_post, handle_protected_resource_metadata};
+pub use handlers::{
+    handle_mcp_delete, handle_mcp_get, handle_mcp_post, handle_protected_resource_metadata,
+};
 pub use websocket::{handle_ws_upgrade, WebSocketConfig};
 
 use hmac::Hmac;
@@ -222,6 +224,13 @@ pub struct ProxyState {
     /// `transport_config.cross_transport_fallback` is true, failed transports
     /// trigger automatic fallback to the next transport in priority order.
     pub transport_health: Option<Arc<transport_health::TransportHealthTracker>>,
+
+    // =========================================================================
+    // Phase 30: MCP 2025-11-25 Streamable HTTP
+    // =========================================================================
+    /// Streamable HTTP configuration for SSE resumability, strict tool name
+    /// validation, and retry directives.
+    pub streamable_http: vellaveto_config::StreamableHttpConfig,
 }
 
 /// Per-request trust signal for forwarded-header handling.

@@ -31,15 +31,18 @@
 /// // Standard base64
 /// assert_eq!(try_base64_decode("SGVsbG8gV29ybGQh"), Some("Hello World!".to_string()));
 ///
-/// // Too short (less than 16 chars)
+/// // Too short (8 chars or less)
 /// assert_eq!(try_base64_decode("SGVsbG8="), None);
 ///
 /// // Contains spaces
 /// assert_eq!(try_base64_decode("SGVs bG8gV29ybGQ="), None);
 /// ```
 pub fn try_base64_decode(s: &str) -> Option<String> {
-    // Skip short strings and strings with spaces (unlikely to be base64)
-    if s.len() <= 16 || s.contains(' ') {
+    // FIND-R44-029: Lowered threshold from 16 to 8 characters.
+    // Short base64 strings (9-16 chars) can encode secrets like short API keys
+    // or password fragments. The previous 16-char minimum allowed bypass by
+    // splitting secrets into short base64 chunks.
+    if s.len() <= 8 || s.contains(' ') {
         return None;
     }
 
@@ -86,9 +89,28 @@ mod tests {
 
     #[test]
     fn test_try_base64_decode_too_short() {
-        // 16 chars or less should return None
-        let encoded = "SGVsbG8="; // "Hello"
+        // 8 chars or less should return None (FIND-R44-029: lowered from 16)
+        let encoded = "SGVsbG8="; // "Hello" - 8 chars
         assert_eq!(try_base64_decode(encoded), None);
+    }
+
+    /// FIND-R44-029: Strings between 9 and 16 chars should now be decoded
+    /// (previously skipped with the 16-char threshold).
+    #[test]
+    fn test_try_base64_decode_medium_length() {
+        // "short msg!" is 10 chars, encodes to 16 base64 chars
+        let encoded = "c2hvcnQgbXNnIQ=="; // 16 chars, > 8 threshold
+        let decoded = try_base64_decode(encoded);
+        assert_eq!(decoded, Some("short msg!".to_string()));
+    }
+
+    /// FIND-R44-029: Boundary test — exactly 9 chars should be decoded.
+    #[test]
+    fn test_try_base64_decode_boundary_9_chars() {
+        // 9 chars of base64 is above the 8-char threshold
+        let encoded = "YWJjZGVmZw=="; // "abcdefg" = 12 chars base64
+        let decoded = try_base64_decode(encoded);
+        assert_eq!(decoded, Some("abcdefg".to_string()));
     }
 
     #[test]

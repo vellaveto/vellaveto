@@ -81,8 +81,184 @@ pub(super) async fn forward_to_upstream(
     auth_header: Option<&str>,
     trace_ctx: Option<(&str, Option<&str>)>,
 ) -> Response {
-    forward_to_upstream_url(state, &state.upstream_url, session_id, body, auth_header, trace_ctx)
-        .await
+    forward_to_upstream_url(
+        state,
+        &state.upstream_url,
+        session_id,
+        body,
+        auth_header,
+        trace_ctx,
+        None,
+    )
+    .await
+}
+
+/// Forward a GET request to the upstream MCP server for SSE resumability.
+///
+/// MCP 2025-11-25: Clients use GET /mcp with Accept: text/event-stream to
+/// initiate or resume an SSE stream. When `last_event_id` is present, the
+/// upstream server resumes from that event.
+pub(super) async fn forward_get_to_upstream(
+    state: &ProxyState,
+    session_id: &str,
+    auth_header: Option<&str>,
+    trace_ctx: Option<(&str, Option<&str>)>,
+    last_event_id: Option<&str>,
+) -> Response {
+    let mut request_builder = state
+        .http_client
+        .get(&state.upstream_url)
+        .header("accept", "text/event-stream")
+        .header(MCP_SESSION_ID, session_id)
+        .header(MCP_PROTOCOL_VERSION_HEADER, MCP_PROTOCOL_VERSION);
+
+    // Forward Authorization header in OAuth pass-through mode
+    if let Some(auth) = auth_header {
+        request_builder = request_builder.header("authorization", auth);
+    }
+
+    // Phase 28: Inject W3C Trace Context headers for distributed tracing
+    if let Some((traceparent, tracestate)) = trace_ctx {
+        request_builder = request_builder.header("traceparent", traceparent);
+        if let Some(ts) = tracestate {
+            request_builder = request_builder.header("tracestate", ts);
+        }
+    }
+
+    // MCP 2025-11-25: Forward Last-Event-ID for SSE resumption
+    if let Some(event_id) = last_event_id {
+        request_builder = request_builder.header("last-event-id", event_id);
+    }
+
+    let result = request_builder.send().await;
+
+    match result {
+        Ok(upstream_resp) => {
+            let status = upstream_resp.status();
+
+            // SECURITY: Validate upstream status code (same as POST path)
+            let status =
+                if status.is_redirection() || status.as_u16() < 200 || status.as_u16() == 407 {
+                    tracing::warn!(
+                        "SECURITY: Upstream GET returned suspicious status {} — mapping to 502",
+                        status
+                    );
+                    StatusCode::BAD_GATEWAY
+                } else {
+                    status
+                };
+
+            let headers = upstream_resp.headers().clone();
+            let content_type_result = headers.get("content-type").map(|v| v.to_str());
+            if let Some(Err(_)) = content_type_result {
+                tracing::warn!(
+                    "Upstream GET returned non-UTF-8 Content-Type header — blocking response"
+                );
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    "Upstream returned invalid Content-Type header",
+                )
+                    .into_response();
+            }
+            let content_type = content_type_result.and_then(|r| r.ok()).unwrap_or("");
+
+            // GET /mcp must return SSE
+            if !content_type.starts_with("text/event-stream") {
+                tracing::warn!(
+                    "Upstream GET /mcp returned non-SSE content-type: '{}'",
+                    content_type
+                );
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({
+                        "error": "Upstream did not return SSE stream"
+                    })),
+                )
+                    .into_response();
+            }
+
+            // Read bounded SSE body and forward
+            match super::helpers::read_bounded_response(
+                upstream_resp,
+                state.limits.max_response_body_bytes,
+            )
+            .await
+            {
+                Ok(sse_bytes) => {
+                    // Injection scanning on SSE events (same as POST path)
+                    let injection_found = if !state.injection_disabled {
+                        super::inspection::scan_sse_events_for_injection(
+                            &sse_bytes, session_id, state,
+                        )
+                        .await
+                    } else {
+                        false
+                    };
+                    if injection_found && state.injection_blocking {
+                        return (
+                            StatusCode::OK,
+                            Json(json!({
+                                "jsonrpc": "2.0",
+                                "error": {
+                                    "code": -32001,
+                                    "message": "SSE response blocked: prompt injection detected",
+                                },
+                            })),
+                        )
+                            .into_response();
+                    }
+
+                    // DLP scanning
+                    if state.response_dlp_enabled {
+                        let dlp_found = super::inspection::scan_sse_events_for_dlp(
+                            &sse_bytes, session_id, state,
+                        )
+                        .await;
+                        if dlp_found && state.response_dlp_blocking {
+                            return (
+                                StatusCode::OK,
+                                Json(json!({
+                                    "jsonrpc": "2.0",
+                                    "error": {
+                                        "code": -32002,
+                                        "message": "SSE response blocked: secrets detected by DLP",
+                                    },
+                                })),
+                            )
+                                .into_response();
+                        }
+                    }
+
+                    Response::builder()
+                        .status(status)
+                        .header("content-type", "text/event-stream")
+                        .header("cache-control", "no-cache")
+                        .body(Body::from(sse_bytes))
+                        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+                }
+                Err(e) => {
+                    tracing::error!("Failed to read GET SSE response body: {}", e);
+                    (
+                        StatusCode::BAD_GATEWAY,
+                        Json(json!({
+                            "error": "Upstream server error"
+                        })),
+                    )
+                        .into_response()
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("GET upstream request failed: {}", e);
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({
+                    "error": "Failed to connect to upstream server"
+                })),
+            )
+                .into_response()
+        }
+    }
 }
 
 /// Forward a request to a specific upstream URL.
@@ -93,6 +269,9 @@ pub(super) async fn forward_to_upstream(
 ///
 /// When `trace_ctx` is provided, `traceparent` and optionally `tracestate`
 /// headers are injected into the upstream request for distributed tracing.
+///
+/// When `last_event_id` is provided (MCP 2025-11-25 resumability), the
+/// `Last-Event-ID` header is forwarded to the upstream server.
 pub(super) async fn forward_to_upstream_url(
     state: &ProxyState,
     upstream_url: &str,
@@ -100,6 +279,7 @@ pub(super) async fn forward_to_upstream_url(
     body: Bytes,
     auth_header: Option<&str>,
     trace_ctx: Option<(&str, Option<&str>)>,
+    last_event_id: Option<&str>,
 ) -> Response {
     let mut request_builder = state
         .http_client
@@ -119,6 +299,11 @@ pub(super) async fn forward_to_upstream_url(
         if let Some(ts) = tracestate {
             request_builder = request_builder.header("tracestate", ts);
         }
+    }
+
+    // MCP 2025-11-25: Forward Last-Event-ID for SSE resumption on POST
+    if let Some(event_id) = last_event_id {
+        request_builder = request_builder.header("last-event-id", event_id);
     }
 
     let result = request_builder.body(body).send().await;

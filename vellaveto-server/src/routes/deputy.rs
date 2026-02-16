@@ -28,9 +28,9 @@ const MAX_TOOLS_LEN: usize = 100;
 /// Maximum expiration in seconds (30 days).
 const MAX_EXPIRES_SECS: u64 = 86400 * 30;
 
-/// SECURITY (FIND-R43-019): Detect control characters AND Unicode format
-/// characters (ZWSP, bidi overrides, invisible operators, etc.) that can
-/// bypass simple `is_control()` checks.
+/// SECURITY (FIND-R43-019, FIND-R44-055): Detect control characters AND Unicode format
+/// characters (ZWSP, bidi overrides, invisible operators, TAG characters, soft hyphen)
+/// that can bypass simple `is_control()` checks.
 fn is_unsafe_char(c: char) -> bool {
     let cp = c as u32;
     c.is_control()
@@ -40,6 +40,8 @@ fn is_unsafe_char(c: char) -> bool {
         || (0x2066..=0x2069).contains(&cp) // Bidi isolates
         || cp == 0xFEFF                    // BOM
         || (0xFFF9..=0xFFFB).contains(&cp) // Interlinear annotation
+        || (0xE0001..=0xE007F).contains(&cp) // TAG characters
+        || cp == 0x00AD                    // Soft hyphen
 }
 
 /// Validate a string field: reject if too long or contains control/format characters.
@@ -216,4 +218,68 @@ pub async fn remove_delegation(
     deputy.remove_context(&session);
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ═══════════════════════════════════════════════════════
+    // FIND-R44-055: is_unsafe_char must detect TAG characters and soft hyphen
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R44-055: TAG characters (U+E0001..U+E007F) must be detected as unsafe.
+    #[test]
+    fn test_is_unsafe_char_tag_characters() {
+        // U+E0001 LANGUAGE TAG
+        assert!(
+            is_unsafe_char('\u{E0001}'),
+            "LANGUAGE TAG must be detected as unsafe"
+        );
+        // U+E0020 TAG SPACE
+        assert!(
+            is_unsafe_char('\u{E0020}'),
+            "TAG SPACE must be detected as unsafe"
+        );
+        // U+E007F CANCEL TAG
+        assert!(
+            is_unsafe_char('\u{E007F}'),
+            "CANCEL TAG must be detected as unsafe"
+        );
+        // U+E0041 TAG LATIN CAPITAL LETTER A
+        assert!(
+            is_unsafe_char('\u{E0041}'),
+            "TAG LATIN CAPITAL LETTER A must be detected as unsafe"
+        );
+    }
+
+    /// FIND-R44-055: Soft hyphen (U+00AD) must be detected as unsafe.
+    #[test]
+    fn test_is_unsafe_char_soft_hyphen() {
+        assert!(
+            is_unsafe_char('\u{00AD}'),
+            "Soft hyphen must be detected as unsafe"
+        );
+    }
+
+    /// Regression: Previously detected characters still detected.
+    #[test]
+    fn test_is_unsafe_char_existing_ranges_still_work() {
+        // Control characters
+        assert!(is_unsafe_char('\0'));
+        assert!(is_unsafe_char('\n'));
+        // ZWSP
+        assert!(is_unsafe_char('\u{200B}'));
+        // Bidi override
+        assert!(is_unsafe_char('\u{202E}'));
+        // Word joiner
+        assert!(is_unsafe_char('\u{2060}'));
+        // BOM
+        assert!(is_unsafe_char('\u{FEFF}'));
+        // Normal chars are safe
+        assert!(!is_unsafe_char('a'));
+        assert!(!is_unsafe_char('Z'));
+        assert!(!is_unsafe_char('-'));
+        assert!(!is_unsafe_char('_'));
+    }
 }

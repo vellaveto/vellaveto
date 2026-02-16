@@ -274,7 +274,12 @@ impl SessionStore {
             }
         }
 
-        // Enforce max sessions
+        // Enforce max sessions.
+        // Note: under high concurrency, session count may temporarily exceed
+        // max_sessions by up to the number of concurrent requests. This is a
+        // TOCTOU race inherent to DashMap's non-atomic len()+insert() sequence.
+        // The background cleanup task and per-request eviction correct this
+        // within seconds, so the overshoot is transient and self-correcting.
         if self.sessions.len() >= self.max_sessions {
             self.evict_expired();
             // If still at capacity after cleanup, evict oldest

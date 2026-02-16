@@ -212,6 +212,15 @@ impl ServiceDiscoveryConfig {
                     host
                 ));
             }
+            // SECURITY (FIND-R44-045): Warn about .local TLD (mDNS) unless it's
+            // a Kubernetes cluster-internal name (.svc.cluster.local).
+            if host.ends_with(".local") && !host.ends_with(".svc.cluster.local") {
+                tracing::warn!(
+                    dns_name = %host,
+                    "dns_name uses .local TLD (mDNS) which may resolve unpredictably; \
+                     consider using .svc.cluster.local for Kubernetes services"
+                );
+            }
         }
         Ok(())
     }
@@ -305,12 +314,76 @@ impl DeploymentConfig {
     ///
     /// Order of precedence:
     /// 1. Configured `instance_id`
-    /// 2. `HOSTNAME` environment variable (K8s sets this to pod name)
+    /// 2. `HOSTNAME` environment variable (K8s sets this to pod name), validated
     /// 3. `"vellaveto-unknown"`
+    ///
+    /// SECURITY (FIND-R44-014): When using the HOSTNAME env var fallback, apply
+    /// the same validation as the configured instance_id to prevent bypass.
     pub fn effective_instance_id(&self) -> String {
         if let Some(ref id) = self.instance_id {
             return id.clone();
         }
-        std::env::var("HOSTNAME").unwrap_or_else(|_| "vellaveto-unknown".to_string())
+        match std::env::var("HOSTNAME") {
+            Ok(hostname) => {
+                if validate_instance_id(&hostname).is_ok() {
+                    hostname
+                } else {
+                    tracing::warn!(
+                        hostname = %hostname,
+                        "HOSTNAME env var failed instance_id validation; falling back to 'vellaveto-unknown'"
+                    );
+                    "vellaveto-unknown".to_string()
+                }
+            }
+            Err(_) => "vellaveto-unknown".to_string(),
+        }
     }
+}
+
+/// SECURITY (FIND-R44-014): Validate an instance_id string.
+/// Reuses the same rules as DeploymentConfig::validate() for instance_id:
+/// - Max length 253
+/// - Non-empty
+/// - DNS-safe chars (lowercase alphanumeric, hyphen, dot)
+/// - No leading/trailing hyphen or dot
+/// - No consecutive dots
+pub fn validate_instance_id(id: &str) -> Result<(), String> {
+    if id.is_empty() {
+        return Err("instance_id must not be empty".to_string());
+    }
+    if id.len() > MAX_INSTANCE_ID_LEN {
+        return Err(format!(
+            "instance_id must be at most {} characters, got {}",
+            MAX_INSTANCE_ID_LEN,
+            id.len()
+        ));
+    }
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.')
+    {
+        return Err(format!(
+            "instance_id must be DNS-safe (lowercase alphanumeric, hyphens, dots), got '{}'",
+            id
+        ));
+    }
+    if id.starts_with('-') || id.ends_with('-') {
+        return Err(format!(
+            "instance_id must not start or end with a hyphen, got '{}'",
+            id
+        ));
+    }
+    if id.starts_with('.') || id.ends_with('.') {
+        return Err(format!(
+            "instance_id must not start or end with a dot, got '{}'",
+            id
+        ));
+    }
+    if id.contains("..") {
+        return Err(format!(
+            "instance_id must not contain consecutive dots, got '{}'",
+            id
+        ));
+    }
+    Ok(())
 }

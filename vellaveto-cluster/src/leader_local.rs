@@ -38,8 +38,10 @@ impl LeaderElection for LocalLeaderElection {
         let mut guard = self.acquired_at.lock().map_err(|e| {
             ClusterError::Backend(format!("Leader election mutex poisoned: {}", e))
         })?;
-        self.is_leader.store(true, Ordering::SeqCst);
+        // SECURITY (FIND-R44-044): Set timestamp BEFORE setting AtomicBool to true.
+        // This ensures observers always see a valid timestamp when is_leader() returns true.
         *guard = Some(now);
+        self.is_leader.store(true, Ordering::SeqCst);
         Ok(true)
     }
 
@@ -53,6 +55,8 @@ impl LeaderElection for LocalLeaderElection {
         let mut guard = self.acquired_at.lock().map_err(|e| {
             ClusterError::Backend(format!("Leader election mutex poisoned: {}", e))
         })?;
+        // SECURITY (FIND-R44-044): Set AtomicBool to false BEFORE clearing the timestamp.
+        // This ensures observers never see is_leader()=true with a None timestamp.
         self.is_leader.store(false, Ordering::SeqCst);
         *guard = None;
         Ok(())
@@ -166,5 +170,65 @@ mod tests {
 
         le.try_acquire().await.unwrap();
         assert!(le.is_leader());
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // FIND-R44-044: Verify AtomicBool/Mutex ordering consistency
+    // ─────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_local_leader_acquire_sets_timestamp_before_flag() {
+        // After try_acquire(), is_leader should be true AND current_status
+        // should return a Leader variant with a non-empty timestamp.
+        let le = LocalLeaderElection::new("test-0".to_string());
+        le.try_acquire().await.unwrap();
+
+        assert!(le.is_leader());
+        match le.current_status() {
+            LeaderStatus::Leader { since } => {
+                assert!(!since.is_empty(), "timestamp should be set when is_leader is true");
+            }
+            other => panic!("expected Leader status after acquire, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_local_leader_release_clears_flag_before_timestamp() {
+        // After release(), is_leader should be false. Even if we peek at the
+        // timestamp while is_leader is false, we should not see stale data
+        // that suggests leadership.
+        let le = LocalLeaderElection::new("test-0".to_string());
+        le.try_acquire().await.unwrap();
+        le.release().await.unwrap();
+
+        assert!(!le.is_leader());
+        match le.current_status() {
+            LeaderStatus::Follower { .. } => {
+                // Correct: after release, status is Follower
+            }
+            other => panic!("expected Follower status after release, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_local_leader_repeated_acquire_release_consistency() {
+        let le = LocalLeaderElection::new("test-0".to_string());
+        for _ in 0..10 {
+            le.try_acquire().await.unwrap();
+            assert!(le.is_leader());
+            match le.current_status() {
+                LeaderStatus::Leader { since } => {
+                    assert!(!since.is_empty());
+                }
+                other => panic!("expected Leader, got {:?}", other),
+            }
+
+            le.release().await.unwrap();
+            assert!(!le.is_leader());
+            match le.current_status() {
+                LeaderStatus::Follower { .. } => {}
+                other => panic!("expected Follower, got {:?}", other),
+            }
+        }
     }
 }

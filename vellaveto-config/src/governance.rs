@@ -12,6 +12,21 @@ pub const MAX_GOVERNANCE_KNOWN_SERVERS: usize = 200;
 /// Maximum auto-revoke window (7 days).
 pub const MAX_AUTO_REVOKE_SECS: u64 = 604_800;
 
+/// Maximum number of registered agents in governance config (FIND-R44-017).
+pub const MAX_GOVERNANCE_REGISTERED_AGENTS: usize = 10_000;
+
+/// Maximum length for a single tool name string (FIND-R44-047).
+pub const MAX_TOOL_NAME_LENGTH: usize = 256;
+
+/// Maximum length for a single server ID string (FIND-R44-047).
+pub const MAX_SERVER_ID_LENGTH: usize = 512;
+
+/// Maximum length for a single registered agent ID string (FIND-R44-017).
+pub const MAX_AGENT_ID_LENGTH: usize = 256;
+
+/// Maximum discovery window (24 hours) (FIND-R44-048).
+pub const MAX_DISCOVERY_WINDOW_SECS: u64 = 86_400;
+
 /// Governance configuration for shadow AI discovery and least agency enforcement.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GovernanceConfig {
@@ -38,6 +53,12 @@ pub struct GovernanceConfig {
     /// List of known MCP server IDs. Empty = all servers allowed.
     #[serde(default)]
     pub known_servers: Vec<String>,
+
+    /// List of registered agent IDs (FIND-R44-017).
+    /// Agents in this list are considered registered; unregistered agents
+    /// are flagged by the shadow AI discovery engine.
+    #[serde(default)]
+    pub registered_agents: Vec<String>,
 
     /// Least agency enforcement mode.
     /// - `Monitor` (default): Report unused permissions without revoking.
@@ -77,6 +98,7 @@ impl Default for GovernanceConfig {
             discovery_window_secs: 300,
             approved_tools: Vec::new(),
             known_servers: Vec::new(),
+            registered_agents: Vec::new(),
             least_agency_enforcement: EnforcementMode::Monitor,
             auto_revoke_after_secs: 3600,
             emit_agency_audit_events: true,
@@ -94,12 +116,52 @@ impl GovernanceConfig {
                 MAX_GOVERNANCE_APPROVED_TOOLS
             ));
         }
+        // FIND-R44-047: Per-string length validation on approved_tools
+        for (i, tool) in self.approved_tools.iter().enumerate() {
+            if tool.len() > MAX_TOOL_NAME_LENGTH {
+                return Err(format!(
+                    "governance.approved_tools[{}] length {} exceeds max {}",
+                    i,
+                    tool.len(),
+                    MAX_TOOL_NAME_LENGTH
+                ));
+            }
+        }
         if self.known_servers.len() > MAX_GOVERNANCE_KNOWN_SERVERS {
             return Err(format!(
                 "governance.known_servers has {} entries, max is {}",
                 self.known_servers.len(),
                 MAX_GOVERNANCE_KNOWN_SERVERS
             ));
+        }
+        // FIND-R44-047: Per-string length validation on known_servers
+        for (i, server) in self.known_servers.iter().enumerate() {
+            if server.len() > MAX_SERVER_ID_LENGTH {
+                return Err(format!(
+                    "governance.known_servers[{}] length {} exceeds max {}",
+                    i,
+                    server.len(),
+                    MAX_SERVER_ID_LENGTH
+                ));
+            }
+        }
+        // FIND-R44-017: Validate registered_agents count and per-string length
+        if self.registered_agents.len() > MAX_GOVERNANCE_REGISTERED_AGENTS {
+            return Err(format!(
+                "governance.registered_agents has {} entries, max is {}",
+                self.registered_agents.len(),
+                MAX_GOVERNANCE_REGISTERED_AGENTS
+            ));
+        }
+        for (i, agent) in self.registered_agents.iter().enumerate() {
+            if agent.len() > MAX_AGENT_ID_LENGTH {
+                return Err(format!(
+                    "governance.registered_agents[{}] length {} exceeds max {}",
+                    i,
+                    agent.len(),
+                    MAX_AGENT_ID_LENGTH
+                ));
+            }
         }
         if self.auto_revoke_after_secs == 0 {
             return Err(
@@ -116,6 +178,13 @@ impl GovernanceConfig {
             return Err(
                 "governance.discovery_window_secs must be > 0".to_string()
             );
+        }
+        // FIND-R44-048: Upper bound on discovery_window_secs
+        if self.discovery_window_secs > MAX_DISCOVERY_WINDOW_SECS {
+            return Err(format!(
+                "governance.discovery_window_secs must be <= {} (24 hours), got {}",
+                MAX_DISCOVERY_WINDOW_SECS, self.discovery_window_secs
+            ));
         }
         Ok(())
     }

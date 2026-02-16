@@ -8,8 +8,10 @@
 //! - Bounded memory: max 1000 unregistered agents, 500 tools, 100 servers.
 //! - Thread-safe: all state behind `RwLock`.
 //! - No panics: RwLock poisoning returns empty/default results.
+//! - Input validation: control characters, bidi overrides, and overlong IDs rejected.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::RwLock;
 use vellaveto_types::{ShadowAiReport, UnapprovedTool, UnknownMcpServer, UnregisteredAgent};
 
@@ -31,6 +33,40 @@ const MAX_AGENTS_PER_TOOL: usize = 100;
 /// Maximum tools-per-server tracked.
 const MAX_TOOLS_PER_SERVER: usize = 100;
 
+/// Maximum registered agents (FIND-R44-006).
+const MAX_REGISTERED_AGENTS: usize = 10_000;
+
+/// Maximum length for agent IDs, tool names, and server IDs (FIND-R44-007).
+const MAX_ID_LENGTH: usize = 256;
+
+/// Returns false if the string contains control characters, Unicode bidi overrides
+/// (U+202A-U+202E, U+2066-U+2069), zero-width space (U+200B), BOM (U+FEFF), or null bytes.
+fn is_valid_id(s: &str) -> bool {
+    for c in s.chars() {
+        // Control characters (includes null bytes)
+        if c.is_control() {
+            return false;
+        }
+        // Unicode bidi overrides
+        if ('\u{202A}'..='\u{202E}').contains(&c) {
+            return false;
+        }
+        // Unicode bidi isolates
+        if ('\u{2066}'..='\u{2069}').contains(&c) {
+            return false;
+        }
+        // Zero-width space
+        if c == '\u{200B}' {
+            return false;
+        }
+        // Byte order mark
+        if c == '\u{FEFF}' {
+            return false;
+        }
+    }
+    true
+}
+
 /// Passive discovery engine for unregistered agents, unapproved tools, and unknown MCP servers.
 pub struct ShadowAiDiscovery {
     registered_agents: RwLock<HashSet<String>>,
@@ -40,6 +76,12 @@ pub struct ShadowAiDiscovery {
     known_servers: RwLock<HashSet<String>>,
     unknown_servers: RwLock<HashMap<String, UnknownMcpServer>>,
     require_registration: bool,
+    /// Counter for entries dropped from `unregistered` due to capacity (FIND-R44-016).
+    unregistered_drop_count: AtomicUsize,
+    /// Counter for entries dropped from `unapproved` due to capacity (FIND-R44-016).
+    unapproved_drop_count: AtomicUsize,
+    /// Counter for entries dropped from `unknown_servers` due to capacity (FIND-R44-016).
+    unknown_servers_drop_count: AtomicUsize,
 }
 
 impl ShadowAiDiscovery {
@@ -58,6 +100,9 @@ impl ShadowAiDiscovery {
             known_servers: RwLock::new(known_servers),
             unknown_servers: RwLock::new(HashMap::new()),
             require_registration,
+            unregistered_drop_count: AtomicUsize::new(0),
+            unapproved_drop_count: AtomicUsize::new(0),
+            unknown_servers_drop_count: AtomicUsize::new(0),
         }
     }
 
@@ -65,12 +110,36 @@ impl ShadowAiDiscovery {
     ///
     /// Called on every MCP request. Updates unregistered agents, unapproved tools,
     /// and unknown servers based on the request metadata.
+    ///
+    /// Returns early (silently) if any input fails validation:
+    /// - Length exceeds `MAX_ID_LENGTH` (FIND-R44-007)
+    /// - Contains control characters, bidi overrides, ZWSP, BOM, or null bytes (FIND-R44-020)
     pub fn observe_request(
         &self,
         agent_id: &str,
         tool_name: &str,
         server_id: Option<&str>,
     ) {
+        // FIND-R44-007: Reject overlong inputs
+        if agent_id.len() > MAX_ID_LENGTH || tool_name.len() > MAX_ID_LENGTH {
+            return;
+        }
+        if let Some(sid) = server_id {
+            if sid.len() > MAX_ID_LENGTH {
+                return;
+            }
+        }
+
+        // FIND-R44-020: Reject inputs with control chars, bidi overrides, ZWSP, BOM
+        if !is_valid_id(agent_id) || !is_valid_id(tool_name) {
+            return;
+        }
+        if let Some(sid) = server_id {
+            if !is_valid_id(sid) {
+                return;
+            }
+        }
+
         let now = chrono::Utc::now().to_rfc3339();
 
         // Check if agent is registered
@@ -109,6 +178,16 @@ impl ShadowAiDiscovery {
                             risk_score,
                         },
                     );
+                } else {
+                    // FIND-R44-016: Log warning on capacity drop (every 100th drop)
+                    let count = self.unregistered_drop_count.fetch_add(1, Ordering::Relaxed);
+                    if count.is_multiple_of(100) {
+                        tracing::warn!(
+                            "Shadow AI discovery: unregistered agents at capacity ({}), new entries dropped (total drops: {})",
+                            MAX_UNREGISTERED_AGENTS,
+                            count + 1,
+                        );
+                    }
                 }
             }
         }
@@ -141,6 +220,16 @@ impl ShadowAiDiscovery {
                             requesting_agents,
                         },
                     );
+                } else {
+                    // FIND-R44-016: Log warning on capacity drop (every 100th drop)
+                    let count = self.unapproved_drop_count.fetch_add(1, Ordering::Relaxed);
+                    if count.is_multiple_of(100) {
+                        tracing::warn!(
+                            "Shadow AI discovery: unapproved tools at capacity ({}), new entries dropped (total drops: {})",
+                            MAX_UNAPPROVED_TOOLS,
+                            count + 1,
+                        );
+                    }
                 }
             }
         }
@@ -172,6 +261,16 @@ impl ShadowAiDiscovery {
                                 advertised_tools,
                             },
                         );
+                    } else {
+                        // FIND-R44-016: Log warning on capacity drop (every 100th drop)
+                        let count = self.unknown_servers_drop_count.fetch_add(1, Ordering::Relaxed);
+                        if count.is_multiple_of(100) {
+                            tracing::warn!(
+                                "Shadow AI discovery: unknown servers at capacity ({}), new entries dropped (total drops: {})",
+                                MAX_UNKNOWN_SERVERS,
+                                count + 1,
+                            );
+                        }
                     }
                 }
             }
@@ -202,8 +301,19 @@ impl ShadowAiDiscovery {
     }
 
     /// Register an agent at runtime (complements config-defined agents).
+    ///
+    /// Bounded to `MAX_REGISTERED_AGENTS` entries (FIND-R44-006).
+    /// Agent IDs longer than `MAX_ID_LENGTH` are silently rejected.
     pub fn register_agent(&self, agent_id: &str) {
+        // FIND-R44-006: Reject overlong agent IDs
+        if agent_id.len() > MAX_ID_LENGTH {
+            return;
+        }
         if let Ok(mut registered) = self.registered_agents.write() {
+            // FIND-R44-006: Only insert if already present or under capacity
+            if !registered.contains(agent_id) && registered.len() >= MAX_REGISTERED_AGENTS {
+                return;
+            }
             registered.insert(agent_id.to_string());
         }
         // Remove from unregistered if previously observed
@@ -469,5 +579,218 @@ mod tests {
         assert!(report.unapproved_tools.is_empty());
         assert!(report.unknown_servers.is_empty());
         assert!((report.total_risk_score - 0.0).abs() < f64::EPSILON);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // FIND-R44-006: Bounded registered_agents HashSet
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_register_agent_bounded_at_max() {
+        let d = empty_discovery();
+        // Fill to capacity
+        for i in 0..MAX_REGISTERED_AGENTS {
+            d.register_agent(&format!("agent-{}", i));
+        }
+        // Verify at capacity
+        assert!(d.is_agent_registered("agent-0"));
+        assert!(d.is_agent_registered(&format!("agent-{}", MAX_REGISTERED_AGENTS - 1)));
+
+        // Attempt to add beyond capacity — should be silently dropped
+        d.register_agent("overflow-agent");
+        assert!(!d.is_agent_registered("overflow-agent"));
+    }
+
+    #[test]
+    fn test_register_agent_rejects_overlong_id() {
+        let d = empty_discovery();
+        let long_id = "a".repeat(MAX_ID_LENGTH + 1);
+        d.register_agent(&long_id);
+        assert!(!d.is_agent_registered(&long_id));
+    }
+
+    #[test]
+    fn test_register_agent_allows_at_max_length() {
+        let d = empty_discovery();
+        let max_id = "b".repeat(MAX_ID_LENGTH);
+        d.register_agent(&max_id);
+        assert!(d.is_agent_registered(&max_id));
+    }
+
+    #[test]
+    fn test_register_agent_already_present_at_capacity() {
+        let d = empty_discovery();
+        // Fill to capacity
+        for i in 0..MAX_REGISTERED_AGENTS {
+            d.register_agent(&format!("agent-{}", i));
+        }
+        // Re-registering an existing agent should succeed (idempotent)
+        d.register_agent("agent-0");
+        assert!(d.is_agent_registered("agent-0"));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // FIND-R44-007: Input length validation on observe_request()
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_observe_request_rejects_overlong_agent_id() {
+        let d = configured_discovery();
+        let long_id = "x".repeat(MAX_ID_LENGTH + 1);
+        d.observe_request(&long_id, "filesystem", None);
+        assert_eq!(d.unregistered_agent_count(), 0);
+    }
+
+    #[test]
+    fn test_observe_request_rejects_overlong_tool_name() {
+        let d = configured_discovery();
+        let long_tool = "t".repeat(MAX_ID_LENGTH + 1);
+        d.observe_request("unknown-agent", &long_tool, None);
+        // Neither agent nor tool should be tracked because the entire call returns early
+        assert_eq!(d.unregistered_agent_count(), 0);
+        assert_eq!(d.unapproved_tool_count(), 0);
+    }
+
+    #[test]
+    fn test_observe_request_rejects_overlong_server_id() {
+        let d = configured_discovery();
+        let long_srv = "s".repeat(MAX_ID_LENGTH + 1);
+        d.observe_request("unknown-agent", "filesystem", Some(&long_srv));
+        // Entire call returns early due to server_id length
+        assert_eq!(d.unregistered_agent_count(), 0);
+        assert_eq!(d.unknown_server_count(), 0);
+    }
+
+    #[test]
+    fn test_observe_request_accepts_max_length_ids() {
+        let d = configured_discovery();
+        let max_id = "a".repeat(MAX_ID_LENGTH);
+        d.observe_request(&max_id, "filesystem", None);
+        assert_eq!(d.unregistered_agent_count(), 1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // FIND-R44-020: Control character / bidi validation
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_is_valid_id_rejects_null_byte() {
+        assert!(!is_valid_id("agent\0id"));
+    }
+
+    #[test]
+    fn test_is_valid_id_rejects_control_chars() {
+        assert!(!is_valid_id("agent\x01id"));
+        assert!(!is_valid_id("agent\x1Fid"));
+        assert!(!is_valid_id("agent\nid"));
+        assert!(!is_valid_id("agent\rid"));
+    }
+
+    #[test]
+    fn test_is_valid_id_rejects_bidi_overrides() {
+        // U+202A LEFT-TO-RIGHT EMBEDDING
+        assert!(!is_valid_id("agent\u{202A}id"));
+        // U+202E RIGHT-TO-LEFT OVERRIDE
+        assert!(!is_valid_id("agent\u{202E}id"));
+        // U+2066 LEFT-TO-RIGHT ISOLATE
+        assert!(!is_valid_id("agent\u{2066}id"));
+        // U+2069 POP DIRECTIONAL ISOLATE
+        assert!(!is_valid_id("agent\u{2069}id"));
+    }
+
+    #[test]
+    fn test_is_valid_id_rejects_zwsp() {
+        assert!(!is_valid_id("agent\u{200B}id"));
+    }
+
+    #[test]
+    fn test_is_valid_id_rejects_bom() {
+        assert!(!is_valid_id("agent\u{FEFF}id"));
+    }
+
+    #[test]
+    fn test_is_valid_id_accepts_normal_strings() {
+        assert!(is_valid_id("agent-alpha"));
+        assert!(is_valid_id("filesystem"));
+        assert!(is_valid_id("server-1.example.com"));
+        assert!(is_valid_id("my_tool_v2"));
+        assert!(is_valid_id("")); // Empty is valid (emptiness checked elsewhere)
+    }
+
+    #[test]
+    fn test_observe_request_rejects_control_char_agent_id() {
+        let d = configured_discovery();
+        d.observe_request("agent\x00evil", "filesystem", None);
+        assert_eq!(d.unregistered_agent_count(), 0);
+    }
+
+    #[test]
+    fn test_observe_request_rejects_bidi_tool_name() {
+        let d = configured_discovery();
+        d.observe_request("unknown-agent", "tool\u{202E}evil", None);
+        assert_eq!(d.unregistered_agent_count(), 0);
+        assert_eq!(d.unapproved_tool_count(), 0);
+    }
+
+    #[test]
+    fn test_observe_request_rejects_zwsp_server_id() {
+        let d = configured_discovery();
+        d.observe_request("unknown-agent", "filesystem", Some("srv\u{200B}evil"));
+        // Entire call returns early
+        assert_eq!(d.unregistered_agent_count(), 0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // FIND-R44-016: Bounded collections fail-open warning
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_bounded_unregistered_agents_increments_drop_counter() {
+        let d = empty_discovery();
+        // Fill to capacity
+        for i in 0..MAX_UNREGISTERED_AGENTS {
+            d.observe_request(&format!("agent-{}", i), "tool", None);
+        }
+        assert_eq!(d.unregistered_agent_count(), MAX_UNREGISTERED_AGENTS);
+
+        // Now overflow — should increment drop counter
+        d.observe_request("overflow-agent-1", "tool", None);
+        d.observe_request("overflow-agent-2", "tool", None);
+        assert_eq!(d.unregistered_drop_count.load(Ordering::Relaxed), 2);
+        assert_eq!(d.unregistered_agent_count(), MAX_UNREGISTERED_AGENTS);
+    }
+
+    #[test]
+    fn test_bounded_unapproved_tools_increments_drop_counter() {
+        let mut approved = HashSet::new();
+        approved.insert("approved-tool".to_string());
+        let d = ShadowAiDiscovery::new(HashSet::new(), approved, HashSet::new(), false);
+
+        // Fill to capacity
+        for i in 0..MAX_UNAPPROVED_TOOLS {
+            d.observe_request("agent", &format!("tool-{}", i), None);
+        }
+        assert_eq!(d.unapproved_tool_count(), MAX_UNAPPROVED_TOOLS);
+
+        // Overflow
+        d.observe_request("agent", "overflow-tool-1", None);
+        assert_eq!(d.unapproved_drop_count.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn test_bounded_unknown_servers_increments_drop_counter() {
+        let mut known = HashSet::new();
+        known.insert("known-srv".to_string());
+        let d = ShadowAiDiscovery::new(HashSet::new(), HashSet::new(), known, false);
+
+        // Fill to capacity
+        for i in 0..MAX_UNKNOWN_SERVERS {
+            d.observe_request("agent", "tool", Some(&format!("srv-{}", i)));
+        }
+        assert_eq!(d.unknown_server_count(), MAX_UNKNOWN_SERVERS);
+
+        // Overflow
+        d.observe_request("agent", "tool", Some("overflow-srv-1"));
+        assert_eq!(d.unknown_servers_drop_count.load(Ordering::Relaxed), 1);
     }
 }

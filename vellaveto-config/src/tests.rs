@@ -1116,6 +1116,7 @@ fn test_validate_rejects_too_many_policies() {
         fips: Default::default(),
         governance: Default::default(),
         deployment: Default::default(),
+        streamable_http: Default::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {
@@ -3330,6 +3331,7 @@ fn test_governance_config_defaults() {
     assert_eq!(config.discovery_window_secs, 300);
     assert!(config.approved_tools.is_empty());
     assert!(config.known_servers.is_empty());
+    assert!(config.registered_agents.is_empty());
     assert_eq!(
         config.least_agency_enforcement,
         vellaveto_types::EnforcementMode::Monitor
@@ -3346,6 +3348,7 @@ fn test_governance_config_serde_roundtrip() {
         discovery_window_secs: 600,
         approved_tools: vec!["filesystem".into(), "http".into()],
         known_servers: vec!["server-1".into()],
+        registered_agents: vec!["agent-alpha".into(), "agent-beta".into()],
         least_agency_enforcement: vellaveto_types::EnforcementMode::Enforce,
         auto_revoke_after_secs: 7200,
         emit_agency_audit_events: false,
@@ -3416,6 +3419,115 @@ policy_type = "Allow"
     let config = PolicyConfig::from_toml(toml).unwrap();
     assert!(!config.governance.shadow_ai_discovery);
     assert_eq!(config.governance.auto_revoke_after_secs, 3600);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FIND-R44-017: registered_agents config field
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_governance_config_registered_agents_serde() {
+    let toml = r#"
+[[policies]]
+name = "test"
+tool_pattern = "*"
+function_pattern = "*"
+policy_type = "Allow"
+
+[governance]
+shadow_ai_discovery = true
+require_agent_registration = true
+registered_agents = ["agent-alpha", "agent-beta"]
+"#;
+    let config = PolicyConfig::from_toml(toml).unwrap();
+    assert_eq!(config.governance.registered_agents, vec!["agent-alpha", "agent-beta"]);
+}
+
+#[test]
+fn test_governance_config_registered_agents_defaults_empty() {
+    let config = GovernanceConfig::default();
+    assert!(config.registered_agents.is_empty());
+}
+
+#[test]
+fn test_governance_config_validation_rejects_too_many_registered_agents() {
+    let mut config = GovernanceConfig::default();
+    config.registered_agents = (0..10_001).map(|i| format!("agent-{}", i)).collect();
+    let result = config.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("registered_agents"));
+}
+
+#[test]
+fn test_governance_config_validation_rejects_overlong_agent_id() {
+    let mut config = GovernanceConfig::default();
+    config.registered_agents = vec!["a".repeat(257)];
+    let result = config.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("registered_agents"));
+}
+
+#[test]
+fn test_governance_config_validation_accepts_max_length_agent_id() {
+    let mut config = GovernanceConfig::default();
+    config.registered_agents = vec!["a".repeat(256)];
+    assert!(config.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FIND-R44-047: Per-string length validation on approved_tools/known_servers
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_governance_config_validation_rejects_overlong_tool_name() {
+    let mut config = GovernanceConfig::default();
+    config.approved_tools = vec!["t".repeat(257)];
+    let result = config.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("approved_tools"));
+}
+
+#[test]
+fn test_governance_config_validation_accepts_max_length_tool_name() {
+    let mut config = GovernanceConfig::default();
+    config.approved_tools = vec!["t".repeat(256)];
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_governance_config_validation_rejects_overlong_server_id() {
+    let mut config = GovernanceConfig::default();
+    config.known_servers = vec!["s".repeat(513)];
+    let result = config.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("known_servers"));
+}
+
+#[test]
+fn test_governance_config_validation_accepts_max_length_server_id() {
+    let mut config = GovernanceConfig::default();
+    config.known_servers = vec!["s".repeat(512)];
+    assert!(config.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FIND-R44-048: Upper bound on discovery_window_secs
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_governance_config_validation_rejects_excessive_discovery_window() {
+    let mut config = GovernanceConfig::default();
+    config.discovery_window_secs = 86_401; // > 24 hours
+    let result = config.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("discovery_window_secs"));
+}
+
+#[test]
+fn test_governance_config_validation_accepts_max_discovery_window() {
+    let mut config = GovernanceConfig::default();
+    config.discovery_window_secs = 86_400; // exactly 24 hours
+    assert!(config.validate().is_ok());
 }
 
 // ═══════════════════════════════════════════════════
@@ -3762,6 +3874,120 @@ fn test_deployment_dns_name_azure_metadata_rejected() {
     config.service_discovery.dns_name = Some("169.254.165.254:80".to_string());
     let err = config.validate().unwrap_err();
     assert!(err.contains("link-local") || err.contains("metadata"), "expected metadata/link-local rejection: {}", err);
+}
+
+// ═══════════════════════════════════════════════════════
+// Adversarial audit tests (FIND-R44-014): HOSTNAME env var validation
+// ═══════════════════════════════════════════════════════
+
+#[test]
+fn test_deployment_effective_instance_id_hostname_valid() {
+    // When instance_id is not set and HOSTNAME is valid, use HOSTNAME.
+    // We can't reliably set env vars in parallel tests, so we test the
+    // validate_instance_id helper indirectly via effective_instance_id.
+    let config = crate::DeploymentConfig::default();
+    // Whatever effective_instance_id returns, it should be DNS-safe.
+    let eid = config.effective_instance_id();
+    assert!(!eid.is_empty());
+    // The result should always pass validation (either from HOSTNAME or fallback).
+    assert!(
+        eid.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.') || eid == "vellaveto-unknown",
+        "effective_instance_id should be DNS-safe, got '{}'",
+        eid
+    );
+}
+
+#[test]
+fn test_deployment_effective_instance_id_configured_takes_precedence() {
+    let mut config = crate::DeploymentConfig::default();
+    config.instance_id = Some("my-pod-0".to_string());
+    assert_eq!(config.effective_instance_id(), "my-pod-0");
+}
+
+#[test]
+fn test_deployment_validate_instance_id_rejects_uppercase() {
+    // The validate_instance_id helper (used by effective_instance_id for HOSTNAME)
+    // should reject uppercase characters.
+    let result = crate::deployment::validate_instance_id("MY-HOST");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_deployment_validate_instance_id_rejects_spaces() {
+    let result = crate::deployment::validate_instance_id("my host");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_deployment_validate_instance_id_rejects_empty() {
+    let result = crate::deployment::validate_instance_id("");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_deployment_validate_instance_id_rejects_too_long() {
+    let long = "a".repeat(254);
+    let result = crate::deployment::validate_instance_id(&long);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_deployment_validate_instance_id_rejects_leading_hyphen() {
+    let result = crate::deployment::validate_instance_id("-pod-0");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_deployment_validate_instance_id_rejects_trailing_dot() {
+    let result = crate::deployment::validate_instance_id("pod-0.");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_deployment_validate_instance_id_rejects_consecutive_dots() {
+    let result = crate::deployment::validate_instance_id("pod..0");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_deployment_validate_instance_id_accepts_valid() {
+    assert!(crate::deployment::validate_instance_id("vellaveto-0").is_ok());
+    assert!(crate::deployment::validate_instance_id("pod-0.prod").is_ok());
+    assert!(crate::deployment::validate_instance_id("a").is_ok());
+}
+
+// ═══════════════════════════════════════════════════════
+// Adversarial audit tests (FIND-R44-045): .local TLD warning
+// ═══════════════════════════════════════════════════════
+
+#[test]
+fn test_deployment_dns_name_local_tld_accepted_with_warning() {
+    // .local TLD should be accepted (no reject) but would log a warning.
+    // We verify it does not error.
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
+    config.service_discovery.dns_name = Some("myservice.local:8080".to_string());
+    assert!(config.validate().is_ok(), ".local TLD should be accepted (with warning)");
+}
+
+#[test]
+fn test_deployment_dns_name_svc_cluster_local_accepted_no_warning() {
+    // .svc.cluster.local should be accepted without warning.
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
+    config.service_discovery.dns_name =
+        Some("vellaveto-headless.default.svc.cluster.local:3000".to_string());
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_deployment_dns_name_random_local_not_k8s_accepted() {
+    // A .local name that is NOT .svc.cluster.local should still be accepted
+    // (only a warning, not a rejection).
+    let mut config = crate::DeploymentConfig::default();
+    config.service_discovery.mode = crate::ServiceDiscoveryMode::Dns;
+    config.service_discovery.dns_name = Some("printer.local:631".to_string());
+    assert!(config.validate().is_ok(), "non-k8s .local should be accepted");
 }
 
 // ═══════════════════════════════════════════════════════
@@ -4270,4 +4496,110 @@ fn test_transport_overrides_del_char_rejected() {
     };
     let err = config.validate().unwrap_err();
     assert!(err.contains("control characters"), "got: {}", err);
+}
+
+// ═══════════════════════════════════════════════════
+// MCP 2025-11-25 StreamableHttpConfig (Phase 30)
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_streamable_http_config_defaults() {
+    let config = crate::StreamableHttpConfig::default();
+    assert!(!config.resumability_enabled);
+    assert!(!config.strict_tool_name_validation);
+    assert_eq!(config.max_event_id_length, 128);
+    assert_eq!(config.sse_retry_ms, None);
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_streamable_http_config_max_event_id_length_zero_rejected() {
+    let config = crate::StreamableHttpConfig {
+        max_event_id_length: 0,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("max_event_id_length"), "got: {}", err);
+}
+
+#[test]
+fn test_streamable_http_config_max_event_id_length_over_512_rejected() {
+    let config = crate::StreamableHttpConfig {
+        max_event_id_length: 513,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("max_event_id_length"), "got: {}", err);
+}
+
+#[test]
+fn test_streamable_http_config_max_event_id_length_boundary_accepted() {
+    for len in [1, 512] {
+        let config = crate::StreamableHttpConfig {
+            max_event_id_length: len,
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok(), "len={} should be valid", len);
+    }
+}
+
+#[test]
+fn test_streamable_http_config_sse_retry_ms_bounds() {
+    // Below minimum
+    let config = crate::StreamableHttpConfig {
+        sse_retry_ms: Some(99),
+        ..Default::default()
+    };
+    assert!(config.validate().is_err());
+
+    // Above maximum
+    let config = crate::StreamableHttpConfig {
+        sse_retry_ms: Some(60_001),
+        ..Default::default()
+    };
+    assert!(config.validate().is_err());
+
+    // At boundaries
+    for ms in [100, 60_000] {
+        let config = crate::StreamableHttpConfig {
+            sse_retry_ms: Some(ms),
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok(), "ms={} should be valid", ms);
+    }
+}
+
+#[test]
+fn test_streamable_http_config_serde_roundtrip() {
+    let config = crate::StreamableHttpConfig {
+        resumability_enabled: true,
+        strict_tool_name_validation: true,
+        max_event_id_length: 256,
+        sse_retry_ms: Some(5000),
+    };
+    let json = serde_json::to_string(&config).expect("serialize");
+    let deser: crate::StreamableHttpConfig = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(config, deser);
+}
+
+#[test]
+fn test_streamable_http_config_in_policy_config() {
+    let toml_str = r#"
+        [[policies]]
+        name = "test"
+        tool_pattern = "*"
+        function_pattern = "*"
+        policy_type = "Allow"
+
+        [streamable_http]
+        resumability_enabled = true
+        strict_tool_name_validation = true
+        max_event_id_length = 256
+        sse_retry_ms = 3000
+    "#;
+    let config: crate::PolicyConfig = toml::from_str(toml_str).expect("parse");
+    assert!(config.streamable_http.resumability_enabled);
+    assert!(config.streamable_http.strict_tool_name_validation);
+    assert_eq!(config.streamable_http.max_event_id_length, 256);
+    assert_eq!(config.streamable_http.sse_retry_ms, Some(3000));
 }

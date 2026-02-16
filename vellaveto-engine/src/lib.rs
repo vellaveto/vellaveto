@@ -248,13 +248,19 @@ impl PolicyEngine {
             });
         }
 
-        // Check if already sorted (by priority desc, deny-first at equal priority)
+        // Check if already sorted (by priority desc, deny-first at equal priority,
+        // then by ID ascending as a tiebreaker — FIND-R44-057)
         let is_sorted = policies.windows(2).all(|w| {
             let pri = w[0].priority.cmp(&w[1].priority);
             if pri == std::cmp::Ordering::Equal {
                 let a_deny = matches!(w[0].policy_type, PolicyType::Deny);
                 let b_deny = matches!(w[1].policy_type, PolicyType::Deny);
-                b_deny <= a_deny
+                if a_deny == b_deny {
+                    // FIND-R44-057: Tertiary tiebreaker by ID for deterministic ordering
+                    w[0].id.cmp(&w[1].id) != std::cmp::Ordering::Greater
+                } else {
+                    b_deny <= a_deny
+                }
             } else {
                 pri != std::cmp::Ordering::Less
             }
@@ -278,7 +284,12 @@ impl PolicyEngine {
                 }
                 let a_deny = matches!(a.policy_type, PolicyType::Deny);
                 let b_deny = matches!(b.policy_type, PolicyType::Deny);
-                b_deny.cmp(&a_deny)
+                let deny_cmp = b_deny.cmp(&a_deny);
+                if deny_cmp != std::cmp::Ordering::Equal {
+                    return deny_cmp;
+                }
+                // FIND-R44-057: Tertiary tiebreaker by ID for deterministic ordering
+                a.id.cmp(&b.id)
             });
             for policy in &sorted {
                 if self.matches_action(action, policy) {

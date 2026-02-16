@@ -237,9 +237,24 @@ pub(super) async fn validate_oauth(
                 required,
                 found
             );
+            // RFC 6750 §3.1: WWW-Authenticate header with insufficient_scope error.
+            // SECURITY: Sanitize scope string — no double-quotes or control chars
+            // to prevent header injection.
+            let sanitized_scope: String = required
+                .chars()
+                .filter(|c| !c.is_control() && *c != '"' && *c != '\\')
+                .collect();
+            let www_auth = format!(
+                "Bearer error=\"insufficient_scope\", scope=\"{}\"",
+                sanitized_scope
+            );
             Err((
                 StatusCode::FORBIDDEN,
-                Json(json!({"error": "Insufficient scope"})),
+                [(axum::http::header::WWW_AUTHENTICATE, www_auth)],
+                Json(json!({
+                    "error": "insufficient_scope",
+                    "required_scope": required
+                })),
             )
                 .into_response())
         }

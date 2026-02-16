@@ -10,7 +10,10 @@ use axum::{
 use bytes::Bytes;
 use serde_json::{json, Value};
 use vellaveto_mcp::extractor::{self, make_denial_response, MessageType};
-use vellaveto_mcp::inspection::{scan_notification_for_secrets, scan_parameters_for_secrets};
+use vellaveto_mcp::inspection::{
+    inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
+    scan_response_for_secrets,
+};
 use vellaveto_types::{Action, EvaluationContext, Verdict};
 
 use super::auth::{
@@ -283,6 +286,10 @@ pub async fn handle_mcp_post(
     // Previously this validation only ran on a subset of message types
     // (tools/call, resources/read, tasks/*), allowing malformed headers to pass
     // through on other MCP methods.
+    // SECURITY (FIND-R44-052): This pre-match check validates the call chain
+    // header for ALL message types (ToolCall, ResourceRead, TaskRequest, etc.).
+    // Per-arm validate_call_chain_header calls are therefore unnecessary and
+    // have been removed to avoid dead code.
     if let Err(reason) = validate_call_chain_header(&headers, &state.limits) {
         let method = msg
             .get("method")
@@ -342,44 +349,32 @@ pub async fn handle_mcp_post(
             tool_name,
             arguments,
         } => {
-            if let Err(reason) = validate_call_chain_header(&headers, &state.limits) {
-                let action = extractor::extract_action(&tool_name, &arguments);
-                let verdict = Verdict::Deny {
-                    reason: format!("Invalid upstream call chain header: {}", reason),
-                };
-                if let Err(e) = state
-                    .audit
-                    .log_entry(
-                        &action,
-                        &verdict,
-                        build_audit_context(
-                            &session_id,
-                            json!({
-                                "tool": tool_name,
-                                "event": "invalid_call_chain_header",
-                                "reason": reason,
-                            }),
-                            &oauth_claims,
-                        ),
-                    )
-                    .await
-                {
-                    tracing::warn!("Failed to audit invalid call-chain header: {}", e);
+            // MCP 2025-11-25: Strict tool name validation (Phase 30).
+            // When enabled, reject tool names that don't conform to the spec format.
+            if state.streamable_http.strict_tool_name_validation {
+                if let Err(e) = vellaveto_types::validate_mcp_tool_name(&tool_name) {
+                    tracing::warn!(
+                        "SECURITY: Rejecting invalid tool name '{}': {}",
+                        tool_name,
+                        e
+                    );
+                    let error_response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32602,
+                            "message": format!("Invalid tool name: {}", e),
+                        }
+                    });
+                    return attach_session_header(
+                        (StatusCode::OK, Json(error_response)).into_response(),
+                        &session_id,
+                    );
                 }
-
-                let error_response = json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "error": {
-                        "code": -32600,
-                        "message": format!("Invalid request: {}", reason)
-                    }
-                });
-                return attach_session_header(
-                    (StatusCode::OK, Json(error_response)).into_response(),
-                    &session_id,
-                );
             }
+
+            // NOTE (FIND-R44-052): validate_call_chain_header is handled by the
+            // pre-match check above (line ~289). No per-arm call needed here.
 
             // OWASP ASI08: Extract call chain from upstream agents header
             // The header contains the chain of agents that have processed this request
@@ -1050,10 +1045,144 @@ pub async fn handle_mcp_post(
                                                 )
                                                 .await;
                                         }
+
+                                        // SECURITY (FIND-R44-002): Run the same DLP and injection
+                                        // inspection on smart-fallback responses that
+                                        // forward_to_upstream_url applies. Without this, an
+                                        // attacker who controls a fallback transport can exfiltrate
+                                        // secrets or inject prompts undetected.
+                                        let response_bytes = result.response;
+                                        if let Ok(response_json) =
+                                            serde_json::from_slice::<Value>(&response_bytes)
+                                        {
+                                            // DLP: scan for secrets
+                                            if state.response_dlp_enabled {
+                                                let dlp_findings =
+                                                    scan_response_for_secrets(&response_json);
+                                                if !dlp_findings.is_empty() {
+                                                    for finding in &dlp_findings {
+                                                        record_dlp_finding(&finding.pattern_name);
+                                                    }
+                                                    let patterns: Vec<String> = dlp_findings
+                                                        .iter()
+                                                        .map(|f| {
+                                                            format!(
+                                                                "{}:{}",
+                                                                f.pattern_name, f.location
+                                                            )
+                                                        })
+                                                        .collect();
+                                                    tracing::warn!(
+                                                        "SECURITY: Secrets detected in smart-fallback response! \
+                                                         Session: {}, Findings: {:?}, Blocking: {}",
+                                                        session_id,
+                                                        patterns,
+                                                        state.response_dlp_blocking,
+                                                    );
+                                                    if state.response_dlp_blocking {
+                                                        let verdict = Verdict::Deny {
+                                                            reason: format!(
+                                                                "Smart-fallback response DLP blocked: {:?}",
+                                                                patterns
+                                                            ),
+                                                        };
+                                                        let _ = state
+                                                            .audit
+                                                            .log_entry(
+                                                                &action,
+                                                                &verdict,
+                                                                json!({
+                                                                    "source": "http_proxy",
+                                                                    "event": "smart_fallback_dlp_blocked",
+                                                                    "blocked": true,
+                                                                    "findings": patterns,
+                                                                }),
+                                                            )
+                                                            .await;
+                                                        return attach_session_header(
+                                                            StatusCode::BAD_GATEWAY.into_response(),
+                                                            &session_id,
+                                                        );
+                                                    }
+                                                }
+                                            }
+
+                                            // Injection: scan result text for prompt injection
+                                            if !state.injection_disabled {
+                                                if let Some(result_val) =
+                                                    response_json.get("result")
+                                                {
+                                                    let text_to_inspect =
+                                                        super::inspection::extract_text_from_result(
+                                                            result_val,
+                                                        );
+                                                    if !text_to_inspect.is_empty() {
+                                                        let matches: Vec<String> =
+                                                            if let Some(ref scanner) =
+                                                                state.injection_scanner
+                                                            {
+                                                                scanner
+                                                                    .inspect(&text_to_inspect)
+                                                                    .into_iter()
+                                                                    .map(|s| s.to_string())
+                                                                    .collect()
+                                                            } else {
+                                                                inspect_for_injection(
+                                                                    &text_to_inspect,
+                                                                )
+                                                                .into_iter()
+                                                                .map(|s| s.to_string())
+                                                                .collect()
+                                                            };
+                                                        if !matches.is_empty() {
+                                                            tracing::warn!(
+                                                                "SECURITY: Prompt injection in smart-fallback response! \
+                                                                 Session: {}, Patterns: {:?}",
+                                                                session_id,
+                                                                matches,
+                                                            );
+                                                            if state.injection_blocking {
+                                                                let verdict = Verdict::Deny {
+                                                                    reason: format!(
+                                                                        "Smart-fallback response injection blocked: {:?}",
+                                                                        matches
+                                                                    ),
+                                                                };
+                                                                let _ = state
+                                                                    .audit
+                                                                    .log_entry(
+                                                                        &action,
+                                                                        &verdict,
+                                                                        json!({
+                                                                            "source": "http_proxy",
+                                                                            "event": "smart_fallback_injection_blocked",
+                                                                            "patterns": matches,
+                                                                        }),
+                                                                    )
+                                                                    .await;
+                                                                return attach_session_header(
+                                                                    StatusCode::BAD_GATEWAY.into_response(),
+                                                                    &session_id,
+                                                                );
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            // Non-JSON response from smart fallback — log warning
+                                            // but still forward (some responses may be non-JSON).
+                                            tracing::warn!(
+                                                "Smart-fallback response is not valid JSON — \
+                                                 DLP/injection scanning skipped (session: {})",
+                                                session_id,
+                                            );
+                                        }
+
                                         let response = axum::response::Response::builder()
                                             .status(safe_status)
                                             .header("content-type", "application/json")
-                                            .body(axum::body::Body::from(result.response))
+                                            .body(axum::body::Body::from(response_bytes))
                                             .unwrap_or_else(|_| {
                                                 StatusCode::BAD_GATEWAY.into_response()
                                             });
@@ -1117,6 +1246,7 @@ pub async fn handle_mcp_post(
                             forward_body,
                             auth_header_for_upstream.as_deref(),
                             Some((gw_tp.as_str(), gw_ts.as_deref())),
+                            None,
                         )
                         .await
                     } else {
@@ -1300,44 +1430,8 @@ pub async fn handle_mcp_post(
             }
         }
         MessageType::ResourceRead { id, uri } => {
-            if let Err(reason) = validate_call_chain_header(&headers, &state.limits) {
-                let action = extractor::extract_resource_action(&uri);
-                let verdict = Verdict::Deny {
-                    reason: format!("Invalid upstream call chain header: {}", reason),
-                };
-                if let Err(e) = state
-                    .audit
-                    .log_entry(
-                        &action,
-                        &verdict,
-                        build_audit_context(
-                            &session_id,
-                            json!({
-                                "event": "invalid_call_chain_header",
-                                "resource_uri": uri,
-                                "reason": reason,
-                            }),
-                            &oauth_claims,
-                        ),
-                    )
-                    .await
-                {
-                    tracing::warn!("Failed to audit invalid call-chain header: {}", e);
-                }
-
-                let error_response = json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "error": {
-                        "code": -32600,
-                        "message": format!("Invalid request: {}", reason)
-                    }
-                });
-                return attach_session_header(
-                    (StatusCode::OK, Json(error_response)).into_response(),
-                    &session_id,
-                );
-            }
+            // NOTE (FIND-R44-052): validate_call_chain_header is handled by the
+            // pre-match check above (line ~289). No per-arm call needed here.
 
             // Keep per-request call-chain context in sync for resource policy checks.
             sync_session_call_chain_from_headers(
@@ -1870,45 +1964,8 @@ pub async fn handle_mcp_post(
             task_method,
             task_id,
         } => {
-            if let Err(reason) = validate_call_chain_header(&headers, &state.limits) {
-                let action = extractor::extract_task_action(&task_method, task_id.as_deref());
-                let verdict = Verdict::Deny {
-                    reason: format!("Invalid upstream call chain header: {}", reason),
-                };
-                if let Err(e) = state
-                    .audit
-                    .log_entry(
-                        &action,
-                        &verdict,
-                        build_audit_context(
-                            &session_id,
-                            json!({
-                                "event": "invalid_call_chain_header",
-                                "task_method": task_method,
-                                "task_id": task_id,
-                                "reason": reason,
-                            }),
-                            &oauth_claims,
-                        ),
-                    )
-                    .await
-                {
-                    tracing::warn!("Failed to audit invalid call-chain header: {}", e);
-                }
-
-                let error_response = json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "error": {
-                        "code": -32600,
-                        "message": format!("Invalid request: {}", reason)
-                    }
-                });
-                return attach_session_header(
-                    (StatusCode::OK, Json(error_response)).into_response(),
-                    &session_id,
-                );
-            }
+            // NOTE (FIND-R44-052): validate_call_chain_header is handled by the
+            // pre-match check above (line ~289). No per-arm call needed here.
 
             // Keep per-request call-chain context in sync for task policy checks.
             sync_session_call_chain_from_headers(
@@ -2442,7 +2499,22 @@ pub async fn handle_mcp_delete(
         return response;
     }
 
-    let session_id = headers.get(MCP_SESSION_ID).and_then(|v| v.to_str().ok());
+    // SECURITY (FIND-R44-053): Reject oversized session IDs to prevent
+    // memory abuse or hash-flooding attacks. Server-generated IDs are UUIDs
+    // (36 chars); anything over 128 is suspicious.
+    let session_id = headers
+        .get(MCP_SESSION_ID)
+        .and_then(|v| v.to_str().ok())
+        .filter(|id| id.len() <= 128);
+
+    // If the header was present but filtered out due to length, return 400.
+    if headers.get(MCP_SESSION_ID).is_some() && session_id.is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Session ID too long"})),
+        )
+            .into_response();
+    }
 
     // OAuth 2.1 token validation (if configured)
     let from_trusted_proxy = proxy_ctx
@@ -2662,7 +2734,24 @@ pub(crate) fn extract_host_from_url(url: &str) -> Option<&str> {
         if ipv6.is_empty() {
             return None;
         }
+        // SECURITY (FIND-R44-051): Strip IPv6 zone ID (e.g., "fe80::1%25eth0"
+        // → "fe80::1"). Zone IDs are link-local scope identifiers encoded as
+        // %25<zone> in URIs (RFC 6874). Strip them so the raw IPv6 address is
+        // matched against allow-lists without the interface suffix.
+        let ipv6 = ipv6.split("%25").next().unwrap_or(ipv6);
+        if ipv6.is_empty() {
+            return None;
+        }
         return Some(ipv6);
+    }
+    // SECURITY (FIND-R44-023): Reject host_port containing percent-encoded
+    // special characters (%25xx). Double-encoding like %2540 (which decodes to
+    // %40, then @) can bypass the userinfo stripping above. Fail-closed: any
+    // %25 in the non-bracketed host_port is suspicious and rejected.
+    // NOTE: This check is placed after the IPv6 bracket branch because %25
+    // is legitimately used for zone IDs in bracketed IPv6 addresses (RFC 6874).
+    if host_port.contains("%25") {
+        return None;
     }
     // IPv4 or hostname: strip port.
     let host = host_port.split(':').next().unwrap_or(host_port);
@@ -2671,4 +2760,179 @@ pub(crate) fn extract_host_from_url(url: &str) -> Option<&str> {
     } else {
         Some(host)
     }
+}
+
+// ═══════════════════════════════════════════════════
+// GET /mcp — SSE Resumability (MCP 2025-11-25, Phase 30)
+// ═══════════════════════════════════════════════════
+
+/// Header name for SSE resumption.
+const LAST_EVENT_ID_HEADER: &str = "last-event-id";
+
+/// GET /mcp handler for SSE stream initiation/resumption.
+///
+/// MCP 2025-11-25 requires servers to support GET /mcp for clients to
+/// initiate or resume SSE streams. The client sends `Accept: text/event-stream`
+/// and optionally `Last-Event-ID` for resumption.
+///
+/// Gated behind `streamable_http.resumability_enabled` — returns 405 when disabled.
+pub async fn handle_mcp_get(
+    State(state): State<ProxyState>,
+    OriginalUri(original_uri): OriginalUri,
+    proxy_ctx: Option<Extension<TrustedProxyContext>>,
+    headers: HeaderMap,
+) -> Response {
+    // Gate: resumability must be enabled
+    if !state.streamable_http.resumability_enabled {
+        return (
+            StatusCode::METHOD_NOT_ALLOWED,
+            Json(json!({
+                "error": "GET /mcp not supported (resumability disabled)"
+            })),
+        )
+            .into_response();
+    }
+
+    // Validate Accept header — must request text/event-stream
+    let accept = headers
+        .get("accept")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !accept.contains("text/event-stream") {
+        return (
+            StatusCode::NOT_ACCEPTABLE,
+            Json(json!({
+                "error": "Accept header must include text/event-stream"
+            })),
+        )
+            .into_response();
+    }
+
+    // MCP 2025-11-25: Validate MCP-Protocol-Version header
+    if let Some(version_hdr) = headers.get(MCP_PROTOCOL_VERSION_HEADER) {
+        match version_hdr.to_str() {
+            Ok(version) if SUPPORTED_PROTOCOL_VERSIONS.contains(&version) => {}
+            Ok(version) => {
+                tracing::warn!(
+                    "GET /mcp: Unsupported MCP protocol version: '{}'",
+                    version,
+                );
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": format!(
+                            "Unsupported MCP protocol version '{}'. Supported: {}",
+                            version,
+                            SUPPORTED_PROTOCOL_VERSIONS.join(", ")
+                        )
+                    })),
+                )
+                    .into_response();
+            }
+            Err(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": "Invalid MCP-Protocol-Version header encoding"
+                    })),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    // CSRF / DNS rebinding origin validation
+    if let Err(response) = validate_origin(&headers, &state.bind_addr, &state.allowed_origins) {
+        return response;
+    }
+
+    // API key validation
+    if let Err(response) = validate_api_key(&state, &headers) {
+        return response;
+    }
+
+    let client_session_id = headers.get(MCP_SESSION_ID).and_then(|v| v.to_str().ok());
+
+    // OAuth 2.1 token validation
+    let from_trusted_proxy = proxy_ctx
+        .map(|Extension(ctx)| ctx.from_trusted_proxy)
+        .unwrap_or(false);
+    let effective_uri =
+        build_effective_request_uri(&headers, state.bind_addr, &original_uri, from_trusted_proxy);
+    if let Err(response) =
+        validate_oauth(&state, &headers, "GET", &effective_uri, client_session_id).await
+    {
+        return response;
+    }
+
+    // Extract and validate Last-Event-ID
+    let last_event_id = headers
+        .get(LAST_EVENT_ID_HEADER)
+        .and_then(|v| v.to_str().ok());
+
+    // SECURITY: Fail-closed on oversized event IDs
+    if let Some(event_id) = last_event_id {
+        if event_id.len() > state.streamable_http.max_event_id_length {
+            tracing::warn!(
+                "SECURITY: Rejecting oversized Last-Event-ID ({} bytes, max {})",
+                event_id.len(),
+                state.streamable_http.max_event_id_length
+            );
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "Last-Event-ID exceeds maximum length"
+                })),
+            )
+                .into_response();
+        }
+        // SECURITY: Reject event IDs with control characters
+        if event_id.chars().any(|c| c.is_control()) {
+            tracing::warn!("SECURITY: Rejecting Last-Event-ID with control characters");
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "Last-Event-ID contains invalid characters"
+                })),
+            )
+                .into_response();
+        }
+    }
+
+    // Session management
+    let session_id = state.sessions.get_or_create(client_session_id);
+
+    // Phase 28: Extract W3C Trace Context
+    let incoming_trace = trace_propagation::extract_trace_context(&headers);
+    let (vellaveto_trace_ctx, _vellaveto_span_id) =
+        trace_propagation::create_vellaveto_span(&incoming_trace);
+
+    // Determine Authorization header for upstream
+    let auth_header_for_upstream = if state
+        .oauth
+        .as_ref()
+        .is_some_and(|v| v.config().pass_through)
+    {
+        headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string())
+    } else {
+        None
+    };
+
+    let (up_tp, up_ts) =
+        trace_propagation::build_upstream_headers(&vellaveto_trace_ctx, "sse_get");
+
+    // Forward GET to upstream
+    let response = super::upstream::forward_get_to_upstream(
+        &state,
+        &session_id,
+        auth_header_for_upstream.as_deref(),
+        Some((up_tp.as_str(), up_ts.as_deref())),
+        last_event_id,
+    )
+    .await;
+
+    attach_session_header(response, &session_id)
 }

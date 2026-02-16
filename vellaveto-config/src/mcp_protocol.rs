@@ -272,6 +272,88 @@ pub struct CimdConfig {
     pub blocked_capabilities: Vec<String>,
 }
 
+// ═══════════════════════════════════════════════════
+// MCP 2025-11-25 STREAMABLE HTTP CONFIGURATION (Phase 30)
+// ═══════════════════════════════════════════════════
+
+/// Default maximum event ID length (bytes).
+fn default_max_event_id_length() -> usize {
+    128
+}
+
+/// Streamable HTTP configuration for MCP 2025-11-25 compliance.
+///
+/// Controls SSE resumability (GET /mcp + Last-Event-ID), strict tool name
+/// validation, and retry directive overrides.
+///
+/// # TOML Example
+///
+/// ```toml
+/// [streamable_http]
+/// resumability_enabled = true
+/// strict_tool_name_validation = false
+/// max_event_id_length = 128
+/// sse_retry_ms = 3000
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StreamableHttpConfig {
+    /// Enable SSE resumability (GET /mcp with Last-Event-ID). Default: false.
+    #[serde(default)]
+    pub resumability_enabled: bool,
+
+    /// Enable strict MCP 2025-11-25 tool name validation. Default: false.
+    /// When true, tool names must match `[a-zA-Z0-9_\-./]{1,64}` with no
+    /// leading/trailing dots/slashes and no consecutive dots.
+    #[serde(default)]
+    pub strict_tool_name_validation: bool,
+
+    /// Maximum length for SSE event IDs (bytes). Default: 128, max: 512.
+    /// Event IDs exceeding this length are rejected (fail-closed).
+    #[serde(default = "default_max_event_id_length")]
+    pub max_event_id_length: usize,
+
+    /// Override SSE `retry:` directive (milliseconds). Default: None.
+    /// When Some, the proxy injects a `retry:` field on SSE responses.
+    /// Range: 100–60000 ms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sse_retry_ms: Option<u64>,
+}
+
+impl Default for StreamableHttpConfig {
+    fn default() -> Self {
+        Self {
+            resumability_enabled: false,
+            strict_tool_name_validation: false,
+            max_event_id_length: default_max_event_id_length(),
+            sse_retry_ms: None,
+        }
+    }
+}
+
+impl StreamableHttpConfig {
+    /// Validate configuration values.
+    ///
+    /// - `max_event_id_length` must be in [1, 512]
+    /// - `sse_retry_ms` must be in [100, 60000] when Some
+    pub fn validate(&self) -> Result<(), String> {
+        if self.max_event_id_length == 0 || self.max_event_id_length > 512 {
+            return Err(format!(
+                "max_event_id_length must be in [1, 512], got {}",
+                self.max_event_id_length
+            ));
+        }
+        if let Some(retry) = self.sse_retry_ms {
+            if !(100..=60_000).contains(&retry) {
+                return Err(format!(
+                    "sse_retry_ms must be in [100, 60000], got {}",
+                    retry
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Default step-up auth expiry (30 minutes in seconds).
 fn default_step_up_expiry_secs() -> u64 {
     1800

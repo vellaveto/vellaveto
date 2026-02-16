@@ -358,6 +358,17 @@ pub(super) async fn scan_sse_events_for_injection(
 /// Parses SSE events, extracts JSON-RPC result payloads, and scans
 /// them for secrets (AWS keys, GitHub tokens, etc). Findings are logged
 /// as audit entries. Returns `true` if any secrets were detected.
+///
+/// # Known Limitation (FIND-R44-027)
+///
+/// SSE streaming can split a secret across multiple `data:` lines within
+/// a single event, or across event boundaries. This scanner concatenates
+/// `data:` lines per event (R11-RESP-4) but cannot detect secrets split
+/// across separate SSE events. A malicious server could fragment a secret
+/// like "AKIA" + "IOSFODNN7EXAMPLE" across two events to evade detection.
+/// Mitigation: use `response_dlp_blocking` with a downstream reassembly
+/// buffer, or rely on request-side DLP to catch secrets when they are
+/// subsequently used in tool call parameters.
 pub(super) async fn scan_sse_events_for_dlp(
     sse_bytes: &[u8],
     session_id: &str,

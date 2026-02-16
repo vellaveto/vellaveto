@@ -255,6 +255,56 @@ pub struct Policy {
 }
 
 // ═══════════════════════════════════════════════════
+// MCP 2025-11-25 TOOL NAME VALIDATION (Phase 30)
+// ═══════════════════════════════════════════════════
+
+/// Maximum length for MCP 2025-11-25 tool names.
+const MCP_TOOL_NAME_MAX_LEN: usize = 64;
+
+/// Validate a tool name per MCP 2025-11-25 specification.
+///
+/// Rules:
+/// - Length: 1–64 characters
+/// - Charset: `[a-zA-Z0-9_\-./]`
+/// - No leading/trailing dots or slashes
+/// - No consecutive dots (`..`) — prevents path traversal in tool namespaces
+///
+/// Returns `Ok(())` on valid names, `Err(description)` on invalid.
+pub fn validate_mcp_tool_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("tool name must not be empty".to_string());
+    }
+    if name.len() > MCP_TOOL_NAME_MAX_LEN {
+        return Err(format!(
+            "tool name exceeds {} characters (got {})",
+            MCP_TOOL_NAME_MAX_LEN,
+            name.len()
+        ));
+    }
+    // Charset: only [a-zA-Z0-9_\-./]
+    for (i, ch) in name.chars().enumerate() {
+        if !matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-' | '.' | '/') {
+            return Err(format!(
+                "invalid character '{}' at position {} (allowed: a-zA-Z0-9_-./)",
+                ch, i
+            ));
+        }
+    }
+    // No leading/trailing dots or slashes
+    if name.starts_with('.') || name.starts_with('/') {
+        return Err("tool name must not start with '.' or '/'".to_string());
+    }
+    if name.ends_with('.') || name.ends_with('/') {
+        return Err("tool name must not end with '.' or '/'".to_string());
+    }
+    // No consecutive dots (path traversal prevention)
+    if name.contains("..") {
+        return Err("tool name must not contain consecutive dots '..'".to_string());
+    }
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════
 // EVALUATION TRACE TYPES (Phase 10.4)
 // ═══════════════════════════════════════════════════
 

@@ -60,7 +60,7 @@ pub use manifest::{
 
 pub use mcp_protocol::{
     AsyncTaskConfig, CimdConfig, ElicitationConfig, ResourceIndicatorConfig, SamplingConfig,
-    StepUpAuthConfig, MAX_ALLOWED_MODELS, MAX_BLOCKED_FIELD_TYPES,
+    StepUpAuthConfig, StreamableHttpConfig, MAX_ALLOWED_MODELS, MAX_BLOCKED_FIELD_TYPES,
 };
 
 pub use etdi::{AllowedSignersConfig, AttestationConfig, EtdiConfig, VersionPinningConfig};
@@ -453,6 +453,14 @@ pub struct PolicyConfig {
     /// Controls deployment mode, leader election, and service discovery.
     #[serde(default)]
     pub deployment: DeploymentConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 30: MCP 2025-11-25 STREAMABLE HTTP
+    // ═══════════════════════════════════════════════════
+    /// Streamable HTTP configuration for MCP 2025-11-25 compliance.
+    /// Controls SSE resumability, strict tool name validation, and retry directives.
+    #[serde(default)]
+    pub streamable_http: StreamableHttpConfig,
 }
 
 impl PolicyConfig {

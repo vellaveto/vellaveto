@@ -12,7 +12,7 @@
 //! - **Trace overhead target**: <200ns per request (parse + span ID gen + header inject).
 
 use axum::http::HeaderMap;
-use vellaveto_audit::observability::TraceContext;
+use vellaveto_audit::observability::{TraceContext, MAX_TRACESTATE_BYTES};
 
 /// Extract W3C Trace Context from incoming HTTP headers.
 ///
@@ -32,10 +32,13 @@ pub fn extract_trace_context(headers: &HeaderMap) -> TraceContext {
     ctx.ensure_trace_id();
 
     // Parse tracestate if present
+    // SECURITY (FIND-R44-009): Reject tracestate exceeding W3C 512-byte limit
     if let Some(ts) = headers.get("tracestate").and_then(|v| v.to_str().ok()) {
-        if !ts.is_empty() {
+        if !ts.is_empty() && ts.len() <= MAX_TRACESTATE_BYTES {
             ctx = ctx.with_parsed_tracestate(ts);
         }
+        // Oversized tracestate is silently dropped (with_parsed_tracestate
+        // also enforces truncation, but we reject early here for clarity)
     }
 
     ctx
@@ -58,32 +61,44 @@ pub fn create_vellaveto_span(parent: &TraceContext) -> (TraceContext, String) {
 /// Build `traceparent` and `tracestate` header values for upstream requests.
 ///
 /// The returned traceparent places Vellaveto's span as the parent of the
-/// upstream call. The tracestate includes `vellaveto=<verdict>` prepended
-/// to any existing vendor state.
+/// upstream call. The tracestate contains ONLY `vellaveto=<verdict>`.
+///
+/// SECURITY (FIND-R44-011): We intentionally strip all incoming vendor
+/// tracestate entries and emit only our own `vellaveto=<verdict>` entry.
+/// This prevents leaking internal tracing topology to upstream servers,
+/// which is consistent with W3C Trace Context guidance for intermediaries
+/// that act as trust boundaries.
 ///
 /// Returns `(traceparent, Option<tracestate>)`.
 pub fn build_upstream_headers(
     ctx: &TraceContext,
     verdict: &str,
 ) -> (String, Option<String>) {
-    let upstream_ctx = ctx.clone().with_vellaveto_verdict(verdict);
+    // Build a clean context with NO incoming tracestate — only our verdict
+    let mut clean_ctx = TraceContext {
+        trace_id: ctx.trace_id.clone(),
+        parent_span_id: ctx.parent_span_id.clone(),
+        trace_flags: ctx.trace_flags,
+        trace_state: None, // Strip all incoming vendor entries
+    };
+    clean_ctx = clean_ctx.with_vellaveto_verdict(verdict);
 
-    let traceparent = upstream_ctx
+    let traceparent = clean_ctx
         .to_traceparent()
         .unwrap_or_else(|| {
             // Fallback: generate a minimal valid traceparent
             let trace_id = ctx
                 .trace_id
                 .as_deref()
-                .unwrap_or("00000000000000000000000000000000");
+                .unwrap_or("00000000000000000000000000000001");
             let span_id = ctx
                 .parent_span_id
                 .as_deref()
-                .unwrap_or("0000000000000000");
+                .unwrap_or("0000000000000001");
             format!("00-{}-{}-{:02x}", trace_id, span_id, ctx.trace_flags)
         });
 
-    let tracestate = upstream_ctx.trace_state;
+    let tracestate = clean_ctx.trace_state;
 
     (traceparent, tracestate)
 }
@@ -187,5 +202,84 @@ mod tests {
         assert!(traceparent.starts_with("00-0af7651916cd43dd8448eb211c80319c-"));
         assert!(traceparent.ends_with("-01"));
         assert_eq!(tracestate, Some("vellaveto=allow".to_string()));
+    }
+
+    // ========================================
+    // Adversarial Audit Round 44 Tests
+    // ========================================
+
+    // --- FIND-R44-009: Unbounded tracestate rejected at extraction ---
+
+    #[test]
+    fn test_r44_009_extract_oversized_tracestate_dropped() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "traceparent",
+            "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+                .parse()
+                .unwrap(),
+        );
+        // Insert a tracestate larger than 512 bytes
+        let oversized = "a=".to_string() + &"x".repeat(600);
+        headers.insert("tracestate", oversized.parse().unwrap());
+
+        let ctx = extract_trace_context(&headers);
+        assert!(
+            ctx.trace_state.is_none(),
+            "oversized tracestate must be dropped during extraction"
+        );
+    }
+
+    #[test]
+    fn test_r44_009_extract_valid_tracestate_accepted() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "traceparent",
+            "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+                .parse()
+                .unwrap(),
+        );
+        headers.insert("tracestate", "vendor=value".parse().unwrap());
+
+        let ctx = extract_trace_context(&headers);
+        assert_eq!(ctx.trace_state, Some("vendor=value".to_string()));
+    }
+
+    // --- FIND-R44-011: Upstream tracestate strips incoming vendor entries ---
+
+    #[test]
+    fn test_r44_011_upstream_headers_strip_incoming_vendor_entries() {
+        let ctx = TraceContext {
+            trace_id: Some("0af7651916cd43dd8448eb211c80319c".to_string()),
+            parent_span_id: Some("b7ad6b7169203331".to_string()),
+            trace_flags: 1,
+            trace_state: Some("vendor=secret_internal_value,other=data".to_string()),
+        };
+
+        let (_, tracestate) = build_upstream_headers(&ctx, "allow");
+        let ts = tracestate.expect("should have tracestate");
+        // Only vellaveto entry should be present
+        assert_eq!(ts, "vellaveto=allow");
+        assert!(
+            !ts.contains("vendor="),
+            "incoming vendor entries must be stripped"
+        );
+        assert!(
+            !ts.contains("other="),
+            "incoming vendor entries must be stripped"
+        );
+    }
+
+    #[test]
+    fn test_r44_011_upstream_headers_no_incoming_state() {
+        let ctx = TraceContext {
+            trace_id: Some("0af7651916cd43dd8448eb211c80319c".to_string()),
+            parent_span_id: Some("b7ad6b7169203331".to_string()),
+            trace_flags: 1,
+            trace_state: None,
+        };
+
+        let (_, tracestate) = build_upstream_headers(&ctx, "deny");
+        assert_eq!(tracestate, Some("vellaveto=deny".to_string()));
     }
 }

@@ -121,7 +121,14 @@ pub async fn reset_circuit(
         )
     })?;
 
-    cb.reset(&tool);
+    if let Err(reason) = cb.reset(&tool) {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(ErrorResponse {
+                error: reason,
+            }),
+        ));
+    }
 
     Ok(Json(json!({
         "tool": tool,

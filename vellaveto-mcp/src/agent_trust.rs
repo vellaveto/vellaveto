@@ -30,6 +30,10 @@ const MAX_TRUSTED_AGENTS: usize = 1_000;
 /// SECURITY (FIND-R43-006): Maximum total trust edge source keys.
 const MAX_TRUST_EDGES: usize = 50_000;
 
+/// SECURITY (FIND-R44-038): Maximum entries in the last_activity map.
+/// Matches MAX_REGISTERED_AGENTS to prevent unbounded memory growth.
+const MAX_LAST_ACTIVITY_ENTRIES: usize = 10_000;
+
 /// SECURITY (FIND-R43-006): Maximum trust targets per source agent.
 const MAX_TRUST_TARGETS_PER_AGENT: usize = 1_000;
 
@@ -173,6 +177,16 @@ impl AgentTrustGraph {
                 return;
             }
         };
+        // SECURITY (FIND-R44-038): Bound last_activity entries. If at capacity
+        // and the key is not already present, skip the insert.
+        if activity.len() >= MAX_LAST_ACTIVITY_ENTRIES && !activity.contains_key(agent_id) {
+            tracing::warn!(
+                target: "vellaveto::security",
+                limit = MAX_LAST_ACTIVITY_ENTRIES,
+                "Last activity limit reached — dropping new entry"
+            );
+            return;
+        }
         activity.insert(agent_id.to_string(), Instant::now());
     }
 
@@ -933,5 +947,59 @@ mod tests {
         assert_eq!(stats.trusted_agents, 1);
         assert_eq!(stats.total_trust_edges, 1);
         assert_eq!(stats.active_sessions, 1);
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FIND-R44-038: last_activity bounded at MAX_LAST_ACTIVITY_ENTRIES
+    // ═══════════════════════════════════════════════════════
+
+    /// FIND-R44-038: last_activity stops accepting new entries at capacity.
+    /// Note: MAX_REGISTERED_AGENTS and MAX_LAST_ACTIVITY_ENTRIES are both 10_000.
+    /// Since register_agent also checks MAX_REGISTERED_AGENTS for privilege_levels,
+    /// both bounds trigger together. We verify via stats that registration stops.
+    #[test]
+    fn test_last_activity_bounded() {
+        let graph = AgentTrustGraph::new();
+
+        // Fill to capacity (MAX_REGISTERED_AGENTS = 10_000)
+        for i in 0..MAX_REGISTERED_AGENTS {
+            graph.register_agent(&format!("agent_{}", i), PrivilegeLevel::Basic);
+        }
+
+        let stats = graph.stats();
+        assert_eq!(stats.registered_agents, MAX_REGISTERED_AGENTS);
+
+        // One more should be dropped
+        graph.register_agent("overflow_agent", PrivilegeLevel::Admin);
+
+        let stats_after = graph.stats();
+        assert_eq!(
+            stats_after.registered_agents, MAX_REGISTERED_AGENTS,
+            "Registration beyond MAX_REGISTERED_AGENTS must be rejected"
+        );
+        assert!(
+            !graph.is_registered("overflow_agent"),
+            "Overflow agent must not be registered"
+        );
+    }
+
+    /// FIND-R44-038: Updating an existing agent's last_activity does not fail at capacity.
+    #[test]
+    fn test_last_activity_existing_agent_updates_at_capacity() {
+        let graph = AgentTrustGraph::new();
+
+        // Fill to capacity
+        for i in 0..MAX_REGISTERED_AGENTS {
+            graph.register_agent(&format!("agent_{}", i), PrivilegeLevel::Basic);
+        }
+
+        // Re-registering an existing agent should succeed (updates last_activity)
+        graph.register_agent("agent_0", PrivilegeLevel::Admin);
+
+        // Verify the agent is still registered
+        assert!(
+            graph.is_registered("agent_0"),
+            "Re-registering existing agent must succeed at capacity"
+        );
     }
 }

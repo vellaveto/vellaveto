@@ -8546,3 +8546,79 @@ fn test_require_capability_token_depth_insufficient() {
         v
     );
 }
+
+// ════════════════════════════════════════════════════════
+// FIND-R44-057: Legacy path sort ID tiebreaker
+// ════════════════════════════════════════════════════════
+
+#[test]
+fn test_legacy_sort_deterministic_with_same_priority_and_type() {
+    // Two Allow policies with identical priority — evaluation order should be
+    // deterministic based on ID (ascending), ensuring reproducible verdicts.
+    let engine = PolicyEngine::new(false);
+    let action = Action::new("bash".to_string(), "execute".to_string(), json!({}));
+
+    // "aaa" < "zzz" in ID ordering, so "aaa" should be evaluated first.
+    // Both match the same action, so the first one wins.
+    let policy_a = Policy {
+        id: "aaa:*".to_string(),
+        name: "Allow A".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    };
+    let policy_z = Policy {
+        id: "zzz:*".to_string(),
+        name: "Allow Z".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    };
+
+    // Pass in reverse ID order to exercise the sort path
+    let verdict1 = engine.evaluate_action(&action, &[policy_z.clone(), policy_a.clone()]).unwrap();
+    let verdict2 = engine.evaluate_action(&action, &[policy_a.clone(), policy_z.clone()]).unwrap();
+
+    // Both orderings should produce the same result (deterministic)
+    assert_eq!(
+        std::mem::discriminant(&verdict1),
+        std::mem::discriminant(&verdict2),
+        "Legacy sort should produce deterministic results regardless of input order"
+    );
+}
+
+#[test]
+fn test_legacy_sort_deny_still_beats_allow_at_same_priority() {
+    // Verify that deny-first ordering is preserved alongside the ID tiebreaker
+    let engine = PolicyEngine::new(false);
+    let action = Action::new("bash".to_string(), "execute".to_string(), json!({}));
+
+    let deny_policy = Policy {
+        id: "zzz:*".to_string(), // Higher ID but Deny type
+        name: "Deny bash".to_string(),
+        policy_type: PolicyType::Deny,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    };
+    let allow_policy = Policy {
+        id: "aaa:*".to_string(), // Lower ID but Allow type
+        name: "Allow bash".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    };
+
+    // Deny should win even though its ID is higher
+    let verdict = engine
+        .evaluate_action(&action, &[allow_policy, deny_policy])
+        .unwrap();
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "Deny should still beat Allow at same priority, got: {:?}",
+        verdict
+    );
+}

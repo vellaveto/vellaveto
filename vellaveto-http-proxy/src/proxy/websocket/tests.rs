@@ -544,5 +544,6 @@ fn make_test_state() -> ProxyState {
         least_agency: None,
         continuous_auth_config: None,
         transport_health: None,
+        streamable_http: Default::default(),
     }
 }
