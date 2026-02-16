@@ -441,6 +441,36 @@ pub fn build_router(state: AppState) -> Router {
             "/api/governance/least-agency/{agent_id}/{session_id}",
             get(super::governance::least_agency_report),
         )
+        // ═══════════════════════════════════════════════════════════════════
+        // Phase 34: Tool Discovery Service
+        // ═══════════════════════════════════════════════════════════════════
+        .route(
+            "/api/discovery/search",
+            post(super::discovery::discovery_search),
+        )
+        .route(
+            "/api/discovery/index/stats",
+            get(super::discovery::discovery_stats),
+        )
+        .route(
+            "/api/discovery/reindex",
+            post(super::discovery::discovery_reindex),
+        )
+        .route(
+            "/api/discovery/tools",
+            get(super::discovery::discovery_tools),
+        )
+        // ═══════════════════════════════════════════════════════════════════
+        // Phase 35.3: Model Projector
+        // ═══════════════════════════════════════════════════════════════════
+        .route(
+            "/api/projector/models",
+            get(super::projector::projector_models),
+        )
+        .route(
+            "/api/projector/transform",
+            post(super::projector::projector_transform),
+        )
         // SECURITY (R38-SRV-1): /metrics inside auth — exposes policy count
         // and pending approval count, which are security-sensitive (see R26-SRV-6).
         // SECURITY (R38-SRV-2): /metrics inside rate_limit — prevents scraper DoS.

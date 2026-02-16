@@ -114,6 +114,7 @@ fn test_state_with_rbac(rbac_config: RbacConfig) -> (AppState, TempDir) {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
     (state, tmp)
 }

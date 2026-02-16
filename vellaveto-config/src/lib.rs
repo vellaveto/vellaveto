@@ -27,11 +27,13 @@ pub mod cluster;
 pub mod compliance;
 pub mod config_validate;
 pub mod deployment;
+pub mod discovery;
 pub mod fips;
 pub mod governance;
 pub mod grpc_transport;
 pub mod limits;
 pub mod policy_rule;
+pub mod projector;
 pub mod tool_registry;
 
 #[cfg(test)]
@@ -106,6 +108,7 @@ pub use config_validate::{
     MAX_EXTRA_INJECTION_PATTERNS, MAX_KNOWN_TOOL_NAMES, MAX_POLICIES, MAX_TRUSTED_KEYS,
 };
 pub use deployment::{DeploymentConfig, DeploymentMode, LeaderElectionConfig, ServiceDiscoveryConfig, ServiceDiscoveryMode};
+pub use discovery::DiscoveryConfig;
 pub use extension::ExtensionConfig;
 pub use fips::FipsConfig;
 pub use gateway::{BackendConfig, GatewayConfig};
@@ -113,6 +116,7 @@ pub use governance::GovernanceConfig;
 pub use grpc_transport::GrpcTransportConfig;
 pub use limits::LimitsConfig;
 pub use policy_rule::PolicyRule;
+pub use projector::ProjectorConfig;
 pub use tool_registry::ToolRegistryConfig;
 pub use transport::TransportConfig;
 
@@ -461,6 +465,24 @@ pub struct PolicyConfig {
     /// Controls SSE resumability, strict tool name validation, and retry directives.
     #[serde(default)]
     pub streamable_http: StreamableHttpConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 34: TOOL DISCOVERY SERVICE
+    // ═══════════════════════════════════════════════════
+    /// Tool discovery service configuration.
+    /// Enables intent-based tool search with TF-IDF scoring, token budgets,
+    /// and TTL-based schema lifecycle management.
+    #[serde(default)]
+    pub discovery: DiscoveryConfig,
+
+    // ═══════════════════════════════════════════════════
+    // PHASE 35.1: MODEL PROJECTOR
+    // ═══════════════════════════════════════════════════
+    /// Model projector configuration for model-specific tool schema projection.
+    /// Controls schema translation between canonical format and model-native formats
+    /// (Claude, OpenAI, DeepSeek, Qwen, Generic).
+    #[serde(default)]
+    pub projector: ProjectorConfig,
 }
 
 impl PolicyConfig {

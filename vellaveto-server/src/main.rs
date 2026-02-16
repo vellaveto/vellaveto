@@ -997,6 +997,25 @@ async fn cmd_serve(
         } else {
             None
         },
+
+        // Phase 35.3: Model Projector
+        projector_registry: if policy_config.projector.enabled {
+            let family = parse_model_family(&policy_config.projector.default_model_family);
+            match vellaveto_mcp::projector::ProjectorRegistry::with_defaults(family) {
+                Ok(registry) => {
+                    tracing::info!(
+                        "Model projector enabled (default family: {})",
+                        policy_config.projector.default_model_family
+                    );
+                    Some(Arc::new(registry))
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Failed to initialize projector registry: {}", e));
+                }
+            }
+        } else {
+            None
+        },
     };
 
     tracing::info!("Audit log: {}", audit_path.display());
@@ -1495,6 +1514,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         deployment: Default::default(),
         streamable_http: Default::default(),
         discovery: Default::default(),
+        projector: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;
@@ -1931,6 +1951,21 @@ async fn cmd_simulate(config: String, actions_path: String, format: String) -> R
     }
 
     Ok(())
+}
+
+/// Parse a model family string from config into a `ModelFamily` enum.
+fn parse_model_family(s: &str) -> vellaveto_types::ModelFamily {
+    match s {
+        "claude" => vellaveto_types::ModelFamily::Claude,
+        "openai" => vellaveto_types::ModelFamily::OpenAi,
+        "deepseek" => vellaveto_types::ModelFamily::DeepSeek,
+        "qwen" => vellaveto_types::ModelFamily::Qwen,
+        "generic" => vellaveto_types::ModelFamily::Generic,
+        other if other.starts_with("custom:") => {
+            vellaveto_types::ModelFamily::Custom(other[7..].to_string())
+        }
+        other => vellaveto_types::ModelFamily::Custom(other.to_string()),
+    }
 }
 
 fn extract_tool_pattern(id: &str) -> String {

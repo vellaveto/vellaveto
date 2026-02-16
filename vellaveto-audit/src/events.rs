@@ -415,6 +415,45 @@ impl AuditLogger {
         self.log_entry(&action, &verdict, metadata).await
     }
 
+    // =========================================================================
+    // Projector Event Logging Helpers (Phase 35.3)
+    // =========================================================================
+
+    /// Log a projector event.
+    ///
+    /// Projector events track schema transformations, model family lookups,
+    /// and registry operations for observability.
+    ///
+    /// Event types:
+    /// - `projector.transform` — schema projected to a model-specific format
+    /// - `projector.models_listed` — model family list requested
+    /// - `projector.error` — projection or registry error occurred
+    pub async fn log_projector_event(
+        &self,
+        event_type: &str,
+        details: serde_json::Value,
+    ) -> Result<(), AuditError> {
+        let action = Action::new("vellaveto", "projector", serde_json::json!({}));
+        let verdict = if event_type == "error" {
+            Verdict::Deny {
+                reason: "Projector operation failed".to_string(),
+            }
+        } else {
+            Verdict::Allow
+        };
+        let mut metadata = serde_json::json!({
+            "event": format!("projector.{}", event_type),
+        });
+        if let serde_json::Value::Object(ref mut map) = metadata {
+            if let serde_json::Value::Object(d) = details {
+                for (k, v) in d {
+                    map.insert(k, v);
+                }
+            }
+        }
+        self.log_entry(&action, &verdict, metadata).await
+    }
+
     /// Check whether the audit log has a heartbeat gap — a period longer than
     /// `max_gap_secs` between consecutive entries (heartbeat or otherwise).
     ///
@@ -446,5 +485,33 @@ impl AuditLogger {
         }
 
         Ok(None)
+    }
+
+    // =========================================================================
+    // Tool Discovery Event Logging Helpers (Phase 34)
+    // =========================================================================
+
+    /// Log a tool discovery query event.
+    ///
+    /// Records when an agent performs a discovery search, including the query,
+    /// number of results returned, and any policy-filtered tools.
+    pub async fn log_discovery_event(
+        &self,
+        event_type: &str,
+        details: serde_json::Value,
+    ) -> Result<(), AuditError> {
+        let action = Action::new("vellaveto", "discovery", serde_json::json!({}));
+        let verdict = Verdict::Allow;
+        let mut metadata = serde_json::json!({
+            "event": format!("discovery.{}", event_type),
+        });
+        if let serde_json::Value::Object(ref mut map) = metadata {
+            if let serde_json::Value::Object(d) = details {
+                for (k, v) in d {
+                    map.insert(k, v);
+                }
+            }
+        }
+        self.log_entry(&action, &verdict, metadata).await
     }
 }

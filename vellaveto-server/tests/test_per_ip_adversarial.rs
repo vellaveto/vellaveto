@@ -90,6 +90,7 @@ fn per_ip_state(rps: u32) -> (AppState, TempDir) {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
     (state, tmp)
 }
@@ -463,6 +464,7 @@ async fn regression_24_error_message_does_not_leak_architecture() {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

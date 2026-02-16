@@ -231,6 +231,23 @@ pub struct ProxyState {
     /// Streamable HTTP configuration for SSE resumability, strict tool name
     /// validation, and retry directives.
     pub streamable_http: vellaveto_config::StreamableHttpConfig,
+
+    // =========================================================================
+    // Phase 34: Tool Discovery Service
+    // =========================================================================
+    /// Tool discovery engine for intent-based tool search.
+    /// When `Some`, the proxy intercepts `vv_discover` tool calls and returns
+    /// discovered tool schemas without forwarding to upstream.
+    #[cfg(feature = "discovery")]
+    pub discovery_engine: Option<std::sync::Arc<vellaveto_mcp::discovery::DiscoveryEngine>>,
+
+    // =========================================================================
+    // Phase 35.3: Model Projector
+    // =========================================================================
+    /// Model projector registry for cross-model tool schema translation.
+    /// When `Some`, tool schemas can be projected to model-specific formats.
+    #[cfg(feature = "projector")]
+    pub projector_registry: Option<std::sync::Arc<vellaveto_mcp::projector::ProjectorRegistry>>,
 }
 
 /// Per-request trust signal for forwarded-header handling.

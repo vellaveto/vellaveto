@@ -713,6 +713,24 @@ pub struct AppState {
     /// SECURITY (FIND-P27-004): Cached instance ID resolved once at startup.
     /// Avoids repeated std::env::var("HOSTNAME") calls with global lock contention.
     pub cached_instance_id: Arc<String>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 34: Tool Discovery Service
+    // ═══════════════════════════════════════════════════════════════════
+    /// Tool discovery engine for intent-based tool search.
+    /// None when discovery is disabled in config.
+    pub discovery_engine: Option<Arc<vellaveto_mcp::discovery::DiscoveryEngine>>,
+
+    /// Audit logger reference for discovery events.
+    /// Shared with the main audit logger.
+    pub discovery_audit: Option<Arc<vellaveto_audit::AuditLogger>>,
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Phase 35.3: Model Projector
+    // ═══════════════════════════════════════════════════════════════════
+    /// Model projector registry for cross-model tool schema translation.
+    /// None when projector is disabled in config.
+    pub projector_registry: Option<Arc<vellaveto_mcp::projector::ProjectorRegistry>>,
 }
 
 /// Error type for cluster-dispatched approval operations.
@@ -933,6 +951,8 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             governance: Default::default(),
             deployment: Default::default(),
             streamable_http: Default::default(),
+            discovery: Default::default(),
+            projector: Default::default(),
         };
         let mut changed_sections = Vec::new();
         if policy_config.injection != default_cfg.injection {

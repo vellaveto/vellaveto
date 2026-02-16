@@ -545,5 +545,9 @@ fn make_test_state() -> ProxyState {
         continuous_auth_config: None,
         transport_health: None,
         streamable_http: Default::default(),
+        #[cfg(feature = "discovery")]
+        discovery_engine: None,
+        #[cfg(feature = "projector")]
+        projector_registry: None,
     }
 }

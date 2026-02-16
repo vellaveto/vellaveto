@@ -924,6 +924,7 @@ mod owasp_mcp07_auth {
             cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
             discovery_engine: None,
             discovery_audit: None,
+            projector_registry: None,
         };
         (state, tmp)
     }
@@ -1351,6 +1352,7 @@ fn test_owasp_mcp08_verify_chain_api_endpoint() {
             cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
             discovery_engine: None,
             discovery_audit: None,
+            projector_registry: None,
         };
 
         let app = routes::build_router(state);
@@ -1629,6 +1631,7 @@ async fn test_owasp_mcp10_rate_limiting_rejects_excess_requests() {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;
@@ -1743,6 +1746,7 @@ async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
 
     let body_str = r#"{"tool":"file","function":"read","parameters":{}}"#;

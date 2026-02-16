@@ -88,6 +88,7 @@ fn make_state() -> (AppState, TempDir) {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
     (state, tmp)
 }
@@ -149,6 +150,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
     (state, tmp)
 }
@@ -594,6 +596,7 @@ priority = 1
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
     let policy_state = state.policy_state.clone();
     let app = routes::build_router(state);
@@ -722,6 +725,7 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
     let app = routes::build_router(state);
 
@@ -971,6 +975,7 @@ async fn test_find004_metrics_require_auth_true_blocks_unauthenticated() {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
     let app = routes::build_router(state);
 
@@ -1043,6 +1048,7 @@ async fn test_find004_metrics_require_auth_false_allows_unauthenticated() {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
     let app = routes::build_router(state);
 

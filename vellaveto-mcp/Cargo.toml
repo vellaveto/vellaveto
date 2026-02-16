@@ -16,6 +16,8 @@ llm-local-onnx = ["semantic-guardrails"]
 semantic-guardrails-full = ["semantic-guardrails", "llm-cloud", "llm-local-gguf", "llm-local-onnx"]
 rag-defense = []
 a2a = []
+discovery = []
+projector = []
 multimodal = ["image"]
 fips = ["p256"]
 

@@ -306,3 +306,77 @@ func (c *Client) ApproveApproval(ctx context.Context, id string) error {
 func (c *Client) DenyApproval(ctx context.Context, id string) error {
 	return c.doJSON(ctx, http.MethodPost, "/api/approvals/"+id+"/deny", nil, nil)
 }
+
+// Discover searches the tool discovery index for tools matching a query.
+func (c *Client) Discover(ctx context.Context, query string, maxResults int, tokenBudget *int) (*DiscoveryResult, error) {
+	reqBody := DiscoverRequest{
+		Query:       query,
+		MaxResults:  maxResults,
+		TokenBudget: tokenBudget,
+	}
+	var resp DiscoveryResult
+	if err := c.doJSON(ctx, http.MethodPost, "/api/discovery/search", reqBody, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// DiscoveryStats returns statistics about the tool discovery index.
+func (c *Client) DiscoveryStats(ctx context.Context) (*DiscoveryIndexStats, error) {
+	var resp DiscoveryIndexStats
+	if err := c.doJSON(ctx, http.MethodGet, "/api/discovery/index/stats", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// DiscoveryReindex triggers a full rebuild of the IDF weights.
+func (c *Client) DiscoveryReindex(ctx context.Context) (*DiscoveryReindexResponse, error) {
+	var resp DiscoveryReindexResponse
+	if err := c.doJSON(ctx, http.MethodPost, "/api/discovery/reindex", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// DiscoveryTools lists all indexed tools, optionally filtered by server ID and sensitivity.
+func (c *Client) DiscoveryTools(ctx context.Context, serverID, sensitivity string) (*DiscoveryToolsResponse, error) {
+	path := "/api/discovery/tools"
+	params := make([]string, 0, 2)
+	if serverID != "" {
+		params = append(params, "server_id="+serverID)
+	}
+	if sensitivity != "" {
+		params = append(params, "sensitivity="+sensitivity)
+	}
+	if len(params) > 0 {
+		path += "?" + strings.Join(params, "&")
+	}
+	var resp DiscoveryToolsResponse
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ProjectorModels lists supported model families in the projector registry.
+func (c *Client) ProjectorModels(ctx context.Context) (*ProjectorModelsResponse, error) {
+	var resp ProjectorModelsResponse
+	if err := c.doJSON(ctx, http.MethodGet, "/api/projector/models", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ProjectSchema projects a canonical tool schema for a given model family.
+func (c *Client) ProjectSchema(ctx context.Context, schema CanonicalToolSchema, modelFamily string) (*ProjectorTransformResponse, error) {
+	reqBody := ProjectorTransformRequest{
+		Schema:      schema,
+		ModelFamily: modelFamily,
+	}
+	var resp ProjectorTransformResponse
+	if err := c.doJSON(ctx, http.MethodPost, "/api/projector/transform", reqBody, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}

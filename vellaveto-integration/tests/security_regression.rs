@@ -410,6 +410,7 @@ mod server_auth {
             cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
             discovery_engine: None,
             discovery_audit: None,
+            projector_registry: None,
         };
         (state, tmp)
     }
@@ -565,6 +566,7 @@ mod server_auth {
             cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
             discovery_engine: None,
             discovery_audit: None,
+            projector_registry: None,
         };
         let app = routes::build_router(state);
 
@@ -1187,6 +1189,7 @@ async fn finding_11_evaluate_succeeds_even_when_audit_fails_to_write() {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
 
     let app = routes::build_router(state);
@@ -1308,6 +1311,7 @@ async fn finding_12_approval_creation_failure_denies_request() {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
 
     let app = routes::build_router(state);

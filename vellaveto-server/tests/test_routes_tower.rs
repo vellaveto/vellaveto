@@ -89,6 +89,7 @@ fn make_state() -> (AppState, TempDir) {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
     (state, tmp)
 }
@@ -150,6 +151,7 @@ fn make_empty_state() -> (AppState, TempDir) {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
     (state, tmp)
 }
@@ -1259,6 +1261,7 @@ priority = 1
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
     let app = routes::build_router(state.clone());
 
@@ -1385,6 +1388,7 @@ fn make_approval_state() -> (AppState, TempDir) {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
     (state, tmp)
 }
@@ -1872,6 +1876,7 @@ fn make_authed_state() -> (AppState, TempDir) {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
     (state, tmp)
 }
@@ -2383,6 +2388,7 @@ fn make_checkpoint_state() -> (AppState, TempDir) {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
     (state, tmp)
 }
@@ -3095,6 +3101,7 @@ fn make_per_principal_state(rps: u32) -> (AppState, TempDir) {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
     (state, tmp)
 }

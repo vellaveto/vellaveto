@@ -91,6 +91,7 @@ fn make_test_state(tmp: &TempDir) -> AppState {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     }
 }
 

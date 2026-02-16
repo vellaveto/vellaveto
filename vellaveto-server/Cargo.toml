@@ -11,9 +11,11 @@ name = "vellaveto"
 path = "src/main.rs"
 
 [features]
-default = []
+default = ["discovery", "projector"]
 redis-backend = ["vellaveto-cluster/redis-backend"]
 observability-exporters = ["vellaveto-audit/observability-exporters"]
+discovery = ["vellaveto-mcp/discovery"]
+projector = ["vellaveto-mcp/projector"]
 
 [dependencies]
 vellaveto-types = { path = "../vellaveto-types" }

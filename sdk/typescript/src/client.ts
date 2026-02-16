@@ -8,11 +8,19 @@ import {
   Action,
   Approval,
   BatchResponse,
+  CanonicalToolSchema,
   DiffResponse,
+  DiscoveryIndexStats,
+  DiscoveryReindexResponse,
+  DiscoveryResult,
+  DiscoverySearchRequest,
+  DiscoveryToolsResponse,
   EvaluationContext,
   EvaluationResult,
   HealthResponse,
   PolicySummary,
+  ProjectorModelsResponse,
+  ProjectorTransformResponse,
   SimulateOptions,
   SimulateResponse,
   ValidateResponse,
@@ -274,6 +282,81 @@ export class VellavetoClient {
   /** Deny a pending approval by ID. */
   async denyApproval(id: string): Promise<void> {
     await this.request<unknown>("POST", `/api/approvals/${encodeURIComponent(id)}/deny`);
+  }
+
+  // ────────────────────────────────────────────────────
+  // Discovery (Phase 34.4)
+  // ────────────────────────────────────────────────────
+
+  /** Search the tool discovery index for matching tools. */
+  async discover(
+    query: string,
+    maxResults?: number,
+    tokenBudget?: number
+  ): Promise<DiscoveryResult> {
+    const body: DiscoverySearchRequest = {
+      query,
+      max_results: maxResults,
+      token_budget: tokenBudget,
+    };
+    return this.request<DiscoveryResult>("POST", "/api/discovery/search", body);
+  }
+
+  /** Get statistics about the tool discovery index. */
+  async discoveryStats(): Promise<DiscoveryIndexStats> {
+    return this.request<DiscoveryIndexStats>(
+      "GET",
+      "/api/discovery/index/stats"
+    );
+  }
+
+  /** Trigger a full rebuild of the IDF weights in the discovery index. */
+  async discoveryReindex(): Promise<DiscoveryReindexResponse> {
+    return this.request<DiscoveryReindexResponse>(
+      "POST",
+      "/api/discovery/reindex"
+    );
+  }
+
+  /** List all indexed tools, optionally filtered by server_id and sensitivity. */
+  async discoveryTools(
+    serverId?: string,
+    sensitivity?: string
+  ): Promise<DiscoveryToolsResponse> {
+    const params = new URLSearchParams();
+    if (serverId) params.set("server_id", serverId);
+    if (sensitivity) params.set("sensitivity", sensitivity);
+    const qs = params.toString();
+    const path = qs ? `/api/discovery/tools?${qs}` : "/api/discovery/tools";
+    return this.request<DiscoveryToolsResponse>("GET", path);
+  }
+
+  // ────────────────────────────────────────────────────
+  // Projector (Phase 35.3)
+  // ────────────────────────────────────────────────────
+
+  /** List supported model families in the projector registry. */
+  async projectorModels(): Promise<ProjectorModelsResponse> {
+    return this.request<ProjectorModelsResponse>(
+      "GET",
+      "/api/projector/models"
+    );
+  }
+
+  /** Project a canonical tool schema for a given model family. */
+  async projectSchema(
+    schema: CanonicalToolSchema,
+    modelFamily: string
+  ): Promise<ProjectorTransformResponse> {
+    const body = {
+      schema,
+      model_family: modelFamily,
+    };
+    return this.request<ProjectorTransformResponse>(
+      "POST",
+      "/api/projector/transform",
+      body
+    );
   }
 }
 

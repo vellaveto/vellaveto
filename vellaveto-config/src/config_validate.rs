@@ -830,6 +830,12 @@ impl PolicyConfig {
         // Deployment configuration bounds (Phase 27)
         self.deployment.validate()?;
 
+        // Discovery configuration bounds (Phase 34)
+        self.discovery.validate()?;
+
+        // Projector configuration bounds (Phase 35.1)
+        self.projector.validate()?;
+
         Ok(())
     }
 

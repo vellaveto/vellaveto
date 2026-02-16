@@ -96,6 +96,13 @@ pub struct DiscoveredToolSession {
     pub used: bool,
 }
 
+impl DiscoveredToolSession {
+    /// Check whether this discovery has expired.
+    pub fn is_expired(&self) -> bool {
+        self.discovered_at.elapsed() > self.ttl
+    }
+}
+
 impl SessionState {
     pub fn new(session_id: String) -> Self {
         let now = Instant::now();
@@ -124,6 +131,54 @@ impl SessionState {
             abac_granted_policies: Vec::new(),
             discovered_tools: HashMap::new(),
         }
+    }
+
+    /// Record a set of discovered tools with the given TTL.
+    ///
+    /// Overwrites any existing entry for the same tool_id (re-discovery resets the TTL).
+    pub fn record_discovered_tools(&mut self, tool_ids: &[String], ttl: Duration) {
+        let now = Instant::now();
+        for tool_id in tool_ids {
+            self.discovered_tools.insert(
+                tool_id.clone(),
+                DiscoveredToolSession {
+                    tool_id: tool_id.clone(),
+                    discovered_at: now,
+                    ttl,
+                    used: false,
+                },
+            );
+        }
+    }
+
+    /// Check whether a discovered tool has expired.
+    ///
+    /// Returns `None` if the tool was never discovered (not an error — the tool
+    /// may be a statically-known tool that doesn't require discovery).
+    /// Returns `Some(true)` if discovered but expired, `Some(false)` if still valid.
+    pub fn is_tool_discovery_expired(&self, tool_id: &str) -> Option<bool> {
+        self.discovered_tools.get(tool_id).map(|d| d.is_expired())
+    }
+
+    /// Mark a discovered tool as "used" (the agent actually called it).
+    ///
+    /// Returns `true` if the tool was found and marked, `false` if not found.
+    pub fn mark_tool_used(&mut self, tool_id: &str) -> bool {
+        if let Some(entry) = self.discovered_tools.get_mut(tool_id) {
+            entry.used = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Remove expired discovered tools from the session.
+    ///
+    /// Returns the number of entries evicted.
+    pub fn evict_expired_discoveries(&mut self) -> usize {
+        let before = self.discovered_tools.len();
+        self.discovered_tools.retain(|_, d| !d.is_expired());
+        before - self.discovered_tools.len()
     }
 
     /// Touch the session to update last activity time.
@@ -708,6 +763,239 @@ mod tests {
         assert_eq!(actions[0], "read_file");
         assert_eq!(actions[1], "write_file");
         assert_eq!(actions[2], "execute");
+    }
+
+    // ═══════════════════════════════════════════════════
+    // Phase 34.3: Discovered tools TTL tests
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn test_discovered_tools_empty_by_default() {
+        let state = SessionState::new("test".to_string());
+        assert!(state.discovered_tools.is_empty());
+    }
+
+    #[test]
+    fn test_record_discovered_tools() {
+        let mut state = SessionState::new("test".to_string());
+        let tools = vec!["server:read_file".to_string(), "server:write_file".to_string()];
+        state.record_discovered_tools(&tools, Duration::from_secs(300));
+
+        assert_eq!(state.discovered_tools.len(), 2);
+        assert!(state.discovered_tools.contains_key("server:read_file"));
+        assert!(state.discovered_tools.contains_key("server:write_file"));
+    }
+
+    #[test]
+    fn test_record_discovered_tools_sets_ttl() {
+        let mut state = SessionState::new("test".to_string());
+        state.record_discovered_tools(
+            &["server:tool1".to_string()],
+            Duration::from_secs(60),
+        );
+
+        let entry = state.discovered_tools.get("server:tool1").unwrap();
+        assert_eq!(entry.ttl, Duration::from_secs(60));
+        assert!(!entry.used);
+    }
+
+    #[test]
+    fn test_record_discovered_tools_rediscovery_resets_ttl() {
+        let mut state = SessionState::new("test".to_string());
+        state.record_discovered_tools(
+            &["server:tool1".to_string()],
+            Duration::from_secs(60),
+        );
+
+        // Mark as used
+        state.mark_tool_used("server:tool1");
+        assert!(state.discovered_tools.get("server:tool1").unwrap().used);
+
+        // Re-discover resets TTL and used flag
+        state.record_discovered_tools(
+            &["server:tool1".to_string()],
+            Duration::from_secs(120),
+        );
+
+        let entry = state.discovered_tools.get("server:tool1").unwrap();
+        assert_eq!(entry.ttl, Duration::from_secs(120));
+        assert!(!entry.used); // reset on re-discovery
+    }
+
+    #[test]
+    fn test_is_tool_discovery_expired_unknown_tool() {
+        let state = SessionState::new("test".to_string());
+        assert_eq!(state.is_tool_discovery_expired("unknown:tool"), None);
+    }
+
+    #[test]
+    fn test_is_tool_discovery_expired_fresh_tool() {
+        let mut state = SessionState::new("test".to_string());
+        state.record_discovered_tools(
+            &["server:tool1".to_string()],
+            Duration::from_secs(300),
+        );
+        assert_eq!(state.is_tool_discovery_expired("server:tool1"), Some(false));
+    }
+
+    #[test]
+    fn test_is_tool_discovery_expired_zero_ttl() {
+        let mut state = SessionState::new("test".to_string());
+        // Zero TTL means expired immediately
+        state.discovered_tools.insert(
+            "server:tool1".to_string(),
+            DiscoveredToolSession {
+                tool_id: "server:tool1".to_string(),
+                discovered_at: Instant::now() - Duration::from_secs(1),
+                ttl: Duration::from_nanos(0),
+                used: false,
+            },
+        );
+        assert_eq!(state.is_tool_discovery_expired("server:tool1"), Some(true));
+    }
+
+    #[test]
+    fn test_mark_tool_used_existing() {
+        let mut state = SessionState::new("test".to_string());
+        state.record_discovered_tools(
+            &["server:tool1".to_string()],
+            Duration::from_secs(300),
+        );
+        assert!(!state.discovered_tools.get("server:tool1").unwrap().used);
+
+        assert!(state.mark_tool_used("server:tool1"));
+        assert!(state.discovered_tools.get("server:tool1").unwrap().used);
+    }
+
+    #[test]
+    fn test_mark_tool_used_nonexistent() {
+        let mut state = SessionState::new("test".to_string());
+        assert!(!state.mark_tool_used("unknown:tool"));
+    }
+
+    #[test]
+    fn test_evict_expired_discoveries_none_expired() {
+        let mut state = SessionState::new("test".to_string());
+        state.record_discovered_tools(
+            &["server:tool1".to_string(), "server:tool2".to_string()],
+            Duration::from_secs(300),
+        );
+        assert_eq!(state.evict_expired_discoveries(), 0);
+        assert_eq!(state.discovered_tools.len(), 2);
+    }
+
+    #[test]
+    fn test_evict_expired_discoveries_some_expired() {
+        let mut state = SessionState::new("test".to_string());
+
+        // Fresh tool
+        state.record_discovered_tools(
+            &["server:fresh".to_string()],
+            Duration::from_secs(300),
+        );
+
+        // Expired tool (discovered in the past with short TTL)
+        state.discovered_tools.insert(
+            "server:stale".to_string(),
+            DiscoveredToolSession {
+                tool_id: "server:stale".to_string(),
+                discovered_at: Instant::now() - Duration::from_secs(10),
+                ttl: Duration::from_secs(1),
+                used: true,
+            },
+        );
+
+        assert_eq!(state.evict_expired_discoveries(), 1);
+        assert_eq!(state.discovered_tools.len(), 1);
+        assert!(state.discovered_tools.contains_key("server:fresh"));
+        assert!(!state.discovered_tools.contains_key("server:stale"));
+    }
+
+    #[test]
+    fn test_evict_expired_discoveries_all_expired() {
+        let mut state = SessionState::new("test".to_string());
+        let past = Instant::now() - Duration::from_secs(10);
+        for i in 0..5 {
+            state.discovered_tools.insert(
+                format!("server:tool{}", i),
+                DiscoveredToolSession {
+                    tool_id: format!("server:tool{}", i),
+                    discovered_at: past,
+                    ttl: Duration::from_secs(1),
+                    used: false,
+                },
+            );
+        }
+
+        assert_eq!(state.evict_expired_discoveries(), 5);
+        assert!(state.discovered_tools.is_empty());
+    }
+
+    #[test]
+    fn test_discovered_tool_session_is_expired() {
+        let fresh = DiscoveredToolSession {
+            tool_id: "t".to_string(),
+            discovered_at: Instant::now(),
+            ttl: Duration::from_secs(300),
+            used: false,
+        };
+        assert!(!fresh.is_expired());
+
+        let stale = DiscoveredToolSession {
+            tool_id: "t".to_string(),
+            discovered_at: Instant::now() - Duration::from_secs(10),
+            ttl: Duration::from_secs(1),
+            used: false,
+        };
+        assert!(stale.is_expired());
+    }
+
+    #[test]
+    fn test_discovered_tools_survive_session_touch() {
+        let store = SessionStore::new(Duration::from_secs(300), 100);
+        let id = store.get_or_create(None);
+
+        // Record a discovered tool
+        {
+            let mut session = store.get_mut(&id).unwrap();
+            session.record_discovered_tools(
+                &["server:tool1".to_string()],
+                Duration::from_secs(300),
+            );
+        }
+
+        // Touch via reuse
+        store.get_or_create(Some(&id));
+
+        // Discovered tools should persist
+        let session = store.get_mut(&id).unwrap();
+        assert_eq!(session.discovered_tools.len(), 1);
+        assert!(session.discovered_tools.contains_key("server:tool1"));
+    }
+
+    #[test]
+    fn test_multiple_tools_independent_ttl() {
+        let mut state = SessionState::new("test".to_string());
+
+        // Tool with short TTL (already expired)
+        state.discovered_tools.insert(
+            "server:short".to_string(),
+            DiscoveredToolSession {
+                tool_id: "server:short".to_string(),
+                discovered_at: Instant::now() - Duration::from_secs(5),
+                ttl: Duration::from_secs(1),
+                used: false,
+            },
+        );
+
+        // Tool with long TTL (still valid)
+        state.record_discovered_tools(
+            &["server:long".to_string()],
+            Duration::from_secs(3600),
+        );
+
+        assert_eq!(state.is_tool_discovery_expired("server:short"), Some(true));
+        assert_eq!(state.is_tool_discovery_expired("server:long"), Some(false));
     }
 
     /// Phase 25.6: EvaluationContext built from StatefulContext.

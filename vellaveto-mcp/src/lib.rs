@@ -12,6 +12,10 @@ pub mod capability;
 pub mod capability_token;
 pub mod data_flow;
 pub mod did_plc;
+#[cfg(feature = "discovery")]
+pub mod discovery;
+#[cfg(feature = "projector")]
+pub mod projector;
 pub mod elicitation;
 pub mod escalation_detector;
 pub mod etdi;

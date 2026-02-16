@@ -2799,3 +2799,255 @@ fn test_validate_mcp_tool_name_consecutive_dots_rejected() {
     let err = validate_mcp_tool_name("ns..tool").unwrap_err();
     assert!(err.contains("consecutive dots"), "got: {}", err);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DISCOVERY TYPES (Phase 34)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_tool_metadata_serde_roundtrip() {
+    let meta = ToolMetadata {
+        tool_id: "server1:read_file".to_string(),
+        name: "read_file".to_string(),
+        description: "Read a file from disk".to_string(),
+        server_id: "server1".to_string(),
+        input_schema: json!({"type": "object", "properties": {"path": {"type": "string"}}}),
+        schema_hash: "abcdef1234567890".to_string(),
+        sensitivity: ToolSensitivity::Medium,
+        domain_tags: vec!["filesystem".to_string(), "io".to_string()],
+        token_cost: 150,
+    };
+    let json_str = serde_json::to_string(&meta).unwrap();
+    let deserialized: ToolMetadata = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(meta, deserialized);
+}
+
+#[test]
+fn test_tool_sensitivity_all_variants_roundtrip() {
+    let variants = [ToolSensitivity::Low, ToolSensitivity::Medium, ToolSensitivity::High];
+    for v in &variants {
+        let json_str = serde_json::to_string(v).unwrap();
+        let deserialized: ToolSensitivity = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(*v, deserialized);
+    }
+}
+
+#[test]
+fn test_tool_sensitivity_default_is_low() {
+    assert_eq!(ToolSensitivity::default(), ToolSensitivity::Low);
+}
+
+#[test]
+fn test_tool_sensitivity_serde_rename() {
+    let json_str = serde_json::to_string(&ToolSensitivity::High).unwrap();
+    assert_eq!(json_str, "\"high\"");
+    let parsed: ToolSensitivity = serde_json::from_str("\"medium\"").unwrap();
+    assert_eq!(parsed, ToolSensitivity::Medium);
+}
+
+#[test]
+fn test_discovery_result_serde_roundtrip() {
+    let result = DiscoveryResult {
+        tools: vec![DiscoveredTool {
+            metadata: ToolMetadata {
+                tool_id: "srv:tool".to_string(),
+                name: "tool".to_string(),
+                description: "A tool".to_string(),
+                server_id: "srv".to_string(),
+                input_schema: json!({}),
+                schema_hash: "hash123".to_string(),
+                sensitivity: ToolSensitivity::Low,
+                domain_tags: vec![],
+                token_cost: 50,
+            },
+            relevance_score: 0.95,
+            ttl_secs: 300,
+        }],
+        query: "find a tool".to_string(),
+        total_candidates: 100,
+        policy_filtered: 5,
+    };
+    let json_str = serde_json::to_string(&result).unwrap();
+    let deserialized: DiscoveryResult = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(deserialized.query, "find a tool");
+    assert_eq!(deserialized.total_candidates, 100);
+    assert_eq!(deserialized.policy_filtered, 5);
+    assert_eq!(deserialized.tools.len(), 1);
+    assert_eq!(deserialized.tools[0].relevance_score, 0.95);
+    assert_eq!(deserialized.tools[0].ttl_secs, 300);
+}
+
+#[test]
+fn test_discovered_tool_serde_roundtrip() {
+    let tool = DiscoveredTool {
+        metadata: ToolMetadata {
+            tool_id: "s:t".to_string(),
+            name: "t".to_string(),
+            description: "desc".to_string(),
+            server_id: "s".to_string(),
+            input_schema: json!({"type": "object"}),
+            schema_hash: "h".to_string(),
+            sensitivity: ToolSensitivity::High,
+            domain_tags: vec!["network".to_string()],
+            token_cost: 200,
+        },
+        relevance_score: 0.5,
+        ttl_secs: 600,
+    };
+    let json_str = serde_json::to_string(&tool).unwrap();
+    let deserialized: DiscoveredTool = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(deserialized.metadata.sensitivity, ToolSensitivity::High);
+    assert_eq!(deserialized.relevance_score, 0.5);
+}
+
+#[test]
+fn test_tool_metadata_empty_domain_tags() {
+    let meta = ToolMetadata {
+        tool_id: "s:t".to_string(),
+        name: "t".to_string(),
+        description: "d".to_string(),
+        server_id: "s".to_string(),
+        input_schema: json!({}),
+        schema_hash: "h".to_string(),
+        sensitivity: ToolSensitivity::Low,
+        domain_tags: vec![],
+        token_cost: 0,
+    };
+    let json_str = serde_json::to_string(&meta).unwrap();
+    let deserialized: ToolMetadata = serde_json::from_str(&json_str).unwrap();
+    assert!(deserialized.domain_tags.is_empty());
+}
+
+#[test]
+fn test_discovery_result_empty_tools() {
+    let result = DiscoveryResult {
+        tools: vec![],
+        query: "nothing".to_string(),
+        total_candidates: 0,
+        policy_filtered: 0,
+    };
+    let json_str = serde_json::to_string(&result).unwrap();
+    let deserialized: DiscoveryResult = serde_json::from_str(&json_str).unwrap();
+    assert!(deserialized.tools.is_empty());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PROJECTOR TYPES (Phase 35.1)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_canonical_tool_schema_serde_roundtrip() {
+    let schema = CanonicalToolSchema {
+        name: "read_file".to_string(),
+        description: "Read a file from disk".to_string(),
+        input_schema: json!({"type": "object", "properties": {"path": {"type": "string"}}}),
+        output_schema: Some(json!({"type": "string"})),
+    };
+    let json_str = serde_json::to_string(&schema).unwrap();
+    let deserialized: CanonicalToolSchema = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(schema, deserialized);
+}
+
+#[test]
+fn test_canonical_tool_schema_no_output_schema() {
+    let schema = CanonicalToolSchema {
+        name: "exec".to_string(),
+        description: "Execute command".to_string(),
+        input_schema: json!({"type": "object"}),
+        output_schema: None,
+    };
+    let json_str = serde_json::to_string(&schema).unwrap();
+    let deserialized: CanonicalToolSchema = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(deserialized.output_schema, None);
+}
+
+#[test]
+fn test_canonical_tool_call_serde_roundtrip() {
+    let call = CanonicalToolCall {
+        tool_name: "read_file".to_string(),
+        arguments: json!({"path": "/tmp/test.txt"}),
+        call_id: Some("call_123".to_string()),
+    };
+    let json_str = serde_json::to_string(&call).unwrap();
+    let deserialized: CanonicalToolCall = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(call, deserialized);
+}
+
+#[test]
+fn test_canonical_tool_call_no_call_id() {
+    let call = CanonicalToolCall {
+        tool_name: "exec".to_string(),
+        arguments: json!({"cmd": "ls"}),
+        call_id: None,
+    };
+    let json_str = serde_json::to_string(&call).unwrap();
+    let deserialized: CanonicalToolCall = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(deserialized.call_id, None);
+}
+
+#[test]
+fn test_canonical_tool_response_serde_roundtrip() {
+    let response = CanonicalToolResponse {
+        call_id: Some("call_123".to_string()),
+        content: json!({"result": "ok"}),
+        is_error: false,
+    };
+    let json_str = serde_json::to_string(&response).unwrap();
+    let deserialized: CanonicalToolResponse = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(response, deserialized);
+}
+
+#[test]
+fn test_canonical_tool_response_error() {
+    let response = CanonicalToolResponse {
+        call_id: None,
+        content: json!("something went wrong"),
+        is_error: true,
+    };
+    let json_str = serde_json::to_string(&response).unwrap();
+    let deserialized: CanonicalToolResponse = serde_json::from_str(&json_str).unwrap();
+    assert!(deserialized.is_error);
+}
+
+#[test]
+fn test_model_family_serde_roundtrip_all_variants() {
+    let families = vec![
+        ModelFamily::Claude,
+        ModelFamily::OpenAi,
+        ModelFamily::DeepSeek,
+        ModelFamily::Qwen,
+        ModelFamily::Generic,
+        ModelFamily::Custom("llama".to_string()),
+    ];
+    for family in families {
+        let json_str = serde_json::to_string(&family).unwrap();
+        let deserialized: ModelFamily = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(family, deserialized);
+    }
+}
+
+#[test]
+fn test_model_family_default_is_generic() {
+    assert_eq!(ModelFamily::default(), ModelFamily::Generic);
+}
+
+#[test]
+fn test_model_family_rename_all_lowercase() {
+    let json_str = serde_json::to_string(&ModelFamily::Claude).unwrap();
+    assert_eq!(json_str, "\"claude\"");
+    let json_str = serde_json::to_string(&ModelFamily::OpenAi).unwrap();
+    assert_eq!(json_str, "\"openai\"");
+    let json_str = serde_json::to_string(&ModelFamily::DeepSeek).unwrap();
+    assert_eq!(json_str, "\"deepseek\"");
+}
+
+#[test]
+fn test_model_family_hash_and_eq() {
+    let mut map = HashMap::new();
+    map.insert(ModelFamily::Claude, "claude");
+    map.insert(ModelFamily::OpenAi, "openai");
+    map.insert(ModelFamily::Custom("x".to_string()), "custom_x");
+    assert_eq!(map.get(&ModelFamily::Claude), Some(&"claude"));
+    assert_eq!(map.get(&ModelFamily::Custom("x".to_string())), Some(&"custom_x"));
+    assert_eq!(map.get(&ModelFamily::DeepSeek), None);
+}

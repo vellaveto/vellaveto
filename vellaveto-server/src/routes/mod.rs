@@ -29,6 +29,7 @@ pub mod circuit_breaker;
 pub mod compliance;
 pub mod deployment;
 pub mod deputy;
+pub mod discovery;
 pub mod etdi;
 pub mod exec_graph;
 pub mod governance;
@@ -43,6 +44,7 @@ pub mod schema_lineage;
 pub mod shadow_agent;
 pub mod simulator;
 pub mod task_state;
+pub mod projector;
 pub mod tenant;
 
 pub use main::*;

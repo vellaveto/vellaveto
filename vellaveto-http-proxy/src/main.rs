@@ -713,6 +713,29 @@ async fn main() -> Result<()> {
             None
         },
         streamable_http: policy_config.streamable_http.clone(),
+        #[cfg(feature = "discovery")]
+        discovery_engine: if policy_config.discovery.enabled {
+            Some(std::sync::Arc::new(
+                vellaveto_mcp::discovery::DiscoveryEngine::new(policy_config.discovery.clone()),
+            ))
+        } else {
+            None
+        },
+        #[cfg(feature = "projector")]
+        projector_registry: if policy_config.projector.enabled {
+            let family = parse_model_family(&policy_config.projector.default_model_family);
+            match vellaveto_mcp::projector::ProjectorRegistry::with_defaults(family) {
+                Ok(registry) => {
+                    tracing::info!("Model projector enabled (default family: {})", policy_config.projector.default_model_family);
+                    Some(std::sync::Arc::new(registry))
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Failed to initialize projector registry: {}", e));
+                }
+            }
+        } else {
+            None
+        },
     };
 
     // Phase 20: Spawn gateway health checker if gateway is enabled
@@ -954,6 +977,22 @@ async fn main() -> Result<()> {
 
     tracing::info!("Proxy shut down gracefully");
     Ok(())
+}
+
+/// Parse a model family string from config into a `ModelFamily` enum.
+#[cfg(feature = "projector")]
+fn parse_model_family(s: &str) -> vellaveto_types::ModelFamily {
+    match s {
+        "claude" => vellaveto_types::ModelFamily::Claude,
+        "openai" => vellaveto_types::ModelFamily::OpenAi,
+        "deepseek" => vellaveto_types::ModelFamily::DeepSeek,
+        "qwen" => vellaveto_types::ModelFamily::Qwen,
+        "generic" => vellaveto_types::ModelFamily::Generic,
+        other if other.starts_with("custom:") => {
+            vellaveto_types::ModelFamily::Custom(other[7..].to_string())
+        }
+        other => vellaveto_types::ModelFamily::Custom(other.to_string()),
+    }
 }
 
 fn connection_ip_from_request(request: &Request) -> std::net::IpAddr {

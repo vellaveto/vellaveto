@@ -1117,6 +1117,8 @@ fn test_validate_rejects_too_many_policies() {
         governance: Default::default(),
         deployment: Default::default(),
         streamable_http: Default::default(),
+        discovery: Default::default(),
+        projector: Default::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {
@@ -4602,4 +4604,340 @@ fn test_streamable_http_config_in_policy_config() {
     assert!(config.streamable_http.strict_tool_name_validation);
     assert_eq!(config.streamable_http.max_event_id_length, 256);
     assert_eq!(config.streamable_http.sse_retry_ms, Some(3000));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DISCOVERY CONFIG (Phase 34)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_discovery_config_defaults() {
+    let config = crate::DiscoveryConfig::default();
+    assert!(!config.enabled);
+    assert_eq!(config.max_results, 5);
+    assert_eq!(config.default_ttl_secs, 300);
+    assert_eq!(config.max_index_entries, 10_000);
+    assert!((config.min_relevance_score - 0.1).abs() < f64::EPSILON);
+    assert!(config.token_budget.is_none());
+    assert!(config.auto_index_on_tools_list);
+}
+
+#[test]
+fn test_discovery_config_validate_default_passes() {
+    let config = crate::DiscoveryConfig::default();
+    config.validate().unwrap();
+}
+
+#[test]
+fn test_discovery_config_validate_max_results_zero() {
+    let mut config = crate::DiscoveryConfig::default();
+    config.max_results = 0;
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("max_results"), "got: {}", err);
+}
+
+#[test]
+fn test_discovery_config_validate_max_results_exceeds() {
+    let mut config = crate::DiscoveryConfig::default();
+    config.max_results = 100;
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("max_results"), "got: {}", err);
+}
+
+#[test]
+fn test_discovery_config_validate_ttl_zero() {
+    let mut config = crate::DiscoveryConfig::default();
+    config.default_ttl_secs = 0;
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("default_ttl_secs"), "got: {}", err);
+}
+
+#[test]
+fn test_discovery_config_validate_ttl_exceeds() {
+    let mut config = crate::DiscoveryConfig::default();
+    config.default_ttl_secs = 100_000;
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("default_ttl_secs"), "got: {}", err);
+}
+
+#[test]
+fn test_discovery_config_validate_index_entries_zero() {
+    let mut config = crate::DiscoveryConfig::default();
+    config.max_index_entries = 0;
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("max_index_entries"), "got: {}", err);
+}
+
+#[test]
+fn test_discovery_config_validate_index_entries_exceeds() {
+    let mut config = crate::DiscoveryConfig::default();
+    config.max_index_entries = 100_000;
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("max_index_entries"), "got: {}", err);
+}
+
+#[test]
+fn test_discovery_config_validate_min_relevance_nan() {
+    let mut config = crate::DiscoveryConfig::default();
+    config.min_relevance_score = f64::NAN;
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("min_relevance_score"), "got: {}", err);
+}
+
+#[test]
+fn test_discovery_config_validate_min_relevance_negative() {
+    let mut config = crate::DiscoveryConfig::default();
+    config.min_relevance_score = -0.1;
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("min_relevance_score"), "got: {}", err);
+}
+
+#[test]
+fn test_discovery_config_validate_min_relevance_exceeds_one() {
+    let mut config = crate::DiscoveryConfig::default();
+    config.min_relevance_score = 1.1;
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("min_relevance_score"), "got: {}", err);
+}
+
+#[test]
+fn test_discovery_config_validate_token_budget_zero() {
+    let mut config = crate::DiscoveryConfig::default();
+    config.token_budget = Some(0);
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("token_budget"), "got: {}", err);
+}
+
+#[test]
+fn test_discovery_config_validate_token_budget_exceeds() {
+    let mut config = crate::DiscoveryConfig::default();
+    config.token_budget = Some(2_000_000);
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("token_budget"), "got: {}", err);
+}
+
+#[test]
+fn test_discovery_config_serde_roundtrip() {
+    let config = crate::DiscoveryConfig {
+        enabled: true,
+        max_results: 10,
+        default_ttl_secs: 600,
+        max_index_entries: 5_000,
+        min_relevance_score: 0.2,
+        token_budget: Some(50_000),
+        auto_index_on_tools_list: false,
+    };
+    let json = serde_json::to_string(&config).unwrap();
+    let parsed: crate::DiscoveryConfig = serde_json::from_str(&json).unwrap();
+    assert_eq!(config, parsed);
+}
+
+#[test]
+fn test_discovery_config_in_policy_config() {
+    let toml_str = r#"
+        [[policies]]
+        name = "test"
+        tool_pattern = "*"
+        function_pattern = "*"
+        policy_type = "Allow"
+
+        [discovery]
+        enabled = true
+        max_results = 10
+        default_ttl_secs = 600
+        min_relevance_score = 0.2
+    "#;
+    let config: crate::PolicyConfig = toml::from_str(toml_str).expect("parse");
+    assert!(config.discovery.enabled);
+    assert_eq!(config.discovery.max_results, 10);
+    assert_eq!(config.discovery.default_ttl_secs, 600);
+    assert!((config.discovery.min_relevance_score - 0.2).abs() < f64::EPSILON);
+}
+
+#[test]
+fn test_discovery_config_policy_config_validate_passes() {
+    let toml_str = r#"
+        [[policies]]
+        name = "test"
+        tool_pattern = "*"
+        function_pattern = "*"
+        policy_type = "Allow"
+
+        [discovery]
+        enabled = true
+        max_results = 5
+    "#;
+    let config: crate::PolicyConfig = toml::from_str(toml_str).expect("parse");
+    config.validate().unwrap();
+}
+
+#[test]
+fn test_discovery_config_policy_config_validate_rejects_invalid() {
+    let toml_str = r#"
+        [[policies]]
+        name = "test"
+        tool_pattern = "*"
+        function_pattern = "*"
+        policy_type = "Allow"
+
+        [discovery]
+        enabled = true
+        max_results = 100
+    "#;
+    let config: crate::PolicyConfig = toml::from_str(toml_str).expect("parse");
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("discovery"), "got: {}", err);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PROJECTOR CONFIG TESTS (Phase 35.1)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_projector_config_default() {
+    let config = crate::ProjectorConfig::default();
+    assert!(!config.enabled);
+    assert_eq!(config.default_model_family, "generic");
+    assert!(config.auto_detect_model);
+    assert!(!config.compress_schemas);
+    assert!(config.max_schema_tokens.is_none());
+    assert!(config.repair_malformed_calls);
+}
+
+#[test]
+fn test_projector_config_validate_valid_families() {
+    for family in &["claude", "openai", "deepseek", "qwen", "generic"] {
+        let config = crate::ProjectorConfig {
+            default_model_family: family.to_string(),
+            ..Default::default()
+        };
+        config.validate().unwrap();
+    }
+}
+
+#[test]
+fn test_projector_config_validate_custom_family() {
+    let config = crate::ProjectorConfig {
+        default_model_family: "custom:llama".to_string(),
+        ..Default::default()
+    };
+    config.validate().unwrap();
+}
+
+#[test]
+fn test_projector_config_validate_invalid_family() {
+    let config = crate::ProjectorConfig {
+        default_model_family: "invalid_family".to_string(),
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("default_model_family"), "got: {}", err);
+}
+
+#[test]
+fn test_projector_config_validate_max_schema_tokens_zero() {
+    let config = crate::ProjectorConfig {
+        max_schema_tokens: Some(0),
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("max_schema_tokens"), "got: {}", err);
+}
+
+#[test]
+fn test_projector_config_validate_max_schema_tokens_exceeds() {
+    let config = crate::ProjectorConfig {
+        max_schema_tokens: Some(2_000_000),
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("max_schema_tokens"), "got: {}", err);
+}
+
+#[test]
+fn test_projector_config_validate_max_schema_tokens_valid() {
+    let config = crate::ProjectorConfig {
+        max_schema_tokens: Some(500_000),
+        ..Default::default()
+    };
+    config.validate().unwrap();
+}
+
+#[test]
+fn test_projector_config_validate_max_schema_tokens_none() {
+    let config = crate::ProjectorConfig {
+        max_schema_tokens: None,
+        ..Default::default()
+    };
+    config.validate().unwrap();
+}
+
+#[test]
+fn test_projector_config_serde_roundtrip() {
+    let config = crate::ProjectorConfig {
+        enabled: true,
+        default_model_family: "claude".to_string(),
+        auto_detect_model: false,
+        compress_schemas: true,
+        max_schema_tokens: Some(100_000),
+        repair_malformed_calls: false,
+    };
+    let json = serde_json::to_string(&config).unwrap();
+    let parsed: crate::ProjectorConfig = serde_json::from_str(&json).unwrap();
+    assert_eq!(config, parsed);
+}
+
+#[test]
+fn test_projector_config_in_policy_config() {
+    let toml_str = r#"
+        [[policies]]
+        name = "test"
+        tool_pattern = "*"
+        function_pattern = "*"
+        policy_type = "Allow"
+
+        [projector]
+        enabled = true
+        default_model_family = "openai"
+        auto_detect_model = false
+    "#;
+    let config: crate::PolicyConfig = toml::from_str(toml_str).expect("parse");
+    assert!(config.projector.enabled);
+    assert_eq!(config.projector.default_model_family, "openai");
+    assert!(!config.projector.auto_detect_model);
+}
+
+#[test]
+fn test_projector_config_policy_config_validate_passes() {
+    let toml_str = r#"
+        [[policies]]
+        name = "test"
+        tool_pattern = "*"
+        function_pattern = "*"
+        policy_type = "Allow"
+
+        [projector]
+        enabled = true
+        default_model_family = "deepseek"
+    "#;
+    let config: crate::PolicyConfig = toml::from_str(toml_str).expect("parse");
+    config.validate().unwrap();
+}
+
+#[test]
+fn test_projector_config_policy_config_validate_rejects_invalid() {
+    let toml_str = r#"
+        [[policies]]
+        name = "test"
+        tool_pattern = "*"
+        function_pattern = "*"
+        policy_type = "Allow"
+
+        [projector]
+        enabled = true
+        default_model_family = "gpt4"
+    "#;
+    let config: crate::PolicyConfig = toml::from_str(toml_str).expect("parse");
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("projector"), "got: {}", err);
 }

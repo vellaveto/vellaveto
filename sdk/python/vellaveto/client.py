@@ -310,6 +310,109 @@ class VellavetoClient:
             },
         )
 
+    def discover(
+        self,
+        query: str,
+        max_results: int = 5,
+        token_budget: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Search the tool discovery index for matching tools.
+
+        Args:
+            query: Natural language description of the desired tool
+            max_results: Maximum number of results (default: 5, max: 20)
+            token_budget: Optional token budget for returned schemas
+
+        Returns:
+            Discovery result with ranked tools, total candidates, and policy-filtered count
+        """
+        payload: Dict[str, Any] = {
+            "query": query,
+            "max_results": max_results,
+        }
+        if token_budget is not None:
+            payload["token_budget"] = token_budget
+
+        return self._request("POST", "/api/discovery/search", json_data=payload)
+
+    def discovery_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about the tool discovery index.
+
+        Returns:
+            Index statistics including total tools, max capacity, and enabled status
+        """
+        return self._request("GET", "/api/discovery/index/stats")
+
+    def discovery_reindex(self) -> Dict[str, Any]:
+        """
+        Trigger a full rebuild of the IDF weights in the discovery index.
+
+        Returns:
+            Status and total tool count after reindex
+        """
+        return self._request("POST", "/api/discovery/reindex")
+
+    def discovery_tools(
+        self,
+        server_id: Optional[str] = None,
+        sensitivity: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        List all indexed tools, optionally filtered.
+
+        Args:
+            server_id: Filter by originating MCP server ID
+            sensitivity: Filter by sensitivity level (low, medium, high)
+
+        Returns:
+            List of tool metadata objects and total count
+        """
+        params: Dict[str, str] = {}
+        if server_id is not None:
+            params["server_id"] = server_id
+        if sensitivity is not None:
+            params["sensitivity"] = sensitivity
+
+        return self._request(
+            "GET", "/api/discovery/tools", params=params if params else None
+        )
+
+    # ── Projector (Phase 35.3) ───────────────────────────────────
+
+    def projector_models(self) -> Dict[str, Any]:
+        """
+        List supported model families in the projector registry.
+
+        Returns:
+            Dictionary with ``model_families`` list of strings
+        """
+        return self._request("GET", "/api/projector/models")
+
+    def project_schema(
+        self,
+        schema: Dict[str, Any],
+        model_family: str,
+    ) -> Dict[str, Any]:
+        """
+        Project a canonical tool schema for a given model family.
+
+        Args:
+            schema: Canonical tool schema dict with name, description,
+                input_schema, and optional output_schema
+            model_family: Target model family (e.g., "claude", "openai",
+                "deepseek", "qwen", "generic")
+
+        Returns:
+            Dictionary with projected_schema, token_estimate, and model_family
+        """
+        payload = {
+            "schema": schema,
+            "model_family": model_family,
+        }
+        return self._request("POST", "/api/projector/transform", json_data=payload)
+
     def close(self):
         """Close the client and release resources."""
         if self._use_httpx and hasattr(self, "_client"):
@@ -475,3 +578,65 @@ class AsyncVellavetoClient:
 
     async def list_policies(self) -> List[Dict[str, Any]]:
         return await self._request("GET", "/api/policies")
+
+    async def discover(
+        self,
+        query: str,
+        max_results: int = 5,
+        token_budget: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Search the tool discovery index for matching tools (async)."""
+        payload: Dict[str, Any] = {
+            "query": query,
+            "max_results": max_results,
+        }
+        if token_budget is not None:
+            payload["token_budget"] = token_budget
+
+        return await self._request(
+            "POST", "/api/discovery/search", json_data=payload
+        )
+
+    async def discovery_stats(self) -> Dict[str, Any]:
+        """Get statistics about the tool discovery index (async)."""
+        return await self._request("GET", "/api/discovery/index/stats")
+
+    async def discovery_reindex(self) -> Dict[str, Any]:
+        """Trigger a full rebuild of the IDF weights (async)."""
+        return await self._request("POST", "/api/discovery/reindex")
+
+    async def discovery_tools(
+        self,
+        server_id: Optional[str] = None,
+        sensitivity: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """List all indexed tools, optionally filtered (async)."""
+        params: Dict[str, str] = {}
+        if server_id is not None:
+            params["server_id"] = server_id
+        if sensitivity is not None:
+            params["sensitivity"] = sensitivity
+
+        return await self._request(
+            "GET", "/api/discovery/tools", params=params if params else None
+        )
+
+    # ── Projector (Phase 35.3) ───────────────────────────────────
+
+    async def projector_models(self) -> Dict[str, Any]:
+        """List supported model families in the projector registry (async)."""
+        return await self._request("GET", "/api/projector/models")
+
+    async def project_schema(
+        self,
+        schema: Dict[str, Any],
+        model_family: str,
+    ) -> Dict[str, Any]:
+        """Project a canonical tool schema for a given model family (async)."""
+        payload = {
+            "schema": schema,
+            "model_family": model_family,
+        }
+        return await self._request(
+            "POST", "/api/projector/transform", json_data=payload
+        )

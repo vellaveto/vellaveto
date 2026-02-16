@@ -139,3 +139,80 @@ export interface Approval {
 export interface HealthResponse {
   status: string;
 }
+
+/** Request body for the discovery search endpoint. */
+export interface DiscoverySearchRequest {
+  /** Natural language description of the desired tool. */
+  query: string;
+  /** Maximum number of results (default: 5, max: 20). */
+  max_results?: number;
+  /** Optional token budget for returned schemas. */
+  token_budget?: number;
+}
+
+/** A discovered tool with its relevance score. */
+export interface DiscoveredTool {
+  metadata: ToolMetadata;
+  relevance_score: number;
+  ttl_secs: number;
+}
+
+/** Metadata about a tool in the discovery index. */
+export interface ToolMetadata {
+  tool_id: string;
+  name: string;
+  description: string;
+  server_id: string;
+  input_schema: Record<string, unknown>;
+  schema_hash: string;
+  sensitivity: string;
+  domain_tags: string[];
+  token_cost: number;
+}
+
+/** Result of a discovery search query. */
+export interface DiscoveryResult {
+  tools: DiscoveredTool[];
+  query: string;
+  total_candidates: number;
+  policy_filtered: number;
+}
+
+/** Statistics about the discovery index. */
+export interface DiscoveryIndexStats {
+  total_tools: number;
+  max_capacity: number;
+  config_enabled: boolean;
+}
+
+/** Response from the discovery tools list endpoint. */
+export interface DiscoveryToolsResponse {
+  tools: ToolMetadata[];
+  total: number;
+}
+
+/** Response from the discovery reindex endpoint. */
+export interface DiscoveryReindexResponse {
+  status: string;
+  total_tools: number;
+}
+
+/** Canonical tool schema (model-agnostic). */
+export interface CanonicalToolSchema {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+  output_schema?: Record<string, unknown> | null;
+}
+
+/** Response from the projector models list endpoint. */
+export interface ProjectorModelsResponse {
+  model_families: string[];
+}
+
+/** Response from the projector transform endpoint. */
+export interface ProjectorTransformResponse {
+  projected_schema: Record<string, unknown>;
+  token_estimate: number;
+  model_family: string;
+}

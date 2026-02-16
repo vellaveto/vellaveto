@@ -797,6 +797,8 @@ fn make_test_proxy_state(canonicalize: bool) -> ProxyState {
         streamable_http: Default::default(),
         #[cfg(feature = "discovery")]
         discovery_engine: None,
+        #[cfg(feature = "projector")]
+        projector_registry: None,
     }
 }
 

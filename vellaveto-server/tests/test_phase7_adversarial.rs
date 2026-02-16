@@ -89,6 +89,7 @@ fn state_with_api_key(tmp: &TempDir) -> AppState {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     }
 }
 
@@ -341,6 +342,7 @@ async fn regression_38_prometheus_metrics_rate_limited() {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
 
     // First request should succeed

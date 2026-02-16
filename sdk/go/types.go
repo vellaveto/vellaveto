@@ -179,3 +179,83 @@ type Approval struct {
 	CreatedAt string `json:"created_at"`
 	ExpiresAt string `json:"expires_at"`
 }
+
+// DiscoverRequest is the JSON body sent to POST /api/discovery/search.
+type DiscoverRequest struct {
+	Query       string `json:"query"`
+	MaxResults  int    `json:"max_results,omitempty"`
+	TokenBudget *int   `json:"token_budget,omitempty"`
+}
+
+// ToolMetadata describes a tool in the discovery index.
+type ToolMetadata struct {
+	ToolID      string                 `json:"tool_id"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	ServerID    string                 `json:"server_id"`
+	InputSchema map[string]interface{} `json:"input_schema"`
+	SchemaHash  string                 `json:"schema_hash"`
+	Sensitivity string                 `json:"sensitivity"`
+	DomainTags  []string               `json:"domain_tags"`
+	TokenCost   int                    `json:"token_cost"`
+}
+
+// DiscoveredTool is a single tool in a discovery result.
+type DiscoveredTool struct {
+	Metadata       ToolMetadata `json:"metadata"`
+	RelevanceScore float64      `json:"relevance_score"`
+	TTLSecs        int          `json:"ttl_secs"`
+}
+
+// DiscoveryResult is the response from the discovery search endpoint.
+type DiscoveryResult struct {
+	Tools           []DiscoveredTool `json:"tools"`
+	Query           string           `json:"query"`
+	TotalCandidates int              `json:"total_candidates"`
+	PolicyFiltered  int              `json:"policy_filtered"`
+}
+
+// DiscoveryIndexStats is the response from the discovery stats endpoint.
+type DiscoveryIndexStats struct {
+	TotalTools    int  `json:"total_tools"`
+	MaxCapacity   int  `json:"max_capacity"`
+	ConfigEnabled bool `json:"config_enabled"`
+}
+
+// DiscoveryToolsResponse is the response from the discovery tools list endpoint.
+type DiscoveryToolsResponse struct {
+	Tools []ToolMetadata `json:"tools"`
+	Total int            `json:"total"`
+}
+
+// DiscoveryReindexResponse is the response from the reindex endpoint.
+type DiscoveryReindexResponse struct {
+	Status     string `json:"status"`
+	TotalTools int    `json:"total_tools"`
+}
+
+// CanonicalToolSchema is a model-agnostic tool schema.
+type CanonicalToolSchema struct {
+	Name         string      `json:"name"`
+	Description  string      `json:"description"`
+	InputSchema  interface{} `json:"input_schema"`
+	OutputSchema interface{} `json:"output_schema,omitempty"`
+}
+
+// ProjectorTransformRequest is the JSON body sent to POST /api/projector/transform.
+type ProjectorTransformRequest struct {
+	Schema      CanonicalToolSchema `json:"schema"`
+	ModelFamily string              `json:"model_family"`
+}
+
+// ProjectorModelsResponse is the response from the projector models list endpoint.
+type ProjectorModelsResponse struct {
+	ModelFamilies []string `json:"model_families"`
+}
+
+// ProjectorTransformResponse is the response from the projector transform endpoint.
+type ProjectorTransformResponse struct {
+	ProjectedSchema interface{} `json:"projected_schema"`
+	TokenEstimate   int         `json:"token_estimate"`
+	ModelFamily     string      `json:"model_family"`
+}

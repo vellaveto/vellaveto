@@ -101,6 +101,7 @@ fn test_state() -> (AppState, TempDir) {
         cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
         discovery_engine: None,
         discovery_audit: None,
+        projector_registry: None,
     };
     (state, tmp)
 }
