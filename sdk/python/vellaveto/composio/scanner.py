@@ -13,6 +13,7 @@ detection when a redactor is provided.
 
 import re
 import logging
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Pattern
 
@@ -33,6 +34,18 @@ _DEFAULT_INJECTION_PATTERNS: List[str] = [
     r"(?i)<\s*\/?system\s*>",
 ]
 
+# Zero-width and invisible characters to strip before pattern matching
+_INVISIBLE_CHARS = re.compile(
+    r"[\u200b\u200c\u200d\u00ad\ufeff\u200e\u200f\u2060\u2061\u2062\u2063\u2064]"
+)
+
+# Maximum string length to scan (64 KB — injection payloads are not hidden
+# deep in megabytes of data)
+_MAX_SCAN_STRING_LEN = 65536
+
+# Maximum findings before stopping scan (prevents resource exhaustion)
+_MAX_FINDINGS = 100
+
 
 @dataclass
 class ScanFinding:
@@ -42,7 +55,8 @@ class ScanFinding:
         category: ``"secret"`` or ``"injection"``.
         field_path: Dot-delimited JSON path to the finding.
         pattern: The pattern name or regex that matched.
-        snippet: A truncated excerpt of the matched value (max 60 chars).
+        snippet: A safe excerpt.  For secrets, this is ``"[REDACTED]"``
+            to prevent leaking the detected value.
     """
     category: str
     field_path: str
@@ -57,9 +71,11 @@ class ResponseScanResult:
     Attributes:
         findings: List of individual findings.
         blocked: ``True`` if the response should be blocked.
+        truncated: ``True`` if scanning stopped early due to finding cap.
     """
     findings: List[ScanFinding] = field(default_factory=list)
     blocked: bool = False
+    truncated: bool = False
 
 
 class ResponseScanner:
@@ -71,7 +87,7 @@ class ResponseScanner:
             When *None*, secret scanning is skipped.
         injection_patterns: Override the default injection regex list.
         scan_depth: Maximum recursion depth for nested structures
-            (default 10).
+            (default 10, range 1–50).
     """
 
     def __init__(
@@ -81,7 +97,9 @@ class ResponseScanner:
         scan_depth: int = 10,
     ):
         self._redactor = redactor
-        self._scan_depth = max(1, min(scan_depth, 50))
+        if scan_depth < 1:
+            raise ValueError(f"scan_depth must be >= 1, got {scan_depth}")
+        self._scan_depth = min(scan_depth, 50)
 
         raw_patterns = injection_patterns if injection_patterns is not None else _DEFAULT_INJECTION_PATTERNS
         self._injection_patterns: List[Pattern[str]] = [
@@ -114,17 +132,27 @@ class ResponseScanner:
         depth: int,
         result: ResponseScanResult,
     ) -> None:
-        if depth > self._scan_depth:
+        if depth >= self._scan_depth:
+            return
+        if len(result.findings) >= _MAX_FINDINGS:
+            result.truncated = True
             return
 
         if isinstance(value, str):
             self._scan_string(value, path, result)
         elif isinstance(value, dict):
             for k, v in value.items():
-                child_path = f"{path}.{k}" if path else k
+                if len(result.findings) >= _MAX_FINDINGS:
+                    result.truncated = True
+                    return
+                k_safe = str(k).replace(".", "\\.") if isinstance(k, str) and "." in k else str(k)
+                child_path = f"{path}.{k_safe}" if path else k_safe
                 self._walk(v, child_path, depth + 1, result)
-        elif isinstance(value, list):
+        elif isinstance(value, (list, tuple)):
             for i, item in enumerate(value):
+                if len(result.findings) >= _MAX_FINDINGS:
+                    result.truncated = True
+                    return
                 child_path = f"{path}[{i}]"
                 self._walk(item, child_path, depth + 1, result)
 
@@ -134,23 +162,36 @@ class ResponseScanner:
         path: str,
         result: ResponseScanResult,
     ) -> None:
-        # Secret detection via redactor patterns
-        if self._redactor is not None and self._redactor.is_sensitive_value(value):
-            result.findings.append(ScanFinding(
-                category="secret",
-                field_path=path,
-                pattern="secret_value_pattern",
-                snippet=self._truncate(value),
-            ))
+        if len(result.findings) >= _MAX_FINDINGS:
+            result.truncated = True
+            return
+
+        # Secret detection via redactor patterns (check stripped value)
+        if self._redactor is not None:
+            stripped = value.strip()
+            if self._redactor.is_sensitive_value(stripped):
+                result.findings.append(ScanFinding(
+                    category="secret",
+                    field_path=path,
+                    pattern="secret_value_pattern",
+                    snippet="[REDACTED]",
+                ))
+
+        # Truncate for injection scanning to bound CPU
+        scan_value = value[:_MAX_SCAN_STRING_LEN] if len(value) > _MAX_SCAN_STRING_LEN else value
+
+        # NFKC normalize and strip invisible characters before pattern matching
+        scan_value = unicodedata.normalize("NFKC", scan_value)
+        scan_value = _INVISIBLE_CHARS.sub("", scan_value)
 
         # Injection pattern matching
         for pattern in self._injection_patterns:
-            if pattern.search(value):
+            if pattern.search(scan_value):
                 result.findings.append(ScanFinding(
                     category="injection",
                     field_path=path,
                     pattern=pattern.pattern,
-                    snippet=self._truncate(value),
+                    snippet=self._truncate(scan_value),
                 ))
                 # One injection finding per field is enough
                 break

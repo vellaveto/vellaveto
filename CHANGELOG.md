@@ -44,7 +44,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Slug normalization + target extraction** (`sdk/python/vellaveto/composio/extractor.py`) — Converts Composio `TOOLKIT_ACTION_NAME` slugs to `(tool, function)` pairs. Extracts `target_paths` and `target_domains` from arguments using the same heuristic as the LangChain adapter.
 - **Optional dependency** — `composio>=1.0.0` in `pyproject.toml` optional deps group. Zero new hard dependencies.
 - **Fail-closed by default** — API/network errors produce `PolicyDenied`. Configurable `fail_closed=False` for fail-open mode.
-- 35 new tests in `sdk/python/tests/test_composio.py` (7 test classes: slug normalization, target extraction, before/after modifiers, call chain tracker, response scanner, guard API).
+- 84 tests in `sdk/python/tests/test_composio.py` (7 test classes: slug normalization, target extraction, before/after modifiers, call chain tracker, response scanner, guard API — including 49 adversarial tests).
+
+### Fixed (Adversarial Hardening — Composio Integration)
+- **TOCTOU prevention** — `ComposioGuard.execute()` deep-copies arguments before policy check to prevent mutation between check and use.
+- **Unicode injection bypass** — Scanner applies NFKC normalization and strips zero-width/invisible characters (U+200B, U+200C, U+200D, U+FEFF, etc.) before pattern matching, preventing fullwidth and zero-width character bypass.
+- **Secret snippet redaction** — Secret findings now report `snippet="[REDACTED]"` instead of the detected value, preventing information leakage through scan results.
+- **Thread-safe CallChainTracker** — All methods protected by `threading.Lock` for concurrent access safety. Tool names truncated at 256 chars to prevent memory abuse.
+- **Resource exhaustion bounds** — Scan findings capped at 100 (`_MAX_FINDINGS`), string scan length at 64KB (`_MAX_SCAN_STRING_LEN`), targets at 256, extraction depth at 5 levels, scan depth validated (1–50).
+- **Non-dict/non-string response handling** — After-execute modifier and standalone execute now handle bare string responses (wrapped in `{"_raw": ...}` for scanning) and non-scannable types (blocked in fail-closed mode).
+- **Scanner exception safety** — Both modifier and guard catch scanner exceptions: fail-closed returns sanitized error, fail-open passes response through.
+- **Error message sanitization** — Fail-closed error messages expose only `type(exc).__name__`, not full exception messages or stack traces, preventing internal information leakage.
+- **Fail-open call chain poisoning** — When evaluation fails and `fail_closed=False`, unevaluated tool calls are not appended to the call chain (tracked via `evaluated` flag).
+- **Slug validation hardening** — `normalize_slug_to_tool_function()` rejects empty, non-string, whitespace-only, and non-ASCII slugs (including Cyrillic homoglyphs) with `ValueError`.
+- **Recursive nested target extraction** — `extract_targets()` walks nested dicts/lists up to 5 levels deep with independent if-chains (not elif) for path/domain classification, `file://` URI support, `ws://`/`wss://` scheme detection, and case-insensitive URL matching.
+- **scan_responses=False consistency** — `ComposioGuard.after_execute_modifier()` returns a true no-op passthrough when scanning is disabled.
+- **Import narrowing** — `vellaveto/__init__.py` narrowed from `except Exception` to `except ImportError` for `ComposioGuard` import.
 
 #### Phase 30 — MCP 2025-11-25 Spec Adoption
 - **Tool name validation** (`vellaveto-types/src/core.rs`) — `validate_mcp_tool_name()` enforces MCP 2025-11-25 format: 1–64 chars, `[a-zA-Z0-9_\-./]`, no leading/trailing dots/slashes, no consecutive dots (`..`). Re-exported at crate root.

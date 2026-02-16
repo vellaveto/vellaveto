@@ -21,7 +21,7 @@ from vellaveto.types import Verdict, EvaluationResult, Action
 # Conditional re-export: ComposioGuard is available when vellaveto.composio is importable
 try:
     from vellaveto.composio import ComposioGuard
-except Exception:
+except ImportError:
     ComposioGuard = None  # type: ignore[assignment,misc]
 
 __version__ = "2.2.1"

@@ -11,6 +11,7 @@ LangChain, CrewAI, AutoGen — without framework-specific code.
 """
 
 import logging
+import threading
 from typing import Any, Callable, Dict, List, Optional
 
 from vellaveto.client import VellavetoClient, PolicyDenied, ApprovalRequired
@@ -22,37 +23,49 @@ from vellaveto.composio.scanner import ResponseScanner, ResponseScanResult
 logger = logging.getLogger(__name__)
 
 _MAX_CALL_CHAIN = 20
+_MAX_TOOL_NAME_LEN = 256
 
 
 class CallChainTracker:
-    """Bounded call chain that mirrors ``langchain.py`` behavior.
+    """Bounded, thread-safe call chain tracker.
 
     Maintains an ordered list of recent tool calls (max 20 entries,
     FIFO eviction).  The chain is included in the ``EvaluationContext``
     so that Vellaveto can enforce action-sequence policies.
 
-    This class is **not** thread-safe.  Use one tracker per session.
+    Thread-safe via ``threading.Lock``.
     """
 
     def __init__(self) -> None:
         self._chain: List[str] = []
+        self._lock = threading.Lock()
 
     def append(self, tool_call: str) -> None:
-        """Record a tool call, evicting the oldest if at capacity."""
-        self._chain.append(tool_call)
-        if len(self._chain) > _MAX_CALL_CHAIN:
-            self._chain.pop(0)
+        """Record a tool call, evicting the oldest if at capacity.
+
+        Tool names longer than 256 characters are truncated.
+        """
+        # Truncate oversized tool names to prevent memory abuse
+        if len(tool_call) > _MAX_TOOL_NAME_LEN:
+            tool_call = tool_call[:_MAX_TOOL_NAME_LEN]
+        with self._lock:
+            self._chain.append(tool_call)
+            if len(self._chain) > _MAX_CALL_CHAIN:
+                self._chain.pop(0)
 
     def copy(self) -> List[str]:
         """Return a shallow copy of the current chain."""
-        return self._chain.copy()
+        with self._lock:
+            return self._chain.copy()
 
     def reset(self) -> None:
         """Clear the chain (e.g. on session reset)."""
-        self._chain.clear()
+        with self._lock:
+            self._chain.clear()
 
     def __len__(self) -> int:
-        return len(self._chain)
+        with self._lock:
+            return len(self._chain)
 
 
 def create_before_execute_modifier(
@@ -94,7 +107,9 @@ def create_before_execute_modifier(
             return params
 
         tool_name, function_name = normalize_slug_to_tool_function(tool, toolkit)
-        arguments = params.get("arguments", params)
+        arguments = params.get("arguments", params) if isinstance(params, dict) else {}
+        if arguments is None:
+            arguments = {}
         target_paths, target_domains = extract_targets(tool, arguments)
 
         context = EvaluationContext(
@@ -121,9 +136,10 @@ def create_before_execute_modifier(
         except (PolicyDenied, ApprovalRequired):
             raise
         except Exception as exc:
-            logger.error("Vellaveto evaluation failed for %s: %s", tool, exc)
+            logger.error("Vellaveto evaluation failed for %s: %s", tool, type(exc).__name__)
             if fail_closed:
-                raise PolicyDenied(f"Evaluation failed: {exc}")
+                raise PolicyDenied(f"Evaluation failed: {type(exc).__name__}")
+            logger.warning("Proceeding without policy evaluation (fail_closed=False) for %s", tool)
             return params
 
         from vellaveto.types import Verdict
@@ -172,15 +188,42 @@ def create_after_execute_modifier(
     Returns:
         A modifier callable suitable for Composio's modifier system.
     """
-    effective_scanner = scanner or ResponseScanner()
+    effective_scanner = scanner if scanner is not None else ResponseScanner()
     tools_lower = {t.lower() for t in tools} if tools else None
 
-    def modifier(tool: str, toolkit: str, response: Dict[str, Any]) -> Dict[str, Any]:
+    def modifier(tool: str, toolkit: str, response: Any) -> Any:
         if tools_lower is not None and tool.lower() not in tools_lower:
             return response
 
-        data = response.get("data", response)
-        scan_result: ResponseScanResult = effective_scanner.scan(data)
+        # Handle non-dict responses
+        if not isinstance(response, dict):
+            if isinstance(response, str):
+                # Scan bare string responses
+                scan_data = {"_raw": response}
+            else:
+                logger.warning(
+                    "Non-scannable response type %s from %s",
+                    type(response).__name__, tool,
+                )
+                if fail_closed:
+                    return {
+                        "data": {"error": "Response blocked: non-scannable response type"},
+                        "successful": False,
+                    }
+                return response
+        else:
+            scan_data = response.get("data", response)
+
+        try:
+            scan_result: ResponseScanResult = effective_scanner.scan(scan_data)
+        except Exception as exc:
+            logger.error("Response scan failed for %s: %s", tool, type(exc).__name__)
+            if fail_closed:
+                return {
+                    "data": {"error": "Response blocked: scan failure"},
+                    "successful": False,
+                }
+            return response
 
         if not scan_result.findings:
             return response

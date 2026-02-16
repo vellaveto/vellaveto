@@ -12,6 +12,7 @@ user-friendly API that can be used in two ways:
    ``composio.tools.execute()`` call with policy checks.
 """
 
+import copy
 import logging
 from typing import Any, Callable, Dict, List, Optional
 
@@ -26,7 +27,6 @@ from vellaveto.composio.extractor import normalize_slug_to_tool_function, extrac
 from vellaveto.types import EvaluationContext, Verdict
 
 logger = logging.getLogger(__name__)
-
 
 class ComposioGuard:
     """Vellaveto policy guard for Composio tool calls.
@@ -85,11 +85,14 @@ class ComposioGuard:
         self._agent_id = agent_id
         self._tenant_id = tenant_id
         self._fail_closed = fail_closed
+        self._scan_responses = scan_responses
         self._tracker = CallChainTracker()
 
         self._scanner: Optional[ResponseScanner] = None
         if scan_responses:
             self._scanner = ResponseScanner(redactor=redactor)
+        else:
+            logger.info("ComposioGuard: response scanning disabled (scan_responses=False)")
 
     def before_execute_modifier(
         self,
@@ -120,12 +123,20 @@ class ComposioGuard:
     ) -> Callable:
         """Return an ``after_execute`` modifier for Composio.
 
+        When ``scan_responses=False`` was set on the guard, this returns
+        a no-op modifier that passes responses through unchanged.
+
         Args:
             tools: Optional allowlist of tool slugs to scan.
 
         Returns:
             Callable with signature ``(tool, toolkit, response) -> response``.
         """
+        if not self._scan_responses:
+            # When scan_responses=False, return a no-op modifier that passes through
+            def _noop_modifier(tool: str, toolkit: str, response: Any) -> Any:
+                return response
+            return _noop_modifier
         return create_after_execute_modifier(
             scanner=self._scanner,
             fail_closed=self._fail_closed,
@@ -163,8 +174,11 @@ class ComposioGuard:
                 evaluation fails and ``fail_closed`` is *True*.
             ApprovalRequired: If the action requires human approval.
         """
+        # Deep-copy arguments to prevent TOCTOU mutation between check and use
+        frozen_arguments = copy.deepcopy(arguments)
+
         tool_name, function_name = normalize_slug_to_tool_function(slug, toolkit)
-        target_paths, target_domains = extract_targets(slug, arguments)
+        target_paths, target_domains = extract_targets(slug, frozen_arguments)
 
         context = EvaluationContext(
             session_id=self._session_id,
@@ -173,10 +187,11 @@ class ComposioGuard:
             call_chain=self._tracker.copy(),
         )
 
-        eval_params = arguments
+        eval_params = frozen_arguments
         if self._client.redactor is not None:
-            eval_params = self._client.redactor.redact(arguments)
+            eval_params = self._client.redactor.redact(frozen_arguments)
 
+        evaluated = True
         try:
             result = self._client.evaluate(
                 tool=tool_name,
@@ -189,11 +204,13 @@ class ComposioGuard:
         except (PolicyDenied, ApprovalRequired):
             raise
         except Exception as exc:
-            logger.error("Vellaveto evaluation failed for %s: %s", slug, exc)
+            logger.error("Vellaveto evaluation failed for %s: %s", slug, type(exc).__name__)
             if self._fail_closed:
-                raise PolicyDenied(f"Evaluation failed: {exc}")
+                raise PolicyDenied(f"Evaluation failed: {type(exc).__name__}")
             # fail-open: skip policy check and proceed
+            logger.warning("Proceeding without policy evaluation (fail_closed=False) for %s", slug)
             result = None
+            evaluated = False
 
         if result is not None:
             if result.verdict == Verdict.DENY:
@@ -207,32 +224,65 @@ class ComposioGuard:
                     result.approval_id or "unknown",
                 )
 
-        # Policy allowed — execute via Composio
-        self._tracker.append(slug)
+        # Only append to call chain if policy was actually evaluated
+        if evaluated:
+            self._tracker.append(slug)
 
-        response = composio.tools.execute(
-            user_id=user_id,
-            slug=slug,
-            arguments=arguments,
-            **kwargs,
-        )
+        # Execute via Composio with frozen arguments
+        try:
+            response = composio.tools.execute(
+                user_id=user_id,
+                slug=slug,
+                arguments=frozen_arguments,
+                **kwargs,
+            )
+        except Exception as exc:
+            logger.error("Composio execute raised for %s: %s", slug, type(exc).__name__)
+            if self._fail_closed:
+                raise PolicyDenied(f"Tool execution failed (unscanned): {type(exc).__name__}")
+            raise
 
         # Post-execution scan
-        if self._scanner is not None and isinstance(response, dict):
-            data = response.get("data", response)
-            scan_result = self._scanner.scan(data)
-            if scan_result.findings:
+        if self._scanner is not None:
+            scan_data = None
+            if isinstance(response, dict):
+                scan_data = response.get("data", response)
+            elif isinstance(response, str):
+                scan_data = {"_raw": response}
+            else:
                 logger.warning(
-                    "Vellaveto response scan found %d finding(s) in %s",
-                    len(scan_result.findings),
-                    slug,
+                    "Non-scannable response type %s from %s",
+                    type(response).__name__, slug,
                 )
                 if self._fail_closed:
                     return {
-                        "data": {"error": "Response blocked by Vellaveto security scan"},
+                        "data": {"error": "Response blocked: non-scannable response type"},
                         "successful": False,
-                        "error": f"Security scan detected {len(scan_result.findings)} finding(s)",
                     }
+
+            if scan_data is not None:
+                try:
+                    scan_result = self._scanner.scan(scan_data)
+                except Exception as exc:
+                    logger.error("Response scan failed for %s: %s", slug, type(exc).__name__)
+                    if self._fail_closed:
+                        return {
+                            "data": {"error": "Response blocked: scan failure"},
+                            "successful": False,
+                        }
+                else:
+                    if scan_result.findings:
+                        logger.warning(
+                            "Vellaveto response scan found %d finding(s) in %s",
+                            len(scan_result.findings),
+                            slug,
+                        )
+                        if self._fail_closed:
+                            return {
+                                "data": {"error": "Response blocked by Vellaveto security scan"},
+                                "successful": False,
+                                "error": f"Security scan detected {len(scan_result.findings)} finding(s)",
+                            }
 
         return response
 
