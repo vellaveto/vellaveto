@@ -100,7 +100,11 @@ pub async fn discovery_search(
         ));
     }
 
-    // Allow all tools through the API (policy filtering is session-based)
+    // SECURITY (FIND-R46-004): Policy filtering for the discovery API is
+    // session-based and happens within the ProxyBridge relay. The REST API
+    // returns all tools because it serves administrative/developer use cases.
+    // Route-level authentication is enforced by the middleware layer applied
+    // to all /api/* routes in the router configuration (see routes/main.rs).
     let result = engine
         .discover(&body.query, max_results, body.token_budget, &|_| true)
         .map_err(|e| {

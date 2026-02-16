@@ -31,6 +31,9 @@ use vellaveto_mcp::inspection::{inspect_for_injection, scan_response_for_secrets
 use vellaveto_types::{Action, EvaluationContext, Verdict};
 
 use super::auth::validate_api_key;
+use super::call_chain::{
+    check_privilege_escalation, sync_session_call_chain_from_headers,
+};
 use super::origin::validate_origin;
 use super::ProxyState;
 use crate::proxy_metrics::record_dlp_finding;
@@ -133,6 +136,32 @@ pub async fn handle_ws_upgrade(
 
     // 3. Get or create session
     let session_id = state.sessions.get_or_create(query.session_id.as_deref());
+
+    // SECURITY (FIND-R46-006): Validate and extract call chain from upgrade headers.
+    // The call chain is synced once during upgrade and reused for all messages
+    // in this WebSocket connection.
+    if let Err(reason) =
+        super::call_chain::validate_call_chain_header(&headers, &state.limits)
+    {
+        tracing::warn!(
+            session_id = %session_id,
+            "WS upgrade rejected: invalid call chain header: {}",
+            reason
+        );
+        return axum::response::IntoResponse::into_response((
+            axum::http::StatusCode::BAD_REQUEST,
+            axum::Json(json!({
+                "error": "Invalid request"
+            })),
+        ));
+    }
+    sync_session_call_chain_from_headers(
+        &state.sessions,
+        &session_id,
+        &headers,
+        state.call_chain_hmac_key.as_ref(),
+        &state.limits,
+    );
 
     let ws_config = state.ws_config.clone().unwrap_or_default();
 
@@ -372,6 +401,25 @@ async fn relay_client_to_upstream(
                     break;
                 }
 
+                // SECURITY (FIND-R46-005): Reject JSON with duplicate keys before parsing.
+                // Prevents parser-disagreement attacks (CVE-2017-12635, CVE-2020-16250)
+                // where the proxy evaluates one key value but upstream sees another.
+                if let Some(dup_key) = vellaveto_mcp::framing::find_duplicate_json_key(&text) {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        "SECURITY: Rejected WS message with duplicate key: \"{}\"",
+                        dup_key
+                    );
+                    let mut sink = client_sink.lock().await;
+                    let _ = sink
+                        .send(Message::Close(Some(CloseFrame {
+                            code: CLOSE_POLICY_VIOLATION,
+                            reason: "Duplicate JSON key detected".into(),
+                        })))
+                        .await;
+                    break;
+                }
+
                 // Parse JSON
                 let parsed: Value = match serde_json::from_str(&text) {
                     Ok(v) => v,
@@ -478,7 +526,251 @@ async fn relay_client_to_upstream(
                         ref tool_name,
                         ref arguments,
                     } => {
+                        // SECURITY (FIND-R46-009): Strict tool name validation (MCP 2025-11-25).
+                        // When enabled, reject tool names that don't conform to the spec format.
+                        if state.streamable_http.strict_tool_name_validation {
+                            if let Err(e) = vellaveto_types::validate_mcp_tool_name(tool_name) {
+                                tracing::warn!(
+                                    session_id = %session_id,
+                                    "SECURITY: Rejecting invalid WS tool name '{}': {}",
+                                    tool_name,
+                                    e
+                                );
+                                let error = make_ws_error_response(
+                                    Some(id),
+                                    -32602,
+                                    "Invalid tool name",
+                                );
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(error.into())).await;
+                                continue;
+                            }
+                        }
+
                         let action = extractor::extract_action(tool_name, arguments);
+
+                        // SECURITY (FIND-R46-006): Call chain validation and privilege escalation check.
+                        // Extract X-Upstream-Agents from the initial WS upgrade headers stored in session.
+                        // For WebSocket, we sync the call chain once during upgrade and reuse it.
+                        let upstream_chain = {
+                            let session_ref = state.sessions.get_mut(&session_id);
+                            session_ref
+                                .map(|s| s.current_call_chain.clone())
+                                .unwrap_or_default()
+                        };
+                        let current_agent_id = {
+                            let session_ref = state.sessions.get_mut(&session_id);
+                            session_ref.and_then(|s| s.oauth_subject.clone())
+                        };
+
+                        // SECURITY (FIND-R46-006): Privilege escalation detection.
+                        if !upstream_chain.is_empty() {
+                            let priv_check = check_privilege_escalation(
+                                &state.engine,
+                                &state.policies,
+                                &action,
+                                &upstream_chain,
+                                current_agent_id.as_deref(),
+                            );
+                            if priv_check.escalation_detected {
+                                let verdict = Verdict::Deny {
+                                    reason: format!(
+                                        "Privilege escalation: agent '{}' would be denied",
+                                        priv_check
+                                            .escalating_from_agent
+                                            .as_deref()
+                                            .unwrap_or("unknown")
+                                    ),
+                                };
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &verdict,
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "event": "privilege_escalation_blocked",
+                                            "escalating_from_agent": priv_check.escalating_from_agent,
+                                            "upstream_deny_reason": priv_check.upstream_deny_reason,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to audit WS privilege escalation: {}",
+                                        e
+                                    );
+                                }
+                                let error = make_ws_error_response(
+                                    Some(id),
+                                    -32001,
+                                    "Denied by policy",
+                                );
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(error.into())).await;
+                                continue;
+                            }
+                        }
+
+                        // SECURITY (FIND-R46-007): Rug-pull detection.
+                        // Block calls to tools whose annotations changed since initial tools/list.
+                        let is_flagged = state
+                            .sessions
+                            .get_mut(&session_id)
+                            .map(|s| s.flagged_tools.contains(tool_name))
+                            .unwrap_or(false);
+                        if is_flagged {
+                            let verdict = Verdict::Deny {
+                                reason: format!(
+                                    "Tool '{}' blocked: annotations changed (rug-pull detected)",
+                                    tool_name
+                                ),
+                            };
+                            if let Err(e) = state
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &verdict,
+                                    json!({
+                                        "source": "ws_proxy",
+                                        "session": session_id,
+                                        "transport": "websocket",
+                                        "event": "rug_pull_tool_blocked",
+                                        "tool": tool_name,
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::warn!("Failed to audit WS rug-pull block: {}", e);
+                            }
+                            let error = make_ws_error_response(
+                                Some(id),
+                                -32001,
+                                "Denied by policy",
+                            );
+                            let mut sink = client_sink.lock().await;
+                            let _ = sink.send(Message::Text(error.into())).await;
+                            continue;
+                        }
+
+                        // SECURITY (FIND-R46-008): Circuit breaker check.
+                        // If the circuit is open for this tool, reject immediately.
+                        if let Some(ref circuit_breaker) = state.circuit_breaker {
+                            if let Err(reason) = circuit_breaker.can_proceed(tool_name) {
+                                tracing::warn!(
+                                    session_id = %session_id,
+                                    "SECURITY: WS circuit breaker open for tool '{}': {}",
+                                    tool_name,
+                                    reason
+                                );
+                                let verdict = Verdict::Deny {
+                                    reason: format!("Circuit breaker open: {}", reason),
+                                };
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &verdict,
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "session": session_id,
+                                            "transport": "websocket",
+                                            "event": "circuit_breaker_rejected",
+                                            "tool": tool_name,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to audit WS circuit breaker rejection: {}",
+                                        e
+                                    );
+                                }
+                                let error = make_ws_error_response(
+                                    Some(id),
+                                    -32001,
+                                    "Service temporarily unavailable",
+                                );
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(error.into())).await;
+                                continue;
+                            }
+                        }
+
+                        // SECURITY (FIND-R46-013): Tool registry trust check.
+                        // If tool registry is configured, check trust level before evaluation.
+                        if let Some(ref registry) = state.tool_registry {
+                            let trust = registry.check_trust_level(tool_name).await;
+                            match trust {
+                                vellaveto_mcp::tool_registry::TrustLevel::Unknown => {
+                                    registry.register_unknown(tool_name).await;
+                                    let verdict = Verdict::Deny {
+                                        reason: "Unknown tool requires approval".to_string(),
+                                    };
+                                    if let Err(e) = state
+                                        .audit
+                                        .log_entry(
+                                            &action,
+                                            &verdict,
+                                            json!({
+                                                "source": "ws_proxy",
+                                                "session": session_id,
+                                                "transport": "websocket",
+                                                "registry": "unknown_tool",
+                                                "tool": tool_name,
+                                            }),
+                                        )
+                                        .await
+                                    {
+                                        tracing::warn!("Failed to audit WS unknown tool: {}", e);
+                                    }
+                                    let error = make_ws_error_response(
+                                        Some(id),
+                                        -32001,
+                                        "Approval required",
+                                    );
+                                    let mut sink = client_sink.lock().await;
+                                    let _ = sink.send(Message::Text(error.into())).await;
+                                    continue;
+                                }
+                                vellaveto_mcp::tool_registry::TrustLevel::Untrusted { score: _ } => {
+                                    let verdict = Verdict::Deny {
+                                        reason: "Untrusted tool requires approval".to_string(),
+                                    };
+                                    if let Err(e) = state
+                                        .audit
+                                        .log_entry(
+                                            &action,
+                                            &verdict,
+                                            json!({
+                                                "source": "ws_proxy",
+                                                "session": session_id,
+                                                "transport": "websocket",
+                                                "registry": "untrusted_tool",
+                                                "tool": tool_name,
+                                            }),
+                                        )
+                                        .await
+                                    {
+                                        tracing::warn!("Failed to audit WS untrusted tool: {}", e);
+                                    }
+                                    let error = make_ws_error_response(
+                                        Some(id),
+                                        -32001,
+                                        "Approval required",
+                                    );
+                                    let mut sink = client_sink.lock().await;
+                                    let _ = sink.send(Message::Text(error.into())).await;
+                                    continue;
+                                }
+                                vellaveto_mcp::tool_registry::TrustLevel::Trusted => {
+                                    // Trusted — proceed to engine evaluation
+                                }
+                            }
+                        }
+
                         let ctx = build_ws_evaluation_context(&state, &session_id);
                         let verdict = match state.engine.evaluate_action_with_context(
                             &action,
@@ -551,13 +843,13 @@ async fn relay_client_to_upstream(
                                                     e
                                                 );
                                             }
+                                            // SECURITY (FIND-R46-012): Generic message to client;
+                                            // detailed reason (ABAC policy_id, reason) is in
+                                            // the audit log only.
                                             let error_resp = make_ws_error_response(
                                                 Some(id),
                                                 -32001,
-                                                &format!(
-                                                    "ABAC denied by {}: {}",
-                                                    policy_id, reason
-                                                ),
+                                                "Denied by policy",
                                             );
                                             let mut sink = client_sink.lock().await;
                                             let _ =
@@ -581,6 +873,11 @@ async fn relay_client_to_upstream(
                                             // Fall through — existing Allow stands
                                         }
                                     }
+                                }
+
+                                // SECURITY (FIND-R46-013): Record tool call in registry on Allow
+                                if let Some(ref registry) = state.tool_registry {
+                                    registry.record_call(tool_name).await;
                                 }
 
                                 // Touch session
@@ -645,7 +942,7 @@ async fn relay_client_to_upstream(
                                 }
                             }
                             Verdict::Deny { ref reason } => {
-                                // Audit the denial
+                                // Audit the denial with detailed reason
                                 if let Err(e) = state
                                     .audit
                                     .log_entry(
@@ -662,12 +959,16 @@ async fn relay_client_to_upstream(
                                     tracing::warn!("Failed to audit WS deny: {}", e);
                                 }
 
-                                // Send JSON-RPC error back to client
-                                let denial = extractor::make_denial_response(id, reason);
-                                let denial_text = serde_json::to_string(&denial)
-                                    .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32001,"message":"Denied by policy"}}"#.to_string());
+                                // SECURITY (FIND-R46-012): Generic message to client.
+                                // Detailed reason is in the audit log only.
+                                let _ = reason; // used in audit above
+                                let error = make_ws_error_response(
+                                    Some(id),
+                                    -32001,
+                                    "Denied by policy",
+                                );
                                 let mut sink = client_sink.lock().await;
-                                let _ = sink.send(Message::Text(denial_text.into())).await;
+                                let _ = sink.send(Message::Text(error.into())).await;
                             }
                             Verdict::RequireApproval { ref reason, .. } => {
                                 // Treat as deny for WebSocket transport
@@ -689,22 +990,24 @@ async fn relay_client_to_upstream(
                                 {
                                     tracing::warn!("Failed to audit WS approval request: {}", e);
                                 }
-                                let denial = extractor::make_denial_response(id, &deny_reason);
-                                let denial_text = serde_json::to_string(&denial)
-                                    .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32001,"message":"Requires approval"}}"#.to_string());
+                                // SECURITY (FIND-R46-012): Generic message to client.
+                                let error = make_ws_error_response(
+                                    Some(id),
+                                    -32001,
+                                    "Denied by policy",
+                                );
                                 let mut sink = client_sink.lock().await;
-                                let _ = sink.send(Message::Text(denial_text.into())).await;
+                                let _ = sink.send(Message::Text(error.into())).await;
                             }
                             // Fail-closed: unknown Verdict variants produce Deny
                             _ => {
-                                let denial = extractor::make_denial_response(
-                                    id,
-                                    "Unknown verdict — fail-closed",
+                                let error = make_ws_error_response(
+                                    Some(id),
+                                    -32001,
+                                    "Denied by policy",
                                 );
-                                let denial_text = serde_json::to_string(&denial)
-                                    .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32001,"message":"Denied"}}"#.to_string());
                                 let mut sink = client_sink.lock().await;
-                                let _ = sink.send(Message::Text(denial_text.into())).await;
+                                let _ = sink.send(Message::Text(error.into())).await;
                             }
                         }
                     }
@@ -750,9 +1053,27 @@ async fn relay_client_to_upstream(
                                     tracing::warn!("Failed to audit WS resource read allow: {}", e);
                                 }
 
+                                // SECURITY (FIND-R46-011): Fail-closed on canonicalization
+                                // failure. Do NOT fall back to original text.
                                 let forward_text = if state.canonicalize {
-                                    serde_json::to_string(&parsed)
-                                        .unwrap_or_else(|_| text.to_string())
+                                    match serde_json::to_string(&parsed) {
+                                        Ok(canonical) => canonical,
+                                        Err(e) => {
+                                            tracing::error!(
+                                                "SECURITY: WS resource canonicalization failed: {}",
+                                                e
+                                            );
+                                            let error_resp = make_ws_error_response(
+                                                Some(id),
+                                                -32603,
+                                                "Internal error",
+                                            );
+                                            let mut sink = client_sink.lock().await;
+                                            let _ =
+                                                sink.send(Message::Text(error_resp.into())).await;
+                                            continue;
+                                        }
+                                    }
                                 } else {
                                     text.to_string()
                                 };
@@ -768,15 +1089,15 @@ async fn relay_client_to_upstream(
                                 }
                             }
                             _ => {
-                                let reason = match &verdict {
-                                    Verdict::Deny { reason } => reason.clone(),
-                                    _ => "Resource access denied".to_string(),
-                                };
-                                let denial = extractor::make_denial_response(id, &reason);
-                                let denial_text = serde_json::to_string(&denial)
-                                    .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32001,"message":"Denied"}}"#.to_string());
+                                // SECURITY (FIND-R46-012): Generic message to client.
+                                // Detailed reason is preserved in audit log above.
+                                let error = make_ws_error_response(
+                                    Some(id),
+                                    -32001,
+                                    "Denied by policy",
+                                );
                                 let mut sink = client_sink.lock().await;
-                                let _ = sink.send(Message::Text(denial_text.into())).await;
+                                let _ = sink.send(Message::Text(error.into())).await;
                             }
                         }
                     }
@@ -1027,12 +1348,132 @@ async fn relay_client_to_upstream(
                             }
                         }
                     }
+                    MessageType::ElicitationRequest { ref id } => {
+                        // SECURITY (FIND-R46-010): Policy checks for elicitation requests.
+                        // Match the HTTP POST handler's elicitation inspection logic.
+                        let params = parsed.get("params").cloned().unwrap_or(json!({}));
+                        let elicitation_verdict = {
+                            let mut session_ref = state.sessions.get_mut(&session_id);
+                            let current_count = session_ref
+                                .as_ref()
+                                .map(|s| s.elicitation_count)
+                                .unwrap_or(0);
+                            let verdict = vellaveto_mcp::elicitation::inspect_elicitation(
+                                &params,
+                                &state.elicitation_config,
+                                current_count,
+                            );
+                            // Pre-increment while holding the lock to close the TOCTOU gap
+                            if matches!(
+                                verdict,
+                                vellaveto_mcp::elicitation::ElicitationVerdict::Allow
+                            ) {
+                                if let Some(ref mut s) = session_ref {
+                                    s.elicitation_count += 1;
+                                }
+                            }
+                            verdict
+                        };
+                        match elicitation_verdict {
+                            vellaveto_mcp::elicitation::ElicitationVerdict::Allow => {
+                                let action = Action::new(
+                                    "vellaveto",
+                                    "ws_forward_message",
+                                    json!({
+                                        "message_type": "elicitation_request",
+                                        "session": session_id,
+                                        "transport": "websocket",
+                                        "direction": "client_to_upstream",
+                                    }),
+                                );
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &Verdict::Allow,
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "event": "ws_elicitation_forwarded",
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!("Failed to audit WS elicitation: {}", e);
+                                }
+
+                                let forward_text = if state.canonicalize {
+                                    serde_json::to_string(&parsed)
+                                        .unwrap_or_else(|_| text.to_string())
+                                } else {
+                                    text.to_string()
+                                };
+                                let mut sink = upstream_sink.lock().await;
+                                if let Err(e) = sink
+                                    .send(tokio_tungstenite::tungstenite::Message::Text(
+                                        forward_text.into(),
+                                    ))
+                                    .await
+                                {
+                                    // Rollback pre-incremented count on forward failure
+                                    if let Some(mut s) = state.sessions.get_mut(&session_id) {
+                                        s.elicitation_count =
+                                            s.elicitation_count.saturating_sub(1);
+                                    }
+                                    tracing::error!("Failed to forward elicitation: {}", e);
+                                    break;
+                                }
+                            }
+                            vellaveto_mcp::elicitation::ElicitationVerdict::Deny { reason } => {
+                                tracing::warn!(
+                                    session_id = %session_id,
+                                    "Blocked WS elicitation/create: {}",
+                                    reason
+                                );
+                                let action = Action::new(
+                                    "vellaveto",
+                                    "ws_elicitation_interception",
+                                    json!({
+                                        "method": "elicitation/create",
+                                        "session": session_id,
+                                        "transport": "websocket",
+                                        "reason": &reason,
+                                    }),
+                                );
+                                let verdict = Verdict::Deny {
+                                    reason: reason.clone(),
+                                };
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &verdict,
+                                        json!({
+                                            "source": "ws_proxy",
+                                            "event": "ws_elicitation_interception",
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to audit WS elicitation interception: {}",
+                                        e
+                                    );
+                                }
+                                // SECURITY (FIND-R46-012): Generic message to client.
+                                let error = make_ws_error_response(
+                                    Some(id),
+                                    -32001,
+                                    "elicitation/create blocked by policy",
+                                );
+                                let mut sink = client_sink.lock().await;
+                                let _ = sink.send(Message::Text(error.into())).await;
+                            }
+                        }
+                    }
                     MessageType::PassThrough
-                    | MessageType::ElicitationRequest { .. }
                     | MessageType::ProgressNotification { .. } => {
                         // SECURITY (FIND-R46-WS-004): Audit log forwarded passthrough/notification messages
                         let msg_type = match &classified {
-                            MessageType::ElicitationRequest { .. } => "elicitation_request",
                             MessageType::ProgressNotification { .. } => "progress_notification",
                             _ => "passthrough",
                         };
@@ -1357,6 +1798,55 @@ async fn relay_upstream_to_client(
                                     continue;
                                 }
                             }
+                        }
+                    }
+
+                    // SECURITY (FIND-R46-007): Rug-pull detection on tools/list responses.
+                    // Check if this is a response to a tools/list request and extract
+                    // annotations for rug-pull detection.
+                    if json_val.get("result").is_some() {
+                        // Check if result contains "tools" array (tools/list response)
+                        if json_val
+                            .get("result")
+                            .and_then(|r| r.get("tools"))
+                            .and_then(|t| t.as_array())
+                            .is_some()
+                        {
+                            super::helpers::extract_annotations_from_response(
+                                &json_val,
+                                &session_id,
+                                &state.sessions,
+                                &state.audit,
+                                &state.known_tools,
+                            )
+                            .await;
+
+                            // Verify manifest if configured
+                            if let Some(ref manifest_config) = state.manifest_config {
+                                super::helpers::verify_manifest_from_response(
+                                    &json_val,
+                                    &session_id,
+                                    &state.sessions,
+                                    manifest_config,
+                                    &state.audit,
+                                )
+                                .await;
+                            }
+                        }
+
+                        // SECURITY (FIND-R46-014): Output schema validation placeholder.
+                        // TODO: Validate structuredContent against declared output schema
+                        // when the tool declared one. This is complex and deferred, but
+                        // at minimum we note when structuredContent is present.
+                        if json_val
+                            .get("result")
+                            .and_then(|r| r.get("structuredContent"))
+                            .is_some()
+                        {
+                            tracing::debug!(
+                                session_id = %session_id,
+                                "WS response contains structuredContent — output schema validation deferred (FIND-R46-014)"
+                            );
                         }
                     }
 

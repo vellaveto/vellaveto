@@ -307,6 +307,10 @@ impl AuditLogger {
         let mut files_checked = 0;
         // SECURITY (FIND-R46-ROT-003): Track previous manifest line for hash-chain verification.
         let mut previous_manifest_line: Option<String> = None;
+        // SECURITY (FIND-R46-013): Track previous segment's tail hash for
+        // cross-rotation start_hash verification. The start_hash of each
+        // segment should match the tail_hash of the preceding segment.
+        let mut previous_tail_hash: Option<String> = None;
 
         for (i, line) in manifest_content.lines().enumerate() {
             if line.trim().is_empty() {
@@ -476,6 +480,32 @@ impl AuditLogger {
                 });
             }
 
+            // SECURITY (FIND-R46-013): Verify cross-rotation start_hash linkage.
+            // The start_hash field records the prev_hash of the first entry in
+            // the rotated segment. When non-empty, it must match the tail_hash
+            // of the preceding segment (indicating a continuous chain). An empty
+            // start_hash indicates a fresh chain segment (normal after rotation).
+            // If start_hash is non-empty but doesn't match, a segment was deleted
+            // or reordered.
+            let claimed_start_hash = entry
+                .get("start_hash")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            if !claimed_start_hash.is_empty() {
+                if let Some(ref prev_tail) = previous_tail_hash {
+                    if claimed_start_hash != prev_tail {
+                        return Ok(RotationVerification {
+                            valid: false,
+                            files_checked: i,
+                            first_failure: Some(format!(
+                                "Cross-rotation linkage broken at segment {}: start_hash '{}' does not match previous tail_hash '{}'",
+                                i, claimed_start_hash, prev_tail
+                            )),
+                        });
+                    }
+                }
+            }
+
             let rotated_file = entry
                 .get("rotated_file")
                 .and_then(|v| v.as_str())
@@ -519,17 +549,36 @@ impl AuditLogger {
             let log_dir = self.log_path.parent().unwrap_or(Path::new("."));
             let rotated_path = log_dir.join(rotated_file);
 
-            // SECURITY (FIND-R43-017): Skip entries for files that no longer exist.
-            // This is expected behavior when prune_rotated_files() has been called —
-            // pruned files are removed from disk but their manifest entries remain.
-            // Instead of failing verification, skip and continue with remaining files.
+            // SECURITY (FIND-R46-008): Track whether we've seen an existing file.
+            // Once we encounter a file that exists, all subsequent manifest entries
+            // MUST have their files present. Missing files after existing ones
+            // indicate undetected deletion (not pruning, which removes oldest first).
+            //
+            // SECURITY (FIND-R43-017): Pruning removes the oldest files first, so
+            // missing files are only acceptable at the start of the manifest (contiguous
+            // prefix of missing files). Once we see a file that exists, we've passed
+            // the prune boundary.
             if !rotated_path.exists() {
+                if files_checked > 0 {
+                    // We've already seen existing files — this is NOT a prune.
+                    // A non-oldest file is missing, indicating undetected deletion.
+                    return Ok(RotationVerification {
+                        valid: false,
+                        files_checked: i,
+                        first_failure: Some(format!(
+                            "Rotated file missing (not pruned — gap in sequence): {}",
+                            rotated_path.display()
+                        )),
+                    });
+                }
                 tracing::info!(
                     path = %rotated_path.display(),
                     "Rotated file referenced in manifest no longer exists (likely pruned) — skipping"
                 );
+                // SECURITY (FIND-R46-013): Still update previous_tail_hash for
+                // pruned files so cross-rotation linkage remains consistent.
+                previous_tail_hash = Some(expected_tail_hash.to_string());
                 previous_manifest_line = Some(line.to_string());
-                files_checked += 1;
                 continue;
             }
 
@@ -624,6 +673,8 @@ impl AuditLogger {
                 }
             }
 
+            // SECURITY (FIND-R46-013): Update previous tail hash for next iteration.
+            previous_tail_hash = Some(expected_tail_hash.to_string());
             previous_manifest_line = Some(line.to_string());
             files_checked += 1;
         }

@@ -77,16 +77,23 @@ DEFAULT_SENSITIVE_KEYS: FrozenSet[str] = frozenset({
 })
 
 # Patterns that match secret-like values (e.g., "sk-...", "ghp_...", "xoxb-...")
+# SECURITY (FIND-SDK-007): Use non-anchored patterns so embedded secrets are detected
+# via re.search(). Patterns use word-boundary or prefix matching instead of ^/$.
 _SECRET_VALUE_PATTERNS: List[str] = [
-    r"^sk-[a-zA-Z0-9]{20,}$",           # OpenAI-style keys
-    r"^ghp_[a-zA-Z0-9]{36,}$",          # GitHub personal access tokens
-    r"^gho_[a-zA-Z0-9]{36,}$",          # GitHub OAuth tokens
-    r"^github_pat_[a-zA-Z0-9_]{20,}$",  # GitHub fine-grained PATs
-    r"^xoxb-[0-9]+-[a-zA-Z0-9]+$",      # Slack bot tokens
-    r"^xoxp-[0-9]+-[a-zA-Z0-9]+$",      # Slack user tokens
-    r"^glpat-[a-zA-Z0-9_-]{20,}$",      # GitLab PATs
-    r"^AKIA[0-9A-Z]{16}$",              # AWS access key IDs
-    r"^eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$",  # JWTs
+    r"sk-[a-zA-Z0-9]{20,}",             # OpenAI-style keys
+    r"ghp_[a-zA-Z0-9]{36,}",            # GitHub personal access tokens
+    r"gho_[a-zA-Z0-9]{36,}",            # GitHub OAuth tokens
+    r"github_pat_[a-zA-Z0-9_]{20,}",    # GitHub fine-grained PATs
+    r"xoxb-[0-9]+-[a-zA-Z0-9]+",        # Slack bot tokens
+    r"xoxp-[0-9]+-[a-zA-Z0-9]+",        # Slack user tokens
+    r"glpat-[a-zA-Z0-9_-]{20,}",        # GitLab PATs
+    r"AKIA[0-9A-Z]{16}",                # AWS access key IDs
+    r"eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+",  # JWTs
+    # SECURITY (FIND-SDK-012): Additional secret patterns
+    r"sk_live_[a-zA-Z0-9]{20,}",         # Stripe live keys
+    r"sk-ant-[a-zA-Z0-9_-]{20,}",        # Anthropic API keys
+    r"npm_[a-zA-Z0-9]{20,}",             # npm tokens
+    r"pypi-[a-zA-Z0-9_-]{20,}",          # PyPI tokens
 ]
 
 REDACTED_PLACEHOLDER = "[REDACTED]"
@@ -178,11 +185,19 @@ class ParameterRedactor:
                 return True
         return False
 
-    def is_sensitive_value(self, value: str) -> bool:
-        """Check if a string value looks like a secret."""
+    def is_sensitive_value(self, value: Any) -> bool:
+        """Check if a string value looks like a secret.
+
+        Also accepts bytes, which are decoded as UTF-8 before scanning
+        (FIND-SDK-006).
+        """
+        # SECURITY (FIND-SDK-006): Convert bytes to str before scanning
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", errors="replace")
         if not isinstance(value, str) or len(value) < 8:
             return False
-        return any(p.match(value) for p in self._value_patterns)
+        # SECURITY (FIND-SDK-007): Use re.search() so embedded secrets are detected
+        return any(p.search(value) for p in self._value_patterns)
 
     def redact(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -216,7 +231,7 @@ class ParameterRedactor:
                 result[key] = self._redact_dict(value, depth + 1)
             elif isinstance(value, list):
                 result[key] = self._redact_list(value, depth + 1)
-            elif self.mode == "values" and isinstance(value, str) and self.is_sensitive_value(value):
+            elif self.mode == "values" and isinstance(value, (str, bytes)) and self.is_sensitive_value(value):
                 result[key] = self.placeholder
             else:
                 result[key] = value
@@ -233,7 +248,7 @@ class ParameterRedactor:
                 result.append(self._redact_dict(item, depth + 1))
             elif isinstance(item, list):
                 result.append(self._redact_list(item, depth + 1))
-            elif self.mode == "values" and isinstance(item, str) and self.is_sensitive_value(item):
+            elif self.mode == "values" and isinstance(item, (str, bytes)) and self.is_sensitive_value(item):
                 result.append(self.placeholder)
             else:
                 result.append(item)

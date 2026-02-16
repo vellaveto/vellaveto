@@ -162,6 +162,12 @@ impl PolicyEngine {
         }
 
         // No constraints fired. If on_no_match is "continue", skip to next policy.
+        // SECURITY (FIND-R46-005): This behavior is intentionally equivalent to the
+        // legacy path in legacy.rs::evaluate_conditions(). Both paths:
+        // 1. Return None (skip to next policy) when on_no_match="continue"
+        // 2. Return Some(Allow) otherwise (no constraints fired = pass)
+        // 3. Return Deny when all constraints are skipped (fail-closed)
+        // See test_on_no_match_continue_equivalence_compiled_vs_legacy in engine_tests.rs.
         if cp.on_no_match_continue {
             Ok(None)
         } else {

@@ -114,11 +114,15 @@ impl Checkpoint {
             &mut hasher,
             self.chain_head_hash.as_deref().unwrap_or("").as_bytes(),
         );
-        // Include merkle_root only when present (backward compat: old
-        // checkpoints without merkle_root still produce the same content).
-        if let Some(ref mr) = self.merkle_root {
-            Self::hash_field(&mut hasher, mr.as_bytes());
-        }
+        // SECURITY (FIND-R46-012): Always include merkle_root in signed content.
+        // Use empty string when absent. This ensures the signed content is
+        // deterministic regardless of whether the Merkle tree was enabled,
+        // and prevents an attacker from stripping the merkle_root field
+        // from a checkpoint without invalidating the signature.
+        Self::hash_field(
+            &mut hasher,
+            self.merkle_root.as_deref().unwrap_or("").as_bytes(),
+        );
         hasher.finalize().to_vec()
     }
 

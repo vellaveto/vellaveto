@@ -28,7 +28,7 @@ pub const MAX_TOKEN_SIZE: usize = 65536;
 /// parent token, and its grants must be a subset of the parent's grants.
 /// The `remaining_depth` decrements with each delegation, preventing
 /// unbounded chains.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct CapabilityToken {
     /// Unique token identifier (UUID v4).
     pub token_id: String,
@@ -51,6 +51,23 @@ pub struct CapabilityToken {
     pub signature: String,
     /// Ed25519 public key of the issuer (hex-encoded).
     pub issuer_public_key: String,
+}
+
+impl fmt::Debug for CapabilityToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CapabilityToken")
+            .field("token_id", &self.token_id)
+            .field("parent_token_id", &self.parent_token_id)
+            .field("issuer", &self.issuer)
+            .field("holder", &self.holder)
+            .field("grants", &self.grants)
+            .field("remaining_depth", &self.remaining_depth)
+            .field("issued_at", &self.issued_at)
+            .field("expires_at", &self.expires_at)
+            .field("signature", &"[REDACTED]")
+            .field("issuer_public_key", &self.issuer_public_key)
+            .finish()
+    }
 }
 
 /// A single permission grant within a capability token.

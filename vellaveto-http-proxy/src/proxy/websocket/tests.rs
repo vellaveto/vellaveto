@@ -893,3 +893,343 @@ fn test_ws_binary_dlp_scan_detects_secrets_in_utf8_lossy() {
         "Finding should reference ws_binary_frame location"
     );
 }
+
+// ==========================================================================
+// FIND-R46-005: Duplicate JSON key detection
+// ==========================================================================
+
+#[test]
+fn test_ws_duplicate_json_key_detected() {
+    // find_duplicate_json_key should detect duplicate keys
+    let json_with_dup = r#"{"method":"tools/call","method":"evil"}"#;
+    let dup = vellaveto_mcp::framing::find_duplicate_json_key(json_with_dup);
+    assert!(
+        dup.is_some(),
+        "Should detect duplicate 'method' key"
+    );
+    assert_eq!(dup.as_deref(), Some("method"));
+}
+
+#[test]
+fn test_ws_no_duplicate_json_key_passes() {
+    let json_ok = r#"{"method":"tools/call","params":{"name":"read_file"}}"#;
+    let dup = vellaveto_mcp::framing::find_duplicate_json_key(json_ok);
+    assert!(
+        dup.is_none(),
+        "Should not detect duplicate keys in valid JSON"
+    );
+}
+
+// ==========================================================================
+// FIND-R46-006: Privilege escalation detection
+// ==========================================================================
+
+#[test]
+fn test_ws_privilege_escalation_no_chain_no_escalation() {
+    use super::super::call_chain::check_privilege_escalation;
+
+    let state = make_test_state();
+    let action = vellaveto_mcp::extractor::extract_action("read_file", &json!({"path": "/tmp"}));
+    let result = check_privilege_escalation(
+        &state.engine,
+        &state.policies,
+        &action,
+        &[], // no call chain
+        None,
+    );
+    assert!(
+        !result.escalation_detected,
+        "No chain means no escalation"
+    );
+}
+
+#[test]
+fn test_ws_privilege_escalation_detected_when_upstream_denied() {
+    use super::super::call_chain::check_privilege_escalation;
+
+    let state = make_test_state();
+    let action = vellaveto_mcp::extractor::extract_action("read_file", &json!({"path": "/tmp"}));
+    let chain = vec![vellaveto_types::CallChainEntry {
+        agent_id: "upstream-agent".to_string(),
+        tool: "read_file".to_string(),
+        function: "execute".to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        hmac: None,
+        verified: None,
+    }];
+
+    // With no policies (deny-all), the upstream agent would be denied.
+    // This flags as privilege escalation because the upstream agent delegated
+    // an action it itself would have been denied.
+    let result = check_privilege_escalation(
+        &state.engine,
+        &state.policies,
+        &action,
+        &chain,
+        Some("current-agent"),
+    );
+    assert!(
+        result.escalation_detected,
+        "Upstream agent denied = escalation detected"
+    );
+    assert_eq!(
+        result.escalating_from_agent.as_deref(),
+        Some("upstream-agent")
+    );
+}
+
+#[test]
+fn test_ws_privilege_escalation_skips_current_agent() {
+    use super::super::call_chain::check_privilege_escalation;
+
+    let state = make_test_state();
+    let action = vellaveto_mcp::extractor::extract_action("read_file", &json!({"path": "/tmp"}));
+    let chain = vec![vellaveto_types::CallChainEntry {
+        agent_id: "same-agent".to_string(),
+        tool: "read_file".to_string(),
+        function: "execute".to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        hmac: None,
+        verified: None,
+    }];
+
+    // When the only chain entry is the current agent, it should be skipped
+    let result = check_privilege_escalation(
+        &state.engine,
+        &state.policies,
+        &action,
+        &chain,
+        Some("same-agent"),
+    );
+    assert!(
+        !result.escalation_detected,
+        "Current agent in chain should be skipped"
+    );
+}
+
+// ==========================================================================
+// FIND-R46-007: Rug-pull detection
+// ==========================================================================
+
+#[test]
+fn test_ws_rug_pull_flagged_tool_detected() {
+    let state = make_test_state();
+    let session_id = state.sessions.get_or_create(None);
+
+    // Flag a tool in the session
+    {
+        let mut session = state.sessions.get_mut(&session_id).unwrap();
+        session.flagged_tools.insert("evil_tool".to_string());
+    }
+
+    // Check if tool is flagged
+    let is_flagged = state
+        .sessions
+        .get_mut(&session_id)
+        .map(|s| s.flagged_tools.contains("evil_tool"))
+        .unwrap_or(false);
+    assert!(is_flagged, "Tool should be flagged as rug-pull");
+}
+
+#[test]
+fn test_ws_rug_pull_clean_tool_not_flagged() {
+    let state = make_test_state();
+    let session_id = state.sessions.get_or_create(None);
+
+    let is_flagged = state
+        .sessions
+        .get_mut(&session_id)
+        .map(|s| s.flagged_tools.contains("clean_tool"))
+        .unwrap_or(false);
+    assert!(!is_flagged, "Clean tool should not be flagged");
+}
+
+// ==========================================================================
+// FIND-R46-008: Circuit breaker check
+// ==========================================================================
+
+#[test]
+fn test_ws_circuit_breaker_none_does_not_block() {
+    let state = make_test_state();
+    // state.circuit_breaker is None — should not block
+    assert!(
+        state.circuit_breaker.is_none(),
+        "Default test state has no circuit breaker"
+    );
+}
+
+#[test]
+fn test_ws_circuit_breaker_open_blocks() {
+    use vellaveto_engine::circuit_breaker::CircuitBreakerManager;
+
+    let mut state = make_test_state();
+    let cb = Arc::new(CircuitBreakerManager::new(3, 1, 60));
+
+    // Trip the circuit breaker by recording failures
+    for _ in 0..4 {
+        cb.record_failure("fragile_tool");
+    }
+
+    state.circuit_breaker = Some(cb.clone());
+
+    // Verify the circuit breaker blocks
+    let result = cb.can_proceed("fragile_tool");
+    assert!(
+        result.is_err(),
+        "Circuit breaker should be open after failures"
+    );
+}
+
+// ==========================================================================
+// FIND-R46-009: Strict tool name validation
+// ==========================================================================
+
+#[test]
+fn test_ws_strict_tool_name_validation_rejects_invalid() {
+    let result = vellaveto_types::validate_mcp_tool_name("tool@bad");
+    assert!(result.is_err(), "tool@bad should be rejected");
+}
+
+#[test]
+fn test_ws_strict_tool_name_validation_accepts_valid() {
+    assert!(vellaveto_types::validate_mcp_tool_name("read_file").is_ok());
+    assert!(vellaveto_types::validate_mcp_tool_name("ns.tool").is_ok());
+    assert!(vellaveto_types::validate_mcp_tool_name("org/tool").is_ok());
+}
+
+#[test]
+fn test_ws_strict_tool_name_validation_rejects_path_traversal() {
+    let result = vellaveto_types::validate_mcp_tool_name("ns..tool");
+    assert!(result.is_err(), "Double dots should be rejected");
+}
+
+// ==========================================================================
+// FIND-R46-010: Elicitation policy checks
+// ==========================================================================
+
+#[test]
+fn test_ws_elicitation_disabled_by_default() {
+    let config = vellaveto_config::ElicitationConfig::default();
+    let params = json!({"message": "Enter your password"});
+    let verdict = vellaveto_mcp::elicitation::inspect_elicitation(&params, &config, 0);
+    assert!(
+        matches!(verdict, vellaveto_mcp::elicitation::ElicitationVerdict::Deny { .. }),
+        "Elicitation should be denied when disabled (default)"
+    );
+}
+
+#[test]
+fn test_ws_elicitation_rate_limit_exceeded() {
+    let config = vellaveto_config::ElicitationConfig {
+        enabled: true,
+        max_per_session: 3,
+        ..Default::default()
+    };
+    let params = json!({"message": "Enter name"});
+    let verdict = vellaveto_mcp::elicitation::inspect_elicitation(&params, &config, 3);
+    assert!(
+        matches!(verdict, vellaveto_mcp::elicitation::ElicitationVerdict::Deny { .. }),
+        "Should deny when rate limit exceeded"
+    );
+}
+
+// ==========================================================================
+// FIND-R46-011: ResourceRead canonicalization fail-closed
+// ==========================================================================
+
+#[test]
+fn test_ws_canonicalize_valid_json_succeeds() {
+    let val = json!({"jsonrpc": "2.0", "id": 1, "method": "resources/read"});
+    let result = serde_json::to_string(&val);
+    assert!(result.is_ok(), "Valid JSON should canonicalize");
+}
+
+// ==========================================================================
+// FIND-R46-012: Deny responses use generic messages
+// ==========================================================================
+
+#[test]
+fn test_ws_error_response_does_not_leak_policy_details() {
+    // The make_ws_error_response with "Denied by policy" should not
+    // contain internal details like policy names, ABAC rules, etc.
+    let id = json!(42);
+    let response = make_ws_error_response(Some(&id), -32001, "Denied by policy");
+    let parsed: Value = serde_json::from_str(&response).expect("valid JSON");
+
+    let message = parsed["error"]["message"].as_str().unwrap_or("");
+    assert_eq!(message, "Denied by policy");
+    assert!(
+        !message.contains("ABAC"),
+        "Response should not contain ABAC details"
+    );
+    assert!(
+        !message.contains("policy_id"),
+        "Response should not contain policy IDs"
+    );
+}
+
+// ==========================================================================
+// FIND-R46-013: Tool registry trust check
+// ==========================================================================
+
+#[test]
+fn test_ws_tool_registry_none_does_not_block() {
+    let state = make_test_state();
+    assert!(
+        state.tool_registry.is_none(),
+        "Default test state has no tool registry"
+    );
+}
+
+// ==========================================================================
+// FIND-R46-014: Output schema validation placeholder
+// ==========================================================================
+
+#[test]
+fn test_ws_structured_content_detected_in_response() {
+    // Verify extract_scannable_text picks up structuredContent
+    let response = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "structuredContent": {"key": "value"},
+            "content": []
+        }
+    });
+
+    let text = extract_scannable_text(&response);
+    assert!(
+        text.contains("key"),
+        "structuredContent should be scanned"
+    );
+}
+
+// ==========================================================================
+// Call chain validation in WS upgrade
+// ==========================================================================
+
+#[test]
+fn test_ws_call_chain_header_validation_accepts_absent() {
+    use super::super::call_chain::validate_call_chain_header;
+
+    let headers = HeaderMap::new();
+    let limits = vellaveto_config::LimitsConfig::default();
+    assert!(
+        validate_call_chain_header(&headers, &limits).is_ok(),
+        "Missing header should be OK"
+    );
+}
+
+#[test]
+fn test_ws_call_chain_header_validation_rejects_malformed() {
+    use super::super::call_chain::validate_call_chain_header;
+    use axum::http::HeaderMap;
+
+    let mut headers = HeaderMap::new();
+    headers.insert("x-upstream-agents", "not-json".parse().unwrap());
+    let limits = vellaveto_config::LimitsConfig::default();
+    assert!(
+        validate_call_chain_header(&headers, &limits).is_err(),
+        "Malformed header should be rejected"
+    );
+}

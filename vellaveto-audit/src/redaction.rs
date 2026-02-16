@@ -65,11 +65,23 @@ pub(crate) static PII_REGEXES: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     .collect()
 });
 
+/// Maximum recursion depth for redaction functions.
+/// SECURITY (FIND-R46-011/013): Prevents stack overflow from deeply nested JSON.
+const MAX_REDACTION_DEPTH: usize = 64;
+
 /// Recursively redact only sensitive key names.
 ///
 /// Keys matching `SENSITIVE_PARAM_KEYS` (case-insensitive) have their values replaced.
 /// Value content is NOT inspected — only key names drive redaction.
 pub(crate) fn redact_keys_only(value: &serde_json::Value) -> serde_json::Value {
+    redact_keys_only_inner(value, 0)
+}
+
+fn redact_keys_only_inner(value: &serde_json::Value, depth: usize) -> serde_json::Value {
+    // SECURITY (FIND-R46-011): Stop recursion at max depth — return value as-is.
+    if depth >= MAX_REDACTION_DEPTH {
+        return value.clone();
+    }
     match value {
         serde_json::Value::Object(map) => {
             let mut result = serde_json::Map::new();
@@ -78,13 +90,13 @@ pub(crate) fn redact_keys_only(value: &serde_json::Value) -> serde_json::Value {
                 if SENSITIVE_PARAM_KEYS.iter().any(|k| key_lower == *k) {
                     result.insert(key.clone(), serde_json::Value::String(REDACTED.to_string()));
                 } else {
-                    result.insert(key.clone(), redact_keys_only(val));
+                    result.insert(key.clone(), redact_keys_only_inner(val, depth + 1));
                 }
             }
             serde_json::Value::Object(result)
         }
         serde_json::Value::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(redact_keys_only).collect())
+            serde_json::Value::Array(arr.iter().map(|v| redact_keys_only_inner(v, depth + 1)).collect())
         }
         _ => value.clone(),
     }
@@ -101,6 +113,14 @@ pub(crate) fn redact_keys_only(value: &serde_json::Value) -> serde_json::Value {
 /// redaction to approval listings and other API responses that may contain
 /// sensitive parameters.
 pub fn redact_keys_and_patterns(value: &serde_json::Value) -> serde_json::Value {
+    redact_keys_and_patterns_inner(value, 0)
+}
+
+fn redact_keys_and_patterns_inner(value: &serde_json::Value, depth: usize) -> serde_json::Value {
+    // SECURITY (FIND-R46-013): Stop recursion at max depth — return value as-is.
+    if depth >= MAX_REDACTION_DEPTH {
+        return value.clone();
+    }
     match value {
         serde_json::Value::Object(map) => {
             let mut result = serde_json::Map::new();
@@ -109,13 +129,13 @@ pub fn redact_keys_and_patterns(value: &serde_json::Value) -> serde_json::Value 
                 if SENSITIVE_PARAM_KEYS.iter().any(|k| key_lower == *k) {
                     result.insert(key.clone(), serde_json::Value::String(REDACTED.to_string()));
                 } else {
-                    result.insert(key.clone(), redact_keys_and_patterns(val));
+                    result.insert(key.clone(), redact_keys_and_patterns_inner(val, depth + 1));
                 }
             }
             serde_json::Value::Object(result)
         }
         serde_json::Value::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(redact_keys_and_patterns).collect())
+            serde_json::Value::Array(arr.iter().map(|v| redact_keys_and_patterns_inner(v, depth + 1)).collect())
         }
         serde_json::Value::String(s) => {
             // SECURITY (R9-8): Case-insensitive prefix check — "SK-..." or
@@ -160,6 +180,18 @@ pub(crate) fn redact_keys_and_patterns_with_scanner(
     value: &serde_json::Value,
     scanner: &PiiScanner,
 ) -> serde_json::Value {
+    redact_keys_and_patterns_with_scanner_inner(value, scanner, 0)
+}
+
+fn redact_keys_and_patterns_with_scanner_inner(
+    value: &serde_json::Value,
+    scanner: &PiiScanner,
+    depth: usize,
+) -> serde_json::Value {
+    // SECURITY (FIND-R46-013): Stop recursion at max depth — return value as-is.
+    if depth >= MAX_REDACTION_DEPTH {
+        return value.clone();
+    }
     match value {
         serde_json::Value::Object(map) => {
             let mut result = serde_json::Map::new();
@@ -170,7 +202,7 @@ pub(crate) fn redact_keys_and_patterns_with_scanner(
                 } else {
                     result.insert(
                         key.clone(),
-                        redact_keys_and_patterns_with_scanner(val, scanner),
+                        redact_keys_and_patterns_with_scanner_inner(val, scanner, depth + 1),
                     );
                 }
             }
@@ -178,7 +210,7 @@ pub(crate) fn redact_keys_and_patterns_with_scanner(
         }
         serde_json::Value::Array(arr) => serde_json::Value::Array(
             arr.iter()
-                .map(|v| redact_keys_and_patterns_with_scanner(v, scanner))
+                .map(|v| redact_keys_and_patterns_with_scanner_inner(v, scanner, depth + 1))
                 .collect(),
         ),
         serde_json::Value::String(s) => {

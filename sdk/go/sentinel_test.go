@@ -583,3 +583,117 @@ func TestWithHTTPClient(t *testing.T) {
 		t.Error("httpClient should be the custom client")
 	}
 }
+
+// SECURITY (FIND-R46-GO-003): Verify query parameters are properly URL-encoded.
+func TestDiscoveryTools_QueryParamEncoding(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify the query parameters are properly encoded
+		serverID := r.URL.Query().Get("server_id")
+		sensitivity := r.URL.Query().Get("sensitivity")
+		if serverID != "server&evil=1" {
+			t.Errorf("server_id = %q, want %q", serverID, "server&evil=1")
+		}
+		if sensitivity != "high&drop=table" {
+			t.Errorf("sensitivity = %q, want %q", sensitivity, "high&drop=table")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(DiscoveryToolsResponse{Tools: []ToolMetadata{}, Total: 0})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	// These values contain '&' and '=' which must be URL-encoded
+	_, err := c.DiscoveryTools(context.Background(), "server&evil=1", "high&drop=table")
+	if err != nil {
+		t.Fatalf("DiscoveryTools() error: %v", err)
+	}
+}
+
+// SECURITY (FIND-R46-GO-004): Verify Authorization header is stripped on cross-domain redirect.
+func TestRedirectStripsAuthOnCrossDomain(t *testing.T) {
+	// Target server that checks there's no Authorization header
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth != "" {
+			t.Errorf("Authorization header should be stripped on cross-domain redirect, got %q", auth)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(HealthResponse{Status: "ok"})
+	}))
+	defer target.Close()
+
+	// Origin server that redirects to target
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/health", http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+
+	c := NewClient(origin.URL, WithAPIKey("secret-key"))
+	resp, err := c.Health(context.Background())
+	if err != nil {
+		t.Fatalf("Health() error: %v", err)
+	}
+	if resp.Status != "ok" {
+		t.Errorf("Status = %q, want %q", resp.Status, "ok")
+	}
+}
+
+// SECURITY (FIND-R46-GO-004): Verify Authorization header is preserved on same-domain redirect.
+func TestRedirectPreservesAuthOnSameDomain(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			// First call: redirect to /health on same server
+			http.Redirect(w, r, "/health", http.StatusTemporaryRedirect)
+			return
+		}
+		// Second call: verify auth header is still present
+		auth := r.Header.Get("Authorization")
+		if auth != "Bearer my-key" {
+			t.Errorf("Authorization header should be preserved on same-domain redirect, got %q", auth)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(HealthResponse{Status: "ok"})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, WithAPIKey("my-key"))
+	_, err := c.Health(context.Background())
+	if err != nil {
+		t.Fatalf("Health() error: %v", err)
+	}
+}
+
+// SECURITY (FIND-R46-GO-005): Verify error messages truncate large response bodies.
+func TestErrorBodyTruncation(t *testing.T) {
+	// Return a very large error body
+	largeBody := make([]byte, 1024)
+	for i := range largeBody {
+		largeBody[i] = 'X'
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(500)
+		w.Write(largeBody)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	_, err := c.Health(context.Background())
+	if err == nil {
+		t.Fatal("Health() should return error for 500")
+	}
+	errMsg := err.Error()
+	// The error message should be truncated, not contain the full 1024-byte body
+	if len(errMsg) > 400 {
+		t.Errorf("Error message should be truncated, got %d chars", len(errMsg))
+	}
+	sentErr, ok := err.(*VellavetoError)
+	if !ok {
+		t.Fatalf("error type = %T, want *VellavetoError", err)
+	}
+	if sentErr.StatusCode != 500 {
+		t.Errorf("StatusCode = %d, want 500", sentErr.StatusCode)
+	}
+}

@@ -2,6 +2,43 @@ use crate::logger::AuditLogger;
 use crate::types::AuditError;
 use vellaveto_types::{Action, Verdict};
 
+/// Reserved metadata keys that must not be overwritten by user-supplied details.
+/// SECURITY (FIND-R46-007): Prevents callers from injecting fake event_type,
+/// timestamp, sequence, or hash values into audit metadata.
+const RESERVED_METADATA_KEYS: &[&str] = &[
+    "event",
+    "event_type",
+    "timestamp",
+    "sequence",
+    "hash",
+    "entry_hash",
+    "prev_hash",
+    "id",
+    "entry_id",
+    "signature",
+    "merkle_root",
+    "chain_head_hash",
+];
+
+/// Merge `details` into `metadata`, skipping any reserved keys.
+/// SECURITY (FIND-R46-007): Prevents details from overwriting reserved metadata keys.
+fn merge_details_safe(metadata: &mut serde_json::Value, details: serde_json::Value) {
+    if let serde_json::Value::Object(ref mut map) = metadata {
+        if let serde_json::Value::Object(d) = details {
+            for (k, v) in d {
+                if RESERVED_METADATA_KEYS.contains(&k.as_str()) {
+                    tracing::warn!(
+                        key = %k,
+                        "Rejected attempt to overwrite reserved metadata key in event details"
+                    );
+                    continue;
+                }
+                map.insert(k, v);
+            }
+        }
+    }
+}
+
 impl AuditLogger {
     // ═══════════════════════════════════════════════════
     // HEARTBEAT ENTRIES (Phase 10.6)
@@ -52,13 +89,7 @@ impl AuditLogger {
             "event": format!("circuit_breaker.{}", event_type),
             "tool": tool,
         });
-        if let serde_json::Value::Object(ref mut map) = metadata {
-            if let serde_json::Value::Object(d) = details {
-                for (k, v) in d {
-                    map.insert(k, v);
-                }
-            }
-        }
+        merge_details_safe(&mut metadata, details);
         self.log_entry(&action, &verdict, metadata).await
     }
 
@@ -84,13 +115,7 @@ impl AuditLogger {
             "event": format!("deputy.{}", event_type),
             "session": session,
         });
-        if let serde_json::Value::Object(ref mut map) = metadata {
-            if let serde_json::Value::Object(d) = details {
-                for (k, v) in d {
-                    map.insert(k, v);
-                }
-            }
-        }
+        merge_details_safe(&mut metadata, details);
         self.log_entry(&action, &verdict, metadata).await
     }
 
@@ -116,13 +141,7 @@ impl AuditLogger {
             "event": format!("shadow_agent.{}", event_type),
             "agent_id": agent_id,
         });
-        if let serde_json::Value::Object(ref mut map) = metadata {
-            if let serde_json::Value::Object(d) = details {
-                for (k, v) in d {
-                    map.insert(k, v);
-                }
-            }
-        }
+        merge_details_safe(&mut metadata, details);
         self.log_entry(&action, &verdict, metadata).await
     }
 
@@ -148,13 +167,7 @@ impl AuditLogger {
             "event": format!("schema.{}", event_type),
             "tool": tool,
         });
-        if let serde_json::Value::Object(ref mut map) = metadata {
-            if let serde_json::Value::Object(d) = details {
-                for (k, v) in d {
-                    map.insert(k, v);
-                }
-            }
-        }
+        merge_details_safe(&mut metadata, details);
         self.log_entry(&action, &verdict, metadata).await
     }
 
@@ -180,13 +193,7 @@ impl AuditLogger {
             "event": format!("task.{}", event_type),
             "task_id": task_id,
         });
-        if let serde_json::Value::Object(ref mut map) = metadata {
-            if let serde_json::Value::Object(d) = details {
-                for (k, v) in d {
-                    map.insert(k, v);
-                }
-            }
-        }
+        merge_details_safe(&mut metadata, details);
         self.log_entry(&action, &verdict, metadata).await
     }
 
@@ -212,13 +219,7 @@ impl AuditLogger {
             "event": format!("auth.{}", event_type),
             "session": session,
         });
-        if let serde_json::Value::Object(ref mut map) = metadata {
-            if let serde_json::Value::Object(d) = details {
-                for (k, v) in d {
-                    map.insert(k, v);
-                }
-            }
-        }
+        merge_details_safe(&mut metadata, details);
         self.log_entry(&action, &verdict, metadata).await
     }
 
@@ -240,13 +241,7 @@ impl AuditLogger {
             "event": format!("sampling.{}", event_type),
             "session": session,
         });
-        if let serde_json::Value::Object(ref mut map) = metadata {
-            if let serde_json::Value::Object(d) = details {
-                for (k, v) in d {
-                    map.insert(k, v);
-                }
-            }
-        }
+        merge_details_safe(&mut metadata, details);
         self.log_entry(&action, &verdict, metadata).await
     }
 
@@ -277,13 +272,7 @@ impl AuditLogger {
             "event": format!("shadow_ai.{}", event_type),
             "entity_id": entity_id,
         });
-        if let serde_json::Value::Object(ref mut map) = metadata {
-            if let serde_json::Value::Object(d) = details {
-                for (k, v) in d {
-                    map.insert(k, v);
-                }
-            }
-        }
+        merge_details_safe(&mut metadata, details);
         self.log_entry(&action, &verdict, metadata).await
     }
 
@@ -318,13 +307,7 @@ impl AuditLogger {
             "agent_id": agent_id,
             "session_id": session_id,
         });
-        if let serde_json::Value::Object(ref mut map) = metadata {
-            if let serde_json::Value::Object(d) = details {
-                for (k, v) in d {
-                    map.insert(k, v);
-                }
-            }
-        }
+        merge_details_safe(&mut metadata, details);
         self.log_entry(&action, &verdict, metadata).await
     }
 
@@ -364,13 +347,7 @@ impl AuditLogger {
             "event": format!("leader_election.{}", event_type),
             "instance_id": instance_id,
         });
-        if let serde_json::Value::Object(ref mut map) = metadata {
-            if let serde_json::Value::Object(d) = details {
-                for (k, v) in d {
-                    map.insert(k, v);
-                }
-            }
-        }
+        merge_details_safe(&mut metadata, details);
         self.log_entry(&action, &verdict, metadata).await
     }
 
@@ -405,13 +382,7 @@ impl AuditLogger {
             "event": format!("service_discovery.{}", event_type),
             "endpoint_id": endpoint_id,
         });
-        if let serde_json::Value::Object(ref mut map) = metadata {
-            if let serde_json::Value::Object(d) = details {
-                for (k, v) in d {
-                    map.insert(k, v);
-                }
-            }
-        }
+        merge_details_safe(&mut metadata, details);
         self.log_entry(&action, &verdict, metadata).await
     }
 
@@ -444,13 +415,7 @@ impl AuditLogger {
         let mut metadata = serde_json::json!({
             "event": format!("projector.{}", event_type),
         });
-        if let serde_json::Value::Object(ref mut map) = metadata {
-            if let serde_json::Value::Object(d) = details {
-                for (k, v) in d {
-                    map.insert(k, v);
-                }
-            }
-        }
+        merge_details_safe(&mut metadata, details);
         self.log_entry(&action, &verdict, metadata).await
     }
 
@@ -486,13 +451,7 @@ impl AuditLogger {
         let mut metadata = serde_json::json!({
             "event": format!("zk_audit.{}", event_type),
         });
-        if let serde_json::Value::Object(ref mut map) = metadata {
-            if let serde_json::Value::Object(d) = details {
-                for (k, v) in d {
-                    map.insert(k, v);
-                }
-            }
-        }
+        merge_details_safe(&mut metadata, details);
         self.log_entry(&action, &verdict, metadata).await
     }
 
@@ -547,13 +506,7 @@ impl AuditLogger {
         let mut metadata = serde_json::json!({
             "event": format!("discovery.{}", event_type),
         });
-        if let serde_json::Value::Object(ref mut map) = metadata {
-            if let serde_json::Value::Object(d) = details {
-                for (k, v) in d {
-                    map.insert(k, v);
-                }
-            }
-        }
+        merge_details_safe(&mut metadata, details);
         self.log_entry(&action, &verdict, metadata).await
     }
 }

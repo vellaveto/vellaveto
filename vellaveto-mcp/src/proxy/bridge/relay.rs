@@ -43,6 +43,19 @@ const INITIAL_TOOL_STATE_CAPACITY: usize = 128;
 /// Initial capacity for call count tracking.
 const INITIAL_CALL_COUNTS_CAPACITY: usize = 128;
 
+/// SECURITY (FIND-R46-003): Maximum entries for tools_list_request_ids and
+/// initialize_request_ids tracking sets. Prevents unbounded growth / OOM.
+const MAX_REQUEST_TRACKING_IDS: usize = 1000;
+
+/// SECURITY (FIND-R46-007): Maximum entries for known_tool_annotations.
+pub(super) const MAX_KNOWN_TOOL_ANNOTATIONS: usize = 10_000;
+
+/// SECURITY (FIND-R46-007): Maximum entries for flagged_tools.
+pub(super) const MAX_FLAGGED_TOOLS: usize = 10_000;
+
+/// SECURITY (FIND-R46-010): Maximum entries for call_counts.
+const MAX_CALL_COUNTS: usize = 10_000;
+
 /// Bundled mutable I/O handles for the relay loop.
 ///
 /// Groups agent-side and child-side writers to reduce handler argument counts.
@@ -125,9 +138,32 @@ impl RelayState {
         }
     }
 
+    /// SECURITY (FIND-R46-007): Insert into flagged_tools with capacity check.
+    fn flag_tool(&mut self, name: String) {
+        if self.flagged_tools.len() < MAX_FLAGGED_TOOLS {
+            self.flagged_tools.insert(name);
+        } else {
+            tracing::warn!(
+                "flagged_tools at capacity ({}); cannot flag tool '{}'",
+                MAX_FLAGGED_TOOLS, name
+            );
+        }
+    }
+
     /// Record a successful forward for context tracking.
     fn record_forwarded_action(&mut self, action_name: &str) {
-        *self.call_counts.entry(action_name.to_string()).or_insert(0) += 1;
+        // SECURITY (FIND-R46-010): Cap call_counts to prevent OOM from
+        // unbounded unique tool/method names.
+        if let Some(count) = self.call_counts.get_mut(action_name) {
+            *count = count.saturating_add(1);
+        } else if self.call_counts.len() < MAX_CALL_COUNTS {
+            self.call_counts.insert(action_name.to_string(), 1);
+        } else {
+            tracing::warn!(
+                "call_counts at capacity ({}); not tracking '{}'",
+                MAX_CALL_COUNTS, action_name
+            );
+        }
         if self.action_history.len() >= MAX_ACTION_HISTORY {
             self.action_history.pop_front();
         }
@@ -310,7 +346,10 @@ impl ProxyBridge {
                     .map_err(ProxyError::Framing)
             }
             MessageType::ProgressNotification { .. } => {
-                // Forward as-is (upstream→client DLP scanning applies)
+                // SECURITY (FIND-R46-005): Progress notifications may carry arbitrary
+                // data in their `params` (including a `data` sub-field). Route through
+                // handle_passthrough which applies DLP + injection scanning before
+                // forwarding to the child server.
                 self.handle_passthrough(&msg, state, io).await
             }
             MessageType::ExtensionMethod {
@@ -911,6 +950,23 @@ impl ProxyBridge {
         let verdict = crate::elicitation::inspect_sampling(&params, &self.sampling_config);
         match verdict {
             crate::elicitation::SamplingVerdict::Allow => {
+                // SECURITY (FIND-R46-008): Audit allowed sampling decisions.
+                let action = vellaveto_types::Action::new(
+                    "vellaveto",
+                    "sampling_allowed",
+                    json!({"source": "proxy"}),
+                );
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Allow,
+                        json!({"source": "proxy", "event": "sampling_allowed"}),
+                    )
+                    .await
+                {
+                    tracing::warn!("Audit log failed for sampling allow: {}", e);
+                }
                 write_message(agent_writer, msg)
                     .await
                     .map_err(ProxyError::Framing)?;
@@ -963,6 +1019,23 @@ impl ProxyBridge {
                 // SECURITY (R28-MCP-8): Saturating add prevents
                 // panic from overflow-checks in release profile.
                 state.elicitation_count = state.elicitation_count.saturating_add(1);
+                // SECURITY (FIND-R46-008): Audit allowed elicitation decisions.
+                let action = vellaveto_types::Action::new(
+                    "vellaveto",
+                    "elicitation_allowed",
+                    json!({"source": "proxy", "count": state.elicitation_count}),
+                );
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Allow,
+                        json!({"source": "proxy", "event": "elicitation_allowed"}),
+                    )
+                    .await
+                {
+                    tracing::warn!("Audit log failed for elicitation allow: {}", e);
+                }
                 write_message(agent_writer, msg)
                     .await
                     .map_err(ProxyError::Framing)?;
@@ -1249,6 +1322,62 @@ impl ProxyBridge {
 
         match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
             Ok((Verdict::Allow, _trace)) => {
+                // SECURITY (FIND-R46-004): DLP scan extension method parameters
+                // before forwarding. Extension methods must not bypass DLP.
+                let dlp_findings = scan_parameters_for_secrets(&params);
+                if !dlp_findings.is_empty() {
+                    let patterns: Vec<String> = dlp_findings
+                        .iter()
+                        .map(|f| format!("{} at {}", f.pattern_name, f.location))
+                        .collect();
+                    tracing::warn!(
+                        "SECURITY: DLP alert in extension method '{}': {:?}",
+                        method, patterns
+                    );
+                    let dlp_action = vellaveto_types::Action::new(
+                        "vellaveto",
+                        "extension_dlp_blocked",
+                        json!({
+                            "extension_id": extension_id,
+                            "method": method,
+                            "findings": patterns,
+                        }),
+                    );
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &dlp_action,
+                            &Verdict::Deny {
+                                reason: format!(
+                                    "Extension method blocked: secrets detected in parameters ({:?})",
+                                    patterns
+                                ),
+                            },
+                            json!({
+                                "source": "proxy",
+                                "event": "extension_dlp_blocked",
+                                "extension_id": extension_id,
+                                "method": method,
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit extension DLP finding: {}", e);
+                    }
+                    let response = make_denial_response(
+                        &id,
+                        "Request blocked: security policy violation",
+                    );
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+
+                // SECURITY (FIND-R46-004): Memory poisoning scan for extension
+                // method parameters. Extension methods must not bypass poisoning checks.
+                state.memory_tracker.extract_from_value(&params);
+
                 if let Err(e) = self
                     .audit
                     .log_entry(
@@ -1396,13 +1525,29 @@ impl ProxyBridge {
                 let normalized_method = method.map(crate::extractor::normalize_method);
 
                 // C-8.2: Track tools/list requests for annotation extraction
+                // SECURITY (FIND-R46-003): Cap set size to prevent OOM.
                 if normalized_method.as_deref() == Some("tools/list") {
-                    state.tools_list_request_ids.insert(id_key.clone());
+                    if state.tools_list_request_ids.len() < MAX_REQUEST_TRACKING_IDS {
+                        state.tools_list_request_ids.insert(id_key.clone());
+                    } else {
+                        tracing::warn!(
+                            "tools_list_request_ids at capacity ({}); dropping tracking for {}",
+                            MAX_REQUEST_TRACKING_IDS, id_key
+                        );
+                    }
                 }
 
                 // C-8.4: Track initialize requests for protocol version
+                // SECURITY (FIND-R46-003): Cap set size to prevent OOM.
                 if normalized_method.as_deref() == Some("initialize") {
-                    state.initialize_request_ids.insert(id_key);
+                    if state.initialize_request_ids.len() < MAX_REQUEST_TRACKING_IDS {
+                        state.initialize_request_ids.insert(id_key);
+                    } else {
+                        tracing::warn!(
+                            "initialize_request_ids at capacity ({}); dropping tracking for {}",
+                            MAX_REQUEST_TRACKING_IDS, id_key
+                        );
+                    }
                     if let Some(ver) = msg
                         .get("params")
                         .and_then(|p| p.get("protocolVersion"))
@@ -1779,6 +1924,17 @@ impl ProxyBridge {
             if let Some(params) = msg.get("params") {
                 state.memory_tracker.extract_from_value(params);
             }
+
+            // SECURITY (FIND-R46-009): Notifications (messages with method but no
+            // non-null id) are fully handled above. Return early to prevent
+            // fall-through into response-processing logic (which would perform
+            // redundant scanning and incorrect pending-request bookkeeping).
+            let is_notification = msg.get("id").is_none_or(|v| v.is_null());
+            if is_notification {
+                return write_message(agent_writer, &msg)
+                    .await
+                    .map_err(ProxyError::Framing);
+            }
         }
 
         // Remove from pending requests on response
@@ -1800,7 +1956,11 @@ impl ProxyBridge {
                     }
                 }
 
-                // C-8.2: If this is a tools/list response, extract annotations
+                // C-8.2: If this is a tools/list response, extract annotations.
+                // SECURITY (FIND-R46-006): The tools/list response is evaluated and
+                // forwarded using the same parsed `serde_json::Value`. `write_message`
+                // re-serializes this Value to canonical JSON, eliminating any TOCTOU
+                // gap between evaluation and forwarding (no raw wire bytes are reused).
                 if state.tools_list_request_ids.remove(&id_key) {
                     self.handle_tools_list_response(&msg, state).await;
                 }
@@ -2258,7 +2418,8 @@ impl ProxyBridge {
                     tracing::warn!("Failed to audit tool description injection: {}", e);
                 }
                 // SECURITY (R29-MCP-2): Flag tools with injection in descriptions.
-                state.flagged_tools.insert(finding.tool_name.clone());
+                // SECURITY (FIND-R46-007): Bounded insertion.
+                state.flag_tool(finding.tool_name.clone());
                 self.persist_flagged_tool(&finding.tool_name, "description_injection")
                     .await;
             }
@@ -2365,7 +2526,8 @@ impl ProxyBridge {
                                 {
                                     tracing::warn!("Failed to audit schema poisoning: {}", e);
                                 }
-                                state.flagged_tools.insert(name.to_string());
+                                // SECURITY (FIND-R46-007): Bounded insertion.
+                                state.flag_tool(name.to_string());
                                 self.persist_flagged_tool(name, "schema_poisoning").await;
                             }
                             crate::schema_poisoning::ObservationResult::MinorChange {

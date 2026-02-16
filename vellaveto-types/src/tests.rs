@@ -3051,3 +3051,298 @@ fn test_model_family_hash_and_eq() {
     assert_eq!(map.get(&ModelFamily::Custom("x".to_string())), Some(&"custom_x"));
     assert_eq!(map.get(&ModelFamily::DeepSeek), None);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ROUND 46 FINDING TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// FIND-R46-004: PedersenCommitment Debug redacts blinding_hint
+#[test]
+fn test_pedersen_commitment_debug_redacts_blinding_hint() {
+    let pc = PedersenCommitment {
+        commitment: "abc123".to_string(),
+        blinding_hint: "secret_blinding_factor".to_string(),
+    };
+    let debug_output = format!("{:?}", pc);
+    assert!(debug_output.contains("abc123"), "commitment should be visible");
+    assert!(!debug_output.contains("secret_blinding_factor"), "blinding_hint must be redacted");
+    assert!(debug_output.contains("[REDACTED]"), "should show [REDACTED] for blinding_hint");
+}
+
+#[test]
+fn test_pedersen_commitment_serialize_omits_blinding_hint() {
+    let pc = PedersenCommitment {
+        commitment: "abc123".to_string(),
+        blinding_hint: "secret_blinding_factor".to_string(),
+    };
+    let json = serde_json::to_string(&pc).expect("serialization should succeed");
+    assert!(!json.contains("blinding_hint"), "blinding_hint must not appear in serialized output");
+    assert!(!json.contains("secret_blinding_factor"), "blinding value must not appear in serialized output");
+}
+
+#[test]
+fn test_pedersen_commitment_deserialize_with_blinding_hint() {
+    let json = r#"{"commitment":"abc","blinding_hint":"secret"}"#;
+    let pc: PedersenCommitment = serde_json::from_str(json).expect("should deserialize");
+    assert_eq!(pc.commitment, "abc");
+    assert_eq!(pc.blinding_hint, "secret");
+}
+
+// FIND-R46-005: CapabilityToken Debug redacts signature
+#[test]
+fn test_capability_token_debug_redacts_signature() {
+    let token = CapabilityToken {
+        token_id: "tok-1".to_string(),
+        parent_token_id: None,
+        issuer: "issuer-1".to_string(),
+        holder: "holder-1".to_string(),
+        grants: vec![CapabilityGrant {
+            tool_pattern: "test".to_string(),
+            function_pattern: "*".to_string(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth: 3,
+        issued_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-12-31T23:59:59Z".to_string(),
+        signature: "deadbeef_secret_sig".to_string(),
+        issuer_public_key: "pubkey123".to_string(),
+    };
+    let debug_output = format!("{:?}", token);
+    assert!(!debug_output.contains("deadbeef_secret_sig"), "signature must be redacted in Debug");
+    assert!(debug_output.contains("[REDACTED]"), "should show [REDACTED] for signature");
+    assert!(debug_output.contains("tok-1"), "token_id should be visible");
+}
+
+// FIND-R46-006: SamplingStats::record_request saturating_add
+#[test]
+fn test_sampling_stats_record_request_saturating_at_u32_max() {
+    let mut stats = SamplingStats {
+        request_count: u32::MAX - 1,
+        window_start: 0,
+        last_request: 0,
+        flagged_patterns: vec![],
+    };
+    let count = stats.record_request(100);
+    assert_eq!(count, u32::MAX);
+    // One more should saturate, not panic
+    let count2 = stats.record_request(200);
+    assert_eq!(count2, u32::MAX);
+}
+
+// FIND-R46-007: ToolSignature::is_expired lexicographic comparison
+#[test]
+fn test_tool_signature_is_expired_lexicographic_iso8601() {
+    let sig = ToolSignature {
+        signature_id: "sig-1".to_string(),
+        signature: "aabbcc".to_string(),
+        algorithm: SignatureAlgorithm::Ed25519,
+        public_key: "pk".to_string(),
+        key_fingerprint: None,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: Some("2026-06-15T12:00:00Z".to_string()),
+        signer_spiffe_id: None,
+        rekor_entry: None,
+    };
+    // Before expiry
+    assert!(!sig.is_expired("2026-06-15T11:59:59Z"));
+    // Exactly at expiry
+    assert!(sig.is_expired("2026-06-15T12:00:00Z"));
+    // After expiry
+    assert!(sig.is_expired("2026-06-15T12:00:01Z"));
+    // Year rollover
+    assert!(sig.is_expired("2027-01-01T00:00:00Z"));
+}
+
+// FIND-R46-008: validate_mcp_tool_name rejects consecutive slashes
+#[test]
+fn test_validate_mcp_tool_name_rejects_consecutive_slashes() {
+    let result = validate_mcp_tool_name("foo//bar");
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("consecutive slashes"));
+}
+
+#[test]
+fn test_validate_mcp_tool_name_allows_single_slash() {
+    assert!(validate_mcp_tool_name("foo/bar").is_ok());
+    assert!(validate_mcp_tool_name("a/b/c").is_ok());
+}
+
+// FIND-R46-009: f64 NaN/Infinity validation
+#[test]
+fn test_risk_score_validate_finite_rejects_nan() {
+    let rs = RiskScore {
+        score: f64::NAN,
+        factors: vec![],
+        updated_at: "2026-01-01T00:00:00Z".to_string(),
+    };
+    assert!(rs.validate_finite().is_err());
+}
+
+#[test]
+fn test_risk_score_validate_finite_rejects_infinity() {
+    let rs = RiskScore {
+        score: f64::INFINITY,
+        factors: vec![],
+        updated_at: "2026-01-01T00:00:00Z".to_string(),
+    };
+    assert!(rs.validate_finite().is_err());
+}
+
+#[test]
+fn test_risk_score_validate_finite_accepts_normal() {
+    let rs = RiskScore {
+        score: 0.75,
+        factors: vec![RiskFactor {
+            name: "test".to_string(),
+            weight: 0.5,
+            value: 0.8,
+        }],
+        updated_at: "2026-01-01T00:00:00Z".to_string(),
+    };
+    assert!(rs.validate_finite().is_ok());
+}
+
+#[test]
+fn test_risk_factor_validate_finite_rejects_nan_weight() {
+    let rf = RiskFactor {
+        name: "test".to_string(),
+        weight: f64::NAN,
+        value: 0.5,
+    };
+    assert!(rf.validate_finite().is_err());
+}
+
+#[test]
+fn test_risk_factor_validate_finite_rejects_infinity_value() {
+    let rf = RiskFactor {
+        name: "test".to_string(),
+        weight: 0.5,
+        value: f64::NEG_INFINITY,
+    };
+    assert!(rf.validate_finite().is_err());
+}
+
+#[test]
+fn test_schema_record_validate_finite_rejects_nan() {
+    let sr = SchemaRecord::new("tool", "hash", 100);
+    let mut sr_nan = sr;
+    sr_nan.trust_score = f32::NAN;
+    assert!(sr_nan.validate_finite().is_err());
+}
+
+#[test]
+fn test_schema_record_validate_finite_accepts_normal() {
+    let sr = SchemaRecord::new("tool", "hash", 100);
+    assert!(sr.validate_finite().is_ok());
+}
+
+#[test]
+fn test_memory_entry_validate_finite_rejects_nan() {
+    let mut me = MemoryEntry::new(
+        "id".to_string(),
+        "fp".to_string(),
+        "content",
+        "hash".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+    );
+    me.trust_score = f64::NAN;
+    assert!(me.validate_finite().is_err());
+}
+
+#[test]
+fn test_memory_entry_validate_finite_accepts_normal() {
+    let me = MemoryEntry::new(
+        "id".to_string(),
+        "fp".to_string(),
+        "content",
+        "hash".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+    );
+    assert!(me.validate_finite().is_ok());
+}
+
+#[test]
+fn test_nhi_behavioral_baseline_validate_finite_rejects_nan() {
+    let mut baseline = NhiBehavioralBaseline::default();
+    baseline.avg_request_interval_secs = f64::NAN;
+    assert!(baseline.validate_finite().is_err());
+}
+
+#[test]
+fn test_nhi_behavioral_baseline_validate_finite_rejects_infinity_in_map() {
+    let mut baseline = NhiBehavioralBaseline::default();
+    baseline.tool_call_patterns.insert("tool".to_string(), f64::INFINITY);
+    assert!(baseline.validate_finite().is_err());
+}
+
+#[test]
+fn test_nhi_behavioral_baseline_validate_finite_accepts_normal() {
+    let mut baseline = NhiBehavioralBaseline::default();
+    baseline.avg_request_interval_secs = 5.0;
+    baseline.confidence = 0.9;
+    assert!(baseline.validate_finite().is_ok());
+}
+
+// FIND-R46-010: StatelessContextBlob Debug redacts signature
+#[test]
+fn test_stateless_context_blob_debug_redacts_signature() {
+    let blob = StatelessContextBlob {
+        version: 1,
+        agent_id: "agent-1".to_string(),
+        call_counts: HashMap::new(),
+        recent_actions: vec![],
+        call_chain: vec![],
+        risk_score: None,
+        issued_at: 1000,
+        signature: "hmac_secret_value_here".to_string(),
+    };
+    let debug_output = format!("{:?}", blob);
+    assert!(!debug_output.contains("hmac_secret_value_here"), "HMAC signature must be redacted");
+    assert!(debug_output.contains("[REDACTED]"), "should show [REDACTED] for signature");
+    assert!(debug_output.contains("agent-1"), "agent_id should be visible");
+}
+
+// FIND-R46-011: SecureTask max_nonces capped at 10,000
+#[test]
+fn test_secure_task_max_nonces_capped_on_deserialize() {
+    let json = r#"{
+        "task": {"task_id":"t1","status":"pending","created_at":"2026-01-01T00:00:00Z","tool":"test","function":"fn"},
+        "state_chain": [],
+        "seen_nonces": [],
+        "max_nonces": 999999
+    }"#;
+    let task: SecureTask = serde_json::from_str(json).expect("should deserialize");
+    assert!(task.max_nonces <= 10_000, "max_nonces should be capped at 10,000, got {}", task.max_nonces);
+}
+
+#[test]
+fn test_secure_task_record_nonce_respects_cap() {
+    let tracked = TrackedTask {
+        task_id: "t1".to_string(),
+        tool: "test".to_string(),
+        function: "fn".to_string(),
+        status: TaskStatus::Pending,
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: None,
+        created_by: None,
+        session_id: None,
+    };
+    let mut task = SecureTask::new(tracked);
+    // Manually set a large max_nonces to verify runtime cap
+    task.max_nonces = 50_000;
+    // Fill to MAX_NONCES_CAP
+    for i in 0..10_001 {
+        task.record_nonce(format!("nonce-{i}"));
+    }
+    // Should be capped at MAX_NONCES_CAP (10,000) due to FIFO eviction
+    assert!(task.seen_nonces.len() <= 10_000, "seen_nonces should not exceed 10,000, got {}", task.seen_nonces.len());
+}
+
+// FIND-R46-012: EnforcementMode defaults to Monitor
+#[test]
+fn test_enforcement_mode_defaults_to_monitor() {
+    let mode = EnforcementMode::default();
+    assert_eq!(mode, EnforcementMode::Monitor, "Default must be Monitor for gradual rollout");
+}

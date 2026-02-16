@@ -103,6 +103,17 @@ impl MemoryEntry {
     /// Maximum preview length in characters.
     pub const MAX_PREVIEW_LENGTH: usize = 100;
 
+    /// Validate that all f64 fields are finite (not NaN or Infinity).
+    pub fn validate_finite(&self) -> Result<(), String> {
+        if !self.trust_score.is_finite() {
+            return Err(format!(
+                "MemoryEntry '{}' trust_score is not finite: {}",
+                self.id, self.trust_score
+            ));
+        }
+        Ok(())
+    }
+
     /// Create a new memory entry with default values.
     pub fn new(
         id: String,

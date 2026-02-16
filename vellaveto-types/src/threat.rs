@@ -300,6 +300,17 @@ impl SchemaRecord {
     /// Larger schemas fall back to hash-only comparison.
     pub const MAX_SCHEMA_SIZE: usize = 64 * 1024;
 
+    /// Validate that all float fields are finite (not NaN or Infinity).
+    pub fn validate_finite(&self) -> Result<(), String> {
+        if !self.trust_score.is_finite() {
+            return Err(format!(
+                "SchemaRecord '{}' trust_score is not finite: {}",
+                self.tool_name, self.trust_score
+            ));
+        }
+        Ok(())
+    }
+
     /// Create a new schema record with initial observation.
     pub fn new(tool_name: impl Into<String>, schema_hash: impl Into<String>, now: u64) -> Self {
         Self {
@@ -424,9 +435,10 @@ impl SamplingStats {
     }
 
     /// Record a request and return the new count.
+    /// Uses saturating arithmetic to prevent overflow panic.
     pub fn record_request(&mut self, now: u64) -> u32 {
         self.last_request = now;
-        self.request_count += 1;
+        self.request_count = self.request_count.saturating_add(1);
         self.request_count
     }
 }

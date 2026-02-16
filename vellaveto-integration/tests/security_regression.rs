@@ -1716,3 +1716,438 @@ policy_type = "Allow"
         "Default priority should be 0 (lowest), not 100"
     );
 }
+
+// ═══════════════════════════════════════════════════
+// FIND-R46-IT-003 — Malformed server responses produce Deny
+//
+// When the policy engine receives malformed input or the evaluate
+// endpoint receives invalid JSON, the system must fail-closed.
+// ═══════════════════════════════════════════════════
+
+#[tokio::test]
+async fn find_r46_it003_malformed_json_request_body_rejected() {
+    let tmp = TempDir::new().unwrap();
+    let state = AppState {
+        policy_state: Arc::new(ArcSwap::from_pointee(vellaveto_server::PolicySnapshot {
+            engine: PolicyEngine::new(false),
+            policies: vec![Policy {
+                id: "file:*".to_string(),
+                name: "Allow files".to_string(),
+                policy_type: PolicyType::Allow,
+                priority: 10,
+                path_rules: None,
+                network_rules: None,
+            }],
+            compliance_config: Default::default(),
+        })),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        config_path: Arc::new("test.toml".to_string()),
+        approvals: Arc::new(ApprovalStore::new(
+            tmp.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        )),
+        api_key: None,
+        rate_limits: Arc::new(RateLimits::disabled()),
+        cors_origins: vec![],
+        metrics: Arc::new(Metrics::default()),
+        trusted_proxies: Arc::new(vec![]),
+        policy_write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        prometheus_handle: None,
+        tool_registry: None,
+        cluster: None,
+        rbac_config: vellaveto_server::rbac::RbacConfig::default(),
+        tenant_config: vellaveto_server::tenant::TenantConfig::default(),
+        tenant_store: None,
+        idempotency: vellaveto_server::idempotency::IdempotencyStore::new(
+            vellaveto_server::idempotency::IdempotencyConfig::default(),
+        ),
+        task_state: None,
+        auth_level: None,
+        circuit_breaker: None,
+        deputy: None,
+        shadow_agent: None,
+        schema_lineage: None,
+        sampling_detector: None,
+        exec_graph_store: None,
+        etdi_store: None,
+        etdi_verifier: None,
+        etdi_attestations: None,
+        etdi_version_pins: None,
+        memory_security: None,
+        nhi: None,
+        observability: None,
+        shadow_ai_discovery: None,
+        least_agency_tracker: None,
+        metrics_require_auth: true,
+        audit_strict_mode: false,
+        leader_election: None,
+        service_discovery: None,
+        deployment_config: Default::default(),
+        start_time: std::time::Instant::now(),
+        cached_discovered_endpoints: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        cached_instance_id: std::sync::Arc::new("test-instance".to_string()),
+        discovery_engine: None,
+        discovery_audit: None,
+        projector_registry: None,
+        zk_proofs: None,
+        zk_audit_enabled: false,
+        zk_audit_config: Default::default(),
+    };
+
+    // Test 1: Completely invalid JSON
+    let app = routes::build_router(state.clone());
+    let req = Request::post("/api/evaluate")
+        .header("content-type", "application/json")
+        .body(Body::from("this is not json at all"))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert!(
+        resp.status().is_client_error() || resp.status().is_server_error(),
+        "Malformed JSON must be rejected, got status {}",
+        resp.status()
+    );
+
+    // Test 2: Valid JSON but missing required 'tool' field
+    let app = routes::build_router(state.clone());
+    let req = Request::post("/api/evaluate")
+        .header("content-type", "application/json")
+        .body(Body::from(r#"{"function":"read","parameters":{}}"#))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    // Should either reject (4xx) or produce a Deny verdict
+    if resp.status().is_success() {
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let body_str = String::from_utf8_lossy(&body);
+        let body_lower = body_str.to_lowercase();
+        assert!(
+            body_lower.contains("deny"),
+            "Missing 'tool' field must fail-closed to Deny: {}",
+            body_str
+        );
+    }
+
+    // Test 3: Empty JSON object
+    let app = routes::build_router(state.clone());
+    let req = Request::post("/api/evaluate")
+        .header("content-type", "application/json")
+        .body(Body::from("{}"))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    // Should either reject or produce Deny
+    if resp.status().is_success() {
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let body_str = String::from_utf8_lossy(&body);
+        let body_lower = body_str.to_lowercase();
+        assert!(
+            body_lower.contains("deny"),
+            "Empty JSON object must fail-closed to Deny: {}",
+            body_str
+        );
+    }
+
+    // Test 4: JSON array instead of object
+    let app = routes::build_router(state.clone());
+    let req = Request::post("/api/evaluate")
+        .header("content-type", "application/json")
+        .body(Body::from("[1,2,3]"))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert!(
+        resp.status().is_client_error() || resp.status().is_server_error(),
+        "JSON array must be rejected for evaluate endpoint, got status {}",
+        resp.status()
+    );
+}
+
+// ═══════════════════════════════════════════════════
+// FIND-R46-IT-004 — SSRF regression tests for resolved_ips
+//
+// Verify that private IP ranges in resolved_ips are blocked
+// when IP rules with block_private are configured.
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn find_r46_it004_ssrf_private_ip_10_blocked() {
+    use vellaveto_types::{IpRules, NetworkRules};
+
+    let engine = PolicyEngine::new(false);
+    let policies = vec![Policy {
+        id: "http:*".to_string(),
+        name: "Block private IPs".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: Some(NetworkRules {
+            allowed_domains: vec![],
+            blocked_domains: vec![],
+            ip_rules: Some(IpRules {
+                block_private: true,
+                blocked_cidrs: vec![],
+                allowed_cidrs: vec![],
+            }),
+        }),
+    }];
+
+    // RFC 1918 10.0.0.0/8 range
+    let private_ips = vec![
+        "10.0.0.1",
+        "10.255.255.255",
+        "10.0.0.0",
+        "10.128.64.32",
+    ];
+
+    for ip in private_ips {
+        let action = Action {
+            tool: "http".to_string(),
+            function: "request".to_string(),
+            parameters: json!({"url": "http://internal.service"}),
+            target_paths: vec![],
+            target_domains: vec!["internal.service".to_string()],
+            resolved_ips: vec![ip.to_string()],
+        };
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "Private IP {} (10.0.0.0/8) must be blocked by SSRF protection: got {:?}",
+            ip,
+            verdict
+        );
+    }
+}
+
+#[test]
+fn find_r46_it004_ssrf_private_ip_172_16_blocked() {
+    use vellaveto_types::{IpRules, NetworkRules};
+
+    let engine = PolicyEngine::new(false);
+    let policies = vec![Policy {
+        id: "http:*".to_string(),
+        name: "Block private IPs".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: Some(NetworkRules {
+            allowed_domains: vec![],
+            blocked_domains: vec![],
+            ip_rules: Some(IpRules {
+                block_private: true,
+                blocked_cidrs: vec![],
+                allowed_cidrs: vec![],
+            }),
+        }),
+    }];
+
+    // RFC 1918 172.16.0.0/12 range
+    let private_ips = vec![
+        "172.16.0.1",
+        "172.31.255.255",
+        "172.20.10.5",
+    ];
+
+    for ip in private_ips {
+        let action = Action {
+            tool: "http".to_string(),
+            function: "request".to_string(),
+            parameters: json!({"url": "http://internal.service"}),
+            target_paths: vec![],
+            target_domains: vec!["internal.service".to_string()],
+            resolved_ips: vec![ip.to_string()],
+        };
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "Private IP {} (172.16.0.0/12) must be blocked by SSRF protection: got {:?}",
+            ip,
+            verdict
+        );
+    }
+}
+
+#[test]
+fn find_r46_it004_ssrf_private_ip_192_168_blocked() {
+    use vellaveto_types::{IpRules, NetworkRules};
+
+    let engine = PolicyEngine::new(false);
+    let policies = vec![Policy {
+        id: "http:*".to_string(),
+        name: "Block private IPs".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: Some(NetworkRules {
+            allowed_domains: vec![],
+            blocked_domains: vec![],
+            ip_rules: Some(IpRules {
+                block_private: true,
+                blocked_cidrs: vec![],
+                allowed_cidrs: vec![],
+            }),
+        }),
+    }];
+
+    // RFC 1918 192.168.0.0/16 range
+    let private_ips = vec![
+        "192.168.0.1",
+        "192.168.1.1",
+        "192.168.255.255",
+    ];
+
+    for ip in private_ips {
+        let action = Action {
+            tool: "http".to_string(),
+            function: "request".to_string(),
+            parameters: json!({"url": "http://internal.service"}),
+            target_paths: vec![],
+            target_domains: vec!["internal.service".to_string()],
+            resolved_ips: vec![ip.to_string()],
+        };
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "Private IP {} (192.168.0.0/16) must be blocked by SSRF protection: got {:?}",
+            ip,
+            verdict
+        );
+    }
+}
+
+#[test]
+fn find_r46_it004_ssrf_loopback_blocked() {
+    use vellaveto_types::{IpRules, NetworkRules};
+
+    let engine = PolicyEngine::new(false);
+    let policies = vec![Policy {
+        id: "http:*".to_string(),
+        name: "Block private IPs".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: Some(NetworkRules {
+            allowed_domains: vec![],
+            blocked_domains: vec![],
+            ip_rules: Some(IpRules {
+                block_private: true,
+                blocked_cidrs: vec![],
+                allowed_cidrs: vec![],
+            }),
+        }),
+    }];
+
+    // Loopback and link-local addresses
+    let loopback_ips = vec![
+        "127.0.0.1",
+        "127.0.0.2",
+        "169.254.169.254", // AWS metadata endpoint (link-local)
+        "0.0.0.0",
+    ];
+
+    for ip in loopback_ips {
+        let action = Action {
+            tool: "http".to_string(),
+            function: "request".to_string(),
+            parameters: json!({"url": "http://metadata.internal"}),
+            target_paths: vec![],
+            target_domains: vec!["metadata.internal".to_string()],
+            resolved_ips: vec![ip.to_string()],
+        };
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "Loopback/link-local IP {} must be blocked by SSRF protection: got {:?}",
+            ip,
+            verdict
+        );
+    }
+}
+
+#[test]
+fn find_r46_it004_ssrf_public_ip_allowed() {
+    use vellaveto_types::{IpRules, NetworkRules};
+
+    let engine = PolicyEngine::new(false);
+    let policies = vec![Policy {
+        id: "http:*".to_string(),
+        name: "Block private IPs".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: Some(NetworkRules {
+            allowed_domains: vec![],
+            blocked_domains: vec![],
+            ip_rules: Some(IpRules {
+                block_private: true,
+                blocked_cidrs: vec![],
+                allowed_cidrs: vec![],
+            }),
+        }),
+    }];
+
+    // Public IPs should still be allowed
+    let public_ips = vec![
+        "8.8.8.8",       // Google DNS
+        "1.1.1.1",       // Cloudflare DNS
+        "93.184.216.34",  // example.com
+    ];
+
+    for ip in public_ips {
+        let action = Action {
+            tool: "http".to_string(),
+            function: "request".to_string(),
+            parameters: json!({"url": "http://example.com"}),
+            target_paths: vec![],
+            target_domains: vec!["example.com".to_string()],
+            resolved_ips: vec![ip.to_string()],
+        };
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Allow),
+            "Public IP {} should be allowed: got {:?}",
+            ip,
+            verdict
+        );
+    }
+}
+
+#[test]
+fn find_r46_it004_ssrf_no_resolved_ips_with_domain_denied() {
+    use vellaveto_types::{IpRules, NetworkRules};
+
+    let engine = PolicyEngine::new(false);
+    let policies = vec![Policy {
+        id: "http:*".to_string(),
+        name: "Block private IPs".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: Some(NetworkRules {
+            allowed_domains: vec![],
+            blocked_domains: vec![],
+            ip_rules: Some(IpRules {
+                block_private: true,
+                blocked_cidrs: vec![],
+                allowed_cidrs: vec![],
+            }),
+        }),
+    }];
+
+    // IP rules configured but no resolved IPs provided (DNS resolution not performed)
+    // with target_domains present — must fail-closed
+    let action = Action {
+        tool: "http".to_string(),
+        function: "request".to_string(),
+        parameters: json!({"url": "http://evil.internal"}),
+        target_paths: vec![],
+        target_domains: vec!["evil.internal".to_string()],
+        resolved_ips: vec![], // No DNS resolution performed
+    };
+    let verdict = engine.evaluate_action(&action, &policies).unwrap();
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "Missing resolved_ips with target_domains must fail-closed: got {:?}",
+        verdict
+    );
+}

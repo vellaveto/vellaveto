@@ -66,6 +66,12 @@ pub const DEFAULT_MAX_PENDING: usize = 10_000;
 /// adds its own check, but the store must be safe independently.
 pub const MAX_IDENTITY_LEN: usize = 512;
 
+/// Maximum length of the approval reason string.
+///
+/// SECURITY (FIND-R46-011): Prevents unbounded memory usage from arbitrarily long
+/// reason strings passed to the approval store.
+pub const MAX_REASON_LEN: usize = 4096;
+
 /// Compute a deduplication key from an action and reason.
 ///
 /// The key is a SHA-256 hash of the canonical JSON representation of the
@@ -266,6 +272,13 @@ impl ApprovalStore {
         reason: String,
         requested_by: Option<String>,
     ) -> Result<String, ApprovalError> {
+        // SECURITY (FIND-R46-011): Validate reason length at the store level.
+        if reason.len() > MAX_REASON_LEN {
+            return Err(ApprovalError::Validation(format!(
+                "reason exceeds maximum length of {MAX_REASON_LEN} bytes ({} bytes)",
+                reason.len()
+            )));
+        }
         // SECURITY (R39-SUP-6): Validate requested_by identity length at the store level.
         if let Some(ref rb) = requested_by {
             if rb.len() > MAX_IDENTITY_LEN {

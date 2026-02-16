@@ -13,7 +13,6 @@ use crate::matcher::{CompiledToolMatcher, PatternMatcher};
 use crate::PolicyEngine;
 use globset::Glob;
 use ipnet::IpNet;
-use regex::Regex;
 use vellaveto_types::{Policy, PolicyType};
 
 impl PolicyEngine {
@@ -82,15 +81,19 @@ impl PolicyEngine {
             PolicyType::Conditional { conditions } => {
                 Self::compile_conditions(policy, conditions, strict_mode)?
             }
-            // Handle future variants - treat as Allow with no conditions
-            _ => CompiledConditions {
-                require_approval: false,
-                forbidden_parameters: Vec::new(),
-                required_parameters: Vec::new(),
-                constraints: Vec::new(),
-                on_no_match_continue: false,
-                context_conditions: Vec::new(),
-            },
+            // SECURITY (FIND-R46-002): Reject unknown policy types at compile time
+            // instead of silently treating them as Allow. The #[non_exhaustive]
+            // attribute on PolicyType requires this arm, but we fail-closed.
+            _ => {
+                return Err(PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!(
+                        "Unknown policy type variant for policy '{}' — cannot compile",
+                        policy.name
+                    ),
+                });
+            }
         };
 
         let deny_reason = format!("Denied by policy '{}'", policy.name);
@@ -267,6 +270,9 @@ impl PolicyEngine {
             })
             .unwrap_or_default();
 
+        // SECURITY (FIND-R46-012): Maximum number of parameter constraints per policy.
+        const MAX_PARAMETER_CONSTRAINTS: usize = 100;
+
         let constraints = if let Some(constraint_arr) = conditions.get("parameter_constraints") {
             let arr = constraint_arr
                 .as_array()
@@ -275,6 +281,20 @@ impl PolicyEngine {
                     policy_name: policy.name.clone(),
                     reason: "parameter_constraints must be an array".to_string(),
                 })?;
+
+            // SECURITY (FIND-R46-012): Reject excessively large constraint arrays
+            // to prevent memory exhaustion during policy compilation.
+            if arr.len() > MAX_PARAMETER_CONSTRAINTS {
+                return Err(PolicyValidationError {
+                    policy_id: policy.id.clone(),
+                    policy_name: policy.name.clone(),
+                    reason: format!(
+                        "parameter_constraints has {} entries, max is {}",
+                        arr.len(),
+                        MAX_PARAMETER_CONSTRAINTS
+                    ),
+                });
+            }
 
             let mut constraints = Vec::with_capacity(arr.len());
             for constraint_val in arr {
@@ -488,11 +508,17 @@ impl PolicyEngine {
                     }
                 })?;
 
-                let regex = Regex::new(&pattern_str).map_err(|e| PolicyValidationError {
-                    policy_id: policy.id.clone(),
-                    policy_name: policy.name.clone(),
-                    reason: format!("Invalid regex pattern '{}': {}", pattern_str, e),
-                })?;
+                // SECURITY (FIND-R46-004): Set explicit DFA size limit to prevent
+                // memory exhaustion from regex patterns that compile to large automata.
+                let regex = regex::RegexBuilder::new(&pattern_str)
+                    .dfa_size_limit(256 * 1024)
+                    .size_limit(256 * 1024)
+                    .build()
+                    .map_err(|e| PolicyValidationError {
+                        policy_id: policy.id.clone(),
+                        policy_name: policy.name.clone(),
+                        reason: format!("Invalid regex pattern '{}': {}", pattern_str, e),
+                    })?;
 
                 Ok(CompiledConstraint::Regex {
                     param,
@@ -781,6 +807,8 @@ impl PolicyEngine {
                 })
             }
             "require_previous_action" => {
+                // SECURITY (FIND-R46-003): Lowercase at compile time to match the
+                // case-insensitive comparison in context_check.rs (R31-ENG-7).
                 let required_tool = obj
                     .get("required_tool")
                     .and_then(|v| v.as_str())
@@ -790,7 +818,7 @@ impl PolicyEngine {
                         reason: "require_previous_action missing 'required_tool' string"
                             .to_string(),
                     })?
-                    .to_string();
+                    .to_lowercase();
                 let deny_reason = format!(
                     "Required previous action '{}' not found in session history (policy '{}')",
                     required_tool, policy.name
@@ -801,6 +829,8 @@ impl PolicyEngine {
                 })
             }
             "forbidden_previous_action" => {
+                // SECURITY (FIND-R46-003): Lowercase at compile time to match the
+                // case-insensitive comparison in context_check.rs (R31-ENG-7).
                 let forbidden_tool = obj
                     .get("forbidden_tool")
                     .and_then(|v| v.as_str())
@@ -810,7 +840,7 @@ impl PolicyEngine {
                         reason: "forbidden_previous_action missing 'forbidden_tool' string"
                             .to_string(),
                     })?
-                    .to_string();
+                    .to_lowercase();
                 let deny_reason = format!(
                     "Forbidden previous action '{}' detected in session history (policy '{}')",
                     forbidden_tool, policy.name

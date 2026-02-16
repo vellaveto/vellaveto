@@ -5,6 +5,7 @@ use crate::capability::CapabilityToken;
 use crate::verification::VerificationTier;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 
 /// Cryptographically attested agent identity from a signed JWT.
 ///
@@ -384,7 +385,7 @@ pub trait RequestContext: Send + Sync {
 /// This struct is defined now to lock the wire format. The actual
 /// serialization, signing, and verification logic will be implemented
 /// when the June 2026 MCP spec is finalized.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct StatelessContextBlob {
     /// Wire format version. Current: 1.
     pub version: u8,
@@ -403,6 +404,21 @@ pub struct StatelessContextBlob {
     pub issued_at: u64,
     /// HMAC-SHA256 signature over the serialized content (hex-encoded).
     pub signature: String,
+}
+
+impl fmt::Debug for StatelessContextBlob {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StatelessContextBlob")
+            .field("version", &self.version)
+            .field("agent_id", &self.agent_id)
+            .field("call_counts", &self.call_counts)
+            .field("recent_actions", &self.recent_actions)
+            .field("call_chain", &self.call_chain)
+            .field("risk_score", &self.risk_score)
+            .field("issued_at", &self.issued_at)
+            .field("signature", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl StatelessContextBlob {

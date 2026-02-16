@@ -6,6 +6,8 @@ Provides synchronous and asynchronous HTTP client for the Vellaveto API.
 
 import json
 import logging
+import re
+import warnings
 from typing import Optional, Dict, Any, List
 from urllib.parse import urljoin
 
@@ -24,6 +26,12 @@ except ImportError:
 from vellaveto.types import Action, EvaluationResult, EvaluationContext, Verdict
 
 logger = logging.getLogger(__name__)
+
+# Maximum response body size (10 MB) — prevents OOM on malicious/runaway responses
+_MAX_RESPONSE_BYTES = 10 * 1024 * 1024
+
+# Regex for safe approval IDs — only alphanumeric, dash, underscore
+_APPROVAL_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 class VellavetoError(Exception):
@@ -105,6 +113,13 @@ class VellavetoClient:
         self.verify_ssl = verify_ssl
         self.redactor = redactor
 
+        if not verify_ssl:
+            warnings.warn(
+                "SSL verification disabled - connections are vulnerable to MITM attacks",
+                SecurityWarning,
+                stacklevel=2,
+            )
+
         if HAS_HTTPX:
             self._client = httpx.Client(
                 timeout=timeout,
@@ -119,6 +134,12 @@ class VellavetoClient:
                 "Either 'httpx' or 'requests' package is required. "
                 "Install with: pip install httpx"
             )
+
+    def __enter__(self) -> "VellavetoClient":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
     def _headers(self) -> Dict[str, str]:
         """Build request headers."""
@@ -150,6 +171,18 @@ class VellavetoClient:
                     headers=self._headers(),
                 )
                 response.raise_for_status()
+                # SECURITY (FIND-SDK-003): Enforce response size limit to prevent OOM
+                content_length = response.headers.get("content-length")
+                if content_length is not None and int(content_length) > _MAX_RESPONSE_BYTES:
+                    raise VellavetoError(
+                        f"Response too large: {content_length} bytes exceeds "
+                        f"{_MAX_RESPONSE_BYTES} byte limit"
+                    )
+                if len(response.content) > _MAX_RESPONSE_BYTES:
+                    raise VellavetoError(
+                        f"Response body too large: {len(response.content)} bytes exceeds "
+                        f"{_MAX_RESPONSE_BYTES} byte limit"
+                    )
                 return response.json()
             else:
                 response = self._session.request(
@@ -162,6 +195,18 @@ class VellavetoClient:
                     verify=self.verify_ssl,
                 )
                 response.raise_for_status()
+                # SECURITY (FIND-SDK-003): Enforce response size limit to prevent OOM
+                content_length = response.headers.get("content-length")
+                if content_length is not None and int(content_length) > _MAX_RESPONSE_BYTES:
+                    raise VellavetoError(
+                        f"Response too large: {content_length} bytes exceeds "
+                        f"{_MAX_RESPONSE_BYTES} byte limit"
+                    )
+                if len(response.content) > _MAX_RESPONSE_BYTES:
+                    raise VellavetoError(
+                        f"Response body too large: {len(response.content)} bytes exceeds "
+                        f"{_MAX_RESPONSE_BYTES} byte limit"
+                    )
                 return response.json()
 
         except Exception as e:
@@ -307,6 +352,11 @@ class VellavetoClient:
             approved: Whether to approve or deny
             reason: Optional reason for the decision
         """
+        # SECURITY (FIND-SDK-011): Validate approval_id to prevent path injection
+        if not _APPROVAL_ID_RE.match(approval_id):
+            raise VellavetoError(
+                f"Invalid approval_id: must contain only alphanumeric, dash, or underscore characters"
+            )
         return self._request(
             method="POST",
             path=f"/api/approvals/{approval_id}",

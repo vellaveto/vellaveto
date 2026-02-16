@@ -107,6 +107,9 @@ def create_before_execute_modifier(
             return params
 
         tool_name, function_name = normalize_slug_to_tool_function(tool, toolkit)
+        # SECURITY (FIND-COMPOSIO-006): Validate derived names are non-empty
+        if not tool_name or not function_name:
+            raise PolicyDenied("Invalid tool slug: empty tool_name or function_name after normalization")
         arguments = params.get("arguments", params) if isinstance(params, dict) else {}
         if arguments is None:
             arguments = {}
@@ -136,16 +139,19 @@ def create_before_execute_modifier(
         except (PolicyDenied, ApprovalRequired):
             raise
         except Exception as exc:
-            logger.error("Vellaveto evaluation failed for %s: %s", tool, type(exc).__name__)
+            # SECURITY (FIND-COMPOSIO-004): Log details at debug level only to prevent info leak
+            logger.debug("Vellaveto evaluation error details for %s: %s", tool, exc)
+            logger.error("Vellaveto evaluation failed for %s", tool)
             if fail_closed:
-                raise PolicyDenied(f"Evaluation failed: {type(exc).__name__}")
+                raise PolicyDenied("Policy evaluation unavailable")
             logger.warning("Proceeding without policy evaluation (fail_closed=False) for %s", tool)
             return params
 
         from vellaveto.types import Verdict
 
         if result.verdict == Verdict.ALLOW:
-            tracker.append(tool)
+            # SECURITY (FIND-COMPOSIO-007): Append normalized name, not raw slug
+            tracker.append(f"{tool_name}/{function_name}")
             return params
 
         if result.verdict == Verdict.DENY:

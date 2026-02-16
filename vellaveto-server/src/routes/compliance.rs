@@ -4,14 +4,66 @@
 //! and cross-framework gap analysis reporting. These read-only endpoints generate
 //! reports at request time using registry-based classification (read-time,
 //! not write-time).
+//!
+//! SECURITY (FIND-R46-010): Compliance reports are computationally expensive to
+//! generate. A simple time-based cache (60s TTL) is used for the stateless
+//! endpoints (threat_coverage, gap_analysis, iso42001_report) to prevent
+//! regeneration on every request. A more sophisticated caching layer (e.g.,
+//! per-config-hash, shared across endpoints) should be added in a future phase.
 
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
+use std::sync::Mutex;
+use std::time::Instant;
 
 use super::ErrorResponse;
 use crate::AppState;
+
+/// SECURITY (FIND-R46-010): Simple time-based cache for compliance reports.
+/// Regenerate at most once per 60 seconds.
+const COMPLIANCE_CACHE_TTL_SECS: u64 = 60;
+
+/// Cached compliance report entry.
+struct CachedReport {
+    generated_at: Instant,
+    value: serde_json::Value,
+}
+
+/// Thread-safe cache for a single compliance report.
+struct ReportCache(Mutex<Option<CachedReport>>);
+
+impl ReportCache {
+    const fn new() -> Self {
+        Self(Mutex::new(None))
+    }
+
+    /// Return cached value if still valid, otherwise None.
+    fn get(&self) -> Option<serde_json::Value> {
+        let guard = self.0.lock().ok()?;
+        if let Some(ref cached) = *guard {
+            if cached.generated_at.elapsed().as_secs() < COMPLIANCE_CACHE_TTL_SECS {
+                return Some(cached.value.clone());
+            }
+        }
+        None
+    }
+
+    /// Store a freshly generated report.
+    fn set(&self, value: serde_json::Value) {
+        if let Ok(mut guard) = self.0.lock() {
+            *guard = Some(CachedReport {
+                generated_at: Instant::now(),
+                value,
+            });
+        }
+    }
+}
+
+static THREAT_COVERAGE_CACHE: ReportCache = ReportCache::new();
+static GAP_ANALYSIS_CACHE: ReportCache = ReportCache::new();
+static ISO42001_CACHE: ReportCache = ReportCache::new();
 
 // ── Query Parameters ─────────────────────────────────────────────────────────
 
@@ -147,10 +199,15 @@ pub async fn compliance_status(
 #[tracing::instrument(name = "vellaveto.iso42001_report")]
 pub async fn iso42001_report() -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)>
 {
+    // SECURITY (FIND-R46-010): Serve from cache if within TTL.
+    if let Some(cached) = ISO42001_CACHE.get() {
+        return Ok(Json(cached));
+    }
+
     let registry = vellaveto_audit::iso42001::Iso42001Registry::new();
     let report = registry.generate_report("Vellaveto", "vellaveto-runtime");
 
-    serde_json::to_value(&report).map(Json).map_err(|e| {
+    let value = serde_json::to_value(&report).map_err(|e| {
         tracing::error!("Failed to serialize ISO 42001 report: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -158,7 +215,10 @@ pub async fn iso42001_report() -> Result<Json<serde_json::Value>, (StatusCode, J
                 error: "Failed to generate report".to_string(),
             }),
         )
-    })
+    })?;
+
+    ISO42001_CACHE.set(value.clone());
+    Ok(Json(value))
 }
 
 /// `GET /api/compliance/eu-ai-act/report` — EU AI Act conformity assessment.
@@ -273,6 +333,11 @@ pub async fn soc2_evidence(
 #[tracing::instrument(name = "vellaveto.threat_coverage")]
 pub async fn threat_coverage() -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)>
 {
+    // SECURITY (FIND-R46-010): Serve from cache if within TTL.
+    if let Some(cached) = THREAT_COVERAGE_CACHE.get() {
+        return Ok(Json(cached));
+    }
+
     let atlas = vellaveto_audit::atlas::AtlasRegistry::new();
     let atlas_report = atlas.generate_coverage_report();
 
@@ -302,6 +367,7 @@ pub async fn threat_coverage() -> Result<Json<serde_json::Value>, (StatusCode, J
         },
     });
 
+    THREAT_COVERAGE_CACHE.set(response.clone());
     Ok(Json(response))
 }
 
@@ -311,9 +377,14 @@ pub async fn threat_coverage() -> Result<Json<serde_json::Value>, (StatusCode, J
 /// (ATLAS, NIST RMF, ISO 27090, ISO 42001, EU AI Act, CoSAI, Adversa TOP 25).
 #[tracing::instrument(name = "vellaveto.gap_analysis")]
 pub async fn gap_analysis() -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R46-010): Serve from cache if within TTL.
+    if let Some(cached) = GAP_ANALYSIS_CACHE.get() {
+        return Ok(Json(cached));
+    }
+
     let report = vellaveto_audit::gap_analysis::generate_gap_analysis();
 
-    serde_json::to_value(&report).map(Json).map_err(|e| {
+    let value = serde_json::to_value(&report).map_err(|e| {
         tracing::error!("Failed to serialize gap analysis report: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -321,7 +392,10 @@ pub async fn gap_analysis() -> Result<Json<serde_json::Value>, (StatusCode, Json
                 error: "Failed to generate gap analysis report".to_string(),
             }),
         )
-    })
+    })?;
+
+    GAP_ANALYSIS_CACHE.set(value.clone());
+    Ok(Json(value))
 }
 
 /// `GET /api/compliance/data-governance` — Art 10 data governance summary.

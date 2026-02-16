@@ -198,16 +198,29 @@ mod filesystem_errors {
         // Cleanup
         std::fs::set_permissions(&approval_path, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        // The system should handle unwritable storage gracefully without panicking.
-        // The exact behavior depends on implementation - it may deny, error, or
-        // the conditional policy may not match. The key invariant is that it
-        // doesn't panic and returns a valid HTTP response.
+        // FIND-R46-IT-002: Strengthen assertion — the system must not panic,
+        // must return a valid HTTP response, and must NOT allow the action
+        // through without proper approval (fail-closed).
+        let status = resp.status();
         assert!(
-            resp.status().is_success()
-                || resp.status().is_client_error()
-                || resp.status().is_server_error(),
-            "Should return a valid HTTP response even with unwritable storage"
+            status.is_success() || status.is_client_error() || status.is_server_error(),
+            "Should return a valid HTTP response even with unwritable storage, got {}",
+            status
         );
+
+        if status.is_success() {
+            let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+                .await
+                .unwrap();
+            let body_str = String::from_utf8_lossy(&body);
+            // Fail-closed: must NOT produce an Allow verdict when approval store
+            // is broken. It should either Deny or RequireApproval.
+            assert!(
+                !body_str.contains("\"Allow\"") || body_str.contains("\"Deny\"") || body_str.contains("\"RequireApproval\""),
+                "Unwritable approval store must fail-closed (not Allow): {}",
+                body_str
+            );
+        }
     }
 }
 
@@ -254,12 +267,27 @@ mod policy_errors {
 
         let resp = app.oneshot(req).await.unwrap();
 
-        // Invalid policy patterns should not crash and should fail-closed
-        // The exact behavior depends on implementation, but it should not allow
+        // FIND-R46-IT-002: Strengthen assertion — invalid policy patterns must
+        // not crash AND must fail-closed (deny, not allow).
         assert!(
             resp.status().is_success() || resp.status().is_client_error(),
-            "Should handle invalid glob gracefully"
+            "Should handle invalid glob gracefully, got {}",
+            resp.status()
         );
+
+        if resp.status().is_success() {
+            let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+                .await
+                .unwrap();
+            let body_str = String::from_utf8_lossy(&body);
+            // Fail-closed: the response must NOT be an Allow verdict
+            let body_lower = body_str.to_lowercase();
+            assert!(
+                !body_lower.contains("\"allow\"") || body_lower.contains("\"deny\"") || body_lower.contains("deny"),
+                "Invalid glob must fail-closed (deny, not allow): {}",
+                body_str
+            );
+        }
     }
 
     #[tokio::test]
@@ -286,17 +314,32 @@ mod policy_errors {
 
         let resp = app.oneshot(req).await.unwrap();
 
-        // With no policies, the default should be deny (fail-closed)
+        // FIND-R46-IT-002: Strengthen assertion — check HTTP status, parse
+        // JSON verdict, and verify it is specifically "Deny" (not Allow).
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "Empty policy list should return 200 with Deny verdict"
+        );
+
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
             .await
             .unwrap();
-        let body_str = String::from_utf8_lossy(&body);
+        let json: serde_json::Value = serde_json::from_slice(&body)
+            .expect("Response must be valid JSON");
 
-        // The response should indicate denial
+        let verdict = &json["verdict"];
+        let verdict_str = serde_json::to_string(verdict).unwrap();
         assert!(
-            body_str.contains("deny") || body_str.contains("Deny"),
-            "Empty policy list should deny: {}",
-            body_str
+            verdict_str.contains("Deny") || verdict_str.contains("deny"),
+            "Empty policy list must produce Deny verdict (fail-closed), got: {}",
+            verdict_str
+        );
+        // Must NOT contain Allow
+        assert!(
+            !verdict_str.contains("Allow") && !verdict_str.contains("allow"),
+            "Empty policy list must NOT produce Allow verdict, got: {}",
+            verdict_str
         );
     }
 }

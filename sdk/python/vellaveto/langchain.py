@@ -192,7 +192,11 @@ class VellavetoCallbackHandler(BaseCallbackHandler):
                 if self.raise_on_deny:
                     raise PolicyDenied(result.reason or "Policy denied", result.policy_id)
                 else:
-                    logger.warning(f"Tool {tool_name} denied: {result.reason}")
+                    # SECURITY (FIND-SDK-008): Warn when denied action proceeds
+                    logger.warning(
+                        f"Tool {tool_name} denied but proceeding (raise_on_deny=False): "
+                        f"{result.reason}"
+                    )
 
             elif result.verdict == Verdict.REQUIRE_APPROVAL:
                 if self.raise_on_deny:
@@ -201,8 +205,10 @@ class VellavetoCallbackHandler(BaseCallbackHandler):
                         result.approval_id or "unknown",
                     )
                 else:
+                    # SECURITY (FIND-SDK-008): Warn when approval-required action proceeds
                     logger.warning(
-                        f"Tool {tool_name} requires approval: {result.reason}"
+                        f"Tool {tool_name} requires approval but proceeding "
+                        f"(raise_on_deny=False): {result.reason}"
                     )
 
         except (PolicyDenied, ApprovalRequired):

@@ -22,6 +22,11 @@ const INTERNAL_PREFIX: u8 = 0x01;
 /// Size of a SHA-256 hash in bytes.
 const HASH_SIZE: usize = 32;
 
+/// Default maximum number of leaves allowed in a single Merkle tree.
+/// SECURITY (FIND-R46-001): Prevents OOM when loading large leaf files.
+const DEFAULT_MAX_LEAF_COUNT: u64 = 1_000_000;
+
+
 /// Incremental append-only Merkle tree.
 ///
 /// Stores leaf hashes in a binary file and maintains O(log n) peaks
@@ -35,6 +40,9 @@ pub struct MerkleTree {
     peaks: Vec<Option<[u8; 32]>>,
     /// Path to the binary file storing leaf hashes (32 bytes per leaf).
     leaf_file_path: PathBuf,
+    /// Maximum number of leaves allowed in the tree.
+    /// SECURITY (FIND-R46-001): Prevents OOM from unbounded leaf accumulation.
+    max_leaf_count: u64,
 }
 
 /// Inclusion proof for a single leaf in the Merkle tree.
@@ -96,7 +104,15 @@ impl MerkleTree {
             leaf_count: 0,
             peaks: Vec::new(),
             leaf_file_path,
+            max_leaf_count: DEFAULT_MAX_LEAF_COUNT,
         }
+    }
+
+    /// Set a custom maximum leaf count.
+    /// SECURITY (FIND-R46-001): Configure the OOM protection threshold.
+    pub fn with_max_leaf_count(mut self, max: u64) -> Self {
+        self.max_leaf_count = max;
+        self
     }
 
     /// Return the number of leaves in the tree.
@@ -109,6 +125,14 @@ impl MerkleTree {
     /// The leaf hash is persisted to the binary leaf file and the in-memory
     /// peaks are updated. This is O(log n) amortized.
     pub fn append(&mut self, leaf_hash: [u8; 32]) -> Result<(), AuditError> {
+        // SECURITY (FIND-R46-001): Reject appends that would exceed the max leaf count.
+        if self.leaf_count >= self.max_leaf_count {
+            return Err(AuditError::Validation(format!(
+                "Merkle tree leaf count limit reached ({} >= {})",
+                self.leaf_count, self.max_leaf_count
+            )));
+        }
+
         // Persist the leaf hash to the binary file
         use std::io::Write;
         let mut file = std::fs::OpenOptions::new()
@@ -131,6 +155,8 @@ impl MerkleTree {
             })?;
         file.write_all(&leaf_hash)?;
         file.flush()?;
+        // SECURITY (FIND-R46-010): fsync leaf file to ensure crash durability.
+        file.sync_data()?;
 
         // Update peaks: carry-merge like binary addition
         let mut carry = leaf_hash;
@@ -203,6 +229,23 @@ impl MerkleTree {
         self.leaf_count = 0;
         self.peaks.clear();
 
+        // SECURITY (FIND-R46-001/002): Check file size before reading to prevent OOM.
+        match std::fs::metadata(&self.leaf_file_path) {
+            Ok(meta) => {
+                let max_file_size = self.max_leaf_count * HASH_SIZE as u64;
+                if meta.len() > max_file_size {
+                    return Err(AuditError::Validation(format!(
+                        "Merkle leaf file too large ({} bytes, max {} bytes for {} leaves)",
+                        meta.len(),
+                        max_file_size,
+                        self.max_leaf_count
+                    )));
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(AuditError::Io(e)),
+        }
+
         let data = match std::fs::read(&self.leaf_file_path) {
             Ok(d) => d,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -223,6 +266,15 @@ impl MerkleTree {
                 .write(true)
                 .open(&self.leaf_file_path)?;
             file.set_len(valid_len as u64)?;
+        }
+
+        // SECURITY (FIND-R46-001): Check leaf count before replaying.
+        let leaf_count = (valid_len / HASH_SIZE) as u64;
+        if leaf_count > self.max_leaf_count {
+            return Err(AuditError::Validation(format!(
+                "Merkle leaf file contains too many leaves ({} > {})",
+                leaf_count, self.max_leaf_count
+            )));
         }
 
         // Replay leaf hashes into peaks (without re-writing to file)
@@ -275,6 +327,17 @@ impl MerkleTree {
         let root = self.root().ok_or_else(|| {
             AuditError::Validation("Cannot generate proof for empty tree".to_string())
         })?;
+
+        // SECURITY (FIND-R46-004): Check file size before reading to prevent OOM.
+        let file_meta = std::fs::metadata(&self.leaf_file_path)?;
+        let max_file_size = self.max_leaf_count * HASH_SIZE as u64;
+        if file_meta.len() > max_file_size {
+            return Err(AuditError::Validation(format!(
+                "Merkle leaf file too large for proof generation ({} bytes, max {} bytes)",
+                file_meta.len(),
+                max_file_size
+            )));
+        }
 
         // Read all leaf hashes from the file
         let data = std::fs::read(&self.leaf_file_path)?;

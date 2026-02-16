@@ -27,6 +27,9 @@ import {
   Verdict,
 } from "./types";
 
+// SECURITY (FIND-R46-TS-001): Maximum response body size to prevent OOM DoS.
+const MAX_RESPONSE_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
+
 /** Configuration for the Vellaveto client. */
 export interface VellavetoClientOptions {
   /** Base URL of the Vellaveto server (e.g., "http://localhost:3000"). */
@@ -138,18 +141,35 @@ export class VellavetoClient {
         signal: controller.signal,
       });
 
+      // SECURITY (FIND-R46-TS-001): Check Content-Length header before reading body.
+      const contentLength = response.headers.get("content-length");
+      if (contentLength !== null) {
+        const size = parseInt(contentLength, 10);
+        if (!isNaN(size) && size > MAX_RESPONSE_BODY_BYTES) {
+          throw new VellavetoError(
+            `Response body exceeds ${MAX_RESPONSE_BODY_BYTES} byte limit (Content-Length: ${size})`,
+            response.status
+          );
+        }
+      }
+
       if (!response.ok) {
         let errorMsg: string;
         try {
-          const errorBody = (await response.json()) as { error?: string };
+          // SECURITY (FIND-R46-TS-001): Read body as text with size check.
+          const errorText = await this.readBodyBounded(response);
+          const errorBody = JSON.parse(errorText) as { error?: string };
           errorMsg = errorBody.error ?? response.statusText;
-        } catch {
+        } catch (e) {
+          if (e instanceof VellavetoError) throw e;
           errorMsg = response.statusText;
         }
         throw new VellavetoError(errorMsg, response.status);
       }
 
-      return (await response.json()) as T;
+      // SECURITY (FIND-R46-TS-001): Read body with size limit.
+      const text = await this.readBodyBounded(response);
+      return JSON.parse(text) as T;
     } catch (error) {
       if (error instanceof VellavetoError) throw error;
       if (error instanceof Error && error.name === "AbortError") {
@@ -161,6 +181,50 @@ export class VellavetoClient {
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  /**
+   * SECURITY (FIND-R46-TS-001): Read response body with bounded size.
+   * Prevents OOM from malicious servers sending unbounded responses.
+   */
+  private async readBodyBounded(response: Response): Promise<string> {
+    // If the response has a body reader, use streaming with size enforcement.
+    // Otherwise fall back to text() (e.g., in test mocks).
+    if (response.body && typeof response.body.getReader === "function") {
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let totalBytes = 0;
+
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          totalBytes += value.byteLength;
+          if (totalBytes > MAX_RESPONSE_BODY_BYTES) {
+            reader.cancel();
+            throw new VellavetoError(
+              `Response body exceeds ${MAX_RESPONSE_BODY_BYTES} byte limit`
+            );
+          }
+          chunks.push(value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+      const decoder = new TextDecoder();
+      return chunks.map((c) => decoder.decode(c, { stream: true })).join("") +
+        decoder.decode();
+    }
+
+    // Fallback for environments without ReadableStream (e.g., test mocks)
+    const text = await response.text();
+    if (text.length > MAX_RESPONSE_BODY_BYTES) {
+      throw new VellavetoError(
+        `Response body exceeds ${MAX_RESPONSE_BODY_BYTES} byte limit`
+      );
+    }
+    return text;
   }
 
   // ────────────────────────────────────────────────────
@@ -187,21 +251,28 @@ export class VellavetoClient {
     if (context) {
       body.context = context;
     }
-    const resp = await this.request<{
-      verdict: string;
-      action: unknown;
-      approval_id?: string;
-      trace?: Record<string, unknown>;
-    }>(
-      "POST",
-      path,
-      body
-    );
+    const resp = await this.request<unknown>("POST", path, body);
+
+    // SECURITY (FIND-R46-TS-002): Runtime type validation on server responses.
+    // Fail-closed: if the response is not a valid object or contains an unknown
+    // verdict, default to Deny.
+    if (typeof resp !== "object" || resp === null || Array.isArray(resp)) {
+      return { verdict: Verdict.Deny, reason: "malformed server response" };
+    }
+
+    const respObj = resp as Record<string, unknown>;
+    const verdict = parseVerdict(respObj.verdict);
+    const approvalId =
+      typeof respObj.approval_id === "string" ? respObj.approval_id : undefined;
+    const respTrace =
+      typeof respObj.trace === "object" && respObj.trace !== null && !Array.isArray(respObj.trace)
+        ? (respObj.trace as Record<string, unknown>)
+        : undefined;
 
     return {
-      verdict: parseVerdict(resp.verdict),
-      approval_id: resp.approval_id,
-      trace: resp.trace,
+      verdict,
+      approval_id: approvalId,
+      trace: respTrace,
     };
   }
 

@@ -161,14 +161,37 @@ impl ProxyBridge {
         );
 
         // Flag detected tools for blocking
+        // SECURITY (FIND-R46-007): Bounded insertion.
         for name in result.flagged_tool_names() {
-            flagged_tools.insert(name.to_string());
+            if flagged_tools.len() < super::relay::MAX_FLAGGED_TOOLS {
+                flagged_tools.insert(name.to_string());
+            } else {
+                tracing::warn!(
+                    "flagged_tools at capacity ({}); cannot flag tool '{}'",
+                    super::relay::MAX_FLAGGED_TOOLS, name
+                );
+                break;
+            }
         }
 
         // Audit any detected events
         crate::rug_pull::audit_rug_pull_events(&result, audit, "proxy").await;
 
-        // Update known annotations from detection result
+        // Update known annotations from detection result.
+        // SECURITY (FIND-R46-007): Cap known_tool_annotations to prevent OOM.
+        // If the updated set exceeds the cap, keep only the first N entries
+        // (insertion order is not guaranteed for HashMap, but we bound the size).
         *known = result.updated_known;
+        if known.len() > super::relay::MAX_KNOWN_TOOL_ANNOTATIONS {
+            let excess = known.len() - super::relay::MAX_KNOWN_TOOL_ANNOTATIONS;
+            let keys_to_remove: Vec<String> = known.keys().take(excess).cloned().collect();
+            for key in keys_to_remove {
+                known.remove(&key);
+            }
+            tracing::warn!(
+                "known_tool_annotations exceeded cap ({}); evicted {} entries",
+                super::relay::MAX_KNOWN_TOOL_ANNOTATIONS, excess
+            );
+        }
     }
 }

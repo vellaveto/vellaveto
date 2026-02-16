@@ -362,6 +362,30 @@ impl AuditLogger {
             }
         }
 
+        // SECURITY (FIND-R46-007): After verifying all checkpoints, verify that
+        // the actual entry count matches what the last checkpoint expected. If
+        // entries were silently deleted after the last checkpoint, the hash chain
+        // verification above catches tampering within the chain, but additional
+        // entries appended AFTER the last checkpoint and then deleted would go
+        // undetected without this check. Since we don't know the expected count
+        // after the last checkpoint, we verify that the entry count is at least
+        // as large as the last checkpoint's entry_count (already done above via
+        // the truncation check). This is a belt-and-suspenders verification.
+        if let Some(last_cp) = checkpoints.last() {
+            if last_cp.entry_count > entries.len() {
+                return Ok(CheckpointVerification {
+                    valid: false,
+                    checkpoints_checked: checkpoints.len(),
+                    first_invalid_at: Some(checkpoints.len() - 1),
+                    failure_reason: Some(format!(
+                        "Entries after last checkpoint deleted: checkpoint expects {} entries but log has {}",
+                        last_cp.entry_count,
+                        entries.len()
+                    )),
+                });
+            }
+        }
+
         Ok(CheckpointVerification {
             valid: true,
             checkpoints_checked: checkpoints.len(),

@@ -358,6 +358,19 @@ impl AuditLogger {
             },
         };
 
+        // SECURITY (FIND-R46-005): Lock-holding duration tradeoff.
+        //
+        // All data preparation (validation, redaction, PII scanning) is performed
+        // ABOVE this lock acquisition, minimizing the critical section to:
+        //   1. maybe_rotate() — conditional, only when file exceeds max_file_size
+        //   2. entry creation, hash computation, file write, and Merkle append
+        //
+        // The lock MUST be held during rotation to prevent concurrent writes from
+        // racing and producing a corrupt hash chain. The rotation path involves I/O
+        // (file rename, manifest write) that blocks the lock for the duration. This
+        // is acceptable because rotation is infrequent (~1 per 100MB of entries).
+        // The common path (no rotation) holds the lock only for hash computation
+        // and a single append write.
         let mut last_hash_guard = self.last_hash.lock().await;
 
         // Rotate if the current log exceeds max_file_size.

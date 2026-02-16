@@ -58,6 +58,16 @@ pub struct ToolSignature {
 
 impl ToolSignature {
     /// Returns true if the signature has expired.
+    ///
+    /// SAFETY: Lexicographic comparison is correct for ISO 8601 timestamps
+    /// in the canonical format `YYYY-MM-DDTHH:MM:SSZ` because:
+    /// - All fields are fixed-width with zero-padding
+    /// - Fields are ordered from most significant (year) to least (second)
+    /// - The character ordering of digits matches numeric ordering
+    ///
+    /// This holds for any consistent ISO 8601 format (with or without 'Z',
+    /// with or without fractional seconds) as long as both timestamps use
+    /// the same format and timezone.
     pub fn is_expired(&self, now: &str) -> bool {
         self.expires_at
             .as_ref()

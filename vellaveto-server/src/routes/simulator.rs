@@ -19,6 +19,24 @@ use super::main::ErrorResponse;
 /// Maximum actions in a batch request.
 const MAX_BATCH_ACTIONS: usize = 100;
 
+/// SECURITY (FIND-R46-001): Maximum inline policy config string length (256KB).
+const MAX_POLICY_CONFIG_LENGTH: usize = 256 * 1024;
+
+/// SECURITY (FIND-R46-001): Maximum number of policies in an inline config.
+const MAX_POLICY_COUNT: usize = 500;
+
+/// SECURITY (FIND-R46-002): Maximum config string length for diff endpoint (128KB per side).
+const MAX_DIFF_CONFIG_LENGTH: usize = 128 * 1024;
+
+/// SECURITY (FIND-R46-007): Maximum config string length for validate endpoint (512KB).
+const MAX_VALIDATE_CONFIG_LENGTH: usize = 512 * 1024;
+
+/// SECURITY (FIND-R46-003): Maximum red-team scenarios.
+const MAX_RED_TEAM_SCENARIOS: usize = 100;
+
+/// SECURITY (FIND-R46-014): Reduced batch limit when inline config is provided.
+const MAX_BATCH_ACTIONS_WITH_INLINE_CONFIG: usize = 25;
+
 // ═══════════════════════════════════════════════════════════════════
 // Request / Response types
 // ═══════════════════════════════════════════════════════════════════
@@ -135,16 +153,42 @@ pub struct PolicyDiff {
 
 /// Try to parse a TOML config string, compile policies and engine.
 /// Returns (engine, policies) or an error string.
-fn compile_from_toml(toml_str: &str) -> Result<(PolicyEngine, Vec<Policy>), String> {
+///
+/// `max_len`: maximum allowed byte length for the TOML string.
+fn compile_from_toml_bounded(
+    toml_str: &str,
+    max_len: usize,
+) -> Result<(PolicyEngine, Vec<Policy>), String> {
+    // SECURITY (FIND-R46-001): Enforce size limit before parsing.
+    if toml_str.len() > max_len {
+        return Err(format!(
+            "Config string length {} exceeds maximum of {} bytes",
+            toml_str.len(),
+            max_len
+        ));
+    }
     let config =
         PolicyConfig::from_toml(toml_str).map_err(|e| format!("TOML parse error: {}", e))?;
     let mut policies = config.to_policies();
+    // SECURITY (FIND-R46-001): Cap policy count.
+    if policies.len() > MAX_POLICY_COUNT {
+        return Err(format!(
+            "Policy count {} exceeds maximum of {}",
+            policies.len(),
+            MAX_POLICY_COUNT
+        ));
+    }
     PolicyEngine::sort_policies(&mut policies);
     let engine = PolicyEngine::with_policies(false, &policies).map_err(|errors| {
         let msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
         format!("Policy compilation errors: {}", msgs.join("; "))
     })?;
     Ok((engine, policies))
+}
+
+/// Convenience wrapper using the default max config length.
+fn compile_from_toml(toml_str: &str) -> Result<(PolicyEngine, Vec<Policy>), String> {
+    compile_from_toml_bounded(toml_str, MAX_POLICY_CONFIG_LENGTH)
 }
 
 /// Create a PolicySummary from a Policy.
@@ -226,14 +270,21 @@ pub async fn simulate_batch(
     Json(req): Json<BatchRequest>,
 ) -> Result<Json<BatchResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Bound check
-    if req.actions.len() > MAX_BATCH_ACTIONS {
+    // SECURITY (FIND-R46-014): When inline config is provided, reduce batch limit
+    // to prevent DoS from repeated inline TOML parsing + policy compilation.
+    let effective_batch_limit = if req.policy_config.is_some() {
+        MAX_BATCH_ACTIONS_WITH_INLINE_CONFIG
+    } else {
+        MAX_BATCH_ACTIONS
+    };
+    if req.actions.len() > effective_batch_limit {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
                 error: format!(
                     "Batch size {} exceeds maximum of {}",
                     req.actions.len(),
-                    MAX_BATCH_ACTIONS
+                    effective_batch_limit
                 ),
             }),
         ));
@@ -336,6 +387,20 @@ pub async fn simulate_validate(
 ) -> Result<Json<ValidateResponse>, (StatusCode, Json<ErrorResponse>)> {
     use vellaveto_config::validation::PolicyValidator;
 
+    // SECURITY (FIND-R46-007): Enforce size limit before parsing.
+    if req.config.len() > MAX_VALIDATE_CONFIG_LENGTH {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!(
+                    "Config string length {} exceeds maximum of {} bytes",
+                    req.config.len(),
+                    MAX_VALIDATE_CONFIG_LENGTH
+                ),
+            }),
+        ));
+    }
+
     // Try parsing as TOML first, then JSON
     let config = match PolicyConfig::from_toml(&req.config) {
         Ok(c) => c,
@@ -372,6 +437,32 @@ pub async fn simulate_validate(
 pub async fn simulate_diff(
     Json(req): Json<DiffRequest>,
 ) -> Result<Json<DiffResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY (FIND-R46-002): Enforce per-config size limits before parsing.
+    if req.before.len() > MAX_DIFF_CONFIG_LENGTH {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!(
+                    "'before' config length {} exceeds maximum of {} bytes",
+                    req.before.len(),
+                    MAX_DIFF_CONFIG_LENGTH
+                ),
+            }),
+        ));
+    }
+    if req.after.len() > MAX_DIFF_CONFIG_LENGTH {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!(
+                    "'after' config length {} exceeds maximum of {} bytes",
+                    req.after.len(),
+                    MAX_DIFF_CONFIG_LENGTH
+                ),
+            }),
+        ));
+    }
+
     // Parse both configs
     let before_config = PolicyConfig::from_toml(&req.before).map_err(|e| {
         (
@@ -458,10 +549,39 @@ pub async fn simulate_red_team(
     })?;
 
     let sim = AttackSimulator::new();
-    let runner = RedTeamRunner::new(engine);
-    let report = runner.run(sim.scenarios());
+    // SECURITY (FIND-R46-003): Cap scenario count to prevent unbounded execution.
+    let scenarios = sim.scenarios();
+    let bounded_scenarios: Vec<vellaveto_mcp::attack_sim::AttackScenario> =
+        if scenarios.len() > MAX_RED_TEAM_SCENARIOS {
+            scenarios[..MAX_RED_TEAM_SCENARIOS].to_vec()
+        } else {
+            scenarios.to_vec()
+        };
 
-    Ok(Json(report))
+    let runner = RedTeamRunner::new(engine);
+
+    // SECURITY (FIND-R46-003): Enforce a total timeout (30s) to prevent DoS.
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        tokio::task::spawn_blocking(move || runner.run(&bounded_scenarios)),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(report)) => Ok(Json(report)),
+        Ok(Err(e)) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Red team execution failed: {}", e),
+            }),
+        )),
+        Err(_) => Err((
+            StatusCode::REQUEST_TIMEOUT,
+            Json(ErrorResponse {
+                error: "Red team execution timed out (30s limit)".to_string(),
+            }),
+        )),
+    }
 }
 
 /// Compare two policies and return human-readable change descriptions.

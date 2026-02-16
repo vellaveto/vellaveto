@@ -186,17 +186,11 @@ impl PolicyEngine {
                     window,
                     deny_reason,
                 } => {
-                    // SECURITY (R21-ENG-1): Fail-closed when previous_actions
-                    // is empty. MaxCallsInWindow counts over previous_actions
-                    // only — call_counts is irrelevant here. Without history,
-                    // windowed rate limits cannot be enforced — deny to be safe.
-                    if context.previous_actions.is_empty() {
-                        return Some(Verdict::Deny {
-                            reason: format!(
-                                "{deny_reason} (no session history available — fail-closed)"
-                            ),
-                        });
-                    }
+                    // SECURITY (FIND-R46-006): An empty previous_actions vec is valid
+                    // state for the first request in a session — count is zero.
+                    // Previously this fail-closed on empty, blocking the very first
+                    // request even when max >= 1. Zero matching actions in the window
+                    // is a valid count; only deny if count >= max.
 
                     let history = if *window > 0 {
                         let start = context.previous_actions.len().saturating_sub(*window);

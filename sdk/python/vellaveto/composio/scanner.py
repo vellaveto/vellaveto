@@ -46,6 +46,9 @@ _MAX_SCAN_STRING_LEN = 65536
 # Maximum findings before stopping scan (prevents resource exhaustion)
 _MAX_FINDINGS = 100
 
+# ReDoS detection: reject patterns with nested quantifiers like (a+)+ or (a*)*
+_NESTED_QUANTIFIER_RE = re.compile(r"[+*]\)?[+*{]")
+
 
 @dataclass
 class ScanFinding:
@@ -102,9 +105,17 @@ class ResponseScanner:
         self._scan_depth = min(scan_depth, 50)
 
         raw_patterns = injection_patterns if injection_patterns is not None else _DEFAULT_INJECTION_PATTERNS
-        self._injection_patterns: List[Pattern[str]] = [
-            re.compile(p) for p in raw_patterns
-        ]
+        # SECURITY (FIND-COMPOSIO-002): Validate user patterns to prevent ReDoS
+        self._injection_patterns: List[Pattern[str]] = []
+        for p in raw_patterns:
+            # Reject patterns with nested quantifiers that can cause catastrophic backtracking
+            if _NESTED_QUANTIFIER_RE.search(p):
+                logger.warning("Skipping potentially dangerous regex pattern: %s", p[:80])
+                continue
+            try:
+                self._injection_patterns.append(re.compile(p))
+            except re.error as exc:
+                logger.warning("Skipping invalid regex pattern %r: %s", p[:80], exc)
 
     def scan(self, response_data: Any) -> ResponseScanResult:
         """Scan *response_data* for secrets and injection indicators.

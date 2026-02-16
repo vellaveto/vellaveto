@@ -4,6 +4,7 @@
 //! These types are serialized into audit entries and API responses.
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// A Pedersen commitment to an audit entry hash.
 ///
@@ -12,13 +13,26 @@ use serde::{Deserialize, Serialize};
 ///
 /// The `blinding_hint` is the hex-encoded blinding factor, stored
 /// for the commitment holder only (not shared with verifiers).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// It is redacted from Debug output and excluded from serialization
+/// to prevent accidental exposure.
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct PedersenCommitment {
     /// Hex-encoded compressed Ristretto point (64 hex chars = 32 bytes).
     pub commitment: String,
     /// Hex-encoded blinding factor (64 hex chars = 32 bytes).
     /// For the holder only — not shared with external verifiers.
+    /// SECURITY: Excluded from serialization and redacted in Debug.
+    #[serde(skip_serializing)]
     pub blinding_hint: String,
+}
+
+impl fmt::Debug for PedersenCommitment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PedersenCommitment")
+            .field("commitment", &self.commitment)
+            .field("blinding_hint", &"[REDACTED]")
+            .finish()
+    }
 }
 
 /// A batch ZK proof covering a range of audit entries.

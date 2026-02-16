@@ -1690,6 +1690,117 @@ fn test_owasp_mcp10_normal_sized_message_accepted() {
     });
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Excessive Agency (OWASP Agentic Top 10)
+//
+// Risk: Tool grants broader than needed — a tool with wildcard
+//       permissions when only specific operations are required.
+// Vellaveto coverage: Policy engine enforces least-privilege by
+//       denying actions that fall outside specific allow rules.
+// ═══════════════════════════════════════════════════════════════
+
+/// FIND-R46-IT-001: Overly permissive tool grants must be denied when a
+/// more specific deny rule exists at equal or higher priority.
+#[test]
+fn test_owasp_excessive_agency_broad_grant_denied() {
+    let engine = PolicyEngine::new(false);
+
+    // Scenario: An agent has a broad "allow all file ops" grant,
+    // but security policy restricts to read-only access.
+    let mut policies = vec![
+        allow_policy("file:*", "Broad file access", 10),
+        deny_policy("file:write", "Block file writes", 100),
+        deny_policy("file:delete", "Block file deletes", 100),
+        deny_policy("file:exec", "Block file exec", 100),
+    ];
+    PolicyEngine::sort_policies(&mut policies);
+
+    // Read should be allowed
+    let read_action = make_action("file", "read", json!({"path": "/tmp/data.txt"}));
+    let verdict = engine.evaluate_action(&read_action, &policies).unwrap();
+    assert!(
+        matches!(verdict, Verdict::Allow),
+        "file:read should be allowed: got {:?}",
+        verdict
+    );
+
+    // Write, delete, exec should all be denied (excessive agency blocked)
+    for func in &["write", "delete", "exec"] {
+        let action = make_action("file", func, json!({"path": "/tmp/data.txt"}));
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Deny { .. }),
+            "file:{} should be denied (excessive agency): got {:?}",
+            func,
+            verdict
+        );
+    }
+}
+
+/// FIND-R46-IT-001: Wildcard tool grant with no deny rules but strict
+/// allowlist still blocks unregistered functions (fail-closed).
+#[test]
+fn test_owasp_excessive_agency_unregistered_tool_denied() {
+    let engine = PolicyEngine::new(false);
+
+    // Only file:read is explicitly allowed, everything else is denied
+    let policies = vec![
+        allow_policy("file:read", "Only file reads", 100),
+    ];
+
+    // An unregistered tool:function combination should be denied
+    let action = make_action("file", "chmod", json!({"path": "/etc/shadow", "mode": "777"}));
+    let verdict = engine.evaluate_action(&action, &policies).unwrap();
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "Unregistered tool function file:chmod should be denied: got {:?}",
+        verdict
+    );
+}
+
+/// FIND-R46-IT-001: Broad wildcard grant without compensating deny must
+/// not silently allow dangerous operations when no deny exists.
+/// This verifies the *:* pattern actually matches everything.
+#[test]
+fn test_owasp_excessive_agency_wildcard_grants_everything() {
+    let engine = PolicyEngine::new(false);
+
+    // A single *:* allow with NO deny rules grants everything — this is the risk
+    let policies = vec![allow_policy("*:*", "Allow everything", 100)];
+
+    let dangerous_ops = vec![
+        ("bash", "exec", json!({"command": "rm -rf /"})),
+        ("network", "connect", json!({"host": "evil.com"})),
+        ("file", "delete", json!({"path": "/etc/passwd"})),
+    ];
+
+    for (tool, func, params) in &dangerous_ops {
+        let action = make_action(tool, func, params.clone());
+        let verdict = engine.evaluate_action(&action, &policies).unwrap();
+        assert!(
+            matches!(verdict, Verdict::Allow),
+            "*:* allow grants {tool}:{func} — this demonstrates excessive agency risk: got {:?}",
+            verdict
+        );
+    }
+
+    // Now add compensating deny rules — they should override the broad grant
+    let mut restricted_policies = vec![
+        allow_policy("*:*", "Allow everything", 10), // low priority
+        deny_policy("bash:*", "Block all bash", 100), // high priority
+        deny_policy("network:*", "Block all network", 100),
+    ];
+    PolicyEngine::sort_policies(&mut restricted_policies);
+
+    let action = make_action("bash", "exec", json!({"command": "rm -rf /"}));
+    let verdict = engine.evaluate_action(&action, &restricted_policies).unwrap();
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "Compensating deny must block excessive agency: got {:?}",
+        verdict
+    );
+}
+
 #[tokio::test]
 async fn test_owasp_mcp10_disabled_rate_limit_allows_all() {
     use arc_swap::ArcSwap;

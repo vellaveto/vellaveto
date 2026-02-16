@@ -299,19 +299,47 @@ impl AbacEngine {
 // COMPILATION
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/// Known condition fields that can be resolved at evaluation time.
+const KNOWN_CONDITION_FIELDS: &[&str] = &[
+    "principal.type",
+    "principal.id",
+    "risk.score",
+    "context.agent_id",
+    "context.tenant_id",
+    "context.call_chain_depth",
+];
+
 fn compile_policy(policy: &AbacPolicy) -> Result<CompiledAbacPolicy, String> {
     let principal = compile_principal(&policy.principal);
     let action = compile_action(&policy.action);
     let resource = compile_resource(&policy.resource);
-    let conditions = policy
-        .conditions
-        .iter()
-        .map(|c| CompiledCondition {
+
+    // SECURITY (FIND-R46-008): Validate condition fields at compile time.
+    // Reject conditions with empty field names, and warn about unknown fields
+    // (fields not in the known set and not starting with "claims." prefix).
+    let mut conditions = Vec::with_capacity(policy.conditions.len());
+    for c in &policy.conditions {
+        if c.field.is_empty() {
+            return Err(format!(
+                "ABAC policy '{}' has a condition with an empty field name",
+                policy.id
+            ));
+        }
+        if !KNOWN_CONDITION_FIELDS.contains(&c.field.as_str())
+            && !c.field.starts_with("claims.")
+        {
+            tracing::warn!(
+                policy_id = %policy.id,
+                field = %c.field,
+                "ABAC condition references unknown field — will resolve to null at evaluation time"
+            );
+        }
+        conditions.push(CompiledCondition {
             field: c.field.clone(),
             op: c.op,
             value: c.value.clone(),
-        })
-        .collect();
+        });
+    }
 
     Ok(CompiledAbacPolicy {
         id: policy.id.clone(),
@@ -433,28 +461,33 @@ fn matches_action(action_constraint: &CompiledAction, action: &Action) -> bool {
 
 fn matches_resource(resource: &CompiledResource, action: &Action) -> bool {
     // Path check: if patterns specified, at least one path must match
+    // SECURITY (FIND-R46-001): Apply path normalization before matching to prevent
+    // traversal bypasses (e.g., "/home/../etc/passwd" matching "/home/*").
     if !resource.path_matchers.is_empty() {
         if action.target_paths.is_empty() {
             return false;
         }
-        let any_path_matches = action
-            .target_paths
-            .iter()
-            .any(|path| resource.path_matchers.iter().any(|m| m.matches(path)));
+        let any_path_matches = action.target_paths.iter().any(|path| {
+            let normalized = crate::path::normalize_path(path)
+                .unwrap_or_else(|_| "/".to_string());
+            resource.path_matchers.iter().any(|m| m.matches(&normalized))
+        });
         if !any_path_matches {
             return false;
         }
     }
 
     // Domain check: if patterns specified, at least one domain must match
+    // SECURITY (FIND-R46-002): Apply domain normalization (lowercase, trim trailing dots)
+    // before matching to prevent bypass via case or trailing dot variations.
     if !resource.domain_matchers.is_empty() {
         if action.target_domains.is_empty() {
             return false;
         }
-        let any_domain_matches = action
-            .target_domains
-            .iter()
-            .any(|domain| resource.domain_matchers.iter().any(|m| m.matches(domain)));
+        let any_domain_matches = action.target_domains.iter().any(|domain| {
+            let normalized = domain.to_lowercase().trim_end_matches('.').to_string();
+            resource.domain_matchers.iter().any(|m| m.matches(&normalized))
+        });
         if !any_domain_matches {
             return false;
         }
@@ -478,6 +511,13 @@ fn matches_resource(resource: &CompiledResource, action: &Action) -> bool {
 }
 
 fn evaluate_conditions(conditions: &[CompiledCondition], ctx: &AbacEvalContext<'_>) -> bool {
+    // SECURITY (FIND-R46-008): Log a warning when conditions array is empty.
+    // Empty conditions = no restrictions is correct for ABAC (vacuous truth),
+    // but it may indicate a misconfiguration. Compile-time validation in
+    // compile_policy() ensures condition fields are well-formed.
+    if conditions.is_empty() {
+        tracing::trace!("ABAC policy has empty conditions array — matches unconditionally");
+    }
     conditions.iter().all(|c| evaluate_single_condition(c, ctx))
 }
 
@@ -1501,6 +1541,111 @@ mod tests {
         });
         let store = EntityStore::from_config(&entities);
         assert!(store.is_member_of("E::leaf", "G::top"));
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R46-001: Path normalization in ABAC resource matching
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_r46_001_path_traversal_normalized_in_resource_match() {
+        // A path like "/home/../etc/passwd" should be normalized to "/etc/passwd"
+        // and should NOT match a policy for "/home/*".
+        let policy = AbacPolicy {
+            id: "p1".to_string(),
+            description: "home dir only".to_string(),
+            effect: AbacEffect::Permit,
+            priority: 0,
+            principal: Default::default(),
+            action: Default::default(),
+            resource: ResourceConstraint {
+                path_patterns: vec!["/home/*".to_string()],
+                domain_patterns: vec![],
+                tags: vec![],
+            },
+            conditions: vec![],
+        };
+        let engine = make_engine(vec![policy]);
+        let eval_ctx = EvaluationContext::default();
+        let ctx = make_ctx(&eval_ctx, "Agent", "test");
+
+        // Traversal path should normalize to /etc/passwd, not match /home/*
+        let action = make_action_with_paths("fs", "read", vec!["/home/../etc/passwd"]);
+        assert_eq!(
+            engine.evaluate(&action, &ctx),
+            AbacDecision::NoMatch,
+            "Path traversal should be normalized before ABAC resource matching"
+        );
+
+        // Normal home path should still match
+        let action = make_action_with_paths("fs", "read", vec!["/home/user/file.txt"]);
+        assert!(matches!(
+            engine.evaluate(&action, &ctx),
+            AbacDecision::Allow { .. }
+        ));
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R46-002: Domain normalization in ABAC resource matching
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_r46_002_domain_case_normalized_in_resource_match() {
+        let policy = AbacPolicy {
+            id: "p1".to_string(),
+            description: "example.com only".to_string(),
+            effect: AbacEffect::Permit,
+            priority: 0,
+            principal: Default::default(),
+            action: Default::default(),
+            resource: ResourceConstraint {
+                path_patterns: vec![],
+                domain_patterns: vec!["*example.com".to_string()],
+                tags: vec![],
+            },
+            conditions: vec![],
+        };
+        let engine = make_engine(vec![policy]);
+        let eval_ctx = EvaluationContext::default();
+        let ctx = make_ctx(&eval_ctx, "Agent", "test");
+
+        // Mixed case should be normalized to lowercase
+        let action = make_action_with_domains("net", "fetch", vec!["API.EXAMPLE.COM"]);
+        assert!(matches!(
+            engine.evaluate(&action, &ctx),
+            AbacDecision::Allow { .. }
+        ));
+
+        // Trailing dot should be trimmed
+        let action = make_action_with_domains("net", "fetch", vec!["api.example.com."]);
+        assert!(matches!(
+            engine.evaluate(&action, &ctx),
+            AbacDecision::Allow { .. }
+        ));
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-R46-008: Empty conditions compile-time validation
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_r46_008_empty_field_condition_rejected_at_compile() {
+        let policy = AbacPolicy {
+            id: "p1".to_string(),
+            description: "bad condition".to_string(),
+            effect: AbacEffect::Permit,
+            priority: 0,
+            principal: Default::default(),
+            action: Default::default(),
+            resource: Default::default(),
+            conditions: vec![AbacCondition {
+                field: "".to_string(),
+                op: AbacOp::Eq,
+                value: serde_json::json!("test"),
+            }],
+        };
+        let result = AbacEngine::new(&[policy], &[]);
+        assert!(result.is_err(), "Empty condition field should be rejected at compile time");
     }
 
     #[test]

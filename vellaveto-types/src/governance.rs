@@ -17,6 +17,14 @@ use std::collections::HashSet;
 ///
 /// - `Monitor`: Log findings but do not block (default, safe rollout).
 /// - `Enforce`: Actively deny or revoke based on governance policy.
+///
+/// # Default: `Monitor` (intentional)
+///
+/// The default is `Monitor` (fail-open for governance) to support gradual
+/// rollout. Organizations should switch to `Enforce` once governance policies
+/// have been validated in monitoring mode. This is intentionally different
+/// from the core policy engine's fail-closed default — governance findings
+/// are informational until the operator explicitly opts into enforcement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum EnforcementMode {

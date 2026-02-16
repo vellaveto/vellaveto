@@ -254,7 +254,7 @@ class TestBeforeExecuteModifier:
         )
         client = VellavetoClient()
         modifier = create_before_execute_modifier(client=client, fail_closed=True)
-        with pytest.raises(PolicyDenied, match="Evaluation failed"):
+        with pytest.raises(PolicyDenied, match="Policy evaluation unavailable"):
             modifier("TOOL", "", {"arguments": {}})
         client.close()
 
@@ -314,7 +314,8 @@ class TestBeforeExecuteModifier:
 
         requests = httpx_mock.get_requests()
         body_b = json.loads(requests[1].content)
-        assert body_b["context"]["call_chain"] == ["TOOL_A"]
+        # Call chain contains normalized tool_name/function_name (FIND-COMPOSIO-007)
+        assert body_b["context"]["call_chain"] == ["tool/a"]
         client.close()
 
     # ── Adversarial: modifier edge cases ──

@@ -47,6 +47,19 @@ impl PolicyConfig {
                 MAX_EXTRA_INJECTION_PATTERNS
             ));
         }
+        // SECURITY (FIND-R46-010): Validate per-string length of injection.extra_patterns.
+        // Unbounded patterns can cause excessive compile-time memory usage or ReDoS.
+        const MAX_INJECTION_PATTERN_LEN: usize = 1024;
+        for (i, pattern) in self.injection.extra_patterns.iter().enumerate() {
+            if pattern.len() > MAX_INJECTION_PATTERN_LEN {
+                return Err(format!(
+                    "injection.extra_patterns[{}] exceeds max length ({} > {})",
+                    i,
+                    pattern.len(),
+                    MAX_INJECTION_PATTERN_LEN
+                ));
+            }
+        }
         if self.injection.disabled_patterns.len() > MAX_DISABLED_INJECTION_PATTERNS {
             return Err(format!(
                 "injection.disabled_patterns has {} entries, max is {}",

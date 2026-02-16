@@ -321,12 +321,17 @@ impl SiemExporter for SplunkExporter {
                     }
 
                     if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                        // SECURITY (FIND-R46-004): Cap Retry-After at 300 seconds
+                        // to prevent an adversarial server from stalling the exporter
+                        // indefinitely with a huge Retry-After value.
+                        const MAX_RETRY_AFTER_SECS: u64 = 300;
                         let retry_after = response
                             .headers()
                             .get("Retry-After")
                             .and_then(|v| v.to_str().ok())
-                            .and_then(|s| s.parse().ok())
-                            .unwrap_or(60);
+                            .and_then(|s| s.parse::<u64>().ok())
+                            .unwrap_or(60)
+                            .min(MAX_RETRY_AFTER_SECS);
 
                         if retries >= self.config.common.max_retries {
                             return Err(ExportError::RateLimited {
@@ -339,15 +344,19 @@ impl SiemExporter for SplunkExporter {
                         continue;
                     }
 
+                    // SECURITY (FIND-R46-004): Cap server error backoff at 300 seconds.
+                    const MAX_BACKOFF_SECS: u64 = 300;
                     if status.is_server_error() && retries < self.config.common.max_retries {
+                        let capped_backoff = backoff.min(Duration::from_secs(MAX_BACKOFF_SECS));
                         tracing::warn!(
                             exporter = "splunk",
                             status = %status,
                             retry = retries + 1,
+                            backoff_secs = capped_backoff.as_secs(),
                             "Server error, retrying"
                         );
-                        tokio::time::sleep(backoff).await;
-                        backoff *= 2;
+                        tokio::time::sleep(capped_backoff).await;
+                        backoff = (backoff * 2).min(Duration::from_secs(MAX_BACKOFF_SECS));
                         retries += 1;
                         continue;
                     }
@@ -361,13 +370,15 @@ impl SiemExporter for SplunkExporter {
                 Err(e) => {
                     if e.is_timeout() {
                         if retries < self.config.common.max_retries {
+                            let capped_backoff = backoff.min(Duration::from_secs(MAX_BACKOFF_SECS));
                             tracing::warn!(
                                 exporter = "splunk",
                                 retry = retries + 1,
+                                backoff_secs = capped_backoff.as_secs(),
                                 "Request timeout, retrying"
                             );
-                            tokio::time::sleep(backoff).await;
-                            backoff *= 2;
+                            tokio::time::sleep(capped_backoff).await;
+                            backoff = (backoff * 2).min(Duration::from_secs(MAX_BACKOFF_SECS));
                             retries += 1;
                             continue;
                         }
@@ -377,14 +388,16 @@ impl SiemExporter for SplunkExporter {
                     }
 
                     if retries < self.config.common.max_retries {
+                        let capped_backoff = backoff.min(Duration::from_secs(MAX_BACKOFF_SECS));
                         tracing::warn!(
                             exporter = "splunk",
                             error = %e,
                             retry = retries + 1,
+                            backoff_secs = capped_backoff.as_secs(),
                             "HTTP error, retrying"
                         );
-                        tokio::time::sleep(backoff).await;
-                        backoff *= 2;
+                        tokio::time::sleep(capped_backoff).await;
+                        backoff = (backoff * 2).min(Duration::from_secs(MAX_BACKOFF_SECS));
                         retries += 1;
                         continue;
                     }
@@ -493,6 +506,8 @@ impl SiemExporter for WebhookExporter {
         "webhook"
     }
 
+    /// SECURITY (FIND-R46-003): Bounded retry with exponential backoff for webhook
+    /// delivery failures. 3 attempts, backoff capped at 30s. Each retry is logged.
     async fn export_batch(&self, entries: &[AuditEntry]) -> Result<(), ExportError> {
         if entries.is_empty() {
             return Ok(());
@@ -501,31 +516,76 @@ impl SiemExporter for WebhookExporter {
         let body = serde_json::to_string(&entries)
             .map_err(|e| ExportError::Serialization(e.to_string()))?;
 
-        let mut request = self
-            .client
-            .post(&self.config.endpoint)
-            .header("Content-Type", "application/json");
+        let max_retries = self.config.common.max_retries;
+        let mut retries = 0u32;
+        let mut backoff = Duration::from_secs(self.config.common.retry_backoff_secs);
+        /// SECURITY (FIND-R46-003): Cap backoff at 30 seconds to prevent indefinite waits.
+        const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
-        if let Some(ref auth) = self.auth_header {
-            request = request.header("Authorization", auth);
-        }
+        loop {
+            let mut request = self
+                .client
+                .post(&self.config.endpoint)
+                .header("Content-Type", "application/json");
 
-        for (key, value) in &self.config.headers {
-            request = request.header(key, value);
-        }
+            if let Some(ref auth) = self.auth_header {
+                request = request.header("Authorization", auth);
+            }
 
-        let response = request
-            .body(body)
-            .send()
-            .await
-            .map_err(|e| ExportError::HttpError(e.to_string()))?;
+            for (key, value) in &self.config.headers {
+                request = request.header(key, value);
+            }
 
-        if response.status().is_success() {
-            Ok(())
-        } else {
-            let status = response.status().as_u16();
-            let message = response.text().await.unwrap_or_default();
-            Err(ExportError::ServerError { status, message })
+            let result = request.body(body.clone()).send().await;
+
+            match result {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        return Ok(());
+                    }
+
+                    let status = response.status().as_u16();
+
+                    // Retry on server errors (5xx)
+                    if status >= 500 && retries < max_retries {
+                        let body_text = response.text().await.unwrap_or_default();
+                        tracing::warn!(
+                            exporter = "webhook",
+                            status = status,
+                            retry = retries + 1,
+                            max_retries = max_retries,
+                            backoff_secs = backoff.as_secs(),
+                            "Webhook server error, retrying: {}",
+                            body_text,
+                        );
+                        tokio::time::sleep(backoff).await;
+                        backoff = (backoff * 2).min(MAX_BACKOFF);
+                        retries += 1;
+                        continue;
+                    }
+
+                    let message = response.text().await.unwrap_or_default();
+                    return Err(ExportError::ServerError { status, message });
+                }
+                Err(e) => {
+                    // Retry on transient network errors
+                    if retries < max_retries {
+                        tracing::warn!(
+                            exporter = "webhook",
+                            error = %e,
+                            retry = retries + 1,
+                            max_retries = max_retries,
+                            backoff_secs = backoff.as_secs(),
+                            "Webhook request failed, retrying"
+                        );
+                        tokio::time::sleep(backoff).await;
+                        backoff = (backoff * 2).min(MAX_BACKOFF);
+                        retries += 1;
+                        continue;
+                    }
+                    return Err(ExportError::HttpError(e.to_string()));
+                }
+            }
         }
     }
 

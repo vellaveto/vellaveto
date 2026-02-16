@@ -136,12 +136,24 @@ pub struct SecureTask {
     #[serde(default)]
     pub seen_nonces: Vec<String>,
     /// Maximum number of nonces to track (FIFO eviction).
-    #[serde(default = "default_max_nonces")]
+    /// Capped at `MAX_NONCES_CAP` (10,000) to prevent memory exhaustion.
+    #[serde(default = "default_max_nonces", deserialize_with = "deserialize_capped_max_nonces")]
     pub max_nonces: usize,
 }
 
+/// Absolute upper bound for `max_nonces` to prevent memory exhaustion.
+pub const MAX_NONCES_CAP: usize = 10_000;
+
 fn default_max_nonces() -> usize {
     1000
+}
+
+fn deserialize_capped_max_nonces<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = usize::deserialize(deserializer)?;
+    Ok(value.min(MAX_NONCES_CAP))
 }
 
 impl SecureTask {
@@ -164,8 +176,10 @@ impl SecureTask {
     }
 
     /// Record a nonce as seen.
+    /// Enforces `MAX_NONCES_CAP` regardless of `max_nonces` field value.
     pub fn record_nonce(&mut self, nonce: String) {
-        if self.seen_nonces.len() >= self.max_nonces {
+        let effective_max = self.max_nonces.min(MAX_NONCES_CAP);
+        if self.seen_nonces.len() >= effective_max {
             self.seen_nonces.remove(0); // FIFO eviction
         }
         self.seen_nonces.push(nonce);

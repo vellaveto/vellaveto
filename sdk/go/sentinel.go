@@ -56,11 +56,25 @@ func WithHeaders(h map[string]string) Option {
 }
 
 // NewClient creates a new Vellaveto API client.
+// SECURITY (FIND-R46-GO-004): Default HTTP client strips Authorization header
+// on cross-domain redirects to prevent API key leakage.
 func NewClient(baseURL string, opts ...Option) *Client {
 	c := &Client{
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		httpClient: &http.Client{Timeout: defaultTimeout},
-		headers:    make(map[string]string),
+		baseURL: strings.TrimRight(baseURL, "/"),
+		httpClient: &http.Client{
+			Timeout: defaultTimeout,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return fmt.Errorf("vellaveto: stopped after 10 redirects")
+				}
+				if len(via) > 0 && req.URL.Host != via[0].URL.Host {
+					// Cross-domain redirect: strip Authorization to prevent API key leak.
+					req.Header.Del("Authorization")
+				}
+				return nil
+			},
+		},
+		headers: make(map[string]string),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -110,6 +124,12 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}) 
 	return respBody, resp.StatusCode, nil
 }
 
+// maxErrorBodyDisplay is the maximum number of bytes from a response body
+// included in error messages to prevent information disclosure.
+// SECURITY (FIND-R46-GO-005): Full response bodies in errors can leak
+// sensitive server internals (stack traces, config, internal paths).
+const maxErrorBodyDisplay = 256
+
 // doJSON executes a request, checks status, and decodes JSON into dst.
 func (c *Client) doJSON(ctx context.Context, method, path string, body interface{}, dst interface{}) error {
 	respBody, status, err := c.do(ctx, method, path, body)
@@ -117,8 +137,13 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body interface
 		return err
 	}
 	if status < 200 || status >= 300 {
+		// SECURITY (FIND-R46-GO-005): Truncate response body in error messages.
+		msg := string(respBody)
+		if len(msg) > maxErrorBodyDisplay {
+			msg = msg[:maxErrorBodyDisplay] + "...(truncated)"
+		}
 		return &VellavetoError{
-			Message:    fmt.Sprintf("unexpected status: %s", string(respBody)),
+			Message:    fmt.Sprintf("unexpected status: %s", msg),
 			StatusCode: status,
 		}
 	}
@@ -188,8 +213,13 @@ func (c *Client) Evaluate(ctx context.Context, action Action, evalCtx *Evaluatio
 		return nil, err
 	}
 	if status < 200 || status >= 300 {
+		// SECURITY (FIND-R46-GO-005): Truncate response body in error messages.
+		msg := string(respBody)
+		if len(msg) > maxErrorBodyDisplay {
+			msg = msg[:maxErrorBodyDisplay] + "...(truncated)"
+		}
 		return nil, &VellavetoError{
-			Message:    fmt.Sprintf("unexpected status: %s", string(respBody)),
+			Message:    fmt.Sprintf("unexpected status: %s", msg),
 			StatusCode: status,
 		}
 	}
@@ -353,17 +383,18 @@ func (c *Client) DiscoveryReindex(ctx context.Context) (*DiscoveryReindexRespons
 }
 
 // DiscoveryTools lists all indexed tools, optionally filtered by server ID and sensitivity.
+// SECURITY (FIND-R46-GO-003): Use url.Values for proper URL encoding of query parameters.
 func (c *Client) DiscoveryTools(ctx context.Context, serverID, sensitivity string) (*DiscoveryToolsResponse, error) {
 	path := "/api/discovery/tools"
-	params := make([]string, 0, 2)
+	q := url.Values{}
 	if serverID != "" {
-		params = append(params, "server_id="+serverID)
+		q.Set("server_id", serverID)
 	}
 	if sensitivity != "" {
-		params = append(params, "sensitivity="+sensitivity)
+		q.Set("sensitivity", sensitivity)
 	}
-	if len(params) > 0 {
-		path += "?" + strings.Join(params, "&")
+	if encoded := q.Encode(); encoded != "" {
+		path += "?" + encoded
 	}
 	var resp DiscoveryToolsResponse
 	if err := c.doJSON(ctx, http.MethodGet, path, nil, &resp); err != nil {

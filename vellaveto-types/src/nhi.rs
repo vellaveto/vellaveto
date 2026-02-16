@@ -160,6 +160,44 @@ pub struct NhiBehavioralBaseline {
     pub active_hours: Vec<u8>,
 }
 
+impl NhiBehavioralBaseline {
+    /// Validate that all f64 fields are finite (not NaN or Infinity).
+    pub fn validate_finite(&self) -> Result<(), String> {
+        for (key, val) in &self.tool_call_patterns {
+            if !val.is_finite() {
+                return Err(format!(
+                    "NhiBehavioralBaseline tool_call_patterns['{key}'] is not finite: {val}"
+                ));
+            }
+        }
+        if !self.avg_request_interval_secs.is_finite() {
+            return Err(format!(
+                "NhiBehavioralBaseline avg_request_interval_secs is not finite: {}",
+                self.avg_request_interval_secs
+            ));
+        }
+        if !self.request_interval_stddev.is_finite() {
+            return Err(format!(
+                "NhiBehavioralBaseline request_interval_stddev is not finite: {}",
+                self.request_interval_stddev
+            ));
+        }
+        if !self.typical_session_duration_secs.is_finite() {
+            return Err(format!(
+                "NhiBehavioralBaseline typical_session_duration_secs is not finite: {}",
+                self.typical_session_duration_secs
+            ));
+        }
+        if !self.confidence.is_finite() {
+            return Err(format!(
+                "NhiBehavioralBaseline confidence is not finite: {}",
+                self.confidence
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl Default for NhiBehavioralBaseline {
     fn default() -> Self {
         Self {

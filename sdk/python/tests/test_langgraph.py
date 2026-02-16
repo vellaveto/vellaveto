@@ -139,8 +139,8 @@ class TestCreateVellavetoNode:
             "vellaveto_call_chain": long_chain,
         })
 
-        # Code pops one element when >20, so 25 + 1 new - 1 pop = 25
-        assert len(result["vellaveto_call_chain"]) <= 26
+        # SECURITY (FIND-SDK-010): Call chain bounded at 20 entries via slice
+        assert len(result["vellaveto_call_chain"]) == 20
         assert result["vellaveto_call_chain"][-1] == "new_tool"
         client.close()
 

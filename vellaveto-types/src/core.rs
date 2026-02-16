@@ -301,6 +301,10 @@ pub fn validate_mcp_tool_name(name: &str) -> Result<(), String> {
     if name.contains("..") {
         return Err("tool name must not contain consecutive dots '..'".to_string());
     }
+    // No consecutive slashes (path normalization ambiguity)
+    if name.contains("//") {
+        return Err("tool name must not contain consecutive slashes '//'".to_string());
+    }
     Ok(())
 }
 

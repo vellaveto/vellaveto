@@ -143,6 +143,38 @@ pub struct RiskFactor {
     pub value: f64,
 }
 
+impl RiskScore {
+    /// Validate that all f64 fields are finite (not NaN or Infinity).
+    pub fn validate_finite(&self) -> Result<(), String> {
+        if !self.score.is_finite() {
+            return Err(format!("RiskScore::score is not finite: {}", self.score));
+        }
+        for factor in &self.factors {
+            factor.validate_finite()?;
+        }
+        Ok(())
+    }
+}
+
+impl RiskFactor {
+    /// Validate that all f64 fields are finite (not NaN or Infinity).
+    pub fn validate_finite(&self) -> Result<(), String> {
+        if !self.weight.is_finite() {
+            return Err(format!(
+                "RiskFactor '{}' weight is not finite: {}",
+                self.name, self.weight
+            ));
+        }
+        if !self.value.is_finite() {
+            return Err(format!(
+                "RiskFactor '{}' value is not finite: {}",
+                self.name, self.value
+            ));
+        }
+        Ok(())
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // IDENTITY FEDERATION (21.3)
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -151,19 +151,32 @@ def create_vellaveto_node(
             )
 
             # Update call chain
+            # SECURITY (FIND-SDK-010): Bound call chain at 20 entries using slice
             call_chain = state.get("vellaveto_call_chain", []).copy()
             call_chain.append(tool_name)
-            if len(call_chain) > 20:
-                call_chain.pop(0)
+            call_chain = call_chain[-20:]
 
             # Determine if blocked
             blocked = False
-            if result.verdict == Verdict.DENY and on_deny == "block":
-                blocked = True
-                logger.warning(f"Tool {tool_name} blocked by policy: {result.reason}")
-            elif result.verdict == Verdict.REQUIRE_APPROVAL and on_approval_required == "block":
-                blocked = True
-                logger.warning(f"Tool {tool_name} requires approval: {result.reason}")
+            if result.verdict == Verdict.DENY:
+                if on_deny == "block":
+                    blocked = True
+                    logger.warning(f"Tool {tool_name} blocked by policy: {result.reason}")
+                else:
+                    # SECURITY (FIND-SDK-009): Warn when denied tool proceeds
+                    logger.warning(
+                        f"Tool {tool_name} denied but proceeding (on_deny='continue'): "
+                        f"{result.reason}"
+                    )
+            elif result.verdict == Verdict.REQUIRE_APPROVAL:
+                if on_approval_required == "block":
+                    blocked = True
+                    logger.warning(f"Tool {tool_name} requires approval: {result.reason}")
+                else:
+                    logger.warning(
+                        f"Tool {tool_name} requires approval but proceeding "
+                        f"(on_approval_required='continue'): {result.reason}"
+                    )
 
             return {
                 "vellaveto_verdict": result.verdict.value,

@@ -178,6 +178,11 @@ class ComposioGuard:
         frozen_arguments = copy.deepcopy(arguments)
 
         tool_name, function_name = normalize_slug_to_tool_function(slug, toolkit)
+
+        # SECURITY (FIND-COMPOSIO-006): Validate derived names are non-empty
+        if not tool_name or not function_name:
+            raise PolicyDenied("Invalid tool slug: empty tool_name or function_name after normalization")
+
         target_paths, target_domains = extract_targets(slug, frozen_arguments)
 
         context = EvaluationContext(
