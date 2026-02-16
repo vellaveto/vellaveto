@@ -1,10 +1,10 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 complete, 45 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 complete, 45 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 5,238 Rust tests + 165 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 5,725 Rust tests + 165 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 24
 > **CI workflows:** 11
 > **Updated:** 2026-02-16
@@ -84,6 +84,8 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Threat: auth levels, circuit breakers, fingerprints, trust | `vellaveto-types/src/threat.rs` |
 | Advanced: ABAC, capability, compliance, extension, gateway, transport, verification, NHI, MINJA, DID:PLC, task | `vellaveto-types/src/*.rs` |
 | Governance: EnforcementMode, UnregisteredAgent, ShadowAiReport | `vellaveto-types/src/governance.rs` |
+| Discovery: ToolMetadata, ToolSensitivity, DiscoveryResult | `vellaveto-types/src/discovery.rs` |
+| Projector: CanonicalToolSchema, CanonicalToolCall, ModelFamily | `vellaveto-types/src/projector.rs` |
 | Tests (~180) | `vellaveto-types/src/tests.rs` |
 | **vellaveto-engine** | |
 | Policy evaluation | `vellaveto-engine/src/lib.rs` |
@@ -101,6 +103,8 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Detection, enterprise, ETDI, MCP protocol, threat detection | `vellaveto-config/src/*.rs` |
 | Advanced: ABAC, compliance, extension, FIPS, gateway, gRPC, transport | `vellaveto-config/src/*.rs` |
 | Governance config | `vellaveto-config/src/governance.rs` |
+| Discovery config | `vellaveto-config/src/discovery.rs` |
+| Projector config | `vellaveto-config/src/projector.rs` |
 | Tests (~301) | `vellaveto-config/src/tests.rs` |
 | **vellaveto-mcp** | |
 | MCP handling | `vellaveto-mcp/src/lib.rs` |
@@ -113,6 +117,8 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Transparency marking + decision explanation | `vellaveto-mcp/src/transparency.rs` |
 | Extension registry | `vellaveto-mcp/src/extension_registry.rs` |
 | Shadow AI discovery engine | `vellaveto-mcp/src/shadow_ai_discovery.rs` |
+| Tool discovery (TF-IDF index, engine, feature-gated) | `vellaveto-mcp/src/discovery/` |
+| Model projector (trait, registry, 5 projections, compress, repair) | `vellaveto-mcp/src/projector/` |
 | **vellaveto-http-proxy** | |
 | HTTP proxy: handlers, auth, origin, upstream, inspection | `vellaveto-http-proxy/src/proxy/*.rs` |
 | WebSocket reverse proxy | `vellaveto-http-proxy/src/proxy/websocket/mod.rs` |
@@ -125,6 +131,8 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | HTTP API server + routes | `vellaveto-server/src/main.rs`, `vellaveto-server/src/routes.rs` |
 | Compliance + simulator API endpoints | `vellaveto-server/src/routes/{compliance,simulator}.rs` |
 | Governance API routes | `vellaveto-server/src/routes/governance.rs` |
+| Discovery API routes | `vellaveto-server/src/routes/discovery.rs` |
+| Projector API routes | `vellaveto-server/src/routes/projector.rs` |
 | Dashboard | `vellaveto-server/src/dashboard.rs` |
 | **Other** | |
 | Stdio proxy | `vellaveto-proxy/src/main.rs` |
@@ -152,7 +160,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 
 ## What's Done (DO NOT rebuild)
 
-All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 implemented, tested, and hardened through 45 audit rounds. Details in CHANGELOG.md.
+All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Phase 29 + Phase 30 + Phase 33 + Phase 34 + Phase 35 implemented, tested, and hardened through 45 audit rounds. Details in CHANGELOG.md.
 
 - **Core Engine:** Policy evaluation with glob/regex/domain matching, path traversal protection, DNS rebinding defense, context-aware policies (time windows, call limits, agent ID, action sequences)
 - **Audit:** Tamper-evident logging (SHA-256 chain, Merkle proofs, Ed25519 checkpoints, rotation), export (CEF/JSONL/webhook/syslog), immutable archive with retention
@@ -177,6 +185,8 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - **Kubernetes-Native Deployment (Phase 27):** `LeaderElection` trait + `LocalLeaderElection` (always-leader standalone), `ServiceDiscovery` trait + `StaticServiceDiscovery` + `DnsServiceDiscovery` (tokio lookup_host + periodic watch), `DeploymentConfig` with validation (mode/leader-election/service-discovery/instance-id), `GET /api/deployment/info` endpoint, health endpoint extended with `leader_status`/`instance_id`/`discovered_endpoints`, Helm chart StatefulSet with PVC + init container + log-shipping sidecar + headless Service + gRPC/WebSocket support, Chart version 4.0.0, audit event helpers (`leader_election.{acquired,renewed,released,lost,failed}`, `service_discovery.{endpoint_added,endpoint_removed,endpoint_updated,refresh_failed}`)
 - **Cross-Transport Smart Fallback (Phase 29):** `TransportHealthTracker` per-transport circuit breaker (Closed/Open/HalfOpen, exponential backoff, RwLock fail-closed, bounded 10K circuits), `SmartFallbackChain` ordered fallback orchestrator (gRPC → WS → HTTP → stdio with per-attempt/total timeouts, 16MB response body limit), `resolve_transport_priority()` with per-tool glob overrides (iterative DP matching) + client preference + config priorities, `TransportAttempt`/`FallbackNegotiationHistory` audit types, `cross_transport_fallback` config gate (default off), handler integration with `build_transport_targets()`, header allowlist for upstream proxying, stdio command injection prevention (absolute path + no metacharacters), 71 new tests
 - **MCP 2025-11-25 Spec Adoption (Phase 30):** `validate_mcp_tool_name()` in vellaveto-types (1–64 chars, `[a-zA-Z0-9_\-./]`, no `..`), `StreamableHttpConfig` with `resumability_enabled`/`strict_tool_name_validation`/`max_event_id_length`/`sse_retry_ms`, `handle_mcp_get()` for SSE stream initiation/resumption with `Last-Event-ID` forwarding, RFC 6750 §3.1 `WWW-Authenticate` header on `InsufficientScope`, strict tool name validation in proxy (config-gated), ~42 new tests
+- **Tool Discovery (Phase 34):** Pure Rust TF-IDF inverted index (cosine similarity, zero new deps), `DiscoveryEngine` with policy filtering and token budget, session-scoped TTL lifecycle (record/expire/evict), REST API (search/stats/reindex/tools), SDK methods (Python/TypeScript/Go), feature-gated behind `discovery`, ~260 new tests
+- **Model Projector (Phase 35):** `ModelProjection` trait with `ProjectorRegistry`, 5 built-in projections (Claude/OpenAI/DeepSeek/Qwen/Generic), `SchemaCompressor` (5 progressive strategies), `CallRepairer` (type coercion, Levenshtein fuzzy matching, DeepSeek markdown extraction), REST API (models/transform), feature-gated behind `projector`, ~230 new tests
 - **Docs:** Quickstart guides, security model, benchmarks, 5 policy presets
 
 ---

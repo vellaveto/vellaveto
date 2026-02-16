@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Phase 35 — Model Projector
+- **Canonical types** (`vellaveto-types/src/projector.rs`) — `CanonicalToolSchema`, `CanonicalToolCall`, `CanonicalToolResponse`, `ModelFamily` enum (Claude, OpenAi, DeepSeek, Qwen, Generic, Custom). Model-agnostic representations for tool schema transformation across LLM families.
+- **Projector config** (`vellaveto-config/src/projector.rs`) — `ProjectorConfig` with `enabled`, `default_model_family`, `auto_detect_model`, `compress_schemas`, `max_schema_tokens`, `repair_malformed_calls`. Validation: model family must be one of claude/openai/deepseek/qwen/generic, max_schema_tokens bounded.
+- **ModelProjection trait** (`vellaveto-mcp/src/projector/mod.rs`) — `project_schema()`, `parse_call()`, `format_response()`, `estimate_tokens()` methods. `ProjectorRegistry` with RwLock-based concurrent access, `register()`, `get()`, `get_or_default()`, `list_families()`.
+- **Claude projection** (`vellaveto-mcp/src/projector/claude.rs`) — Anthropic `tool_use` format with `cache_control: {"type": "ephemeral"}` hints. Token estimate: chars/3.5.
+- **OpenAI projection** (`vellaveto-mcp/src/projector/openai.rs`) — OpenAI `functions` array format with `function_call` response parsing. Handles JSON string arguments. Token estimate: chars/4.
+- **DeepSeek projection** (`vellaveto-mcp/src/projector/deepseek.rs`) — First-sentence description truncation for R1 efficiency, `<think>` block stripping, markdown code block JSON extraction from tool call content. Token estimate: chars/3.
+- **Qwen projection** (`vellaveto-mcp/src/projector/qwen.rs`) — 200-character description truncation for CJK tokenizer efficiency. Token estimate: chars/3.
+- **Generic projection** (`vellaveto-mcp/src/projector/generic.rs`) — Passthrough with flexible field name tolerance (`tool_name`/`name`, `arguments`/`parameters`). Token estimate: chars/4.
+- **Schema compressor** (`vellaveto-mcp/src/projector/compress.rs`) — `SchemaCompressor::compress()` with 5 progressive strategies: strip redundant root `"type": "object"`, inline single-value enums as constants, truncate descriptions to first sentence, collapse single-property nested objects, remove optional parameter descriptions. `estimate_tokens()` for budget tracking.
+- **Call repairer** (`vellaveto-mcp/src/projector/repair.rs`) — `CallRepairer::repair()` with type coercion (string→number, string→boolean), missing-required-field default injection, Levenshtein fuzzy tool name matching against known tools, DeepSeek markdown code block extraction.
+- **Projector REST API** (`vellaveto-server/src/routes/projector.rs`) — `GET /api/projector/models` lists supported model families. `POST /api/projector/transform` projects a canonical schema for a target model family.
+- **Audit helper** (`vellaveto-audit/src/events.rs`) — `log_projector_event()` for schema transformation audit trail.
+- **Feature-gated** — `projector` feature in `vellaveto-mcp/Cargo.toml`, forwarded via server and http-proxy. Default on in `vellaveto-server`, opt-in in `vellaveto-http-proxy`.
+- ~230 new tests across projector module (trait, registry, 5 projections, compressor, repairer, REST API).
+
+#### Phase 34 — Tool Discovery Service
+- **Discovery types** (`vellaveto-types/src/discovery.rs`) — `ToolMetadata` (tool_id, name, description, server_id, input_schema, schema_hash, sensitivity, domain_tags, token_cost), `ToolSensitivity` (Low/Medium/High), `DiscoveryResult`, `DiscoveredTool` with relevance scoring and TTL.
+- **Discovery config** (`vellaveto-config/src/discovery.rs`) — `DiscoveryConfig` with `enabled`, `max_results` (default 5, max 20), `default_ttl_secs` (300), `max_index_entries` (10,000), `min_relevance_score` (0.1), `token_budget`, `auto_index_on_tools_list`. Validation: bounds checking on all numeric fields.
+- **TF-IDF inverted index** (`vellaveto-mcp/src/discovery/index.rs`) — `ToolIndex` with RwLock-protected `HashMap`-based entries, IDF weights, and token inverted index. `ingest()`, `remove()`, `search()` (TF-IDF cosine similarity + exact name bonus 0.3 + domain tag bonus 0.2), `rebuild_idf()`, `len()`, `tool_ids()`, `get()`. Capacity-bounded at `max_entries`. Pure Rust, zero new dependencies.
+- **Discovery engine** (`vellaveto-mcp/src/discovery/engine.rs`) — `DiscoveryEngine::discover()` with policy filtering closure, token budget enforcement, and configurable `min_relevance_score` cutoff. `ingest_tools_list()` for batch indexing from MCP `tools/list` responses.
+- **Session TTL lifecycle** (`vellaveto-http-proxy/src/session.rs`) — `DiscoveredToolSession` with `discovered_at`, `ttl`, `used` tracking. `SessionState::record_discovered_tools()`, `is_tool_discovery_expired()`, `mark_tool_used()`, `evict_expired_discoveries()`. Tools expire after configurable TTL, requiring re-discovery.
+- **Discovery REST API** (`vellaveto-server/src/routes/discovery.rs`) — `POST /api/discovery/search` (query + max_results + token_budget), `GET /api/discovery/index/stats`, `POST /api/discovery/reindex` (IDF rebuild), `GET /api/discovery/tools` (list with server_id/sensitivity filters, capped at 100). Input validation: query length 1024, control character rejection, server_id length 256.
+- **SDK methods** — Python (sync+async): `discover()`, `discovery_stats()`, `discovery_reindex()`, `discovery_tools()`. TypeScript: same 4 methods. Go: `Discover()`, `DiscoveryStats()`, `DiscoveryReindex()`, `DiscoveryTools()`.
+- **Audit helper** (`vellaveto-audit/src/events.rs`) — `log_discovery_event()` for query and reindex audit trail.
+- **Feature-gated** — `discovery` feature in `vellaveto-mcp/Cargo.toml`, forwarded via server and http-proxy. Default on in `vellaveto-server`, opt-in in `vellaveto-http-proxy`.
+- ~260 new tests across discovery module (index, engine, session TTL, REST API, config validation, SDK types).
+
 #### Composio Integration (Python SDK)
 - **ComposioGuard** (`sdk/python/vellaveto/composio/guard.py`) — High-level guard with `before_execute_modifier()` and `after_execute_modifier()` factory methods for Composio's native modifier system. Standalone `execute()` wrapper for direct tool calls. Works with any Composio provider (OpenAI, LangChain, CrewAI, AutoGen, Google ADK) — no framework-specific code.
 - **Modifier factories** (`sdk/python/vellaveto/composio/modifiers.py`) — `create_before_execute_modifier()` evaluates tool calls against Vellaveto policies before execution (allow/deny/require_approval). `create_after_execute_modifier()` scans responses for DLP/injection findings. `CallChainTracker` maintains bounded FIFO chain (max 20 entries).

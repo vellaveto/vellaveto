@@ -11,7 +11,7 @@
     <a href="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/vellaveto/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-5%2C190_passing-brightgreen.svg" alt="Tests: 5,190 passing">
+    <img src="https://img.shields.io/badge/tests-5%2C725_passing-brightgreen.svg" alt="Tests: 5,725 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-44_rounds%2C_400%2B_findings-informational.svg" alt="Adversarial Testing: 44 rounds, 400+ findings"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
@@ -35,15 +35,17 @@ Vellaveto is a lightweight, high-performance firewall that sits between AI agent
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>4.0.0-dev</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>5,190+ tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>5,725+ tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
 <tr><td>📄 <strong>License</strong></td><td>AGPL-3.0 (dual license available)</td></tr>
 </table>
 
-## Recent Updates (2026-02-15)
+## Recent Updates (2026-02-16)
 
+- **Phase 35: Model Projector** — Model-agnostic tool schema projection across 5 LLM families (Claude, OpenAI, DeepSeek, Qwen, Generic). `ModelProjection` trait with `ProjectorRegistry` for schema transformation, call parsing, and response formatting. `SchemaCompressor` with 5 progressive strategies reduces token cost (strip root type, inline enums, truncate descriptions, collapse objects, remove optional descriptions). `CallRepairer` fixes malformed tool calls via type coercion, default injection, Levenshtein fuzzy matching, and DeepSeek markdown extraction. REST API: `GET /api/projector/models`, `POST /api/projector/transform`. Feature-gated behind `projector`. ~230 new tests.
+- **Phase 34: Tool Discovery Service** — Pure Rust TF-IDF inverted index for natural language tool search across MCP servers (zero new dependencies). `DiscoveryEngine` with cosine similarity scoring, policy filtering, and token budget enforcement. Session-scoped TTL lifecycle for discovered tools (record, expire, evict, re-discover). REST API: `POST /api/discovery/search`, `GET /api/discovery/index/stats`, `POST /api/discovery/reindex`, `GET /api/discovery/tools`. SDK methods in Python, TypeScript, and Go. Feature-gated behind `discovery`. ~260 new tests.
 - **Phase 29: Cross-Transport Smart Fallback** — Ordered transport fallback chain (gRPC → WebSocket → HTTP → stdio) with per-transport circuit breakers. When an upstream transport fails, the proxy automatically tries the next transport in priority order. Per-tool glob-based transport overrides, client preference header support, and full audit trail of fallback negotiations. Default off (`cross_transport_fallback: false`) for backward compatibility. Fail-closed: all transports failed → deny. 71 new tests.
 - **Phase 28: Distributed Tracing & Observability** — W3C Trace Context (`traceparent`/`tracestate`) propagation across all four transports (HTTP, WebSocket, gRPC, A2A). `TraceContext` parsing, child span generation, and upstream header injection with <200ns overhead. Gateway mode creates per-backend child spans for multi-backend trace correlation. GenAI semantic convention attributes (`gen_ai.agent.id`) on security spans. Vellaveto verdict injected into `tracestate` for cross-service observability. Fail-open for tracing (missing context generates a new trace). `SpanKind::Gateway` for gateway-specific spans. Compatible with Jaeger, Grafana Tempo, Datadog, and any OTLP collector.
 - **Phase 27: Kubernetes-Native Deployment** — `LeaderElection` trait with `LocalLeaderElection` (always-leader standalone mode) for single-instance deployments. `ServiceDiscovery` trait with `StaticServiceDiscovery` (explicit endpoint list) and `DnsServiceDiscovery` (tokio `lookup_host` with periodic refresh). `DeploymentConfig` with mode/leader-election/service-discovery/instance-id validation. `GET /api/deployment/info` endpoint. Health endpoint extended with `leader_status`, `instance_id`, and `discovered_endpoints`. Helm chart v4.0.0 with StatefulSet, PVC for audit persistence, init container, log-shipping sidecar, headless Service, and gRPC/WebSocket port support. Audit event helpers for leader election and service discovery lifecycle events. ~45 new tests.
@@ -210,6 +212,10 @@ Vellaveto enforces security policies on every tool call before it reaches the to
 - **Evaluation caching** — LRU + TTL cache minimizes latency and cost on repeated patterns
 - **Pluggable backends** — Support for cloud (OpenAI, Anthropic) and local (GGUF, ONNX) models
 - **Fail-closed design** — Errors, timeouts, and low confidence all result in denial
+
+### 🔍 Adaptive Tool Layer
+- **Tool Discovery** — Pure Rust TF-IDF inverted index with cosine similarity scoring for natural language tool search across MCP servers. Policy-filtered results with configurable token budgets. Auto-indexing from `tools/list` responses. Session-scoped TTL lifecycle (discover → use → expire → re-discover). Feature-gated behind `discovery`.
+- **Model Projector** — Model-agnostic tool schema projection with `ModelProjection` trait and `ProjectorRegistry`. Built-in projections for Claude (tool_use format, cache_control hints), OpenAI (functions format), DeepSeek (think-block stripping, markdown extraction), Qwen (CJK-aware truncation), and Generic (passthrough). Schema compression with 5 progressive strategies. Call repair for malformed tool calls (type coercion, default injection, fuzzy name matching). Feature-gated behind `projector`.
 
 ### 📚 RAG Poisoning Defense
 - **Document verification** — Trust scoring with age bonuses, admin approval, signature verification, and mutation penalties
