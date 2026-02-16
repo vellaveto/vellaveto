@@ -31,6 +31,56 @@ Dynamic report generation for SOC 2 Type II auditors, scanning audit entries and
 - Go SDK: 40 (+3 new access review tests)
 - **Total: 6,501 tests across all languages**
 
+### Fixed (Adversarial Hardening — Round 47: P2/P3 Hardening)
+
+52 findings resolved (30 P2, 22 P3) across 51 files (+972/-173 lines).
+
+#### Engine & Types P2/P3 Fixes
+- **FIND-P2-001**: ABAC IDNA normalization via `normalize_domain_for_match()` (fail-closed on normalization failure)
+- **FIND-P2-003/P3-014**: RwLock poison recovery with `unwrap_or_else(|e| e.into_inner())` pattern in glob matcher cache
+- **FIND-P2-004**: `max_calls_in_window` overflow now returns `PolicyValidationError` instead of silent saturation
+- **FIND-P2-005**: No-op context conditions (AsyncTaskPolicy, CircuitBreaker, etc.) upgraded from `trace!` to `warn!`
+- **FIND-P2-006**: Infix wildcard detection with warning in legacy matcher
+- **FIND-P2-007**: Float validation (`validate_finite()`) added to `UnregisteredAgent`, `ShadowAiReport`, `DiscoveredTool`, `NhiBehavioralCheckResult`, `LeastAgencyReport`
+- **FIND-P2-008**: `Policy::validate()` checking id/name non-empty and priority >= 0
+- **FIND-P2-009**: `UpstreamBackend::validate()` checking id/url non-empty and URL scheme http/https
+- **FIND-P2-010/011**: `AuthLevel::from_u8()` and `TrustLevel::from_u8()` fail-closed design documentation
+- **FIND-P3-012**: `LeastAgencyTracker` poisoned lock logging with `tracing::error!` before 6 early returns
+- **FIND-P3-015**: `async_task_policy` max_concurrent `usize` conversion returns error
+- **FIND-P3-016**: `MAX_PARAMETERS_SIZE` (1MB) with `ParametersTooLarge` validation error
+- **FIND-P3-017**: `MemoryNamespace::new()` clone optimization
+- **FIND-P3-018**: `validate_name()` `pub(crate)` visibility documentation
+
+#### Audit P2/P3 Fixes
+- **GAP-S04**: URL scheme validation (http/https only) in `WebhookExporter::new()`
+- **GAP-F05**: URL scheme validation in streaming exporters (Splunk, Webhook, Elasticsearch)
+- **GAP-S06**: Redaction fail-closed at max depth — returns `[REDACTED]` instead of unredacted value
+- **GAP-S07**: Merkle `compute_siblings()` edge case documentation
+- **GAP-S08**: `glob_match()` O(n*m) memory behavior documentation
+- **GAP-F06**: `generate_report()` memory limitation documentation
+- **GAP-Q04**: Serialization error logging in `to_json_lines()` and streaming exporters (Datadog, Syslog)
+- **GAP-F01**: ZK scheduler exponential backoff on proving failures (`MAX_BACKOFF_SECS=300`)
+- **GAP-F03/F04**: ZK error handling philosophy and Pedersen blinding security documentation
+- Witness backpressure mechanism documentation
+
+#### MCP & Server P2/P3 Fixes
+- `MAX_COMPILED_POLICIES=10,000` in NL policy compiler with reject-on-capacity
+- `FallbackBehavior::Allow` warning on semantic guardrail timeout/error
+- `EvaluationCache` config validation (warns on zero max_size/ttl_secs)
+- Agent card expired-entry eviction before capacity check
+- Dead code justification comments in 8 locations
+- Serialization errors return HTTP 500 (governance, discovery, zk_audit, exec_graph routes)
+- `MAX_DASHBOARD_AUDIT_ENTRIES=1,000` with truncation notice
+- `ErrorResponse` doc comment, WebSocket output schema validation TODO
+
+#### HTTP Proxy P2/P3 Fixes
+- `MAX_DISCOVERED_TOOLS_PER_SESSION=10,000` with expired-entry eviction
+- Proxy environment clearing (`.env_clear()` + minimal variable forwarding)
+- Fallback dead_code justification, JSON-RPC error format documentation
+
+#### Test Count Updates
+- Rust: 6,099 → 6,103 (+4 new URL scheme validation tests)
+
 ### Fixed (Adversarial Hardening — Round 47: P0/P1 Deep Fix)
 
 15 findings resolved (3 P0, 12 P1) across 23 files (+1,824/-161 lines).
