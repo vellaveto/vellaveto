@@ -1,10 +1,11 @@
 # Vellaveto Roadmap v4.0
 
 > **Version:** 4.0.0
-> **Generated:** 2026-02-15
+> **Generated:** 2026-02-16
 > **Baseline:** v3.0.0 — 4,812 Rust tests, 130 Python SDK tests, 28 Go SDK tests, 15 TypeScript SDK tests, 22 fuzz targets, 11 CI workflows, 38 audit rounds, 23 phases complete
+> **Current:** 5,725 Rust tests, 165 Python SDK tests, 28 Go SDK tests, 15 TypeScript SDK tests, 24 fuzz targets, 11 CI workflows, 45 audit rounds, 35 phases complete
 > **Scope:** 12 months (Q2 2026 – Q1 2027), quarterly milestones
-> **Status:** v3.0 shipped; all 23 phases complete
+> **Status:** v3.0 shipped; Phases 24–35 complete
 
 ---
 
@@ -29,7 +30,7 @@ The v4.0 roadmap addresses five strategic imperatives:
 | [OWASP Top 10 for Agentic Applications 2026](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/) | Least agency principle |
 | [Lakera Agent Security Report Q4 2025](https://www.lakera.ai) | 88% incident rate, 14.4% approval rate |
 | [Gravitee State of AI Agent Security 2026](https://www.gravitee.io/blog/state-of-ai-agent-security-2026-report-when-adoption-outpaces-control) | Enterprise security gaps |
-| [zk-MCP: Privacy-Preserving Audit](https://arxiv.org/abs/2512.14737) | Phase 34 zk-SNARK reference |
+| [zk-MCP: Privacy-Preserving Audit](https://arxiv.org/abs/2512.14737) | Phase 37 zk-SNARK reference |
 | [Securing the Model Context Protocol](https://arxiv.org/abs/2511.20920) | Formal verification gap |
 | [31 Formal Properties for Agentic AI](https://arxiv.org/abs/2510.14133) | CTL/LTL specifications |
 | [FIPS 203 ML-KEM](https://csrc.nist.gov/pubs/fips/203/final) | Post-quantum key encapsulation |
@@ -38,8 +39,8 @@ The v4.0 roadmap addresses five strategic imperatives:
 | [AWS AgentCore](https://aws.amazon.com/agentcore) | Managed agent runtime competitor |
 | [MintMCP](https://mintmcp.com) | SOC 2 Type II competitor |
 | [TrueFoundry MCP Gateway](https://www.truefoundry.com) | Sub-3ms latency competitor |
-| [OpenTelemetry GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) | Phase 28 tracing |
-| [AAP: Agent Authorization Profile](https://aap-protocol.org) | Phase 32 federation reference |
+| [OpenTelemetry GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) | Phase 28 tracing ✅ |
+| [AAP: Agent Authorization Profile](https://aap-protocol.org) | Phase 39 federation reference |
 | [CoSAI MCP Security Whitepaper](https://www.cosai.owasp.org/) | Threat coverage baseline |
 | [Adversa AI MCP Security TOP 25](https://adversa.ai/mcp-security-top-25/) | Vulnerability catalog |
 | [Singapore IMDA Agentic AI Framework v1.0](https://www.imda.gov.sg) | Governance reference |
@@ -69,14 +70,16 @@ Q3 2026 (Jul–Sep):  Phase 27 — Kubernetes-Native Deployment            [P1] 
                      Phase 28 — Distributed Tracing & Observability     [P1] ✅
                      Phase 29 — Cross-Transport Smart Fallback          [P1] ✅
 
-Q4 2026 (Oct–Dec):  Phase 30 — Developer Experience & SDKs             [P2]
-                     Phase 31 — SOC 2 Type II Access Reviews            [P1]
-                     Phase 32 — Agent Identity Federation               [P1]
+Q3–Q4 2026:          Phase 34 — Tool Discovery Service                  [P1] ✅
+                     Phase 35 — Model Projector                         [P1] ✅
 
-Q1 2027 (Jan–Mar):  Phase 33 — Formal Verification (TLA+/Alloy)        [P3]
-                     Phase 34 — Zero-Knowledge Audit Trails             [P3]
-                     Phase 35 — Post-Quantum Cryptography Migration     [P3]
-                     Phase 36 — Performance Benchmarking Paper          [P3]
+Q4 2026 (Oct–Dec):  Phase 36 — Developer Experience & SDKs             [P2]
+                     Phase 37 — Zero-Knowledge Audit Trails             [P3]
+                     Phase 38 — SOC 2 Type II Access Reviews            [P1]
+
+Q1 2027 (Jan–Mar):  Phase 39 — Agent Identity Federation               [P1]
+                     Phase 40 — Post-Quantum Cryptography Migration     [P3]
+                     Phase 41 — Performance Benchmarking Paper          [P3]
 ```
 
 ---
@@ -259,15 +262,49 @@ The existing `LeastAgencyTracker` in `vellaveto-engine/src/least_agency.rs` prov
 
 ---
 
+### Phase 34: Tool Discovery Service (P1) — COMPLETE
+
+*Focus: Natural language tool search across MCP servers with session-scoped TTL lifecycle*
+
+**Delivered:** Pure Rust TF-IDF inverted index with cosine similarity scoring (zero new dependencies). `DiscoveryEngine` with policy filtering closure, configurable token budget, and `min_relevance_score` cutoff. Auto-indexing from `tools/list` responses via `ingest_tools_list()`. Session-scoped TTL lifecycle: `record_discovered_tools()`, `is_tool_discovery_expired()`, `mark_tool_used()`, `evict_expired_discoveries()`. REST API: `POST /api/discovery/search`, `GET /api/discovery/index/stats`, `POST /api/discovery/reindex`, `GET /api/discovery/tools` (with server_id/sensitivity filters). SDK methods in Python (sync+async), TypeScript, and Go. Feature-gated behind `discovery`. ~260 new tests.
+
+### Phase 34 Exit Criteria
+- [x] TF-IDF index ingests tools from MCP `tools/list` responses
+- [x] Natural language search returns ranked results with relevance scores
+- [x] Policy filtering closure excludes unauthorized tools from results
+- [x] Token budget enforcement caps total schema tokens in results
+- [x] Session-scoped TTL lifecycle (discover → use → expire → re-discover)
+- [x] REST API with input validation (query length, control chars, sensitivity enum)
+- [x] SDK methods in Python, TypeScript, and Go
+- [x] Feature-gated: zero cost when disabled
+
+---
+
+### Phase 35: Model Projector (P1) — COMPLETE
+
+*Focus: Model-agnostic tool schema projection with compression and call repair*
+
+**Delivered:** `ModelProjection` trait with `ProjectorRegistry` (RwLock-based concurrent access). 5 built-in projections: Claude (Anthropic `tool_use` format with `cache_control` hints), OpenAI (`functions` array format with JSON string argument parsing), DeepSeek (first-sentence truncation, `<think>` block stripping, markdown code block extraction), Qwen (200-char CJK-aware truncation), Generic (passthrough with flexible field names). `SchemaCompressor` with 5 progressive strategies: strip redundant root `"type": "object"`, inline single-value enums, truncate descriptions to first sentence, collapse single-property nested objects, remove optional parameter descriptions. `CallRepairer` with type coercion (string→number/boolean), missing-required-field default injection, Levenshtein fuzzy tool name matching, DeepSeek markdown extraction. REST API: `GET /api/projector/models`, `POST /api/projector/transform`. Audit helper: `log_projector_event()`. Feature-gated behind `projector`. ~230 new tests.
+
+### Phase 35 Exit Criteria
+- [x] `ModelProjection` trait with 5 built-in implementations (Claude, OpenAI, DeepSeek, Qwen, Generic)
+- [x] `ProjectorRegistry` with concurrent registration and lookup
+- [x] Schema compression reduces token cost with 5 progressive strategies
+- [x] Call repair handles type coercion, default injection, and fuzzy name matching
+- [x] REST API for model listing and manual schema projection
+- [x] Feature-gated: zero cost when disabled
+
+---
+
 ## Q4 2026 (Oct–Dec): Developer Experience & Enterprise
 
-### Phase 30: Developer Experience & SDK Ecosystem (P2)
+### Phase 36: Developer Experience & SDK Ecosystem (P2)
 
 *Focus: IDE integration, Java SDK, and visual policy execution tools*
 
 **Deferred from v3.0 Phase 22**
 
-#### 30.1 VS Code Extension
+#### 36.1 VS Code Extension
 
 | Task | Priority | Effort | Depends On |
 |------|----------|--------|------------|
@@ -277,7 +314,7 @@ The existing `LeastAgencyTracker` in `vellaveto-engine/src/least_agency.rs` prov
 | Policy playground panel (simulate against sample actions) | P2 | 3 days | — |
 | Publish to VS Code Marketplace | P2 | 1 day | All above |
 
-#### 30.2 Java SDK
+#### 36.2 Java SDK
 
 | Task | Priority | Effort | Depends On |
 |------|----------|--------|------------|
@@ -287,7 +324,7 @@ The existing `LeastAgencyTracker` in `vellaveto-engine/src/least_agency.rs` prov
 | Maven Central publishing with javadoc | P2 | 2 days | Implementation |
 | JUnit 5 tests (target 30+ tests) | P2 | 2 days | Implementation |
 
-#### 30.3 React/WASM Execution Graph UI
+#### 36.3 React/WASM Execution Graph UI
 
 | Task | Priority | Effort | Depends On |
 |------|----------|--------|------------|
@@ -297,7 +334,7 @@ The existing `LeastAgencyTracker` in `vellaveto-engine/src/least_agency.rs` prov
 | Policy diff visualization (before/after comparison) | P2 | 2 days | — |
 | Embed in dashboard route or serve as standalone SPA | P2 | 1 day | All above |
 
-### Phase 30 Exit Criteria
+### Phase 36 Exit Criteria
 - [ ] VS Code extension published to Marketplace with policy validation
 - [ ] Java SDK published to Maven Central with 30+ tests
 - [ ] Execution graph UI renders live verdict flows
@@ -307,7 +344,7 @@ The existing `LeastAgencyTracker` in `vellaveto-engine/src/least_agency.rs` prov
 
 ---
 
-### Phase 31: SOC 2 Type II Access Review Reports (P1)
+### Phase 38: SOC 2 Type II Access Review Reports (P1)
 
 *Focus: Automated access review report generation for SOC 2 auditors*
 
@@ -324,7 +361,7 @@ The existing SOC 2 evidence generation at `vellaveto-audit/src/soc2.rs` covers C
 | API: `GET /api/compliance/soc2/access-review?period=30d` | P1 | 1 day | Generation |
 | PDF/HTML export of access review reports | P1 | 2 days | API |
 
-### Phase 31 Exit Criteria
+### Phase 38 Exit Criteria
 - [ ] Access review reports generated for configurable time periods
 - [ ] Reports include: agent identity, permissions granted, permissions used, usage ratio
 - [ ] Reports include: reviewer attestation fields for SOC 2 auditor sign-off
@@ -334,7 +371,7 @@ The existing SOC 2 evidence generation at `vellaveto-audit/src/soc2.rs` covers C
 
 ---
 
-### Phase 32: Agent Identity Federation (P1)
+### Phase 39: Agent Identity Federation (P1)
 
 *Focus: Runtime JWKS resolution, cross-organization ABAC evaluation, and identity mapping*
 
@@ -350,7 +387,7 @@ The existing federation types in `vellaveto-types/src/abac.rs` (`FederationTrust
 | API: `POST /api/federation/trust-anchors`, `GET /api/federation/status` | P1 | 2 days | Implementation |
 | Integration tests: agents from org-A evaluated against org-B policies | P1 | 2 days | All above |
 
-### Phase 32 Exit Criteria
+### Phase 39 Exit Criteria
 - [ ] JWKS resolution from 2+ external issuers working
 - [ ] JWT claims from federated identity mapped to internal ABAC principals
 - [ ] Cross-organization tool call evaluated correctly through ABAC
@@ -362,11 +399,11 @@ The existing federation types in `vellaveto-types/src/abac.rs` (`FederationTrust
 
 ## Q1 2027 (Jan–Mar): Research & Future-Proofing
 
-### Phase 33: Formal Verification (TLA+/Alloy) (P3)
+### Phase 33: Formal Verification (TLA+/Alloy) (P3) — COMPLETE
 
 *Focus: First formal model of MCP policy enforcement — a first-of-its-kind contribution*
 
-No formal model of MCP policy enforcement exists in any framework (TLA+, Alloy, Lean, Coq). Documented as Gap #1 in `docs/MCP_SECURITY_GAPS.md`.
+**Delivered:** TLA+ specs for policy engine (6 safety + 2 liveness) and ABAC forbid-overrides (4 safety). Alloy model for capability delegation (6 safety assertions). 19 verified properties with source traceability. First formal model of MCP policy enforcement in any framework.
 
 #### 33.1 TLA+ Specification of MCP Policy Engine
 
@@ -406,7 +443,7 @@ No formal model of MCP policy enforcement exists in any framework (TLA+, Alloy, 
 
 ---
 
-### Phase 34: Zero-Knowledge Audit Trails (P3)
+### Phase 37: Zero-Knowledge Audit Trails (P3)
 
 *Focus: Privacy-preserving audit with zk-SNARK proofs*
 
@@ -422,7 +459,7 @@ No formal model of MCP policy enforcement exists in any framework (TLA+, Alloy, 
 | Feature-gate behind `zk-audit` to avoid dependency cost for non-users | P3 | 1 day | — |
 | Integration with existing Merkle tree proofs (combine zk + Merkle for full audit) | P3 | 3 days | Both systems |
 
-### Phase 34 Exit Criteria
+### Phase 37 Exit Criteria
 - [ ] zk-SNARK proofs generated for audit entries with < 5% latency overhead
 - [ ] Proofs verifiable without access to original parameters (privacy-preserving)
 - [ ] Feature-gated: zero cost when disabled
@@ -432,7 +469,7 @@ No formal model of MCP policy enforcement exists in any framework (TLA+, Alloy, 
 
 ---
 
-### Phase 35: Post-Quantum Cryptography Migration (P3)
+### Phase 40: Post-Quantum Cryptography Migration (P3)
 
 *Focus: Replace classical cryptographic primitives with NIST post-quantum standards*
 
@@ -447,7 +484,7 @@ The existing TLS KEX policy in `vellaveto-config/src/enterprise.rs` and migratio
 | Update FIPS 140-3 mode (`vellaveto-mcp/src/fips.rs`) to include PQ algorithms | P3 | 2 days | ML-DSA, ML-KEM |
 | Benchmark: PQ signature verification overhead vs Ed25519 | P3 | 2 days | Implementation |
 
-### Phase 35 Exit Criteria
+### Phase 40 Exit Criteria
 - [ ] ML-DSA (FIPS 204) available as alternative to Ed25519 for all signing operations
 - [ ] ML-KEM (FIPS 203) available for key encapsulation
 - [ ] Dual-signature mode allows gradual migration
@@ -457,7 +494,7 @@ The existing TLS KEX policy in `vellaveto-config/src/enterprise.rs` and migratio
 
 ---
 
-### Phase 36: Performance Benchmarking Paper (P3)
+### Phase 41: Performance Benchmarking Paper (P3)
 
 *Focus: Rigorous, peer-reviewed performance characterization*
 
@@ -472,7 +509,7 @@ No rigorous MCP security proxy benchmark exists (Gap #5 in `docs/MCP_SECURITY_GA
 | Memory profiling: baseline RSS, per-connection overhead, policy count scaling | P3 | 2 days | — |
 | Draft paper for OSDI/NSDI/MLSys | P3 | 10 days | All benchmarks |
 
-### Phase 36 Exit Criteria
+### Phase 41 Exit Criteria
 - [ ] Standardized benchmark suite published as open-source
 - [ ] Pipeline decomposition shows per-component latency contribution
 - [ ] P99 < 5ms verified at 10K concurrent connections
@@ -495,18 +532,20 @@ No rigorous MCP security proxy benchmark exists (Gap #5 in `docs/MCP_SECURITY_GA
 | Tamper-Evident Audit | SHA-256 chain + Merkle + Ed25519 | None | None | None | None | CloudTrail |
 | ETDI Tool Signing | Ed25519/ECDSA | None | None | None | None | None |
 | EU AI Act | Art 5–50 complete (Phase 24) | None | None | None | None | None |
-| SOC 2 Evidence | CC1-CC9 + access reviews (Phase 31) | SOC 2 Type II | None | None | None | SOC 2 |
-| Formal Verification | TLA+/Alloy (Phase 33) | None | None | None | None | None |
-| K8s Native | StatefulSet + leader election (Phase 27) | Unknown | K8s | Unknown | K8s native | Managed |
-| Shadow AI Detection | Enterprise-wide (Phase 26) | None | None | None | None | None |
-| Agent Federation | JWKS + cross-org ABAC (Phase 32) | None | None | None | None | None |
-| Cross-Transport Fallback | gRPC → WS → HTTP (Phase 29) | None | None | None | None | None |
-| Distributed Tracing | W3C + OTel GenAI (Phase 28) | None | None | None | None | X-Ray |
-| zk-SNARK Audit | Phase 34 | None | None | None | None | None |
-| Post-Quantum Crypto | ML-DSA/ML-KEM (Phase 35) | None | None | None | None | None |
+| SOC 2 Evidence | CC1-CC9 + access reviews (Phase 38) | SOC 2 Type II | None | None | None | SOC 2 |
+| Formal Verification | TLA+/Alloy ✅ (Phase 33) | None | None | None | None | None |
+| K8s Native | StatefulSet + leader election ✅ (Phase 27) | Unknown | K8s | Unknown | K8s native | Managed |
+| Shadow AI Detection | Enterprise-wide ✅ (Phase 26) | None | None | None | None | None |
+| Tool Discovery | TF-IDF search ✅ (Phase 34) | None | None | None | None | None |
+| Model Projector | 5-model projection ✅ (Phase 35) | None | None | None | None | None |
+| Agent Federation | JWKS + cross-org ABAC (Phase 39) | None | None | None | None | None |
+| Cross-Transport Fallback | gRPC → WS → HTTP ✅ (Phase 29) | None | None | None | None | None |
+| Distributed Tracing | W3C + OTel GenAI ✅ (Phase 28) | None | None | None | None | X-Ray |
+| zk-SNARK Audit | Phase 37 | None | None | None | None | None |
+| Post-Quantum Crypto | ML-DSA/ML-KEM (Phase 40) | None | None | None | None | None |
 | Open Source | AGPL-3.0 | Commercial | Commercial | Commercial | MIT | Commercial |
 | Self-Hosted | Full | Partial | Full | Unknown | Full | No (managed) |
-| SDKs | Python, TypeScript, Go, Java (Phase 30) | Python | Python | TypeScript | None | Python, Java |
+| SDKs | Python, TypeScript, Go, Java (Phase 36) | Python | Python | TypeScript | None | Python, Java |
 
 **Legend:** ✅ = Implemented | Phase N = Planned for v4.0
 
@@ -515,28 +554,31 @@ No rigorous MCP security proxy benchmark exists (Gap #5 in `docs/MCP_SECURITY_GA
 ## Phase Dependency Map
 
 ```
-Phase 24 (EU AI Act)     ──── independent ──────────────────────────────┐
-Phase 25 (MCP Spec)      ──── independent ──────────────────────────────┤
-Phase 26 (Shadow AI)     ──── independent ──────────────────────────────┤
+Phase 24 (EU AI Act)     ──── independent ──────────────────────────── ✅
+Phase 25 (MCP Spec)      ──── independent ──────────────────────────── ✅
+Phase 26 (Shadow AI)     ──── independent ──────────────────────────── ✅
+
+Phase 27 (K8s)           ──── depends on gateway router (Phase 20) ─── ✅
+Phase 28 (Tracing)       ──── depends on OTLP exporter (Phase 19) ──── ✅
+Phase 29 (Fallback)      ──── depends on transport types (Phase 17) ── ✅
+Phase 30 (MCP Spec)      ──── depends on protocol types (Phase 18) ─── ✅
+
+Phase 33 (Formal Verif)  ──── depends on engine (Phase 21) ─────────── ✅
+Phase 34 (Discovery)     ──── depends on MCP types (Phase 17) ──────── ✅
+Phase 35 (Projector)     ──── depends on MCP types (Phase 17) ──────── ✅
                                                                         │
-Phase 27 (K8s)           ──── depends on gateway router (Phase 20) ─────┤
-Phase 28 (Tracing)       ──── depends on OTLP exporter (Phase 19) ──────┤
-Phase 29 (Fallback)      ──── depends on transport types (Phase 17) ────┤
+Phase 36 (DX/SDK)        ──── independent ──────────────────────────────┤
+Phase 37 (zk-Audit)      ──── depends on Merkle proofs (Phase 19) ──────┤
+Phase 38 (SOC 2)         ──── depends on SOC 2 registry (Phase 19) ────┤
                                                                         │
-Phase 30 (DX/SDK)        ──── independent ──────────────────────────────┤
-Phase 31 (SOC 2)         ──── depends on SOC 2 registry (Phase 19) ────┤
-Phase 32 (Federation)    ──── depends on ABAC engine (Phase 21) ────────┤
-                                                                        │
-Phase 33 (Formal Verif)  ──── depends on engine (Phase 21) ─────────────┤
-Phase 34 (zk-Audit)      ──── depends on Merkle proofs (Phase 19) ──────┤
-Phase 35 (PQC)           ──── depends on FIPS mode (Phase 23) ──────────┤
-Phase 36 (Benchmark)     ──── depends on all benchmarks complete ───────┘
+Phase 39 (Federation)    ──── depends on ABAC engine (Phase 21) ────────┤
+Phase 40 (PQC)           ──── depends on FIPS mode (Phase 23) ──────────┤
+Phase 41 (Benchmark)     ──── depends on all benchmarks complete ───────┘
 ```
 
-Phases 24, 25, and 26 can run in parallel (Q2 2026).
-Phases 27, 28, and 29 can run in parallel (Q3 2026).
-Phases 30, 31, and 32 can run in parallel (Q4 2026).
-Phases 33, 34, 35, and 36 can run in parallel (Q1 2027).
+Phases 24–30, 33–35 complete. Remaining phases:
+Phases 36, 37, and 38 can run in parallel (Q4 2026).
+Phases 39, 40, and 41 can run in parallel (Q1 2027).
 
 ---
 
@@ -545,20 +587,23 @@ Phases 33, 34, 35, and 36 can run in parallel (Q1 2027).
 | Phase | Estimated New Tests | Running Total |
 |-------|--------------------:|:-------------:|
 | v3.0 baseline | — | 4,985 |
-| Phase 24 (EU AI Act) | ~40 | 5,025 |
-| Phase 25 (MCP Spec) | ~50 | 5,075 |
-| Phase 26 (Shadow AI) | ~35 | 5,110 |
-| Phase 27 (K8s) | ~45 | 5,155 |
-| Phase 28 (Tracing) | ~30 | 5,185 |
-| Phase 29 (Fallback) | ~25 | 5,210 |
-| Phase 30 (DX/SDK) | ~80 | 5,290 |
-| Phase 31 (SOC 2) | ~20 | 5,310 |
-| Phase 32 (Federation) | ~30 | 5,340 |
-| Phase 33 (Formal Verif) | ~15 | 5,355 |
-| Phase 34 (zk-Audit) | ~25 | 5,380 |
-| Phase 35 (PQC) | ~20 | 5,400 |
-| Phase 36 (Benchmark) | ~10 | 5,410 |
-| **v4.0 target** | **~425 new** | **~5,400+** |
+| Phase 24 (EU AI Act) | ~40 | 5,025 ✅ |
+| Phase 25 (MCP Spec) | ~50 | 5,075 ✅ |
+| Phase 26 (Shadow AI) | ~35 | 5,110 ✅ |
+| Phase 27 (K8s) | ~45 | 5,155 ✅ |
+| Phase 28 (Tracing) | ~30 | 5,185 ✅ |
+| Phase 29 (Fallback) | ~71 | 5,256 ✅ |
+| Phase 30 (MCP 2025-11-25) | ~42 | 5,298 ✅ |
+| Phase 33 (Formal Verif) | ~15 | 5,313 ✅ |
+| Phase 34 (Discovery) | ~260 | 5,495 ✅ |
+| Phase 35 (Projector) | ~230 | 5,725 ✅ |
+| Phase 36 (DX/SDK) | ~80 | 5,805 |
+| Phase 37 (zk-Audit) | ~25 | 5,830 |
+| Phase 38 (SOC 2) | ~20 | 5,850 |
+| Phase 39 (Federation) | ~30 | 5,880 |
+| Phase 40 (PQC) | ~20 | 5,900 |
+| Phase 41 (Benchmark) | ~10 | 5,910 |
+| **v4.0 target** | **~925 actual + ~185 remaining** | **~5,900+** |
 
 ---
 
@@ -568,11 +613,11 @@ Phases 33, 34, 35, and 36 can run in parallel (Q1 2027).
 |------|--------|-------------|------------|
 | MCP June 2026 spec delayed | Phase 25 blocked | Medium | Build on 2025-11-25; placeholder already in code |
 | EU AI Act interpretation ambiguity (Art 50(2) scope) | Over/under-engineering Phase 24 | High | Track EU AI Office guidance; implement configurable verbosity |
-| zk-SNARK framework maturity in Rust | Phase 34 timeline slip | Medium | Prototype with arkworks early; fallback to simpler commitment schemes |
-| K8s leader election edge cases | Phase 27 reliability | Medium | Use well-tested `kube-rs` lease implementation; extensive integration tests |
-| Formal verification scope creep | Phase 33 never completes | High | Bound scope to 3 specific safety properties; time-box to 12 weeks |
-| Competitor feature parity in K8s | Phase 27 insufficient | Low | Microsoft MCP GW is routing-only; Vellaveto's security stack remains differentiator |
-| Post-quantum crate ecosystem immaturity | Phase 35 blocked | Medium | Track `pqcrypto` and `ml-dsa` crate development; defer if not production-ready |
+| zk-SNARK framework maturity in Rust | Phase 37 timeline slip | Medium | Prototype with arkworks early; fallback to simpler commitment schemes |
+| K8s leader election edge cases | Phase 27 reliability | Medium | Use well-tested `kube-rs` lease implementation; extensive integration tests — ✅ mitigated (Phase 27 complete) |
+| Formal verification scope creep | Phase 33 never completes | High | Bound scope to 3 specific safety properties; time-box to 12 weeks — ✅ mitigated (Phase 33 complete, 19 properties) |
+| Competitor feature parity in K8s | Phase 27 insufficient | Low | Microsoft MCP GW is routing-only; Vellaveto's security stack remains differentiator — ✅ mitigated |
+| Post-quantum crate ecosystem immaturity | Phase 40 blocked | Medium | Track `pqcrypto` and `ml-dsa` crate development; defer if not production-ready |
 
 ---
 
@@ -581,10 +626,26 @@ Phases 33, 34, 35, and 36 can run in parallel (Q1 2027).
 ---
 
 <details>
-<summary><h2>Archive: v3.0 Completed Phases (17–23)</h2></summary>
+<summary><h2>Archive: v4.0 Completed Phases (24–35)</h2></summary>
 
-> All phases below are **implemented, tested, and hardened** through 43 audit rounds.
+> All phases below are **implemented, tested, and hardened** through 45 audit rounds.
 > Preserved here for historical reference and traceability.
+
+### Phase 34: Tool Discovery Service (P1) — COMPLETE
+- Pure Rust TF-IDF inverted index (cosine similarity, zero new deps), `DiscoveryEngine` with policy filtering and token budget, session-scoped TTL lifecycle, REST API (search/stats/reindex/tools), SDK methods (Python/TypeScript/Go), feature-gated
+- 8/8 exit criteria delivered, ~260 new tests
+
+### Phase 35: Model Projector (P1) — COMPLETE
+- `ModelProjection` trait with `ProjectorRegistry`, 5 built-in projections (Claude/OpenAI/DeepSeek/Qwen/Generic), `SchemaCompressor` (5 strategies), `CallRepairer` (type coercion, Levenshtein, DeepSeek markdown), REST API (models/transform), feature-gated
+- 6/6 exit criteria delivered, ~230 new tests
+
+### Phase 33: Formal Verification (TLA+/Alloy) (P3) — COMPLETE
+- TLA+ specs for policy engine (6 safety + 2 liveness) and ABAC forbid-overrides (4 safety), Alloy model for capability delegation (6 safety assertions), 19 verified properties
+- First formal model of MCP policy enforcement in any framework
+
+### Phase 30: MCP 2025-11-25 Spec Adoption (P0) — COMPLETE
+- `validate_mcp_tool_name()`, `StreamableHttpConfig`, `handle_mcp_get()` for SSE, `WWW-Authenticate` header, strict tool name validation
+- ~42 new tests
 
 ### Phase 27: Kubernetes-Native Deployment (P1) — COMPLETE
 - `LeaderElection` trait + `LocalLeaderElection`, `ServiceDiscovery` trait + `StaticServiceDiscovery` + `DnsServiceDiscovery`, `DeploymentConfig` with validation, `GET /api/deployment/info`, health endpoint extensions, Helm chart v4.0.0 (StatefulSet + PVC + sidecar), deployment audit events
