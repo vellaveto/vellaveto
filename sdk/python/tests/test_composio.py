@@ -277,9 +277,10 @@ class TestBeforeExecuteModifier:
         })
         request = httpx_mock.get_request()
         body = json.loads(request.content)
-        assert body["action"]["tool"] == "github"
-        assert body["action"]["function"] == "create_issue"
-        assert "https://github.com/org/repo" in body["action"]["target_domains"]
+        # P0-2: Payload is flattened (no "action" wrapper).
+        assert body["tool"] == "github"
+        assert body["function"] == "create_issue"
+        assert "https://github.com/org/repo" in body["target_domains"]
         assert body["context"]["session_id"] == "test-session"
         assert body["context"]["agent_id"] == "test-agent"
         client.close()

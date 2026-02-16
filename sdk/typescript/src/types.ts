@@ -25,6 +25,7 @@ export interface EvaluationResult {
   verdict: Verdict;
   reason?: string;
   policy_id?: string;
+  policy_name?: string;
   approval_id?: string;
   trace?: Record<string, unknown>;
 }
@@ -215,4 +216,69 @@ export interface ProjectorTransformResponse {
   projected_schema: Record<string, unknown>;
   token_estimate: number;
   model_family: string;
+}
+
+// ── ZK Audit (Phase 37) ────────────────────────────────────
+
+/** Status of the ZK audit scheduler. */
+export interface ZkSchedulerStatus {
+  /** Whether the batch prover is active. */
+  active: boolean;
+  /** Number of pending witnesses awaiting batch proof. */
+  pending_witnesses: number;
+  /** Number of completed batch proofs. */
+  completed_proofs: number;
+  /** Sequence number of the last proved entry. */
+  last_proved_sequence?: number;
+  /** ISO 8601 timestamp of the last batch proof. */
+  last_proof_at?: string;
+}
+
+/** A stored ZK batch proof. */
+export interface ZkBatchProof {
+  /** Hex-encoded Groth16 proof bytes. */
+  proof: string;
+  /** Unique batch identifier (UUID). */
+  batch_id: string;
+  /** Inclusive range of entry sequence numbers [start, end]. */
+  entry_range: [number, number];
+  /** Hex-encoded Merkle root at the end of the batch. */
+  merkle_root: string;
+  /** Hex-encoded prev_hash of the first entry. */
+  first_prev_hash: string;
+  /** Hex-encoded entry_hash of the last entry. */
+  final_entry_hash: string;
+  /** ISO 8601 timestamp when the proof was created. */
+  created_at: string;
+  /** Number of entries in the batch. */
+  entry_count: number;
+}
+
+/** Result of verifying a ZK batch proof. */
+export interface ZkVerifyResult {
+  /** Whether the proof is valid. */
+  valid: boolean;
+  /** The batch ID that was verified. */
+  batch_id: string;
+  /** The entry range that was verified. */
+  entry_range: [number, number];
+  /** ISO 8601 timestamp when verification was performed. */
+  verified_at: string;
+  /** Error message if verification failed. */
+  error?: string;
+}
+
+/** Response from the ZK commitments endpoint. */
+export interface ZkCommitmentsResponse {
+  commitments: Record<string, unknown>[];
+  total: number;
+  range: [number, number];
+}
+
+/** Response from the ZK proofs list endpoint. */
+export interface ZkProofsResponse {
+  proofs: ZkBatchProof[];
+  total: number;
+  offset: number;
+  limit: number;
 }

@@ -76,6 +76,61 @@ _TRANSIENT_STATUS_CODES = frozenset({502, 503, 504})
 _MAX_INPUT_STRING_LEN = 1024
 
 
+def _validate_evaluate_inputs(
+    tool: str,
+    function: Optional[str],
+    parameters: Optional[Dict[str, Any]],
+    target_paths: Optional[List[str]],
+    target_domains: Optional[List[str]],
+) -> None:
+    """Validate inputs for evaluate() — shared by sync and async clients.
+
+    Raises:
+        VellavetoError: If any input is invalid.
+    """
+    # SECURITY (FIND-SDK-020): Validate inputs to prevent abuse
+    if not isinstance(tool, str) or not tool.strip():
+        raise VellavetoError("tool must be a non-empty string")
+    if len(tool) > _MAX_INPUT_STRING_LEN:
+        raise VellavetoError(
+            f"tool name too long: {len(tool)} > {_MAX_INPUT_STRING_LEN}"
+        )
+    if function is not None:
+        if not isinstance(function, str):
+            raise VellavetoError("function must be a string or None")
+        if len(function) > _MAX_INPUT_STRING_LEN:
+            raise VellavetoError(
+                f"function name too long: {len(function)} > {_MAX_INPUT_STRING_LEN}"
+            )
+    if parameters is not None and not isinstance(parameters, dict):
+        raise VellavetoError("parameters must be a dict or None")
+    if target_paths is not None and not isinstance(target_paths, list):
+        raise VellavetoError("target_paths must be a list or None")
+    if target_domains is not None and not isinstance(target_domains, list):
+        raise VellavetoError("target_domains must be a list or None")
+
+
+def _build_evaluate_payload(
+    action: Action,
+    context: Optional[EvaluationContext],
+) -> Dict[str, Any]:
+    """Build a flattened evaluate payload — shared by sync and async clients.
+
+    The server expects fields at the root level (``#[serde(flatten)]``), not
+    nested under an ``"action"`` key.
+    """
+    payload: Dict[str, Any] = {
+        "tool": action.tool,
+        "function": action.function or "",
+        "parameters": action.parameters,
+        "target_paths": action.target_paths,
+        "target_domains": action.target_domains,
+    }
+    if context:
+        payload["context"] = context.to_dict()
+    return payload
+
+
 class VellavetoClient:
     """
     Synchronous client for the Vellaveto API.
@@ -316,26 +371,7 @@ class VellavetoClient:
             ApprovalRequired: If action requires approval (when raise_on_deny=True)
             VellavetoError: On API errors
         """
-        # SECURITY (FIND-SDK-020): Validate inputs to prevent abuse
-        if not isinstance(tool, str) or not tool.strip():
-            raise VellavetoError("tool must be a non-empty string")
-        if len(tool) > _MAX_INPUT_STRING_LEN:
-            raise VellavetoError(
-                f"tool name too long: {len(tool)} > {_MAX_INPUT_STRING_LEN}"
-            )
-        if function is not None:
-            if not isinstance(function, str):
-                raise VellavetoError("function must be a string or None")
-            if len(function) > _MAX_INPUT_STRING_LEN:
-                raise VellavetoError(
-                    f"function name too long: {len(function)} > {_MAX_INPUT_STRING_LEN}"
-                )
-        if parameters is not None and not isinstance(parameters, dict):
-            raise VellavetoError("parameters must be a dict or None")
-        if target_paths is not None and not isinstance(target_paths, list):
-            raise VellavetoError("target_paths must be a list or None")
-        if target_domains is not None and not isinstance(target_domains, list):
-            raise VellavetoError("target_domains must be a list or None")
+        _validate_evaluate_inputs(tool, function, parameters, target_paths, target_domains)
 
         effective_params = parameters or {}
         if self.redactor is not None:
@@ -349,10 +385,7 @@ class VellavetoClient:
             target_domains=target_domains or [],
         )
 
-        payload = {"action": action.to_dict()}
-
-        if context:
-            payload["context"] = context.to_dict()
+        payload = _build_evaluate_payload(action, context)
 
         params = {}
         if trace:
@@ -423,7 +456,7 @@ class VellavetoClient:
 
     def get_pending_approvals(self) -> List[Dict[str, Any]]:
         """Get list of pending approval requests."""
-        return self._request("GET", "/api/approvals")
+        return self._request("GET", "/api/approvals/pending")
 
     def resolve_approval(
         self,
@@ -444,13 +477,14 @@ class VellavetoClient:
             raise VellavetoError(
                 f"Invalid approval_id: must contain only alphanumeric, dash, or underscore characters"
             )
+        action = "approve" if approved else "deny"
+        json_data: Optional[Dict[str, Any]] = None
+        if reason is not None:
+            json_data = {"reason": reason}
         return self._request(
             method="POST",
-            path=f"/api/approvals/{approval_id}",
-            json_data={
-                "approved": approved,
-                "reason": reason,
-            },
+            path=f"/api/approvals/{approval_id}/{action}",
+            json_data=json_data,
         )
 
     def discover(
@@ -701,7 +735,21 @@ class AsyncVellavetoClient:
                 headers=self._headers(),
             )
             response.raise_for_status()
+            # SECURITY (FIND-SDK-003): Enforce response size limit to prevent OOM
+            content_length = response.headers.get("content-length")
+            if content_length is not None and int(content_length) > _MAX_RESPONSE_BYTES:
+                raise VellavetoError(
+                    f"Response too large: {content_length} bytes exceeds "
+                    f"{_MAX_RESPONSE_BYTES} byte limit"
+                )
+            if len(response.content) > _MAX_RESPONSE_BYTES:
+                raise VellavetoError(
+                    f"Response body too large: {len(response.content)} bytes exceeds "
+                    f"{_MAX_RESPONSE_BYTES} byte limit"
+                )
             return response.json()
+        except (VellavetoError, PolicyDenied, ApprovalRequired):
+            raise
         except Exception as e:
             # SECURITY (FIND-SDK-001): Sanitize error messages in async client too.
             error_msg = str(e)
@@ -722,6 +770,8 @@ class AsyncVellavetoClient:
         trace: bool = False,
     ) -> EvaluationResult:
         """Evaluate a tool call against Vellaveto policies (async)."""
+        _validate_evaluate_inputs(tool, function, parameters, target_paths, target_domains)
+
         effective_params = parameters or {}
         if self.redactor is not None:
             effective_params = self.redactor.redact(effective_params)
@@ -734,10 +784,7 @@ class AsyncVellavetoClient:
             target_domains=target_domains or [],
         )
 
-        payload = {"action": action.to_dict()}
-
-        if context:
-            payload["context"] = context.to_dict()
+        payload = _build_evaluate_payload(action, context)
 
         params = {}
         if trace:

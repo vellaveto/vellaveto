@@ -9,6 +9,68 @@ use vellaveto_types::{
     AbacEffect, AbacEntity, AbacOp, AbacPolicy, Action, EvaluationContext, RiskScore,
 };
 
+/// A compiled path matcher that uses `globset::Glob` for patterns containing
+/// wildcards (`*`, `**`, `?`, `[`) and falls back to `PatternMatcher` for simple
+/// exact/prefix/suffix patterns.
+///
+/// SECURITY (FIND-P1-5): ABAC resource path matching must have parity with
+/// the main engine's path rules, which use `globset::Glob`. Without this,
+/// patterns like `/home/**/*.txt` would not match correctly.
+#[derive(Debug, Clone)]
+enum CompiledPathMatcher {
+    /// Simple pattern (no glob metacharacters) — use PatternMatcher.
+    Simple(PatternMatcher),
+    /// Glob pattern — pre-compiled for fast matching.
+    Glob(globset::GlobMatcher),
+}
+
+impl CompiledPathMatcher {
+    /// Compile a path pattern. If the pattern contains glob metacharacters
+    /// (`*`, `**`, `?`, `[`), compile as a glob. Otherwise, use PatternMatcher.
+    ///
+    /// Uses `literal_separator(true)` so that `*` does not match path
+    /// separators (`/`), matching standard filesystem glob behavior. Only
+    /// `**` crosses directory boundaries.
+    ///
+    /// SECURITY: If a glob pattern fails to compile, returns `None` (fail-closed).
+    /// The caller must treat `None` as a deny.
+    fn compile(pattern: &str) -> Option<Self> {
+        let has_glob_meta = pattern.contains('*')
+            || pattern.contains('?')
+            || pattern.contains('[');
+
+        if !has_glob_meta {
+            // No glob metacharacters — simple exact match
+            return Some(CompiledPathMatcher::Simple(PatternMatcher::compile(pattern)));
+        }
+
+        // Try to compile as a glob with literal_separator so that `*` does
+        // not cross `/` boundaries (only `**` does).
+        match globset::GlobBuilder::new(pattern)
+            .literal_separator(true)
+            .build()
+        {
+            Ok(glob) => Some(CompiledPathMatcher::Glob(glob.compile_matcher())),
+            Err(e) => {
+                tracing::error!(
+                    pattern = pattern,
+                    error = %e,
+                    "ABAC path pattern failed to compile as glob — fail-closed (deny)"
+                );
+                None // Fail-closed: caller treats as always-deny
+            }
+        }
+    }
+
+    /// Check if a path matches this compiled pattern.
+    fn matches(&self, path: &str) -> bool {
+        match self {
+            CompiledPathMatcher::Simple(m) => m.matches(path),
+            CompiledPathMatcher::Glob(g) => g.is_match(path),
+        }
+    }
+}
+
 /// Maximum transitive group membership depth to prevent cycles.
 const MAX_MEMBERSHIP_DEPTH: usize = 16;
 
@@ -65,10 +127,18 @@ struct CompiledAction {
 }
 
 /// Compiled resource constraint with pre-built path/domain matchers.
+///
+/// SECURITY (FIND-P1-5): Path matchers use `CompiledPathMatcher` which
+/// delegates to `globset::Glob` for patterns containing wildcards. If any
+/// path pattern fails to compile, the entire resource becomes a "fail-closed
+/// deny" (no action can match it) via the `path_compile_failed` flag.
 struct CompiledResource {
-    path_matchers: Vec<PatternMatcher>,
+    path_matchers: Vec<CompiledPathMatcher>,
     domain_matchers: Vec<PatternMatcher>,
     tags: Vec<String>,
+    /// Set to true if any path pattern failed to compile as a glob.
+    /// When true, `matches_resource` returns false (fail-closed).
+    path_compile_failed: bool,
 }
 
 /// Compiled ABAC condition — ready for evaluation.
@@ -313,7 +383,7 @@ const KNOWN_CONDITION_FIELDS: &[&str] = &[
 fn compile_policy(policy: &AbacPolicy) -> Result<CompiledAbacPolicy, String> {
     let principal = compile_principal(&policy.principal);
     let action = compile_action(&policy.action);
-    let resource = compile_resource(&policy.resource);
+    let resource = compile_resource(&policy.resource)?;
 
     // SECURITY (FIND-R46-008): Validate condition fields at compile time.
     // Reject conditions with empty field names, and warn about unknown fields
@@ -385,20 +455,32 @@ fn compile_action(ac: &vellaveto_types::ActionConstraint) -> CompiledAction {
     CompiledAction { matchers }
 }
 
-fn compile_resource(rc: &vellaveto_types::ResourceConstraint) -> CompiledResource {
-    CompiledResource {
-        path_matchers: rc
-            .path_patterns
-            .iter()
-            .map(|p| PatternMatcher::compile(p))
-            .collect(),
+fn compile_resource(rc: &vellaveto_types::ResourceConstraint) -> Result<CompiledResource, String> {
+    let mut path_matchers = Vec::with_capacity(rc.path_patterns.len());
+    let mut path_compile_failed = false;
+
+    for pattern in &rc.path_patterns {
+        match CompiledPathMatcher::compile(pattern) {
+            Some(m) => path_matchers.push(m),
+            None => {
+                // SECURITY (FIND-P1-5): Glob compilation failed — fail-closed.
+                // We still collect remaining matchers for diagnostics, but mark
+                // the resource as failed so matches_resource always returns false.
+                path_compile_failed = true;
+            }
+        }
+    }
+
+    Ok(CompiledResource {
+        path_matchers,
         domain_matchers: rc
             .domain_patterns
             .iter()
             .map(|p| PatternMatcher::compile(p))
             .collect(),
         tags: rc.tags.clone(),
-    }
+        path_compile_failed,
+    })
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -461,6 +543,12 @@ fn matches_action(action_constraint: &CompiledAction, action: &Action) -> bool {
 }
 
 fn matches_resource(resource: &CompiledResource, action: &Action) -> bool {
+    // SECURITY (FIND-P1-5): If any path pattern failed to compile as a glob,
+    // fail-closed — no action can match this resource constraint.
+    if resource.path_compile_failed {
+        return false;
+    }
+
     // Path check: if patterns specified, at least one path must match
     // SECURITY (FIND-R46-001): Apply path normalization before matching to prevent
     // traversal bypasses (e.g., "/home/../etc/passwd" matching "/home/*").
@@ -942,6 +1030,8 @@ mod tests {
 
     #[test]
     fn test_evaluate_resource_path_match() {
+        // FIND-P1-5: Updated from `/home/*` to `/home/**` because with
+        // proper globset matching, `*` no longer crosses path separators.
         let policy = AbacPolicy {
             id: "p1".to_string(),
             description: "home dir only".to_string(),
@@ -950,7 +1040,7 @@ mod tests {
             principal: Default::default(),
             action: Default::default(),
             resource: ResourceConstraint {
-                path_patterns: vec!["/home/*".to_string()],
+                path_patterns: vec!["/home/**".to_string()],
                 domain_patterns: vec![],
                 tags: vec![],
             },
@@ -1556,7 +1646,9 @@ mod tests {
     #[test]
     fn test_r46_001_path_traversal_normalized_in_resource_match() {
         // A path like "/home/../etc/passwd" should be normalized to "/etc/passwd"
-        // and should NOT match a policy for "/home/*".
+        // and should NOT match a policy for "/home/**".
+        // FIND-P1-5: Updated from `/home/*` to `/home/**` because with
+        // proper globset matching, `*` no longer crosses path separators.
         let policy = AbacPolicy {
             id: "p1".to_string(),
             description: "home dir only".to_string(),
@@ -1565,7 +1657,7 @@ mod tests {
             principal: Default::default(),
             action: Default::default(),
             resource: ResourceConstraint {
-                path_patterns: vec!["/home/*".to_string()],
+                path_patterns: vec!["/home/**".to_string()],
                 domain_patterns: vec![],
                 tags: vec![],
             },
@@ -1575,7 +1667,7 @@ mod tests {
         let eval_ctx = EvaluationContext::default();
         let ctx = make_ctx(&eval_ctx, "Agent", "test");
 
-        // Traversal path should normalize to /etc/passwd, not match /home/*
+        // Traversal path should normalize to /etc/passwd, not match /home/**
         let action = make_action_with_paths("fs", "read", vec!["/home/../etc/passwd"]);
         assert_eq!(
             engine.evaluate(&action, &ctx),
@@ -1682,5 +1774,179 @@ mod tests {
         assert!(!store.is_member_of("G::a", "G::nonexistent"));
         // Self-cycle should still find transitive membership
         assert!(store.is_member_of("G::a", "G::b"));
+    }
+
+    // ════════════════════════════════════════════════════════
+    // FIND-P1-5: ABAC resource path matching uses globset
+    // ════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_p1_5_glob_double_star_path_matching() {
+        // `**/*.txt` should match nested paths — PatternMatcher cannot do this
+        let policy = AbacPolicy {
+            id: "p1".to_string(),
+            description: "txt files under /data".to_string(),
+            effect: AbacEffect::Permit,
+            priority: 0,
+            principal: Default::default(),
+            action: Default::default(),
+            resource: ResourceConstraint {
+                path_patterns: vec!["/data/**/*.txt".to_string()],
+                domain_patterns: vec![],
+                tags: vec![],
+            },
+            conditions: vec![],
+        };
+        let engine = make_engine(vec![policy]);
+        let eval_ctx = EvaluationContext::default();
+        let ctx = make_ctx(&eval_ctx, "Agent", "test");
+
+        // Nested txt file should match
+        let action = make_action_with_paths("fs", "read", vec!["/data/subdir/file.txt"]);
+        assert!(matches!(
+            engine.evaluate(&action, &ctx),
+            AbacDecision::Allow { .. }
+        ));
+
+        // Deeply nested txt file should match
+        let action = make_action_with_paths("fs", "read", vec!["/data/a/b/c/file.txt"]);
+        assert!(matches!(
+            engine.evaluate(&action, &ctx),
+            AbacDecision::Allow { .. }
+        ));
+
+        // Non-txt file should not match
+        let action = make_action_with_paths("fs", "read", vec!["/data/subdir/file.json"]);
+        assert_eq!(engine.evaluate(&action, &ctx), AbacDecision::NoMatch);
+
+        // Path outside /data should not match
+        let action = make_action_with_paths("fs", "read", vec!["/etc/file.txt"]);
+        assert_eq!(engine.evaluate(&action, &ctx), AbacDecision::NoMatch);
+    }
+
+    #[test]
+    fn test_p1_5_glob_single_star_path_matching() {
+        // `/home/*/config` should match single-level wildcard
+        let policy = AbacPolicy {
+            id: "p1".to_string(),
+            description: "user config".to_string(),
+            effect: AbacEffect::Permit,
+            priority: 0,
+            principal: Default::default(),
+            action: Default::default(),
+            resource: ResourceConstraint {
+                path_patterns: vec!["/home/*/config".to_string()],
+                domain_patterns: vec![],
+                tags: vec![],
+            },
+            conditions: vec![],
+        };
+        let engine = make_engine(vec![policy]);
+        let eval_ctx = EvaluationContext::default();
+        let ctx = make_ctx(&eval_ctx, "Agent", "test");
+
+        let action = make_action_with_paths("fs", "read", vec!["/home/alice/config"]);
+        assert!(matches!(
+            engine.evaluate(&action, &ctx),
+            AbacDecision::Allow { .. }
+        ));
+
+        // Nested path should NOT match single-star (unlike **)
+        let action = make_action_with_paths("fs", "read", vec!["/home/alice/sub/config"]);
+        assert_eq!(engine.evaluate(&action, &ctx), AbacDecision::NoMatch);
+    }
+
+    #[test]
+    fn test_p1_5_glob_question_mark_path_matching() {
+        // `/tmp/file?.log` should match single character wildcard
+        let policy = AbacPolicy {
+            id: "p1".to_string(),
+            description: "single char wildcard".to_string(),
+            effect: AbacEffect::Permit,
+            priority: 0,
+            principal: Default::default(),
+            action: Default::default(),
+            resource: ResourceConstraint {
+                path_patterns: vec!["/tmp/file?.log".to_string()],
+                domain_patterns: vec![],
+                tags: vec![],
+            },
+            conditions: vec![],
+        };
+        let engine = make_engine(vec![policy]);
+        let eval_ctx = EvaluationContext::default();
+        let ctx = make_ctx(&eval_ctx, "Agent", "test");
+
+        let action = make_action_with_paths("fs", "read", vec!["/tmp/file1.log"]);
+        assert!(matches!(
+            engine.evaluate(&action, &ctx),
+            AbacDecision::Allow { .. }
+        ));
+
+        // Two characters should not match single ?
+        let action = make_action_with_paths("fs", "read", vec!["/tmp/file12.log"]);
+        assert_eq!(engine.evaluate(&action, &ctx), AbacDecision::NoMatch);
+    }
+
+    #[test]
+    fn test_p1_5_exact_path_still_works_without_glob() {
+        // Exact paths (no wildcards) should still work via PatternMatcher
+        let policy = AbacPolicy {
+            id: "p1".to_string(),
+            description: "exact path".to_string(),
+            effect: AbacEffect::Permit,
+            priority: 0,
+            principal: Default::default(),
+            action: Default::default(),
+            resource: ResourceConstraint {
+                path_patterns: vec!["/etc/config.yaml".to_string()],
+                domain_patterns: vec![],
+                tags: vec![],
+            },
+            conditions: vec![],
+        };
+        let engine = make_engine(vec![policy]);
+        let eval_ctx = EvaluationContext::default();
+        let ctx = make_ctx(&eval_ctx, "Agent", "test");
+
+        let action = make_action_with_paths("fs", "read", vec!["/etc/config.yaml"]);
+        assert!(matches!(
+            engine.evaluate(&action, &ctx),
+            AbacDecision::Allow { .. }
+        ));
+
+        let action = make_action_with_paths("fs", "read", vec!["/etc/other.yaml"]);
+        assert_eq!(engine.evaluate(&action, &ctx), AbacDecision::NoMatch);
+    }
+
+    #[test]
+    fn test_p1_5_glob_bracket_pattern() {
+        // `[` triggers glob compilation — test bracket character class
+        let policy = AbacPolicy {
+            id: "p1".to_string(),
+            description: "bracket pattern".to_string(),
+            effect: AbacEffect::Permit,
+            priority: 0,
+            principal: Default::default(),
+            action: Default::default(),
+            resource: ResourceConstraint {
+                path_patterns: vec!["/data/file[0-9].csv".to_string()],
+                domain_patterns: vec![],
+                tags: vec![],
+            },
+            conditions: vec![],
+        };
+        let engine = make_engine(vec![policy]);
+        let eval_ctx = EvaluationContext::default();
+        let ctx = make_ctx(&eval_ctx, "Agent", "test");
+
+        let action = make_action_with_paths("fs", "read", vec!["/data/file5.csv"]);
+        assert!(matches!(
+            engine.evaluate(&action, &ctx),
+            AbacDecision::Allow { .. }
+        ));
+
+        let action = make_action_with_paths("fs", "read", vec!["/data/fileA.csv"]);
+        assert_eq!(engine.evaluate(&action, &ctx), AbacDecision::NoMatch);
     }
 }

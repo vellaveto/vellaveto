@@ -110,13 +110,53 @@ impl ZkBatchScheduler {
     }
 
     /// Internal: drain witnesses and attempt to generate a batch proof.
+    ///
+    /// SECURITY (FIND-P1-1): Witnesses are drained into a temporary buffer.
+    /// If proving fails, the witnesses are restored to the front of the store
+    /// so they are not permanently lost. The sequence range of the failed
+    /// batch is logged at error level for forensic investigation.
     fn try_prove_batch(&self) -> Result<Option<ZkBatchProof>, ZkError> {
         let witnesses = self.witness_store.drain(self.batch_size)?;
         if witnesses.is_empty() {
             return Ok(None);
         }
 
-        let proof = self.prover.prove(&witnesses)?;
+        let first_seq = witnesses.first().map(|w| w.sequence).unwrap_or(0);
+        let last_seq = witnesses.last().map(|w| w.sequence).unwrap_or(0);
+        let witness_count = witnesses.len();
+
+        let proof = match self.prover.prove(&witnesses) {
+            Ok(proof) => proof,
+            Err(e) => {
+                tracing::error!(
+                    first_sequence = first_seq,
+                    last_sequence = last_seq,
+                    witness_count = witness_count,
+                    error = %e,
+                    "Batch proving failed, restoring {} witnesses (seq {}..={})",
+                    witness_count,
+                    first_seq,
+                    last_seq,
+                );
+
+                // Attempt to restore the witnesses to the front of the store
+                if let Err(restore_err) = self.witness_store.restore(witnesses) {
+                    tracing::error!(
+                        first_sequence = first_seq,
+                        last_sequence = last_seq,
+                        witness_count = witness_count,
+                        error = %restore_err,
+                        "CRITICAL: Failed to restore witnesses after proving failure — \
+                         {} witnesses (seq {}..={}) permanently lost",
+                        witness_count,
+                        first_seq,
+                        last_seq,
+                    );
+                }
+
+                return Err(e);
+            }
+        };
 
         let mut guard = self.proof_store.lock().map_err(|e| {
             ZkError::Proof(format!("Proof store lock poisoned: {}", e))

@@ -150,7 +150,7 @@ class TestVellavetoCallbackHandler:
 
         request = httpx_mock.get_request()
         body = json.loads(request.content)
-        assert "/tmp/test.txt" in body["action"]["target_paths"]
+        assert "/tmp/test.txt" in body["target_paths"]
         client.close()
 
     def test_extract_domains_from_input(self, httpx_mock):
@@ -171,7 +171,7 @@ class TestVellavetoCallbackHandler:
 
         request = httpx_mock.get_request()
         body = json.loads(request.content)
-        assert "https://example.com/api" in body["action"]["target_domains"]
+        assert "https://example.com/api" in body["target_domains"]
         client.close()
 
     def test_string_input_handled(self, httpx_mock):
@@ -192,7 +192,7 @@ class TestVellavetoCallbackHandler:
 
         request = httpx_mock.get_request()
         body = json.loads(request.content)
-        assert body["action"]["parameters"] == {"input": "plain string query"}
+        assert body["parameters"] == {"input": "plain string query"}
         client.close()
 
     def test_fail_closed_on_api_error(self, httpx_mock):
@@ -232,7 +232,7 @@ class TestVellavetoCallbackHandler:
 
         request = httpx_mock.get_request()
         body = json.loads(request.content)
-        assert body["action"]["parameters"] == {"new": "data"}
+        assert body["parameters"] == {"new": "data"}
         client.close()
 
 
@@ -300,7 +300,7 @@ class TestVellavetoToolGuard:
 
         request = httpx_mock.get_request()
         body = json.loads(request.content)
-        assert "/tmp/secret.txt" in body["action"]["target_paths"]
+        assert "/tmp/secret.txt" in body["target_paths"]
         client.close()
 
 

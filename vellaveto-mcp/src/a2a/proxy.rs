@@ -51,7 +51,12 @@ pub struct A2aProxyConfig {
     pub enable_shadow_agent_detection: bool,
     /// Require agent card verification.
     pub require_agent_card: bool,
-    /// Request timeout in milliseconds.
+    /// Advisory request timeout in milliseconds.
+    ///
+    /// `process_request()` is synchronous and cannot enforce this timeout
+    /// internally. Callers at the HTTP handler / transport layer MUST wrap
+    /// the upstream call in `tokio::time::timeout` (or equivalent) using
+    /// this value. Exposed via `A2aProxyService::config()`.
     pub request_timeout_ms: u64,
     /// Allowed task operations (empty = all allowed).
     pub allowed_task_operations: Vec<String>,

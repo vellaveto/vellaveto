@@ -41,4 +41,9 @@ export {
   ValidationFinding,
   ValidationSummary,
   Verdict,
+  ZkBatchProof,
+  ZkCommitmentsResponse,
+  ZkProofsResponse,
+  ZkSchedulerStatus,
+  ZkVerifyResult,
 } from "./types";

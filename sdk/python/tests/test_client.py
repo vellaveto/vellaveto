@@ -117,9 +117,10 @@ class TestVellavetoClientEvaluate:
         result = client.evaluate(tool="http", function="fetch", context=ctx)
         assert result.verdict == Verdict.ALLOW
 
-        # Verify context was sent in request body
+        # Verify context was sent in flattened request body
         request = httpx_mock.get_request()
         body = json.loads(request.content)
+        assert body["tool"] == "http"
         assert body["context"]["session_id"] == "sess-1"
         assert body["context"]["agent_id"] == "agent-1"
         assert body["context"]["call_chain"] == ["tool_a"]
@@ -158,11 +159,14 @@ class TestVellavetoClientEvaluate:
 
         request = httpx_mock.get_request()
         body = json.loads(request.content)
-        assert body["action"]["tool"] == "filesystem"
-        assert body["action"]["function"] == "read_file"
-        assert body["action"]["parameters"] == {"path": "/tmp/test.txt"}
-        assert body["action"]["target_paths"] == ["/tmp/test.txt"]
-        assert body["action"]["target_domains"] == ["example.com"]
+        # P0-2: Payload is flattened (no "action" wrapper) to match server's
+        # #[serde(flatten)] expectation.
+        assert body["tool"] == "filesystem"
+        assert body["function"] == "read_file"
+        assert body["parameters"] == {"path": "/tmp/test.txt"}
+        assert body["target_paths"] == ["/tmp/test.txt"]
+        assert body["target_domains"] == ["example.com"]
+        assert "action" not in body
         client.close()
 
 
@@ -254,7 +258,7 @@ class TestVellavetoClientEndpoints:
 
     def test_get_pending_approvals(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:3000/api/approvals",
+            url="http://localhost:3000/api/approvals/pending",
             json=[{"id": "apr-1", "tool": "database", "status": "pending"}],
         )
 
@@ -264,9 +268,9 @@ class TestVellavetoClientEndpoints:
         assert result[0]["id"] == "apr-1"
         client.close()
 
-    def test_resolve_approval(self, httpx_mock):
+    def test_resolve_approval_approve(self, httpx_mock):
         httpx_mock.add_response(
-            url="http://localhost:3000/api/approvals/apr-1",
+            url="http://localhost:3000/api/approvals/apr-1/approve",
             json={"resolved": True},
         )
 
@@ -276,8 +280,37 @@ class TestVellavetoClientEndpoints:
 
         request = httpx_mock.get_request()
         body = json.loads(request.content)
-        assert body["approved"] is True
         assert body["reason"] == "Verified"
+        client.close()
+
+    def test_resolve_approval_deny(self, httpx_mock):
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/approvals/apr-1/deny",
+            json={"resolved": True},
+        )
+
+        client = VellavetoClient()
+        result = client.resolve_approval("apr-1", approved=False, reason="Rejected")
+        assert result["resolved"] is True
+
+        request = httpx_mock.get_request()
+        body = json.loads(request.content)
+        assert body["reason"] == "Rejected"
+        client.close()
+
+    def test_resolve_approval_no_reason(self, httpx_mock):
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/approvals/apr-1/approve",
+            json={"resolved": True},
+        )
+
+        client = VellavetoClient()
+        result = client.resolve_approval("apr-1", approved=True)
+        assert result["resolved"] is True
+
+        # No reason provided — json_data should be None (no body)
+        request = httpx_mock.get_request()
+        assert request.content == b""
         client.close()
 
 
@@ -413,6 +446,75 @@ class TestAsyncVellavetoClient:
         client = AsyncVellavetoClient()
         with pytest.raises(VellavetoError, match="not initialized"):
             await client.evaluate(tool="test")
+
+    @pytest.mark.asyncio
+    async def test_async_evaluate_input_validation_empty_tool(self):
+        """P1-12: Async evaluate() validates inputs like sync does."""
+        async with AsyncVellavetoClient() as client:
+            with pytest.raises(VellavetoError, match="non-empty string"):
+                await client.evaluate(tool="")
+
+    @pytest.mark.asyncio
+    async def test_async_evaluate_input_validation_whitespace_tool(self):
+        async with AsyncVellavetoClient() as client:
+            with pytest.raises(VellavetoError, match="non-empty string"):
+                await client.evaluate(tool="   ")
+
+    @pytest.mark.asyncio
+    async def test_async_evaluate_input_validation_tool_too_long(self):
+        async with AsyncVellavetoClient() as client:
+            with pytest.raises(VellavetoError, match="too long"):
+                await client.evaluate(tool="x" * 2000)
+
+    @pytest.mark.asyncio
+    async def test_async_evaluate_input_validation_bad_function_type(self):
+        async with AsyncVellavetoClient() as client:
+            with pytest.raises(VellavetoError, match="function must be a string"):
+                await client.evaluate(tool="valid", function=123)  # type: ignore
+
+    @pytest.mark.asyncio
+    async def test_async_evaluate_input_validation_bad_parameters_type(self):
+        async with AsyncVellavetoClient() as client:
+            with pytest.raises(VellavetoError, match="parameters must be a dict"):
+                await client.evaluate(tool="valid", parameters="bad")  # type: ignore
+
+    @pytest.mark.asyncio
+    async def test_async_evaluate_input_validation_bad_target_paths_type(self):
+        async with AsyncVellavetoClient() as client:
+            with pytest.raises(VellavetoError, match="target_paths must be a list"):
+                await client.evaluate(tool="valid", target_paths="bad")  # type: ignore
+
+    @pytest.mark.asyncio
+    async def test_async_evaluate_input_validation_bad_target_domains_type(self):
+        async with AsyncVellavetoClient() as client:
+            with pytest.raises(VellavetoError, match="target_domains must be a list"):
+                await client.evaluate(tool="valid", target_domains="bad")  # type: ignore
+
+    @pytest.mark.asyncio
+    async def test_async_evaluate_flattened_payload(self, httpx_mock):
+        """P0-2: Async evaluate() sends flattened payload (no 'action' wrapper)."""
+        httpx_mock.add_response(
+            url="http://localhost:3000/api/evaluate",
+            json={"verdict": "allow"},
+        )
+
+        async with AsyncVellavetoClient() as client:
+            await client.evaluate(
+                tool="filesystem",
+                function="read_file",
+                parameters={"path": "/tmp/test.txt"},
+                target_paths=["/tmp/test.txt"],
+                target_domains=["example.com"],
+            )
+
+        request = httpx_mock.get_request()
+        body = json.loads(request.content)
+        assert body["tool"] == "filesystem"
+        assert body["function"] == "read_file"
+        assert body["parameters"] == {"path": "/tmp/test.txt"}
+        assert body["target_paths"] == ["/tmp/test.txt"]
+        assert body["target_domains"] == ["example.com"]
+        assert "action" not in body
 
     def test_async_requires_httpx(self, monkeypatch):
         """AsyncVellavetoClient requires httpx."""

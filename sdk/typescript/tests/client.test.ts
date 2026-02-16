@@ -7,6 +7,10 @@ import {
   BatchResponse,
   ValidateResponse,
   SimulateResponse,
+  ZkSchedulerStatus,
+  ZkProofsResponse,
+  ZkVerifyResult,
+  ZkCommitmentsResponse,
 } from "../src";
 
 // Mock fetch globally
@@ -318,5 +322,203 @@ describe("VellavetoClient", () => {
     new VellavetoClient({ baseUrl: "http://localhost:3000" });
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+
+  // ── P1-10: evaluate extracts reason, policy_id, policy_name ──
+
+  test("evaluate extracts reason from top-level field", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        verdict: "Deny",
+        reason: "path blocked by policy",
+        policy_id: "pol-123",
+        policy_name: "Block sensitive paths",
+      })
+    );
+    const result = await client.evaluate({ tool: "fs", function: "read" });
+    expect(result.verdict).toBe(Verdict.Deny);
+    expect(result.reason).toBe("path blocked by policy");
+    expect(result.policy_id).toBe("pol-123");
+    expect(result.policy_name).toBe("Block sensitive paths");
+  });
+
+  test("evaluate extracts reason from verdict object", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        verdict: { Deny: { reason: "blocked by deny rule" } },
+        action: { tool: "bash" },
+      })
+    );
+    const result = await client.evaluate({ tool: "bash" });
+    expect(result.verdict).toBe(Verdict.Deny);
+    expect(result.reason).toBe("blocked by deny rule");
+  });
+
+  test("evaluate top-level reason takes precedence over verdict object reason", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        verdict: { Deny: { reason: "inner reason" } },
+        reason: "top-level reason",
+      })
+    );
+    const result = await client.evaluate({ tool: "fs" });
+    expect(result.reason).toBe("top-level reason");
+  });
+
+  test("evaluate extracts reason from RequireApproval verdict object", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        verdict: { RequireApproval: { reason: "needs human review" } },
+        approval_id: "appr-456",
+      })
+    );
+    const result = await client.evaluate({ tool: "fs" });
+    expect(result.verdict).toBe(Verdict.RequireApproval);
+    expect(result.reason).toBe("needs human review");
+    expect(result.approval_id).toBe("appr-456");
+  });
+
+  test("evaluate returns undefined for missing optional fields", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({ verdict: "Allow" })
+    );
+    const result = await client.evaluate({ tool: "fs" });
+    expect(result.verdict).toBe(Verdict.Allow);
+    expect(result.reason).toBeUndefined();
+    expect(result.policy_id).toBeUndefined();
+    expect(result.policy_name).toBeUndefined();
+    expect(result.approval_id).toBeUndefined();
+  });
+
+  test("evaluate ignores non-string reason/policy_id/policy_name", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        verdict: "Deny",
+        reason: 42,
+        policy_id: true,
+        policy_name: ["not", "a", "string"],
+      })
+    );
+    const result = await client.evaluate({ tool: "fs" });
+    expect(result.verdict).toBe(Verdict.Deny);
+    expect(result.reason).toBeUndefined();
+    expect(result.policy_id).toBeUndefined();
+    expect(result.policy_name).toBeUndefined();
+  });
+
+  // ── P1-11: ZK Audit ─────────────────────────────
+
+  test("zkStatus returns scheduler status", async () => {
+    const mockStatus: ZkSchedulerStatus = {
+      active: true,
+      pending_witnesses: 5,
+      completed_proofs: 12,
+      last_proved_sequence: 100,
+      last_proof_at: "2026-02-16T10:00:00Z",
+    };
+    mockFetch.mockResolvedValueOnce(jsonResponse(mockStatus));
+    const result = await client.zkStatus();
+    expect(result.active).toBe(true);
+    expect(result.pending_witnesses).toBe(5);
+    expect(result.completed_proofs).toBe(12);
+    expect(result.last_proved_sequence).toBe(100);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:3000/api/zk-audit/status",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  test("zkProofs returns proof list", async () => {
+    const mockProofs: ZkProofsResponse = {
+      proofs: [
+        {
+          proof: "deadbeef",
+          batch_id: "batch-001",
+          entry_range: [1, 50],
+          merkle_root: "aabbcc",
+          first_prev_hash: "000000",
+          final_entry_hash: "ffffff",
+          created_at: "2026-02-16T09:00:00Z",
+          entry_count: 50,
+        },
+      ],
+      total: 1,
+      offset: 0,
+      limit: 20,
+    };
+    mockFetch.mockResolvedValueOnce(jsonResponse(mockProofs));
+    const result = await client.zkProofs(10, 0);
+    expect(result.proofs).toHaveLength(1);
+    expect(result.proofs[0].batch_id).toBe("batch-001");
+    expect(result.total).toBe(1);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:3000/api/zk-audit/proofs?limit=10&offset=0",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  test("zkProofs without parameters omits query string", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({ proofs: [], total: 0, offset: 0, limit: 20 })
+    );
+    await client.zkProofs();
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:3000/api/zk-audit/proofs",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  test("zkVerify sends batch_id and returns result", async () => {
+    const mockResult: ZkVerifyResult = {
+      valid: true,
+      batch_id: "batch-001",
+      entry_range: [1, 50],
+      verified_at: "2026-02-16T10:30:00Z",
+    };
+    mockFetch.mockResolvedValueOnce(jsonResponse(mockResult));
+    const result = await client.zkVerify("batch-001");
+    expect(result.valid).toBe(true);
+    expect(result.batch_id).toBe("batch-001");
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:3000/api/zk-audit/verify",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ batch_id: "batch-001" }),
+      })
+    );
+  });
+
+  test("zkVerify returns error on invalid proof", async () => {
+    const mockResult: ZkVerifyResult = {
+      valid: false,
+      batch_id: "batch-bad",
+      entry_range: [1, 10],
+      verified_at: "2026-02-16T10:30:00Z",
+      error: "proof verification failed",
+    };
+    mockFetch.mockResolvedValueOnce(jsonResponse(mockResult));
+    const result = await client.zkVerify("batch-bad");
+    expect(result.valid).toBe(false);
+    expect(result.error).toBe("proof verification failed");
+  });
+
+  test("zkCommitments returns commitments for range", async () => {
+    const mockCommitments: ZkCommitmentsResponse = {
+      commitments: [
+        { sequence: 1, commitment: "aabb" },
+        { sequence: 2, commitment: "ccdd" },
+      ],
+      total: 2,
+      range: [1, 2],
+    };
+    mockFetch.mockResolvedValueOnce(jsonResponse(mockCommitments));
+    const result = await client.zkCommitments(1, 2);
+    expect(result.commitments).toHaveLength(2);
+    expect(result.total).toBe(2);
+    expect(result.range).toEqual([1, 2]);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:3000/api/zk-audit/commitments?from=1&to=2",
+      expect.objectContaining({ method: "GET" })
+    );
   });
 });

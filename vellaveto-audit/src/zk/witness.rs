@@ -90,6 +90,29 @@ impl WitnessStore {
         Ok(drained)
     }
 
+    /// Restore witnesses to the front of the store.
+    ///
+    /// Used to re-insert witnesses that were drained but could not be proved
+    /// (e.g., due to prover failure). The witnesses are prepended in order so
+    /// they will be the first to be drained on the next attempt.
+    ///
+    /// Capacity is not enforced here because these witnesses were already
+    /// counted against capacity before being drained. If the store has grown
+    /// beyond capacity due to concurrent appends, the excess is tolerated
+    /// to avoid permanent data loss.
+    pub fn restore(&self, witnesses: Vec<EntryWitness>) -> Result<(), ZkError> {
+        let mut guard = self.witnesses.lock().map_err(|e| {
+            ZkError::WitnessStore(format!("Witness store lock poisoned: {}", e))
+        })?;
+
+        // Splice witnesses to the front: prepend the restored witnesses
+        // before the existing ones.
+        let mut restored = witnesses;
+        restored.append(&mut *guard);
+        *guard = restored;
+        Ok(())
+    }
+
     /// Return the number of pending witnesses.
     pub fn len(&self) -> Result<usize, ZkError> {
         let guard = self.witnesses.lock().map_err(|e| {

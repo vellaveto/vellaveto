@@ -48,7 +48,16 @@ pub struct OtlpExporter {
 
 impl OtlpExporter {
     /// Create a new OTLP exporter with the given configuration.
+    ///
+    /// SECURITY (FIND-P1-3): Logs a warning at construction time because the
+    /// OTLP exporter is not yet fully implemented. `export_batch` will return
+    /// an error to ensure operators are aware that data is NOT being exported.
     pub fn new(config: OtlpExporterConfig) -> Self {
+        tracing::warn!(
+            endpoint = %config.endpoint,
+            "OTLP exporter instantiated but NOT yet implemented — \
+             audit spans will NOT be exported. Use webhook or streaming exporters instead."
+        );
         Self { config }
     }
 }
@@ -59,28 +68,36 @@ impl ObservabilityExporter for OtlpExporter {
         "otlp"
     }
 
+    /// SECURITY (FIND-P1-3): This method returns an error to clearly signal
+    /// that the OTLP exporter is a stub and no data is being exported. Empty
+    /// batches are accepted silently (no-op). Non-empty batches fail with a
+    /// descriptive error so operators are immediately aware of the gap.
     async fn export_batch(&self, spans: &[SecuritySpan]) -> Result<(), ObservabilityError> {
         if spans.is_empty() {
             return Ok(());
         }
 
-        // Convert SecuritySpans to OTel-compatible attribute sets for export.
-        // In a production deployment, this would use the opentelemetry_sdk
-        // SpanExporter to send spans to the configured endpoint. For now,
-        // we validate the conversion and log the export.
+        // Validate the conversion so we catch attribute-mapping regressions
+        // even though we cannot actually send the data.
         for span in spans {
             let _attributes = span_to_otel_attributes(span);
             let _trace_id = parse_trace_id(&span.trace_id);
             let _span_id = parse_span_id(&span.span_id);
         }
 
-        tracing::debug!(
+        tracing::warn!(
             endpoint = %self.config.endpoint,
             count = spans.len(),
-            "OTLP export batch prepared"
+            "OTLP exporter is not yet implemented — {} spans will NOT be exported. \
+             Use webhook or streaming exporters instead.",
+            spans.len(),
         );
 
-        Ok(())
+        Err(ObservabilityError::Configuration(
+            "OTLP exporter is not yet implemented — data will not be exported. \
+             Use webhook or streaming exporters instead."
+                .to_string(),
+        ))
     }
 
     async fn health_check(&self) -> Result<(), ObservabilityError> {

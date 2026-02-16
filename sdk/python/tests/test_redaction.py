@@ -314,8 +314,8 @@ class TestClientRedactorIntegration:
         # Verify the request payload has redacted api_key
         request = httpx_mock.get_request()
         body = json.loads(request.content)
-        assert body["action"]["parameters"]["url"] == "https://api.example.com"
-        assert body["action"]["parameters"]["api_key"] == REDACTED_PLACEHOLDER
+        assert body["parameters"]["url"] == "https://api.example.com"
+        assert body["parameters"]["api_key"] == REDACTED_PLACEHOLDER
         client.close()
 
     def test_evaluate_without_redactor_sends_raw(self, httpx_mock):
@@ -333,7 +333,7 @@ class TestClientRedactorIntegration:
 
         request = httpx_mock.get_request()
         body = json.loads(request.content)
-        assert body["action"]["parameters"]["api_key"] == "sk-secret123"
+        assert body["parameters"]["api_key"] == "sk-secret123"
         client.close()
 
     def test_evaluate_redactor_all_mode(self, httpx_mock):
@@ -352,8 +352,8 @@ class TestClientRedactorIntegration:
 
         request = httpx_mock.get_request()
         body = json.loads(request.content)
-        assert body["action"]["parameters"]["path"] == REDACTED_PLACEHOLDER
-        assert body["action"]["parameters"]["mode"] == REDACTED_PLACEHOLDER
+        assert body["parameters"]["path"] == REDACTED_PLACEHOLDER
+        assert body["parameters"]["mode"] == REDACTED_PLACEHOLDER
         client.close()
 
 
@@ -377,8 +377,8 @@ class TestAsyncClientRedactorIntegration:
 
         request = httpx_mock.get_request()
         body = json.loads(request.content)
-        assert body["action"]["parameters"]["url"] == "https://example.com"
-        assert body["action"]["parameters"]["api_key"] == REDACTED_PLACEHOLDER
+        assert body["parameters"]["url"] == "https://example.com"
+        assert body["parameters"]["api_key"] == REDACTED_PLACEHOLDER
 
     @pytest.mark.asyncio
     async def test_async_evaluate_without_redactor_sends_raw(self, httpx_mock):
@@ -396,7 +396,7 @@ class TestAsyncClientRedactorIntegration:
 
         request = httpx_mock.get_request()
         body = json.loads(request.content)
-        assert body["action"]["parameters"]["api_key"] == "sk-secret"
+        assert body["parameters"]["api_key"] == "sk-secret"
 
     @pytest.mark.asyncio
     async def test_async_evaluate_redactor_values_mode(self, httpx_mock):
@@ -414,7 +414,7 @@ class TestAsyncClientRedactorIntegration:
 
         request = httpx_mock.get_request()
         body = json.loads(request.content)
-        assert body["action"]["parameters"]["data"] == REDACTED_PLACEHOLDER
+        assert body["parameters"]["data"] == REDACTED_PLACEHOLDER
 
     @pytest.mark.asyncio
     async def test_async_evaluate_redactor_all_mode(self, httpx_mock):
@@ -432,8 +432,8 @@ class TestAsyncClientRedactorIntegration:
 
         request = httpx_mock.get_request()
         body = json.loads(request.content)
-        assert body["action"]["parameters"]["path"] == REDACTED_PLACEHOLDER
-        assert body["action"]["parameters"]["query"] == REDACTED_PLACEHOLDER
+        assert body["parameters"]["path"] == REDACTED_PLACEHOLDER
+        assert body["parameters"]["query"] == REDACTED_PLACEHOLDER
 
 
 class TestUnicodeRedaction:

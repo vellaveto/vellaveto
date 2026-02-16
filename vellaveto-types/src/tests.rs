@@ -3715,3 +3715,143 @@ fn test_memory_entry_sensitive_taint_allows_perfect_trust() {
     entry.trust_score = 1.0;
     assert!(entry.validate().is_ok());
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-P1-6: hours_since returns 0.0 on parse failure — bypasses trust decay
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_p1_6_decayed_trust_corrupt_start_timestamp_returns_zero() {
+    // Corrupt start timestamp must produce 0.0 (fail-closed), not full trust.
+    let entry = MemoryEntry {
+        recorded_at: "INVALID".to_string(),
+        trust_score: 0.9,
+        ..MemoryEntry::new(
+            "id-p1-6-a".to_string(),
+            "fp".to_string(),
+            "content",
+            "hash".to_string(),
+            "INVALID".to_string(),
+        )
+    };
+    let decayed = entry.decayed_trust_score(0.01, "2026-02-01T00:00:00Z");
+    assert_eq!(decayed, 0.0, "Corrupt start timestamp must produce 0.0 trust (fail-closed)");
+}
+
+#[test]
+fn test_p1_6_decayed_trust_corrupt_end_timestamp_returns_zero() {
+    let entry = MemoryEntry::new(
+        "id-p1-6-b".to_string(),
+        "fp".to_string(),
+        "content",
+        "hash".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+    );
+    let decayed = entry.decayed_trust_score(0.01, "GARBAGE");
+    assert_eq!(decayed, 0.0, "Corrupt end timestamp must produce 0.0 trust (fail-closed)");
+}
+
+#[test]
+fn test_p1_6_decayed_trust_valid_timestamps_decays_normally() {
+    let mut entry = MemoryEntry::new(
+        "id-p1-6-c".to_string(),
+        "fp".to_string(),
+        "content",
+        "hash".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+    );
+    entry.trust_score = 1.0;
+    entry.taint_labels = vec![]; // Remove taint for clean test
+    let decay_rate = 0.01;
+    let decayed = entry.decayed_trust_score(decay_rate, "2026-01-02T00:00:00Z");
+    // ~24 hours later, trust should be < 1.0
+    assert!(decayed < 1.0, "Trust should decay over time");
+    assert!(decayed > 0.0, "Trust should still be positive");
+}
+
+#[test]
+fn test_p1_6_parse_timestamp_rejects_month_zero() {
+    // Month 0 is invalid and previously caused underflow in (month - 1) * 30
+    let entry = MemoryEntry {
+        recorded_at: "2026-00-15T12:00:00Z".to_string(),
+        trust_score: 0.9,
+        ..MemoryEntry::new(
+            "id-p1-6-d".to_string(),
+            "fp".to_string(),
+            "content",
+            "hash".to_string(),
+            "2026-00-15T12:00:00Z".to_string(),
+        )
+    };
+    let decayed = entry.decayed_trust_score(0.01, "2026-02-01T00:00:00Z");
+    assert_eq!(decayed, 0.0, "Month=0 must fail-closed with 0.0 trust");
+}
+
+#[test]
+fn test_p1_6_parse_timestamp_rejects_year_before_epoch() {
+    // Year < 1970 would cause underflow in (year - 1970) * 365
+    let entry = MemoryEntry {
+        recorded_at: "1969-06-15T12:00:00Z".to_string(),
+        trust_score: 0.9,
+        ..MemoryEntry::new(
+            "id-p1-6-e".to_string(),
+            "fp".to_string(),
+            "content",
+            "hash".to_string(),
+            "1969-06-15T12:00:00Z".to_string(),
+        )
+    };
+    let decayed = entry.decayed_trust_score(0.01, "2026-02-01T00:00:00Z");
+    assert_eq!(decayed, 0.0, "Year < 1970 must fail-closed with 0.0 trust");
+}
+
+#[test]
+fn test_p1_6_parse_timestamp_rejects_day_zero() {
+    let entry = MemoryEntry {
+        recorded_at: "2026-01-00T12:00:00Z".to_string(),
+        trust_score: 0.9,
+        ..MemoryEntry::new(
+            "id-p1-6-f".to_string(),
+            "fp".to_string(),
+            "content",
+            "hash".to_string(),
+            "2026-01-00T12:00:00Z".to_string(),
+        )
+    };
+    let decayed = entry.decayed_trust_score(0.01, "2026-02-01T00:00:00Z");
+    assert_eq!(decayed, 0.0, "Day=0 must fail-closed with 0.0 trust");
+}
+
+#[test]
+fn test_p1_6_parse_timestamp_rejects_month_13() {
+    let entry = MemoryEntry {
+        recorded_at: "2026-13-01T00:00:00Z".to_string(),
+        trust_score: 0.9,
+        ..MemoryEntry::new(
+            "id-p1-6-g".to_string(),
+            "fp".to_string(),
+            "content",
+            "hash".to_string(),
+            "2026-13-01T00:00:00Z".to_string(),
+        )
+    };
+    let decayed = entry.decayed_trust_score(0.01, "2026-02-01T00:00:00Z");
+    assert_eq!(decayed, 0.0, "Month=13 must fail-closed with 0.0 trust");
+}
+
+#[test]
+fn test_p1_6_parse_timestamp_rejects_hour_25() {
+    let entry = MemoryEntry {
+        recorded_at: "2026-01-01T25:00:00Z".to_string(),
+        trust_score: 0.9,
+        ..MemoryEntry::new(
+            "id-p1-6-h".to_string(),
+            "fp".to_string(),
+            "content",
+            "hash".to_string(),
+            "2026-01-01T25:00:00Z".to_string(),
+        )
+    };
+    let decayed = entry.decayed_trust_score(0.01, "2026-02-01T00:00:00Z");
+    assert_eq!(decayed, 0.0, "Hour=25 must fail-closed with 0.0 trust");
+}

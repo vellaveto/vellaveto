@@ -992,6 +992,14 @@ impl SiemExporter for ElasticsearchExporter {
         "elasticsearch"
     }
 
+    /// SECURITY (FIND-P1-2): Bounded retry with exponential backoff for
+    /// Elasticsearch bulk indexing. 5xx and connection errors are retried up
+    /// to `max_retries` times with backoff capped at 30s. Non-retryable errors
+    /// (4xx) fail immediately.
+    ///
+    /// SECURITY (FIND-P1-4): Partial bulk failures (ES `errors: true`) are now
+    /// reported as errors instead of being swallowed. The error count is parsed
+    /// from the response and included in the error message.
     async fn export_batch(&self, entries: &[AuditEntry]) -> Result<(), ExportError> {
         if entries.is_empty() {
             return Ok(());
@@ -1010,59 +1018,139 @@ impl SiemExporter for ElasticsearchExporter {
                     "_id": entry.id
                 }
             });
-            body.push_str(&serde_json::to_string(&action).unwrap_or_default());
+            body.push_str(
+                &serde_json::to_string(&action)
+                    .map_err(|e| ExportError::Serialization(e.to_string()))?,
+            );
             body.push('\n');
 
             // Document line
-            body.push_str(&serde_json::to_string(entry).unwrap_or_default());
+            body.push_str(
+                &serde_json::to_string(entry)
+                    .map_err(|e| ExportError::Serialization(e.to_string()))?,
+            );
             body.push('\n');
         }
 
-        let mut request = self
-            .client
-            .post(&bulk_url)
-            .header("Content-Type", "application/x-ndjson");
+        let max_retries = self.config.common.max_retries;
+        let mut retries = 0u32;
+        let mut backoff = Duration::from_secs(self.config.common.retry_backoff_secs);
+        const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
-        if let Some(ref auth) = self.auth_header {
-            request = request.header("Authorization", auth);
-        }
+        loop {
+            let mut request = self
+                .client
+                .post(&bulk_url)
+                .header("Content-Type", "application/x-ndjson");
 
-        let response = request
-            .body(body)
-            .send()
-            .await
-            .map_err(|e| ExportError::HttpError(e.to_string()))?;
-
-        if response.status().is_success() {
-            // Check for partial failures in bulk response
-            let body: serde_json::Value = response
-                .json()
-                .await
-                .map_err(|e| ExportError::Serialization(e.to_string()))?;
-
-            if body
-                .get("errors")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-            {
-                // Some items failed, log but don't fail the whole batch
-                tracing::warn!(
-                    exporter = "elasticsearch",
-                    "Bulk indexing had some failures"
-                );
+            if let Some(ref auth) = self.auth_header {
+                request = request.header("Authorization", auth);
             }
 
-            tracing::debug!(
-                exporter = "elasticsearch",
-                entries = entries.len(),
-                index = %index_name,
-                "Successfully exported batch"
-            );
-            Ok(())
-        } else {
-            let status = response.status().as_u16();
-            let message = response.text().await.unwrap_or_default();
-            Err(ExportError::ServerError { status, message })
+            let result = request.body(body.clone()).send().await;
+
+            match result {
+                Ok(response) => {
+                    let status = response.status();
+
+                    if status.is_success() {
+                        // Check for partial failures in bulk response
+                        let resp_body: serde_json::Value = response
+                            .json()
+                            .await
+                            .map_err(|e| ExportError::Serialization(e.to_string()))?;
+
+                        if resp_body
+                            .get("errors")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false)
+                        {
+                            // SECURITY (FIND-P1-4): Count and report partial failures
+                            // instead of swallowing them.
+                            let error_count = resp_body
+                                .get("items")
+                                .and_then(|v| v.as_array())
+                                .map(|items| {
+                                    items
+                                        .iter()
+                                        .filter(|item| {
+                                            item.get("index")
+                                                .and_then(|idx| idx.get("error"))
+                                                .is_some()
+                                        })
+                                        .count()
+                                })
+                                .unwrap_or(0);
+
+                            tracing::error!(
+                                exporter = "elasticsearch",
+                                total = entries.len(),
+                                failed = error_count,
+                                "Elasticsearch bulk indexing partial failure"
+                            );
+
+                            return Err(ExportError::ServerError {
+                                status: status.as_u16(),
+                                message: format!(
+                                    "Bulk indexing partial failure: {} of {} items failed",
+                                    error_count,
+                                    entries.len()
+                                ),
+                            });
+                        }
+
+                        tracing::debug!(
+                            exporter = "elasticsearch",
+                            entries = entries.len(),
+                            index = %index_name,
+                            "Successfully exported batch"
+                        );
+                        return Ok(());
+                    }
+
+                    // Retry on server errors (5xx)
+                    if status.is_server_error() && retries < max_retries {
+                        let body_text = response.text().await.unwrap_or_default();
+                        tracing::warn!(
+                            exporter = "elasticsearch",
+                            status = %status,
+                            retry = retries + 1,
+                            max_retries = max_retries,
+                            backoff_secs = backoff.as_secs(),
+                            "Elasticsearch server error, retrying: {}",
+                            body_text,
+                        );
+                        tokio::time::sleep(backoff).await;
+                        backoff = (backoff * 2).min(MAX_BACKOFF);
+                        retries += 1;
+                        continue;
+                    }
+
+                    let message = response.text().await.unwrap_or_default();
+                    return Err(ExportError::ServerError {
+                        status: status.as_u16(),
+                        message,
+                    });
+                }
+                Err(e) => {
+                    // Retry on transient network / timeout errors
+                    if retries < max_retries {
+                        tracing::warn!(
+                            exporter = "elasticsearch",
+                            error = %e,
+                            retry = retries + 1,
+                            max_retries = max_retries,
+                            backoff_secs = backoff.as_secs(),
+                            "Elasticsearch request failed, retrying"
+                        );
+                        tokio::time::sleep(backoff).await;
+                        backoff = (backoff * 2).min(MAX_BACKOFF);
+                        retries += 1;
+                        continue;
+                    }
+                    return Err(ExportError::HttpError(e.to_string()));
+                }
+            }
         }
     }
 

@@ -85,6 +85,13 @@ pub use nl_policy::{NlPolicy, NlPolicyCompiler, NlPolicyMatch};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// Maximum number of tracked intent sessions.
+///
+/// Prevents unbounded growth of the `intent_chains` HashMap.
+/// When at capacity, new sessions are silently skipped (defense-in-depth:
+/// intent tracking is supplementary, not a primary security gate).
+const MAX_INTENT_SESSIONS: usize = 10_000;
+
 // ═══════════════════════════════════════════════════
 // GUARDRAILS SERVICE
 // ═══════════════════════════════════════════════════
@@ -263,16 +270,29 @@ impl SemanticGuardrailsService {
             if let Some(ref session_id) = input.session_id {
                 let intent = evaluation.intent.unwrap_or(Intent::Unknown);
                 let mut chains = self.intent_chains.write().await;
-                let chain = chains
-                    .entry(session_id.clone())
-                    .or_insert_with(|| IntentChain::new(self.config.max_chain_size));
 
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
+                // Guard: skip insertion for new sessions when at capacity.
+                // Intent tracking is defense-in-depth; skipping is fail-safe.
+                if !chains.contains_key(session_id.as_str())
+                    && chains.len() >= MAX_INTENT_SESSIONS
+                {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        capacity = MAX_INTENT_SESSIONS,
+                        "Intent chain capacity reached; skipping tracking for new session"
+                    );
+                } else {
+                    let chain = chains
+                        .entry(session_id.clone())
+                        .or_insert_with(|| IntentChain::new(self.config.max_chain_size));
 
-                chain.push(intent, input.tool.clone(), now);
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+
+                    chain.push(intent, input.tool.clone(), now);
+                }
             }
         }
 

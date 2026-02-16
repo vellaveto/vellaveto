@@ -217,30 +217,40 @@ impl MemoryEntry {
 
     /// Calculate the current trust score after decay.
     /// Uses exponential decay: trust(t) = initial_trust * e^(-λ * age_hours)
+    ///
+    /// SECURITY (FIND-P1-6): Returns `0.0` (minimum trust / fail-closed) when
+    /// timestamps cannot be parsed. Previously returned the full undecayed trust
+    /// score on parse failure, which meant corrupt timestamps bypassed trust decay.
     pub fn decayed_trust_score(&self, decay_rate: f64, current_time: &str) -> f64 {
-        let age_hours = Self::hours_since(&self.recorded_at, current_time);
-        self.trust_score * (-decay_rate * age_hours).exp()
+        match Self::hours_since(&self.recorded_at, current_time) {
+            Some(age_hours) => self.trust_score * (-decay_rate * age_hours).exp(),
+            None => {
+                // Fail-closed: corrupt/unparseable timestamps → minimum trust
+                0.0
+            }
+        }
     }
 
     /// Calculate hours between two ISO 8601 timestamps.
-    /// Returns 0.0 if parsing fails.
-    fn hours_since(start: &str, end: &str) -> f64 {
-        // Simple parsing: extract the timestamp portion and compute difference
-        // For robustness, we'd use chrono but keep dependencies minimal
-        use std::time::Duration;
-
-        // Try to parse as Unix timestamp or ISO 8601
-        let start_secs = Self::parse_timestamp(start).unwrap_or(0);
-        let end_secs = Self::parse_timestamp(end).unwrap_or(0);
+    ///
+    /// SECURITY (FIND-P1-6): Returns `None` if either timestamp fails to parse,
+    /// rather than silently returning `0.0` which would bypass trust decay.
+    fn hours_since(start: &str, end: &str) -> Option<f64> {
+        let start_secs = Self::parse_timestamp(start)?;
+        let end_secs = Self::parse_timestamp(end)?;
 
         if end_secs > start_secs {
-            Duration::from_secs(end_secs - start_secs).as_secs_f64() / 3600.0
+            Some((end_secs - start_secs) as f64 / 3600.0)
         } else {
-            0.0
+            // end <= start: zero elapsed time (not negative)
+            Some(0.0)
         }
     }
 
     /// Parse an ISO 8601 timestamp to Unix seconds (approximate).
+    ///
+    /// SECURITY (FIND-P1-6): Validates that month >= 1, day >= 1, and
+    /// year >= 1970 to prevent underflow in the epoch calculation.
     fn parse_timestamp(ts: &str) -> Option<u64> {
         // Simplified parsing: YYYY-MM-DDTHH:MM:SSZ
         if ts.len() < 19 {
@@ -252,6 +262,16 @@ impl MemoryEntry {
         let hour: u64 = ts.get(11..13)?.parse().ok()?;
         let min: u64 = ts.get(14..16)?.parse().ok()?;
         let sec: u64 = ts.get(17..19)?.parse().ok()?;
+
+        // SECURITY (FIND-P1-6): Reject invalid month/day/year values that
+        // would cause underflow or produce nonsensical results.
+        if year < 1970 || month == 0 || month > 12 || day == 0 || day > 31 {
+            return None;
+        }
+        if hour > 23 || min > 59 || sec > 60 {
+            // sec == 60 is valid for leap seconds in ISO 8601, but > 60 is not
+            return None;
+        }
 
         // Approximate calculation (ignores leap years, etc.)
         let days_since_epoch = (year - 1970) * 365 + (month - 1) * 30 + day;

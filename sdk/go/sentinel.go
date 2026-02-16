@@ -207,14 +207,27 @@ type evaluateRaw struct {
 }
 
 // Evaluate sends an action to the policy engine for evaluation.
+//
+// The server expects Action fields flattened at the root level of the JSON body
+// (not nested under an "action" key) because the Rust server uses #[serde(flatten)].
+// The trace flag is passed as a query parameter (?trace=true).
 func (c *Client) Evaluate(ctx context.Context, action Action, evalCtx *EvaluationContext, trace bool) (*EvaluationResult, error) {
 	reqBody := EvaluateRequest{
-		Action:  action,
-		Context: evalCtx,
-		Trace:   trace,
+		Tool:          action.Tool,
+		Function:      action.Function,
+		Parameters:    action.Parameters,
+		TargetPaths:   action.TargetPaths,
+		TargetDomains: action.TargetDomains,
+		ResolvedIPs:   action.ResolvedIPs,
+		Context:       evalCtx,
 	}
 
-	respBody, status, err := c.do(ctx, http.MethodPost, "/api/evaluate", reqBody)
+	path := "/api/evaluate"
+	if trace {
+		path += "?trace=true"
+	}
+
+	respBody, status, err := c.do(ctx, http.MethodPost, path, reqBody)
 	if err != nil {
 		return nil, err
 	}
@@ -426,6 +439,53 @@ func (c *Client) ProjectSchema(ctx context.Context, schema CanonicalToolSchema, 
 	}
 	var resp ProjectorTransformResponse
 	if err := c.doJSON(ctx, http.MethodPost, "/api/projector/transform", reqBody, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ZkStatus returns the current ZK audit scheduler status.
+func (c *Client) ZkStatus(ctx context.Context) (*ZkSchedulerStatus, error) {
+	var resp ZkSchedulerStatus
+	if err := c.doJSON(ctx, http.MethodGet, "/api/zk-audit/status", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ZkProofs lists stored ZK batch proofs with pagination.
+// SECURITY (FIND-R46-GO-003): Use url.Values for proper URL encoding of query parameters.
+func (c *Client) ZkProofs(ctx context.Context, limit, offset int) (*ZkProofsResponse, error) {
+	q := url.Values{}
+	q.Set("limit", fmt.Sprintf("%d", limit))
+	q.Set("offset", fmt.Sprintf("%d", offset))
+	path := "/api/zk-audit/proofs?" + q.Encode()
+	var resp ZkProofsResponse
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ZkVerify verifies a stored ZK batch proof by batch ID.
+func (c *Client) ZkVerify(ctx context.Context, batchID string) (*ZkVerifyResult, error) {
+	reqBody := ZkVerifyRequest{BatchID: batchID}
+	var resp ZkVerifyResult
+	if err := c.doJSON(ctx, http.MethodPost, "/api/zk-audit/verify", reqBody, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ZkCommitments lists Pedersen commitments for audit entries in a sequence range.
+// SECURITY (FIND-R46-GO-003): Use url.Values for proper URL encoding of query parameters.
+func (c *Client) ZkCommitments(ctx context.Context, from, to uint64) (*ZkCommitmentsResponse, error) {
+	q := url.Values{}
+	q.Set("from", fmt.Sprintf("%d", from))
+	q.Set("to", fmt.Sprintf("%d", to))
+	path := "/api/zk-audit/commitments?" + q.Encode()
+	var resp ZkCommitmentsResponse
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

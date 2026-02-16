@@ -26,6 +26,14 @@ const MAX_PROOFS_LIST: usize = 100;
 /// Maximum entry range span for commitments query.
 const MAX_ENTRY_RANGE_SPAN: u64 = 10_000;
 
+/// Maximum number of loaded audit entries before returning 503.
+///
+/// Prevents OOM when the audit log has grown very large. Operators should
+/// rotate/archive audit logs to stay under this limit. In the future this
+/// endpoint should support range-aware loading so that only the requested
+/// sequence window is read from disk.
+const MAX_LOADED_ENTRIES: usize = 500_000;
+
 /// GET /api/zk-audit/status
 ///
 /// Returns the current ZK audit scheduler status including whether
@@ -310,7 +318,9 @@ pub async fn zk_audit_commitments(
         ));
     }
 
-    // Load entries from audit log and extract commitments
+    // Load entries from audit log and extract commitments.
+    // TODO: Replace with range-aware loading that reads only the requested
+    // sequence window from disk, avoiding full-log materialisation.
     let entries = state.audit.load_entries().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -319,6 +329,21 @@ pub async fn zk_audit_commitments(
             }),
         )
     })?;
+
+    // Guard: prevent OOM when the audit log is very large.
+    if entries.len() > MAX_LOADED_ENTRIES {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: format!(
+                    "Audit log contains {} entries (limit {}). \
+                     Rotate or archive the audit log to reduce size.",
+                    entries.len(),
+                    MAX_LOADED_ENTRIES
+                ),
+            }),
+        ));
+    }
 
     let commitments: Vec<serde_json::Value> = entries
         .iter()

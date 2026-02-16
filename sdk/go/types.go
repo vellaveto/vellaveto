@@ -80,10 +80,18 @@ type EvaluationContext struct {
 }
 
 // EvaluateRequest is the JSON body sent to POST /api/evaluate.
+//
+// The server uses #[serde(flatten)] on the action, so Action fields must be
+// at the root level of the JSON body (not nested under an "action" key).
+// The "trace" flag is a query parameter (?trace=true), not a body field.
 type EvaluateRequest struct {
-	Action  Action             `json:"action"`
-	Context *EvaluationContext `json:"context,omitempty"`
-	Trace   bool               `json:"trace,omitempty"`
+	Tool          string                 `json:"tool"`
+	Function      string                 `json:"function,omitempty"`
+	Parameters    map[string]interface{} `json:"parameters,omitempty"`
+	TargetPaths   []string               `json:"target_paths,omitempty"`
+	TargetDomains []string               `json:"target_domains,omitempty"`
+	ResolvedIPs   []string               `json:"resolved_ips,omitempty"`
+	Context       *EvaluationContext     `json:"context,omitempty"`
 }
 
 // EvaluationResult is the response from a policy evaluation.
@@ -294,4 +302,61 @@ type ProjectorTransformResponse struct {
 	ProjectedSchema interface{} `json:"projected_schema"`
 	TokenEstimate   int         `json:"token_estimate"`
 	ModelFamily     string      `json:"model_family"`
+}
+
+// ZkSchedulerStatus is the response from GET /api/zk-audit/status.
+type ZkSchedulerStatus struct {
+	Active              bool    `json:"active"`
+	PendingWitnesses    int     `json:"pending_witnesses"`
+	CompletedProofs     int     `json:"completed_proofs"`
+	LastProvedSequence  *uint64 `json:"last_proved_sequence,omitempty"`
+	LastProofAt         *string `json:"last_proof_at,omitempty"`
+}
+
+// ZkBatchProof represents a stored ZK batch proof covering a range of audit entries.
+type ZkBatchProof struct {
+	Proof          string   `json:"proof"`
+	BatchID        string   `json:"batch_id"`
+	EntryRange     [2]uint64 `json:"entry_range"`
+	MerkleRoot     string   `json:"merkle_root"`
+	FirstPrevHash  string   `json:"first_prev_hash"`
+	FinalEntryHash string   `json:"final_entry_hash"`
+	CreatedAt      string   `json:"created_at"`
+	EntryCount     int      `json:"entry_count"`
+}
+
+// ZkProofsResponse is the response from GET /api/zk-audit/proofs.
+type ZkProofsResponse struct {
+	Proofs []ZkBatchProof `json:"proofs"`
+	Total  int            `json:"total"`
+	Offset int            `json:"offset"`
+	Limit  int            `json:"limit"`
+}
+
+// ZkVerifyRequest is the JSON body sent to POST /api/zk-audit/verify.
+type ZkVerifyRequest struct {
+	BatchID string `json:"batch_id"`
+}
+
+// ZkVerifyResult is the response from POST /api/zk-audit/verify.
+type ZkVerifyResult struct {
+	Valid      bool      `json:"valid"`
+	BatchID    string    `json:"batch_id"`
+	EntryRange [2]uint64 `json:"entry_range"`
+	VerifiedAt string    `json:"verified_at"`
+	Error      *string   `json:"error,omitempty"`
+}
+
+// ZkCommitmentEntry represents a single Pedersen commitment for an audit entry.
+type ZkCommitmentEntry struct {
+	Sequence   uint64 `json:"sequence"`
+	Commitment string `json:"commitment"`
+	Timestamp  string `json:"timestamp"`
+}
+
+// ZkCommitmentsResponse is the response from GET /api/zk-audit/commitments.
+type ZkCommitmentsResponse struct {
+	Commitments []ZkCommitmentEntry `json:"commitments"`
+	Total       int                 `json:"total"`
+	Range       [2]uint64           `json:"range"`
 }

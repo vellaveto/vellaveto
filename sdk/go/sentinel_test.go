@@ -472,9 +472,13 @@ func TestTrailingSlashRemoved(t *testing.T) {
 
 func TestEvaluateWithContext(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The server uses #[serde(flatten)] so fields are at root level, not nested.
 		var req EvaluateRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatal(err)
+		}
+		if req.Tool != "read" {
+			t.Errorf("Tool = %q, want %q", req.Tool, "read")
 		}
 		if req.Context == nil {
 			t.Fatal("context should not be nil")
@@ -748,5 +752,393 @@ func TestErrorBodyTruncation(t *testing.T) {
 	}
 	if sentErr.StatusCode != 500 {
 		t.Errorf("StatusCode = %d, want 500", sentErr.StatusCode)
+	}
+}
+
+// SECURITY (P0-2): Verify Evaluate sends flattened Action fields at root level.
+func TestEvaluate_FlattenedPayload(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Decode into a generic map to verify field layout
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+
+		// Fields must be at the root level (flattened), NOT nested under "action"
+		if _, hasAction := body["action"]; hasAction {
+			t.Error("body should NOT have nested 'action' key — server uses #[serde(flatten)]")
+		}
+		if tool, ok := body["tool"].(string); !ok || tool != "read_file" {
+			t.Errorf("body[\"tool\"] = %v, want %q", body["tool"], "read_file")
+		}
+		if fn, ok := body["function"].(string); !ok || fn != "read" {
+			t.Errorf("body[\"function\"] = %v, want %q", body["function"], "read")
+		}
+		params, ok := body["parameters"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("body[\"parameters\"] type = %T, want map", body["parameters"])
+		}
+		if params["path"] != "/etc/hosts" {
+			t.Errorf("parameters.path = %v, want %q", params["path"], "/etc/hosts")
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"verdict": "allow"})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	_, err := c.Evaluate(context.Background(), Action{
+		Tool:     "read_file",
+		Function: "read",
+		Parameters: map[string]interface{}{
+			"path": "/etc/hosts",
+		},
+	}, nil, false)
+	if err != nil {
+		t.Fatalf("Evaluate() error: %v", err)
+	}
+}
+
+// Verify trace=true becomes a query parameter, not a body field.
+func TestEvaluate_TraceQueryParam(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// trace should be a query parameter
+		if r.URL.Query().Get("trace") != "true" {
+			t.Errorf("query param trace = %q, want %q", r.URL.Query().Get("trace"), "true")
+		}
+
+		// trace should NOT be in the body
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if _, hasTrace := body["trace"]; hasTrace {
+			t.Error("body should NOT have 'trace' field — it is a query parameter")
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"verdict": "allow"})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	_, err := c.Evaluate(context.Background(), Action{Tool: "x"}, nil, true)
+	if err != nil {
+		t.Fatalf("Evaluate() error: %v", err)
+	}
+}
+
+// Verify trace=false does NOT add query parameter.
+func TestEvaluate_NoTraceQueryParam(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "" {
+			t.Errorf("URL should have no query params when trace=false, got %q", r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"verdict": "allow"})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	_, err := c.Evaluate(context.Background(), Action{Tool: "x"}, nil, false)
+	if err != nil {
+		t.Fatalf("Evaluate() error: %v", err)
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ZK Audit tests (P1-11)
+// ═══════════════════════════════════════════════════════════════════
+
+func TestZkStatus(t *testing.T) {
+	seq := uint64(42)
+	at := "2026-02-16T12:00:00Z"
+	srv := testServer(t, "GET", "/api/zk-audit/status", 200, ZkSchedulerStatus{
+		Active:             true,
+		PendingWitnesses:   5,
+		CompletedProofs:    10,
+		LastProvedSequence: &seq,
+		LastProofAt:        &at,
+	})
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	resp, err := c.ZkStatus(context.Background())
+	if err != nil {
+		t.Fatalf("ZkStatus() error: %v", err)
+	}
+	if !resp.Active {
+		t.Error("Active = false, want true")
+	}
+	if resp.PendingWitnesses != 5 {
+		t.Errorf("PendingWitnesses = %d, want 5", resp.PendingWitnesses)
+	}
+	if resp.CompletedProofs != 10 {
+		t.Errorf("CompletedProofs = %d, want 10", resp.CompletedProofs)
+	}
+	if resp.LastProvedSequence == nil || *resp.LastProvedSequence != 42 {
+		t.Errorf("LastProvedSequence = %v, want 42", resp.LastProvedSequence)
+	}
+	if resp.LastProofAt == nil || *resp.LastProofAt != "2026-02-16T12:00:00Z" {
+		t.Errorf("LastProofAt = %v, want %q", resp.LastProofAt, "2026-02-16T12:00:00Z")
+	}
+}
+
+func TestZkStatus_Inactive(t *testing.T) {
+	srv := testServer(t, "GET", "/api/zk-audit/status", 200, ZkSchedulerStatus{
+		Active:           false,
+		PendingWitnesses: 0,
+		CompletedProofs:  0,
+	})
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	resp, err := c.ZkStatus(context.Background())
+	if err != nil {
+		t.Fatalf("ZkStatus() error: %v", err)
+	}
+	if resp.Active {
+		t.Error("Active = true, want false")
+	}
+	if resp.LastProvedSequence != nil {
+		t.Errorf("LastProvedSequence should be nil, got %v", resp.LastProvedSequence)
+	}
+}
+
+func TestZkProofs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/api/zk-audit/proofs" {
+			t.Errorf("path = %s, want /api/zk-audit/proofs", r.URL.Path)
+		}
+		if r.URL.Query().Get("limit") != "10" {
+			t.Errorf("limit = %q, want %q", r.URL.Query().Get("limit"), "10")
+		}
+		if r.URL.Query().Get("offset") != "5" {
+			t.Errorf("offset = %q, want %q", r.URL.Query().Get("offset"), "5")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(ZkProofsResponse{
+			Proofs: []ZkBatchProof{
+				{
+					Proof:          "abc123",
+					BatchID:        "batch-1",
+					EntryRange:     [2]uint64{0, 99},
+					MerkleRoot:     "deadbeef",
+					FirstPrevHash:  "0000",
+					FinalEntryHash: "ffff",
+					CreatedAt:      "2026-02-16T12:00:00Z",
+					EntryCount:     100,
+				},
+			},
+			Total:  1,
+			Offset: 5,
+			Limit:  10,
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	resp, err := c.ZkProofs(context.Background(), 10, 5)
+	if err != nil {
+		t.Fatalf("ZkProofs() error: %v", err)
+	}
+	if resp.Total != 1 {
+		t.Errorf("Total = %d, want 1", resp.Total)
+	}
+	if len(resp.Proofs) != 1 {
+		t.Fatalf("len(Proofs) = %d, want 1", len(resp.Proofs))
+	}
+	if resp.Proofs[0].BatchID != "batch-1" {
+		t.Errorf("BatchID = %q, want %q", resp.Proofs[0].BatchID, "batch-1")
+	}
+	if resp.Proofs[0].EntryRange != [2]uint64{0, 99} {
+		t.Errorf("EntryRange = %v, want [0, 99]", resp.Proofs[0].EntryRange)
+	}
+	if resp.Proofs[0].EntryCount != 100 {
+		t.Errorf("EntryCount = %d, want 100", resp.Proofs[0].EntryCount)
+	}
+}
+
+func TestZkVerify(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if r.URL.Path != "/api/zk-audit/verify" {
+			t.Errorf("path = %s, want /api/zk-audit/verify", r.URL.Path)
+		}
+		var req ZkVerifyRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if req.BatchID != "batch-1" {
+			t.Errorf("BatchID = %q, want %q", req.BatchID, "batch-1")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(ZkVerifyResult{
+			Valid:      true,
+			BatchID:    "batch-1",
+			EntryRange: [2]uint64{0, 99},
+			VerifiedAt: "2026-02-16T12:30:00Z",
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	resp, err := c.ZkVerify(context.Background(), "batch-1")
+	if err != nil {
+		t.Fatalf("ZkVerify() error: %v", err)
+	}
+	if !resp.Valid {
+		t.Error("Valid = false, want true")
+	}
+	if resp.BatchID != "batch-1" {
+		t.Errorf("BatchID = %q, want %q", resp.BatchID, "batch-1")
+	}
+	if resp.EntryRange != [2]uint64{0, 99} {
+		t.Errorf("EntryRange = %v, want [0, 99]", resp.EntryRange)
+	}
+	if resp.VerifiedAt != "2026-02-16T12:30:00Z" {
+		t.Errorf("VerifiedAt = %q, want %q", resp.VerifiedAt, "2026-02-16T12:30:00Z")
+	}
+	if resp.Error != nil {
+		t.Errorf("Error = %v, want nil", resp.Error)
+	}
+}
+
+func TestZkVerify_WithError(t *testing.T) {
+	errMsg := "proof invalid"
+	srv := testServer(t, "POST", "/api/zk-audit/verify", 200, ZkVerifyResult{
+		Valid:      false,
+		BatchID:    "batch-bad",
+		EntryRange: [2]uint64{0, 49},
+		VerifiedAt: "2026-02-16T13:00:00Z",
+		Error:      &errMsg,
+	})
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	resp, err := c.ZkVerify(context.Background(), "batch-bad")
+	if err != nil {
+		t.Fatalf("ZkVerify() error: %v", err)
+	}
+	if resp.Valid {
+		t.Error("Valid = true, want false")
+	}
+	if resp.Error == nil || *resp.Error != "proof invalid" {
+		t.Errorf("Error = %v, want %q", resp.Error, "proof invalid")
+	}
+}
+
+func TestZkCommitments(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/api/zk-audit/commitments" {
+			t.Errorf("path = %s, want /api/zk-audit/commitments", r.URL.Path)
+		}
+		if r.URL.Query().Get("from") != "0" {
+			t.Errorf("from = %q, want %q", r.URL.Query().Get("from"), "0")
+		}
+		if r.URL.Query().Get("to") != "100" {
+			t.Errorf("to = %q, want %q", r.URL.Query().Get("to"), "100")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(ZkCommitmentsResponse{
+			Commitments: []ZkCommitmentEntry{
+				{Sequence: 0, Commitment: "aabb", Timestamp: "2026-02-16T12:00:00Z"},
+				{Sequence: 1, Commitment: "ccdd", Timestamp: "2026-02-16T12:01:00Z"},
+			},
+			Total: 2,
+			Range: [2]uint64{0, 100},
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	resp, err := c.ZkCommitments(context.Background(), 0, 100)
+	if err != nil {
+		t.Fatalf("ZkCommitments() error: %v", err)
+	}
+	if resp.Total != 2 {
+		t.Errorf("Total = %d, want 2", resp.Total)
+	}
+	if len(resp.Commitments) != 2 {
+		t.Fatalf("len(Commitments) = %d, want 2", len(resp.Commitments))
+	}
+	if resp.Commitments[0].Sequence != 0 {
+		t.Errorf("Commitments[0].Sequence = %d, want 0", resp.Commitments[0].Sequence)
+	}
+	if resp.Commitments[0].Commitment != "aabb" {
+		t.Errorf("Commitments[0].Commitment = %q, want %q", resp.Commitments[0].Commitment, "aabb")
+	}
+	if resp.Range != [2]uint64{0, 100} {
+		t.Errorf("Range = %v, want [0, 100]", resp.Range)
+	}
+}
+
+func TestZkStatus_HTTPError(t *testing.T) {
+	srv := testServer(t, "GET", "/api/zk-audit/status", 500, map[string]string{"error": "internal"})
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	_, err := c.ZkStatus(context.Background())
+	if err == nil {
+		t.Fatal("ZkStatus() should return error for 500")
+	}
+	sentErr, ok := err.(*VellavetoError)
+	if !ok {
+		t.Fatalf("error type = %T, want *VellavetoError", err)
+	}
+	if sentErr.StatusCode != 500 {
+		t.Errorf("StatusCode = %d, want 500", sentErr.StatusCode)
+	}
+}
+
+func TestZkProofs_Empty(t *testing.T) {
+	srv := testServer(t, "GET", "/api/zk-audit/proofs", 200, ZkProofsResponse{
+		Proofs: []ZkBatchProof{},
+		Total:  0,
+		Offset: 0,
+		Limit:  20,
+	})
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	resp, err := c.ZkProofs(context.Background(), 20, 0)
+	if err != nil {
+		t.Fatalf("ZkProofs() error: %v", err)
+	}
+	if resp.Total != 0 {
+		t.Errorf("Total = %d, want 0", resp.Total)
+	}
+	if len(resp.Proofs) != 0 {
+		t.Errorf("len(Proofs) = %d, want 0", len(resp.Proofs))
+	}
+}
+
+func TestZkCommitments_Empty(t *testing.T) {
+	srv := testServer(t, "GET", "/api/zk-audit/commitments", 200, ZkCommitmentsResponse{
+		Commitments: []ZkCommitmentEntry{},
+		Total:       0,
+		Range:       [2]uint64{50, 60},
+	})
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	resp, err := c.ZkCommitments(context.Background(), 50, 60)
+	if err != nil {
+		t.Fatalf("ZkCommitments() error: %v", err)
+	}
+	if resp.Total != 0 {
+		t.Errorf("Total = %d, want 0", resp.Total)
+	}
+	if resp.Range != [2]uint64{50, 60} {
+		t.Errorf("Range = %v, want [50, 60]", resp.Range)
 	}
 }

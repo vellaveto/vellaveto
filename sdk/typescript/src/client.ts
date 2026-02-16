@@ -25,6 +25,10 @@ import {
   SimulateResponse,
   ValidateResponse,
   Verdict,
+  ZkCommitmentsResponse,
+  ZkProofsResponse,
+  ZkSchedulerStatus,
+  ZkVerifyResult,
 } from "./types";
 
 // SECURITY (FIND-R46-TS-001): Maximum response body size to prevent OOM DoS.
@@ -328,6 +332,19 @@ export class VellavetoClient {
 
     const respObj = resp as Record<string, unknown>;
     const verdict = parseVerdict(respObj.verdict);
+
+    // Extract reason from both top-level field and verdict object.
+    // Top-level "reason" takes precedence; fall back to reason inside verdict object
+    // (e.g., {"Deny": {"reason": "blocked"}}).
+    const topReason =
+      typeof respObj.reason === "string" ? respObj.reason : undefined;
+    const objReason = extractVerdictReason(respObj.verdict);
+    const reason = topReason ?? objReason;
+
+    const policyId =
+      typeof respObj.policy_id === "string" ? respObj.policy_id : undefined;
+    const policyName =
+      typeof respObj.policy_name === "string" ? respObj.policy_name : undefined;
     const approvalId =
       typeof respObj.approval_id === "string" ? respObj.approval_id : undefined;
     const respTrace =
@@ -337,6 +354,9 @@ export class VellavetoClient {
 
     return {
       verdict,
+      reason,
+      policy_id: policyId,
+      policy_name: policyName,
       approval_id: approvalId,
       trace: respTrace,
     };
@@ -495,6 +515,65 @@ export class VellavetoClient {
       body
     );
   }
+
+  // ────────────────────────────────────────────────────
+  // ZK Audit (Phase 37)
+  // ────────────────────────────────────────────────────
+
+  /** Get the ZK audit scheduler status. */
+  async zkStatus(): Promise<ZkSchedulerStatus> {
+    return this.request<ZkSchedulerStatus>("GET", "/api/zk-audit/status");
+  }
+
+  /** List stored ZK batch proofs with optional pagination. */
+  async zkProofs(limit?: number, offset?: number): Promise<ZkProofsResponse> {
+    const params = new URLSearchParams();
+    if (limit !== undefined) params.set("limit", String(limit));
+    if (offset !== undefined) params.set("offset", String(offset));
+    const qs = params.toString();
+    const path = qs ? `/api/zk-audit/proofs?${qs}` : "/api/zk-audit/proofs";
+    return this.request<ZkProofsResponse>("GET", path);
+  }
+
+  /** Verify a stored ZK batch proof by batch ID. */
+  async zkVerify(batchId: string): Promise<ZkVerifyResult> {
+    return this.request<ZkVerifyResult>("POST", "/api/zk-audit/verify", {
+      batch_id: batchId,
+    });
+  }
+
+  /** List Pedersen commitments for audit entries in a sequence range. */
+  async zkCommitments(
+    fromSeq: number,
+    toSeq: number
+  ): Promise<ZkCommitmentsResponse> {
+    const params = new URLSearchParams();
+    params.set("from", String(fromSeq));
+    params.set("to", String(toSeq));
+    return this.request<ZkCommitmentsResponse>(
+      "GET",
+      `/api/zk-audit/commitments?${params.toString()}`
+    );
+  }
+}
+
+/**
+ * Extract the reason string from an object-style verdict.
+ * E.g., {"Deny": {"reason": "blocked"}} -> "blocked"
+ */
+function extractVerdictReason(v: unknown): string | undefined {
+  if (typeof v === "object" && v !== null && !Array.isArray(v)) {
+    const obj = v as Record<string, unknown>;
+    for (const key of ["Deny", "RequireApproval"]) {
+      if (key in obj && typeof obj[key] === "object" && obj[key] !== null) {
+        const inner = obj[key] as Record<string, unknown>;
+        if (typeof inner.reason === "string") {
+          return inner.reason;
+        }
+      }
+    }
+  }
+  return undefined;
 }
 
 /** Parse a verdict string into the Verdict enum. */

@@ -161,7 +161,7 @@ class TestCreateVellavetoNode:
 
         request = httpx_mock.get_request()
         body = json.loads(request.content)
-        assert "/secret/data.txt" in body["action"]["target_paths"]
+        assert "/secret/data.txt" in body["target_paths"]
         client.close()
 
     def test_domain_extraction(self, httpx_mock):
@@ -181,7 +181,7 @@ class TestCreateVellavetoNode:
 
         request = httpx_mock.get_request()
         body = json.loads(request.content)
-        assert "https://evil.com/exfil" in body["action"]["target_domains"]
+        assert "https://evil.com/exfil" in body["target_domains"]
         client.close()
 
     def test_url_pattern_extraction(self, httpx_mock):
@@ -201,7 +201,7 @@ class TestCreateVellavetoNode:
 
         request = httpx_mock.get_request()
         body = json.loads(request.content)
-        assert "http://internal.corp/api" in body["action"]["target_domains"]
+        assert "http://internal.corp/api" in body["target_domains"]
         client.close()
 
     def test_fail_closed_on_error(self, httpx_mock):
