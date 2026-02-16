@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (Adversarial Hardening — Round 47: P0/P1 Deep Fix)
+
+15 findings resolved (3 P0, 12 P1) across 23 files (+1,824/-161 lines).
+
+#### P0 Fixes (Critical)
+- **P0-1** (P0): Unbounded `intent_chains` HashMap in semantic guardrails — capped at 10,000 sessions with warning on capacity.
+- **P0-2** (P0): SDK payload format mismatch — Python and Go SDKs sent nested `{"action": {...}}` but server expects flattened fields due to `#[serde(flatten)]` on `EvaluateRequest`. All three SDKs (Python, Go, TypeScript) now send `{"tool": "...", "function": "...", ...}` at root level. `trace` moved from body field to query parameter (`?trace=true`).
+- **P0-3** (P0): Python async client `_request()` had no response body size limit — added `_MAX_RESPONSE_BYTES` check.
+
+#### P1 Fixes (High)
+- **P1-1** (P1): ZK `WitnessStore` drain-before-prove data loss — `try_prove_batch()` now restores witnesses on failure via new `WitnessStore::restore()` method.
+- **P1-2** (P1): Elasticsearch exporter missing retry — added bounded exponential backoff matching other exporters.
+- **P1-3** (P1): OTLP exporter stub silently discarded batches — now returns error for non-empty batches with `tracing::warn!` on construction.
+- **P1-4** (P1): Elasticsearch bulk API partial failures not detected — response body now parsed for per-item errors.
+- **P1-5** (P1): ABAC `matches_resource` lacked globset parity with main engine — new `CompiledPathMatcher` enum with `globset::Glob` support (literal_separator=true so `*` doesn't cross `/`). Fail-closed on invalid glob patterns.
+- **P1-6** (P1): MINJA `hours_since()` returned 0.0 on parse failure, bypassing trust decay entirely — `decayed_trust_score()` now returns 0.0 (fail-closed) on corrupt timestamps. `parse_timestamp()` validates month/day/year/hour/min/sec ranges.
+- **P1-7** (P1): ZK audit commitments endpoint loaded unbounded entries — capped at 500,000 with HTTP 503 response.
+- **P1-8** (P1): A2A proxy `request_timeout_ms` advisory documentation added (callers must enforce at transport layer).
+- **P1-9** (P1): Python SDK approval API paths corrected to `/api/approvals/pending`, `/api/approvals/{id}/approve`, `/api/approvals/{id}/deny`.
+- **P1-10** (P1): TypeScript `evaluate()` now extracts `reason`, `policy_id`, `policy_name` from verdict object.
+- **P1-11** (P1): Go and TypeScript SDKs now have ZK Audit methods: `zkStatus()`, `zkProofs()`, `zkVerify()`, `zkCommitments()` with full type definitions.
+- **P1-12** (P1): Python async `evaluate()` now validates inputs via shared `_validate_evaluate_inputs()` helper (parity with sync client).
+
+#### Test Count Updates
+- Rust: 6,042 → 6,055 (+13)
+- Python SDK: 288 → 298 (+10 new tests)
+- Go SDK: 33 → 40 (+7 new tests including ZK Audit)
+- TypeScript SDK: 34 (unchanged, ZK tests added in Round 46)
+- **Total: 6,427 tests across all languages**
+
 ### Fixed (Adversarial Hardening — Round 46: Full-Codebase Audit)
 
 ~177 findings resolved across all crates and SDKs (21 P1, 66 P2, ~90 P3).
