@@ -11,9 +11,9 @@
     <a href="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/paolovella/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/paolovella/vellaveto/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021_edition-orange.svg" alt="Rust 2021"></a>
-    <img src="https://img.shields.io/badge/tests-5%2C763_passing-brightgreen.svg" alt="Tests: 5,763 passing">
+    <img src="https://img.shields.io/badge/tests-6%2C032_passing-brightgreen.svg" alt="Tests: 6,032 passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
-    <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-44_rounds%2C_400%2B_findings-informational.svg" alt="Adversarial Testing: 44 rounds, 400+ findings"></a>
+    <a href="audits/README.md"><img src="https://img.shields.io/badge/adversarial_testing-46_rounds%2C_400%2B_findings-informational.svg" alt="Adversarial Testing: 46 rounds, 400+ findings"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
   </p>
@@ -35,7 +35,7 @@ Vellaveto is a lightweight, high-performance firewall that sits between AI agent
 <table>
 <tr><td>🏷️ <strong>Version</strong></td><td>4.0.0-dev</td></tr>
 <tr><td>🦀 <strong>Language</strong></td><td>Rust</td></tr>
-<tr><td>✅ <strong>Test suite</strong></td><td>5,763+ tests, 0 failures, 0 warnings</td></tr>
+<tr><td>✅ <strong>Test suite</strong></td><td>6,032+ tests, 0 failures, 0 warnings</td></tr>
 <tr><td>⚡ <strong>Evaluation latency</strong></td><td>&lt;5ms P99</td></tr>
 <tr><td>💾 <strong>Memory baseline</strong></td><td>&lt;50MB</td></tr>
 <tr><td>🔌 <strong>MCP version</strong></td><td>2025-11-25 (backwards compatible with 2025-06-18 and 2025-03-26)</td></tr>
@@ -44,6 +44,7 @@ Vellaveto is a lightweight, high-performance firewall that sits between AI agent
 
 ## Recent Updates (2026-02-16)
 
+- **Codebase Improvement Campaign** — 6-phase quality and hardening sweep: ~165 new engine/relay/audit unit tests (engine 687, MCP 1,083, audit 441), 14 Criterion benchmarks (ABAC evaluation, Merkle proofs, injection/DLP long text, E2E pipeline), TLA+ RequireApproval invariant S7 + VERIFIED source markers linking to 8 formal properties, 4 new CI jobs (cargo-vet supply chain audit, cargo-semver-checks, MSRV 1.75.0 enforcement, feature flag matrix). Relay security hardening: `VELLAVETO_AGENT_ID` env var for stdio proxy, channel buffer bounds (64 slots, 4MB message limit). 6,032 Rust tests passing.
 - **Phase 37: Zero-Knowledge Audit Trails** — Two-tier privacy-preserving audit: inline Pedersen commitments (~50µs per entry via `curve25519-dalek` Ristretto) for cryptographic binding without revealing entry contents, plus offline Groth16 batch proofs (`ark-groth16`/`ark-bn254`) proving hash-chain and Merkle tree correctness over groups of entries. `PedersenCommitter` with domain-separated generators (G, H), `WitnessStore` with bounded capacity, `AuditChainCircuit` (R1CS constraints for hash-chain + commitment verification), `ZkBatchProver` (trusted setup, prove, verify with key serialization), `ZkBatchScheduler` (async batch loop with size/interval triggers and graceful shutdown). `ZkAuditConfig` with validation (batch_size 10–10,000, key path validation). REST API: `GET /api/zk-audit/status`, `GET /api/zk-audit/proofs` (paginated), `POST /api/zk-audit/verify`, `GET /api/zk-audit/commitments` (range-bounded). Python SDK methods (sync+async): `zk_status()`, `zk_proofs()`, `zk_verify()`, `zk_commitments()`. Feature-gated behind `zk-audit`. ~190 new tests.
 - **Phase 35: Model Projector** — Model-agnostic tool schema projection across 5 LLM families (Claude, OpenAI, DeepSeek, Qwen, Generic). `ModelProjection` trait with `ProjectorRegistry` for schema transformation, call parsing, and response formatting. `SchemaCompressor` with 5 progressive strategies reduces token cost (strip root type, inline enums, truncate descriptions, collapse objects, remove optional descriptions). `CallRepairer` fixes malformed tool calls via type coercion, default injection, Levenshtein fuzzy matching, and DeepSeek markdown extraction. REST API: `GET /api/projector/models`, `POST /api/projector/transform`. Feature-gated behind `projector`. ~230 new tests.
 - **Phase 34: Tool Discovery Service** — Pure Rust TF-IDF inverted index for natural language tool search across MCP servers (zero new dependencies). `DiscoveryEngine` with cosine similarity scoring, policy filtering, and token budget enforcement. Session-scoped TTL lifecycle for discovered tools (record, expire, evict, re-discover). REST API: `POST /api/discovery/search`, `GET /api/discovery/index/stats`, `POST /api/discovery/reindex`, `GET /api/discovery/tools`. SDK methods in Python, TypeScript, and Go. Feature-gated behind `discovery`. ~260 new tests.

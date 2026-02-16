@@ -3,7 +3,7 @@
 > **Version:** 4.0.0
 > **Generated:** 2026-02-16
 > **Baseline:** v3.0.0 — 4,812 Rust tests, 130 Python SDK tests, 28 Go SDK tests, 15 TypeScript SDK tests, 22 fuzz targets, 11 CI workflows, 38 audit rounds, 23 phases complete
-> **Current:** 5,763 Rust tests, 245 Python SDK tests, 28 Go SDK tests, 15 TypeScript SDK tests, 24 fuzz targets, 11 CI workflows, 45 audit rounds, 37 phases complete
+> **Current:** 6,032 Rust tests, 245 Python SDK tests, 28 Go SDK tests, 15 TypeScript SDK tests, 24 fuzz targets, 11 CI workflows (15 jobs), 46 audit rounds, 37 phases complete
 > **Scope:** 12 months (Q2 2026 – Q1 2027), quarterly milestones
 > **Status:** v3.0 shipped; Phases 24–35 + 37 complete
 
@@ -588,12 +588,13 @@ Phases 39, 40, and 41 can run in parallel (Q1 2027).
 | Phase 34 (Discovery) | ~260 | 5,495 ✅ |
 | Phase 35 (Projector) | ~230 | 5,725 ✅ |
 | Phase 37 (zk-Audit) | ~38 | 5,763 ✅ |
-| Phase 36 (DX/SDK) | ~80 | 5,843 |
-| Phase 38 (SOC 2) | ~20 | 5,863 |
-| Phase 39 (Federation) | ~30 | 5,893 |
-| Phase 40 (PQC) | ~20 | 5,913 |
-| Phase 41 (Benchmark) | ~10 | 5,923 |
-| **v4.0 target** | **~963 actual + ~160 remaining** | **~5,900+** |
+| Improvement Campaign | ~269 | 6,032 ✅ |
+| Phase 36 (DX/SDK) | ~80 | 6,112 |
+| Phase 38 (SOC 2) | ~20 | 6,132 |
+| Phase 39 (Federation) | ~30 | 6,162 |
+| Phase 40 (PQC) | ~20 | 6,182 |
+| Phase 41 (Benchmark) | ~10 | 6,192 |
+| **v4.0 target** | **~1,232 actual + ~160 remaining** | **~6,200+** |
 
 ---
 

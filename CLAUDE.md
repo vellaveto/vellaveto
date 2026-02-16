@@ -1,12 +1,12 @@
 # CLAUDE.md — Vellaveto Project Instructions
 
 > **Project:** Vellaveto — MCP Tool Firewall
-> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 complete, 45 audit rounds)
+> **State:** v4.0.0-dev (Phases 1–25.1/25.2/25.6 + 26 + 27 + 29 + 30 + 33 + 34 + 35 + 37 complete, 46 audit rounds)
 > **Version:** 4.0.0-dev
 > **License:** AGPL-3.0 dual license (see LICENSING.md)
-> **Tests:** 5,763 Rust tests + 245 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
+> **Tests:** 6,032 Rust tests + 245 Python SDK tests + 28 Go SDK tests + 15 TypeScript SDK tests, zero warnings, zero `unwrap()` in library code
 > **Fuzz targets:** 24
-> **CI workflows:** 11
+> **CI workflows:** 11 (15 jobs)
 > **Updated:** 2026-02-16
 
 ---
@@ -184,7 +184,8 @@ All 24 phases + Phase 25 (sub-phases 25.1/25.2/25.6) + Phase 26 + Phase 27 + Pha
 - **CI/CD:** 11 workflows, Docker/GHCR, release automation, SBOM, provenance attestation
 - **SDKs:** Python (sync+async, LangChain/LangGraph/Composio, 245 tests), TypeScript (fetch-based, 15 tests), Go (stdlib-only, 28 tests)
 - **Composio Integration:** `ComposioGuard` with `before_execute`/`after_execute` modifier factories for universal Composio provider support (OpenAI, LangChain, CrewAI, AutoGen, Google ADK), client-side response scanning (DLP + injection with NFKC normalization + invisible char stripping), `CallChainTracker` (thread-safe, bounded FIFO), slug normalization (ASCII-only with homoglyph rejection), target extraction (recursive with depth bound, file:// URI support), standalone `execute()` wrapper with TOCTOU prevention, 84 tests (49 adversarial)
-- **Formal Verification (Phase 33):** TLA+ specs for policy engine (6 safety + 2 liveness) and ABAC forbid-overrides (4 safety), Alloy model for capability delegation (6 safety assertions), 19 verified properties with source traceability
+- **Formal Verification (Phase 33):** TLA+ specs for policy engine (7 safety + 2 liveness, including S7 RequireApproval invariant) and ABAC forbid-overrides (4 safety), Alloy model for capability delegation (6 safety assertions), 20 verified properties with source traceability and VERIFIED markers in engine/mcp source
+- **Codebase Improvement Campaign:** ~165 new unit tests (engine 687, MCP 1,083, audit 441), 14 Criterion benchmarks (ABAC, Merkle, injection/DLP, E2E pipeline), 4 new CI jobs (cargo-vet, semver-checks, MSRV 1.75.0, feature matrix), relay security hardening (VELLAVETO_AGENT_ID env var, channel buffer bounds, oversized message dropping)
 - **Shadow AI Detection & Governance (Phase 26):** Passive shadow AI discovery engine (unregistered agents, unapproved tools, unknown MCP servers with bounded tracking — max 1000/500/100), governance API endpoints (shadow-report, unregistered-agents, unapproved-tools, least-agency), `GovernanceConfig` with `require_agent_registration` fail-closed mode, `LeastAgencyTracker` enforcement mode with auto-revocation, governance dashboard section, audit event helpers (`shadow_ai.{unregistered_agent,unapproved_tool,unknown_server}`, `least_agency.{report,auto_revoke}`)
 - **Kubernetes-Native Deployment (Phase 27):** `LeaderElection` trait + `LocalLeaderElection` (always-leader standalone), `ServiceDiscovery` trait + `StaticServiceDiscovery` + `DnsServiceDiscovery` (tokio lookup_host + periodic watch), `DeploymentConfig` with validation (mode/leader-election/service-discovery/instance-id), `GET /api/deployment/info` endpoint, health endpoint extended with `leader_status`/`instance_id`/`discovered_endpoints`, Helm chart StatefulSet with PVC + init container + log-shipping sidecar + headless Service + gRPC/WebSocket support, Chart version 4.0.0, audit event helpers (`leader_election.{acquired,renewed,released,lost,failed}`, `service_discovery.{endpoint_added,endpoint_removed,endpoint_updated,refresh_failed}`)
 - **Cross-Transport Smart Fallback (Phase 29):** `TransportHealthTracker` per-transport circuit breaker (Closed/Open/HalfOpen, exponential backoff, RwLock fail-closed, bounded 10K circuits), `SmartFallbackChain` ordered fallback orchestrator (gRPC → WS → HTTP → stdio with per-attempt/total timeouts, 16MB response body limit), `resolve_transport_priority()` with per-tool glob overrides (iterative DP matching) + client preference + config priorities, `TransportAttempt`/`FallbackNegotiationHistory` audit types, `cross_transport_fallback` config gate (default off), handler integration with `build_transport_targets()`, header allowlist for upstream proxying, stdio command injection prevention (absolute path + no metacharacters), 71 new tests
