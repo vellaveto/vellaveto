@@ -11077,3 +11077,222 @@ fn test_differential_require_approval_identical() {
     let action = make_action("tool", "op", json!({}));
     assert_compiled_legacy_equivalent(&policies, &action);
 }
+
+// ═══════════════════════════════════════════════════
+// FIND-R46-004: Legacy match_pattern infix wildcard behavior
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_r46_004_legacy_match_pattern_infix_wildcard_treated_as_prefix() {
+    // Document and test that the legacy match_pattern treats "foo*bar"
+    // as a prefix match on "foo" (since strip_suffix('*') doesn't find
+    // a trailing '*', it falls to strip_prefix which also doesn't find
+    // a leading '*', so it becomes an exact match).
+    // Actually: "foo*bar" has no leading or trailing '*', so it's exact.
+    let engine = PolicyEngine::new(false);
+    let action = Action::new(
+        "file_read_write".to_string(),
+        "exec".to_string(),
+        json!({}),
+    );
+    // "file_*_write" as a policy ID has no leading/trailing '*', so it's an exact match.
+    // It should NOT match "file_read_write".
+    let policies = vec![Policy {
+        id: "file_*_write:*".to_string(),
+        name: "infix wildcard".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }];
+    // Legacy path: "file_*_write" stripped of suffix '*' doesn't work because
+    // the tool part is "file_*_write" — let's test this properly through the
+    // compiled path which is what the actual engine uses.
+    let result = engine.evaluate_action(&action, &policies);
+    // The legacy pattern "file_*_write" with strip_suffix('*') finds no trailing '*',
+    // strip_prefix('*') finds no leading '*', so it's treated as exact match.
+    // "file_*_write" != "file_read_write", so it should NOT match → deny.
+    assert!(
+        matches!(result, Ok(Verdict::Deny { .. })),
+        "Legacy infix wildcard should not match (treated as exact): {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_r46_004_compiled_infix_wildcard_treated_as_match_all() {
+    // The compiled path treats infix wildcards as match-all (fail-closed).
+    // This is documented in PatternMatcher::compile.
+    use crate::PatternMatcher;
+    let matcher = PatternMatcher::compile("read_*_file");
+    assert!(
+        matches!(matcher, PatternMatcher::Any),
+        "Infix wildcard should be treated as match-all in compiled path"
+    );
+    assert!(
+        matcher.matches("anything_at_all"),
+        "Match-all should match any string"
+    );
+}
+
+// ═══════════════════════════════════════════════════
+// FIND-R46-005: json_depth bounded traversal
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_r46_005_json_depth_deeply_nested_returns_capped_depth() {
+    // Build a deeply nested JSON: {"a":{"a":{"a":...}}} 200 levels deep
+    let mut val = json!("leaf");
+    for _ in 0..200 {
+        val = json!({"a": val});
+    }
+    let depth = PolicyEngine::json_depth(&val);
+    // Should be capped at or above MAX_JSON_DEPTH_LIMIT (128) without OOM/crash
+    assert!(
+        depth >= 128,
+        "Deeply nested JSON should trigger depth limit, got {}",
+        depth
+    );
+}
+
+#[test]
+fn test_r46_005_json_depth_wide_json_bounded() {
+    // Build a wide JSON: {"k0":"v", "k1":"v", ... "k9999":"v"} with 10001 keys
+    // at depth 0 — should terminate via node budget
+    let mut obj = serde_json::Map::new();
+    for i in 0..12000 {
+        obj.insert(format!("k{}", i), json!("v"));
+    }
+    let val = serde_json::Value::Object(obj);
+    let depth = PolicyEngine::json_depth(&val);
+    // Should be 1 (flat object, each value is at depth 1)
+    // The important thing is it doesn't OOM
+    assert!(depth <= 2, "Wide flat JSON should have low depth: {}", depth);
+}
+
+#[test]
+fn test_r46_005_json_depth_normal_json() {
+    let val = json!({"a": {"b": [1, 2, {"c": true}]}});
+    let depth = PolicyEngine::json_depth(&val);
+    // a=1, b=2, array=3, items=3, c_obj=4, c_val=4
+    assert!(depth >= 3 && depth <= 5, "Normal JSON depth: {}", depth);
+}
+
+// ═══════════════════════════════════════════════════
+// FIND-R46-006: collect_all_string_values complete traversal
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_r46_006_collect_all_string_values_deeply_nested() {
+    // Build deeply nested JSON with string at the bottom
+    let mut val = json!("deep_secret");
+    for _ in 0..30 {
+        val = json!({"nest": val});
+    }
+    let results = PolicyEngine::collect_all_string_values(&val);
+    // Should find the deeply nested string (depth 30 < MAX_JSON_DEPTH=32)
+    assert!(
+        !results.is_empty(),
+        "Should find string at depth 30 (within limit of 32)"
+    );
+    assert!(
+        results.iter().any(|(_, v)| *v == "deep_secret"),
+        "Should find the deeply nested string value"
+    );
+}
+
+#[test]
+fn test_r46_006_collect_all_string_values_beyond_depth_limit() {
+    // Build deeply nested JSON beyond the depth limit
+    let mut val = json!("unreachable");
+    for _ in 0..40 {
+        val = json!({"nest": val});
+    }
+    let results = PolicyEngine::collect_all_string_values(&val);
+    // The string at depth 40 should NOT be found (exceeds MAX_JSON_DEPTH=32)
+    let found = results.iter().any(|(_, v)| *v == "unreachable");
+    assert!(
+        !found,
+        "String beyond depth limit should not be collected"
+    );
+}
+
+#[test]
+fn test_r46_006_collect_all_string_values_mixed_nesting() {
+    // Mix of shallow and deep values — all shallow ones should be found
+    let val = json!({
+        "shallow": "found1",
+        "nested": {
+            "level2": "found2",
+            "deep": {
+                "level3": "found3"
+            }
+        },
+        "array": ["found4", {"inner": "found5"}]
+    });
+    let results = PolicyEngine::collect_all_string_values(&val);
+    let values: Vec<&str> = results.iter().map(|(_, v)| *v).collect();
+    assert!(values.contains(&"found1"), "shallow string missing");
+    assert!(values.contains(&"found2"), "level2 string missing");
+    assert!(values.contains(&"found3"), "level3 string missing");
+    assert!(values.contains(&"found4"), "array string missing");
+    assert!(values.contains(&"found5"), "nested array object string missing");
+}
+
+// ═══════════════════════════════════════════════════
+// FIND-R46-007: ReDoS validator enhanced checks
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_r46_007_redos_nested_quantifier_rejected() {
+    let result = PolicyEngine::validate_regex_safety("(a+)+");
+    assert!(result.is_err(), "Nested quantifier should be rejected");
+}
+
+#[test]
+fn test_r46_007_redos_alternation_with_quantifier_rejected() {
+    // (a|b)+ with alternation under a quantified group
+    let result = PolicyEngine::validate_regex_safety("(a|b)+");
+    assert!(
+        result.is_err(),
+        "Alternation with outer quantifier should be rejected: {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_r46_007_redos_alternation_star_rejected() {
+    let result = PolicyEngine::validate_regex_safety("(foo|bar)*");
+    assert!(
+        result.is_err(),
+        "Alternation with outer * should be rejected: {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_r46_007_redos_simple_quantifier_allowed() {
+    // Simple quantifiers without nesting should be fine
+    assert!(PolicyEngine::validate_regex_safety("a+b*c?").is_ok());
+    assert!(PolicyEngine::validate_regex_safety("[a-z]+").is_ok());
+    assert!(PolicyEngine::validate_regex_safety("\\d{3}-\\d{4}").is_ok());
+}
+
+#[test]
+fn test_r46_007_redos_group_without_quantifier_allowed() {
+    // Groups without outer quantifiers are safe
+    assert!(PolicyEngine::validate_regex_safety("(abc)").is_ok());
+    assert!(PolicyEngine::validate_regex_safety("(a|b)").is_ok());
+}
+
+#[test]
+fn test_r46_007_redos_escaped_paren_not_confused() {
+    // Escaped parens should not be treated as groups
+    assert!(PolicyEngine::validate_regex_safety("\\(a+\\)+").is_ok());
+}
+
+#[test]
+fn test_r46_007_redos_overlength_rejected() {
+    let long_pattern = "a".repeat(1025);
+    assert!(PolicyEngine::validate_regex_safety(&long_pattern).is_err());
+}

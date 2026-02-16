@@ -743,6 +743,9 @@ impl SiemExporter for DatadogExporter {
         "datadog"
     }
 
+    /// SECURITY (FIND-R46-011): Implements bounded retry with exponential backoff
+    /// for transient failures (5xx, timeouts, network errors). Max 3 retries with
+    /// backoff capped at 30 seconds. Non-retryable errors (4xx) fail immediately.
     async fn export_batch(&self, entries: &[AuditEntry]) -> Result<(), ExportError> {
         if entries.is_empty() {
             return Ok(());
@@ -772,27 +775,71 @@ impl SiemExporter for DatadogExporter {
         let body =
             serde_json::to_string(&logs).map_err(|e| ExportError::Serialization(e.to_string()))?;
 
-        let response = self
-            .client
-            .post(&self.config.endpoint)
-            .header("DD-API-KEY", &self.api_key)
-            .header("Content-Type", "application/json")
-            .body(body)
-            .send()
-            .await
-            .map_err(|e| ExportError::HttpError(e.to_string()))?;
+        let max_retries = self.config.common.max_retries;
+        let mut retries = 0u32;
+        let mut backoff = Duration::from_secs(self.config.common.retry_backoff_secs);
+        const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
-        if response.status().is_success() {
-            tracing::debug!(
-                exporter = "datadog",
-                entries = entries.len(),
-                "Successfully exported batch"
-            );
-            Ok(())
-        } else {
-            let status = response.status().as_u16();
-            let message = response.text().await.unwrap_or_default();
-            Err(ExportError::ServerError { status, message })
+        loop {
+            let result = self
+                .client
+                .post(&self.config.endpoint)
+                .header("DD-API-KEY", &self.api_key)
+                .header("Content-Type", "application/json")
+                .body(body.clone())
+                .send()
+                .await;
+
+            match result {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        tracing::debug!(
+                            exporter = "datadog",
+                            entries = entries.len(),
+                            "Successfully exported batch"
+                        );
+                        return Ok(());
+                    }
+
+                    let status = response.status().as_u16();
+
+                    // Retry on server errors (5xx)
+                    if status >= 500 && retries < max_retries {
+                        tracing::warn!(
+                            exporter = "datadog",
+                            status = status,
+                            retry = retries + 1,
+                            max_retries = max_retries,
+                            backoff_secs = backoff.as_secs(),
+                            "Datadog server error, retrying"
+                        );
+                        tokio::time::sleep(backoff).await;
+                        backoff = (backoff * 2).min(MAX_BACKOFF);
+                        retries += 1;
+                        continue;
+                    }
+
+                    let message = response.text().await.unwrap_or_default();
+                    return Err(ExportError::ServerError { status, message });
+                }
+                Err(e) => {
+                    if retries < max_retries {
+                        tracing::warn!(
+                            exporter = "datadog",
+                            error = %e,
+                            retry = retries + 1,
+                            max_retries = max_retries,
+                            backoff_secs = backoff.as_secs(),
+                            "Datadog request failed, retrying"
+                        );
+                        tokio::time::sleep(backoff).await;
+                        backoff = (backoff * 2).min(MAX_BACKOFF);
+                        retries += 1;
+                        continue;
+                    }
+                    return Err(ExportError::HttpError(e.to_string()));
+                }
+            }
         }
     }
 
@@ -1334,7 +1381,19 @@ impl SyslogExporter {
         sd
     }
 
+    /// Maximum syslog UDP message size in bytes.
+    ///
+    /// SECURITY (FIND-R46-009): RFC 5424 Section 6.1 recommends a minimum transport
+    /// receiver buffer of 2048 bytes for UDP. Messages exceeding this limit are
+    /// silently truncated by most syslog receivers, leading to data loss. We truncate
+    /// on the sender side to 2048 bytes (respecting UTF-8 char boundaries) so that
+    /// the message is always complete within the receiver's buffer.
+    const MAX_SYSLOG_UDP_MESSAGE_SIZE: usize = 2048;
+
     /// Send a message via UDP.
+    ///
+    /// SECURITY (FIND-R46-009): Truncates messages to `MAX_SYSLOG_UDP_MESSAGE_SIZE`
+    /// bytes to comply with RFC 5424 UDP transport recommendations.
     async fn send_udp(&self, message: &str) -> Result<(), ExportError> {
         use tokio::net::UdpSocket;
 
@@ -1343,8 +1402,26 @@ impl SyslogExporter {
             .map_err(|e| ExportError::HttpError(format!("Failed to bind UDP socket: {}", e)))?;
 
         let addr = format!("{}:{}", self.config.host, self.config.port);
+
+        // SECURITY (FIND-R46-009): Truncate to max UDP syslog message size.
+        let send_bytes = if message.len() > Self::MAX_SYSLOG_UDP_MESSAGE_SIZE {
+            let mut end = Self::MAX_SYSLOG_UDP_MESSAGE_SIZE;
+            // Back up to a valid UTF-8 char boundary
+            while end > 0 && !message.is_char_boundary(end) {
+                end -= 1;
+            }
+            tracing::debug!(
+                original_len = message.len(),
+                truncated_len = end,
+                "Syslog UDP message truncated to RFC 5424 recommended limit"
+            );
+            &message.as_bytes()[..end]
+        } else {
+            message.as_bytes()
+        };
+
         socket
-            .send_to(message.as_bytes(), &addr)
+            .send_to(send_bytes, &addr)
             .await
             .map_err(|e| ExportError::HttpError(format!("Failed to send UDP: {}", e)))?;
 
@@ -1352,6 +1429,17 @@ impl SyslogExporter {
     }
 
     /// Send a message via TCP.
+    ///
+    /// SECURITY (FIND-R46-010): Known limitation — a new TCP connection is established
+    /// for each message. This is inefficient for high-throughput deployments because:
+    /// 1. TCP handshake overhead (~1.5 RTT per message)
+    /// 2. Connection churn may trigger syslog server connection limits
+    /// 3. TLS handshake cost (if TLS is used) is paid per message
+    ///
+    /// For production deployments with high audit event rates, consider:
+    /// - Using UDP (fire-and-forget, suitable for local syslog collectors)
+    /// - Using a syslog relay (rsyslog/syslog-ng) on localhost with TCP keepalive
+    /// - Connection pooling (future enhancement: maintain a persistent TcpStream)
     async fn send_tcp(&self, message: &str) -> Result<(), ExportError> {
         use tokio::io::AsyncWriteExt;
         use tokio::net::TcpStream;

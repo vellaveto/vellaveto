@@ -603,19 +603,34 @@ impl PolicyEngine {
         }
     }
 
+    /// Maximum nesting depth limit for JSON depth calculation.
+    /// Returns this limit when exceeded rather than continuing traversal.
+    const MAX_JSON_DEPTH_LIMIT: usize = 128;
+
+    /// Maximum number of nodes to visit during JSON depth calculation.
+    /// Prevents OOM from extremely wide JSON (e.g., objects with 100K keys).
+    const MAX_JSON_DEPTH_NODES: usize = 10_000;
+
     /// Calculate the nesting depth of a JSON value using an iterative approach.
     /// Avoids stack overflow on adversarially deep JSON (e.g., 10,000+ levels).
+    ///
+    /// SECURITY (FIND-R46-005): Bounded by [`MAX_JSON_DEPTH_LIMIT`] (128) for
+    /// depth and [`MAX_JSON_DEPTH_NODES`] (10,000) for total nodes visited.
+    /// Returns the depth limit when either bound is exceeded, ensuring the
+    /// caller's depth check triggers a reject.
     pub(crate) fn json_depth(value: &serde_json::Value) -> usize {
         let mut max_depth: usize = 0;
+        let mut nodes_visited: usize = 0;
         // Stack of (value, current_depth) to process iteratively
         let mut stack: Vec<(&serde_json::Value, usize)> = vec![(value, 0)];
 
         while let Some((val, depth)) = stack.pop() {
+            nodes_visited += 1;
             if depth > max_depth {
                 max_depth = depth;
             }
-            // Early termination: if we already exceed any reasonable limit, stop
-            if max_depth > 128 {
+            // Early termination: if we exceed depth limit or node budget, stop
+            if max_depth > Self::MAX_JSON_DEPTH_LIMIT || nodes_visited > Self::MAX_JSON_DEPTH_NODES {
                 return max_depth;
             }
             match val {

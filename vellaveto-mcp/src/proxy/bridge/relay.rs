@@ -56,6 +56,16 @@ pub(super) const MAX_FLAGGED_TOOLS: usize = 10_000;
 /// SECURITY (FIND-R46-010): Maximum entries for call_counts.
 const MAX_CALL_COUNTS: usize = 10_000;
 
+/// SECURITY (FIND-R46-011): Maximum channel buffer for child→agent relay.
+/// Each buffered message can be up to ~1MB; keeping the buffer small
+/// bounds worst-case memory to ~4MB instead of ~256MB.
+const RELAY_CHANNEL_BUFFER: usize = 64;
+
+/// SECURITY (FIND-R46-011): Maximum size (in bytes) of a single serialized
+/// JSON-RPC message accepted from the child server. Messages exceeding
+/// this limit are dropped with a warning.
+const MAX_RELAY_MESSAGE_SIZE: usize = 4 * 1024 * 1024; // 4 MB
+
 /// Bundled mutable I/O handles for the relay loop.
 ///
 /// Groups agent-side and child-side writers to reduce handler argument counts.
@@ -103,10 +113,37 @@ struct RelayState {
     action_history: VecDeque<String>,
     /// Elicitation rate limiting counter (per session/proxy lifetime).
     elicitation_count: u32,
+    /// SECURITY (FIND-R46-013): Cached agent_id from environment variable.
+    /// Set once at relay start from `VELLAVETO_AGENT_ID` env var.
+    agent_id: Option<String>,
 }
 
 impl RelayState {
     fn new(flagged_tools: HashSet<String>) -> Self {
+        // SECURITY (FIND-R46-013): Read agent_id from environment variable.
+        // In stdio proxy mode, there is no OAuth/HTTP header to extract an agent_id
+        // from, so we allow operators to set it via VELLAVETO_AGENT_ID.
+        let agent_id = std::env::var("VELLAVETO_AGENT_ID").ok().and_then(|v| {
+            let trimmed = v.trim().to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        });
+        if agent_id.is_none() {
+            tracing::warn!(
+                "SECURITY (FIND-R46-013): agent_id is None in stdio proxy. \
+                 Set VELLAVETO_AGENT_ID environment variable to identify the agent \
+                 for context-aware policy evaluation."
+            );
+        } else {
+            tracing::info!(
+                agent_id = agent_id.as_deref().unwrap_or(""),
+                "Stdio proxy agent_id set from VELLAVETO_AGENT_ID"
+            );
+        }
+
         Self {
             pending_requests: HashMap::with_capacity(INITIAL_PENDING_REQUEST_CAPACITY),
             tools_list_request_ids: HashSet::with_capacity(INITIAL_PENDING_REQUEST_CAPACITY),
@@ -119,6 +156,7 @@ impl RelayState {
             call_counts: HashMap::with_capacity(INITIAL_CALL_COUNTS_CAPACITY),
             action_history: VecDeque::with_capacity(MAX_ACTION_HISTORY),
             elicitation_count: 0,
+            agent_id,
         }
     }
 
@@ -126,7 +164,7 @@ impl RelayState {
     fn evaluation_context(&self) -> EvaluationContext {
         EvaluationContext {
             timestamp: None,
-            agent_id: None,
+            agent_id: self.agent_id.clone(),
             agent_identity: None,
             call_counts: self.call_counts.clone(),
             previous_actions: self.action_history.iter().cloned().collect(),
@@ -225,12 +263,27 @@ impl ProxyBridge {
         };
 
         // Spawn a task to relay child → agent responses
-        let (response_tx, mut response_rx) = tokio::sync::mpsc::channel::<Value>(256);
+        // SECURITY (FIND-R46-011): Reduced buffer from 256 to RELAY_CHANNEL_BUFFER (64)
+        // to bound worst-case memory. Each message is also size-checked before sending.
+        let (response_tx, mut response_rx) =
+            tokio::sync::mpsc::channel::<Value>(RELAY_CHANNEL_BUFFER);
 
         let relay_handle = tokio::spawn(async move {
             loop {
                 match read_message(&mut child_reader).await {
                     Ok(Some(msg)) => {
+                        // SECURITY (FIND-R46-011): Drop oversized messages from child
+                        // to prevent memory exhaustion via large responses filling the
+                        // channel buffer.
+                        let estimated_size = msg.to_string().len();
+                        if estimated_size > MAX_RELAY_MESSAGE_SIZE {
+                            tracing::warn!(
+                                "SECURITY: Dropping oversized child response ({} bytes, max {})",
+                                estimated_size,
+                                MAX_RELAY_MESSAGE_SIZE,
+                            );
+                            continue;
+                        }
                         if response_tx.send(msg).await.is_err() {
                             break;
                         }
@@ -2631,5 +2684,160 @@ impl ProxyBridge {
                 tracing::error!("Failed to send timeout response: {}", e);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_relay_state_new_initializes_empty() {
+        let state = RelayState::new(HashSet::new());
+        assert!(state.pending_requests.is_empty());
+        assert!(state.tools_list_request_ids.is_empty());
+        assert!(state.known_tool_annotations.is_empty());
+        assert!(state.initialize_request_ids.is_empty());
+        assert!(state.negotiated_protocol_version.is_none());
+        assert!(state.flagged_tools.is_empty());
+        assert!(state.pinned_manifest.is_none());
+        assert!(state.call_counts.is_empty());
+        assert!(state.action_history.is_empty());
+        assert_eq!(state.elicitation_count, 0);
+    }
+
+    #[test]
+    fn test_relay_state_flag_tool_succeeds_under_capacity() {
+        let mut state = RelayState::new(HashSet::new());
+        state.flag_tool("evil_tool".to_string());
+        assert!(state.flagged_tools.contains("evil_tool"));
+        assert_eq!(state.flagged_tools.len(), 1);
+    }
+
+    #[test]
+    fn test_relay_state_flag_tool_rejects_at_capacity() {
+        let mut initial: HashSet<String> = HashSet::with_capacity(MAX_FLAGGED_TOOLS);
+        for i in 0..MAX_FLAGGED_TOOLS {
+            initial.insert(format!("tool_{}", i));
+        }
+        let mut state = RelayState::new(initial);
+        assert_eq!(state.flagged_tools.len(), MAX_FLAGGED_TOOLS);
+
+        // Attempting to flag one more should be silently ignored.
+        state.flag_tool("overflow_tool".to_string());
+        assert!(!state.flagged_tools.contains("overflow_tool"));
+        assert_eq!(state.flagged_tools.len(), MAX_FLAGGED_TOOLS);
+    }
+
+    #[test]
+    fn test_relay_state_record_forwarded_action_increments_count() {
+        let mut state = RelayState::new(HashSet::new());
+        state.record_forwarded_action("read_file");
+        state.record_forwarded_action("read_file");
+        assert_eq!(state.call_counts.get("read_file"), Some(&2));
+    }
+
+    #[test]
+    fn test_relay_state_record_forwarded_action_caps_at_max_call_counts() {
+        let mut state = RelayState::new(HashSet::new());
+        // Fill call_counts to capacity with unique action names.
+        for i in 0..MAX_CALL_COUNTS {
+            state.record_forwarded_action(&format!("action_{}", i));
+        }
+        assert_eq!(state.call_counts.len(), MAX_CALL_COUNTS);
+
+        // The next unique action should be ignored (not inserted).
+        state.record_forwarded_action("overflow_action");
+        assert!(!state.call_counts.contains_key("overflow_action"));
+        assert_eq!(state.call_counts.len(), MAX_CALL_COUNTS);
+    }
+
+    #[test]
+    fn test_relay_state_record_forwarded_action_evicts_oldest_history() {
+        let mut state = RelayState::new(HashSet::new());
+        // Record 101 actions: action_0 through action_100.
+        for i in 0..=MAX_ACTION_HISTORY {
+            state.record_forwarded_action(&format!("action_{}", i));
+        }
+        // History should be capped at MAX_ACTION_HISTORY (100).
+        assert_eq!(state.action_history.len(), MAX_ACTION_HISTORY);
+        // The oldest entry (action_0) should have been evicted.
+        assert_eq!(state.action_history.front(), Some(&"action_1".to_string()));
+        // The newest entry should be present.
+        assert_eq!(
+            state.action_history.back(),
+            Some(&format!("action_{}", MAX_ACTION_HISTORY))
+        );
+    }
+
+    #[test]
+    fn test_relay_state_track_pending_request_succeeds_under_limit() {
+        let mut state = RelayState::new(HashSet::new());
+        let id = json!(42);
+        state.track_pending_request(&id, "read_file".to_string(), None);
+        assert_eq!(state.pending_requests.len(), 1);
+        let id_key = id.to_string();
+        assert!(state.pending_requests.contains_key(&id_key));
+        let pending = state.pending_requests.get(&id_key).unwrap();
+        assert_eq!(pending.tool_name, "read_file");
+        assert!(pending.trace.is_none());
+    }
+
+    #[test]
+    fn test_relay_state_track_pending_request_rejects_at_limit() {
+        let mut state = RelayState::new(HashSet::new());
+        // Fill pending_requests to capacity.
+        for i in 0..MAX_PENDING_REQUESTS {
+            let id = json!(i);
+            state.track_pending_request(&id, format!("tool_{}", i), None);
+        }
+        assert_eq!(state.pending_requests.len(), MAX_PENDING_REQUESTS);
+
+        // The next request should be silently ignored.
+        let overflow_id = json!(MAX_PENDING_REQUESTS + 1);
+        state.track_pending_request(&overflow_id, "overflow_tool".to_string(), None);
+        assert_eq!(state.pending_requests.len(), MAX_PENDING_REQUESTS);
+        assert!(!state
+            .pending_requests
+            .contains_key(&overflow_id.to_string()));
+    }
+
+    #[test]
+    fn test_relay_state_track_pending_request_ignores_null_id() {
+        let mut state = RelayState::new(HashSet::new());
+        state.track_pending_request(&Value::Null, "read_file".to_string(), None);
+        assert!(state.pending_requests.is_empty());
+    }
+
+    #[test]
+    fn test_relay_state_evaluation_context_includes_call_counts() {
+        let mut state = RelayState::new(HashSet::new());
+        state.record_forwarded_action("read_file");
+        state.record_forwarded_action("read_file");
+        state.record_forwarded_action("write_file");
+
+        let ctx = state.evaluation_context();
+        assert_eq!(ctx.call_counts.get("read_file"), Some(&2));
+        assert_eq!(ctx.call_counts.get("write_file"), Some(&1));
+        assert_eq!(ctx.call_counts.len(), 2);
+    }
+
+    #[test]
+    fn test_relay_state_evaluation_context_includes_action_history() {
+        let mut state = RelayState::new(HashSet::new());
+        state.record_forwarded_action("read_file");
+        state.record_forwarded_action("write_file");
+        state.record_forwarded_action("exec_command");
+
+        let ctx = state.evaluation_context();
+        assert_eq!(
+            ctx.previous_actions,
+            vec![
+                "read_file".to_string(),
+                "write_file".to_string(),
+                "exec_command".to_string()
+            ]
+        );
     }
 }

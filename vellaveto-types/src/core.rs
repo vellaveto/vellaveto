@@ -198,7 +198,11 @@ pub enum PolicyType {
 }
 
 /// Path-based access control rules for file system operations.
+/// SECURITY (FIND-R46-015): deny_unknown_fields prevents misconfiguration
+/// where a typo (e.g. "allow" instead of "allowed") would silently produce
+/// an empty allowlist, which is a fail-open condition.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct PathRules {
     /// Glob patterns for allowed paths. If non-empty, only matching paths are allowed.
     #[serde(default)]
@@ -209,7 +213,11 @@ pub struct PathRules {
 }
 
 /// Network-based access control rules for outbound connections.
+/// SECURITY (FIND-R46-015): deny_unknown_fields prevents misconfiguration
+/// where a typo (e.g. "allowed_domain" instead of "allowed_domains") would
+/// silently produce an empty allowlist, which is a fail-open condition.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct NetworkRules {
     /// Domain patterns for allowed destinations. If non-empty, only matching domains are allowed.
     #[serde(default)]
@@ -227,7 +235,11 @@ pub struct NetworkRules {
 /// When configured, the proxy layer resolves target domains to IP addresses
 /// and the engine checks them against these rules. This prevents attacks
 /// where an allowed domain's DNS record changes to point at a private IP.
+/// SECURITY (FIND-R46-015): deny_unknown_fields prevents misconfiguration
+/// where a typo (e.g. "blocked_cidr" instead of "blocked_cidrs") would
+/// silently skip IP blocking rules.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
 pub struct IpRules {
     /// Block connections to private/reserved IPs (RFC 1918, loopback, link-local).
     #[serde(default)]

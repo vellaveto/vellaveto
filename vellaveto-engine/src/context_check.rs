@@ -15,6 +15,7 @@ use chrono::{Datelike, Timelike};
 use vellaveto_types::{EvaluationContext, Verdict};
 
 impl PolicyEngine {
+    // VERIFIED [S4]: Context fail-closed — missing context data produces Deny (MCPPolicyEngine.tla S4)
     /// Evaluate context conditions against session state.
     ///
     /// Returns `Some(Deny)` if any context condition fails, `None` if all pass.

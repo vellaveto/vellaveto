@@ -300,6 +300,11 @@ impl SchemaRecord {
     /// Larger schemas fall back to hash-only comparison.
     pub const MAX_SCHEMA_SIZE: usize = 64 * 1024;
 
+    /// Maximum number of entries in version_history.
+    /// SECURITY (FIND-R46-016): Enforced to prevent unbounded memory growth
+    /// from rapidly mutating tool schemas (e.g., rug-pull attacks).
+    pub const MAX_VERSION_HISTORY: usize = 10;
+
     /// Validate that all float fields are finite (not NaN or Infinity).
     pub fn validate_finite(&self) -> Result<(), String> {
         if !self.trust_score.is_finite() {
@@ -345,6 +350,31 @@ impl SchemaRecord {
             trust_score: 0.0,
             schema_content: content,
         }
+    }
+
+    /// Push a schema hash into version_history, evicting the oldest entry
+    /// if the history exceeds [`Self::MAX_VERSION_HISTORY`].
+    ///
+    /// SECURITY (FIND-R46-016): Prevents unbounded growth of version_history.
+    pub fn push_version(&mut self, hash: String) {
+        self.version_history.push(hash);
+        while self.version_history.len() > Self::MAX_VERSION_HISTORY {
+            self.version_history.remove(0);
+        }
+    }
+
+    /// Validate that version_history does not exceed the maximum allowed length.
+    /// Returns an error if the invariant is violated.
+    pub fn validate_version_history(&self) -> Result<(), String> {
+        if self.version_history.len() > Self::MAX_VERSION_HISTORY {
+            return Err(format!(
+                "SchemaRecord '{}' version_history has {} entries (max {})",
+                self.tool_name,
+                self.version_history.len(),
+                Self::MAX_VERSION_HISTORY,
+            ));
+        }
+        Ok(())
     }
 
     /// Returns the number of schema versions observed.

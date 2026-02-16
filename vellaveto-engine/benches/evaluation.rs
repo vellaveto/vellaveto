@@ -1207,6 +1207,202 @@ criterion_group!(
     bench_behavioral_check_anomalous,
 );
 
+// ---------------------------------------------------------------------------
+// Benchmarks: ABAC (Attribute-Based Access Control) evaluation (Phase D)
+// ---------------------------------------------------------------------------
+
+fn bench_abac_single_permit_policy(c: &mut Criterion) {
+    use vellaveto_engine::abac::{AbacEngine, AbacEvalContext};
+    use vellaveto_types::{AbacEffect, AbacPolicy, ActionConstraint, EvaluationContext};
+
+    let policy = AbacPolicy {
+        id: "permit-fs-read".to_string(),
+        description: "Permit filesystem reads".to_string(),
+        effect: AbacEffect::Permit,
+        priority: 10,
+        principal: Default::default(),
+        action: ActionConstraint {
+            patterns: vec!["filesystem:read*".to_string()],
+        },
+        resource: Default::default(),
+        conditions: vec![],
+    };
+    let engine = AbacEngine::new(&[policy], &[]).unwrap();
+    let eval_ctx = EvaluationContext::default();
+    let ctx = AbacEvalContext {
+        eval_ctx: &eval_ctx,
+        principal_type: "Agent",
+        principal_id: "bench-agent",
+        risk_score: None,
+    };
+    let action = Action::new(
+        "filesystem".to_string(),
+        "read_file".to_string(),
+        serde_json::json!({}),
+    );
+
+    c.bench_function("abac/single_permit_policy", |b| {
+        b.iter(|| engine.evaluate(black_box(&action), black_box(&ctx)))
+    });
+}
+
+fn bench_abac_forbid_overrides_10_policies(c: &mut Criterion) {
+    use vellaveto_engine::abac::{AbacEngine, AbacEvalContext};
+    use vellaveto_types::{AbacEffect, AbacPolicy, ActionConstraint, EvaluationContext};
+
+    let mut policies: Vec<AbacPolicy> = (0..9)
+        .map(|i| AbacPolicy {
+            id: format!("permit-{}", i),
+            description: format!("Permit policy {}", i),
+            effect: AbacEffect::Permit,
+            priority: 10 + i,
+            principal: Default::default(),
+            action: ActionConstraint {
+                patterns: vec!["*:*".to_string()],
+            },
+            resource: Default::default(),
+            conditions: vec![],
+        })
+        .collect();
+    // Add one forbid policy that should override all permits
+    policies.push(AbacPolicy {
+        id: "forbid-bash".to_string(),
+        description: "Forbid bash execution".to_string(),
+        effect: AbacEffect::Forbid,
+        priority: 5,
+        principal: Default::default(),
+        action: ActionConstraint {
+            patterns: vec!["bash:*".to_string()],
+        },
+        resource: Default::default(),
+        conditions: vec![],
+    });
+    let engine = AbacEngine::new(&policies, &[]).unwrap();
+    let eval_ctx = EvaluationContext::default();
+    let ctx = AbacEvalContext {
+        eval_ctx: &eval_ctx,
+        principal_type: "Agent",
+        principal_id: "bench-agent",
+        risk_score: None,
+    };
+    let action = Action::new(
+        "bash".to_string(),
+        "execute".to_string(),
+        serde_json::json!({}),
+    );
+
+    c.bench_function("abac/forbid_overrides_10_policies", |b| {
+        b.iter(|| engine.evaluate(black_box(&action), black_box(&ctx)))
+    });
+}
+
+fn bench_abac_entity_store_100_entities(c: &mut Criterion) {
+    use std::collections::HashMap;
+    use vellaveto_engine::abac::{AbacEngine, AbacEvalContext};
+    use vellaveto_types::{
+        AbacEffect, AbacEntity, AbacPolicy, ActionConstraint, EvaluationContext,
+        PrincipalConstraint,
+    };
+
+    // Build 100 entities of type "Agent"
+    let entities: Vec<AbacEntity> = (0..100)
+        .map(|i| AbacEntity {
+            entity_type: "Agent".to_string(),
+            id: format!("agent-{}", i),
+            attributes: HashMap::new(),
+            parents: vec![],
+        })
+        .collect();
+
+    // Policy that matches only agents with "agent-*" pattern
+    let policy = AbacPolicy {
+        id: "permit-agents".to_string(),
+        description: "Permit all agents".to_string(),
+        effect: AbacEffect::Permit,
+        priority: 10,
+        principal: PrincipalConstraint {
+            principal_type: Some("Agent".to_string()),
+            id_patterns: vec!["agent-*".to_string()],
+            claims: HashMap::new(),
+        },
+        action: ActionConstraint {
+            patterns: vec!["*:*".to_string()],
+        },
+        resource: Default::default(),
+        conditions: vec![],
+    };
+    let engine = AbacEngine::new(&[policy], &entities).unwrap();
+    let eval_ctx = EvaluationContext::default();
+
+    // Evaluate for an entity near the end of the store
+    let ctx = AbacEvalContext {
+        eval_ctx: &eval_ctx,
+        principal_type: "Agent",
+        principal_id: "agent-99",
+        risk_score: None,
+    };
+    let action = Action::new(
+        "filesystem".to_string(),
+        "read".to_string(),
+        serde_json::json!({}),
+    );
+
+    c.bench_function("abac/entity_store_100_entities", |b| {
+        b.iter(|| engine.evaluate(black_box(&action), black_box(&ctx)))
+    });
+}
+
+fn bench_abac_group_membership_transitive_depth_10(c: &mut Criterion) {
+    use std::collections::HashMap;
+    use vellaveto_engine::abac::EntityStore;
+    use vellaveto_types::AbacEntity;
+
+    // Build a chain of 10 groups: leaf -> g0 -> g1 -> ... -> g9 (target)
+    let mut entities = Vec::new();
+    // The target group at the top
+    entities.push(AbacEntity {
+        entity_type: "Group".to_string(),
+        id: "g9".to_string(),
+        attributes: HashMap::new(),
+        parents: vec![],
+    });
+    // Intermediate groups: g8 -> g9, g7 -> g8, ..., g0 -> g1
+    for i in (0..9).rev() {
+        entities.push(AbacEntity {
+            entity_type: "Group".to_string(),
+            id: format!("g{}", i),
+            attributes: HashMap::new(),
+            parents: vec![format!("Group::g{}", i + 1)],
+        });
+    }
+    // Leaf entity is member of g0
+    entities.push(AbacEntity {
+        entity_type: "Agent".to_string(),
+        id: "leaf".to_string(),
+        attributes: HashMap::new(),
+        parents: vec!["Group::g0".to_string()],
+    });
+
+    let store = EntityStore::from_config(&entities);
+
+    c.bench_function("abac/group_membership_transitive_depth_10", |b| {
+        b.iter(|| {
+            black_box(store.is_member_of(
+                black_box("Agent::leaf"),
+                black_box("Group::g9"),
+            ))
+        })
+    });
+}
+
+criterion_group!(
+    abac_benches,
+    bench_abac_single_permit_policy,
+    bench_abac_forbid_overrides_10_policies,
+    bench_abac_entity_store_100_entities,
+    bench_abac_group_membership_transitive_depth_10,
+);
+
 criterion_main!(
     eval_benches,
     path_benches,
@@ -1215,5 +1411,6 @@ criterion_main!(
     rules_benches,
     compile_benches,
     context_benches,
-    behavioral_benches
+    behavioral_benches,
+    abac_benches
 );

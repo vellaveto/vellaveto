@@ -71,6 +71,13 @@ pub struct PolicyEngine {
     ///
     /// Caches both successful normalization (Some) and invalid domains (None)
     /// to avoid repeated IDNA parsing on hot network/domain constraint paths.
+    ///
+    /// SECURITY (FIND-R46-003): Bounded to [`MAX_DOMAIN_NORM_CACHE_ENTRIES`].
+    /// When capacity is exceeded, the cache is cleared to prevent unbounded
+    /// memory growth from attacker-controlled domain strings. Currently this
+    /// cache is not actively populated — domain normalization is done inline
+    /// via [`domain::normalize_domain_for_match`]. The eviction guard exists
+    /// as a defense-in-depth measure for future caching additions.
     domain_norm_cache: RwLock<HashMap<String, Option<String>>>,
 }
 
@@ -223,6 +230,10 @@ impl PolicyEngine {
         });
     }
 
+    // VERIFIED [S1]: Deny-by-default — empty policy set produces Deny (MCPPolicyEngine.tla S1)
+    // VERIFIED [S2]: Priority ordering — higher priority wins (MCPPolicyEngine.tla S2)
+    // VERIFIED [S3]: Deny-overrides — Deny beats Allow at same priority (MCPPolicyEngine.tla S3)
+    // VERIFIED [L1]: Progress — every action gets a verdict (MCPPolicyEngine.tla L1)
     /// Evaluate an action against a set of policies.
     ///
     /// For best performance, pass policies that have been pre-sorted with
@@ -599,9 +610,22 @@ impl PolicyEngine {
 
     /// Validate a regex pattern for ReDoS safety.
     ///
-    /// Rejects patterns that are too long (>1024 chars) or contain nested
-    /// quantifiers like `(a+)+`, `(a*)*`, `(a+)*`, `(a*)+` which can cause
-    /// exponential backtracking in regex engines.
+    /// Rejects patterns that are too long (>1024 chars) or contain constructs
+    /// known to cause exponential backtracking:
+    ///
+    /// 1. **Nested quantifiers** like `(a+)+`, `(a*)*`, `(a+)*`, `(a*)+`
+    /// 2. **Overlapping alternation with quantifiers** like `(a|a)+` or `(a|ab)+`
+    ///
+    /// **Known limitations (FIND-R46-007):** This is a heuristic check, not a
+    /// full NFA analysis. It does NOT detect all possible ReDoS patterns:
+    /// - Alternation with overlapping character classes (e.g., `([a-z]|[a-m])+`)
+    /// - Backreferences with quantifiers
+    /// - Lookahead/lookbehind with quantifiers
+    /// - Possessive quantifiers (these are actually safe but not recognized)
+    ///
+    /// The `regex` crate uses a DFA/NFA hybrid that is immune to most ReDoS,
+    /// but pattern compilation itself can be expensive for very complex patterns,
+    /// hence the length limit.
     fn validate_regex_safety(pattern: &str) -> Result<(), String> {
         if pattern.len() > Self::MAX_REGEX_LEN {
             return Err(format!(
@@ -622,6 +646,11 @@ impl PolicyEngine {
         // failed for double-escapes like `\\\\(` (literal backslash + open paren).
         let mut skip_next = false;
 
+        // Track alternation branches within groups to detect overlapping alternation.
+        // SECURITY (FIND-R46-007): Detect `(branch1|branch2)+` where branches share
+        // a common prefix, which can cause backtracking even without nested quantifiers.
+        let mut group_has_alternation = false;
+
         for i in 0..chars.len() {
             if skip_next {
                 skip_next = false;
@@ -636,19 +665,30 @@ impl PolicyEngine {
                 '(' => {
                     paren_depth += 1;
                     has_inner_quantifier = false;
+                    group_has_alternation = false;
                 }
                 ')' => {
                     paren_depth -= 1;
                     // Check if the next char is a quantifier
-                    if i + 1 < chars.len()
-                        && quantifiers.contains(&chars[i + 1])
-                        && has_inner_quantifier
-                    {
-                        return Err(format!(
-                            "Regex pattern contains nested quantifiers (potential ReDoS): '{}'",
-                            &pattern[..pattern.len().min(100)]
-                        ));
+                    if i + 1 < chars.len() && quantifiers.contains(&chars[i + 1]) {
+                        if has_inner_quantifier {
+                            return Err(format!(
+                                "Regex pattern contains nested quantifiers (potential ReDoS): '{}'",
+                                &pattern[..pattern.len().min(100)]
+                            ));
+                        }
+                        // FIND-R46-007: Alternation with a quantifier on the group
+                        // can cause backtracking if branches overlap.
+                        if group_has_alternation {
+                            return Err(format!(
+                                "Regex pattern contains alternation with outer quantifier (potential ReDoS): '{}'",
+                                &pattern[..pattern.len().min(100)]
+                            ));
+                        }
                     }
+                }
+                '|' if paren_depth > 0 => {
+                    group_has_alternation = true;
                 }
                 c if quantifiers.contains(&c) && paren_depth > 0 => {
                     has_inner_quantifier = true;

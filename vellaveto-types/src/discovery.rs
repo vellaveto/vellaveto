@@ -20,9 +20,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ToolSensitivity {
-    #[default]
     Low,
     Medium,
+    /// SECURITY (FIND-R46-013): Default to High for fail-closed behavior.
+    /// Unknown tools should be treated as high-sensitivity until explicitly
+    /// downgraded by policy. This prevents misconfigured tools from bypassing
+    /// elevated permission requirements.
+    #[default]
     High,
 }
 

@@ -41,6 +41,13 @@ impl PolicyEngine {
 
     /// Match a pattern against a value. Supports `"*"` (match all),
     /// prefix wildcards (`"*suffix"`), suffix wildcards (`"prefix*"`), and exact match.
+    ///
+    /// **Known limitation (FIND-R46-004):** Infix wildcards like `"foo*bar"` are NOT
+    /// supported by this legacy matcher. An infix wildcard pattern will be treated as
+    /// a prefix match on `"foo"` (the `*` is found by `strip_suffix`, leaving `"foo"`).
+    /// For correct infix wildcard support, use the compiled path (`with_policies()`)
+    /// which delegates to [`PatternMatcher::compile`] and treats unsupported infix
+    /// wildcards as match-all (fail-closed).
     fn match_pattern(&self, pattern: &str, value: &str) -> bool {
         if pattern == "*" {
             return true;

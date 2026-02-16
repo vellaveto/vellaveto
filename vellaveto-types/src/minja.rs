@@ -103,7 +103,46 @@ impl MemoryEntry {
     /// Maximum preview length in characters.
     pub const MAX_PREVIEW_LENGTH: usize = 100;
 
+    /// Validate that all f64 fields are finite (not NaN or Infinity)
+    /// and that trust_score is consistent with taint_labels.
+    ///
+    /// SECURITY (FIND-R46-018): Tainted memory entries (those with non-empty
+    /// taint_labels containing security-relevant labels like Untrusted,
+    /// Quarantined, IntegrityFailed, or MixedProvenance) must not have a
+    /// perfect trust score of 1.0. A trust_score of 1.0 on tainted data
+    /// could cause downstream consumers to skip security checks.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.trust_score.is_finite() {
+            return Err(format!(
+                "MemoryEntry '{}' trust_score is not finite: {}",
+                self.id, self.trust_score
+            ));
+        }
+
+        // Security-relevant taint labels that are incompatible with perfect trust
+        let has_security_taint = self.taint_labels.iter().any(|label| {
+            matches!(
+                label,
+                TaintLabel::Untrusted
+                    | TaintLabel::Quarantined
+                    | TaintLabel::IntegrityFailed
+                    | TaintLabel::MixedProvenance
+                    | TaintLabel::Replayed
+            )
+        });
+
+        if has_security_taint && self.trust_score >= 1.0 {
+            return Err(format!(
+                "MemoryEntry '{}' has security-relevant taint labels {:?} but trust_score is {} (must be < 1.0)",
+                self.id, self.taint_labels, self.trust_score
+            ));
+        }
+
+        Ok(())
+    }
+
     /// Validate that all f64 fields are finite (not NaN or Infinity).
+    #[deprecated(since = "4.0.1", note = "use validate() which also checks taint/trust consistency")]
     pub fn validate_finite(&self) -> Result<(), String> {
         if !self.trust_score.is_finite() {
             return Err(format!(
@@ -140,7 +179,10 @@ impl MemoryEntry {
             last_accessed: None,
             access_count: 0,
             taint_labels: vec![TaintLabel::Untrusted],
-            trust_score: 1.0,
+            // SECURITY (FIND-R46-018): New entries start Untrusted, so trust
+            // must be < 1.0 to be consistent with the taint label. 0.5 is a
+            // reasonable default for unverified data from external sources.
+            trust_score: 0.5,
             provenance_id: None,
             quarantined: false,
             namespace: None,

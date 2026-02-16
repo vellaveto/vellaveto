@@ -198,6 +198,41 @@ impl EvaluationContext {
     pub fn builder() -> EvaluationContextBuilder {
         EvaluationContextBuilder::default()
     }
+
+    /// Validate that string identity fields (session_state, agent_id, tenant_id)
+    /// do not contain control characters and are not empty-but-present.
+    ///
+    /// SECURITY (FIND-R46-017): Prevents log injection and confusion attacks
+    /// via control characters in identity fields. A present-but-empty identity
+    /// field may bypass agent-matching logic that treats `None` as "no identity"
+    /// but matches `Some("")` against wildcard patterns.
+    pub fn validate(&self) -> Result<(), String> {
+        Self::validate_optional_id_field(&self.agent_id, "agent_id")?;
+        Self::validate_optional_id_field(&self.tenant_id, "tenant_id")?;
+        Self::validate_optional_id_field(&self.session_state, "session_state")?;
+        Ok(())
+    }
+
+    /// Validate a single optional identity field: if present, must be non-empty
+    /// and must not contain control characters.
+    fn validate_optional_id_field(
+        field: &Option<String>,
+        name: &str,
+    ) -> Result<(), String> {
+        if let Some(value) = field {
+            if value.is_empty() {
+                return Err(format!(
+                    "EvaluationContext {name} is present but empty"
+                ));
+            }
+            if value.chars().any(|c| c.is_control()) {
+                return Err(format!(
+                    "EvaluationContext {name} contains control characters"
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Builder for constructing [`EvaluationContext`] instances.
@@ -297,7 +332,11 @@ impl EvaluationContextBuilder {
         self
     }
 
-    /// Build the [`EvaluationContext`].
+    /// Build the [`EvaluationContext`] without validation.
+    ///
+    /// For trusted internal callers where inputs are already validated.
+    /// At trust boundaries (HTTP handlers, deserialization), prefer
+    /// [`build_validated`] which rejects invalid identity fields.
     pub fn build(self) -> EvaluationContext {
         EvaluationContext {
             timestamp: self.timestamp,
@@ -311,6 +350,17 @@ impl EvaluationContextBuilder {
             capability_token: self.capability_token,
             session_state: self.session_state,
         }
+    }
+
+    /// Build the [`EvaluationContext`] with validation on identity fields.
+    ///
+    /// SECURITY (FIND-R46-017): Validates that agent_id, tenant_id, and
+    /// session_state (if present) are non-empty and free of control characters.
+    /// Use this at trust boundaries where inputs come from external sources.
+    pub fn build_validated(self) -> Result<EvaluationContext, String> {
+        let ctx = self.build();
+        ctx.validate()?;
+        Ok(ctx)
     }
 }
 

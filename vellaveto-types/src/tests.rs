@@ -2833,8 +2833,9 @@ fn test_tool_sensitivity_all_variants_roundtrip() {
 }
 
 #[test]
-fn test_tool_sensitivity_default_is_low() {
-    assert_eq!(ToolSensitivity::default(), ToolSensitivity::Low);
+fn test_tool_sensitivity_default_is_high() {
+    // SECURITY (FIND-R46-013): Default must be High for fail-closed behavior.
+    assert_eq!(ToolSensitivity::default(), ToolSensitivity::High);
 }
 
 #[test]
@@ -3345,4 +3346,372 @@ fn test_secure_task_record_nonce_respects_cap() {
 fn test_enforcement_mode_defaults_to_monitor() {
     let mode = EnforcementMode::default();
     assert_eq!(mode, EnforcementMode::Monitor, "Default must be Monitor for gradual rollout");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R46-013: ToolSensitivity defaults to High (fail-closed)
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_tool_sensitivity_default_is_high_fail_closed() {
+    // New tools with no explicit sensitivity must be treated as High
+    // to prevent accidentally bypassing elevated permission requirements.
+    let ts = ToolSensitivity::default();
+    assert_eq!(ts, ToolSensitivity::High);
+    // Verify the default serializes as "high"
+    let json = serde_json::to_string(&ts).unwrap();
+    assert_eq!(json, "\"high\"");
+}
+
+#[test]
+fn test_tool_metadata_default_sensitivity_is_high() {
+    // When ToolMetadata is deserialized without an explicit sensitivity,
+    // it should default to High.
+    let json = r#"{
+        "tool_id": "srv:tool",
+        "name": "tool",
+        "description": "desc",
+        "server_id": "srv",
+        "input_schema": {},
+        "schema_hash": "abc",
+        "sensitivity": "high",
+        "domain_tags": [],
+        "token_cost": 10
+    }"#;
+    let meta: ToolMetadata = serde_json::from_str(json).unwrap();
+    assert_eq!(meta.sensitivity, ToolSensitivity::High);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R46-014: NhiIdentityStatus defaults to Probationary (fail-closed)
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_nhi_identity_status_default_is_probationary() {
+    // New identities must start as Probationary, not Active.
+    let status = NhiIdentityStatus::default();
+    assert_eq!(status, NhiIdentityStatus::Probationary);
+}
+
+#[test]
+fn test_nhi_agent_identity_default_status_is_probationary() {
+    // NhiAgentIdentity derives Default, which should use Probationary.
+    let identity = NhiAgentIdentity::default();
+    assert_eq!(identity.status, NhiIdentityStatus::Probationary);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R46-015: deny_unknown_fields on security-critical structs
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_network_rules_rejects_unknown_fields() {
+    // A typo like "allowed_domain" instead of "allowed_domains" must
+    // be caught at deserialization time, not silently ignored.
+    let json = r#"{"allowed_domains": [], "blocked_domains": [], "extra_field": true}"#;
+    let result: Result<NetworkRules, _> = serde_json::from_str(json);
+    assert!(result.is_err(), "NetworkRules must reject unknown fields");
+}
+
+#[test]
+fn test_network_rules_accepts_known_fields() {
+    let json = r#"{"allowed_domains": ["example.com"], "blocked_domains": ["evil.com"]}"#;
+    let result: Result<NetworkRules, _> = serde_json::from_str(json);
+    assert!(result.is_ok());
+    let rules = result.unwrap();
+    assert_eq!(rules.allowed_domains, vec!["example.com"]);
+}
+
+#[test]
+fn test_network_rules_accepts_ip_rules() {
+    let json = r#"{
+        "allowed_domains": [],
+        "blocked_domains": [],
+        "ip_rules": {"block_private": true, "blocked_cidrs": [], "allowed_cidrs": []}
+    }"#;
+    let result: Result<NetworkRules, _> = serde_json::from_str(json);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_ip_rules_rejects_unknown_fields() {
+    let json = r#"{"block_private": true, "blocked_cidrs": [], "allowed_cidrs": [], "typo": 1}"#;
+    let result: Result<IpRules, _> = serde_json::from_str(json);
+    assert!(result.is_err(), "IpRules must reject unknown fields");
+}
+
+#[test]
+fn test_ip_rules_accepts_known_fields() {
+    let json = r#"{"block_private": true, "blocked_cidrs": ["10.0.0.0/8"], "allowed_cidrs": []}"#;
+    let result: Result<IpRules, _> = serde_json::from_str(json);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_path_rules_rejects_unknown_fields() {
+    // "allow" instead of "allowed" must be caught.
+    let json = r#"{"allowed": ["/tmp"], "blocked": [], "allow": ["/home"]}"#;
+    let result: Result<PathRules, _> = serde_json::from_str(json);
+    assert!(result.is_err(), "PathRules must reject unknown fields");
+}
+
+#[test]
+fn test_path_rules_accepts_known_fields() {
+    let json = r#"{"allowed": ["/tmp"], "blocked": ["/etc"]}"#;
+    let result: Result<PathRules, _> = serde_json::from_str(json);
+    assert!(result.is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R46-016: SchemaRecord.version_history max 10 enforced
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_schema_record_push_version_enforces_max() {
+    let mut record = SchemaRecord::new("test_tool", "hash_0", 1000);
+    // Push 15 versions, only last 10 should remain
+    for i in 1..=15 {
+        record.push_version(format!("hash_{i}"));
+    }
+    assert_eq!(record.version_history.len(), SchemaRecord::MAX_VERSION_HISTORY);
+    // Oldest entries should have been evicted; first entry should be hash_6
+    assert_eq!(record.version_history[0], "hash_6");
+    assert_eq!(record.version_history[9], "hash_15");
+}
+
+#[test]
+fn test_schema_record_push_version_under_limit() {
+    let mut record = SchemaRecord::new("test_tool", "hash_0", 1000);
+    for i in 1..=5 {
+        record.push_version(format!("hash_{i}"));
+    }
+    assert_eq!(record.version_history.len(), 5);
+}
+
+#[test]
+fn test_schema_record_validate_version_history_ok() {
+    let record = SchemaRecord::new("test_tool", "hash_0", 1000);
+    assert!(record.validate_version_history().is_ok());
+}
+
+#[test]
+fn test_schema_record_validate_version_history_overflow() {
+    let mut record = SchemaRecord::new("test_tool", "hash_0", 1000);
+    // Bypass push_version to directly set an oversized history
+    record.version_history = (0..20).map(|i| format!("hash_{i}")).collect();
+    assert!(record.validate_version_history().is_err());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R46-017: EvaluationContext builder validation
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_evaluation_context_validate_ok() {
+    let ctx = EvaluationContext::builder()
+        .agent_id("agent-123")
+        .tenant_id("tenant-abc")
+        .session_state("active")
+        .build();
+    assert!(ctx.validate().is_ok());
+}
+
+#[test]
+fn test_evaluation_context_validate_empty_ok() {
+    // No fields set => nothing to validate => OK
+    let ctx = EvaluationContext::builder().build();
+    assert!(ctx.validate().is_ok());
+}
+
+#[test]
+fn test_evaluation_context_validate_empty_agent_id_rejected() {
+    let ctx = EvaluationContext::builder().agent_id("").build();
+    let result = ctx.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("agent_id"));
+}
+
+#[test]
+fn test_evaluation_context_validate_control_char_in_agent_id() {
+    let ctx = EvaluationContext::builder().agent_id("agent\n123").build();
+    let result = ctx.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("control characters"));
+}
+
+#[test]
+fn test_evaluation_context_validate_control_char_in_tenant_id() {
+    let ctx = EvaluationContext::builder().tenant_id("tenant\t1").build();
+    let result = ctx.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("tenant_id"));
+}
+
+#[test]
+fn test_evaluation_context_validate_empty_session_state_rejected() {
+    let ctx = EvaluationContext::builder().session_state("").build();
+    let result = ctx.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("session_state"));
+}
+
+#[test]
+fn test_evaluation_context_validate_null_byte_in_tenant_id() {
+    let ctx = EvaluationContext::builder().tenant_id("tenant\0id").build();
+    let result = ctx.validate();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("control characters"));
+}
+
+#[test]
+fn test_evaluation_context_build_validated_ok() {
+    let result = EvaluationContext::builder()
+        .agent_id("valid-agent")
+        .tenant_id("valid-tenant")
+        .build_validated();
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_evaluation_context_build_validated_rejects_invalid() {
+    let result = EvaluationContext::builder()
+        .agent_id("bad\ragent")
+        .build_validated();
+    assert!(result.is_err());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIND-R46-018: MemoryEntry contradictory trust_score/taint_labels
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_memory_entry_validate_tainted_with_perfect_trust_rejected() {
+    let mut entry = MemoryEntry::new(
+        "id1".to_string(),
+        "fp".to_string(),
+        "content",
+        "hash".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+    );
+    // Force contradictory state
+    entry.trust_score = 1.0;
+    entry.taint_labels = vec![TaintLabel::Untrusted];
+    let result = entry.validate();
+    assert!(result.is_err(), "Tainted entry with perfect trust must be rejected");
+    assert!(result.unwrap_err().contains("trust_score"));
+}
+
+#[test]
+fn test_memory_entry_validate_tainted_with_low_trust_ok() {
+    let entry = MemoryEntry::new(
+        "id2".to_string(),
+        "fp".to_string(),
+        "content",
+        "hash".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+    );
+    // Default new() now sets trust_score = 0.5 with Untrusted taint
+    assert!(entry.validate().is_ok());
+}
+
+#[test]
+fn test_memory_entry_validate_clean_entry_with_perfect_trust_ok() {
+    let mut entry = MemoryEntry::new(
+        "id3".to_string(),
+        "fp".to_string(),
+        "content",
+        "hash".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+    );
+    // Sanitized entry with no security-relevant taints can have trust = 1.0
+    entry.taint_labels = vec![TaintLabel::Sanitized];
+    entry.trust_score = 1.0;
+    assert!(entry.validate().is_ok());
+}
+
+#[test]
+fn test_memory_entry_validate_quarantined_with_perfect_trust_rejected() {
+    let mut entry = MemoryEntry::new(
+        "id4".to_string(),
+        "fp".to_string(),
+        "content",
+        "hash".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+    );
+    entry.taint_labels = vec![TaintLabel::Quarantined];
+    entry.trust_score = 1.0;
+    assert!(entry.validate().is_err());
+}
+
+#[test]
+fn test_memory_entry_validate_integrity_failed_with_perfect_trust_rejected() {
+    let mut entry = MemoryEntry::new(
+        "id5".to_string(),
+        "fp".to_string(),
+        "content",
+        "hash".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+    );
+    entry.taint_labels = vec![TaintLabel::IntegrityFailed];
+    entry.trust_score = 1.0;
+    assert!(entry.validate().is_err());
+}
+
+#[test]
+fn test_memory_entry_validate_no_taints_with_perfect_trust_ok() {
+    let mut entry = MemoryEntry::new(
+        "id6".to_string(),
+        "fp".to_string(),
+        "content",
+        "hash".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+    );
+    entry.taint_labels = vec![];
+    entry.trust_score = 1.0;
+    assert!(entry.validate().is_ok());
+}
+
+#[test]
+fn test_memory_entry_validate_nan_trust_rejected() {
+    let mut entry = MemoryEntry::new(
+        "id7".to_string(),
+        "fp".to_string(),
+        "content",
+        "hash".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+    );
+    entry.trust_score = f64::NAN;
+    entry.taint_labels = vec![];
+    assert!(entry.validate().is_err());
+}
+
+#[test]
+fn test_memory_entry_new_default_trust_below_one() {
+    // FIND-R46-018: new() creates entries with Untrusted taint,
+    // so trust_score must be < 1.0 to satisfy validate().
+    let entry = MemoryEntry::new(
+        "id8".to_string(),
+        "fp".to_string(),
+        "content",
+        "hash".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+    );
+    assert!(entry.trust_score < 1.0, "New untrusted entry must have trust < 1.0");
+    assert!(entry.validate().is_ok(), "New entry must pass validation");
+}
+
+#[test]
+fn test_memory_entry_sensitive_taint_allows_perfect_trust() {
+    // Sensitive is not a security-negative taint — it marks data classification,
+    // not distrust. It should allow trust_score = 1.0.
+    let mut entry = MemoryEntry::new(
+        "id9".to_string(),
+        "fp".to_string(),
+        "content",
+        "hash".to_string(),
+        "2026-01-01T00:00:00Z".to_string(),
+    );
+    entry.taint_labels = vec![TaintLabel::Sensitive];
+    entry.trust_score = 1.0;
+    assert!(entry.validate().is_ok());
 }

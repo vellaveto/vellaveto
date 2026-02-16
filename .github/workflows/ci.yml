@@ -278,3 +278,110 @@ jobs:
               echo "$bin: $(($SIZE / 1024 / 1024))MB — OK"
             fi
           done
+
+  # ───────────────────────────────────────────────────────
+  # 8. Supply chain audit (cargo-vet)
+  # ───────────────────────────────────────────────────────
+  supply-chain-audit:
+    name: Supply Chain Audit (cargo-vet)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+        with:
+          cache-on-failure: true
+
+      - name: Install cargo-vet
+        run: cargo install cargo-vet --locked
+
+      - name: Run supply chain audit
+        run: cargo vet
+
+  # ───────────────────────────────────────────────────────
+  # 9. Semver compatibility check (PR only)
+  # ───────────────────────────────────────────────────────
+  semver-check:
+    name: Semver Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+        with:
+          cache-on-failure: true
+
+      - name: Install cargo-semver-checks
+        run: cargo install cargo-semver-checks --locked
+
+      - name: Check for semver violations
+        run: cargo semver-checks check-release
+
+  # ───────────────────────────────────────────────────────
+  # 10. MSRV check (minimum supported Rust version)
+  # ───────────────────────────────────────────────────────
+  msrv-check:
+    name: MSRV (1.75.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561 # master
+        with:
+          toolchain: "1.75.0"
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+        with:
+          cache-on-failure: true
+
+      - name: Check workspace compiles on MSRV
+        run: cargo check --workspace --locked
+
+  # ───────────────────────────────────────────────────────
+  # 11. Feature flag matrix testing
+  # ───────────────────────────────────────────────────────
+  feature-matrix:
+    name: "Features: ${{ matrix.name }}"
+    runs-on: ubuntu-latest
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            cargo_args: "--workspace --locked"
+          - name: discovery only
+            cargo_args: "-p vellaveto-server --no-default-features --features discovery --locked"
+          - name: projector only
+            cargo_args: "-p vellaveto-server --no-default-features --features projector --locked"
+          - name: zk-audit
+            cargo_args: "-p vellaveto-audit --features zk-audit --locked"
+          - name: all features
+            cargo_args: "-p vellaveto-server --features discovery,projector --locked -p vellaveto-audit --features zk-audit"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+        with:
+          cache-on-failure: true
+
+      - name: "Test: ${{ matrix.name }}"
+        run: cargo test ${{ matrix.cargo_args }}

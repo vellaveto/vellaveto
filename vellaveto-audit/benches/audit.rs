@@ -276,10 +276,105 @@ fn bench_logging_throughput(c: &mut Criterion) {
     group.finish();
 }
 
+// ---------------------------------------------------------------------------
+// Benchmarks: Merkle tree operations (Phase D)
+// ---------------------------------------------------------------------------
+
+fn bench_merkle_append_leaf(c: &mut Criterion) {
+    use vellaveto_audit::merkle::{hash_leaf, MerkleTree};
+
+    let temp_dir = TempDir::new().unwrap();
+    let leaf_path = temp_dir.path().join("merkle_append.bin");
+    let mut tree = MerkleTree::new(leaf_path);
+
+    let leaf_hash = hash_leaf(b"benchmark leaf data");
+
+    c.bench_function("merkle/append_leaf", |b| {
+        b.iter(|| {
+            tree.append(black_box(leaf_hash)).unwrap();
+        })
+    });
+}
+
+fn bench_merkle_generate_proof_100_leaves(c: &mut Criterion) {
+    use vellaveto_audit::merkle::{hash_leaf, MerkleTree};
+
+    let temp_dir = TempDir::new().unwrap();
+    let leaf_path = temp_dir.path().join("merkle_proof_100.bin");
+    let mut tree = MerkleTree::new(leaf_path);
+
+    // Pre-populate with 100 leaves
+    for i in 0u64..100 {
+        let leaf_hash = hash_leaf(&i.to_le_bytes());
+        tree.append(leaf_hash).unwrap();
+    }
+
+    c.bench_function("merkle/generate_proof_100_leaves", |b| {
+        b.iter(|| tree.generate_proof(black_box(50)).unwrap())
+    });
+}
+
+fn bench_merkle_generate_proof_10000_leaves(c: &mut Criterion) {
+    use vellaveto_audit::merkle::{hash_leaf, MerkleTree};
+
+    let temp_dir = TempDir::new().unwrap();
+    let leaf_path = temp_dir.path().join("merkle_proof_10000.bin");
+    let mut tree = MerkleTree::new(leaf_path);
+
+    // Pre-populate with 10,000 leaves
+    for i in 0u64..10_000 {
+        let leaf_hash = hash_leaf(&i.to_le_bytes());
+        tree.append(leaf_hash).unwrap();
+    }
+
+    c.bench_function("merkle/generate_proof_10000_leaves", |b| {
+        b.iter(|| tree.generate_proof(black_box(5_000)).unwrap())
+    });
+}
+
+fn bench_merkle_verify_proof(c: &mut Criterion) {
+    use vellaveto_audit::merkle::{hash_leaf, MerkleTree};
+
+    let temp_dir = TempDir::new().unwrap();
+    let leaf_path = temp_dir.path().join("merkle_verify.bin");
+    let mut tree = MerkleTree::new(leaf_path);
+
+    // Pre-populate with 100 leaves
+    for i in 0u64..100 {
+        let leaf_hash = hash_leaf(&i.to_le_bytes());
+        tree.append(leaf_hash).unwrap();
+    }
+
+    let proof_index = 42u64;
+    let proof = tree.generate_proof(proof_index).unwrap();
+    let leaf_hash = hash_leaf(&proof_index.to_le_bytes());
+    let trusted_root = tree.root_hex().unwrap();
+
+    c.bench_function("merkle/verify_proof", |b| {
+        b.iter(|| {
+            MerkleTree::verify_proof(
+                black_box(leaf_hash),
+                black_box(&proof),
+                black_box(&trusted_root),
+            )
+            .unwrap()
+        })
+    });
+}
+
 criterion_group!(
     audit_benches,
     bench_export_formats,
     bench_redaction,
     bench_logging_throughput,
 );
-criterion_main!(audit_benches);
+
+criterion_group!(
+    merkle_benches,
+    bench_merkle_append_leaf,
+    bench_merkle_generate_proof_100_leaves,
+    bench_merkle_generate_proof_10000_leaves,
+    bench_merkle_verify_proof,
+);
+
+criterion_main!(audit_benches, merkle_benches);

@@ -194,6 +194,7 @@ impl AbacEngine {
         })
     }
 
+    // VERIFIED [S7]: Forbid-overrides — a single Forbid beats any number of Permits (AbacForbidOverrides.tla S7)
     /// Evaluate an action against all ABAC policies.
     ///
     /// Uses forbid-overrides semantics:
@@ -537,7 +538,12 @@ fn evaluate_single_condition(condition: &CompiledCondition, ctx: &AbacEvalContex
             if let Some(arr) = condition.value.as_array() {
                 !arr.contains(&field_value)
             } else {
-                true
+                // SECURITY (FIND-R46-009): Fail-closed when NotIn policy value is
+                // not an array. A non-array value indicates a misconfigured policy.
+                // Previously returned `true` (pass), allowing the action through.
+                // Now returns `false` (condition fails → policy doesn't match),
+                // which is fail-closed because unmatched policies don't permit.
+                false
             }
         }
         AbacOp::Contains => {

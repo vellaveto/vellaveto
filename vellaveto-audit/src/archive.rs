@@ -49,6 +49,15 @@ pub struct ArchiveReport {
 ///
 /// Renames `audit.2026-01-01T00-00-00.log` → `audit.2026-01-01T00-00-00.log.gz`.
 /// The original file is removed after successful compression.
+///
+/// SECURITY (FIND-R46-006): TOCTOU race condition — the file is read and then
+/// the compressed output is written as a separate operation. If the file contents
+/// change between the read and the removal of the original, the compressed copy
+/// may not reflect the final state. This is acceptable because:
+/// 1. Compression runs only on rotated files, which are no longer being written to.
+/// 2. The rotation manifest records the tail hash of the file at rotation time,
+///    so any post-rotation modification is detectable via cross-rotation verification.
+/// 3. File locking would not help because the write end has already been closed.
 pub async fn compress_rotated_file(path: &Path) -> Result<PathBuf, AuditError> {
     use std::io::Write;
 
@@ -88,6 +97,19 @@ pub async fn compress_rotated_file(path: &Path) -> Result<PathBuf, AuditError> {
 /// Enforce retention policy: delete archives older than `retention_days`.
 ///
 /// Returns list of deleted file paths.
+///
+/// SECURITY (FIND-R46-005): Retention is based on filesystem `mtime` metadata,
+/// which can be spoofed by an attacker with write access to the archive directory
+/// (e.g., using `touch -t` or `filetime::set_file_mtime`). This means an attacker
+/// could prevent old files from being deleted (by setting mtime to the future) or
+/// force premature deletion of recent files (by setting mtime to the past).
+///
+/// Mitigations:
+/// - The rotation manifest records timestamps at rotation time. Cross-reference
+///   manifest timestamps for authoritative age when available.
+/// - File permissions (0o600) restrict mtime modification to the file owner.
+/// - For environments requiring tamper-proof retention, use an immutable storage
+///   backend (e.g., AWS S3 Object Lock, WORM storage).
 pub async fn enforce_retention(
     logger: &AuditLogger,
     retention_days: u32,

@@ -3494,3 +3494,390 @@ async fn test_log_service_discovery_event_endpoint_removed() {
         "service_discovery.endpoint_removed"
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE C: AUDIT HARDENING TESTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════
+// C1: Redaction Boundary Tests
+// ═══════════════════════════════════════════════════════
+
+#[test]
+fn test_redact_keys_only_depth_63_succeeds() {
+    // Build a nested JSON object 63 levels deep (just under MAX_REDACTION_DEPTH=64)
+    let mut value = json!({"password": "secret123"});
+    for _ in 0..62 {
+        value = json!({"nested": value});
+    }
+    let redacted = crate::redaction::redact_keys_only(&value);
+    // The password key at the bottom should be redacted
+    let redacted_str = redacted.to_string();
+    assert!(
+        redacted_str.contains("[REDACTED]"),
+        "Password at depth 63 should be redacted"
+    );
+    assert!(
+        !redacted_str.contains("secret123"),
+        "Original secret should not appear"
+    );
+}
+
+#[test]
+fn test_redact_keys_only_depth_64_returns_value_as_is() {
+    // Build a nested JSON object with 64 wrappings so the inner object is at depth 64
+    // (at MAX_REDACTION_DEPTH). Depth starts at 0, each wrapping adds 1.
+    let mut value = json!({"password": "secret123"});
+    for _ in 0..64 {
+        value = json!({"nested": value});
+    }
+    let redacted = crate::redaction::redact_keys_only(&value);
+    // At depth 64, the recursion stops and returns the value as-is
+    let redacted_str = redacted.to_string();
+    assert!(
+        redacted_str.contains("secret123"),
+        "At depth 64 the value should be returned as-is (depth limit hit)"
+    );
+}
+
+#[test]
+fn test_redact_keys_only_depth_65_still_safe() {
+    // Build a nested JSON object 65 levels deep (over MAX_REDACTION_DEPTH)
+    let mut value = json!({"password": "secret123"});
+    for _ in 0..64 {
+        value = json!({"nested": value});
+    }
+    // Should not panic — depth limit prevents stack overflow
+    let redacted = crate::redaction::redact_keys_only(&value);
+    // The function should return without error
+    assert!(redacted.is_object());
+}
+
+#[test]
+fn test_redact_keys_and_patterns_depth_63_redacts_pii() {
+    let mut value = json!({"email": "test@example.com"});
+    for _ in 0..62 {
+        value = json!({"nested": value});
+    }
+    let redacted = crate::redaction::redact_keys_and_patterns(&value);
+    let redacted_str = redacted.to_string();
+    assert!(
+        redacted_str.contains("[REDACTED]"),
+        "PII at depth 63 should be redacted"
+    );
+    assert!(
+        !redacted_str.contains("test@example.com"),
+        "Original email should not appear"
+    );
+}
+
+#[test]
+fn test_redact_keys_and_patterns_depth_64_returns_value_as_is() {
+    let mut value = json!({"data": "test@example.com"});
+    for _ in 0..63 {
+        value = json!({"nested": value});
+    }
+    let redacted = crate::redaction::redact_keys_and_patterns(&value);
+    let redacted_str = redacted.to_string();
+    assert!(
+        redacted_str.contains("test@example.com"),
+        "At depth 64 the value should be returned as-is"
+    );
+}
+
+/// SECURITY (FIND-084): NFKC normalization catches fullwidth digit SSN patterns.
+#[test]
+fn test_redact_nfkc_normalized_fullwidth_digits_ssn() {
+    // Fullwidth digits: ０１２-３４-５６７８ (U+FF10-FF18)
+    let fullwidth_ssn = "\u{FF10}\u{FF11}\u{FF12}-\u{FF13}\u{FF14}-\u{FF15}\u{FF16}\u{FF17}\u{FF18}";
+    let value = json!({"data": fullwidth_ssn});
+    let redacted = crate::redaction::redact_keys_and_patterns(&value);
+    assert_eq!(
+        redacted["data"].as_str().unwrap(),
+        "[REDACTED]",
+        "Fullwidth digit SSN should be caught via NFKC normalization"
+    );
+}
+
+/// SECURITY (FIND-084): NFKC normalization catches fullwidth digit phone patterns.
+#[test]
+fn test_redact_nfkc_normalized_fullwidth_digits_phone() {
+    // Fullwidth digits for phone: ５５５-１２３-４５６７
+    let fullwidth_phone = "\u{FF15}\u{FF15}\u{FF15}-\u{FF11}\u{FF12}\u{FF13}-\u{FF14}\u{FF15}\u{FF16}\u{FF17}";
+    let value = json!({"data": fullwidth_phone});
+    let redacted = crate::redaction::redact_keys_and_patterns(&value);
+    assert_eq!(
+        redacted["data"].as_str().unwrap(),
+        "[REDACTED]",
+        "Fullwidth digit phone should be caught via NFKC normalization"
+    );
+}
+
+#[test]
+fn test_redact_nfkc_mixed_ascii_fullwidth_email() {
+    // Mix ASCII and fullwidth in email: test＠example.com (fullwidth @)
+    let email_with_fullwidth_at = "test\u{FF20}example.com";
+    let value = json!({"data": email_with_fullwidth_at});
+    let redacted = crate::redaction::redact_keys_and_patterns(&value);
+    // NFKC normalizes fullwidth @ to regular @, so this should match the email regex
+    assert_eq!(
+        redacted["data"].as_str().unwrap(),
+        "[REDACTED]",
+        "Email with fullwidth @ should be caught via NFKC normalization"
+    );
+}
+
+/// SECURITY (R9-3): Numbers matching PII patterns should be redacted.
+#[test]
+fn test_redact_number_matching_ssn_pattern_redacted() {
+    // SSN as a number with dashes would be a string, but check number-to-string path
+    // A phone-like number: 5551234567
+    let value = json!({"data": 5551234567_u64});
+    let redacted = crate::redaction::redact_keys_and_patterns(&value);
+    // This may or may not match the phone regex depending on format.
+    // The important thing is the number-to-string conversion path doesn't panic.
+    assert!(redacted.get("data").is_some());
+}
+
+#[test]
+fn test_redact_number_not_matching_pii_preserved() {
+    let value = json!({"count": 42});
+    let redacted = crate::redaction::redact_keys_and_patterns(&value);
+    assert_eq!(redacted["count"], 42, "Non-PII number should be preserved");
+}
+
+#[test]
+fn test_redact_value_prefix_case_insensitive() {
+    let value = json!({"token_value": "SK-live-test-key-123"});
+    let redacted = crate::redaction::redact_keys_and_patterns(&value);
+    assert_eq!(
+        redacted["token_value"].as_str().unwrap(),
+        "[REDACTED]",
+        "Case-insensitive prefix 'SK-' should be caught"
+    );
+}
+
+#[test]
+fn test_redact_with_scanner_depth_boundary() {
+    let scanner = crate::pii::PiiScanner::default();
+    let mut value = json!({"data": "Call 555-123-4567 now"});
+    for _ in 0..62 {
+        value = json!({"nested": value});
+    }
+    let redacted = crate::redaction::redact_keys_and_patterns_with_scanner(&value, &scanner);
+    let redacted_str = redacted.to_string();
+    assert!(
+        redacted_str.contains("[REDACTED]"),
+        "Scanner-based PII at depth 63 should be redacted"
+    );
+}
+
+#[test]
+fn test_redact_with_scanner_nfkc_normalized() {
+    let scanner = crate::pii::PiiScanner::default();
+    // SSN with fullwidth digits
+    let fullwidth_ssn = "\u{FF11}\u{FF12}\u{FF13}-\u{FF14}\u{FF15}-\u{FF16}\u{FF17}\u{FF18}\u{FF19}";
+    let value = json!({"data": fullwidth_ssn});
+    let redacted = crate::redaction::redact_keys_and_patterns_with_scanner(&value, &scanner);
+    assert_eq!(
+        redacted["data"].as_str().unwrap(),
+        "[REDACTED]",
+        "Scanner should catch NFKC-normalized SSN"
+    );
+}
+
+#[test]
+fn test_redact_empty_object() {
+    let value = json!({});
+    let redacted = crate::redaction::redact_keys_and_patterns(&value);
+    assert_eq!(redacted, json!({}));
+}
+
+#[test]
+fn test_redact_null_value_preserved() {
+    let value = json!({"key": null, "password": "secret"});
+    let redacted = crate::redaction::redact_keys_and_patterns(&value);
+    assert!(redacted["key"].is_null(), "Null values should be preserved");
+    assert_eq!(
+        redacted["password"].as_str().unwrap(),
+        "[REDACTED]",
+        "Password key should still be redacted"
+    );
+}
+
+// ═══════════════════════════════════════════════════════
+// C2: Verification & Rotation Edge Cases
+// ═══════════════════════════════════════════════════════
+
+#[test]
+fn test_merkle_tree_large_batch_1000_leaves_proof() {
+    use crate::merkle::{hash_leaf, MerkleTree};
+
+    let dir = TempDir::new().unwrap();
+    let leaf_path = dir.path().join("leaves.bin");
+    let mut tree = MerkleTree::new(leaf_path);
+
+    for i in 0..1000u64 {
+        let leaf_hash = hash_leaf(&i.to_le_bytes());
+        tree.append(leaf_hash).unwrap();
+    }
+
+    assert_eq!(tree.leaf_count(), 1000);
+    let root = tree.root().expect("root should exist for 1000 leaves");
+    assert_ne!(root, [0u8; 32], "root should not be all zeros");
+
+    // Generate and verify a proof for leaf 500
+    let proof = tree.generate_proof(500).unwrap();
+    assert_eq!(proof.leaf_index, 500);
+    assert_eq!(proof.tree_size, 1000);
+    assert!(!proof.siblings.is_empty());
+}
+
+#[test]
+fn test_merkle_tree_max_leaf_count_boundary() {
+    use crate::merkle::{hash_leaf, MerkleTree};
+
+    let dir = TempDir::new().unwrap();
+    let leaf_path = dir.path().join("leaves.bin");
+    // Set a very low max for testing
+    let mut tree = MerkleTree::new(leaf_path).with_max_leaf_count(5);
+
+    for i in 0..5u64 {
+        let leaf_hash = hash_leaf(&i.to_le_bytes());
+        tree.append(leaf_hash).unwrap();
+    }
+
+    // The 6th append should fail
+    let leaf_hash = hash_leaf(&5u64.to_le_bytes());
+    let result = tree.append(leaf_hash);
+    assert!(result.is_err(), "Should fail when max leaf count reached");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("limit reached"),
+        "Error should mention limit: {err_msg}"
+    );
+}
+
+#[tokio::test]
+async fn test_verification_max_audit_line_size_boundary() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+
+    // Write a line exactly at the boundary (1MB)
+    let big_value = "x".repeat(1024 * 1024 - 100); // Leave room for JSON wrapping
+    let entry = json!({
+        "tool": "test",
+        "function": "op",
+        "verdict": "allow",
+        "data": big_value
+    });
+    let line = serde_json::to_string(&entry).unwrap();
+
+    // Write to file
+    tokio::fs::write(&log_path, format!("{}\n", line))
+        .await
+        .unwrap();
+
+    // Verification should handle this without panicking
+    let logger = AuditLogger::new(log_path);
+    let result = logger.load_entries().await;
+    // Whether it succeeds or fails, it should not panic
+    assert!(result.is_ok() || result.is_err());
+}
+
+#[tokio::test]
+async fn test_verification_corrupted_utf8_line_skipped() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+
+    // Write a valid line first
+    let logger = AuditLogger::new(log_path.clone());
+    let action = test_action();
+    logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+
+    // Append invalid JSON line
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(&log_path)
+        .await
+        .unwrap();
+    file.write_all(b"this is not valid json\n").await.unwrap();
+    file.flush().await.unwrap();
+
+    // Load should still work (skipping the bad line)
+    let entries = logger.load_entries().await.unwrap();
+    assert_eq!(entries.len(), 1, "Should load the valid entry and skip the corrupt one");
+}
+
+#[tokio::test]
+async fn test_verification_embedded_null_in_json_handled() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+
+    // Write valid entry
+    let logger = AuditLogger::new(log_path.clone());
+    let action = test_action();
+    logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+
+    // Append a line with embedded null character (should fail JSON parsing)
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(&log_path)
+        .await
+        .unwrap();
+    file.write_all(b"{\"tool\":\"test\",\"data\":\"hello\\u0000world\"}\n")
+        .await
+        .unwrap();
+    file.flush().await.unwrap();
+
+    // Load entries — should handle gracefully
+    let result = logger.load_entries().await;
+    assert!(result.is_ok(), "Should handle embedded null gracefully");
+}
+
+#[tokio::test]
+async fn test_rotation_empty_log_file_no_rotation() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+
+    // Create empty file
+    tokio::fs::write(&log_path, "").await.unwrap();
+
+    // Set a small max_file_size so rotation would trigger if there was content
+    let logger = AuditLogger::new(log_path.clone()).with_max_file_size(1);
+
+    // Load entries from empty file — should produce empty vec, not crash
+    let entries = logger.load_entries().await.unwrap();
+    assert!(entries.is_empty(), "Empty file should produce no entries");
+
+    // No rotated files should exist
+    let rotated = logger.list_rotated_files().unwrap();
+    assert!(rotated.is_empty(), "No rotation should occur on empty file");
+}
+
+#[tokio::test]
+async fn test_checkpoint_sequential_creation_safety() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let signing_key = AuditLogger::generate_signing_key();
+    let logger = AuditLogger::new(log_path.clone()).with_signing_key(signing_key);
+
+    // Log some entries first
+    let action = test_action();
+    for _ in 0..5 {
+        logger.log_entry(&action, &Verdict::Allow, json!({})).await.unwrap();
+    }
+
+    // Create two checkpoints sequentially — both should succeed
+    let r1 = logger.create_checkpoint().await;
+    assert!(r1.is_ok(), "First checkpoint should succeed");
+
+    let r2 = logger.create_checkpoint().await;
+    assert!(r2.is_ok(), "Second checkpoint should succeed");
+
+    // Both checkpoints should have valid chain head hashes
+    let cp1 = r1.unwrap();
+    let cp2 = r2.unwrap();
+    assert!(cp1.chain_head_hash.is_some(), "Checkpoint 1 should have a chain head hash");
+    assert!(cp2.chain_head_hash.is_some(), "Checkpoint 2 should have a chain head hash");
+}

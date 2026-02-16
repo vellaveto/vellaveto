@@ -104,6 +104,13 @@ impl ObservabilityExporter for OtlpExporter {
 ///
 /// Maps vellaveto-specific fields to a combination of GenAI semantic
 /// conventions and custom `vellaveto.*` attributes.
+///
+/// SECURITY (FIND-R46-008): PII/secret redaction is NOT applied in this function.
+/// Redaction is applied at the `AuditLogger::log_entry()` level before data reaches
+/// the observability pipeline. `SecuritySpan` instances are constructed from already-
+/// redacted `AuditEntry` data. If `SecuritySpan` instances are constructed from
+/// unredacted sources outside the audit pipeline, the caller is responsible for
+/// applying redaction before export.
 pub fn span_to_otel_attributes(span: &SecuritySpan) -> Vec<KeyValue> {
     let mut attrs = Vec::with_capacity(16);
 

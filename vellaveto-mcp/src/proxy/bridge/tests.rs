@@ -1383,3 +1383,285 @@ fn test_task_request_dlp_clean_params_no_findings() {
         findings.iter().map(|f| &f.pattern_name).collect::<Vec<_>>()
     );
 }
+
+// --- Phase B2: Extended evaluation tests ---
+
+#[test]
+fn test_evaluate_flagged_tool_blocked() {
+    // A deny policy targeting a specific tool pattern blocks calls to that tool.
+    let policies = vec![vellaveto_types::Policy {
+        id: "malicious_tool:*".to_string(),
+        name: "Block flagged tool".to_string(),
+        policy_type: PolicyType::Deny,
+        priority: 200,
+        path_rules: None,
+        network_rules: None,
+    }];
+    let bridge = test_bridge(policies);
+    let (decision, _trace) = bridge.evaluate_tool_call(
+        &json!(100),
+        "malicious_tool",
+        &json!({"arg": "value"}),
+        None,
+        None,
+    );
+    match decision {
+        ProxyDecision::Block(resp, Verdict::Deny { reason }) => {
+            assert_eq!(resp["error"]["code"], -32001);
+            assert!(!reason.is_empty());
+        }
+        _ => panic!("Expected Block/Deny for flagged tool"),
+    }
+}
+
+#[test]
+fn test_evaluate_with_path_rules_allowed() {
+    // Policy with path_rules: only /tmp/** allowed. Action targeting /tmp/safe.txt passes.
+    let policies = vec![vellaveto_types::Policy {
+        id: "*".to_string(),
+        name: "Allow only tmp paths".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: Some(vellaveto_types::PathRules {
+            allowed: vec!["/tmp/**".to_string()],
+            blocked: vec![],
+        }),
+        network_rules: None,
+    }];
+    let bridge = test_bridge(policies);
+    // file:// URI in params triggers target_path extraction to /tmp/safe.txt
+    let (decision, _trace) = bridge.evaluate_tool_call(
+        &json!(101),
+        "read_file",
+        &json!({"uri": "file:///tmp/safe.txt"}),
+        None,
+        None,
+    );
+    assert!(
+        matches!(decision, ProxyDecision::Forward),
+        "Action targeting allowed path /tmp/safe.txt should be forwarded"
+    );
+}
+
+#[test]
+fn test_evaluate_with_path_rules_blocked() {
+    // Policy with path_rules: /etc/** is blocked. Action targeting /etc/passwd is denied.
+    let policies = vec![vellaveto_types::Policy {
+        id: "*".to_string(),
+        name: "Block etc paths".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: Some(vellaveto_types::PathRules {
+            allowed: vec![],
+            blocked: vec!["/etc/**".to_string()],
+        }),
+        network_rules: None,
+    }];
+    let bridge = test_bridge(policies);
+    let (decision, _trace) = bridge.evaluate_tool_call(
+        &json!(102),
+        "read_file",
+        &json!({"uri": "file:///etc/passwd"}),
+        None,
+        None,
+    );
+    assert!(
+        matches!(decision, ProxyDecision::Block(_, Verdict::Deny { .. })),
+        "Action targeting blocked path /etc/passwd should be denied"
+    );
+}
+
+#[test]
+fn test_evaluate_with_network_rules_allowed_domain() {
+    // Policy with network_rules: only api.safe.com allowed. Matching domain passes.
+    let policies = vec![vellaveto_types::Policy {
+        id: "*".to_string(),
+        name: "Allow only safe domain".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: Some(vellaveto_types::NetworkRules {
+            allowed_domains: vec!["api.safe.com".to_string()],
+            blocked_domains: vec![],
+            ip_rules: None,
+        }),
+    }];
+    let bridge = test_bridge(policies);
+    // https:// URL in params triggers target_domain extraction
+    let (decision, _trace) = bridge.evaluate_tool_call(
+        &json!(103),
+        "http_request",
+        &json!({"url": "https://api.safe.com/v1/data"}),
+        None,
+        None,
+    );
+    assert!(
+        matches!(decision, ProxyDecision::Forward),
+        "Action targeting allowed domain api.safe.com should be forwarded"
+    );
+}
+
+#[test]
+fn test_evaluate_with_network_rules_blocked_domain() {
+    // Policy with network_rules: evil.com blocked. Matching domain is denied.
+    let policies = vec![vellaveto_types::Policy {
+        id: "*".to_string(),
+        name: "Block evil domain".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: Some(vellaveto_types::NetworkRules {
+            allowed_domains: vec![],
+            blocked_domains: vec!["evil.com".to_string()],
+            ip_rules: None,
+        }),
+    }];
+    let bridge = test_bridge(policies);
+    let (decision, _trace) = bridge.evaluate_tool_call(
+        &json!(104),
+        "http_request",
+        &json!({"url": "https://evil.com/exfiltrate"}),
+        None,
+        None,
+    );
+    assert!(
+        matches!(decision, ProxyDecision::Block(_, Verdict::Deny { .. })),
+        "Action targeting blocked domain evil.com should be denied"
+    );
+}
+
+#[test]
+fn test_evaluate_conditional_with_glob_constraint() {
+    // Conditional policy: deny when param 'path' matches /etc/**
+    let policies = vec![vellaveto_types::Policy {
+        id: "*".to_string(),
+        name: "Block sensitive paths via glob".to_string(),
+        policy_type: PolicyType::Conditional {
+            conditions: json!({
+                "parameter_constraints": [{
+                    "param": "path",
+                    "op": "glob",
+                    "pattern": "/etc/**",
+                    "on_match": "deny"
+                }]
+            }),
+        },
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }];
+    let bridge = test_bridge(policies);
+
+    // Matching path should be denied.
+    let (decision, _trace) = bridge.evaluate_tool_call(
+        &json!(105),
+        "read_file",
+        &json!({"path": "/etc/shadow"}),
+        None,
+        None,
+    );
+    assert!(
+        matches!(decision, ProxyDecision::Block(_, _)),
+        "Path matching /etc/** should be denied by glob constraint"
+    );
+
+    // Non-matching path should be allowed.
+    let (decision, _trace) = bridge.evaluate_tool_call(
+        &json!(106),
+        "read_file",
+        &json!({"path": "/tmp/safe.txt"}),
+        None,
+        None,
+    );
+    assert!(
+        matches!(decision, ProxyDecision::Forward),
+        "Path /tmp/safe.txt should be allowed (does not match /etc/**)"
+    );
+}
+
+#[test]
+fn test_evaluate_multiple_policies_priority_ordering() {
+    // Two policies: higher-priority Allow for read_file, lower-priority Deny for *.
+    // Higher-priority Allow should win for read_file.
+    let policies = vec![
+        vellaveto_types::Policy {
+            id: "read_file:*".to_string(),
+            name: "Allow read_file (high priority)".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 200,
+            path_rules: None,
+            network_rules: None,
+        },
+        vellaveto_types::Policy {
+            id: "*".to_string(),
+            name: "Deny all (low priority)".to_string(),
+            policy_type: PolicyType::Deny,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        },
+    ];
+    let bridge = test_bridge(policies);
+
+    // read_file should be allowed by higher-priority policy.
+    let (decision, _trace) = bridge.evaluate_tool_call(
+        &json!(107),
+        "read_file",
+        &json!({"path": "/tmp/test"}),
+        None,
+        None,
+    );
+    assert!(
+        matches!(decision, ProxyDecision::Forward),
+        "read_file should be allowed by higher-priority Allow policy"
+    );
+
+    // write_file should be denied by lower-priority Deny-all policy.
+    let (decision, _trace) = bridge.evaluate_tool_call(
+        &json!(108),
+        "write_file",
+        &json!({"path": "/tmp/test"}),
+        None,
+        None,
+    );
+    assert!(
+        matches!(decision, ProxyDecision::Block(_, Verdict::Deny { .. })),
+        "write_file should be denied by lower-priority Deny-all policy"
+    );
+}
+
+#[test]
+fn test_evaluate_deny_overrides_allow_same_priority() {
+    // At the same priority, Deny should override Allow (deny-overrides semantics).
+    let policies = vec![
+        vellaveto_types::Policy {
+            id: "*".to_string(),
+            name: "Allow all (same prio)".to_string(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        },
+        vellaveto_types::Policy {
+            id: "*".to_string(),
+            name: "Deny all (same prio)".to_string(),
+            policy_type: PolicyType::Deny,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        },
+    ];
+    let bridge = test_bridge(policies);
+
+    let (decision, _trace) = bridge.evaluate_tool_call(
+        &json!(109),
+        "any_tool",
+        &json!({}),
+        None,
+        None,
+    );
+    assert!(
+        matches!(decision, ProxyDecision::Block(_, Verdict::Deny { .. })),
+        "Deny should override Allow at the same priority level"
+    );
+}

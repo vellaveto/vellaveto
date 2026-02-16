@@ -43,7 +43,6 @@ impl fmt::Display for NhiAttestationType {
 #[serde(rename_all = "snake_case")]
 pub enum NhiIdentityStatus {
     /// Identity is active and valid.
-    #[default]
     Active,
     /// Identity is suspended pending review.
     Suspended,
@@ -52,6 +51,11 @@ pub enum NhiIdentityStatus {
     /// Identity has expired.
     Expired,
     /// Identity is in a probationary period (new or recently restored).
+    /// SECURITY (FIND-R46-014): Default to Probationary for fail-closed behavior.
+    /// New identities should start with restricted privileges until explicitly
+    /// promoted to Active after verification. Prevents newly registered agents
+    /// from immediately gaining full access.
+    #[default]
     Probationary,
 }
 

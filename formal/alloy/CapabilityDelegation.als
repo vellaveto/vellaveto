@@ -24,7 +24,7 @@
  *   - Ed25519 signature verification (assumes correct cryptographic primitives)
  *   - Path normalization / traversal protection (tested by Rust unit tests)
  *   - MAX_TOKEN_SIZE (65536 bytes) — serialization-level constraint
- *   - max_invocations field — not checked during attenuation in current Rust code
+ *   - max_invocations field — monotonic attenuation now enforced (FIND-FV46-002)
  *   - Token expiry vs. current time — runtime check, not protocol invariant
  *
  * Run with Alloy Analyzer 6:

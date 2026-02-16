@@ -28,3 +28,7 @@ criterion = { version = "0.8", features = ["html_reports"] }
 [[bench]]
 name = "evaluation"
 harness = false
+
+[[bench]]
+name = "e2e_pipeline"
+harness = false

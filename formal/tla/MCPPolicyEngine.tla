@@ -7,7 +7,7 @@
 (*   vellaveto-engine/src/lib.rs:360-419 (compiled path)                 *)
 (*   vellaveto-engine/src/lib.rs:502-547 (apply policy with context)     *)
 (*                                                                        *)
-(* This specification verifies 6 safety invariants and 2 liveness         *)
+(* This specification verifies 7 safety invariants and 2 liveness         *)
 (* properties about the first-match-wins policy evaluation strategy.      *)
 (*                                                                        *)
 (* Key design decisions:                                                  *)
@@ -56,6 +56,7 @@ vars == <<policies, pendingActions, verdicts, engineState, currentAction, policy
 (**************************************************************************)
 VerdictAllow == [type |-> "Allow"]
 VerdictDeny(reason) == [type |-> "Deny", reason |-> reason]
+VerdictRequireApproval(reason) == [type |-> "RequireApproval", reason |-> reason]
 
 (**************************************************************************)
 (* FirstMatchIndex: Returns the index of the first policy matching an     *)
@@ -78,7 +79,7 @@ TypeOK ==
     /\ engineState \in {"idle", "matching", "applying", "done", "error"}
     /\ policyIndex \in 0..MaxPolicies + 1
     /\ \A a \in DOMAIN verdicts :
-        verdicts[a].type \in {"Allow", "Deny"}
+        verdicts[a].type \in {"Allow", "Deny", "RequireApproval"}
 
 (**************************************************************************)
 (* INITIAL STATE                                                          *)
@@ -237,6 +238,38 @@ ApplyPolicy ==
             /\ UNCHANGED <<policies, pendingActions>>
 
 (**************************************************************************)
+(* ACTION: ApplyConditionalApproval                                       *)
+(*                                                                        *)
+(* A Conditional policy with require_approval=TRUE produces               *)
+(* RequireApproval instead of Allow when its conditions are met.          *)
+(* Maps to PolicyType::Conditional with on_match="require_approval"       *)
+(* at vellaveto-engine/src/constraint_eval.rs and lib.rs:895-898.        *)
+(*                                                                        *)
+(* This action fires only when:                                           *)
+(*   1. The engine is in the "applying" state                             *)
+(*   2. The matched policy is Conditional                                 *)
+(*   3. The policy's require_approval field is TRUE                       *)
+(**************************************************************************)
+ApplyConditionalApproval ==
+    /\ engineState = "applying"
+    /\ policyIndex <= Len(policies)
+    /\ LET pol == policies[policyIndex]
+           act == currentAction
+       IN
+        /\ pol.type = "Conditional"
+        /\ pol.require_approval = TRUE
+        \* Path/domain/context checks pass (same preconditions as ApplyPolicy)
+        /\ CheckPathRules(pol, act) # "deny"
+        /\ CheckDomainRules(pol, act) # "deny"
+        /\ (~pol.requires_context \/ act.has_context)
+        \* Produce RequireApproval verdict
+        /\ verdicts' = (act :> VerdictRequireApproval("Conditional approval required")) @@ verdicts
+        /\ engineState' = "done"
+        /\ currentAction' = <<>>
+        /\ policyIndex' = 0
+        /\ UNCHANGED <<policies, pendingActions>>
+
+(**************************************************************************)
 (* ACTION: DefaultDeny                                                    *)
 (*                                                                        *)
 (* All policies exhausted without producing a verdict → Deny.             *)
@@ -291,6 +324,7 @@ Next ==
     \/ StartEvaluation
     \/ MatchPolicy
     \/ ApplyPolicy
+    \/ ApplyConditionalApproval
     \/ DefaultDeny
     \/ HandleError
     \/ Reset
@@ -307,6 +341,7 @@ Fairness ==
     /\ WF_vars(StartEvaluation)
     /\ WF_vars(MatchPolicy)
     /\ WF_vars(ApplyPolicy)
+    /\ WF_vars(ApplyConditionalApproval)
     /\ WF_vars(DefaultDeny)
     \* HandleError is enabled but NOT fair — errors can happen but don't preempt
     /\ WF_vars(Reset)
@@ -423,6 +458,28 @@ InvariantS6_MissingContextDeny ==
                  \* And no earlier policy matched (first-match-wins)
                  /\ \A j \in 1..(i-1) : ~MatchesAction(policies[j], a))
                 => verdicts[a].type = "Deny"
+
+(**************************************************************************)
+(* S7: RequireApproval only from conditional policies with                *)
+(*     require_approval=TRUE                                              *)
+(*                                                                        *)
+(* Maps to PolicyType::Conditional with on_match="require_approval"       *)
+(* at vellaveto-engine/src/lib.rs:895-898 (make_constraint_verdict).     *)
+(*                                                                        *)
+(* For every action that received a RequireApproval verdict, there MUST   *)
+(* exist a matching Conditional policy with require_approval=TRUE in the  *)
+(* policy sequence. A RequireApproval can never originate from Allow,     *)
+(* Deny, or Conditional policies without the require_approval flag.       *)
+(**************************************************************************)
+InvariantS7_RequireApprovalOnlyFromConditional ==
+    \A a \in DOMAIN verdicts :
+        verdicts[a].type = "RequireApproval"
+        => \E i \in 1..Len(policies) :
+            /\ MatchesAction(policies[i], a)
+            /\ policies[i].type = "Conditional"
+            /\ policies[i].require_approval = TRUE
+            \* And this is the first matching policy (first-match-wins)
+            /\ \A j \in 1..(i-1) : ~MatchesAction(policies[j], a)
 
 (**************************************************************************)
 (* LIVENESS PROPERTIES                                                    *)

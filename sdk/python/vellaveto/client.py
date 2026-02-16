@@ -7,6 +7,8 @@ Provides synchronous and asynchronous HTTP client for the Vellaveto API.
 import json
 import logging
 import re
+import time
+import unicodedata
 import warnings
 from typing import Optional, Dict, Any, List
 from urllib.parse import urljoin
@@ -57,9 +59,21 @@ class ApprovalRequired(VellavetoError):
         super().__init__(f"Approval required: {reason} (approval_id: {approval_id})")
 
 
-class ConnectionError(VellavetoError):
+class VellavetoConnectionError(VellavetoError):
     """Raised when unable to connect to Vellaveto server."""
     pass
+
+
+# SECURITY (FIND-SDK-019): Backward-compatible alias.
+# The old name shadowed Python's builtin ConnectionError.
+ConnectionError = VellavetoConnectionError  # noqa: A001
+
+
+# HTTP status codes considered transient (safe to retry)
+_TRANSIENT_STATUS_CODES = frozenset({502, 503, 504})
+
+# Maximum length for tool name, function name, and similar string inputs
+_MAX_INPUT_STRING_LEN = 1024
 
 
 class VellavetoClient:
@@ -96,6 +110,7 @@ class VellavetoClient:
         timeout: float = 30.0,
         verify_ssl: bool = True,
         redactor: Optional["ParameterRedactor"] = None,
+        max_retries: int = 1,
     ):
         """
         Initialize the Vellaveto client.
@@ -106,12 +121,15 @@ class VellavetoClient:
             timeout: Request timeout in seconds
             verify_ssl: Whether to verify SSL certificates
             redactor: Optional ParameterRedactor for client-side secret stripping
+            max_retries: Maximum number of retries for transient failures
+                (connection errors, 502/503/504). Default 1.
         """
         self.url = url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
         self.verify_ssl = verify_ssl
         self.redactor = redactor
+        self.max_retries = max(0, max_retries)
 
         if not verify_ssl:
             warnings.warn(
@@ -134,6 +152,13 @@ class VellavetoClient:
                 "Either 'httpx' or 'requests' package is required. "
                 "Install with: pip install httpx"
             )
+
+    def __repr__(self) -> str:
+        """SECURITY (FIND-SDK-013): Redact api_key in repr to prevent log leakage."""
+        return (
+            f"VellavetoClient(base_url={self.url!r}, api_key=***, "
+            f"timeout={self.timeout}, max_retries={self.max_retries})"
+        )
 
     def __enter__(self) -> "VellavetoClient":
         return self
